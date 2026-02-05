@@ -1,7 +1,6 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
-import { TaskStatus } from '@prisma/client';
 
 export async function getAllTasks() {
   const tasks = await prisma.task.findMany({
