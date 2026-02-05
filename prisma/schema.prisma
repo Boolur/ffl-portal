@@ -65,6 +65,8 @@ model User {
   auditLogs        AuditLog[]
   pipelineStages   PipelineStage[]
   pipelineNotes    PipelineNote[]
+  externalUsers    ExternalUser[]
+  leadMailboxLeads LeadMailboxLead[]
 }
 
 model Loan {
@@ -92,6 +94,7 @@ model Loan {
   tasks           Task[]
   auditLogs       AuditLog[]
   pipelineNotes   PipelineNote[]
+  leadMailboxLeads LeadMailboxLead[]
 
   @@index([loanOfficerId, pipelineStageId])
 }
