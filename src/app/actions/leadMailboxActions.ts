@@ -108,7 +108,10 @@ export async function bulkUpsertLeadMailboxMappings(rows: BulkMappingRow[]) {
     : [];
 
   const emailMap = new Map(
-    usersByEmail.map((user) => [user.email.toLowerCase(), user.id])
+    usersByEmail.map((user: { email: string; id: string }) => [
+      user.email.toLowerCase(),
+      user.id,
+    ])
   );
 
   let created = 0;
