@@ -25,10 +25,26 @@ export const authOptions: NextAuthOptions = {
           where: { email },
         });
 
-        if (!user || !user.passwordHash || !user.active) return null;
+        if (!user) {
+          console.warn('[auth] user not found', { email });
+          return null;
+        }
+
+        if (!user.active) {
+          console.warn('[auth] user inactive', { email });
+          return null;
+        }
+
+        if (!user.passwordHash) {
+          console.warn('[auth] missing password hash', { email });
+          return null;
+        }
 
         const isValid = await compare(password, user.passwordHash);
-        if (!isValid) return null;
+        if (!isValid) {
+          console.warn('[auth] password mismatch', { email });
+          return null;
+        }
 
         return {
           id: user.id,
