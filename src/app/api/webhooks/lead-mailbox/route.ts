@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { LoanStage } from '@prisma/client';
+import { LoanStage, type Prisma } from '@prisma/client';
 
 type LeadMailboxPayload = {
   lead_id?: string;
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
       },
     });
 
-    const safePayload = scrubPayload(payload);
+    const safePayload = scrubPayload(payload) as Prisma.InputJsonValue;
     await prisma.leadMailboxLead.create({
       data: {
         leadId,
