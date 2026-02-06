@@ -67,6 +67,8 @@ model User {
   pipelineNotes    PipelineNote[]
   externalUsers    ExternalUser[]
   leadMailboxLeads LeadMailboxLead[]
+  invitesCreated   InviteToken[] @relation("InvitesCreated")
+  passwordResets   PasswordResetToken[]
 }
 
 model Loan {
@@ -140,6 +142,32 @@ model AuditLog {
   action    String   // e.g. "STAGE_CHANGED", "TASK_COMPLETED"
   details   String?  // JSON or text
   createdAt DateTime @default(now())
+}
+
+model InviteToken {
+  id          String   @id @default(uuid())
+  token       String   @unique
+  email       String
+  role        UserRole
+  createdById String
+  createdBy   User     @relation("InvitesCreated", fields: [createdById], references: [id])
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  acceptedAt  DateTime?
+
+  @@index([email])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  usedAt    DateTime?
+
+  @@index([userId])
 }
 
 model ExternalUser {

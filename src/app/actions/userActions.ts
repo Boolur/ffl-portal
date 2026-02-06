@@ -4,10 +4,15 @@ import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { UserRole } from '@prisma/client';
 import { hash } from 'bcryptjs';
+import { randomBytes } from 'crypto';
+import { sendEmail } from '@/lib/email';
 
 const ALLOWED_ROLES = Object.values(UserRole);
+const INVITE_TTL_HOURS = 72;
+const RESET_TTL_HOURS = 2;
 
 const normalizeEmail = (email: string) => email.toLowerCase().trim();
+const getBaseUrl = () => process.env.NEXTAUTH_URL || 'http://localhost:3000';
 
 export async function getAllUsers() {
   return prisma.user.findMany({
@@ -68,6 +73,184 @@ export async function createUser({
   });
 
   revalidatePath('/admin/users');
+  return { success: true };
+}
+
+export async function getPendingInvites() {
+  const now = new Date();
+  return prisma.inviteToken.findMany({
+    where: {
+      acceptedAt: null,
+      expiresAt: { gt: now },
+    },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      createdAt: true,
+      expiresAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+export async function inviteUser({
+  name,
+  email,
+  role,
+  createdById,
+}: {
+  name: string;
+  email: string;
+  role: UserRole;
+  createdById: string;
+}) {
+  const trimmedName = name.trim();
+  const trimmedEmail = normalizeEmail(email);
+
+  if (!trimmedName || !trimmedEmail) {
+    return { success: false, error: 'Name and email are required.' };
+  }
+
+  if (!ALLOWED_ROLES.includes(role)) {
+    return { success: false, error: 'Invalid role selected.' };
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { email: trimmedEmail },
+    select: { id: true, active: true },
+  });
+
+  if (existing?.active) {
+    return { success: false, error: 'A user with this email already exists.' };
+  }
+
+  const token = randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+
+  await prisma.inviteToken.create({
+    data: {
+      token,
+      email: trimmedEmail,
+      role,
+      createdById,
+      expiresAt,
+    },
+  });
+
+  const inviteUrl = `${getBaseUrl()}/auth/invite/${token}`;
+  await sendEmail({
+    to: trimmedEmail,
+    subject: 'Your FFL Portal invite',
+    text: `You have been invited to FFL Portal. Set your password here: ${inviteUrl}`,
+    html: `<p>You have been invited to FFL Portal.</p><p><a href="${inviteUrl}">Set your password</a></p>`,
+  });
+
+  revalidatePath('/admin/users');
+  return { success: true };
+}
+
+export async function acceptInvite({
+  token,
+  password,
+  name,
+}: {
+  token: string;
+  password: string;
+  name: string;
+}) {
+  const invite = await prisma.inviteToken.findUnique({
+    where: { token },
+  });
+
+  if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
+    return { success: false, error: 'Invite is invalid or expired.' };
+  }
+
+  const passwordHash = await hash(password.trim(), 10);
+
+  await prisma.user.upsert({
+    where: { email: invite.email },
+    update: {
+      name: name.trim(),
+      role: invite.role,
+      passwordHash,
+      active: true,
+    },
+    create: {
+      email: invite.email,
+      name: name.trim(),
+      role: invite.role,
+      passwordHash,
+      active: true,
+    },
+  });
+
+  await prisma.inviteToken.update({
+    where: { token },
+    data: { acceptedAt: new Date() },
+  });
+
+  return { success: true };
+}
+
+export async function requestPasswordReset(email: string) {
+  const trimmedEmail = normalizeEmail(email);
+  if (!trimmedEmail) {
+    return { success: false, error: 'Email is required.' };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { email: trimmedEmail },
+    select: { id: true, name: true },
+  });
+
+  if (!user) {
+    return { success: false, error: 'User not found.' };
+  }
+
+  const token = randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + RESET_TTL_HOURS * 60 * 60 * 1000);
+
+  await prisma.passwordResetToken.create({
+    data: {
+      token,
+      userId: user.id,
+      expiresAt,
+    },
+  });
+
+  const resetUrl = `${getBaseUrl()}/auth/reset/${token}`;
+  await sendEmail({
+    to: trimmedEmail,
+    subject: 'Reset your FFL Portal password',
+    text: `Reset your password here: ${resetUrl}`,
+    html: `<p>Reset your password:</p><p><a href="${resetUrl}">Reset Password</a></p>`,
+  });
+
+  return { success: true };
+}
+
+export async function resetPasswordWithToken(token: string, password: string) {
+  const reset = await prisma.passwordResetToken.findUnique({
+    where: { token },
+  });
+
+  if (!reset || reset.usedAt || reset.expiresAt < new Date()) {
+    return { success: false, error: 'Reset link is invalid or expired.' };
+  }
+
+  const passwordHash = await hash(password.trim(), 10);
+  await prisma.user.update({
+    where: { id: reset.userId },
+    data: { passwordHash },
+  });
+
+  await prisma.passwordResetToken.update({
+    where: { token },
+    data: { usedAt: new Date() },
+  });
+
   return { success: true };
 }
 

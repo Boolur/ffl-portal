@@ -62,7 +62,7 @@ export function Sidebar() {
       name: 'User Management',
       icon: Shield,
       href: '/admin/users',
-      roles: [UserRole.ADMIN, UserRole.MANAGER]
+      roles: [UserRole.ADMIN]
     },
     {
       name: 'Email Settings',
@@ -74,13 +74,13 @@ export function Sidebar() {
       name: 'Lead Mailbox',
       icon: Mail,
       href: '/admin/lead-mailbox',
-      roles: [UserRole.ADMIN, UserRole.MANAGER]
+      roles: [UserRole.ADMIN]
     },
     {
       name: 'Lender Mgmt',
       icon: Building2,
       href: '/admin/lenders',
-      roles: [UserRole.ADMIN, UserRole.MANAGER]
+      roles: [UserRole.ADMIN]
     },
     { 
       name: 'Resources', 
