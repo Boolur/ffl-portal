@@ -43,13 +43,22 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null
   );
-  const [formState, setFormState] = useState({
+  const [formState, setFormState] = useState<{
+    name: string;
+    email: string;
+    role: UserRole;
+    password: string;
+  }>({
     name: '',
     email: '',
     role: UserRole.LOAN_OFFICER,
     password: '',
   });
-  const [inviteState, setInviteState] = useState({
+  const [inviteState, setInviteState] = useState<{
+    name: string;
+    email: string;
+    role: UserRole;
+  }>({
     name: '',
     email: '',
     role: UserRole.LOAN_OFFICER,
