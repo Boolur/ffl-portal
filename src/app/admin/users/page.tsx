@@ -3,11 +3,11 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { UserManagement } from '@/components/admin/UserManagement';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getAllUsers } from '@/app/actions/userActions';
+import { getAllUsers, getPendingInvites } from '@/app/actions/userActions';
 
 export default async function UserManagementPage() {
   const session = await getServerSession(authOptions);
-  const users = await getAllUsers();
+  const [users, invites] = await Promise.all([getAllUsers(), getPendingInvites()]);
 
   const user = {
     name: session?.user?.name || 'Admin User',
@@ -22,7 +22,19 @@ export default async function UserManagementPage() {
           Create accounts, assign roles, and manage access.
         </p>
       </div>
-      <UserManagement users={users} />
+      <UserManagement
+        users={users.map((user) => ({
+          ...user,
+          createdAt: user.createdAt.toISOString(),
+        }))}
+        invites={invites.map((invite) => ({
+          ...invite,
+          createdAt: invite.createdAt.toISOString(),
+          expiresAt: invite.expiresAt.toISOString(),
+        }))}
+        inviteEmails={invites.map((invite) => invite.email.toLowerCase())}
+        currentUserId={session?.user?.id || ''}
+      />
     </DashboardShell>
   );
 }
