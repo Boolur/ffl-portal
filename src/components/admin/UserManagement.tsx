@@ -97,19 +97,24 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
       setStatus({ type: 'error', message: 'Missing inviter identity.' });
       return;
     }
-    const result = await inviteUser({
-      name: inviteState.name,
-      email: inviteState.email,
-      role: inviteState.role,
-      createdById: currentUserId,
-    });
-    if (!result.success) {
-      setStatus({ type: 'error', message: result.error || 'Failed to send invite.' });
-      return;
+    try {
+      const result = await inviteUser({
+        name: inviteState.name,
+        email: inviteState.email,
+        role: inviteState.role,
+        createdById: currentUserId,
+      });
+      if (!result.success) {
+        setStatus({ type: 'error', message: result.error || 'Failed to send invite.' });
+        return;
+      }
+      setInviteState({ name: '', email: '', role: UserRole.LOAN_OFFICER });
+      setStatus({ type: 'success', message: 'Invite sent.' });
+      router.refresh();
+    } catch (error) {
+      console.error('Invite failed', error);
+      setStatus({ type: 'error', message: 'Failed to send invite.' });
     }
-    setInviteState({ name: '', email: '', role: UserRole.LOAN_OFFICER });
-    setStatus({ type: 'success', message: 'Invite sent.' });
-    router.refresh();
   };
 
   const handleSendResetEmail = async (email: string) => {

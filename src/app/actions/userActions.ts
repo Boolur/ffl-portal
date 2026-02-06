@@ -105,49 +105,54 @@ export async function inviteUser({
   role: UserRole;
   createdById: string;
 }) {
-  const trimmedName = name.trim();
-  const trimmedEmail = normalizeEmail(email);
+  try {
+    const trimmedName = name.trim();
+    const trimmedEmail = normalizeEmail(email);
 
-  if (!trimmedName || !trimmedEmail) {
-    return { success: false, error: 'Name and email are required.' };
+    if (!trimmedName || !trimmedEmail) {
+      return { success: false, error: 'Name and email are required.' };
+    }
+
+    if (!ALLOWED_ROLES.includes(role)) {
+      return { success: false, error: 'Invalid role selected.' };
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+      select: { id: true, active: true },
+    });
+
+    if (existing?.active) {
+      return { success: false, error: 'A user with this email already exists.' };
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+
+    await prisma.inviteToken.create({
+      data: {
+        token,
+        email: trimmedEmail,
+        role,
+        createdById,
+        expiresAt,
+      },
+    });
+
+    const inviteUrl = `${getBaseUrl()}/auth/invite/${token}`;
+    await sendEmail({
+      to: trimmedEmail,
+      subject: 'Your FFL Portal invite',
+      text: `You have been invited to FFL Portal. Set your password here: ${inviteUrl}`,
+      html: `<p>You have been invited to FFL Portal.</p><p><a href="${inviteUrl}">Set your password</a></p>`,
+    });
+
+    revalidatePath('/admin/users');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send invite email', error);
+    return { success: false, error: 'Failed to send invite email.' };
   }
-
-  if (!ALLOWED_ROLES.includes(role)) {
-    return { success: false, error: 'Invalid role selected.' };
-  }
-
-  const existing = await prisma.user.findUnique({
-    where: { email: trimmedEmail },
-    select: { id: true, active: true },
-  });
-
-  if (existing?.active) {
-    return { success: false, error: 'A user with this email already exists.' };
-  }
-
-  const token = randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
-
-  await prisma.inviteToken.create({
-    data: {
-      token,
-      email: trimmedEmail,
-      role,
-      createdById,
-      expiresAt,
-    },
-  });
-
-  const inviteUrl = `${getBaseUrl()}/auth/invite/${token}`;
-  await sendEmail({
-    to: trimmedEmail,
-    subject: 'Your FFL Portal invite',
-    text: `You have been invited to FFL Portal. Set your password here: ${inviteUrl}`,
-    html: `<p>You have been invited to FFL Portal.</p><p><a href="${inviteUrl}">Set your password</a></p>`,
-  });
-
-  revalidatePath('/admin/users');
-  return { success: true };
 }
 
 export async function acceptInvite({
