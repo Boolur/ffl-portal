@@ -2,8 +2,10 @@
 
 import React, { useState } from 'react';
 import { signIn } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -17,14 +19,23 @@ export default function LoginPage() {
     const result = await signIn('credentials', {
       email,
       password,
-      redirect: true,
+      redirect: false,
       callbackUrl: '/',
     });
 
     if (result?.error) {
       setError('Invalid email or password.');
       setLoading(false);
+      return;
     }
+
+    if (result?.ok) {
+      router.replace(result.url || '/');
+      return;
+    }
+
+    setError('Sign in failed. Please try again.');
+    setLoading(false);
   };
 
   return (
