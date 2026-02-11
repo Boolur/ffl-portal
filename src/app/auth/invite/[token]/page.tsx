@@ -37,7 +37,11 @@ export default function InviteAcceptPage({ params }: { params: { token: string }
       setStatus({ type: 'success', message: 'Account created. You can log in now.' });
     } catch (error) {
       console.error('Invite acceptance failed', error);
-      setStatus({ type: 'error', message: 'Invite failed. Please try again.' });
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Invite failed. Please try again.';
+      setStatus({ type: 'error', message });
     } finally {
       setLoading(false);
     }

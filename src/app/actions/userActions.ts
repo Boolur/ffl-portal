@@ -231,39 +231,54 @@ export async function acceptInvite({
   password: string;
   name: string;
 }) {
-  const invite = await prisma.inviteToken.findUnique({
-    where: { token },
-  });
+  try {
+    const invite = await prisma.inviteToken.findUnique({
+      where: { token },
+    });
 
-  if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
-    return { success: false, error: 'Invite is invalid or expired.' };
+    if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
+      return { success: false, error: 'Invite is invalid or expired.' };
+    }
+
+    const trimmedName = name.trim();
+    const trimmedPassword = password.trim();
+    if (!trimmedName || !trimmedPassword) {
+      return { success: false, error: 'Name and password are required.' };
+    }
+
+    const passwordHash = await hash(trimmedPassword, 10);
+
+    await prisma.user.upsert({
+      where: { email: invite.email },
+      update: {
+        name: trimmedName,
+        role: invite.role,
+        passwordHash,
+        active: true,
+      },
+      create: {
+        email: invite.email,
+        name: trimmedName,
+        role: invite.role,
+        passwordHash,
+        active: true,
+      },
+    });
+
+    await prisma.inviteToken.update({
+      where: { token },
+      data: { acceptedAt: new Date() },
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to accept invite', error);
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Invite failed. Please try again.';
+    return { success: false, error: message };
   }
-
-  const passwordHash = await hash(password.trim(), 10);
-
-  await prisma.user.upsert({
-    where: { email: invite.email },
-    update: {
-      name: name.trim(),
-      role: invite.role,
-      passwordHash,
-      active: true,
-    },
-    create: {
-      email: invite.email,
-      name: name.trim(),
-      role: invite.role,
-      passwordHash,
-      active: true,
-    },
-  });
-
-  await prisma.inviteToken.update({
-    where: { token },
-    data: { acceptedAt: new Date() },
-  });
-
-  return { success: true };
 }
 
 export async function requestPasswordReset(email: string) {
