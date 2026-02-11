@@ -66,6 +66,9 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       where: { loanNumber: arriveLoanNumber },
     });
 
+    const targetStage =
+      submissionType === 'QC' ? 'QC_REVIEW' : 'DISCLOSURES_PENDING';
+
     if (!loan) {
       loan = await prisma.loan.create({
         data: {
@@ -73,8 +76,17 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           borrowerName: `${borrowerFirstName} ${borrowerLastName}`.trim(),
           amount: Number(loanAmount || 0),
           loanOfficerId: loanOfficerUser.id,
+          stage: targetStage,
         },
       });
+    } else {
+      // Update stage if it's currently INTAKE (Lead)
+      if (loan.stage === 'INTAKE') {
+        await prisma.loan.update({
+          where: { id: loan.id },
+          data: { stage: targetStage },
+        });
+      }
     }
 
     const taskTitle =
