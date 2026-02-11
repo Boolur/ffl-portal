@@ -159,6 +159,69 @@ export async function inviteUser({
   }
 }
 
+export async function deleteInvite(inviteId: string) {
+  if (!inviteId) {
+    return { success: false, error: 'Missing invite ID.' };
+  }
+
+  await prisma.inviteToken.delete({
+    where: { id: inviteId },
+  });
+
+  revalidatePath('/admin/users');
+  return { success: true };
+}
+
+export async function resendInvite(inviteId: string) {
+  if (!inviteId) {
+    return { success: false, error: 'Missing invite ID.' };
+  }
+
+  try {
+    const existing = await prisma.inviteToken.findUnique({
+      where: { id: inviteId },
+    });
+
+    if (!existing || existing.acceptedAt) {
+      return { success: false, error: 'Invite is invalid or already accepted.' };
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+
+    await prisma.$transaction([
+      prisma.inviteToken.delete({ where: { id: inviteId } }),
+      prisma.inviteToken.create({
+        data: {
+          token,
+          email: existing.email,
+          role: existing.role,
+          createdById: existing.createdById,
+          expiresAt,
+        },
+      }),
+    ]);
+
+    const inviteUrl = `${getBaseUrl()}/auth/invite/${token}`;
+    await sendEmail({
+      to: existing.email,
+      subject: 'Your FFL Portal invite',
+      text: `You have been invited to FFL Portal. Set your password here: ${inviteUrl}`,
+      html: `<p>You have been invited to FFL Portal.</p><p><a href="${inviteUrl}">Set your password</a></p>`,
+    });
+
+    revalidatePath('/admin/users');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to resend invite email', error);
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Failed to resend invite email.';
+    return { success: false, error: message };
+  }
+}
+
 export async function acceptInvite({
   token,
   password,
@@ -290,6 +353,20 @@ export async function updateUserStatus(userId: string, active: boolean) {
   await prisma.user.update({
     where: { id: userId },
     data: { active },
+  });
+
+  revalidatePath('/admin/users');
+  return { success: true };
+}
+
+export async function deleteUser(userId: string) {
+  if (!userId) {
+    return { success: false, error: 'Missing user ID.' };
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { active: false },
   });
 
   revalidatePath('/admin/users');

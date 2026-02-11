@@ -9,6 +9,9 @@ import {
   updateUserStatus,
   resetUserPassword,
   requestPasswordReset,
+  deleteInvite,
+  resendInvite,
+  deleteUser,
 } from '@/app/actions/userActions';
 import { useRouter } from 'next/navigation';
 import { PlusCircle, RefreshCw } from 'lucide-react';
@@ -128,6 +131,30 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
     setStatus({ type: 'success', message: 'Password reset email sent.' });
   };
 
+  const handleResendInvite = async (inviteId: string) => {
+    setStatus(null);
+    const result = await resendInvite(inviteId);
+    if (!result.success) {
+      setStatus({ type: 'error', message: result.error || 'Failed to resend invite.' });
+      return;
+    }
+    setStatus({ type: 'success', message: 'Invite resent.' });
+    router.refresh();
+  };
+
+  const handleDeleteInvite = async (inviteId: string) => {
+    const confirmed = window.confirm('Delete this invite?');
+    if (!confirmed) return;
+    setStatus(null);
+    const result = await deleteInvite(inviteId);
+    if (!result.success) {
+      setStatus({ type: 'error', message: result.error || 'Failed to delete invite.' });
+      return;
+    }
+    setStatus({ type: 'success', message: 'Invite deleted.' });
+    router.refresh();
+  };
+
   const handleRoleChange = async (userId: string, role: UserRole) => {
     await updateUserRole(userId, role);
     router.refresh();
@@ -147,6 +174,21 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
       return;
     }
     setStatus({ type: 'success', message: 'Password updated.' });
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    const confirmed = window.confirm(
+      'Delete this account? This will deactivate the user immediately.'
+    );
+    if (!confirmed) return;
+    setStatus(null);
+    const result = await deleteUser(userId);
+    if (!result.success) {
+      setStatus({ type: 'error', message: result.error || 'Failed to delete user.' });
+      return;
+    }
+    setStatus({ type: 'success', message: 'User deleted.' });
+    router.refresh();
   };
 
   return (
@@ -337,6 +379,12 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                 >
                   Send Reset Link
                 </button>
+                <button
+                  onClick={() => handleDeleteUser(user.id)}
+                  className="text-xs font-semibold text-red-600 hover:text-red-700"
+                >
+                  Delete Account
+                </button>
               </div>
             </div>
           ))}
@@ -353,7 +401,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
           {invites.map((invite) => (
             <div
               key={invite.id}
-              className="flex items-center justify-between border border-slate-200 rounded-lg px-4 py-2"
+              className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border border-slate-200 rounded-lg px-4 py-2"
             >
               <div>
                 <p className="text-sm font-medium text-slate-900">{invite.email}</p>
@@ -362,9 +410,23 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                   {new Date(invite.expiresAt).toLocaleDateString()}
                 </p>
               </div>
-              <span className="text-xs text-slate-400">
-                Sent {new Date(invite.createdAt).toLocaleDateString()}
-              </span>
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                <span className="text-slate-400">
+                  Sent {new Date(invite.createdAt).toLocaleDateString()}
+                </span>
+                <button
+                  onClick={() => handleResendInvite(invite.id)}
+                  className="font-semibold text-blue-600 hover:text-blue-700"
+                >
+                  Resend
+                </button>
+                <button
+                  onClick={() => handleDeleteInvite(invite.id)}
+                  className="font-semibold text-red-600 hover:text-red-700"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
         </div>

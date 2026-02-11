@@ -1,12 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
-import { Eye, X } from 'lucide-react';
+import { Eye, X, ChevronDown, ChevronUp } from 'lucide-react';
 
 export function ImpersonationControls({ currentUserRole }: { currentUserRole: UserRole }) {
   const { activeRole, isImpersonating, startImpersonating, stopImpersonating } = useImpersonation();
+  const [isOpen, setIsOpen] = useState(true);
 
   // Only show if the REAL user is Admin or Manager
   if (currentUserRole !== 'ADMIN' && currentUserRole !== 'MANAGER') {
@@ -39,26 +40,43 @@ export function ImpersonationControls({ currentUserRole }: { currentUserRole: Us
         </div>
       )}
 
-      <div className="bg-white text-slate-900 p-4 rounded-xl shadow-xl border border-slate-200 w-64">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Impersonate Role</p>
-          <ShieldIcon className="w-3 h-3 text-slate-400" />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {roles.map((role) => (
-            <button 
-              key={role}
-              onClick={() => startImpersonating(role)}
-              className={`px-2 py-1.5 text-[10px] rounded-md transition-colors text-left truncate ${
-                activeRole === role 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100'
-              }`}
-            >
-              {role.replace(/_/g, ' ')}
-            </button>
-          ))}
-        </div>
+      <div className="bg-white text-slate-900 rounded-xl shadow-xl border border-slate-200 w-64">
+        <button
+          onClick={() => setIsOpen((prev) => !prev)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left"
+        >
+          <div className="flex items-center gap-2">
+            <ShieldIcon className="w-3 h-3 text-slate-400" />
+            <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">
+              Impersonate Role
+            </p>
+          </div>
+          {isOpen ? (
+            <ChevronDown className="w-4 h-4 text-slate-400" />
+          ) : (
+            <ChevronUp className="w-4 h-4 text-slate-400" />
+          )}
+        </button>
+
+        {isOpen && (
+          <div className="px-4 pb-4">
+            <div className="grid grid-cols-2 gap-2">
+              {roles.map((role) => (
+                <button 
+                  key={role}
+                  onClick={() => startImpersonating(role)}
+                  className={`px-2 py-1.5 text-[10px] rounded-md transition-colors text-left truncate ${
+                    activeRole === role 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100'
+                  }`}
+                >
+                  {role.replace(/_/g, ' ')}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
