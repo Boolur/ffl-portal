@@ -11,7 +11,8 @@ import {
   Filter,
   Search,
   ArrowRight,
-  Trash2
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { deleteTask } from '@/app/actions/taskActions';
@@ -67,17 +68,23 @@ const DEPARTMENTS = [
 
 export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
   const [selectedDept, setSelectedDept] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const router = useRouter();
 
   const handleDelete = async (taskId: string) => {
+    if (deletingId) return;
     const confirmed = window.confirm('Delete this task? This cannot be undone.');
     if (!confirmed) return;
+    
+    setDeletingId(taskId);
     const result = await deleteTask(taskId);
     if (!result.success) {
       alert(result.error || 'Failed to delete task.');
+      setDeletingId(null);
       return;
     }
     router.refresh();
+    setDeletingId(null);
   };
 
   // Group tasks by department
@@ -145,7 +152,12 @@ export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
                     </div>
                   ) : (
                     deptTasks.map(task => (
-                      <TaskCard key={task.id} task={task} onDelete={handleDelete} />
+                      <TaskCard 
+                        key={task.id} 
+                        task={task} 
+                        onDelete={handleDelete} 
+                        isDeleting={deletingId === task.id}
+                      />
                     ))
                   )}
                 </div>
@@ -161,9 +173,11 @@ export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
 function TaskCard({
   task,
   onDelete,
+  isDeleting,
 }: {
   task: TaskWithRelations;
   onDelete: (taskId: string) => void;
+  isDeleting: boolean;
 }) {
   const isUrgent = task.priority === 'URGENT' || task.priority === 'HIGH';
   
@@ -185,10 +199,11 @@ function TaskCard({
             event.stopPropagation();
             onDelete(task.id);
           }}
-          className="text-slate-400 hover:text-red-500 transition-colors"
+          disabled={isDeleting}
+          className="text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           aria-label="Delete task"
         >
-          <Trash2 className="w-4 h-4" />
+          {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
         </button>
       </div>
 

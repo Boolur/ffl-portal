@@ -117,6 +117,7 @@ export function PipelinePage() {
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [loans, setLoans] = useState<PipelineLoan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
@@ -224,29 +225,47 @@ export function PipelinePage() {
   }, [selectedLoanId]);
 
   const handleAddStage = async () => {
+    if (isSubmitting) return;
     if (!newStageName.trim() || !selectedLoanOfficerId) return;
-    await createPipelineStage(selectedLoanOfficerId, newStageName.trim());
-    setNewStageName('');
-    await reloadPipeline(selectedLoanOfficerId);
+    setIsSubmitting(true);
+    try {
+      await createPipelineStage(selectedLoanOfficerId, newStageName.trim());
+      setNewStageName('');
+      await reloadPipeline(selectedLoanOfficerId);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleRenameStage = async (stageId: string) => {
+    if (isSubmitting) return;
     if (!editingStageName.trim()) return;
-    await updatePipelineStage(stageId, editingStageName.trim());
-    setEditingStageId(null);
-    setEditingStageName('');
-    await reloadPipeline(selectedLoanOfficerId);
+    setIsSubmitting(true);
+    try {
+      await updatePipelineStage(stageId, editingStageName.trim());
+      setEditingStageId(null);
+      setEditingStageName('');
+      await reloadPipeline(selectedLoanOfficerId);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteStage = async (stageId: string) => {
+    if (isSubmitting) return;
     if (!selectedLoanOfficerId) return;
     const fallbackStageId = stages.find((stage) => stage.id !== stageId)?.id || null;
     const confirmed = window.confirm(
       'Delete this stage? Loans will be moved to the next available stage.'
     );
     if (!confirmed) return;
-    await deletePipelineStage(stageId, fallbackStageId);
-    await reloadPipeline(selectedLoanOfficerId);
+    setIsSubmitting(true);
+    try {
+      await deletePipelineStage(stageId, fallbackStageId);
+      await reloadPipeline(selectedLoanOfficerId);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleMoveLoan = async (loanId: string, pipelineStageId: string | null) => {
@@ -255,11 +274,17 @@ export function PipelinePage() {
   };
 
   const handleAddNote = async () => {
+    if (isSubmitting) return;
     if (!loanDetails || !noteText.trim() || !selectedLoanOfficerId) return;
-    await addPipelineNote(loanDetails.id, selectedLoanOfficerId, noteText.trim());
-    setNoteText('');
-    const details = await getLoanDetails(loanDetails.id);
-    setLoanDetails(details);
+    setIsSubmitting(true);
+    try {
+      await addPipelineNote(loanDetails.id, selectedLoanOfficerId, noteText.trim());
+      setNoteText('');
+      const details = await getLoanDetails(loanDetails.id);
+      setLoanDetails(details);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCsvFile = async (file: File) => {
@@ -280,10 +305,16 @@ export function PipelinePage() {
   };
 
   const handleImport = async () => {
+    if (isSubmitting) return;
     if (!selectedLoanOfficerId || importRows.length === 0) return;
-    const result = await importPipelineCsv(selectedLoanOfficerId, importRows);
-    setImportResult(result);
-    await reloadPipeline(selectedLoanOfficerId);
+    setIsSubmitting(true);
+    try {
+      const result = await importPipelineCsv(selectedLoanOfficerId, importRows);
+      setImportResult(result);
+      await reloadPipeline(selectedLoanOfficerId);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const showLoanOfficerSelector =
@@ -365,9 +396,10 @@ export function PipelinePage() {
               />
               <button
                 onClick={handleAddStage}
-                className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+                disabled={isSubmitting}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                <Plus className="w-4 h-4" />
+                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                 Add Stage
               </button>
             </div>
@@ -421,7 +453,8 @@ export function PipelinePage() {
                         />
                         <button
                           onClick={() => handleRenameStage(stage.id)}
-                          className="text-xs font-semibold text-blue-600"
+                          disabled={isSubmitting}
+                          className="text-xs font-semibold text-blue-600 disabled:opacity-50"
                         >
                           Save
                         </button>
@@ -458,7 +491,8 @@ export function PipelinePage() {
                         </button>
                         <button
                           onClick={() => handleDeleteStage(stage.id)}
-                          className="text-red-500 hover:text-red-600"
+                          disabled={isSubmitting}
+                          className="text-red-500 hover:text-red-600 disabled:opacity-50"
                         >
                           Delete
                         </button>
@@ -597,8 +631,10 @@ export function PipelinePage() {
                 </div>
                 <button
                   onClick={handleAddNote}
-                  className="mt-2 px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg"
+                  disabled={isSubmitting}
+                  className="mt-2 px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
                 >
+                  {isSubmitting && <Loader2 className="w-3 h-3 animate-spin" />}
                   Add Note
                 </button>
               </div>
@@ -672,8 +708,10 @@ export function PipelinePage() {
               </button>
               <button
                 onClick={handleImport}
-                className="px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg"
+                disabled={isSubmitting}
+                className="px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
               >
+                {isSubmitting && <Loader2 className="w-3 h-3 animate-spin" />}
                 Import
               </button>
             </div>

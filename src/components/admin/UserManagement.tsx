@@ -14,7 +14,7 @@ import {
   deleteUser,
 } from '@/app/actions/userActions';
 import { useRouter } from 'next/navigation';
-import { PlusCircle, RefreshCw } from 'lucide-react';
+import { PlusCircle, RefreshCw, Loader2 } from 'lucide-react';
 
 type UserRow = {
   id: string;
@@ -46,6 +46,8 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null
   );
+  const [isCreating, setIsCreating] = useState(false);
+  const [isInviting, setIsInviting] = useState(false);
   const [formState, setFormState] = useState<{
     name: string;
     email: string;
@@ -78,28 +80,36 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
   }, [search, users]);
 
   const handleCreate = async () => {
+    if (isCreating) return;
     setStatus(null);
-    const result = await createUser(formState);
-    if (!result.success) {
-      setStatus({ type: 'error', message: result.error || 'Failed to create user.' });
-      return;
+    setIsCreating(true);
+    try {
+      const result = await createUser(formState);
+      if (!result.success) {
+        setStatus({ type: 'error', message: result.error || 'Failed to create user.' });
+        return;
+      }
+      setFormState({
+        name: '',
+        email: '',
+        role: UserRole.LOAN_OFFICER,
+        password: '',
+      });
+      setStatus({ type: 'success', message: 'User created.' });
+      router.refresh();
+    } finally {
+      setIsCreating(false);
     }
-    setFormState({
-      name: '',
-      email: '',
-      role: UserRole.LOAN_OFFICER,
-      password: '',
-    });
-    setStatus({ type: 'success', message: 'User created.' });
-    router.refresh();
   };
 
   const handleInvite = async () => {
+    if (isInviting) return;
     setStatus(null);
     if (!currentUserId) {
       setStatus({ type: 'error', message: 'Missing inviter identity.' });
       return;
     }
+    setIsInviting(true);
     try {
       const result = await inviteUser({
         name: inviteState.name,
@@ -117,6 +127,8 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
     } catch (error) {
       console.error('Invite failed', error);
       setStatus({ type: 'error', message: 'Failed to send invite.' });
+    } finally {
+      setIsInviting(false);
     }
   };
 
@@ -245,10 +257,11 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
           />
           <button
             onClick={handleCreate}
-            className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+            disabled={isCreating}
+            className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            <PlusCircle className="w-4 h-4" />
-            Create
+            {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+            {isCreating ? 'Creating...' : 'Create'}
           </button>
         </div>
 
@@ -301,10 +314,11 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
           </select>
           <button
             onClick={handleInvite}
-            className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+            disabled={isInviting}
+            className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            <PlusCircle className="w-4 h-4" />
-            Send Invite
+            {isInviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+            {isInviting ? 'Sending...' : 'Send Invite'}
           </button>
         </div>
       </div>

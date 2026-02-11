@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Calendar, CheckCircle, Clock, FileText, Trash2 } from 'lucide-react';
+import { Calendar, CheckCircle, Clock, FileText, Trash2, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { deleteTask, updateTaskStatus } from '@/app/actions/taskActions';
 import { TaskStatus } from '@prisma/client';
@@ -21,22 +21,32 @@ type Task = {
 
 export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelete?: boolean }) {
   const router = useRouter();
+  const [updatingId, setUpdatingId] = React.useState<string | null>(null);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
 
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
+    if (updatingId) return;
+    setUpdatingId(taskId);
     // In a real app, we'd use optimistic UI here
     await updateTaskStatus(taskId, newStatus);
     router.refresh();
+    setUpdatingId(null);
   };
 
   const handleDelete = async (taskId: string) => {
+    if (deletingId) return;
     const confirmed = window.confirm('Delete this task? This cannot be undone.');
     if (!confirmed) return;
+    
+    setDeletingId(taskId);
     const result = await deleteTask(taskId);
     if (!result.success) {
       alert(result.error || 'Failed to delete task.');
+      setDeletingId(null);
       return;
     }
     router.refresh();
+    setDeletingId(null);
   };
 
   if (tasks.length === 0) {
@@ -106,28 +116,40 @@ export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelet
               {task.status !== 'COMPLETED' && (
                 <button 
                   onClick={() => handleStatusChange(task.id, 'COMPLETED')}
-                  className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 text-sm font-medium rounded-lg hover:bg-green-100 transition-colors"
+                  disabled={!!updatingId}
+                  className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 text-sm font-medium rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <CheckCircle className="w-4 h-4 mr-1.5" />
-                  Complete
+                  {updatingId === task.id ? (
+                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4 mr-1.5" />
+                  )}
+                  {updatingId === task.id ? 'Saving...' : 'Complete'}
                 </button>
               )}
               
               {task.status === 'PENDING' && (
                 <button 
                   onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
-                  className="px-3 py-1.5 text-slate-500 text-sm font-medium hover:text-blue-600 transition-colors"
+                  disabled={!!updatingId}
+                  className="px-3 py-1.5 text-slate-500 text-sm font-medium hover:text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
+                  {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin" />}
                   Start
                 </button>
               )}
               {canDelete && (
                 <button
                   onClick={() => handleDelete(task.id)}
-                  className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                  disabled={!!deletingId}
+                  className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Delete task"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  {deletingId === task.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
                 </button>
               )}
             </div>

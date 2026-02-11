@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { requestPasswordReset } from '@/app/actions/userActions';
+import { Loader2 } from 'lucide-react';
 
 export default function ResetRequestPage() {
   const [email, setEmail] = useState('');
@@ -55,8 +56,9 @@ export default function ResetRequestPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-70"
+            className="w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             {loading ? 'Sending...' : 'Send Reset Link'}
           </button>
         </form>

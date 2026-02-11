@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, ClipboardCheck, ShieldCheck } from 'lucide-react';
+import { X, ClipboardCheck, ShieldCheck, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createSubmissionTask } from '@/app/actions/taskActions';
 
@@ -225,6 +225,7 @@ function DisclosuresForm({
   loanOfficerName: string;
   onSubmitted: () => void;
 }) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({
     loanOfficer: loanOfficerName,
     borrowerFirstName: '',
@@ -246,6 +247,8 @@ function DisclosuresForm({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     createSubmissionTask({
       submissionType: 'DISCLOSURES',
       loanOfficerName: form.loanOfficer,
@@ -255,7 +258,13 @@ function DisclosuresForm({
       loanAmount: form.loanAmount,
       notes: form.notes,
     }).then((res) => {
-      if (res.success) onSubmitted();
+      if (res.success) {
+        onSubmitted();
+      } else {
+        setIsSubmitting(false);
+      }
+    }).catch(() => {
+      setIsSubmitting(false);
     });
   };
 
@@ -308,8 +317,13 @@ function DisclosuresForm({
         <button type="button" className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
           Save Draft
         </button>
-        <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 shadow-sm">
-          Submit for Disclosures
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+          {isSubmitting ? 'Processing...' : 'Submit for Disclosures'}
         </button>
       </div>
     </form>
@@ -323,6 +337,7 @@ function QcForm({
   loanOfficerName: string;
   onSubmitted: () => void;
 }) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({
     preApproved: '',
     loanOfficer: loanOfficerName,
@@ -355,6 +370,8 @@ function QcForm({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     createSubmissionTask({
       submissionType: 'QC',
       loanOfficerName: form.loanOfficer,
@@ -364,7 +381,13 @@ function QcForm({
       loanAmount: form.loanAmount,
       notes: form.notesGoals,
     }).then((res) => {
-      if (res.success) onSubmitted();
+      if (res.success) {
+        onSubmitted();
+      } else {
+        setIsSubmitting(false);
+      }
+    }).catch(() => {
+      setIsSubmitting(false);
     });
   };
 
@@ -465,8 +488,13 @@ function QcForm({
         <button type="button" className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
           Save Draft
         </button>
-        <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 shadow-sm">
-          Submit for QC
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+          {isSubmitting ? 'Processing...' : 'Submit for QC'}
         </button>
       </div>
     </form>

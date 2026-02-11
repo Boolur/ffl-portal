@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { TaskStatus, TaskPriority } from '@prisma/client';
+import { useRouter } from 'next/navigation';
+import { deleteTask } from '@/app/actions/taskActions';
 import { 
   Clock, 
   Trash2, 
@@ -12,7 +14,8 @@ import {
   Mail, 
   Building2,
   LayoutGrid,
-  ListFilter
+  ListFilter,
+  Loader2
 } from 'lucide-react';
 
 type TaskWithRelations = {
@@ -38,6 +41,24 @@ type TaskWithRelations = {
 export function AdminTaskBoard({ initialTasks }: { initialTasks: TaskWithRelations[] }) {
   const [activeTab, setActiveTab] = useState('tasks');
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'ALL'>('ALL');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const router = useRouter();
+
+  const handleDelete = async (taskId: string) => {
+    if (deletingId) return;
+    const confirmed = window.confirm('Delete this task? This cannot be undone.');
+    if (!confirmed) return;
+    
+    setDeletingId(taskId);
+    const result = await deleteTask(taskId);
+    if (!result.success) {
+      alert(result.error || 'Failed to delete task.');
+      setDeletingId(null);
+      return;
+    }
+    router.refresh();
+    setDeletingId(null);
+  };
 
   const stats = {
     new: initialTasks.filter(t => t.status === 'PENDING').length,
@@ -140,7 +161,12 @@ export function AdminTaskBoard({ initialTasks }: { initialTasks: TaskWithRelatio
       {/* Task Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredTasks.map((task) => (
-          <TaskCard key={task.id} task={task} />
+          <TaskCard 
+            key={task.id} 
+            task={task} 
+            onDelete={handleDelete}
+            isDeleting={deletingId === task.id}
+          />
         ))}
       </div>
 
@@ -210,7 +236,15 @@ function FilterButton({ active, onClick, label, count, color }: any) {
   );
 }
 
-function TaskCard({ task }: { task: TaskWithRelations }) {
+function TaskCard({ 
+  task, 
+  onDelete, 
+  isDeleting 
+}: { 
+  task: TaskWithRelations; 
+  onDelete: (id: string) => void;
+  isDeleting: boolean;
+}) {
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all group relative">
       <div className="flex justify-between items-start mb-3">
@@ -224,8 +258,12 @@ function TaskCard({ task }: { task: TaskWithRelations }) {
             {task.priority || 'Normal'}
           </span>
         </div>
-        <button className="text-slate-400 hover:text-red-500 transition-colors">
-          <Trash2 className="w-4 h-4" />
+        <button 
+          onClick={() => onDelete(task.id)}
+          disabled={isDeleting}
+          className="text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
         </button>
       </div>
 
