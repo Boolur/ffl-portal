@@ -375,15 +375,44 @@ export async function updateUserStatus(userId: string, active: boolean) {
   return { success: true };
 }
 
-export async function deleteUser(userId: string) {
+export async function deleteUser(userId: string, currentUserId?: string) {
   if (!userId) {
     return { success: false, error: 'Missing user ID.' };
   }
+  if (currentUserId && userId === currentUserId) {
+    return { success: false, error: 'You cannot delete your own account.' };
+  }
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { active: false },
-  });
+  const [loanOfficerCount, processorCount] = await Promise.all([
+    prisma.loan.count({ where: { loanOfficerId: userId } }),
+    prisma.loan.count({ where: { processorId: userId } }),
+  ]);
+
+  if (loanOfficerCount > 0 || processorCount > 0) {
+    return {
+      success: false,
+      error: 'User has loans assigned. Reassign loans or deactivate the account instead.',
+    };
+  }
+
+  await prisma.$transaction([
+    prisma.task.updateMany({
+      where: { assignedUserId: userId },
+      data: { assignedUserId: null },
+    }),
+    prisma.loan.updateMany({
+      where: { pipelineStage: { userId } },
+      data: { pipelineStageId: null },
+    }),
+    prisma.pipelineStage.deleteMany({ where: { userId } }),
+    prisma.pipelineNote.deleteMany({ where: { userId } }),
+    prisma.externalUser.deleteMany({ where: { userId } }),
+    prisma.leadMailboxLead.deleteMany({ where: { userId } }),
+    prisma.inviteToken.deleteMany({ where: { createdById: userId } }),
+    prisma.passwordResetToken.deleteMany({ where: { userId } }),
+    prisma.auditLog.deleteMany({ where: { userId } }),
+    prisma.user.delete({ where: { id: userId } }),
+  ]);
 
   revalidatePath('/admin/users');
   return { success: true };

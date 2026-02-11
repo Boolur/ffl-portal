@@ -178,11 +178,11 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
 
   const handleDeleteUser = async (userId: string) => {
     const confirmed = window.confirm(
-      'Delete this account? This will deactivate the user immediately.'
+      'Delete this account permanently? This cannot be undone.'
     );
     if (!confirmed) return;
     setStatus(null);
-    const result = await deleteUser(userId);
+    const result = await deleteUser(userId, currentUserId);
     if (!result.success) {
       setStatus({ type: 'error', message: result.error || 'Failed to delete user.' });
       return;
