@@ -10,8 +10,11 @@ import {
   CheckCircle2, 
   Filter,
   Search,
-  ArrowRight
+  ArrowRight,
+  Trash2
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { deleteTask } from '@/app/actions/taskActions';
 
 type TaskWithRelations = {
   id: string;
@@ -64,6 +67,18 @@ const DEPARTMENTS = [
 
 export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
   const [selectedDept, setSelectedDept] = useState<string | null>(null);
+  const router = useRouter();
+
+  const handleDelete = async (taskId: string) => {
+    const confirmed = window.confirm('Delete this task? This cannot be undone.');
+    if (!confirmed) return;
+    const result = await deleteTask(taskId);
+    if (!result.success) {
+      alert(result.error || 'Failed to delete task.');
+      return;
+    }
+    router.refresh();
+  };
 
   // Group tasks by department
   const getDeptTasks = (roles: UserRole[]) => {
@@ -130,7 +145,7 @@ export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
                     </div>
                   ) : (
                     deptTasks.map(task => (
-                      <TaskCard key={task.id} task={task} />
+                      <TaskCard key={task.id} task={task} onDelete={handleDelete} />
                     ))
                   )}
                 </div>
@@ -143,7 +158,13 @@ export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
   );
 }
 
-function TaskCard({ task }: { task: TaskWithRelations }) {
+function TaskCard({
+  task,
+  onDelete,
+}: {
+  task: TaskWithRelations;
+  onDelete: (taskId: string) => void;
+}) {
   const isUrgent = task.priority === 'URGENT' || task.priority === 'HIGH';
   
   return (
@@ -159,6 +180,16 @@ function TaskCard({ task }: { task: TaskWithRelations }) {
             In Progress
           </span>
         )}
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete(task.id);
+          }}
+          className="text-slate-400 hover:text-red-500 transition-colors"
+          aria-label="Delete task"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       </div>
 
       <h4 className="font-semibold text-slate-900 text-sm mb-1 pl-2 group-hover:text-blue-600 transition-colors">

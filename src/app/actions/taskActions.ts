@@ -3,6 +3,8 @@
 import { prisma } from '@/lib/prisma';
 import { TaskPriority, TaskStatus, UserRole } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
   try {
@@ -102,5 +104,26 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
   } catch (error) {
     console.error('Failed to create submission task:', error);
     return { success: false, error: 'Failed to submit task' };
+  }
+}
+
+export async function deleteTask(taskId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    if (!role || (role !== UserRole.ADMIN && role !== UserRole.MANAGER)) {
+      return { success: false, error: 'Not authorized to delete tasks.' };
+    }
+
+    await prisma.task.delete({
+      where: { id: taskId },
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to delete task:', error);
+    return { success: false, error: 'Failed to delete task.' };
   }
 }

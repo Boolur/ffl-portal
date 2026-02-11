@@ -50,6 +50,8 @@ export default async function TasksPage() {
     role: sessionRole,
   };
   const tasks = await getTasks(sessionRole);
+  const canDelete =
+    sessionRole === UserRole.ADMIN || sessionRole === UserRole.MANAGER;
 
   return (
     <DashboardShell user={sessionUser}>
@@ -67,7 +69,7 @@ export default async function TasksPage() {
         </div>
       </div>
 
-      <TaskList tasks={tasks} />
+      <TaskList tasks={tasks} canDelete={canDelete} />
     </DashboardShell>
   );
 }

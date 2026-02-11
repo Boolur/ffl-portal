@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Calendar, CheckCircle, Clock, FileText, User } from 'lucide-react';
-import { updateTaskStatus } from '@/app/actions/taskActions';
+import { Calendar, CheckCircle, Clock, FileText, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { deleteTask, updateTaskStatus } from '@/app/actions/taskActions';
 import { TaskStatus } from '@prisma/client';
 
 type Task = {
@@ -18,10 +19,24 @@ type Task = {
   assignedRole: string | null;
 };
 
-export function TaskList({ tasks }: { tasks: Task[] }) {
+export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelete?: boolean }) {
+  const router = useRouter();
+
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
     // In a real app, we'd use optimistic UI here
     await updateTaskStatus(taskId, newStatus);
+    router.refresh();
+  };
+
+  const handleDelete = async (taskId: string) => {
+    const confirmed = window.confirm('Delete this task? This cannot be undone.');
+    if (!confirmed) return;
+    const result = await deleteTask(taskId);
+    if (!result.success) {
+      alert(result.error || 'Failed to delete task.');
+      return;
+    }
+    router.refresh();
   };
 
   if (tasks.length === 0) {
@@ -104,6 +119,15 @@ export function TaskList({ tasks }: { tasks: Task[] }) {
                   className="px-3 py-1.5 text-slate-500 text-sm font-medium hover:text-blue-600 transition-colors"
                 >
                   Start
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => handleDelete(task.id)}
+                  className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                  aria-label="Delete task"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
               )}
             </div>
