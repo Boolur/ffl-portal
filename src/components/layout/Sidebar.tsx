@@ -92,8 +92,14 @@ export function Sidebar() {
     },
   ];
 
-  const filteredNavItems = navItems.filter(item => 
-    item.roles.includes('all') || item.roles.includes(activeRole)
+  const mainNavItems = navItems.filter(item => 
+    (item.roles.includes('all') || item.roles.includes(activeRole)) &&
+    !['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'].includes(item.name)
+  );
+
+  const adminNavItems = navItems.filter(item => 
+    (item.roles.includes('all') || item.roles.includes(activeRole)) &&
+    ['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'].includes(item.name)
   );
 
   return (
@@ -119,7 +125,7 @@ export function Sidebar() {
       </div>
       
       <nav className="flex-1 p-4 space-y-1">
-        {filteredNavItems.map((item) => {
+        {mainNavItems.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link 
@@ -138,6 +144,35 @@ export function Sidebar() {
             </Link>
           );
         })}
+
+        {adminNavItems.length > 0 && (
+          <>
+            <div className="pt-4 pb-2 px-4">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Management
+              </p>
+            </div>
+            {adminNavItems.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <Link 
+                  key={item.name} 
+                  href={item.href}
+                  className={`flex items-center px-4 py-2.5 rounded-lg transition-all group ${
+                    isActive 
+                      ? 'bg-blue-50 text-blue-700 font-medium' 
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <item.icon className={`w-5 h-5 mr-3 transition-colors ${
+                    isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
+                  }`} />
+                  <span className="text-sm">{item.name}</span>
+                </Link>
+              );
+            })}
+          </>
+        )}
       </nav>
 
       <div className="p-4 border-t border-slate-100">
