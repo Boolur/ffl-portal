@@ -56,7 +56,6 @@ async function resolveLoanOfficerId(requestedId?: string | null) {
 
   return null;
 }
-}
 
 async function ensureDefaultStages(loanOfficerId: string) {
   const existing = await prisma.pipelineStage.count({
