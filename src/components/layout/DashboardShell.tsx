@@ -3,7 +3,7 @@
 import React from 'react';
 import { Sidebar } from './Sidebar';
 import { TopNav } from './TopNav';
-import { ImpersonationProvider, useImpersonation } from '@/lib/impersonation';
+import { useImpersonation } from '@/lib/impersonation';
 import { ImpersonationControls } from '@/components/admin/ImpersonationControls';
 import { UserRole } from '@prisma/client';
 
@@ -37,10 +37,8 @@ function DashboardContent({ children, user }: DashboardShellProps) {
 
 export function DashboardShell({ children, user }: DashboardShellProps) {
   return (
-    <ImpersonationProvider initialRole={user.role as UserRole}>
-      <DashboardContent user={user}>
-        {children}
-      </DashboardContent>
-    </ImpersonationProvider>
+    <DashboardContent user={user}>
+      {children}
+    </DashboardContent>
   );
 }
