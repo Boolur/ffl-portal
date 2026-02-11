@@ -37,7 +37,7 @@ export default async function Home() {
   };
   const [loans, adminTasks] = await Promise.all([
     getLoans(user.role, user.id),
-    getAllTasks({ role: user.role, userId: user.id }),
+    getAllTasks({ role: user.role as UserRole, userId: user.id }),
   ]);
 
   return <DashboardWrapper loans={loans} adminTasks={adminTasks} user={user} />;
