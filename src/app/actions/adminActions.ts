@@ -4,12 +4,12 @@ import { prisma } from '@/lib/prisma';
 import { UserRole } from '@prisma/client';
 
 type TaskFilter = {
-  role?: UserRole | string | null;
+  role?: UserRole | null;
   userId?: string | null;
 };
 
 export async function getAllTasks(filter?: TaskFilter) {
-  const role = filter?.role || null;
+  const role = filter?.role ?? null;
   const userId = filter?.userId || null;
   const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
 
@@ -23,8 +23,8 @@ export async function getAllTasks(filter?: TaskFilter) {
         }
       : {
           OR: [
-            { assignedRole: role || undefined },
-            { assignedUserId: userId || undefined },
+            { assignedRole: role ?? undefined },
+            { assignedUserId: userId ?? undefined },
           ],
         };
 
