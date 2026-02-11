@@ -3,6 +3,8 @@
 import { prisma } from '@/lib/prisma';
 import { LoanStage, UserRole } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 const DEFAULT_PIPELINE_STAGES = [
   { name: 'New Lead', color: '#60A5FA' },
@@ -23,13 +25,37 @@ type CsvRow = {
   stage?: string;
 };
 
-async function resolveLoanOfficerId(loanOfficerId?: string | null) {
-  if (loanOfficerId) return loanOfficerId;
-  const lo = await prisma.user.findFirst({
-    where: { role: UserRole.LOAN_OFFICER, active: true },
-    orderBy: { createdAt: 'asc' },
-  });
-  return lo?.id || null;
+async function getSessionUser() {
+  const session = await getServerSession(authOptions);
+  const id = session?.user?.id || null;
+  const role = session?.user?.role as UserRole | undefined;
+  if (!id || !role) return null;
+  return { id, role };
+}
+
+function canViewAll(role?: UserRole | null) {
+  return role === UserRole.ADMIN || role === UserRole.MANAGER;
+}
+
+async function resolveLoanOfficerId(requestedId?: string | null) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) return null;
+
+  if (canViewAll(sessionUser.role)) {
+    if (requestedId) return requestedId;
+    const lo = await prisma.user.findFirst({
+      where: { role: UserRole.LOAN_OFFICER, active: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return lo?.id || null;
+  }
+
+  if (sessionUser.role === UserRole.LOAN_OFFICER) {
+    return sessionUser.id;
+  }
+
+  return null;
+}
 }
 
 async function ensureDefaultStages(loanOfficerId: string) {
@@ -50,11 +76,26 @@ async function ensureDefaultStages(loanOfficerId: string) {
 }
 
 export async function getLoanOfficers() {
-  return prisma.user.findMany({
-    where: { role: UserRole.LOAN_OFFICER, active: true },
-    select: { id: true, name: true, email: true },
-    orderBy: { name: 'asc' },
-  });
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) return [];
+
+  if (canViewAll(sessionUser.role)) {
+    return prisma.user.findMany({
+      where: { role: UserRole.LOAN_OFFICER, active: true },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  if (sessionUser.role === UserRole.LOAN_OFFICER) {
+    const user = await prisma.user.findUnique({
+      where: { id: sessionUser.id },
+      select: { id: true, name: true, email: true },
+    });
+    return user ? [user] : [];
+  }
+
+  return [];
 }
 
 export async function getPipelineData(loanOfficerId?: string | null) {
@@ -90,15 +131,20 @@ export async function getPipelineData(loanOfficerId?: string | null) {
 }
 
 export async function createPipelineStage(loanOfficerId: string, name: string, color?: string | null) {
+  const resolvedId = await resolveLoanOfficerId(loanOfficerId);
+  if (!resolvedId) {
+    throw new Error('Not authorized to create stages for this user.');
+  }
+
   const maxOrder = await prisma.pipelineStage.findFirst({
-    where: { userId: loanOfficerId },
+    where: { userId: resolvedId },
     orderBy: { order: 'desc' },
     select: { order: true },
   });
 
   const stage = await prisma.pipelineStage.create({
     data: {
-      userId: loanOfficerId,
+      userId: resolvedId,
       name,
       order: (maxOrder?.order ?? -1) + 1,
       color: color || null,
@@ -110,6 +156,18 @@ export async function createPipelineStage(loanOfficerId: string, name: string, c
 }
 
 export async function updatePipelineStage(stageId: string, name: string, color?: string | null) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) throw new Error('Not authenticated.');
+  if (!canViewAll(sessionUser.role)) {
+    const stage = await prisma.pipelineStage.findUnique({
+      where: { id: stageId },
+      select: { userId: true },
+    });
+    if (!stage || stage.userId !== sessionUser.id) {
+      throw new Error('Not authorized to update this stage.');
+    }
+  }
+
   const stage = await prisma.pipelineStage.update({
     where: { id: stageId },
     data: { name, color: color || null },
@@ -119,6 +177,18 @@ export async function updatePipelineStage(stageId: string, name: string, color?:
 }
 
 export async function deletePipelineStage(stageId: string, moveToStageId?: string | null) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) throw new Error('Not authenticated.');
+  if (!canViewAll(sessionUser.role)) {
+    const stage = await prisma.pipelineStage.findUnique({
+      where: { id: stageId },
+      select: { userId: true },
+    });
+    if (!stage || stage.userId !== sessionUser.id) {
+      throw new Error('Not authorized to delete this stage.');
+    }
+  }
+
   await prisma.loan.updateMany({
     where: { pipelineStageId: stageId },
     data: { pipelineStageId: moveToStageId || null },
@@ -133,10 +203,15 @@ export async function deletePipelineStage(stageId: string, moveToStageId?: strin
 }
 
 export async function reorderPipelineStages(loanOfficerId: string, orderedStageIds: string[]) {
+  const resolvedId = await resolveLoanOfficerId(loanOfficerId);
+  if (!resolvedId) {
+    throw new Error('Not authorized to reorder stages for this user.');
+  }
+
   await prisma.$transaction(
     orderedStageIds.map((stageId, index) =>
       prisma.pipelineStage.update({
-        where: { id: stageId, userId: loanOfficerId },
+        where: { id: stageId, userId: resolvedId },
         data: { order: index },
       })
     )
@@ -147,6 +222,18 @@ export async function reorderPipelineStages(loanOfficerId: string, orderedStageI
 }
 
 export async function moveLoanToPipelineStage(loanId: string, pipelineStageId: string | null) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) throw new Error('Not authenticated.');
+  if (!canViewAll(sessionUser.role)) {
+    const loan = await prisma.loan.findUnique({
+      where: { id: loanId },
+      select: { loanOfficerId: true },
+    });
+    if (!loan || loan.loanOfficerId !== sessionUser.id) {
+      throw new Error('Not authorized to move this loan.');
+    }
+  }
+
   const loan = await prisma.loan.update({
     where: { id: loanId },
     data: { pipelineStageId },
@@ -157,7 +244,8 @@ export async function moveLoanToPipelineStage(loanId: string, pipelineStageId: s
 }
 
 export async function addPipelineNote(loanId: string, userId: string | null, body: string) {
-  let resolvedUserId = userId;
+  const sessionUser = await getSessionUser();
+  let resolvedUserId = sessionUser?.id || userId;
   if (!resolvedUserId) {
     const loan = await prisma.loan.findUnique({
       where: { id: loanId },
@@ -183,6 +271,9 @@ export async function addPipelineNote(loanId: string, userId: string | null, bod
 }
 
 export async function getLoanDetails(loanId: string) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) throw new Error('Not authenticated.');
+
   const loan = await prisma.loan.findUnique({
     where: { id: loanId },
     include: {
@@ -198,6 +289,9 @@ export async function getLoanDetails(loanId: string) {
   });
 
   if (!loan) return null;
+  if (!canViewAll(sessionUser.role) && loan.loanOfficerId !== sessionUser.id) {
+    throw new Error('Not authorized to view this loan.');
+  }
 
   return {
     ...loan,

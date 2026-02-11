@@ -29,10 +29,6 @@ type LoanOfficerDashboardProps = {
 
 export function LoanOfficerDashboard({ loans = [], submissions = [], loanOfficerName }: LoanOfficerDashboardProps) {
   const [showNewTask, setShowNewTask] = useState(false);
-  // Fallback demo data if no loans passed (or empty)
-  const displayLoans = loans.length > 0 ? loans : [
-    { id: 'LN-DEMO-1', loanNumber: 'LN-2024-001', borrowerName: 'Smith, John (Demo)', amount: 450000, stage: 'Disclosures Sent', updatedAt: new Date() },
-  ];
 
   return (
     <div className="space-y-6">
@@ -86,7 +82,7 @@ export function LoanOfficerDashboard({ loans = [], submissions = [], loanOfficer
           <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">View All</button>
         </div>
         <div className="divide-y divide-slate-100">
-          {displayLoans.map((loan) => (
+          {loans.map((loan) => (
             <div key={loan.id} className="p-6 hover:bg-slate-50 transition-colors flex items-center justify-between group">
               <div className="flex items-center space-x-4">
                 <div className={`w-2 h-2 rounded-full ${
@@ -120,6 +116,9 @@ export function LoanOfficerDashboard({ loans = [], submissions = [], loanOfficer
               </div>
             </div>
           ))}
+          {loans.length === 0 && (
+            <div className="p-6 text-sm text-slate-500">No loans yet.</div>
+          )}
         </div>
       </div>
 

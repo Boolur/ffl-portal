@@ -1,9 +1,35 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
+import { UserRole } from '@prisma/client';
 
-export async function getAllTasks() {
+type TaskFilter = {
+  role?: UserRole | string | null;
+  userId?: string | null;
+};
+
+export async function getAllTasks(filter?: TaskFilter) {
+  const role = filter?.role || null;
+  const userId = filter?.userId || null;
+  const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
+
+  const where = isAdminOrManager
+    ? undefined
+    : role === UserRole.LOAN_OFFICER
+      ? {
+          loan: {
+            loanOfficerId: userId || undefined,
+          },
+        }
+      : {
+          OR: [
+            { assignedRole: role || undefined },
+            { assignedUserId: userId || undefined },
+          ],
+        };
+
   const tasks = await prisma.task.findMany({
+    where,
     include: {
       loan: {
         select: {
@@ -11,20 +37,20 @@ export async function getAllTasks() {
           borrowerName: true,
           loanOfficer: {
             select: {
-              name: true
-            }
-          }
-        }
+              name: true,
+            },
+          },
+        },
       },
       assignedUser: {
         select: {
-          name: true
-        }
-      }
+          name: true,
+        },
+      },
     },
     orderBy: {
-      createdAt: 'desc'
-    }
+      createdAt: 'desc',
+    },
   });
 
   return tasks;

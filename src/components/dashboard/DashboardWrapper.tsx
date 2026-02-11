@@ -38,7 +38,7 @@ function DashboardContent({ loans, adminTasks }: DashboardWrapperProps) {
         <LoanOfficerDashboard
           loans={loans}
           submissions={adminTasks}
-          loanOfficerName="Alex Rivera"
+          loanOfficerName={user.name}
         />
       )}
       
