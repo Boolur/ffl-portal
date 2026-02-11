@@ -6,6 +6,7 @@ import { acceptInvite } from '@/app/actions/userActions';
 export default function InviteAcceptPage({ params }: { params: { token: string } }) {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null
   );
@@ -13,16 +14,33 @@ export default function InviteAcceptPage({ params }: { params: { token: string }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setLoading(true);
     setStatus(null);
-    const result = await acceptInvite({ token: params.token, name, password });
-    if (!result.success) {
-      setStatus({ type: 'error', message: result.error || 'Invite failed.' });
-      setLoading(false);
+    if (!name.trim()) {
+      setStatus({ type: 'error', message: 'Full name is required.' });
       return;
     }
-    setStatus({ type: 'success', message: 'Account created. You can log in now.' });
-    setLoading(false);
+    if (!password) {
+      setStatus({ type: 'error', message: 'Password is required.' });
+      return;
+    }
+    if (password !== confirmPassword) {
+      setStatus({ type: 'error', message: 'Passwords do not match.' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await acceptInvite({ token: params.token, name, password });
+      if (!result.success) {
+        setStatus({ type: 'error', message: result.error || 'Invite failed.' });
+        return;
+      }
+      setStatus({ type: 'success', message: 'Account created. You can log in now.' });
+    } catch (error) {
+      console.error('Invite acceptance failed', error);
+      setStatus({ type: 'error', message: 'Invite failed. Please try again.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -45,12 +63,24 @@ export default function InviteAcceptPage({ params }: { params: { token: string }
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Password
+              New Password
             </label>
             <input
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              className="mt-2 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+              required
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+              Confirm Password
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
               className="mt-2 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
               required
             />
