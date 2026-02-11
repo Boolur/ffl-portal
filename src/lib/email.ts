@@ -1,21 +1,51 @@
-import nodemailer from 'nodemailer';
+const tenantId = process.env.MS_TENANT_ID;
+const clientId = process.env.MS_CLIENT_ID;
+const clientSecret = process.env.MS_CLIENT_SECRET;
+const senderEmail = process.env.MS_SENDER_EMAIL;
 
-const smtpHost = process.env.SMTP_HOST;
-const smtpPort = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
-const smtpUser = process.env.SMTP_USER;
-const smtpPass = process.env.SMTP_PASS;
-const smtpFrom = process.env.SMTP_FROM;
-
-if (!smtpHost || !smtpUser || !smtpPass || !smtpFrom) {
-  console.warn('[email] Missing SMTP configuration.');
+if (!tenantId || !clientId || !clientSecret || !senderEmail) {
+  console.warn('[email] Missing Microsoft Graph email configuration.');
 }
 
-const transporter = nodemailer.createTransport({
-  host: smtpHost,
-  port: smtpPort,
-  secure: smtpPort === 465,
-  auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
-});
+let cachedToken: { value: string; expiresAt: number } | null = null;
+
+async function getAccessToken() {
+  if (cachedToken && cachedToken.expiresAt > Date.now()) {
+    return cachedToken.value;
+  }
+
+  if (!tenantId || !clientId || !clientSecret) {
+    throw new Error('Microsoft Graph configuration missing.');
+  }
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    scope: 'https://graph.microsoft.com/.default',
+    client_secret: clientSecret,
+    grant_type: 'client_credentials',
+  });
+
+  const response = await fetch(
+    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to fetch Graph token: ${errorText}`);
+  }
+
+  const data = (await response.json()) as { access_token: string; expires_in: number };
+  cachedToken = {
+    value: data.access_token,
+    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+  };
+  return cachedToken.value;
+}
 
 export async function sendEmail({
   to,
@@ -28,15 +58,35 @@ export async function sendEmail({
   html?: string;
   text?: string;
 }) {
-  if (!smtpHost || !smtpUser || !smtpPass || !smtpFrom) {
-    throw new Error('SMTP configuration missing.');
+  if (!senderEmail) {
+    throw new Error('Microsoft Graph sender email missing.');
   }
 
-  return transporter.sendMail({
-    from: smtpFrom,
-    to,
-    subject,
-    text,
-    html,
-  });
+  const accessToken = await getAccessToken();
+  const contentType = html ? 'HTML' : 'Text';
+  const content = html || text || '';
+
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(senderEmail)}/sendMail`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: {
+          subject,
+          body: { contentType, content },
+          toRecipients: [{ emailAddress: { address: to } }],
+        },
+        saveToSentItems: true,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to send email via Graph: ${errorText}`);
+  }
 }
