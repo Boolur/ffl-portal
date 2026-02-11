@@ -14,7 +14,7 @@ type DashboardWrapperProps = {
   user: { name: string; role: string };
 };
 
-function DashboardContent({ loans, adminTasks }: DashboardWrapperProps) {
+function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
   const { activeRole } = useImpersonation();
 
   return (
