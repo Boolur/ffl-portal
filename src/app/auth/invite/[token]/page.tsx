@@ -1,9 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { acceptInvite } from '@/app/actions/userActions';
 
-export default function InviteAcceptPage({ params }: { params: { token: string } }) {
+export default function InviteAcceptPage() {
+  const params = useParams();
+  const token = useMemo(() => {
+    const raw = params?.token;
+    if (Array.isArray(raw)) return raw[0];
+    return raw || '';
+  }, [params]);
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -23,13 +30,17 @@ export default function InviteAcceptPage({ params }: { params: { token: string }
       setStatus({ type: 'error', message: 'Password is required.' });
       return;
     }
+    if (!token) {
+      setStatus({ type: 'error', message: 'Invite link is missing a token.' });
+      return;
+    }
     if (password !== confirmPassword) {
       setStatus({ type: 'error', message: 'Passwords do not match.' });
       return;
     }
     setLoading(true);
     try {
-      const result = await acceptInvite({ token: params.token, name, password });
+      const result = await acceptInvite({ token, name, password });
       if (!result.success) {
         setStatus({ type: 'error', message: result.error || 'Invite failed.' });
         return;
