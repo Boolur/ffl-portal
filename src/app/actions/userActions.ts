@@ -151,7 +151,11 @@ export async function inviteUser({
     return { success: true };
   } catch (error) {
     console.error('Failed to send invite email', error);
-    return { success: false, error: 'Failed to send invite email.' };
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Failed to send invite email.';
+    return { success: false, error: message };
   }
 }
 
@@ -200,40 +204,49 @@ export async function acceptInvite({
 }
 
 export async function requestPasswordReset(email: string) {
-  const trimmedEmail = normalizeEmail(email);
-  if (!trimmedEmail) {
-    return { success: false, error: 'Email is required.' };
+  try {
+    const trimmedEmail = normalizeEmail(email);
+    if (!trimmedEmail) {
+      return { success: false, error: 'Email is required.' };
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+      select: { id: true, name: true },
+    });
+
+    if (!user) {
+      return { success: false, error: 'User not found.' };
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + RESET_TTL_HOURS * 60 * 60 * 1000);
+
+    await prisma.passwordResetToken.create({
+      data: {
+        token,
+        userId: user.id,
+        expiresAt,
+      },
+    });
+
+    const resetUrl = `${getBaseUrl()}/auth/reset/${token}`;
+    await sendEmail({
+      to: trimmedEmail,
+      subject: 'Reset your FFL Portal password',
+      text: `Reset your password here: ${resetUrl}`,
+      html: `<p>Reset your password:</p><p><a href="${resetUrl}">Reset Password</a></p>`,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send password reset email', error);
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Failed to send password reset email.';
+    return { success: false, error: message };
   }
-
-  const user = await prisma.user.findUnique({
-    where: { email: trimmedEmail },
-    select: { id: true, name: true },
-  });
-
-  if (!user) {
-    return { success: false, error: 'User not found.' };
-  }
-
-  const token = randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + RESET_TTL_HOURS * 60 * 60 * 1000);
-
-  await prisma.passwordResetToken.create({
-    data: {
-      token,
-      userId: user.id,
-      expiresAt,
-    },
-  });
-
-  const resetUrl = `${getBaseUrl()}/auth/reset/${token}`;
-  await sendEmail({
-    to: trimmedEmail,
-    subject: 'Reset your FFL Portal password',
-    text: `Reset your password here: ${resetUrl}`,
-    html: `<p>Reset your password:</p><p><a href="${resetUrl}">Reset Password</a></p>`,
-  });
-
-  return { success: true };
 }
 
 export async function resetPasswordWithToken(token: string, password: string) {
