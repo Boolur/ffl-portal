@@ -148,6 +148,7 @@ model InviteToken {
   id          String   @id @default(uuid())
   token       String   @unique
   email       String
+  name        String?
   role        UserRole
   createdById String
   createdBy   User     @relation("InvitesCreated", fields: [createdById], references: [id])

@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { signIn } from 'next-auth/react';
 import { acceptInvite } from '@/app/actions/userActions';
 
 export default function InviteAcceptPage() {
@@ -11,7 +12,6 @@ export default function InviteAcceptPage() {
     if (Array.isArray(raw)) return raw[0];
     return raw || '';
   }, [params]);
-  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(
@@ -22,10 +22,6 @@ export default function InviteAcceptPage() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setStatus(null);
-    if (!name.trim()) {
-      setStatus({ type: 'error', message: 'Full name is required.' });
-      return;
-    }
     if (!password) {
       setStatus({ type: 'error', message: 'Password is required.' });
       return;
@@ -40,12 +36,26 @@ export default function InviteAcceptPage() {
     }
     setLoading(true);
     try {
-      const result = await acceptInvite({ token, name, password });
+      const result = await acceptInvite({ token, password });
       if (!result.success) {
         setStatus({ type: 'error', message: result.error || 'Invite failed.' });
         return;
       }
-      setStatus({ type: 'success', message: 'Account created. You can log in now.' });
+      const email = result.email;
+      if (!email) {
+        setStatus({ type: 'error', message: 'Account created, but email is missing.' });
+        return;
+      }
+      const signInResult = await signIn('credentials', {
+        email,
+        password,
+        redirect: true,
+        callbackUrl: '/',
+      });
+      if (signInResult?.error) {
+        setStatus({ type: 'error', message: 'Account created, but login failed.' });
+        return;
+      }
     } catch (error) {
       console.error('Invite acceptance failed', error);
       const message =
@@ -65,17 +75,6 @@ export default function InviteAcceptPage() {
         <p className="text-sm text-slate-500 mt-1">Set your password to access the portal.</p>
 
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Full Name
-            </label>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="mt-2 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-              required
-            />
-          </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
               New Password

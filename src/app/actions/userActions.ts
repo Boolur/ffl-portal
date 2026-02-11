@@ -133,6 +133,7 @@ export async function inviteUser({
       data: {
         token,
         email: trimmedEmail,
+        name: trimmedName,
         role,
         createdById,
         expiresAt,
@@ -229,7 +230,7 @@ export async function acceptInvite({
 }: {
   token: string;
   password: string;
-  name: string;
+  name?: string;
 }) {
   try {
     const invite = await prisma.inviteToken.findUnique({
@@ -240,7 +241,7 @@ export async function acceptInvite({
       return { success: false, error: 'Invite is invalid or expired.' };
     }
 
-    const trimmedName = name.trim();
+    const trimmedName = invite.name?.trim() || name?.trim() || invite.email;
     const trimmedPassword = password.trim();
     if (!trimmedName || !trimmedPassword) {
       return { success: false, error: 'Name and password are required.' };
@@ -270,7 +271,7 @@ export async function acceptInvite({
       data: { acceptedAt: new Date() },
     });
 
-    return { success: true };
+    return { success: true, email: invite.email };
   } catch (error) {
     console.error('Failed to accept invite', error);
     const message =
