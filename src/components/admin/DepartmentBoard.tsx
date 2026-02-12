@@ -12,10 +12,12 @@ import {
   Search,
   ArrowRight,
   Trash2,
-  Loader2
+  Loader2,
+  FileText
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { deleteTask } from '@/app/actions/taskActions';
+import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 
 type TaskWithRelations = {
   id: string;
@@ -26,6 +28,12 @@ type TaskWithRelations = {
   createdAt: Date;
   dueDate: Date | null;
   assignedRole: string | null;
+  attachments?: {
+    id: string;
+    filename: string;
+    purpose: string;
+    createdAt: Date;
+  }[];
   loan: {
     loanNumber: string;
     borrowerName: string;
@@ -47,8 +55,32 @@ const DEPARTMENTS = [
     color: 'bg-indigo-50 border-indigo-100 text-indigo-700'
   },
   { 
-    id: 'VA', 
-    label: 'Virtual Assistants', 
+    id: 'VA_TITLE', 
+    label: 'VA - Title', 
+    roles: [UserRole.VA_TITLE],
+    color: 'bg-purple-50 border-purple-100 text-purple-700'
+  },
+  { 
+    id: 'VA_HOI', 
+    label: 'VA - HOI', 
+    roles: [UserRole.VA_HOI],
+    color: 'bg-purple-50 border-purple-100 text-purple-700'
+  },
+  { 
+    id: 'VA_PAYOFF', 
+    label: 'VA - Payoff', 
+    roles: [UserRole.VA_PAYOFF],
+    color: 'bg-purple-50 border-purple-100 text-purple-700'
+  },
+  { 
+    id: 'VA_APPRAISAL', 
+    label: 'VA - Appraisal', 
+    roles: [UserRole.VA_APPRAISAL],
+    color: 'bg-purple-50 border-purple-100 text-purple-700'
+  },
+  { 
+    id: 'VA_GENERAL', 
+    label: 'VA - General', 
     roles: [UserRole.VA],
     color: 'bg-purple-50 border-purple-100 text-purple-700'
   },
@@ -85,6 +117,15 @@ export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
     }
     router.refresh();
     setDeletingId(null);
+  };
+
+  const handleOpenAttachment = async (attachmentId: string) => {
+    const result = await getTaskAttachmentDownloadUrl(attachmentId);
+    if (!result.success) {
+      alert(result.error || 'Failed to open attachment.');
+      return;
+    }
+    window.open(result.url, '_blank', 'noopener,noreferrer');
   };
 
   // Group tasks by department
@@ -157,6 +198,7 @@ export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
                         task={task} 
                         onDelete={handleDelete} 
                         isDeleting={deletingId === task.id}
+                        onOpenAttachment={handleOpenAttachment}
                       />
                     ))
                   )}
@@ -174,12 +216,16 @@ function TaskCard({
   task,
   onDelete,
   isDeleting,
+  onOpenAttachment,
 }: {
   task: TaskWithRelations;
   onDelete: (taskId: string) => void;
   isDeleting: boolean;
+  onOpenAttachment: (attachmentId: string) => void;
 }) {
   const isUrgent = task.priority === 'URGENT' || task.priority === 'HIGH';
+  const proofAttachments =
+    task.attachments?.filter((a) => a.purpose === 'PROOF') ?? [];
   
   return (
     <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-all cursor-pointer group relative overflow-hidden">
@@ -213,6 +259,31 @@ function TaskCard({
       <p className="text-xs text-slate-500 mb-3 pl-2 truncate">
         {task.loan.borrowerName}
       </p>
+
+      {proofAttachments.length > 0 && (
+        <div className="pl-2 mb-3 flex flex-wrap gap-2">
+          {proofAttachments.slice(0, 2).map((att) => (
+            <button
+              key={att.id}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenAttachment(att.id);
+              }}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+              title={att.filename}
+            >
+              <FileText className="h-3.5 w-3.5 text-slate-500" />
+              <span className="max-w-[240px] truncate">Proof</span>
+            </button>
+          ))}
+          {proofAttachments.length > 2 && (
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+              +{proofAttachments.length - 2} more
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-between pt-3 border-t border-slate-50 pl-2">
         <div className="flex items-center space-x-2">

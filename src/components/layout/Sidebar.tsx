@@ -45,7 +45,20 @@ export function Sidebar() {
       name: 'Tasks', 
       icon: CheckSquare, 
       href: '/tasks', 
-      roles: [UserRole.LOAN_OFFICER, UserRole.DISCLOSURE_SPECIALIST, UserRole.VA, UserRole.QC, UserRole.PROCESSOR_SR, UserRole.PROCESSOR_JR, UserRole.ADMIN, UserRole.MANAGER] 
+      roles: [
+        UserRole.LOAN_OFFICER,
+        UserRole.DISCLOSURE_SPECIALIST,
+        UserRole.VA,
+        UserRole.VA_TITLE,
+        UserRole.VA_HOI,
+        UserRole.VA_PAYOFF,
+        UserRole.VA_APPRAISAL,
+        UserRole.QC,
+        UserRole.PROCESSOR_SR,
+        UserRole.PROCESSOR_JR,
+        UserRole.ADMIN,
+        UserRole.MANAGER,
+      ] 
     },
     { 
       name: 'Team', 

@@ -9,6 +9,7 @@ import {
 } from '@/app/actions/teamActions';
 import { deleteTask } from '@/app/actions/taskActions';
 import { deleteUser } from '@/app/actions/userActions';
+import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import {
   User,
   Briefcase,
@@ -20,6 +21,7 @@ import {
   Loader2,
   X,
   AlertCircle,
+  FileText,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -70,6 +72,15 @@ export function TeamManagement({
     await deleteTask(taskId);
     if (selectedMemberId) handleSelectMember(selectedMemberId);
     router.refresh();
+  };
+
+  const handleOpenTaskAttachment = async (attachmentId: string) => {
+    const result = await getTaskAttachmentDownloadUrl(attachmentId);
+    if (!result.success) {
+      alert(result.error || 'Failed to open attachment.');
+      return;
+    }
+    window.open(result.url, '_blank', 'noopener,noreferrer');
   };
 
   const handleReassignAllLoans = async () => {
@@ -262,6 +273,25 @@ export function TeamManagement({
                             <p className="text-xs text-slate-500">
                               {task.loan.borrowerName} • {task.status}
                             </p>
+                            {(task.attachments?.length || 0) > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {task.attachments!
+                                  .filter((a) => a.purpose === 'PROOF')
+                                  .slice(0, 2)
+                                  .map((a) => (
+                                    <button
+                                      key={a.id}
+                                      type="button"
+                                      onClick={() => void handleOpenTaskAttachment(a.id)}
+                                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                      title={a.filename}
+                                    >
+                                      <FileText className="h-3.5 w-3.5 text-slate-500" />
+                                      Proof
+                                    </button>
+                                  ))}
+                              </div>
+                            )}
                           </div>
                           <button
                             onClick={() => handleDeleteTask(task.id)}

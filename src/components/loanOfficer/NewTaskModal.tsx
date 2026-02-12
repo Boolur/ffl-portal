@@ -4,6 +4,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { X, ClipboardCheck, ShieldCheck, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createSubmissionTask } from '@/app/actions/taskActions';
+import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
+import { TaskAttachmentPurpose } from '@prisma/client';
+import { attachClientDocumentsToTask, getClientFolderForLoan, getMyPipelineClients } from '@/app/actions/clientFolderActions';
 
 type NewTaskModalProps = {
   open: boolean;
@@ -252,6 +255,8 @@ function DisclosuresForm({
     loanOfficer: loanOfficerName,
     borrowerFirstName: '',
     borrowerLastName: '',
+    borrowerPhone: '',
+    borrowerEmail: '',
     arriveLoanNumber: '',
     channel: '',
     investor: '',
@@ -276,6 +281,8 @@ function DisclosuresForm({
       loanOfficerName: form.loanOfficer,
       borrowerFirstName: form.borrowerFirstName,
       borrowerLastName: form.borrowerLastName,
+      borrowerPhone: form.borrowerPhone,
+      borrowerEmail: form.borrowerEmail,
       arriveLoanNumber: form.arriveLoanNumber,
       loanAmount: form.loanAmount,
       notes: form.notes,
@@ -325,6 +332,8 @@ function DisclosuresForm({
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required />
         <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required />
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required />
+        <Input label="Borrower Phone (recommended)" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} />
+        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} />
         <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required />
         <Input label="Investor" value={form.investor} onChange={(v) => update('investor', v)} required />
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required />
@@ -360,12 +369,30 @@ function QcForm({
   onSubmitted: () => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [stipFiles, setStipFiles] = useState<File[]>([]);
+  const [stipError, setStipError] = useState('');
+  const [pipelineLoans, setPipelineLoans] = useState<
+    Array<{
+      id: string;
+      loanNumber: string;
+      borrowerName: string;
+      borrowerPhone: string | null;
+      borrowerEmail: string | null;
+    }>
+  >([]);
+  const [selectedPipelineLoanId, setSelectedPipelineLoanId] = useState<string>('');
+  const [clientFolderDocs, setClientFolderDocs] = useState<
+    Array<{ id: string; filename: string; createdAt: Date }>
+  >([]);
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [form, setForm] = useState({
     preApproved: '',
     loanOfficer: loanOfficerName,
     secondaryLoanOfficer: '',
     borrowerFirstName: '',
     borrowerLastName: '',
+    borrowerPhone: '',
+    borrowerEmail: '',
     arriveLoanNumber: '',
     channel: '',
     investor: '',
@@ -386,31 +413,163 @@ function QcForm({
     notesGoals: '',
   });
   const [importError, setImportError] = useState('');
+  const [submitError, setSubmitError] = useState('');
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const submit = (e: React.FormEvent) => {
+  useEffect(() => {
+    const load = async () => {
+      const result = await getMyPipelineClients();
+      if (result.success) {
+        setPipelineLoans(
+          (result.loans as any[]).map((l) => ({
+            id: l.id,
+            loanNumber: l.loanNumber,
+            borrowerName: l.borrowerName,
+            borrowerPhone: l.borrowerPhone ?? null,
+            borrowerEmail: l.borrowerEmail ?? null,
+          }))
+        );
+      }
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPipelineLoanId) {
+      setClientFolderDocs([]);
+      setSelectedDocIds([]);
+      return;
+    }
+
+    const loan = pipelineLoans.find((l) => l.id === selectedPipelineLoanId);
+    if (loan) {
+      const parts = (loan.borrowerName || '').trim().split(/\s+/).filter(Boolean);
+      const first = parts[0] || '';
+      const last = parts.length > 1 ? parts.slice(1).join(' ') : '';
+      setForm((prev) => ({
+        ...prev,
+        borrowerFirstName: first || prev.borrowerFirstName,
+        borrowerLastName: last || prev.borrowerLastName,
+        arriveLoanNumber: loan.loanNumber || prev.arriveLoanNumber,
+        borrowerPhone: loan.borrowerPhone || prev.borrowerPhone,
+        borrowerEmail: loan.borrowerEmail || prev.borrowerEmail,
+      }));
+    }
+
+    const loadDocs = async () => {
+      const folder = await getClientFolderForLoan(selectedPipelineLoanId);
+      if (folder.success) {
+        setClientFolderDocs(
+          (folder.documents as any[]).map((d) => ({
+            id: d.id,
+            filename: d.filename,
+            createdAt: d.createdAt,
+          }))
+        );
+      } else {
+        setClientFolderDocs([]);
+      }
+    };
+    loadDocs();
+  }, [selectedPipelineLoanId, pipelineLoans]);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+    setSubmitError('');
+
+    if (stipFiles.length < 1) {
+      setStipError('Initial STIPs are required (upload at least 1 file).');
+      return;
+    }
+
+    setStipError('');
     setIsSubmitting(true);
-    createSubmissionTask({
-      submissionType: 'QC',
-      loanOfficerName: form.loanOfficer,
-      borrowerFirstName: form.borrowerFirstName,
-      borrowerLastName: form.borrowerLastName,
-      arriveLoanNumber: form.arriveLoanNumber,
-      loanAmount: form.loanAmount,
-      notes: form.notesGoals,
-    }).then((res) => {
-      if (res.success) {
-        onSubmitted();
-      } else {
+
+    try {
+      const res = await createSubmissionTask({
+        submissionType: 'QC',
+        loanOfficerName: form.loanOfficer,
+        borrowerFirstName: form.borrowerFirstName,
+        borrowerLastName: form.borrowerLastName,
+        borrowerPhone: form.borrowerPhone,
+        borrowerEmail: form.borrowerEmail,
+        arriveLoanNumber: form.arriveLoanNumber,
+        loanAmount: form.loanAmount,
+        notes: form.notesGoals,
+      });
+
+      if (!res.success || !res.taskId) {
+        setSubmitError(res.error || 'Failed to submit QC task.');
         setIsSubmitting(false);
+        return;
       }
-    }).catch(() => {
+
+      // Upload required STIPs and attach to task
+      for (const file of stipFiles) {
+        const upload = await createTaskAttachmentUploadUrl({
+          taskId: res.taskId,
+          purpose: TaskAttachmentPurpose.STIP,
+          filename: file.name,
+        });
+
+        if (!upload.success || !upload.signedUrl || !upload.path) {
+          setSubmitError(upload.error || 'Failed to create upload URL.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const put = await fetch(upload.signedUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+          },
+          body: file,
+        });
+
+        if (!put.ok) {
+          setSubmitError('Failed to upload a STIP file. Please try again.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const saved = await finalizeTaskAttachment({
+          taskId: res.taskId,
+          purpose: TaskAttachmentPurpose.STIP,
+          storagePath: upload.path,
+          filename: file.name,
+          contentType: file.type || 'application/octet-stream',
+          sizeBytes: file.size,
+        });
+
+        if (!saved.success) {
+          setSubmitError(saved.error || 'Failed to save uploaded file.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      if (selectedDocIds.length > 0) {
+        const attached = await attachClientDocumentsToTask({
+          taskId: res.taskId,
+          documentIds: selectedDocIds,
+          purpose: TaskAttachmentPurpose.STIP,
+        });
+        if (!attached.success) {
+          setSubmitError(attached.error || 'Failed to attach client documents.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      onSubmitted();
+    } catch (error) {
+      console.error(error);
+      setSubmitError('Failed to submit QC task.');
       setIsSubmitting(false);
-    });
+    }
   };
 
   const handleFileUpload = async (file: File | null) => {
@@ -443,11 +602,100 @@ function QcForm({
       {importError && (
         <p className="text-xs text-red-600">{importError}</p>
       )}
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-sm font-semibold text-slate-900">Select Client (optional)</p>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Pick a client from your pipeline to auto-fill and optionally include docs from their folder.
+        </p>
+        <select
+          value={selectedPipelineLoanId}
+          onChange={(e) => setSelectedPipelineLoanId(e.target.value)}
+          disabled={isSubmitting}
+          className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-60"
+        >
+          <option value="">No selection</option>
+          {pipelineLoans.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.borrowerName} • {l.loanNumber}
+            </option>
+          ))}
+        </select>
+
+        {clientFolderDocs.length > 0 && (
+          <div className="mt-3">
+            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+              Include from Client Folder
+            </p>
+            <div className="mt-2 max-h-36 overflow-y-auto space-y-2 pr-1">
+              {clientFolderDocs.map((d) => {
+                const checked = selectedDocIds.includes(d.id);
+                return (
+                  <label
+                    key={d.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-700 truncate">{d.filename}</p>
+                      <p className="text-[10px] text-slate-400">
+                        {new Date(d.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedDocIds((prev) =>
+                          checked ? prev.filter((id) => id !== d.id) : [...prev, d.id]
+                        );
+                      }}
+                      disabled={isSubmitting}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Initial STIPs (required)</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Upload at least 1 file (PDF/Image/Doc). These will be attached to the QC task.
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-slate-700 rounded-full border border-slate-200 bg-white px-2 py-1">
+            {stipFiles.length} selected
+          </span>
+        </div>
+
+        <div className="mt-3">
+          <input
+            type="file"
+            multiple
+            accept="application/pdf,image/*,.doc,.docx"
+            disabled={isSubmitting}
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              setStipFiles(files);
+              if (files.length) setStipError('');
+              e.currentTarget.value = '';
+            }}
+            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60"
+          />
+          {stipError && <p className="mt-2 text-xs text-red-600">{stipError}</p>}
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
         <Input label="Secondary Loan Officer" value={form.secondaryLoanOfficer} onChange={(v) => update('secondaryLoanOfficer', v)} />
         <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required />
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required />
+        <Input label="Borrower Phone (recommended)" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} />
+        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} />
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required />
         <RadioGroup
           label="Is loan in Pre-Approved Status in Arrive?"
@@ -505,6 +753,11 @@ function QcForm({
         />
       </div>
       <Textarea label="Notes / Goals" value={form.notesGoals} onChange={(v) => update('notesGoals', v)} />
+      {submitError && (
+        <p className="text-sm rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2">
+          {submitError}
+        </p>
+      )}
 
       <div className="flex justify-end gap-3 pt-2">
         <button type="button" className="app-btn-secondary">

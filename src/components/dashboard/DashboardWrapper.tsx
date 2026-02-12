@@ -39,6 +39,22 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
       title: 'VA Queue',
       subtitle: 'Work assigned support tasks with clear priority.',
     },
+    [UserRole.VA_TITLE]: {
+      title: 'VA Queue (Title)',
+      subtitle: 'Complete Title tasks and upload proof before finishing.',
+    },
+    [UserRole.VA_HOI]: {
+      title: 'VA Queue (HOI)',
+      subtitle: 'Complete HOI tasks and upload proof before finishing.',
+    },
+    [UserRole.VA_PAYOFF]: {
+      title: 'VA Queue (Payoff)',
+      subtitle: 'Complete Payoff tasks and upload proof before finishing.',
+    },
+    [UserRole.VA_APPRAISAL]: {
+      title: 'VA Queue (Appraisal)',
+      subtitle: 'Complete Appraisal tasks and upload proof before finishing.',
+    },
     [UserRole.QC]: {
       title: 'QC Queue',
       subtitle: 'Review and complete quality control tasks.',
@@ -78,7 +94,17 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
       )}
 
       {/* For other roles, we show their specific queue */}
-      {['DISCLOSURE_SPECIALIST', 'VA', 'QC', 'PROCESSOR_JR', 'PROCESSOR_SR'].includes(activeRole) && (
+      {[
+        'DISCLOSURE_SPECIALIST',
+        'VA',
+        'VA_TITLE',
+        'VA_HOI',
+        'VA_PAYOFF',
+        'VA_APPRAISAL',
+        'QC',
+        'PROCESSOR_JR',
+        'PROCESSOR_SR',
+      ].includes(activeRole) && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Active Tasks</h2>
@@ -87,7 +113,7 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
             </span>
           </div>
           <div className="p-6">
-            <TaskList tasks={roleTasks} />
+            <TaskList tasks={roleTasks} currentRole={activeRole} />
           </div>
         </div>
       )}

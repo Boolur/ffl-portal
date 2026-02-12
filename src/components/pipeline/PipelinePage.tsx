@@ -12,6 +12,12 @@ import {
   moveLoanToPipelineStage,
   updatePipelineStage,
 } from '@/app/actions/pipelineActions';
+import {
+  createClientDocumentUploadUrl,
+  finalizeClientDocument,
+  getClientDocumentDownloadUrl,
+  getClientFolderForLoan,
+} from '@/app/actions/clientFolderActions';
 import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
 import {
@@ -22,6 +28,7 @@ import {
   Loader2,
   MoreVertical,
   ChevronRight,
+  FileText,
 } from 'lucide-react';
 
 type LoanOfficer = {
@@ -67,6 +74,16 @@ type LoanDetails = {
     createdAt: Date;
     user: { name: string };
   }>;
+};
+
+type ClientDocumentRow = {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  folder: string | null;
+  tags: string[];
+  createdAt: Date;
 };
 
 type CsvRow = {
@@ -145,6 +162,10 @@ export function PipelinePage() {
 
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
   const [loanDetails, setLoanDetails] = useState<LoanDetails | null>(null);
+  const [clientDocuments, setClientDocuments] = useState<ClientDocumentRow[]>([]);
+  const [clientFolderLoading, setClientFolderLoading] = useState(false);
+  const [clientFolderError, setClientFolderError] = useState<string | null>(null);
+  const [clientDocUploading, setClientDocUploading] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [draggedLoanId, setDraggedLoanId] = useState<string | null>(null);
   const [dragOverStageId, setDragOverStageId] = useState<string | null>(null);
@@ -251,6 +272,8 @@ export function PipelinePage() {
   useEffect(() => {
     if (!selectedLoanId) {
       setLoanDetails(null);
+      setClientDocuments([]);
+      setClientFolderError(null);
       return;
     }
     const loadDetails = async () => {
@@ -258,6 +281,27 @@ export function PipelinePage() {
       setLoanDetails(details);
     };
     loadDetails();
+
+    const loadFolder = async () => {
+      setClientFolderLoading(true);
+      setClientFolderError(null);
+      try {
+        const folder = await getClientFolderForLoan(selectedLoanId);
+        if (!folder.success) {
+          setClientFolderError(folder.error || 'Failed to load client folder.');
+          setClientDocuments([]);
+          return;
+        }
+        setClientDocuments(folder.documents as ClientDocumentRow[]);
+      } catch (err) {
+        console.error(err);
+        setClientFolderError('Failed to load client folder.');
+        setClientDocuments([]);
+      } finally {
+        setClientFolderLoading(false);
+      }
+    };
+    loadFolder();
   }, [selectedLoanId]);
 
   useEffect(() => {
@@ -335,6 +379,69 @@ export function PipelinePage() {
       setLoanDetails(details);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenClientDocument = async (documentId: string) => {
+    const result = await getClientDocumentDownloadUrl(documentId);
+    if (!result.success) {
+      alert(result.error || 'Failed to open document.');
+      return;
+    }
+    window.open(result.url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleUploadClientDocument = async (file: File) => {
+    if (!selectedLoanId) return;
+    if (clientDocUploading) return;
+    setClientDocUploading(true);
+
+    try {
+      const upload = await createClientDocumentUploadUrl({
+        loanId: selectedLoanId,
+        filename: file.name,
+      });
+
+      if (!upload.success || !upload.signedUrl || !upload.path || !upload.clientId) {
+        alert(upload.error || 'Failed to create upload URL.');
+        return;
+      }
+
+      const put = await fetch(upload.signedUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        body: file,
+      });
+
+      if (!put.ok) {
+        alert('Upload failed. Please try again.');
+        return;
+      }
+
+      const saved = await finalizeClientDocument({
+        clientId: upload.clientId,
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream',
+        sizeBytes: file.size,
+        storagePath: upload.path,
+      });
+
+      if (!saved.success) {
+        alert(saved.error || 'Failed to save document.');
+        return;
+      }
+
+      const folder = await getClientFolderForLoan(selectedLoanId);
+      if (folder.success) {
+        setClientDocuments(folder.documents as ClientDocumentRow[]);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Upload failed. Please try again.');
+    } finally {
+      setClientDocUploading(false);
     }
   };
 
@@ -697,6 +804,75 @@ export function PipelinePage() {
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Client Folder</p>
+                    <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">
+                      {clientDocuments.length}
+                    </span>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                    <input
+                      type="file"
+                      accept="application/pdf,image/*,.doc,.docx"
+                      disabled={clientDocUploading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.currentTarget.value = '';
+                        if (!file) return;
+                        void handleUploadClientDocument(file);
+                      }}
+                      className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-100 disabled:opacity-60"
+                    />
+
+                    {clientFolderLoading && (
+                      <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading documents...
+                      </div>
+                    )}
+
+                    {clientFolderError && (
+                      <p className="mt-3 text-xs text-red-600">{clientFolderError}</p>
+                    )}
+
+                    {!clientFolderLoading && !clientFolderError && clientDocuments.length === 0 && (
+                      <p className="mt-3 text-xs text-slate-400 italic">
+                        No documents uploaded yet.
+                      </p>
+                    )}
+
+                    {clientDocuments.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {clientDocuments.slice(0, 8).map((doc) => (
+                          <button
+                            key={doc.id}
+                            type="button"
+                            onClick={() => void handleOpenClientDocument(doc.id)}
+                            className="w-full flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left hover:bg-slate-50"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="h-4 w-4 text-slate-400 shrink-0" />
+                              <span className="text-xs font-semibold text-slate-700 truncate">
+                                {doc.filename}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-semibold text-slate-400">
+                              {new Date(doc.createdAt).toLocaleDateString()}
+                            </span>
+                          </button>
+                        ))}
+                        {clientDocuments.length > 8 && (
+                          <p className="text-[10px] text-slate-400">
+                            Showing 8 of {clientDocuments.length}. (Full view coming next.)
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 

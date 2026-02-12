@@ -46,6 +46,15 @@ async function getTasks(role: string, userId?: string) {
           stage: true, // Include stage
         },
       },
+      attachments: {
+        select: {
+          id: true,
+          filename: true,
+          purpose: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      },
     },
     orderBy: {
       dueDate: 'asc', // Urgent first
@@ -72,6 +81,10 @@ export default async function TasksPage() {
     [UserRole.MANAGER]: 'Oversee team workload and remove invalid requests.',
     [UserRole.DISCLOSURE_SPECIALIST]: 'Work disclosure tasks by due date and status.',
     [UserRole.VA]: 'Track support tasks and progress them to completion.',
+    [UserRole.VA_TITLE]: 'Complete Title tasks and upload proof before finishing.',
+    [UserRole.VA_HOI]: 'Complete HOI tasks and upload proof before finishing.',
+    [UserRole.VA_PAYOFF]: 'Complete Payoff tasks and upload proof before finishing.',
+    [UserRole.VA_APPRAISAL]: 'Complete Appraisal tasks and upload proof before finishing.',
     [UserRole.QC]: 'Review and complete quality control tasks.',
     [UserRole.PROCESSOR_JR]: 'Handle processing tasks and keep files moving.',
     [UserRole.PROCESSOR_SR]: 'Handle advanced processing tasks and escalations.',
@@ -93,7 +106,7 @@ export default async function TasksPage() {
         </div>
       </div>
 
-      <TaskList tasks={tasks} canDelete={canDelete} />
+      <TaskList tasks={tasks} canDelete={canDelete} currentRole={sessionRole as string} />
     </DashboardShell>
   );
 }

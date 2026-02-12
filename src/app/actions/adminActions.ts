@@ -42,6 +42,15 @@ export async function getAllTasks(filter?: TaskFilter) {
           },
         },
       },
+      attachments: {
+        select: {
+          id: true,
+          filename: true,
+          purpose: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      },
       assignedUser: {
         select: {
           name: true,

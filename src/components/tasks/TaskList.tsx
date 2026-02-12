@@ -1,10 +1,11 @@
 'use client';
 
 import React from 'react';
-import { Calendar, CheckCircle, Clock, FileText, Trash2, Loader2 } from 'lucide-react';
+import { Calendar, CheckCircle, FileText, Trash2, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { deleteTask, updateTaskStatus } from '@/app/actions/taskActions';
-import { TaskStatus } from '@prisma/client';
+import { createTaskAttachmentUploadUrl, finalizeTaskAttachment, getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
+import { TaskAttachmentPurpose, TaskKind, TaskStatus, UserRole } from '@prisma/client';
 
 type Task = {
   id: string;
@@ -12,26 +13,110 @@ type Task = {
   description: string | null;
   status: TaskStatus;
   dueDate: Date | null;
+  kind: TaskKind | null;
   loan: {
     loanNumber: string;
     borrowerName: string;
     stage?: string;
   };
   assignedRole: string | null;
+  attachments?: {
+    id: string;
+    filename: string;
+    purpose: TaskAttachmentPurpose;
+    createdAt: Date;
+  }[];
 };
 
-export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelete?: boolean }) {
+export function TaskList({
+  tasks,
+  canDelete = false,
+  currentRole,
+}: {
+  tasks: Task[];
+  canDelete?: boolean;
+  currentRole: string;
+}) {
   const router = useRouter();
   const [updatingId, setUpdatingId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [uploadingId, setUploadingId] = React.useState<string | null>(null);
 
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
     if (updatingId) return;
     setUpdatingId(taskId);
     // In a real app, we'd use optimistic UI here
-    await updateTaskStatus(taskId, newStatus);
+    const result = await updateTaskStatus(taskId, newStatus);
+    if (!result.success) {
+      alert(result.error || 'Failed to update task.');
+    }
     router.refresh();
     setUpdatingId(null);
+  };
+
+  const handleUploadProof = async (taskId: string, file: File) => {
+    if (uploadingId) return;
+    setUploadingId(taskId);
+
+    try {
+      const upload = await createTaskAttachmentUploadUrl({
+        taskId,
+        purpose: TaskAttachmentPurpose.PROOF,
+        filename: file.name,
+      });
+
+      if (!upload.success || !upload.signedUrl || !upload.path) {
+        alert(upload.error || 'Failed to create upload URL.');
+        setUploadingId(null);
+        return;
+      }
+
+      const put = await fetch(upload.signedUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        body: file,
+      });
+
+      if (!put.ok) {
+        console.error('Upload failed', await put.text());
+        alert('Upload failed. Please try again.');
+        setUploadingId(null);
+        return;
+      }
+
+      const saved = await finalizeTaskAttachment({
+        taskId,
+        purpose: TaskAttachmentPurpose.PROOF,
+        storagePath: upload.path,
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream',
+        sizeBytes: file.size,
+      });
+
+      if (!saved.success) {
+        alert(saved.error || 'Failed to save attachment.');
+        setUploadingId(null);
+        return;
+      }
+
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+      alert('Upload failed. Please try again.');
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  const handleViewAttachment = async (attachmentId: string) => {
+    const result = await getTaskAttachmentDownloadUrl(attachmentId);
+    if (!result.success) {
+      alert(result.error || 'Failed to open attachment.');
+      return;
+    }
+    window.open(result.url, '_blank', 'noopener,noreferrer');
   };
 
   const handleDelete = async (taskId: string) => {
@@ -50,6 +135,18 @@ export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelet
     setDeletingId(null);
   };
 
+  const isVaSubRole =
+    currentRole === UserRole.VA_TITLE ||
+    currentRole === UserRole.VA_HOI ||
+    currentRole === UserRole.VA_PAYOFF ||
+    currentRole === UserRole.VA_APPRAISAL;
+
+  const isVaTaskKind = (kind: TaskKind | null) =>
+    kind === TaskKind.VA_TITLE ||
+    kind === TaskKind.VA_HOI ||
+    kind === TaskKind.VA_PAYOFF ||
+    kind === TaskKind.VA_APPRAISAL;
+
   if (tasks.length === 0) {
     return (
       <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
@@ -67,7 +164,7 @@ export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelet
       {tasks.map((task) => (
         <div 
           key={task.id} 
-          className="bg-white p-4 rounded-xl border border-slate-200 hover:shadow-md transition-shadow flex items-start justify-between group"
+          className="bg-white p-4 rounded-xl border border-slate-200 hover:shadow-md transition-shadow flex items-start justify-between gap-4 group"
         >
           <div className="flex items-start space-x-4">
             <div className={`mt-1 p-2 rounded-lg ${
@@ -105,6 +202,53 @@ export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelet
               </div>
               {task.description && (
                 <p className="text-sm text-slate-400 mt-2">{task.description}</p>
+              )}
+
+              {(task.attachments?.length || 0) > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {task.attachments!.map((att) => (
+                    <button
+                      key={att.id}
+                      onClick={() => handleViewAttachment(att.id)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                      type="button"
+                    >
+                      <FileText className="h-3.5 w-3.5 text-slate-500" />
+                      <span className="max-w-[220px] truncate">{att.filename}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {isVaSubRole && isVaTaskKind(task.kind) && task.status !== 'COMPLETED' && (
+                <div className="mt-3">
+                  <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      Proof required
+                    </span>
+                    <span className="text-slate-500">Upload PDF/Image before completing.</span>
+                  </label>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="file"
+                      accept="application/pdf,image/*"
+                      disabled={!!uploadingId}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.currentTarget.value = '';
+                        if (!f) return;
+                        void handleUploadProof(task.id, f);
+                      }}
+                      className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60"
+                    />
+                    {uploadingId === task.id && (
+                      <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Uploading...
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>

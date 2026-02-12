@@ -33,9 +33,16 @@ export type MemberDetails = {
   tasks: Array<{
     id: string;
     title: string;
+    kind?: string | null;
     status: string;
     priority: string;
     createdAt: Date;
+    attachments?: Array<{
+      id: string;
+      filename: string;
+      purpose: string;
+      createdAt: Date;
+    }>;
     loan: {
       loanNumber: string;
       borrowerName: string;
@@ -107,9 +114,14 @@ export async function getMemberDetails(userId: string): Promise<MemberDetails | 
     select: {
       id: true,
       title: true,
+      kind: true,
       status: true,
       priority: true,
       createdAt: true,
+      attachments: {
+        select: { id: true, filename: true, purpose: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      },
       loan: {
         select: {
           loanNumber: true,
