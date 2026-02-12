@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   TeamMemberSummary,
   MemberDetails,
@@ -11,11 +11,9 @@ import { deleteTask } from '@/app/actions/taskActions';
 import { deleteUser } from '@/app/actions/userActions';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import {
-  User,
   Briefcase,
   CheckSquare,
   ChevronRight,
-  MoreVertical,
   Trash2,
   ArrowRightLeft,
   Loader2,
@@ -39,6 +37,11 @@ export function TeamManagement({
   const router = useRouter();
   const detailCloseButtonRef = useRef<HTMLButtonElement | null>(null);
 
+  const handleCloseDetails = useCallback(() => {
+    setSelectedMemberId(null);
+    setDetails(null);
+  }, []);
+
   useEffect(() => {
     if (!selectedMemberId) return;
 
@@ -52,7 +55,7 @@ export function TeamManagement({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedMemberId]);
+  }, [handleCloseDetails, selectedMemberId]);
 
   const handleSelectMember = async (id: string) => {
     setSelectedMemberId(id);
@@ -60,11 +63,6 @@ export function TeamManagement({
     const data = await getMemberDetails(id);
     setDetails(data);
     setLoading(false);
-  };
-
-  const handleCloseDetails = () => {
-    setSelectedMemberId(null);
-    setDetails(null);
   };
 
   const handleDeleteTask = async (taskId: string) => {

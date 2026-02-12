@@ -1,5 +1,5 @@
 import { prisma } from './prisma';
-import { LoanStage, TaskStatus, UserRole } from '@prisma/client';
+import { LoanStage, TaskStatus } from '@prisma/client';
 
 export async function changeLoanStage(loanId: string, newStage: LoanStage, userId: string) {
   // 1. Validate transition (optional: check if previous stage tasks are done)

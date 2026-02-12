@@ -2,7 +2,7 @@ import React from 'react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { prisma } from '@/lib/prisma';
 import { TaskList } from '@/components/tasks/TaskList';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
@@ -10,15 +10,15 @@ import { authOptions } from '@/lib/auth';
 const MOCK_USER = {
   id: 'mock-user-id',
   name: 'Sarah Disclosure',
-  role: 'DISCLOSURE_SPECIALIST', // Change this to test different views
+  role: UserRole.DISCLOSURE_SPECIALIST,
 };
 
-async function getTasks(role: string, userId?: string) {
+async function getTasks(role: UserRole, userId?: string) {
   // Fetch tasks assigned to this role OR specifically to this user
   // For LOs, we want to see tasks for loans they own OR tasks assigned to them
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   
-  const where: any = {
+  const where: Prisma.TaskWhereInput = {
     status: {
       not: 'COMPLETED', // Default view hides completed
     }
@@ -66,7 +66,7 @@ async function getTasks(role: string, userId?: string) {
 
 export default async function TasksPage() {
   const session = await getServerSession(authOptions);
-  const sessionRole = session?.user?.role || MOCK_USER.role;
+  const sessionRole = (session?.user?.role as UserRole | undefined) || MOCK_USER.role;
   const sessionUser = {
     name: session?.user?.name || MOCK_USER.name,
     role: sessionRole,
@@ -106,7 +106,7 @@ export default async function TasksPage() {
         </div>
       </div>
 
-      <TaskList tasks={tasks} canDelete={canDelete} currentRole={sessionRole as string} />
+      <TaskList tasks={tasks} canDelete={canDelete} currentRole={sessionRole} />
     </DashboardShell>
   );
 }

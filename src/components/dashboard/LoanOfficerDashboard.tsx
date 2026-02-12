@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, AlertCircle, CheckCircle, ArrowRight, TrendingUp } from 'lucide-react';
+import { Clock, AlertCircle, ArrowRight, TrendingUp } from 'lucide-react';
 import { NewTaskModal } from '@/components/loanOfficer/NewTaskModal';
 
 type Loan = {

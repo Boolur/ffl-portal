@@ -14,7 +14,7 @@ import {
   deleteUser,
 } from '@/app/actions/userActions';
 import { useRouter } from 'next/navigation';
-import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Users, Mail } from 'lucide-react';
+import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Mail } from 'lucide-react';
 
 type UserRow = {
   id: string;

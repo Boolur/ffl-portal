@@ -23,7 +23,8 @@ type LeadMailboxPayload = {
 const PROVIDER = 'LEAD_MAILBOX';
 
 const scrubPayload = (payload: LeadMailboxPayload) => {
-  const { ssn, ...safePayload } = payload;
+  const safePayload = { ...payload };
+  Reflect.deleteProperty(safePayload, 'ssn');
   return safePayload;
 };
 

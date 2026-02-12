@@ -6,11 +6,51 @@ import { LoanOfficerDashboard } from '@/components/dashboard/LoanOfficerDashboar
 import { DepartmentBoard } from '@/components/admin/DepartmentBoard';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useImpersonation } from '@/lib/impersonation';
-import { UserRole } from '@prisma/client';
+import {
+  TaskAttachmentPurpose,
+  TaskKind,
+  TaskPriority,
+  TaskStatus,
+  UserRole,
+} from '@prisma/client';
+
+type DashboardLoan = {
+  id: string;
+  loanNumber: string;
+  borrowerName: string;
+  amount: number;
+  stage: string;
+  updatedAt: Date;
+};
+
+type DashboardTask = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  createdAt: Date;
+  dueDate: Date | null;
+  kind: TaskKind | null;
+  assignedRole: string | null;
+  assignedUser: { name: string } | null;
+  loan: {
+    loanNumber: string;
+    borrowerName: string;
+    stage?: string;
+    loanOfficer: { name: string };
+  };
+  attachments?: {
+    id: string;
+    filename: string;
+    purpose: TaskAttachmentPurpose;
+    createdAt: Date;
+  }[];
+};
 
 type DashboardWrapperProps = {
-  loans: any[];
-  adminTasks: any[];
+  loans: DashboardLoan[];
+  adminTasks: DashboardTask[];
   user: { name: string; role: string };
 };
 

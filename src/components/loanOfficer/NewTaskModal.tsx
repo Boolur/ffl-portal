@@ -15,6 +15,14 @@ type NewTaskModalProps = {
 };
 
 type SubmissionType = 'DISCLOSURES' | 'QC';
+type PipelineLoanOption = {
+  id: string;
+  loanNumber: string;
+  borrowerName: string;
+  borrowerPhone: string | null;
+  borrowerEmail: string | null;
+};
+type ClientFolderDocOption = { id: string; filename: string; createdAt: Date };
 
 export function NewTaskModal({ open, onClose, loanOfficerName }: NewTaskModalProps) {
   const [type, setType] = useState<SubmissionType>('DISCLOSURES');
@@ -371,19 +379,9 @@ function QcForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [stipFiles, setStipFiles] = useState<File[]>([]);
   const [stipError, setStipError] = useState('');
-  const [pipelineLoans, setPipelineLoans] = useState<
-    Array<{
-      id: string;
-      loanNumber: string;
-      borrowerName: string;
-      borrowerPhone: string | null;
-      borrowerEmail: string | null;
-    }>
-  >([]);
+  const [pipelineLoans, setPipelineLoans] = useState<PipelineLoanOption[]>([]);
   const [selectedPipelineLoanId, setSelectedPipelineLoanId] = useState<string>('');
-  const [clientFolderDocs, setClientFolderDocs] = useState<
-    Array<{ id: string; filename: string; createdAt: Date }>
-  >([]);
+  const [clientFolderDocs, setClientFolderDocs] = useState<ClientFolderDocOption[]>([]);
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [form, setForm] = useState({
     preApproved: '',
@@ -421,9 +419,9 @@ function QcForm({
   useEffect(() => {
     const load = async () => {
       const result = await getMyPipelineClients();
-      if (result.success) {
+      if (result.success && Array.isArray(result.loans)) {
         setPipelineLoans(
-          (result.loans as any[]).map((l) => ({
+          result.loans.map((l) => ({
             id: l.id,
             loanNumber: l.loanNumber,
             borrowerName: l.borrowerName,
@@ -438,31 +436,14 @@ function QcForm({
 
   useEffect(() => {
     if (!selectedPipelineLoanId) {
-      setClientFolderDocs([]);
-      setSelectedDocIds([]);
       return;
-    }
-
-    const loan = pipelineLoans.find((l) => l.id === selectedPipelineLoanId);
-    if (loan) {
-      const parts = (loan.borrowerName || '').trim().split(/\s+/).filter(Boolean);
-      const first = parts[0] || '';
-      const last = parts.length > 1 ? parts.slice(1).join(' ') : '';
-      setForm((prev) => ({
-        ...prev,
-        borrowerFirstName: first || prev.borrowerFirstName,
-        borrowerLastName: last || prev.borrowerLastName,
-        arriveLoanNumber: loan.loanNumber || prev.arriveLoanNumber,
-        borrowerPhone: loan.borrowerPhone || prev.borrowerPhone,
-        borrowerEmail: loan.borrowerEmail || prev.borrowerEmail,
-      }));
     }
 
     const loadDocs = async () => {
       const folder = await getClientFolderForLoan(selectedPipelineLoanId);
-      if (folder.success) {
+      if (folder.success && Array.isArray(folder.documents)) {
         setClientFolderDocs(
-          (folder.documents as any[]).map((d) => ({
+          folder.documents.map((d) => ({
             id: d.id,
             filename: d.filename,
             createdAt: d.createdAt,
@@ -610,7 +591,28 @@ function QcForm({
         </p>
         <select
           value={selectedPipelineLoanId}
-          onChange={(e) => setSelectedPipelineLoanId(e.target.value)}
+          onChange={(e) => {
+            const nextLoanId = e.target.value;
+            setSelectedPipelineLoanId(nextLoanId);
+            if (!nextLoanId) {
+              setClientFolderDocs([]);
+              setSelectedDocIds([]);
+              return;
+            }
+            const loan = pipelineLoans.find((l) => l.id === nextLoanId);
+            if (!loan) return;
+            const parts = (loan.borrowerName || '').trim().split(/\s+/).filter(Boolean);
+            const first = parts[0] || '';
+            const last = parts.length > 1 ? parts.slice(1).join(' ') : '';
+            setForm((prev) => ({
+              ...prev,
+              borrowerFirstName: first || prev.borrowerFirstName,
+              borrowerLastName: last || prev.borrowerLastName,
+              arriveLoanNumber: loan.loanNumber || prev.arriveLoanNumber,
+              borrowerPhone: loan.borrowerPhone || prev.borrowerPhone,
+              borrowerEmail: loan.borrowerEmail || prev.borrowerEmail,
+            }));
+          }}
           disabled={isSubmitting}
           className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-60"
         >

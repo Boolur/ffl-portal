@@ -250,8 +250,8 @@ export function PipelinePage() {
       try {
         const officers = await getLoanOfficers();
         setLoanOfficers(officers);
-        if (officers.length > 0 && !selectedLoanOfficerId) {
-          setSelectedLoanOfficerId(officers[0].id);
+        if (officers.length > 0) {
+          setSelectedLoanOfficerId((prev) => prev || officers[0].id);
         }
       } catch (err) {
         console.error(err);

@@ -10,7 +10,6 @@ import {
   User, 
   FileText, 
   MessageSquare, 
-  Settings, 
   Mail, 
   Building2,
   LayoutGrid,
@@ -36,6 +35,31 @@ type TaskWithRelations = {
   assignedUser: {
     name: string;
   } | null;
+};
+
+type AccentColor = 'blue' | 'red' | 'amber' | 'green' | 'slate';
+
+type TabButtonProps = {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  count?: number;
+  color?: AccentColor;
+};
+
+type FilterButtonProps = {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+  color: AccentColor;
+};
+
+type StatCardProps = {
+  label: string;
+  value: number;
+  color: string;
 };
 
 export function AdminTaskBoard({ initialTasks }: { initialTasks: TaskWithRelations[] }) {
@@ -181,7 +205,15 @@ export function AdminTaskBoard({ initialTasks }: { initialTasks: TaskWithRelatio
   );
 }
 
-function TabButton({ active, onClick, icon: Icon, label, count, color = 'blue' }: any) {
+function TabButton({ active, onClick, icon: Icon, label, count, color = 'blue' }: TabButtonProps) {
+  const iconColorClass: Record<AccentColor, string> = {
+    blue: 'text-blue-600',
+    red: 'text-red-600',
+    amber: 'text-amber-600',
+    green: 'text-green-600',
+    slate: 'text-slate-600',
+  };
+
   return (
     <button
       onClick={onClick}
@@ -191,7 +223,7 @@ function TabButton({ active, onClick, icon: Icon, label, count, color = 'blue' }
           : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
       }`}
     >
-      <Icon className={`w-4 h-4 ${active ? `text-${color}-600` : ''}`} />
+      <Icon className={`w-4 h-4 ${active ? iconColorClass[color] : ''}`} />
       <span>{label}</span>
       {count !== undefined && (
         <span className={`ml-2 px-1.5 py-0.5 rounded-full text-[10px] ${
@@ -204,7 +236,7 @@ function TabButton({ active, onClick, icon: Icon, label, count, color = 'blue' }
   );
 }
 
-function FilterButton({ active, onClick, label, count, color }: any) {
+function FilterButton({ active, onClick, label, count, color }: FilterButtonProps) {
   const colorStyles = {
     blue: 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100',
     amber: 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-amber-100',
@@ -294,16 +326,18 @@ function TaskCard({
   );
 }
 
-function StatCard({ label, value, color }: any) {
-  // Extract the color name to map to light theme equivalents
-  const baseColor = color.replace('bg-', '').replace('-600', '');
-  const bgClass = `bg-${baseColor}-50`;
-  const textClass = `text-${baseColor}-700`;
-  const borderClass = `border-${baseColor}-100`;
+function StatCard({ label, value, color }: StatCardProps) {
+  const toneByColor: Record<string, { bg: string; text: string; border: string }> = {
+    'bg-blue-600': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-100' },
+    'bg-amber-600': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-100' },
+    'bg-green-600': { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-100' },
+    'bg-red-600': { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-100' },
+  };
+  const tone = toneByColor[color] || toneByColor['bg-blue-600'];
 
   return (
     <div className={`bg-white border border-slate-200 p-4 rounded-lg flex items-center space-x-4 shadow-sm`}>
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold ${bgClass} ${textClass} border ${borderClass}`}>
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold ${tone.bg} ${tone.text} border ${tone.border}`}>
         {value}
       </div>
       <div>

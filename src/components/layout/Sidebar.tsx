@@ -2,12 +2,10 @@
 
 import React, { useState } from 'react';
 import { 
-  Home, 
   FileText, 
   Users, 
   CheckSquare, 
   BarChart, 
-  Settings, 
   HelpCircle,
   LogOut,
   Shield,

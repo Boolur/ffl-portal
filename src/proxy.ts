@@ -24,7 +24,7 @@ function isAllowed(pathname: string, role?: string | null) {
   return allowed.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
-export const middleware = withAuth({
+const authProxy = withAuth({
   pages: {
     signIn: '/login',
   },
@@ -35,6 +35,9 @@ export const middleware = withAuth({
     },
   },
 });
+
+export default authProxy;
+export const proxy = authProxy;
 
 export const config = {
   matcher: [

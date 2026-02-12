@@ -5,7 +5,6 @@ import { TaskStatus, TaskPriority, UserRole } from '@prisma/client';
 import { 
   MoreHorizontal, 
   Plus, 
-  AlertCircle, 
   Clock, 
   CheckCircle2, 
   Filter,
@@ -99,7 +98,6 @@ const DEPARTMENTS = [
 ];
 
 export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
-  const [selectedDept, setSelectedDept] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const router = useRouter();
 
