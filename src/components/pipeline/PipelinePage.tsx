@@ -20,7 +20,6 @@ import {
   Upload,
   X,
   Loader2,
-  Layout,
   MoreVertical,
   Clock,
   ChevronRight,
@@ -366,8 +365,9 @@ export function PipelinePage() {
   const showLoanOfficerSelector =
     activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER;
   const columnClass =
-    density === 'compact' ? 'min-w-[248px] w-[248px]' : 'min-w-[280px] w-[280px]';
+    density === 'compact' ? 'min-w-[190px] w-[190px]' : 'min-w-[220px] w-[220px]';
   const cardClass = density === 'compact' ? 'p-2.5' : 'p-3';
+  const showDetailsPanel = Boolean(selectedLoanId);
 
   return (
     <div className="space-y-6 mx-auto w-full max-w-[1600px]">
@@ -430,7 +430,13 @@ export function PipelinePage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_360px] gap-6 items-start">
+      <div
+        className={`grid gap-6 items-start ${
+          showDetailsPanel
+            ? 'grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_360px]'
+            : 'grid-cols-1'
+        }`}
+      >
         <div className="space-y-4 min-w-0">
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
             <div className="flex flex-col xl:flex-row xl:items-center gap-3">
@@ -475,7 +481,7 @@ export function PipelinePage() {
             </div>
           ) : (
             <div className="w-full overflow-x-auto pb-4 min-h-[500px] rounded-xl">
-              <div className="flex gap-4 min-w-max pr-2">
+              <div className="flex gap-3 min-w-max pr-2">
               {displayStages.map((stage) => (
                 <div
                   key={stage.id}
@@ -581,7 +587,7 @@ export function PipelinePage() {
                             ${(loan.amount / 1000).toFixed(0)}k
                           </span>
                         </div>
-                        <h4 className="font-semibold text-slate-900 text-sm mb-1 group-hover:text-blue-600 transition-colors">
+                        <h4 className="font-semibold text-slate-900 text-sm leading-tight mb-2 group-hover:text-blue-600 transition-colors">
                           {loan.borrowerName}
                         </h4>
                         <div className="flex items-center text-[10px] text-slate-400 mt-2">
@@ -591,7 +597,7 @@ export function PipelinePage() {
                       </div>
                     ))}
                     {(loansByStage[stage.id] || []).length === 0 && (
-                      <div className="h-24 flex items-center justify-center border-2 border-dashed border-slate-200 rounded-lg m-1">
+                      <div className="aspect-square flex items-center justify-center border-2 border-dashed border-slate-200 rounded-lg m-1">
                         <span className="text-xs text-slate-400">Empty</span>
                       </div>
                     )}
@@ -603,13 +609,14 @@ export function PipelinePage() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-0 flex flex-col 2xl:h-[calc(100vh-140px)] 2xl:sticky 2xl:top-24 max-h-[70vh]">
-          {!loanDetails ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-6 text-center">
-              <Layout className="w-12 h-12 mb-3 opacity-20" />
-              <p className="text-sm">Select a file to view details</p>
-            </div>
-          ) : (
+        {showDetailsPanel && (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-0 flex flex-col 2xl:h-[calc(100vh-140px)] 2xl:sticky 2xl:top-24 max-h-[70vh]">
+            {!loanDetails ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-6 text-center">
+                <Loader2 className="w-6 h-6 animate-spin mb-2 text-blue-600" />
+                <p className="text-sm">Loading lead details...</p>
+              </div>
+            ) : (
             <>
               <div className="p-4 border-b border-slate-100 flex items-start justify-between bg-slate-50/50">
                 <div>
@@ -719,8 +726,9 @@ export function PipelinePage() {
                 </div>
               </div>
             </>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {showImport && (
