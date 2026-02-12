@@ -12,10 +12,15 @@ export default async function LendersPage() {
 
   return (
     <DashboardShell user={user}>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Lender Management</h1>
-        <p className="text-sm text-slate-500">
-          Lender profiles and configuration will live here.
+      <div className="app-page-header">
+        <h1 className="app-page-title">Lender Management</h1>
+        <p className="app-page-subtitle">
+          Manage lender profiles, overlays, and product configuration.
+        </p>
+      </div>
+      <div className="app-surface-card">
+        <p className="text-sm text-slate-600">
+          Lender management is coming soon. This page will centralize lender relationships and setup details.
         </p>
       </div>
     </DashboardShell>

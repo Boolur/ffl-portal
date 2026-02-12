@@ -41,10 +41,10 @@ export default async function LeadMailboxAdminPage() {
 
   return (
     <DashboardShell user={user}>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Lead Mailbox Mappings</h1>
-        <p className="text-sm text-slate-500">
-          Manage external user IDs for Lead Mailbox webhooks.
+      <div className="app-page-header">
+        <h1 className="app-page-title">Lead Mailbox</h1>
+        <p className="app-page-subtitle">
+          Manage external ID mappings for Lead Mailbox webhook routing.
         </p>
       </div>
       <LeadMailboxMappingManager users={users} mappings={mappings} />

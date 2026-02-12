@@ -35,13 +35,13 @@ export function LoanOfficerDashboard({ loans = [], submissions = [], loanOfficer
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Loan Officer Workspace</h2>
-          <p className="text-sm text-slate-500">Create new requests and track your pipeline.</p>
+          <p className="text-sm text-slate-500">Create requests, monitor task progress, and track pipeline movement.</p>
         </div>
         <button
           onClick={() => setShowNewTask(true)}
           className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 shadow-sm"
         >
-          New Task
+          Create Task
         </button>
       </div>
 
@@ -78,7 +78,7 @@ export function LoanOfficerDashboard({ loans = [], submissions = [], loanOfficer
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Recent Activity</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Pipeline Activity</h2>
           <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">View All</button>
         </div>
         <div className="divide-y divide-slate-100">
@@ -124,7 +124,7 @@ export function LoanOfficerDashboard({ loans = [], submissions = [], loanOfficer
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Recent Submissions</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Recent Task Requests</h2>
           <span className="text-xs text-slate-500">{submissions.length} total</span>
         </div>
         <div className="divide-y divide-slate-100">

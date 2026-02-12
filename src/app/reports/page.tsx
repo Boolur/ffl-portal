@@ -12,10 +12,15 @@ export default async function ReportsPage() {
 
   return (
     <DashboardShell user={user}>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Reports</h1>
-        <p className="text-sm text-slate-500">
-          Reporting dashboards will appear here.
+      <div className="app-page-header">
+        <h1 className="app-page-title">Reports</h1>
+        <p className="app-page-subtitle">
+          Review pipeline, task, and team performance trends.
+        </p>
+      </div>
+      <div className="app-surface-card">
+        <p className="text-sm text-slate-600">
+          Reporting dashboards are coming soon. This page will include role-level and organization-level metrics.
         </p>
       </div>
     </DashboardShell>

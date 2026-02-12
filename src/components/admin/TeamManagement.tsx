@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   TeamMemberSummary,
   MemberDetails,
@@ -35,6 +35,22 @@ export function TeamManagement({
   const [loading, setLoading] = useState(false);
   const [reassigning, setReassigning] = useState(false);
   const router = useRouter();
+  const detailCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!selectedMemberId) return;
+
+    detailCloseButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleCloseDetails();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedMemberId]);
 
   const handleSelectMember = async (id: string) => {
     setSelectedMemberId(id);
@@ -97,6 +113,12 @@ export function TeamManagement({
     <div className="flex h-[calc(100vh-140px)] gap-6">
       {/* Member List */}
       <div className={`flex-1 overflow-y-auto ${selectedMemberId ? 'hidden md:block' : ''}`}>
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-900">Team Members</h2>
+          <span className="app-count-badge">
+            {members.length} Total
+          </span>
+        </div>
         <div className="grid grid-cols-1 gap-3">
           {members.map((member) => (
             <div
@@ -137,7 +159,11 @@ export function TeamManagement({
 
       {/* Detail View */}
       {selectedMemberId && (
-        <div className="flex-[1.5] bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden h-full fixed inset-0 md:static z-50 md:z-auto">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="flex-[1.5] bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden h-full fixed inset-0 md:static z-50 md:z-auto"
+        >
           {loading ? (
             <div className="flex-1 flex items-center justify-center">
               <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -159,15 +185,17 @@ export function TeamManagement({
                   </div>
                 </div>
                 <button
+                  ref={detailCloseButtonRef}
                   onClick={handleCloseDetails}
-                  className="p-2 hover:bg-slate-200 rounded-lg text-slate-500 md:hidden"
+                  className="app-icon-btn md:hidden"
+                  aria-label="Close member details"
                 >
                   <X className="w-5 h-5" />
                 </button>
                 <div className="hidden md:flex gap-2">
                   <button
                     onClick={handleDeleteUser}
-                    className="flex items-center gap-2 px-3 py-2 bg-white border border-red-200 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-50"
+                    className="app-btn-danger"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     Delete User
@@ -187,7 +215,7 @@ export function TeamManagement({
                       <button
                         onClick={handleReassignAllLoans}
                         disabled={reassigning}
-                        className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                        className="inline-flex h-8 items-center gap-1.5 px-2.5 rounded-md border border-blue-200 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {reassigning ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRightLeft className="w-3 h-3" />}
                         Reassign All
@@ -237,8 +265,9 @@ export function TeamManagement({
                           </div>
                           <button
                             onClick={() => handleDeleteTask(task.id)}
-                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            className="app-icon-btn app-icon-btn-danger transition-colors opacity-0 group-hover:opacity-100"
                             title="Delete Task"
+                            aria-label="Delete task"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -252,7 +281,7 @@ export function TeamManagement({
                 <div className="md:hidden pt-6 border-t border-slate-100">
                    <button
                     onClick={handleDeleteUser}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-50 text-red-600 font-semibold rounded-xl"
+                    className="app-btn-danger w-full"
                   >
                     <Trash2 className="w-4 h-4" />
                     Delete User Account

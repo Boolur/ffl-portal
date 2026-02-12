@@ -65,3 +65,140 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+.app-page-header {
+  margin-bottom: 1.5rem;
+}
+
+.app-page-title {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.app-page-subtitle {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: #64748b;
+}
+
+.app-surface-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  padding: 1.5rem;
+  box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+}
+
+.app-count-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #475569;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+
+.app-btn-primary {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+.app-btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.app-btn-primary:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.app-btn-secondary {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #475569;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+.app-btn-secondary:hover {
+  background: #f8fafc;
+}
+
+.app-btn-secondary:focus-visible {
+  outline: 2px solid #cbd5e1;
+  outline-offset: 2px;
+}
+
+.app-btn-danger {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+.app-btn-danger:hover {
+  background: #fee2e2;
+}
+
+.app-btn-danger:focus-visible {
+  outline: 2px solid #fca5a5;
+  outline-offset: 2px;
+}
+
+.app-icon-btn {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  color: #64748b;
+}
+
+.app-icon-btn:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.app-icon-btn:focus-visible {
+  outline: 2px solid #cbd5e1;
+  outline-offset: 2px;
+}
+
+.app-icon-btn-danger:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}

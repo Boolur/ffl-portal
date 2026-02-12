@@ -12,10 +12,15 @@ export default async function ResourcesPage() {
 
   return (
     <DashboardShell user={user}>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Resources</h1>
-        <p className="text-sm text-slate-500">
-          This section is coming soon.
+      <div className="app-page-header">
+        <h1 className="app-page-title">Resources</h1>
+        <p className="app-page-subtitle">
+          Shared guides, templates, and process documentation.
+        </p>
+      </div>
+      <div className="app-surface-card">
+        <p className="text-sm text-slate-600">
+          This section is coming soon. You will be able to manage SOPs, training links, and team references here.
         </p>
       </div>
     </DashboardShell>

@@ -267,8 +267,10 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
 
         {status && (
           <p
-            className={`mt-3 text-sm ${
-              status.type === 'success' ? 'text-green-600' : 'text-red-600'
+            className={`mt-3 text-sm rounded-lg border px-3 py-2 ${
+              status.type === 'success'
+                ? 'text-green-700 bg-green-50 border-green-200'
+                : 'text-red-700 bg-red-50 border-red-200'
             }`}
           >
             {status.message}
@@ -335,7 +337,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search users"
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
           />
         </div>
 
@@ -383,19 +385,19 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
 
                 <button
                   onClick={() => handleResetPassword(user.id)}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                  className="px-2.5 py-1.5 rounded-md border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-700 hover:bg-blue-100"
                 >
                   Reset Password
                 </button>
                 <button
                   onClick={() => handleSendResetEmail(user.email)}
-                  className="text-xs font-semibold text-slate-600 hover:text-slate-700"
+                  className="px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Send Reset Link
                 </button>
                 <button
                   onClick={() => handleDeleteUser(user.id)}
-                  className="text-xs font-semibold text-red-600 hover:text-red-700"
+                  className="px-2.5 py-1.5 rounded-md border border-red-200 bg-red-50 text-xs font-semibold text-red-700 hover:bg-red-100"
                 >
                   Delete Account
                 </button>
@@ -430,13 +432,13 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                 </span>
                 <button
                   onClick={() => handleResendInvite(invite.id)}
-                  className="font-semibold text-blue-600 hover:text-blue-700"
+                  className="px-2.5 py-1.5 rounded-md border border-blue-200 bg-blue-50 font-semibold text-blue-700 hover:bg-blue-100"
                 >
                   Resend
                 </button>
                 <button
                   onClick={() => handleDeleteInvite(invite.id)}
-                  className="font-semibold text-red-600 hover:text-red-700"
+                  className="px-2.5 py-1.5 rounded-md border border-red-200 bg-red-50 font-semibold text-red-700 hover:bg-red-100"
                 >
                   Delete
                 </button>

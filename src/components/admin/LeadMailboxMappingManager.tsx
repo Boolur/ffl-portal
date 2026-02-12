@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   saveLeadMailboxMapping,
   deleteLeadMailboxMapping,
   bulkUpsertLeadMailboxMappings,
 } from '@/app/actions/leadMailboxActions';
-import { Trash2, PlusCircle, Upload, X } from 'lucide-react';
+import { Trash2, PlusCircle, Upload, X, Loader2 } from 'lucide-react';
 
 type UserOption = {
   id: string;
@@ -78,20 +78,44 @@ export function LeadMailboxMappingManager({ users, mappings }: LeadMailboxMappin
     updated: number;
     skipped: number;
   } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const importCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!showImport) return;
+
+    importCloseButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowImport(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showImport]);
 
   const handleSave = async () => {
+    if (isSaving) return;
     setStatus(null);
     if (!selectedUserId) {
       setStatus({ type: 'error', message: 'No loan officers available.' });
       return;
     }
-    const result = await saveLeadMailboxMapping(externalId, selectedUserId);
-    if (!result.success) {
-      setStatus({ type: 'error', message: result.error || 'Failed to save mapping.' });
-      return;
+    setIsSaving(true);
+    try {
+      const result = await saveLeadMailboxMapping(externalId, selectedUserId);
+      if (!result.success) {
+        setStatus({ type: 'error', message: result.error || 'Failed to save mapping.' });
+        return;
+      }
+      setExternalId('');
+      setStatus({ type: 'success', message: 'Mapping saved.' });
+    } finally {
+      setIsSaving(false);
     }
-    setExternalId('');
-    setStatus({ type: 'success', message: 'Mapping saved.' });
   };
 
   const handleDelete = async (mappingId: string) => {
@@ -118,17 +142,23 @@ export function LeadMailboxMappingManager({ users, mappings }: LeadMailboxMappin
   };
 
   const handleImport = async () => {
+    if (isImporting) return;
     if (importRows.length === 0) return;
-    const result = await bulkUpsertLeadMailboxMappings(importRows);
-    if (!result.success) {
-      setImportError(result.error || 'Import failed.');
-      return;
+    setIsImporting(true);
+    try {
+      const result = await bulkUpsertLeadMailboxMappings(importRows);
+      if (!result.success) {
+        setImportError(result.error || 'Import failed.');
+        return;
+      }
+      setImportResult({
+        created: result.created || 0,
+        updated: result.updated || 0,
+        skipped: result.skipped || 0,
+      });
+    } finally {
+      setIsImporting(false);
     }
-    setImportResult({
-      created: result.created || 0,
-      updated: result.updated || 0,
-      skipped: result.skipped || 0,
-    });
   };
 
   return (
@@ -143,7 +173,7 @@ export function LeadMailboxMappingManager({ users, mappings }: LeadMailboxMappin
           </div>
           <button
             onClick={() => setShowImport(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+            className="app-btn-secondary"
           >
             <Upload className="w-4 h-4" />
             Bulk Import
@@ -176,17 +206,20 @@ export function LeadMailboxMappingManager({ users, mappings }: LeadMailboxMappin
           )}
           <button
             onClick={handleSave}
-            className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+            disabled={isSaving}
+            className="app-btn-primary disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            <PlusCircle className="w-4 h-4" />
-            Save
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+            {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
 
         {status && (
           <p
-            className={`mt-3 text-sm ${
-              status.type === 'success' ? 'text-green-600' : 'text-red-600'
+            className={`mt-3 text-sm rounded-lg border px-3 py-2 ${
+              status.type === 'success'
+                ? 'text-green-700 bg-green-50 border-green-200'
+                : 'text-red-700 bg-red-50 border-red-200'
             }`}
           >
             {status.message}
@@ -228,10 +261,19 @@ export function LeadMailboxMappingManager({ users, mappings }: LeadMailboxMappin
 
       {showImport && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-lg p-6 space-y-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-lg p-6 space-y-4"
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-slate-900">Bulk Import</h3>
-              <button onClick={() => setShowImport(false)} className="text-slate-400">
+              <button
+                ref={importCloseButtonRef}
+                onClick={() => setShowImport(false)}
+                className="app-icon-btn"
+                aria-label="Close bulk import modal"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -262,15 +304,16 @@ export function LeadMailboxMappingManager({ users, mappings }: LeadMailboxMappin
             <div className="flex items-center justify-end gap-2">
               <button
                 onClick={() => setShowImport(false)}
-                className="px-3 py-2 text-xs font-semibold text-slate-600"
+                className="app-btn-secondary"
               >
                 Close
               </button>
               <button
                 onClick={handleImport}
-                className="px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg"
+                disabled={isImporting}
+                className="app-btn-primary disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                Import
+                {isImporting ? 'Importing...' : 'Import'}
               </button>
             </div>
           </div>

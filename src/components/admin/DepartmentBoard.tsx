@@ -93,7 +93,7 @@ export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
   };
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col">
+    <div className="min-h-[calc(100vh-8rem)] flex flex-col">
       {/* Header Controls */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
@@ -102,17 +102,17 @@ export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
             <input 
               type="text" 
               placeholder="Filter tasks..." 
-              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-64 shadow-sm"
+              className="h-9 pl-9 pr-4 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-64 shadow-sm"
             />
           </div>
-          <button className="flex items-center space-x-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 shadow-sm">
+          <button className="inline-flex h-9 items-center space-x-2 px-3 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 shadow-sm">
             <Filter className="w-4 h-4" />
             <span>Filter</span>
           </button>
         </div>
-        <button className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm shadow-blue-600/20 transition-all">
+        <button className="inline-flex h-9 items-center space-x-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm shadow-blue-600/20 transition-all">
           <Plus className="w-4 h-4" />
-          <span>New Task</span>
+          <span>Create Task</span>
         </button>
       </div>
 
@@ -133,7 +133,7 @@ export function DepartmentBoard({ tasks }: { tasks: TaskWithRelations[] }) {
                   </div>
                   <div className="flex items-center space-x-2">
                     {urgentCount > 0 && (
-                      <span className="flex items-center px-2 py-1 bg-red-100 text-red-700 rounded-full text-[10px] font-bold">
+                      <span className="inline-flex items-center px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-[10px] font-bold border border-red-200">
                         {urgentCount} Urgent
                       </span>
                     )}

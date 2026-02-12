@@ -12,10 +12,15 @@ export default async function EmailSettingsPage() {
 
   return (
     <DashboardShell user={user}>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Email Settings</h1>
-        <p className="text-sm text-slate-500">
-          SMTP configuration and templates will live here.
+      <div className="app-page-header">
+        <h1 className="app-page-title">Email Settings</h1>
+        <p className="app-page-subtitle">
+          Configure sender identity and invitation/reset delivery settings.
+        </p>
+      </div>
+      <div className="app-surface-card">
+        <p className="text-sm text-slate-600">
+          Email configuration controls are coming soon. This area will hold templates, sender settings, and delivery diagnostics.
         </p>
       </div>
     </DashboardShell>

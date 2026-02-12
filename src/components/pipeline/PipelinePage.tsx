@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   addPipelineNote,
   createPipelineStage,
@@ -137,7 +137,6 @@ export function PipelinePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'leads' | 'active'>('leads');
   const [search, setSearch] = useState('');
   const [newStageName, setNewStageName] = useState('');
   const [editingStageId, setEditingStageId] = useState<string | null>(null);
@@ -153,6 +152,7 @@ export function PipelinePage() {
   const [importRows, setImportRows] = useState<CsvRow[]>([]);
   const [importResult, setImportResult] = useState<{ created: number; skipped: number } | null>(null);
   const [importParsingError, setImportParsingError] = useState<string | null>(null);
+  const importCloseButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const displayStages = useMemo(() => {
     return [
@@ -168,11 +168,10 @@ export function PipelinePage() {
         loan.loanNumber.toLowerCase().includes(search.toLowerCase());
       
       const isLead = loan.stage === 'INTAKE';
-      const matchesTab = activeTab === 'leads' ? isLead : !isLead;
-
-      return matchesSearch && matchesTab;
+      
+      return matchesSearch && isLead; // Only show leads in Pipeline page
     });
-  }, [loans, search, activeTab]);
+  }, [loans, search]);
 
   const loansByStage = useMemo(() => {
     const grouped: Record<string, PipelineLoan[]> = {};
@@ -239,6 +238,21 @@ export function PipelinePage() {
     };
     loadDetails();
   }, [selectedLoanId]);
+
+  useEffect(() => {
+    if (!showImport) return;
+
+    importCloseButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowImport(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showImport]);
 
   const handleAddStage = async () => {
     if (isSubmitting) return;
@@ -338,39 +352,17 @@ export function PipelinePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="app-page-header flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Pipeline</h1>
-          <p className="text-sm text-slate-500">
-            Manage leads and track active loan progress.
+          <h1 className="app-page-title">My Pipeline</h1>
+          <p className="app-page-subtitle">
+            Manage leads in intake. Active processing work lives under Tasks.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="bg-slate-100 p-1 rounded-lg flex items-center">
-            <button
-              onClick={() => setActiveTab('leads')}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
-                activeTab === 'leads'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Leads
-            </button>
-            <button
-              onClick={() => setActiveTab('active')}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
-                activeTab === 'active'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Active Loans
-            </button>
-          </div>
           <button
             onClick={() => setShowImport(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+            className="app-btn-secondary"
           >
             <Upload className="w-4 h-4" />
             Import CSV
@@ -409,18 +401,8 @@ export function PipelinePage() {
                 className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               />
             </div>
-            {activeTab === 'leads' && (
-              <select
-                value={newStageName} // Using this as a dummy value for now, fix later
-                onChange={(e) => {}} // No-op
-                className="px-3 py-2 border border-slate-200 rounded-lg text-sm hidden"
-              >
-                <option value="all">All stages</option>
-              </select>
-            )}
           </div>
 
-          {activeTab === 'leads' && (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
               <div className="flex items-center gap-2">
                 <input
@@ -439,7 +421,6 @@ export function PipelinePage() {
                 </button>
               </div>
             </div>
-          )}
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3">
@@ -452,7 +433,7 @@ export function PipelinePage() {
               <Loader2 className="w-8 h-8 animate-spin mb-2 text-blue-600" />
               <p>Loading pipeline data...</p>
             </div>
-          ) : activeTab === 'leads' ? (
+          ) : (
             <div className="flex gap-4 overflow-x-auto pb-4 min-h-[500px]">
               {displayStages.map((stage) => (
                 <div
@@ -576,62 +557,6 @@ export function PipelinePage() {
                   </div>
                 </div>
               ))}
-            </div>
-          ) : (
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
-                  <tr>
-                    <th className="px-6 py-4">Borrower</th>
-                    <th className="px-6 py-4">Loan Number</th>
-                    <th className="px-6 py-4">Amount</th>
-                    <th className="px-6 py-4">Current Stage</th>
-                    <th className="px-6 py-4">Last Update</th>
-                    <th className="px-6 py-4 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredLoans.map((loan) => (
-                    <tr 
-                      key={loan.id} 
-                      className={`hover:bg-slate-50 transition-colors cursor-pointer ${
-                        selectedLoanId === loan.id ? 'bg-blue-50/50' : ''
-                      }`}
-                      onClick={() => setSelectedLoanId(loan.id)}
-                    >
-                      <td className="px-6 py-4 font-medium text-slate-900">
-                        {loan.borrowerName}
-                      </td>
-                      <td className="px-6 py-4 text-slate-500 font-mono text-xs">
-                        {loan.loanNumber}
-                      </td>
-                      <td className="px-6 py-4 text-slate-700 font-medium">
-                        ${loan.amount.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {loan.stage.replace(/_/g, ' ')}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-slate-500">
-                        {new Date(loan.updatedAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button className="text-blue-600 hover:text-blue-700 font-medium text-xs">
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {filteredLoans.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
-                        No active loans found. Submit a task to move a lead here.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
             </div>
           )}
         </div>
@@ -758,10 +683,19 @@ export function PipelinePage() {
 
       {showImport && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg p-6 space-y-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg p-6 space-y-4"
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-slate-900">Import Leads (CSV)</h3>
-              <button onClick={() => setShowImport(false)} className="text-slate-400 hover:text-slate-600">
+              <button
+                ref={importCloseButtonRef}
+                onClick={() => setShowImport(false)}
+                className="app-icon-btn"
+                aria-label="Close import modal"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -816,14 +750,14 @@ export function PipelinePage() {
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setShowImport(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                className="app-btn-secondary"
               >
                 Cancel
               </button>
               <button
                 onClick={handleImport}
                 disabled={isSubmitting || importRows.length === 0}
-                className="px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="app-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 Import Leads

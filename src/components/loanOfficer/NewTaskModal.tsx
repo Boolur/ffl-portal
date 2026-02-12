@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, ClipboardCheck, ShieldCheck, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createSubmissionTask } from '@/app/actions/taskActions';
@@ -17,13 +17,33 @@ export function NewTaskModal({ open, onClose, loanOfficerName }: NewTaskModalPro
   const [type, setType] = useState<SubmissionType>('DISCLOSURES');
   const [submitted, setSubmitted] = useState(false);
   const router = useRouter();
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    closeButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
       <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-h-[85vh] overflow-hidden flex flex-col">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative w-full max-w-3xl bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-h-[85vh] overflow-hidden flex flex-col"
+      >
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-xl font-bold text-slate-900">New Task Submission</h2>
@@ -32,8 +52,10 @@ export function NewTaskModal({ open, onClose, loanOfficerName }: NewTaskModalPro
             </p>
           </div>
           <button
-            className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+            ref={closeButtonRef}
+            className="app-icon-btn"
             onClick={onClose}
+            aria-label="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
@@ -314,13 +336,13 @@ function DisclosuresForm({
       <Textarea label="Notes / Special Instructions" value={form.notes} onChange={(v) => update('notes', v)} />
 
       <div className="flex justify-end gap-3 pt-2">
-        <button type="button" className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+        <button type="button" className="app-btn-secondary">
           Save Draft
         </button>
         <button
           type="submit"
           disabled={isSubmitting}
-          className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+          className="app-btn-primary disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
           {isSubmitting ? 'Processing...' : 'Submit for Disclosures'}
@@ -485,13 +507,13 @@ function QcForm({
       <Textarea label="Notes / Goals" value={form.notesGoals} onChange={(v) => update('notesGoals', v)} />
 
       <div className="flex justify-end gap-3 pt-2">
-        <button type="button" className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+        <button type="button" className="app-btn-secondary">
           Save Draft
         </button>
         <button
           type="submit"
           disabled={isSubmitting}
-          className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+          className="app-btn-primary disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
           {isSubmitting ? 'Processing...' : 'Submit for QC'}

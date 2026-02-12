@@ -13,24 +13,37 @@ const MOCK_USER = {
   role: 'DISCLOSURE_SPECIALIST', // Change this to test different views
 };
 
-async function getTasks(role: string) {
+async function getTasks(role: string, userId?: string) {
   // Fetch tasks assigned to this role OR specifically to this user
-  // For MVP, we'll just fetch by role for the pool
+  // For LOs, we want to see tasks for loans they own OR tasks assigned to them
+  const isLoanOfficer = role === UserRole.LOAN_OFFICER;
+  
+  const where: any = {
+    status: {
+      not: 'COMPLETED', // Default view hides completed
+    }
+  };
+
+  if (isLoanOfficer && userId) {
+    where.OR = [
+      { assignedUserId: userId },
+      { loan: { loanOfficerId: userId } } // See tasks for their loans
+    ];
+  } else {
+    where.OR = [
+      { assignedRole: role as UserRole },
+      // { assignedUserId: userId } // Add this later for other roles
+    ];
+  }
+
   const tasks = await prisma.task.findMany({
-    where: {
-      OR: [
-        { assignedRole: role as UserRole },
-        // { assignedUserId: userId } // Add this later
-      ],
-      status: {
-        not: 'COMPLETED', // Default view hides completed
-      }
-    },
+    where,
     include: {
       loan: {
         select: {
           loanNumber: true,
           borrowerName: true,
+          stage: true, // Include stage
         },
       },
     },
@@ -48,22 +61,33 @@ export default async function TasksPage() {
   const sessionUser = {
     name: session?.user?.name || MOCK_USER.name,
     role: sessionRole,
+    id: session?.user?.id || '',
   };
-  const tasks = await getTasks(sessionRole);
+  const tasks = await getTasks(sessionRole, sessionUser.id);
   const canDelete =
     sessionRole === UserRole.ADMIN || sessionRole === UserRole.MANAGER;
+  const roleTaskSubtitle: Record<string, string> = {
+    [UserRole.LOAN_OFFICER]: 'Manage your active requests and workflow tasks.',
+    [UserRole.ADMIN]: 'Manage and clean up tasks across all teams.',
+    [UserRole.MANAGER]: 'Oversee team workload and remove invalid requests.',
+    [UserRole.DISCLOSURE_SPECIALIST]: 'Work disclosure tasks by due date and status.',
+    [UserRole.VA]: 'Track support tasks and progress them to completion.',
+    [UserRole.QC]: 'Review and complete quality control tasks.',
+    [UserRole.PROCESSOR_JR]: 'Handle processing tasks and keep files moving.',
+    [UserRole.PROCESSOR_SR]: 'Handle advanced processing tasks and escalations.',
+  };
 
   return (
     <DashboardShell user={sessionUser}>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between app-page-header">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Task Queue</h1>
-          <p className="text-slate-500 mt-1">
-            Manage your assigned tasks and workflow steps.
+          <h1 className="app-page-title">Tasks</h1>
+          <p className="app-page-subtitle">
+            {roleTaskSubtitle[sessionRole] || 'View and manage task status across your workflow.'}
           </p>
         </div>
         <div className="flex space-x-3">
-          <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-sm font-medium">
+          <span className="app-count-badge">
             {tasks.length} Pending
           </span>
         </div>

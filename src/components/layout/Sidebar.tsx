@@ -42,10 +42,10 @@ export function Sidebar() {
       roles: [UserRole.LOAN_OFFICER, UserRole.MANAGER, UserRole.PROCESSOR_SR, UserRole.PROCESSOR_JR] 
     },
     { 
-      name: 'Task Queue', 
+      name: 'Tasks', 
       icon: CheckSquare, 
       href: '/tasks', 
-      roles: [UserRole.DISCLOSURE_SPECIALIST, UserRole.VA, UserRole.QC, UserRole.PROCESSOR_SR, UserRole.PROCESSOR_JR, UserRole.ADMIN, UserRole.MANAGER] 
+      roles: [UserRole.LOAN_OFFICER, UserRole.DISCLOSURE_SPECIALIST, UserRole.VA, UserRole.QC, UserRole.PROCESSOR_SR, UserRole.PROCESSOR_JR, UserRole.ADMIN, UserRole.MANAGER] 
     },
     { 
       name: 'Team', 
@@ -96,6 +96,20 @@ export function Sidebar() {
     (item.roles.includes('all') || item.roles.includes(activeRole)) &&
     !['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'].includes(item.name)
   );
+
+  // Ensure LOs see the Tasks link
+  if (activeRole === UserRole.LOAN_OFFICER) {
+    const taskItem = navItems.find(i => i.name === 'Tasks');
+    if (taskItem && !mainNavItems.find(i => i.name === 'Tasks')) {
+      // Insert it after My Pipeline
+      const pipelineIndex = mainNavItems.findIndex(i => i.name === 'My Pipeline');
+      if (pipelineIndex !== -1) {
+        mainNavItems.splice(pipelineIndex + 1, 0, taskItem);
+      } else {
+        mainNavItems.push(taskItem);
+      }
+    }
+  }
 
   const adminNavItems = navItems.filter(item => 
     (item.roles.includes('all') || item.roles.includes(activeRole)) &&

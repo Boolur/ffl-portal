@@ -15,6 +15,7 @@ type Task = {
   loan: {
     loanNumber: string;
     borrowerName: string;
+    stage?: string;
   };
   assignedRole: string | null;
 };
@@ -85,10 +86,18 @@ export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelet
                 <span className="font-medium text-slate-700">{task.loan.borrowerName}</span>
                 <span>•</span>
                 <span>{task.loan.loanNumber}</span>
+                {task.loan.stage && (
+                  <>
+                    <span>•</span>
+                    <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium border border-blue-100">
+                      {task.loan.stage.replace(/_/g, ' ')}
+                    </span>
+                  </>
+                )}
                 {task.assignedRole && (
                   <>
                     <span>•</span>
-                    <span className="bg-slate-100 px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wide">
+                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-slate-600">
                       {task.assignedRole.replace(/_/g, ' ')}
                     </span>
                   </>
@@ -117,7 +126,7 @@ export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelet
                 <button 
                   onClick={() => handleStatusChange(task.id, 'COMPLETED')}
                   disabled={!!updatingId}
-                  className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 text-sm font-medium rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex h-9 items-center px-3 bg-green-50 text-green-700 text-sm font-medium rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {updatingId === task.id ? (
                     <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
@@ -132,7 +141,7 @@ export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelet
                 <button 
                   onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
                   disabled={!!updatingId}
-                  className="px-3 py-1.5 text-slate-500 text-sm font-medium hover:text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="inline-flex h-9 items-center px-3 text-slate-500 text-sm font-medium hover:text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed gap-2"
                 >
                   {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin" />}
                   Start
@@ -142,7 +151,7 @@ export function TaskList({ tasks, canDelete = false }: { tasks: Task[]; canDelet
                 <button
                   onClick={() => handleDelete(task.id)}
                   disabled={!!deletingId}
-                  className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex h-9 w-9 items-center justify-center text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Delete task"
                 >
                   {deletingId === task.id ? (

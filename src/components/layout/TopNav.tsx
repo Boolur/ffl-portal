@@ -4,7 +4,7 @@ import { Bell, Search } from 'lucide-react';
 export function TopNav({ user }: { user: { name: string; role: string } }) {
   return (
     <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 fixed top-0 right-0 left-64 z-10 shadow-sm">
-      <div className="flex items-center w-96">
+      <div className="flex items-center flex-1 max-w-xl min-w-0">
         <div className="relative w-full">
           <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-slate-400" />
