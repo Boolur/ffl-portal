@@ -14,7 +14,7 @@ import {
   deleteUser,
 } from '@/app/actions/userActions';
 import { useRouter } from 'next/navigation';
-import { PlusCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Users, Mail } from 'lucide-react';
 
 type UserRow = {
   id: string;
@@ -43,9 +43,10 @@ const roleOptions = Object.values(UserRole);
 export function UserManagement({ users, invites, inviteEmails, currentUserId }: UserManagementProps) {
   const router = useRouter();
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(
-    null
-  );
+  const [createStatus, setCreateStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [inviteStatus, setInviteStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [directoryStatus, setDirectoryStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isInviting, setIsInviting] = useState(false);
   const [formState, setFormState] = useState<{
@@ -81,12 +82,12 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
 
   const handleCreate = async () => {
     if (isCreating) return;
-    setStatus(null);
+    setCreateStatus(null);
     setIsCreating(true);
     try {
       const result = await createUser(formState);
       if (!result.success) {
-        setStatus({ type: 'error', message: result.error || 'Failed to create user.' });
+        setCreateStatus({ type: 'error', message: result.error || 'Failed to create user.' });
         return;
       }
       setFormState({
@@ -95,7 +96,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
         role: UserRole.LOAN_OFFICER,
         password: '',
       });
-      setStatus({ type: 'success', message: 'User created.' });
+      setCreateStatus({ type: 'success', message: 'User created successfully.' });
       router.refresh();
     } finally {
       setIsCreating(false);
@@ -104,9 +105,9 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
 
   const handleInvite = async () => {
     if (isInviting) return;
-    setStatus(null);
+    setInviteStatus(null);
     if (!currentUserId) {
-      setStatus({ type: 'error', message: 'Missing inviter identity.' });
+      setInviteStatus({ type: 'error', message: 'Missing inviter identity.' });
       return;
     }
     setIsInviting(true);
@@ -118,15 +119,15 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
         createdById: currentUserId,
       });
       if (!result.success) {
-        setStatus({ type: 'error', message: result.error || 'Failed to send invite.' });
+        setInviteStatus({ type: 'error', message: result.error || 'Failed to send invite.' });
         return;
       }
       setInviteState({ name: '', email: '', role: UserRole.LOAN_OFFICER });
-      setStatus({ type: 'success', message: 'Invite sent.' });
+      setInviteStatus({ type: 'success', message: 'Invite sent successfully.' });
       router.refresh();
     } catch (error) {
       console.error('Invite failed', error);
-      setStatus({ type: 'error', message: 'Failed to send invite.' });
+      setInviteStatus({ type: 'error', message: 'Failed to send invite.' });
     } finally {
       setIsInviting(false);
     }
@@ -137,33 +138,33 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
     if (!confirmed) return;
     const result = await requestPasswordReset(email);
     if (!result.success) {
-      setStatus({ type: 'error', message: result.error || 'Failed to send reset link.' });
+      setDirectoryStatus({ type: 'error', message: result.error || 'Failed to send reset link.' });
       return;
     }
-    setStatus({ type: 'success', message: 'Password reset email sent.' });
+    setDirectoryStatus({ type: 'success', message: 'Password reset email sent.' });
   };
 
   const handleResendInvite = async (inviteId: string) => {
-    setStatus(null);
+    setPendingStatus(null);
     const result = await resendInvite(inviteId);
     if (!result.success) {
-      setStatus({ type: 'error', message: result.error || 'Failed to resend invite.' });
+      setPendingStatus({ type: 'error', message: result.error || 'Failed to resend invite.' });
       return;
     }
-    setStatus({ type: 'success', message: 'Invite resent.' });
+    setPendingStatus({ type: 'success', message: 'Invite resent successfully.' });
     router.refresh();
   };
 
   const handleDeleteInvite = async (inviteId: string) => {
     const confirmed = window.confirm('Delete this invite?');
     if (!confirmed) return;
-    setStatus(null);
+    setPendingStatus(null);
     const result = await deleteInvite(inviteId);
     if (!result.success) {
-      setStatus({ type: 'error', message: result.error || 'Failed to delete invite.' });
+      setPendingStatus({ type: 'error', message: result.error || 'Failed to delete invite.' });
       return;
     }
-    setStatus({ type: 'success', message: 'Invite deleted.' });
+    setPendingStatus({ type: 'success', message: 'Invite deleted.' });
     router.refresh();
   };
 
@@ -182,10 +183,10 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
     if (!nextPassword) return;
     const result = await resetUserPassword(userId, nextPassword);
     if (!result.success) {
-      setStatus({ type: 'error', message: result.error || 'Failed to reset password.' });
+      setDirectoryStatus({ type: 'error', message: result.error || 'Failed to reset password.' });
       return;
     }
-    setStatus({ type: 'success', message: 'Password updated.' });
+    setDirectoryStatus({ type: 'success', message: 'Password updated.' });
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -193,135 +194,157 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
       'Delete this account permanently? This cannot be undone.'
     );
     if (!confirmed) return;
-    setStatus(null);
+    setDirectoryStatus(null);
     const result = await deleteUser(userId, currentUserId);
     if (!result.success) {
-      setStatus({ type: 'error', message: result.error || 'Failed to delete user.' });
+      setDirectoryStatus({ type: 'error', message: result.error || 'Failed to delete user.' });
       return;
     }
-    setStatus({ type: 'success', message: 'User deleted.' });
+    setDirectoryStatus({ type: 'success', message: 'User deleted.' });
     router.refresh();
   };
+
+  const renderStatus = (
+    sectionStatus: { type: 'success' | 'error'; message: string } | null
+  ) =>
+    sectionStatus ? (
+      <p
+        className={`mt-3 text-sm rounded-lg border px-3 py-2 ${
+          sectionStatus.type === 'success'
+            ? 'text-green-700 bg-green-50 border-green-200'
+            : 'text-red-700 bg-red-50 border-red-200'
+        }`}
+      >
+        {sectionStatus.message}
+      </p>
+    ) : null;
 
   return (
     <div className="space-y-6">
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Create User</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Account Provisioning</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Add a new account and assign role-based access.
+              Create users directly or send secure invites with role-based access.
             </p>
           </div>
           <button
             onClick={() => router.refresh()}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg hover:bg-slate-50"
+            className="app-btn-secondary"
           >
             <RefreshCw className="w-4 h-4" />
             Refresh
           </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3">
-          <input
-            value={formState.name}
-            onChange={(event) => setFormState({ ...formState, name: event.target.value })}
-            placeholder="Full name"
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-          />
-          <input
-            value={formState.email}
-            onChange={(event) => setFormState({ ...formState, email: event.target.value })}
-            placeholder="Email"
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-          />
-          <select
-            value={formState.role}
-            onChange={(event) =>
-              setFormState({ ...formState, role: event.target.value as UserRole })
-            }
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-          >
-            {roleOptions.map((role) => (
-              <option key={role} value={role}>
-                {role.replace(/_/g, ' ')}
-              </option>
-            ))}
-          </select>
-          <input
-            type="password"
-            value={formState.password}
-            onChange={(event) => setFormState({ ...formState, password: event.target.value })}
-            placeholder="Temporary password"
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-          />
-          <button
-            onClick={handleCreate}
-            disabled={isCreating}
-            className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
-            {isCreating ? 'Creating...' : 'Create'}
-          </button>
-        </div>
-
-        {status && (
-          <p
-            className={`mt-3 text-sm rounded-lg border px-3 py-2 ${
-              status.type === 'success'
-                ? 'text-green-700 bg-green-50 border-green-200'
-                : 'text-red-700 bg-red-50 border-red-200'
-            }`}
-          >
-            {status.message}
-          </p>
-        )}
-      </div>
-
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Invite User</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Send an email invite to set a password.
-            </p>
+        <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+            <div className="flex items-center gap-2">
+              <UserPlus className="w-4 h-4 text-blue-600" />
+              <h3 className="text-sm font-semibold text-slate-900">Create User</h3>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-3">
+              <input
+                name="create_name"
+                autoComplete="off"
+                value={formState.name}
+                onChange={(event) => setFormState({ ...formState, name: event.target.value })}
+                placeholder="Full name"
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+              />
+              <input
+                name="create_email"
+                autoComplete="off"
+                value={formState.email}
+                onChange={(event) => setFormState({ ...formState, email: event.target.value })}
+                placeholder="Email"
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <select
+                  value={formState.role}
+                  onChange={(event) =>
+                    setFormState({ ...formState, role: event.target.value as UserRole })
+                  }
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+                >
+                  {roleOptions.map((role) => (
+                    <option key={role} value={role}>
+                      {role.replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="password"
+                  name="create_temp_password"
+                  autoComplete="new-password"
+                  value={formState.password}
+                  onChange={(event) => setFormState({ ...formState, password: event.target.value })}
+                  placeholder="Temporary password"
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+                />
+              </div>
+              <button
+                onClick={handleCreate}
+                disabled={isCreating}
+                className="app-btn-primary disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+                {isCreating ? 'Creating...' : 'Create User'}
+              </button>
+            </div>
+            {renderStatus(createStatus)}
           </div>
-        </div>
 
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_1fr_1fr_auto] gap-3">
-          <input
-            value={inviteState.name}
-            onChange={(event) => setInviteState({ ...inviteState, name: event.target.value })}
-            placeholder="Full name"
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-          />
-          <input
-            value={inviteState.email}
-            onChange={(event) => setInviteState({ ...inviteState, email: event.target.value })}
-            placeholder="Email"
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-          />
-          <select
-            value={inviteState.role}
-            onChange={(event) =>
-              setInviteState({ ...inviteState, role: event.target.value as UserRole })
-            }
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-          >
-            {roleOptions.map((role) => (
-              <option key={role} value={role}>
-                {role.replace(/_/g, ' ')}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={handleInvite}
-            disabled={isInviting}
-            className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            {isInviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
-            {isInviting ? 'Sending...' : 'Send Invite'}
-          </button>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+            <div className="flex items-center gap-2">
+              <Send className="w-4 h-4 text-indigo-600" />
+              <h3 className="text-sm font-semibold text-slate-900">Invite User</h3>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-3">
+              <input
+                name="invite_name"
+                autoComplete="off"
+                value={inviteState.name}
+                onChange={(event) => setInviteState({ ...inviteState, name: event.target.value })}
+                placeholder="Full name"
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+              />
+              <input
+                name="invite_email"
+                autoComplete="off"
+                value={inviteState.email}
+                onChange={(event) => setInviteState({ ...inviteState, email: event.target.value })}
+                placeholder="Email"
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <select
+                  value={inviteState.role}
+                  onChange={(event) =>
+                    setInviteState({ ...inviteState, role: event.target.value as UserRole })
+                  }
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+                >
+                  {roleOptions.map((role) => (
+                    <option key={role} value={role}>
+                      {role.replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleInvite}
+                  disabled={isInviting}
+                  className="app-btn-primary disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {isInviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                  {isInviting ? 'Sending...' : 'Send Invite'}
+                </button>
+              </div>
+            </div>
+            {renderStatus(inviteStatus)}
+          </div>
         </div>
       </div>
 
@@ -342,6 +365,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
         </div>
 
         <div className="mt-4 space-y-3">
+          {renderStatus(directoryStatus)}
           {filteredUsers.length === 0 && (
             <p className="text-sm text-slate-500">No users found.</p>
           )}
@@ -385,19 +409,19 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
 
                 <button
                   onClick={() => handleResetPassword(user.id)}
-                  className="px-2.5 py-1.5 rounded-md border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                  className="app-btn-secondary h-8 px-2.5 text-xs"
                 >
                   Reset Password
                 </button>
                 <button
                   onClick={() => handleSendResetEmail(user.email)}
-                  className="px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="app-btn-secondary h-8 px-2.5 text-xs"
                 >
                   Send Reset Link
                 </button>
                 <button
                   onClick={() => handleDeleteUser(user.id)}
-                  className="px-2.5 py-1.5 rounded-md border border-red-200 bg-red-50 text-xs font-semibold text-red-700 hover:bg-red-100"
+                  className="app-btn-danger h-8 px-2.5 text-xs"
                 >
                   Delete Account
                 </button>
@@ -411,6 +435,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
         <h2 className="text-lg font-semibold text-slate-900">Pending Invites</h2>
         <p className="text-sm text-slate-500 mt-1">Invitations waiting to be accepted.</p>
         <div className="mt-4 space-y-2">
+          {renderStatus(pendingStatus)}
           {invites.length === 0 && (
             <p className="text-sm text-slate-500">No pending invites.</p>
           )}
@@ -432,13 +457,13 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                 </span>
                 <button
                   onClick={() => handleResendInvite(invite.id)}
-                  className="px-2.5 py-1.5 rounded-md border border-blue-200 bg-blue-50 font-semibold text-blue-700 hover:bg-blue-100"
+                  className="app-btn-secondary h-8 px-2.5 text-xs"
                 >
                   Resend
                 </button>
                 <button
                   onClick={() => handleDeleteInvite(invite.id)}
-                  className="px-2.5 py-1.5 rounded-md border border-red-200 bg-red-50 font-semibold text-red-700 hover:bg-red-100"
+                  className="app-btn-danger h-8 px-2.5 text-xs"
                 >
                   Delete
                 </button>
