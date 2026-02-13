@@ -3,14 +3,19 @@
 import React from 'react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LoanOfficerDashboard } from '@/components/dashboard/LoanOfficerDashboard';
+import { DisclosureOverview } from '@/components/dashboard/DisclosureOverview';
+import { QcOverview } from '@/components/dashboard/QcOverview';
 import { DepartmentBoard } from '@/components/admin/DepartmentBoard';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useImpersonation } from '@/lib/impersonation';
 import {
+  DisclosureDecisionReason,
+  Prisma,
   TaskAttachmentPurpose,
   TaskKind,
   TaskPriority,
   TaskStatus,
+  TaskWorkflowState,
   UserRole,
 } from '@prisma/client';
 
@@ -32,6 +37,11 @@ type DashboardTask = {
   createdAt: Date;
   dueDate: Date | null;
   kind: TaskKind | null;
+  workflowState: TaskWorkflowState;
+  disclosureReason: DisclosureDecisionReason | null;
+  parentTaskId: string | null;
+  loanOfficerApprovedAt: Date | null;
+  submissionData?: Prisma.JsonValue | null;
   assignedRole: string | null;
   assignedUser: { name: string } | null;
   loan: {
@@ -135,13 +145,11 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
 
       {/* For other roles, we show their specific queue */}
       {[
-        'DISCLOSURE_SPECIALIST',
         'VA',
         'VA_TITLE',
         'VA_HOI',
         'VA_PAYOFF',
         'VA_APPRAISAL',
-        'QC',
         'PROCESSOR_JR',
         'PROCESSOR_SR',
       ].includes(activeRole) && (
@@ -157,6 +165,12 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
           </div>
         </div>
       )}
+
+      {activeRole === UserRole.DISCLOSURE_SPECIALIST && (
+        <DisclosureOverview tasks={roleTasks} />
+      )}
+
+      {activeRole === UserRole.QC && <QcOverview tasks={roleTasks} />}
     </>
   );
 }

@@ -2,7 +2,13 @@ import React from 'react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { prisma } from '@/lib/prisma';
 import { TaskList } from '@/components/tasks/TaskList';
-import { Prisma, UserRole } from '@prisma/client';
+import {
+  Prisma,
+  TaskKind,
+  TaskStatus,
+  TaskWorkflowState,
+  UserRole,
+} from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
@@ -13,15 +19,27 @@ const MOCK_USER = {
   role: UserRole.DISCLOSURE_SPECIALIST,
 };
 
-async function getTasks(role: UserRole, userId?: string) {
+type TaskBucketFilter = 'new' | 'pending-lo' | 'completed';
+
+function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
+  if (value === 'new' || value === 'pending-lo' || value === 'completed') {
+    return value;
+  }
+  return null;
+}
+
+async function getTasks(role: UserRole, userId?: string, bucket?: TaskBucketFilter | null) {
   // Fetch tasks assigned to this role OR specifically to this user
   // For LOs, we want to see tasks for loans they own OR tasks assigned to them
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   
   const where: Prisma.TaskWhereInput = {
-    status: {
-      not: 'COMPLETED', // Default view hides completed
-    }
+    status:
+      bucket === 'completed'
+        ? TaskStatus.COMPLETED
+        : {
+            not: TaskStatus.COMPLETED, // Default view hides completed
+          },
   };
 
   if (isLoanOfficer && userId) {
@@ -34,6 +52,63 @@ async function getTasks(role: UserRole, userId?: string) {
       { assignedRole: role as UserRole },
       // { assignedUserId: userId } // Add this later for other roles
     ];
+  }
+
+  if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    if (bucket === 'new') {
+      where.kind = TaskKind.SUBMIT_DISCLOSURES;
+      where.workflowState = {
+        notIn: [
+          TaskWorkflowState.WAITING_ON_LO,
+          TaskWorkflowState.WAITING_ON_LO_APPROVAL,
+        ],
+      };
+    }
+    if (bucket === 'pending-lo') {
+      where.kind = TaskKind.SUBMIT_DISCLOSURES;
+      where.workflowState = {
+        in: [
+          TaskWorkflowState.WAITING_ON_LO,
+          TaskWorkflowState.WAITING_ON_LO_APPROVAL,
+        ],
+      };
+    }
+    if (bucket === 'completed') {
+      where.kind = TaskKind.SUBMIT_DISCLOSURES;
+    }
+  }
+
+  if (role === UserRole.QC) {
+    if (bucket === 'new') {
+      where.kind = TaskKind.SUBMIT_QC;
+      where.workflowState = {
+        notIn: [
+          TaskWorkflowState.WAITING_ON_LO,
+          TaskWorkflowState.WAITING_ON_LO_APPROVAL,
+        ],
+      };
+    }
+    if (bucket === 'pending-lo') {
+      where.kind = TaskKind.SUBMIT_QC;
+      where.workflowState = {
+        in: [
+          TaskWorkflowState.WAITING_ON_LO,
+          TaskWorkflowState.WAITING_ON_LO_APPROVAL,
+        ],
+      };
+    }
+    if (bucket === 'completed') {
+      where.kind = TaskKind.SUBMIT_QC;
+    }
+  }
+
+  if (role === UserRole.LOAN_OFFICER) {
+    if (bucket === 'pending-lo') {
+      where.kind = TaskKind.LO_NEEDS_INFO;
+    }
+    if (bucket === 'completed') {
+      where.kind = TaskKind.LO_NEEDS_INFO;
+    }
   }
 
   const tasks = await prisma.task.findMany({
@@ -64,7 +139,11 @@ async function getTasks(role: UserRole, userId?: string) {
   return tasks;
 }
 
-export default async function TasksPage() {
+type TasksPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function TasksPage({ searchParams }: TasksPageProps) {
   const session = await getServerSession(authOptions);
   const sessionRole = (session?.user?.role as UserRole | undefined) || MOCK_USER.role;
   const sessionUser = {
@@ -72,7 +151,12 @@ export default async function TasksPage() {
     role: sessionRole,
     id: session?.user?.id || '',
   };
-  const tasks = await getTasks(sessionRole, sessionUser.id);
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const rawBucket = resolvedSearchParams?.bucket;
+  const bucket = normalizeBucketFilter(
+    typeof rawBucket === 'string' ? rawBucket : undefined
+  );
+  const tasks = await getTasks(sessionRole, sessionUser.id, bucket);
   const canDelete =
     sessionRole === UserRole.ADMIN || sessionRole === UserRole.MANAGER;
   const roleTaskSubtitle: Record<string, string> = {
@@ -101,7 +185,7 @@ export default async function TasksPage() {
         </div>
         <div className="flex space-x-3">
           <span className="app-count-badge">
-            {tasks.length} Pending
+            {tasks.length} {bucket === 'completed' ? 'Completed' : 'Pending'}
           </span>
         </div>
       </div>

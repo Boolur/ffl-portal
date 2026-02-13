@@ -3,8 +3,8 @@ import { UserRole } from '@prisma/client';
 
 const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.ADMIN]: ['*'],
-  [UserRole.MANAGER]: ['/', '/pipeline', '/reports', '/team', '/resources'],
-  [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/resources'],
+  [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources'],
+  [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources'],
   [UserRole.DISCLOSURE_SPECIALIST]: ['/', '/tasks', '/resources'],
   [UserRole.VA]: ['/', '/tasks', '/resources'],
   [UserRole.VA_TITLE]: ['/', '/tasks', '/resources'],
@@ -16,9 +16,18 @@ const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.PROCESSOR_SR]: ['/', '/tasks', '/resources'],
 };
 
+function normalizeRole(role?: string | null): UserRole | null {
+  if (!role) return null;
+  const normalized = role.trim().toUpperCase();
+  const roles = Object.values(UserRole) as string[];
+  if (!roles.includes(normalized)) return null;
+  return normalized as UserRole;
+}
+
 function isAllowed(pathname: string, role?: string | null) {
-  if (!role) return false;
-  const allowed = roleAllowedPaths[role as UserRole];
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
+  const allowed = roleAllowedPaths[normalizedRole];
   if (!allowed) return false;
   if (allowed.includes('*')) return true;
   return allowed.some((path) => pathname === path || pathname.startsWith(`${path}/`));
@@ -31,7 +40,10 @@ const authProxy = withAuth({
   callbacks: {
     authorized: ({ token, req }) => {
       if (!token) return false;
-      return isAllowed(req.nextUrl.pathname, token.role as string);
+      if (isAllowed(req.nextUrl.pathname, token.role as string)) return true;
+      // Fail-soft for older sessions that might have malformed role claims.
+      if (req.nextUrl.pathname.startsWith('/tasks')) return true;
+      return false;
     },
   },
 });

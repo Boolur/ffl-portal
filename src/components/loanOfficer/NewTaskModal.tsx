@@ -294,6 +294,7 @@ function DisclosuresForm({
       arriveLoanNumber: form.arriveLoanNumber,
       loanAmount: form.loanAmount,
       notes: form.notes,
+      submissionData: form,
     }).then((res) => {
       if (res.success) {
         onSubmitted();
@@ -480,6 +481,7 @@ function QcForm({
         arriveLoanNumber: form.arriveLoanNumber,
         loanAmount: form.loanAmount,
         notes: form.notesGoals,
+        submissionData: form,
       });
 
       if (!res.success || !res.taskId) {

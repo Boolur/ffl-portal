@@ -1,10 +1,44 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
-import { TaskKind, TaskPriority, TaskStatus, UserRole } from '@prisma/client';
+import {
+  DisclosureDecisionReason,
+  Prisma,
+  TaskKind,
+  TaskPriority,
+  TaskStatus,
+  TaskWorkflowState,
+  UserRole,
+} from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+
+function isSubmissionTask(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+  title: string;
+}) {
+  return (
+    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+    task.kind === TaskKind.SUBMIT_QC ||
+    (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
+      task.title.toLowerCase().includes('disclosure')) ||
+    (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
+  );
+}
+
+function isDisclosureSubmissionTask(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+  title: string;
+}) {
+  return (
+    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+    (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
+      task.title.toLowerCase().includes('disclosure'))
+  );
+}
 
 export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
   try {
@@ -24,6 +58,10 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
         assignedRole: true,
         assignedUserId: true,
         loanId: true,
+        parentTaskId: true,
+        disclosureReason: true,
+        workflowState: true,
+        loanOfficerApprovedAt: true,
         loan: { select: { loanOfficerId: true } },
       },
     });
@@ -52,14 +90,48 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
       role === UserRole.VA_PAYOFF ||
       role === UserRole.VA_APPRAISAL;
 
-    if (newStatus === TaskStatus.COMPLETED && (isVaKind || isVaRole)) {
+    const isDisclosureTask = isDisclosureSubmissionTask(existing);
+
+    const isSubmissionWorkflowTask = isSubmissionTask(existing);
+
+    if (
+      newStatus === TaskStatus.COMPLETED &&
+      (isVaKind || isVaRole || isSubmissionWorkflowTask)
+    ) {
       const proofCount = await prisma.taskAttachment.count({
         where: { taskId, purpose: 'PROOF' },
       });
       if (proofCount < 1) {
         return {
           success: false,
-          error: 'Upload proof (PDF/Image) before completing this VA task.',
+          error: 'Upload proof (PDF/Image) before completing this task.',
+        };
+      }
+    }
+
+    if (newStatus === TaskStatus.COMPLETED && isSubmissionWorkflowTask) {
+      if (
+        existing.workflowState === TaskWorkflowState.WAITING_ON_LO ||
+        existing.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
+      ) {
+        return {
+          success: false,
+          error:
+            'This task is waiting on Loan Officer response. It cannot be completed yet.',
+        };
+      }
+    }
+
+    if (newStatus === TaskStatus.COMPLETED && isDisclosureTask) {
+      if (
+        existing.disclosureReason ===
+          DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES &&
+        !existing.loanOfficerApprovedAt
+      ) {
+        return {
+          success: false,
+          error:
+            'Loan Officer approval is required before completing this disclosure task.',
         };
       }
     }
@@ -68,16 +140,37 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
       where: { id: taskId },
       data: {
         status: newStatus,
+        workflowState:
+          newStatus === TaskStatus.COMPLETED
+            ? TaskWorkflowState.NONE
+            : existing.workflowState ?? TaskWorkflowState.NONE,
         completedAt: newStatus === 'COMPLETED' ? new Date() : null,
       },
     });
 
+    // LO response completion -> unpause parent disclosure task
+    if (
+      newStatus === TaskStatus.COMPLETED &&
+      existing.kind === TaskKind.LO_NEEDS_INFO &&
+      existing.parentTaskId
+    ) {
+      await prisma.task.update({
+        where: { id: existing.parentTaskId },
+        data: {
+          status: TaskStatus.PENDING,
+          workflowState: TaskWorkflowState.READY_TO_COMPLETE,
+          loanOfficerApprovedAt:
+            existing.disclosureReason ===
+            DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+              ? new Date()
+              : undefined,
+        },
+      });
+    }
+
     // QC completion → auto-create VA tasks (idempotent)
     if (newStatus === TaskStatus.COMPLETED) {
-      const isDisclosuresSubmission =
-        existing.kind === TaskKind.SUBMIT_DISCLOSURES ||
-        (existing.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
-          existing.title.toLowerCase().includes('disclosure'));
+      const isDisclosuresSubmission = isDisclosureSubmissionTask(existing);
 
       if (isDisclosuresSubmission) {
         await prisma.loan.update({
@@ -178,6 +271,7 @@ type SubmissionPayload = {
   arriveLoanNumber: string;
   loanAmount?: string;
   notes?: string;
+  submissionData?: Prisma.InputJsonValue;
 };
 
 export async function createSubmissionTask(payload: SubmissionPayload) {
@@ -192,6 +286,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       arriveLoanNumber,
       loanAmount,
       notes,
+      submissionData,
     } = payload;
 
     const session = await getServerSession(authOptions);
@@ -276,6 +371,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         title: taskTitle,
         kind,
         description: notes || null,
+        submissionData: submissionData ?? undefined,
         status: TaskStatus.PENDING,
         priority: TaskPriority.NORMAL,
         assignedRole,
@@ -291,7 +387,12 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
   }
 }
 
-export async function requestInfoFromLoanOfficer(taskId: string, message: string) {
+type RequestInfoInput = {
+  reason: DisclosureDecisionReason;
+  message?: string;
+};
+
+export async function requestInfoFromLoanOfficer(taskId: string, input: RequestInfoInput) {
   try {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
@@ -314,18 +415,73 @@ export async function requestInfoFromLoanOfficer(taskId: string, message: string
     });
     if (!task) return { success: false, error: 'Task not found.' };
 
-    await prisma.task.create({
-      data: {
-        loanId: task.loanId,
-        title: 'LO: Needs Info',
+    if (!isSubmissionTask(task)) {
+      return {
+        success: false,
+        error: 'This action is only supported for disclosure/QC submission tasks.',
+      };
+    }
+
+    const proofCount = await prisma.taskAttachment.count({
+      where: { taskId, purpose: 'PROOF' },
+    });
+    if (proofCount < 1) {
+      return {
+        success: false,
+        error: 'Upload proof/error attachment before sending this back to LO.',
+      };
+    }
+
+    const existingOpenLoTask = await prisma.task.findFirst({
+      where: {
+        parentTaskId: taskId,
         kind: TaskKind.LO_NEEDS_INFO,
-        description: message || null,
-        status: TaskStatus.PENDING,
-        priority: TaskPriority.HIGH,
-        assignedUserId: task.loan.loanOfficerId,
-        assignedRole: UserRole.LOAN_OFFICER,
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        status: { not: TaskStatus.COMPLETED },
       },
+      select: { id: true },
+    });
+
+    if (existingOpenLoTask) {
+      return {
+        success: false,
+        error: 'This task is already waiting on a Loan Officer response.',
+      };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.task.update({
+        where: { id: taskId },
+        data: {
+          status: TaskStatus.BLOCKED,
+          disclosureReason: input.reason,
+          workflowState:
+            input.reason ===
+            DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+              ? TaskWorkflowState.WAITING_ON_LO_APPROVAL
+              : TaskWorkflowState.WAITING_ON_LO,
+          loanOfficerApprovedAt: null,
+        },
+      });
+
+      await tx.task.create({
+        data: {
+          loanId: task.loanId,
+          parentTaskId: taskId,
+          title:
+            input.reason ===
+            DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+              ? 'LO: Approve Initial Disclosures'
+              : 'LO: Needs Info',
+          kind: TaskKind.LO_NEEDS_INFO,
+          disclosureReason: input.reason,
+          description: input.message?.trim() || null,
+          status: TaskStatus.PENDING,
+          priority: TaskPriority.HIGH,
+          assignedUserId: task.loan.loanOfficerId,
+          assignedRole: UserRole.LOAN_OFFICER,
+          dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
     });
 
     revalidatePath('/tasks');
@@ -334,6 +490,78 @@ export async function requestInfoFromLoanOfficer(taskId: string, message: string
   } catch (error) {
     console.error('Failed to request info:', error);
     return { success: false, error: 'Failed to request info.' };
+  }
+}
+
+export async function respondToDisclosureRequest(
+  taskId: string,
+  responseMessage: string
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) return { success: false, error: 'Not authenticated.' };
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        description: true,
+        parentTaskId: true,
+        assignedUserId: true,
+        disclosureReason: true,
+      },
+    });
+
+    if (!task) return { success: false, error: 'Task not found.' };
+    if (task.kind !== TaskKind.LO_NEEDS_INFO || !task.parentTaskId) {
+      return { success: false, error: 'This task does not support LO responses.' };
+    }
+    if (task.status === TaskStatus.COMPLETED) {
+      return { success: false, error: 'This LO response task is already completed.' };
+    }
+
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canRespond = canManageAll || (role === UserRole.LOAN_OFFICER && task.assignedUserId === userId);
+    if (!canRespond) return { success: false, error: 'Not authorized.' };
+
+    await prisma.$transaction(async (tx) => {
+      const stampedResponse = responseMessage.trim()
+        ? `${task.description ? `${task.description}\n\n` : ''}LO Response: ${responseMessage.trim()}`
+        : task.description;
+
+      await tx.task.update({
+        where: { id: taskId },
+        data: {
+          status: TaskStatus.COMPLETED,
+          completedAt: new Date(),
+          description: stampedResponse || null,
+        },
+      });
+
+      await tx.task.update({
+        where: { id: task.parentTaskId! },
+        data: {
+          status: TaskStatus.PENDING,
+          workflowState: TaskWorkflowState.READY_TO_COMPLETE,
+          loanOfficerApprovedAt:
+            task.disclosureReason ===
+            DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+              ? new Date()
+              : undefined,
+        },
+      });
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to record LO response:', error);
+    return { success: false, error: 'Failed to record LO response.' };
   }
 }
 

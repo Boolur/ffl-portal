@@ -69,6 +69,19 @@ enum TaskAttachmentPurpose {
   OTHER
 }
 
+enum DisclosureDecisionReason {
+  APPROVE_INITIAL_DISCLOSURES
+  MISSING_ITEMS
+  OTHER
+}
+
+enum TaskWorkflowState {
+  NONE
+  WAITING_ON_LO
+  WAITING_ON_LO_APPROVAL
+  READY_TO_COMPLETE
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
@@ -133,12 +146,17 @@ model Loan {
 }
 
 model Task {
-  id          String     @id @default(uuid())
+  id          String                 @id @default(uuid())
   title       String
   description String?
-  status      TaskStatus @default(PENDING)
-  priority    TaskPriority @default(NORMAL)
+  status      TaskStatus             @default(PENDING)
+  priority    TaskPriority           @default(NORMAL)
   kind        TaskKind?
+  submissionData Json?
+  disclosureReason DisclosureDecisionReason?
+  workflowState TaskWorkflowState    @default(NONE)
+  loanOfficerApprovedAt DateTime?
+  parentTaskId String?
   
   // A task belongs to a loan
   loanId      String
@@ -155,7 +173,12 @@ model Task {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
+  parentTask  Task?      @relation("TaskParentChild", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  childTasks  Task[]     @relation("TaskParentChild")
   attachments TaskAttachment[]
+
+  @@index([parentTaskId])
+  @@index([workflowState])
 }
 
 model TaskAttachment {

@@ -1,11 +1,69 @@
 'use client';
 
 import React from 'react';
-import { Calendar, CheckCircle, FileText, Trash2, Loader2 } from 'lucide-react';
+import {
+  Calendar,
+  CheckCircle,
+  ChevronDown,
+  FileText,
+  Trash2,
+  Loader2,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { deleteTask, updateTaskStatus } from '@/app/actions/taskActions';
-import { createTaskAttachmentUploadUrl, finalizeTaskAttachment, getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
-import { TaskAttachmentPurpose, TaskKind, TaskStatus, UserRole } from '@prisma/client';
+import {
+  deleteTask,
+  requestInfoFromLoanOfficer,
+  respondToDisclosureRequest,
+  updateTaskStatus,
+} from '@/app/actions/taskActions';
+import {
+  createTaskAttachmentUploadUrl,
+  finalizeTaskAttachment,
+  getTaskAttachmentDownloadUrl,
+} from '@/app/actions/attachmentActions';
+import {
+  DisclosureDecisionReason,
+  Prisma,
+  TaskAttachmentPurpose,
+  TaskKind,
+  TaskStatus,
+  TaskWorkflowState,
+  UserRole,
+} from '@prisma/client';
+
+const disclosureReasonOptions: Array<{
+  value: DisclosureDecisionReason;
+  label: string;
+}> = [
+  {
+    value: DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES,
+    label: 'Approve Initial Disclosures',
+  },
+  { value: DisclosureDecisionReason.MISSING_ITEMS, label: 'Missing Items' },
+  { value: DisclosureDecisionReason.OTHER, label: 'Other' },
+];
+
+const qcReasonOptions: Array<{
+  value: DisclosureDecisionReason;
+  label: string;
+}> = [
+  { value: DisclosureDecisionReason.MISSING_ITEMS, label: 'Missing Items' },
+  { value: DisclosureDecisionReason.OTHER, label: 'Other' },
+];
+
+const disclosureReasonLabel: Record<DisclosureDecisionReason, string> = {
+  [DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES]:
+    'Approve Initial Disclosures',
+  [DisclosureDecisionReason.MISSING_ITEMS]: 'Missing Items',
+  [DisclosureDecisionReason.OTHER]: 'Other',
+};
+
+const workflowStateLabel: Record<TaskWorkflowState, string> = {
+  [TaskWorkflowState.NONE]: 'None',
+  [TaskWorkflowState.WAITING_ON_LO]: 'Waiting on LO',
+  [TaskWorkflowState.WAITING_ON_LO_APPROVAL]: 'Waiting on LO Approval',
+  [TaskWorkflowState.READY_TO_COMPLETE]: 'Ready to Complete',
+};
 
 type Task = {
   id: string;
@@ -14,6 +72,11 @@ type Task = {
   status: TaskStatus;
   dueDate: Date | null;
   kind: TaskKind | null;
+  workflowState: TaskWorkflowState;
+  disclosureReason: DisclosureDecisionReason | null;
+  parentTaskId: string | null;
+  loanOfficerApprovedAt: Date | null;
+  submissionData?: Prisma.JsonValue | null;
   loan: {
     loanNumber: string;
     borrowerName: string;
@@ -41,6 +104,18 @@ export function TaskList({
   const [updatingId, setUpdatingId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [uploadingId, setUploadingId] = React.useState<string | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = React.useState<string | null>(null);
+  const [sendingToLoId, setSendingToLoId] = React.useState<string | null>(null);
+  const [respondingId, setRespondingId] = React.useState<string | null>(null);
+  const [disclosureReasonByTask, setDisclosureReasonByTask] = React.useState<
+    Record<string, DisclosureDecisionReason>
+  >({});
+  const [disclosureMessageByTask, setDisclosureMessageByTask] = React.useState<
+    Record<string, string>
+  >({});
+  const [loResponseByTask, setLoResponseByTask] = React.useState<
+    Record<string, string>
+  >({});
 
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
     if (updatingId) return;
@@ -119,6 +194,41 @@ export function TaskList({
     window.open(result.url, '_blank', 'noopener,noreferrer');
   };
 
+  const handleSendToLoanOfficer = async (task: Task) => {
+    if (sendingToLoId) return;
+    const reason =
+      disclosureReasonByTask[task.id] ||
+      DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+    const message = (disclosureMessageByTask[task.id] || '').trim();
+    setSendingToLoId(task.id);
+    const result = await requestInfoFromLoanOfficer(task.id, { reason, message });
+    if (!result.success) {
+      alert(result.error || 'Failed to send task to Loan Officer.');
+      setSendingToLoId(null);
+      return;
+    }
+    router.refresh();
+    setSendingToLoId(null);
+  };
+
+  const handleLoanOfficerResponse = async (task: Task) => {
+    if (respondingId) return;
+    const response = (loResponseByTask[task.id] || '').trim();
+    if (!response) {
+      alert('Please add a response before sending this back to Disclosure.');
+      return;
+    }
+    setRespondingId(task.id);
+    const result = await respondToDisclosureRequest(task.id, response);
+    if (!result.success) {
+      alert(result.error || 'Failed to send response.');
+      setRespondingId(null);
+      return;
+    }
+    router.refresh();
+    setRespondingId(null);
+  };
+
   const handleDelete = async (taskId: string) => {
     if (deletingId) return;
     const confirmed = window.confirm('Delete this task? This cannot be undone.');
@@ -147,6 +257,13 @@ export function TaskList({
     kind === TaskKind.VA_PAYOFF ||
     kind === TaskKind.VA_APPRAISAL;
 
+  const isDisclosureRole = currentRole === UserRole.DISCLOSURE_SPECIALIST;
+  const isQcRole = currentRole === UserRole.QC;
+  const isDisclosureSubmissionTask = (task: Task) =>
+    task.kind === TaskKind.SUBMIT_DISCLOSURES;
+  const isQcSubmissionTask = (task: Task) => task.kind === TaskKind.SUBMIT_QC;
+  const isLoResponseTask = (task: Task) => task.kind === TaskKind.LO_NEEDS_INFO;
+
   if (tasks.length === 0) {
     return (
       <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
@@ -161,7 +278,38 @@ export function TaskList({
 
   return (
     <div className="space-y-4">
-      {tasks.map((task) => (
+      {tasks.map((task) => {
+        const isExpanded = expandedTaskId === task.id;
+        const selectedReason =
+          disclosureReasonByTask[task.id] ||
+          DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+        const selectedQcReason =
+          disclosureReasonByTask[task.id] || DisclosureDecisionReason.MISSING_ITEMS;
+        const shouldShowProofUploader =
+          task.status !== 'COMPLETED' &&
+          ((isVaSubRole && isVaTaskKind(task.kind)) ||
+            (isDisclosureRole && isDisclosureSubmissionTask(task)) ||
+            (isQcRole && isQcSubmissionTask(task)));
+        const isLoTaskForCurrentLoanOfficer =
+          currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
+        const parsedSubmissionData =
+          task.submissionData &&
+          typeof task.submissionData === 'object' &&
+          !Array.isArray(task.submissionData)
+            ? task.submissionData
+            : null;
+        const submissionDataRows = parsedSubmissionData
+          ? Object.entries(parsedSubmissionData).filter(([, value]) => {
+              return (
+                value !== null &&
+                (typeof value === 'string' ||
+                  typeof value === 'number' ||
+                  typeof value === 'boolean')
+              );
+            })
+          : [];
+
+        return (
         <div 
           key={task.id} 
           className="bg-white p-4 rounded-xl border border-slate-200 hover:shadow-md transition-shadow flex items-start justify-between gap-4 group"
@@ -204,6 +352,18 @@ export function TaskList({
                 <p className="text-sm text-slate-400 mt-2">{task.description}</p>
               )}
 
+              {task.disclosureReason && (
+                <p className="mt-2 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                  Reason: {disclosureReasonLabel[task.disclosureReason]}
+                </p>
+              )}
+
+              {task.workflowState !== TaskWorkflowState.NONE && (
+                <p className="mt-2 inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                  {workflowStateLabel[task.workflowState]}
+                </p>
+              )}
+
               {(task.attachments?.length || 0) > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {task.attachments!.map((att) => (
@@ -220,13 +380,15 @@ export function TaskList({
                 </div>
               )}
 
-              {isVaSubRole && isVaTaskKind(task.kind) && task.status !== 'COMPLETED' && (
+              {shouldShowProofUploader && (
                 <div className="mt-3">
                   <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
                     <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
                       Proof required
                     </span>
-                    <span className="text-slate-500">Upload PDF/Image before completing.</span>
+                    <span className="text-slate-500">
+                      Upload PDF/Image before completing or sending this task.
+                    </span>
                   </label>
                   <div className="mt-2 flex items-center gap-2">
                     <input
@@ -250,6 +412,171 @@ export function TaskList({
                   </div>
                 </div>
               )}
+
+              {isDisclosureRole &&
+                isDisclosureSubmissionTask(task) &&
+                task.status !== 'COMPLETED' && (
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      Disclosure Action
+                    </p>
+                    <select
+                      value={selectedReason}
+                      onChange={(event) =>
+                        setDisclosureReasonByTask((prev) => ({
+                          ...prev,
+                          [task.id]: event.target.value as DisclosureDecisionReason,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {disclosureReasonOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <textarea
+                      value={disclosureMessageByTask[task.id] || ''}
+                      onChange={(event) =>
+                        setDisclosureMessageByTask((prev) => ({
+                          ...prev,
+                          [task.id]: event.target.value,
+                        }))
+                      }
+                      placeholder="Add context for the LO (what changed, what is missing, next steps)..."
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSendToLoanOfficer(task)}
+                      disabled={sendingToLoId === task.id}
+                      className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {sendingToLoId === task.id && (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      )}
+                      {selectedReason ===
+                      DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                        ? 'Send to LO for Approval'
+                        : 'Send Back to LO'}
+                    </button>
+                  </div>
+                )}
+
+              {isQcRole && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    QC Action
+                  </p>
+                  <select
+                    value={selectedQcReason}
+                    onChange={(event) =>
+                      setDisclosureReasonByTask((prev) => ({
+                        ...prev,
+                        [task.id]: event.target.value as DisclosureDecisionReason,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    {qcReasonOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    value={disclosureMessageByTask[task.id] || ''}
+                    onChange={(event) =>
+                      setDisclosureMessageByTask((prev) => ({
+                        ...prev,
+                        [task.id]: event.target.value,
+                      }))
+                    }
+                    placeholder="Add context for LO (what is missing or what needs correction)..."
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleSendToLoanOfficer(task)}
+                    disabled={sendingToLoId === task.id}
+                    className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {sendingToLoId === task.id && (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    )}
+                    Send Back to LO
+                  </button>
+                </div>
+              )}
+
+              {isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
+                <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                    Loan Officer Response
+                  </p>
+                  <textarea
+                    value={loResponseByTask[task.id] || ''}
+                    onChange={(event) =>
+                      setLoResponseByTask((prev) => ({
+                        ...prev,
+                        [task.id]: event.target.value,
+                      }))
+                    }
+                    placeholder="Describe your response and what you updated for Disclosure..."
+                    className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm min-h-20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleLoanOfficerResponse(task)}
+                    disabled={respondingId === task.id}
+                    className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {respondingId === task.id && (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    )}
+                    Respond to Disclosure
+                  </button>
+                </div>
+              )}
+
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedTaskId((prev) => (prev === task.id ? null : task.id))
+                  }
+                  className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                >
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${
+                      isExpanded ? 'rotate-180' : ''
+                    }`}
+                  />
+                  {isExpanded ? 'Hide Details' : 'View Details'}
+                </button>
+              </div>
+
+              {isExpanded && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  {submissionDataRows.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
+                      {submissionDataRows.map(([key, value]) => (
+                        <div key={key} className="text-xs">
+                          <p className="font-semibold uppercase tracking-wide text-slate-500">
+                            {key}
+                          </p>
+                          <p className="text-slate-700 break-words">{String(value)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      No additional submitted fields were captured for this task.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -266,7 +593,7 @@ export function TaskList({
             )}
 
             <div className="flex items-center space-x-2">
-              {task.status !== 'COMPLETED' && (
+              {!isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
                 <button 
                   onClick={() => handleStatusChange(task.id, 'COMPLETED')}
                   disabled={!!updatingId}
@@ -308,7 +635,8 @@ export function TaskList({
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
