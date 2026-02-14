@@ -3,6 +3,8 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { prisma } from '@/lib/prisma';
 import { TaskList } from '@/components/tasks/TaskList';
 import {
+  DisclosureDecisionReason,
+  TaskAttachmentPurpose,
   Prisma,
   TaskKind,
   TaskStatus,
@@ -19,28 +21,52 @@ const MOCK_USER = {
   role: UserRole.DISCLOSURE_SPECIALIST,
 };
 
-type TaskBucketFilter = 'new' | 'pending-lo' | 'completed';
+type TaskBucketFilter = 'all' | 'new' | 'pending-lo' | 'completed';
 
 function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
-  if (value === 'new' || value === 'pending-lo' || value === 'completed') {
+  if (
+    value === 'all' ||
+    value === 'new' ||
+    value === 'pending-lo' ||
+    value === 'completed'
+  ) {
     return value;
   }
   return null;
 }
 
-async function getTasks(role: UserRole, userId?: string, bucket?: TaskBucketFilter | null) {
+type TaskRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  dueDate: Date | null;
+  kind: TaskKind | null;
+  workflowState: TaskWorkflowState;
+  disclosureReason: DisclosureDecisionReason | null;
+  parentTaskId: string | null;
+  loanOfficerApprovedAt: Date | null;
+  submissionData: Prisma.JsonValue | null;
+  loan: {
+    loanNumber: string;
+    borrowerName: string;
+    stage: string;
+  };
+  assignedRole: UserRole | null;
+  attachments: {
+    id: string;
+    filename: string;
+    purpose: TaskAttachmentPurpose;
+    createdAt: Date;
+  }[];
+};
+
+async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   // Fetch tasks assigned to this role OR specifically to this user
   // For LOs, we want to see tasks for loans they own OR tasks assigned to them
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   
-  const where: Prisma.TaskWhereInput = {
-    status:
-      bucket === 'completed'
-        ? TaskStatus.COMPLETED
-        : {
-            not: TaskStatus.COMPLETED, // Default view hides completed
-          },
-  };
+  const where: Prisma.TaskWhereInput = {};
 
   if (isLoanOfficer && userId) {
     where.OR = [
@@ -52,63 +78,6 @@ async function getTasks(role: UserRole, userId?: string, bucket?: TaskBucketFilt
       { assignedRole: role as UserRole },
       // { assignedUserId: userId } // Add this later for other roles
     ];
-  }
-
-  if (role === UserRole.DISCLOSURE_SPECIALIST) {
-    if (bucket === 'new') {
-      where.kind = TaskKind.SUBMIT_DISCLOSURES;
-      where.workflowState = {
-        notIn: [
-          TaskWorkflowState.WAITING_ON_LO,
-          TaskWorkflowState.WAITING_ON_LO_APPROVAL,
-        ],
-      };
-    }
-    if (bucket === 'pending-lo') {
-      where.kind = TaskKind.SUBMIT_DISCLOSURES;
-      where.workflowState = {
-        in: [
-          TaskWorkflowState.WAITING_ON_LO,
-          TaskWorkflowState.WAITING_ON_LO_APPROVAL,
-        ],
-      };
-    }
-    if (bucket === 'completed') {
-      where.kind = TaskKind.SUBMIT_DISCLOSURES;
-    }
-  }
-
-  if (role === UserRole.QC) {
-    if (bucket === 'new') {
-      where.kind = TaskKind.SUBMIT_QC;
-      where.workflowState = {
-        notIn: [
-          TaskWorkflowState.WAITING_ON_LO,
-          TaskWorkflowState.WAITING_ON_LO_APPROVAL,
-        ],
-      };
-    }
-    if (bucket === 'pending-lo') {
-      where.kind = TaskKind.SUBMIT_QC;
-      where.workflowState = {
-        in: [
-          TaskWorkflowState.WAITING_ON_LO,
-          TaskWorkflowState.WAITING_ON_LO_APPROVAL,
-        ],
-      };
-    }
-    if (bucket === 'completed') {
-      where.kind = TaskKind.SUBMIT_QC;
-    }
-  }
-
-  if (role === UserRole.LOAN_OFFICER) {
-    if (bucket === 'pending-lo') {
-      where.kind = TaskKind.LO_NEEDS_INFO;
-    }
-    if (bucket === 'completed') {
-      where.kind = TaskKind.LO_NEEDS_INFO;
-    }
   }
 
   const tasks = await prisma.task.findMany({
@@ -136,7 +105,70 @@ async function getTasks(role: UserRole, userId?: string, bucket?: TaskBucketFilt
     },
   });
   
-  return tasks;
+  return tasks as TaskRow[];
+}
+
+function isSubmissionTaskForRole(role: UserRole, task: TaskRow) {
+  if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    return (
+      task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+      (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
+        task.title.toLowerCase().includes('disclosure'))
+    );
+  }
+  if (role === UserRole.QC) {
+    return (
+      task.kind === TaskKind.SUBMIT_QC ||
+      (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
+    );
+  }
+  return true;
+}
+
+function filterTasksByBucket(
+  role: UserRole,
+  tasks: TaskRow[],
+  bucket: TaskBucketFilter
+): TaskRow[] {
+  if (bucket === 'all') return tasks;
+
+  if (role === UserRole.DISCLOSURE_SPECIALIST || role === UserRole.QC) {
+    const roleSubmissionTasks = tasks.filter((task) => isSubmissionTaskForRole(role, task));
+    if (bucket === 'completed') {
+      return roleSubmissionTasks.filter((task) => task.status === TaskStatus.COMPLETED);
+    }
+    if (bucket === 'pending-lo') {
+      return roleSubmissionTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          (task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL)
+      );
+    }
+    if (bucket === 'new') {
+      return roleSubmissionTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState !== TaskWorkflowState.WAITING_ON_LO &&
+          task.workflowState !== TaskWorkflowState.WAITING_ON_LO_APPROVAL
+      );
+    }
+  }
+
+  if (role === UserRole.LOAN_OFFICER) {
+    const loRoundTripTasks = tasks.filter((task) => task.kind === TaskKind.LO_NEEDS_INFO);
+    if (bucket === 'completed') {
+      return loRoundTripTasks.filter((task) => task.status === TaskStatus.COMPLETED);
+    }
+    if (bucket === 'pending-lo' || bucket === 'new') {
+      return loRoundTripTasks.filter((task) => task.status !== TaskStatus.COMPLETED);
+    }
+  }
+
+  if (bucket === 'completed') {
+    return tasks.filter((task) => task.status === TaskStatus.COMPLETED);
+  }
+  return tasks.filter((task) => task.status !== TaskStatus.COMPLETED);
 }
 
 type TasksPageProps = {
@@ -153,10 +185,15 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   };
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const rawBucket = resolvedSearchParams?.bucket;
-  const bucket = normalizeBucketFilter(
+  const bucket =
+    normalizeBucketFilter(
     typeof rawBucket === 'string' ? rawBucket : undefined
-  );
-  const tasks = await getTasks(sessionRole, sessionUser.id, bucket);
+  ) || 'all';
+  const allTasks = await getTasks(sessionRole, sessionUser.id);
+  const tasks = filterTasksByBucket(sessionRole, allTasks, bucket);
+  const newTasks = filterTasksByBucket(sessionRole, allTasks, 'new');
+  const pendingLoTasks = filterTasksByBucket(sessionRole, allTasks, 'pending-lo');
+  const completedTasks = filterTasksByBucket(sessionRole, allTasks, 'completed');
   const canDelete =
     sessionRole === UserRole.ADMIN || sessionRole === UserRole.MANAGER;
   const roleTaskSubtitle: Record<string, string> = {
@@ -174,6 +211,11 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     [UserRole.PROCESSOR_SR]: 'Handle advanced processing tasks and escalations.',
   };
 
+  const showBuckets =
+    sessionRole === UserRole.DISCLOSURE_SPECIALIST ||
+    sessionRole === UserRole.QC ||
+    sessionRole === UserRole.LOAN_OFFICER;
+
   return (
     <DashboardShell user={sessionUser}>
       <div className="flex items-center justify-between app-page-header">
@@ -185,12 +227,58 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         </div>
         <div className="flex space-x-3">
           <span className="app-count-badge">
-            {tasks.length} {bucket === 'completed' ? 'Completed' : 'Pending'}
+            {allTasks.length} Total Tasks
           </span>
         </div>
       </div>
 
-      <TaskList tasks={tasks} canDelete={canDelete} currentRole={sessionRole} />
+      {showBuckets && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div
+            className={`rounded-xl border bg-slate-50/40 p-3 ${
+              bucket === 'new' ? 'border-blue-300 ring-1 ring-blue-200' : 'border-slate-200'
+            }`}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900">New</h2>
+              <span className="app-count-badge">{newTasks.length}</span>
+            </div>
+            <TaskList tasks={newTasks} canDelete={canDelete} currentRole={sessionRole} />
+          </div>
+          <div
+            className={`rounded-xl border bg-slate-50/40 p-3 ${
+              bucket === 'pending-lo'
+                ? 'border-blue-300 ring-1 ring-blue-200'
+                : 'border-slate-200'
+            }`}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900">
+                {sessionRole === UserRole.LOAN_OFFICER ? 'Pending Response' : 'Pending LO'}
+              </h2>
+              <span className="app-count-badge">{pendingLoTasks.length}</span>
+            </div>
+            <TaskList tasks={pendingLoTasks} canDelete={canDelete} currentRole={sessionRole} />
+          </div>
+          <div
+            className={`rounded-xl border bg-slate-50/40 p-3 ${
+              bucket === 'completed'
+                ? 'border-blue-300 ring-1 ring-blue-200'
+                : 'border-slate-200'
+            }`}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900">Completed</h2>
+              <span className="app-count-badge">{completedTasks.length}</span>
+            </div>
+            <TaskList tasks={completedTasks} canDelete={canDelete} currentRole={sessionRole} />
+          </div>
+        </div>
+      )}
+
+      {!showBuckets && (
+        <TaskList tasks={tasks} canDelete={canDelete} currentRole={sessionRole} />
+      )}
     </DashboardShell>
   );
 }

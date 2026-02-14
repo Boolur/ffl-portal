@@ -12,6 +12,7 @@ import {
 import { useRouter } from 'next/navigation';
 import {
   deleteTask,
+  reviewInitialDisclosureFigures,
   requestInfoFromLoanOfficer,
   respondToDisclosureRequest,
   updateTaskStatus,
@@ -64,6 +65,34 @@ const workflowStateLabel: Record<TaskWorkflowState, string> = {
   [TaskWorkflowState.WAITING_ON_LO_APPROVAL]: 'Waiting on LO Approval',
   [TaskWorkflowState.READY_TO_COMPLETE]: 'Ready to Complete',
 };
+
+function getWorkflowChip(
+  workflowState: TaskWorkflowState,
+  reason: DisclosureDecisionReason | null
+): { label: string; className: string } | null {
+  if (workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL) {
+    return {
+      label: 'Awaiting LO Approval',
+      className: 'border-blue-200 bg-blue-50 text-blue-700',
+    };
+  }
+  if (workflowState === TaskWorkflowState.WAITING_ON_LO) {
+    return {
+      label:
+        reason === DisclosureDecisionReason.MISSING_ITEMS
+          ? 'Missing Items from LO'
+          : 'Waiting on LO Response',
+      className: 'border-amber-200 bg-amber-50 text-amber-700',
+    };
+  }
+  if (workflowState === TaskWorkflowState.READY_TO_COMPLETE) {
+    return {
+      label: 'Ready to Complete',
+      className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    };
+  }
+  return null;
+}
 
 type Task = {
   id: string;
@@ -229,6 +258,31 @@ export function TaskList({
     setRespondingId(null);
   };
 
+  const handleLoanOfficerDisclosureReview = async (
+    task: Task,
+    decision: 'APPROVE' | 'REVISION_REQUIRED'
+  ) => {
+    if (respondingId) return;
+    const response = (loResponseByTask[task.id] || '').trim();
+    if (!response) {
+      alert('Please add a response note before submitting your review.');
+      return;
+    }
+    setRespondingId(task.id);
+    const result = await reviewInitialDisclosureFigures({
+      taskId: task.id,
+      decision,
+      message: response,
+    });
+    if (!result.success) {
+      alert(result.error || 'Failed to submit review.');
+      setRespondingId(null);
+      return;
+    }
+    router.refresh();
+    setRespondingId(null);
+  };
+
   const handleDelete = async (taskId: string) => {
     if (deletingId) return;
     const confirmed = window.confirm('Delete this task? This cannot be undone.');
@@ -290,14 +344,27 @@ export function TaskList({
           ((isVaSubRole && isVaTaskKind(task.kind)) ||
             (isDisclosureRole && isDisclosureSubmissionTask(task)) ||
             (isQcRole && isQcSubmissionTask(task)));
+        const proofCount =
+          task.attachments?.filter((att) => att.purpose === TaskAttachmentPurpose.PROOF)
+            .length || 0;
+        const requiresProofForCompletion =
+          isVaTaskKind(task.kind) ||
+          isDisclosureSubmissionTask(task) ||
+          isQcSubmissionTask(task);
+        const canCompleteTask = !requiresProofForCompletion || proofCount > 0;
         const isLoTaskForCurrentLoanOfficer =
           currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
+        const isApprovalReviewTask =
+          isLoTaskForCurrentLoanOfficer &&
+          task.disclosureReason ===
+            DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const parsedSubmissionData =
           task.submissionData &&
           typeof task.submissionData === 'object' &&
           !Array.isArray(task.submissionData)
             ? task.submissionData
             : null;
+        const workflowChip = getWorkflowChip(task.workflowState, task.disclosureReason);
         const submissionDataRows = parsedSubmissionData
           ? Object.entries(parsedSubmissionData).filter(([, value]) => {
               return (
@@ -358,11 +425,17 @@ export function TaskList({
                 </p>
               )}
 
-              {task.workflowState !== TaskWorkflowState.NONE && (
+              {workflowChip ? (
+                <p
+                  className={`mt-2 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${workflowChip.className}`}
+                >
+                  {workflowChip.label}
+                </p>
+              ) : task.workflowState !== TaskWorkflowState.NONE ? (
                 <p className="mt-2 inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
                   {workflowStateLabel[task.workflowState]}
                 </p>
-              )}
+              ) : null}
 
               {(task.attachments?.length || 0) > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -450,7 +523,7 @@ export function TaskList({
                     <button
                       type="button"
                       onClick={() => void handleSendToLoanOfficer(task)}
-                      disabled={sendingToLoId === task.id}
+                      disabled={sendingToLoId === task.id || proofCount < 1}
                       className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       {sendingToLoId === task.id && (
@@ -499,7 +572,7 @@ export function TaskList({
                   <button
                     type="button"
                     onClick={() => void handleSendToLoanOfficer(task)}
-                    disabled={sendingToLoId === task.id}
+                      disabled={sendingToLoId === task.id || proofCount < 1}
                     className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {sendingToLoId === task.id && (
@@ -526,17 +599,51 @@ export function TaskList({
                     placeholder="Describe your response and what you updated for Disclosure..."
                     className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm min-h-20"
                   />
-                  <button
-                    type="button"
-                    onClick={() => void handleLoanOfficerResponse(task)}
-                    disabled={respondingId === task.id}
-                    className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {respondingId === task.id && (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    )}
-                    Respond to Disclosure
-                  </button>
+                  {isApprovalReviewTask ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleLoanOfficerDisclosureReview(task, 'APPROVE')
+                        }
+                        disabled={respondingId === task.id}
+                        className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {respondingId === task.id && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        Approve Figures
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleLoanOfficerDisclosureReview(
+                            task,
+                            'REVISION_REQUIRED'
+                          )
+                        }
+                        disabled={respondingId === task.id}
+                        className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {respondingId === task.id && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        Request Revision
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleLoanOfficerResponse(task)}
+                      disabled={respondingId === task.id}
+                      className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {respondingId === task.id && (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      )}
+                      Respond to Disclosure
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -596,7 +703,7 @@ export function TaskList({
               {!isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
                 <button 
                   onClick={() => handleStatusChange(task.id, 'COMPLETED')}
-                  disabled={!!updatingId}
+                  disabled={!!updatingId || !canCompleteTask}
                   className="inline-flex h-9 items-center px-3 bg-green-50 text-green-700 text-sm font-medium rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {updatingId === task.id ? (
@@ -604,7 +711,11 @@ export function TaskList({
                   ) : (
                     <CheckCircle className="w-4 h-4 mr-1.5" />
                   )}
-                  {updatingId === task.id ? 'Saving...' : 'Complete'}
+                  {updatingId === task.id
+                    ? 'Saving...'
+                    : !canCompleteTask
+                    ? 'Upload Proof First'
+                    : 'Complete'}
                 </button>
               )}
               

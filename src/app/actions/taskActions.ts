@@ -565,6 +565,104 @@ export async function respondToDisclosureRequest(
   }
 }
 
+export async function reviewInitialDisclosureFigures(input: {
+  taskId: string;
+  decision: 'APPROVE' | 'REVISION_REQUIRED';
+  message?: string;
+}) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) return { success: false, error: 'Not authenticated.' };
+
+    const task = await prisma.task.findUnique({
+      where: { id: input.taskId },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        description: true,
+        parentTaskId: true,
+        assignedUserId: true,
+        disclosureReason: true,
+      },
+    });
+
+    if (!task) return { success: false, error: 'Task not found.' };
+    if (task.kind !== TaskKind.LO_NEEDS_INFO || !task.parentTaskId) {
+      return { success: false, error: 'This task does not support LO review.' };
+    }
+    if (
+      task.disclosureReason !==
+      DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+    ) {
+      return {
+        success: false,
+        error:
+          'This review action is only available for approval of initial disclosure figures.',
+      };
+    }
+    if (task.status === TaskStatus.COMPLETED) {
+      return { success: false, error: 'This review task is already completed.' };
+    }
+
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canReview =
+      canManageAll ||
+      (role === UserRole.LOAN_OFFICER && task.assignedUserId === userId);
+    if (!canReview) return { success: false, error: 'Not authorized.' };
+
+    const note = input.message?.trim();
+
+    await prisma.$transaction(async (tx) => {
+      const stampedResponse = note
+        ? `${task.description ? `${task.description}\n\n` : ''}LO Review: ${note}`
+        : task.description;
+
+      await tx.task.update({
+        where: { id: input.taskId },
+        data: {
+          status: TaskStatus.COMPLETED,
+          completedAt: new Date(),
+          description: stampedResponse || null,
+        },
+      });
+
+      if (input.decision === 'APPROVE') {
+        await tx.task.update({
+          where: { id: task.parentTaskId! },
+          data: {
+            status: TaskStatus.PENDING,
+            workflowState: TaskWorkflowState.READY_TO_COMPLETE,
+            loanOfficerApprovedAt: new Date(),
+          },
+        });
+      } else {
+        await tx.task.update({
+          where: { id: task.parentTaskId! },
+          data: {
+            status: TaskStatus.PENDING,
+            workflowState: TaskWorkflowState.NONE,
+            disclosureReason: DisclosureDecisionReason.OTHER,
+            loanOfficerApprovedAt: null,
+            description: note
+              ? `${note}\n\nRevision requested by LO.`
+              : 'Revision requested by LO.',
+          },
+        });
+      }
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to review initial disclosure figures:', error);
+    return { success: false, error: 'Failed to process LO review.' };
+  }
+}
+
 export async function deleteTask(taskId: string) {
   try {
     const session = await getServerSession(authOptions);
