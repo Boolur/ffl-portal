@@ -573,11 +573,17 @@ export function TaskList({
           isDisclosureSubmissionTask(task) &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.NONE;
+        const isDisclosureReturnedRoutingState =
+          isDisclosureRole &&
+          isDisclosureSubmissionTask(task) &&
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE;
         const shouldHideGenericStartForDisclosureSubmission =
           isDisclosureRole && isDisclosureSubmissionTask(task);
         const shouldRouteFromFooter =
           task.status !== TaskStatus.COMPLETED &&
-          ((isDisclosureInitialRoutingState) ||
+          ((isDisclosureInitialRoutingState ||
+            isDisclosureReturnedRoutingState) ||
             (isQcRole && isQcSubmissionTask(task)));
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
@@ -849,7 +855,8 @@ export function TaskList({
                     </div>
                   )}
 
-                  {isDisclosureInitialRoutingState && (
+                  {(isDisclosureInitialRoutingState ||
+                    isDisclosureReturnedRoutingState) && (
                       <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/50 p-6 shadow-sm space-y-4">
                         <div className="flex items-center gap-3 mb-2">
                           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
@@ -885,7 +892,7 @@ export function TaskList({
                           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm min-h-[100px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                         />
                         <p className="text-xs font-semibold text-slate-500">
-                          Add a note, then use the bottom action bar to route this task.
+                          Add a note, then use the bottom action bar to route this task if needed.
                         </p>
                       </div>
                     )}
@@ -975,7 +982,9 @@ export function TaskList({
                     {!isLoTaskForCurrentLoanOfficer &&
                       task.status !== 'COMPLETED' &&
                       !isDisclosureInitialRoutingState &&
-                      !shouldRouteFromFooter &&
+                      !(
+                        shouldRouteFromFooter && !isDisclosureReturnedRoutingState
+                      ) &&
                       !isLoanOfficerSubmissionTask && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'COMPLETED')}
