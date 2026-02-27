@@ -253,6 +253,23 @@ function getWorkflowChip(
   return null;
 }
 
+function getAttachmentPurposeMeta(purpose: TaskAttachmentPurpose): {
+  label: string;
+  badgeClassName: string;
+} {
+  if (purpose === TaskAttachmentPurpose.PROOF) {
+    return {
+      label: 'Proof',
+      badgeClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+    };
+  }
+
+  return {
+    label: 'Submission',
+    badgeClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+  };
+}
+
 type Task = {
   id: string;
   title: string;
@@ -388,6 +405,10 @@ export function TaskList({
       disclosureReasonByTask[task.id] ||
       DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
     const message = (disclosureMessageByTask[task.id] || '').trim();
+    if (!message) {
+      alert('Please add a note before routing this task.');
+      return;
+    }
     setSendingToLoId(task.id);
     const result = await requestInfoFromLoanOfficer(task.id, { reason, message });
     if (!result.success) {
@@ -527,6 +548,8 @@ export function TaskList({
             (isQcRole && isQcSubmissionTask(task)));
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
+        const disclosureFooterMessage = (disclosureMessageByTask[task.id] || '').trim();
+        const loFooterResponse = (loResponseByTask[task.id] || '').trim();
         const parsedSubmissionData =
           task.submissionData &&
           typeof task.submissionData === 'object' &&
@@ -604,22 +627,29 @@ export function TaskList({
                     </button>
                   </div>
 
-                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                    <h4 className="text-sm font-bold text-slate-900 mb-3 border-b border-slate-200 pb-2">
+                  <div className="mt-5 rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-5 shadow-sm">
+                    <h4 className="mb-4 border-b border-slate-200 pb-3 text-base font-extrabold tracking-tight text-slate-900">
                       Submission Details
                     </h4>
                     {submissionDataRows.length > 0 ? (
                       <div className="space-y-4">
                         {submissionDataGroups.map((group) => (
-                          <div key={group.title} className="rounded-lg border border-slate-200 bg-white p-3">
-                            <p className="text-xs font-bold uppercase tracking-wide text-slate-600 mb-2">
+                          <div
+                            key={group.title}
+                            className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                          >
+                            <p className="mb-3 text-xs font-extrabold uppercase tracking-[0.1em] text-slate-600">
                               {group.title}
                             </p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                            <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2">
                               {group.rows.map((row) => (
                                 <div key={row.key} className="text-sm">
-                                  <p className="font-bold text-slate-700 mb-0.5">{row.label}</p>
-                                  <p className="text-slate-900 break-words font-medium">{row.value}</p>
+                                  <p className="mb-1 text-sm font-extrabold leading-tight text-slate-800">
+                                    {row.label}
+                                  </p>
+                                  <p className="break-words text-[15px] font-medium leading-6 text-slate-900">
+                                    {row.value}
+                                  </p>
                                 </div>
                               ))}
                             </div>
@@ -627,7 +657,7 @@ export function TaskList({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-slate-500 italic">
+                      <p className="text-sm italic text-slate-500">
                         No additional submitted fields were captured for this task.
                       </p>
                     )}
@@ -663,18 +693,41 @@ export function TaskList({
                   )}
 
                   {(task.attachments?.length || 0) > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-5">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-extrabold tracking-tight text-slate-900">
+                          Attachments
+                        </p>
+                        <p className="text-xs font-semibold text-slate-500">
+                          {task.attachments!.length} file
+                          {task.attachments!.length === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2.5">
                       {task.attachments!.map((att) => (
-                        <button
-                          key={att.id}
-                          onClick={() => handleViewAttachment(att.id)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          type="button"
-                        >
-                          <FileText className="h-3.5 w-3.5 text-slate-500" />
-                          <span className="max-w-[320px] truncate">{att.filename}</span>
-                        </button>
+                        (() => {
+                          const purposeMeta = getAttachmentPurposeMeta(att.purpose);
+                          return (
+                            <button
+                              key={att.id}
+                              onClick={() => handleViewAttachment(att.id)}
+                              className="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                              type="button"
+                            >
+                              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                                <FileText className="h-4 w-4" />
+                              </span>
+                              <span className="max-w-[320px] truncate">{att.filename}</span>
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${purposeMeta.badgeClassName}`}
+                              >
+                                {purposeMeta.label}
+                              </span>
+                            </button>
+                          );
+                        })()
                       ))}
+                      </div>
                     </div>
                   )}
 
@@ -746,7 +799,7 @@ export function TaskList({
                           className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
                         />
                         <p className="text-xs font-medium text-slate-600">
-                          Use the bottom action bar to route this task.
+                          Add a note, then use the bottom action bar to route this task.
                         </p>
                       </div>
                     )}
@@ -784,7 +837,7 @@ export function TaskList({
                         className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
                       />
                       <p className="text-xs font-medium text-slate-600">
-                        Use the bottom action bar to route this task.
+                        Add a note, then use the bottom action bar to route this task.
                       </p>
                     </div>
                   )}
@@ -806,7 +859,7 @@ export function TaskList({
                         className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm min-h-20"
                       />
                       <p className="text-xs font-medium text-blue-700/80">
-                        Use the action button(s) in the footer to submit your response.
+                        Notes are required before submitting from the footer.
                       </p>
                     </div>
                   )}
@@ -814,7 +867,8 @@ export function TaskList({
                   <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
                     {task.status === 'PENDING' &&
                       !isDisclosureInitialRoutingState &&
-                      !shouldRouteFromFooter && (
+                      !shouldRouteFromFooter &&
+                      !shouldLoRespondFromFooter && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
                         disabled={!!updatingId}
@@ -849,7 +903,11 @@ export function TaskList({
                       <button
                         type="button"
                         onClick={() => void handleSendToLoanOfficer(task)}
-                        disabled={sendingToLoId === task.id || proofCount < 1}
+                        disabled={
+                          sendingToLoId === task.id ||
+                          proofCount < 1 ||
+                          !disclosureFooterMessage
+                        }
                         className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         {sendingToLoId === task.id && (
@@ -871,7 +929,7 @@ export function TaskList({
                             onClick={() =>
                               void handleLoanOfficerDisclosureReview(task, 'APPROVE')
                             }
-                            disabled={respondingId === task.id}
+                            disabled={respondingId === task.id || !loFooterResponse}
                             className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {respondingId === task.id && (
@@ -887,8 +945,8 @@ export function TaskList({
                                 'REVISION_REQUIRED'
                               )
                             }
-                            disabled={respondingId === task.id}
-                            className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                            disabled={respondingId === task.id || !loFooterResponse}
+                            className="inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {respondingId === task.id && (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -900,7 +958,7 @@ export function TaskList({
                         <button
                           type="button"
                           onClick={() => void handleLoanOfficerResponse(task)}
-                          disabled={respondingId === task.id}
+                          disabled={respondingId === task.id || !loFooterResponse}
                           className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           {respondingId === task.id && (
