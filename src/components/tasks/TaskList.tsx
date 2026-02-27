@@ -516,6 +516,17 @@ export function TaskList({
           isLoTaskForCurrentLoanOfficer &&
           task.disclosureReason ===
             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+        const isDisclosureInitialRoutingState =
+          isDisclosureRole &&
+          isDisclosureSubmissionTask(task) &&
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.NONE;
+        const shouldRouteFromFooter =
+          task.status !== TaskStatus.COMPLETED &&
+          ((isDisclosureRole && isDisclosureSubmissionTask(task)) ||
+            (isQcRole && isQcSubmissionTask(task)));
+        const shouldLoRespondFromFooter =
+          isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
         const parsedSubmissionData =
           task.submissionData &&
           typeof task.submissionData === 'object' &&
@@ -808,51 +819,16 @@ export function TaskList({
                         placeholder="Describe your response and what you updated for Disclosure..."
                         className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm min-h-20"
                       />
-                      {isApprovalReviewTask ? (
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void handleLoanOfficerDisclosureReview(task, 'APPROVE')}
-                            disabled={respondingId === task.id}
-                            className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {respondingId === task.id && (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            )}
-                            Approve Figures
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void handleLoanOfficerDisclosureReview(task, 'REVISION_REQUIRED')
-                            }
-                            disabled={respondingId === task.id}
-                            className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {respondingId === task.id && (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            )}
-                            Request Revision
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => void handleLoanOfficerResponse(task)}
-                          disabled={respondingId === task.id}
-                          className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {respondingId === task.id && (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          )}
-                          Respond to Disclosure
-                        </button>
-                      )}
+                      <p className="text-xs font-medium text-blue-700/80">
+                        Use the action button(s) in the footer to submit your response.
+                      </p>
                     </div>
                   )}
 
                   <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-                    {task.status === 'PENDING' && (
+                    {task.status === 'PENDING' &&
+                      !isDisclosureInitialRoutingState &&
+                      !shouldRouteFromFooter && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
                         disabled={!!updatingId}
@@ -862,7 +838,10 @@ export function TaskList({
                         Start
                       </button>
                     )}
-                    {!isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
+                    {!isLoTaskForCurrentLoanOfficer &&
+                      task.status !== 'COMPLETED' &&
+                      !isDisclosureInitialRoutingState &&
+                      !shouldRouteFromFooter && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'COMPLETED')}
                         disabled={!!updatingId || !canCompleteTask}
@@ -880,6 +859,70 @@ export function TaskList({
                           : 'Complete'}
                       </button>
                     )}
+                    {shouldRouteFromFooter && (
+                      <button
+                        type="button"
+                        onClick={() => void handleSendToLoanOfficer(task)}
+                        disabled={sendingToLoId === task.id || proofCount < 1}
+                        className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {sendingToLoId === task.id && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        {isDisclosureRole
+                          ? selectedReason ===
+                            DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                            ? 'Send to LO for Approval'
+                            : 'Send Back to LO'
+                          : 'Send Back to LO'}
+                      </button>
+                    )}
+                    {shouldLoRespondFromFooter &&
+                      (isApprovalReviewTask ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleLoanOfficerDisclosureReview(task, 'APPROVE')
+                            }
+                            disabled={respondingId === task.id}
+                            className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {respondingId === task.id && (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            )}
+                            Approve Figures
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleLoanOfficerDisclosureReview(
+                                task,
+                                'REVISION_REQUIRED'
+                              )
+                            }
+                            disabled={respondingId === task.id}
+                            className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {respondingId === task.id && (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            )}
+                            Request Revision
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void handleLoanOfficerResponse(task)}
+                          disabled={respondingId === task.id}
+                          className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {respondingId === task.id && (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          )}
+                          Respond to Disclosure
+                        </button>
+                      ))}
                     {canDelete && (
                       <button
                         onClick={() => handleDelete(task.id)}
