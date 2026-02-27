@@ -14,6 +14,7 @@ type DashboardShellProps = {
 
 function DashboardContent({ children, user }: DashboardShellProps) {
   const { activeRole } = useImpersonation();
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
 
   // Create a display user that reflects the impersonated role
   const displayUser = {
@@ -22,10 +23,21 @@ function DashboardContent({ children, user }: DashboardShellProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Sidebar />
-      <TopNav user={displayUser} />
-      <main className="ml-64 pt-16 min-h-screen">
+    <div className="min-h-screen app-shell-bg">
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((prev) => !prev)}
+      />
+      <TopNav
+        user={displayUser}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
+      />
+      <main
+        className={`pt-16 min-h-screen transition-all duration-300 ${
+          sidebarCollapsed ? 'ml-20' : 'ml-64'
+        }`}
+      >
         <div className="w-full p-6">
           {children}
         </div>

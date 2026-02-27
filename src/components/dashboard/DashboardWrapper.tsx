@@ -162,9 +162,9 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
         'PROCESSOR_JR',
         'PROCESSOR_SR',
       ].includes(activeRole) && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Active Tasks</h2>
+        <div className="bg-card rounded-xl border border-border shadow-sm">
+          <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-foreground">Active Tasks</h2>
             <span className="app-count-badge">
               {roleTasks.length} Pending
             </span>

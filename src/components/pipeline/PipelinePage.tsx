@@ -492,13 +492,13 @@ export function PipelinePage() {
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <div className="hidden md:inline-flex items-center rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+          <div className="hidden md:inline-flex items-center rounded-lg border border-border bg-card p-1 shadow-sm">
             <button
               onClick={() => setDensity('comfortable')}
               className={`px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${
                 density === 'comfortable'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  ? 'bg-foreground text-background'
+                  : 'text-muted-foreground hover:bg-secondary'
               }`}
             >
               Comfortable
@@ -507,8 +507,8 @@ export function PipelinePage() {
               onClick={() => setDensity('compact')}
               className={`px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${
                 density === 'compact'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  ? 'bg-foreground text-background'
+                  : 'text-muted-foreground hover:bg-secondary'
               }`}
             >
               Compact
@@ -525,14 +525,14 @@ export function PipelinePage() {
       </div>
 
       {showLoanOfficerSelector && (
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm max-w-md">
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+        <div className="bg-card p-4 rounded-xl border border-border shadow-sm max-w-md">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
             Viewing Pipeline For:
           </label>
           <select
             value={selectedLoanOfficerId || ''}
             onChange={(e) => setSelectedLoanOfficerId(e.target.value)}
-            className="mt-2 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 font-medium"
+            className="mt-2 w-full px-3 py-2 border border-input rounded-lg text-sm bg-secondary text-foreground font-medium"
           >
             {loanOfficers.map((officer) => (
               <option key={officer.id} value={officer.id}>
@@ -551,15 +551,15 @@ export function PipelinePage() {
         }`}
       >
         <div className="space-y-4 min-w-0">
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
             <div className="flex flex-col xl:flex-row xl:items-center gap-3">
               <div className="relative w-full xl:max-w-md">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-3" />
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search borrower or loan number..."
-                  className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  className="w-full pl-9 pr-3 py-2 border border-input bg-background rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 />
               </div>
               <div className="flex items-center gap-2 w-full xl:max-w-xl">
@@ -567,12 +567,12 @@ export function PipelinePage() {
                   value={newStageName}
                   onChange={(e) => setNewStageName(e.target.value)}
                   placeholder="Add new lead stage..."
-                  className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  className="flex-1 min-w-0 px-3 py-2 border border-input bg-background rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 />
                 <button
                   onClick={handleAddStage}
                   disabled={isSubmitting}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:opacity-70 disabled:cursor-not-allowed whitespace-nowrap"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-70 disabled:cursor-not-allowed whitespace-nowrap"
                 >
                   {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                   Add Stage
@@ -588,7 +588,7 @@ export function PipelinePage() {
           )}
 
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin mb-2 text-blue-600" />
               <p>Loading pipeline data...</p>
             </div>
@@ -617,16 +617,16 @@ export function PipelinePage() {
                   className={`${columnClass} flex flex-col h-full rounded-xl transition-all ${
                     dragOverStageId === stage.id
                       ? 'bg-blue-50 ring-2 ring-blue-200'
-                      : 'bg-slate-50/50'
+                      : 'bg-secondary/40'
                   }`}
                 >
-                  <div className="px-2.5 py-2 h-12 flex items-center justify-between border-b border-slate-200/50">
+                  <div className="px-2.5 py-2 h-12 flex items-center justify-between border-b border-border/60">
                     {editingStageId === stage.id && stage.id !== 'unassigned' ? (
                       <div className="flex-1 flex items-center gap-2">
                         <input
                           value={editingStageName}
                           onChange={(e) => setEditingStageName(e.target.value)}
-                          className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm"
+                          className="flex-1 px-2 py-1 border border-input bg-background rounded text-sm"
                           autoFocus
                         />
                         <button
@@ -640,17 +640,17 @@ export function PipelinePage() {
                             setEditingStageId(null);
                             setEditingStageName('');
                           }}
-                          className="p-1 text-slate-400 hover:bg-slate-100 rounded"
+                          className="p-1 text-muted-foreground hover:bg-secondary rounded"
                         >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-semibold text-slate-700 text-xs leading-tight truncate">
+                        <span className="font-semibold text-foreground text-xs leading-tight truncate">
                           {formatStageLabel(stage.name)}
                         </span>
-                        <span className="px-1.5 py-0.5 bg-slate-200 text-slate-600 text-[10px] rounded-full font-bold">
+                        <span className="px-1.5 py-0.5 bg-secondary text-muted-foreground text-[10px] rounded-full font-bold">
                           {loansByStage[stage.id]?.length || 0}
                         </span>
                       </div>
@@ -663,7 +663,7 @@ export function PipelinePage() {
                             setEditingStageId(stage.id);
                             setEditingStageName(stage.name);
                           }}
-                          className="p-1 text-slate-400 hover:text-slate-600 rounded"
+                          className="p-1 text-muted-foreground hover:text-foreground rounded"
                         >
                           <MoreVertical className="w-3 h-3" />
                         </button>
@@ -687,25 +687,25 @@ export function PipelinePage() {
                           setDraggedLoanId(null);
                           setDragOverStageId(null);
                         }}
-                        className={`bg-white ${cardClass} rounded-lg border shadow-sm hover:shadow-md transition-all cursor-pointer group ${
-                          draggedLoanId === loan.id ? 'opacity-50' : 'border-slate-200'
+                        className={`bg-card ${cardClass} rounded-lg border shadow-sm hover:shadow-md transition-all cursor-pointer group ${
+                          draggedLoanId === loan.id ? 'opacity-50' : 'border-border'
                         } ${selectedLoanId === loan.id ? 'ring-2 ring-blue-500 border-transparent' : ''}`}
                         onClick={() => setSelectedLoanId(loan.id)}
                       >
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded truncate">
+                          <span className="text-[10px] font-mono text-muted-foreground bg-secondary px-1.5 py-0.5 rounded truncate">
                             #{loan.loanNumber}
                           </span>
                         </div>
-                        <h4 className="font-semibold text-slate-900 text-xs leading-tight mb-1 group-hover:text-blue-600 transition-colors">
+                        <h4 className="font-semibold text-foreground text-xs leading-tight mb-1 group-hover:text-primary transition-colors">
                           {loan.borrowerName}
                         </h4>
-                        <p className="text-[10px] text-slate-400 truncate">Click to view details</p>
+                        <p className="text-[10px] text-muted-foreground truncate">Click to view details</p>
                       </div>
                     ))}
                     {(loansByStage[stage.id] || []).length === 0 && (
-                      <div className="h-20 flex items-center justify-center border-2 border-dashed border-slate-200 rounded-lg m-1">
-                        <span className="text-xs text-slate-400">Empty</span>
+                      <div className="h-20 flex items-center justify-center border-2 border-dashed border-border rounded-lg m-1">
+                        <span className="text-xs text-muted-foreground">Empty</span>
                       </div>
                     )}
                   </div>
@@ -717,7 +717,7 @@ export function PipelinePage() {
         </div>
 
         {showDetailsPanel && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-0 flex flex-col 2xl:h-[calc(100vh-140px)] 2xl:sticky 2xl:top-24 max-h-[70vh]">
+          <div className="bg-card rounded-xl border border-border shadow-sm p-0 flex flex-col 2xl:h-[calc(100vh-140px)] 2xl:sticky 2xl:top-24 max-h-[70vh]">
             {!loanDetails ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-6 text-center">
                 <Loader2 className="w-6 h-6 animate-spin mb-2 text-blue-600" />

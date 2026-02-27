@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { 
+  PanelLeftClose,
+  PanelLeftOpen,
   FileText, 
   Users, 
   CheckSquare, 
@@ -21,7 +23,12 @@ import { UserRole } from '@prisma/client';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 
-export function Sidebar() {
+type SidebarProps = {
+  collapsed: boolean;
+  onToggle: () => void;
+};
+
+export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { activeRole } = useImpersonation();
   const pathname = usePathname();
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -128,9 +135,14 @@ export function Sidebar() {
   );
 
   return (
-    <div className="flex flex-col w-64 bg-white border-r border-slate-200 h-screen fixed left-0 top-0 overflow-y-auto z-50 shadow-sm">
-      <div className="p-6 border-b border-slate-100">
-        <div className="relative w-full h-12">
+    <div
+      className={`flex flex-col bg-card border-r border-border h-screen fixed left-0 top-0 overflow-y-auto z-50 shadow-sm transition-all duration-300 ${
+        collapsed ? 'w-20' : 'w-64'
+      }`}
+    >
+      <div className={`border-b border-border ${collapsed ? 'p-3' : 'p-6'}`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className={`relative h-12 ${collapsed ? 'w-9' : 'w-full'}`}>
            <Image 
              src="/logo.png" 
              alt="Federal First Lending" 
@@ -138,15 +150,31 @@ export function Sidebar() {
              className="object-contain object-left"
              priority
            />
+          </div>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </button>
         </div>
-        <div className="mt-4 px-3 py-1.5 bg-slate-50 rounded-md border border-slate-100">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">
-            Role View
-          </p>
-          <p className="text-xs font-semibold text-slate-900 truncate">
-            {activeRole.replace(/_/g, ' ')}
-          </p>
-        </div>
+        {!collapsed && (
+          <div className="mt-4 px-3 py-1.5 bg-secondary rounded-md border border-border">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
+              Role View
+            </p>
+            <p className="text-xs font-semibold text-foreground truncate">
+              {activeRole.replace(/_/g, ' ')}
+            </p>
+          </div>
+        )}
       </div>
       
       <nav className="flex-1 p-4 space-y-1">
@@ -156,24 +184,25 @@ export function Sidebar() {
             <Link 
               key={item.name} 
               href={item.href}
-              className={`flex items-center px-4 py-2.5 rounded-lg transition-all group ${
+              className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} py-2.5 rounded-lg transition-all group ${
                 isActive 
-                  ? 'bg-blue-50 text-blue-700 font-medium' 
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  ? 'bg-primary/15 text-primary font-medium' 
+                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
               }`}
+              title={collapsed ? item.name : undefined}
             >
-              <item.icon className={`w-5 h-5 mr-3 transition-colors ${
-                isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
+              <item.icon className={`w-5 h-5 ${collapsed ? '' : 'mr-3'} transition-colors ${
+                isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'
               }`} />
-              <span className="text-sm">{item.name}</span>
+              {!collapsed && <span className="text-sm">{item.name}</span>}
             </Link>
           );
         })}
 
-        {adminNavItems.length > 0 && (
+        {adminNavItems.length > 0 && !collapsed && (
           <>
             <div className="pt-4 pb-2 px-4">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                 Management
               </p>
             </div>
@@ -185,12 +214,12 @@ export function Sidebar() {
                   href={item.href}
                   className={`flex items-center px-4 py-2.5 rounded-lg transition-all group ${
                     isActive 
-                      ? 'bg-blue-50 text-blue-700 font-medium' 
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      ? 'bg-primary/15 text-primary font-medium' 
+                      : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
                   }`}
                 >
                   <item.icon className={`w-5 h-5 mr-3 transition-colors ${
-                    isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
+                    isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'
                   }`} />
                   <span className="text-sm">{item.name}</span>
                 </Link>
@@ -200,17 +229,24 @@ export function Sidebar() {
         )}
       </nav>
 
-      <div className="p-4 border-t border-slate-100">
+      <div className="p-4 border-t border-border">
         <button
           onClick={() => {
             setIsSigningOut(true);
             signOut({ callbackUrl: '/login' });
           }}
           disabled={isSigningOut}
-          className="flex items-center w-full px-4 py-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className={`flex items-center w-full ${collapsed ? 'justify-center px-2' : 'px-4'} py-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+          title={collapsed ? 'Sign Out' : undefined}
         >
-          {isSigningOut ? <Loader2 className="w-5 h-5 mr-3 animate-spin" /> : <LogOut className="w-5 h-5 mr-3" />}
-          <span className="text-sm font-medium">{isSigningOut ? 'Signing Out...' : 'Sign Out'}</span>
+          {isSigningOut ? (
+            <Loader2 className={`w-5 h-5 ${collapsed ? '' : 'mr-3'} animate-spin`} />
+          ) : (
+            <LogOut className={`w-5 h-5 ${collapsed ? '' : 'mr-3'}`} />
+          )}
+          {!collapsed && (
+            <span className="text-sm font-medium">{isSigningOut ? 'Signing Out...' : 'Sign Out'}</span>
+          )}
         </button>
       </div>
     </div>

@@ -326,12 +326,12 @@ export function TaskList({
 
   if (tasks.length === 0) {
     return (
-      <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
-        <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
-          <CheckCircle className="w-6 h-6 text-slate-400" />
+      <div className="text-center py-12 bg-card rounded-xl border border-border">
+        <div className="bg-secondary w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
+          <CheckCircle className="w-6 h-6 text-muted-foreground" />
         </div>
-        <h3 className="text-lg font-medium text-slate-900">All caught up!</h3>
-        <p className="text-slate-500 mt-1">No pending tasks in your queue.</p>
+        <h3 className="text-lg font-medium text-foreground">All caught up!</h3>
+        <p className="text-muted-foreground mt-1">No pending tasks in your queue.</p>
       </div>
     );
   }
@@ -385,23 +385,23 @@ export function TaskList({
         return (
         <div 
           key={task.id} 
-          className="bg-white p-4 rounded-xl border border-slate-200 hover:shadow-md transition-shadow flex items-start justify-between gap-4 group"
+          className="bg-card p-4 rounded-xl border border-border hover:shadow-md transition-shadow flex items-start justify-between gap-4 group"
         >
           <div className="flex items-start space-x-4">
             <div className={`mt-1 p-2 rounded-lg ${
               task.status === 'COMPLETED' ? 'bg-green-100 text-green-600' : 
               task.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-600' : 
-              'bg-slate-100 text-slate-500'
+              'bg-secondary text-muted-foreground'
             }`}>
               <FileText className="w-5 h-5" />
             </div>
             
             <div>
-              <h3 className={`font-medium text-slate-900 ${task.status === 'COMPLETED' ? 'line-through text-slate-500' : ''}`}>
+              <h3 className={`font-medium text-foreground ${task.status === 'COMPLETED' ? 'line-through text-muted-foreground' : ''}`}>
                 {task.title}
               </h3>
-              <div className="flex items-center space-x-3 mt-1 text-sm text-slate-500">
-                <span className="font-medium text-slate-700">{task.loan.borrowerName}</span>
+              <div className="flex items-center space-x-3 mt-1 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{task.loan.borrowerName}</span>
                 <span>•</span>
                 <span>{task.loan.loanNumber}</span>
                 {task.loan.stage && (
@@ -415,14 +415,14 @@ export function TaskList({
                 {task.assignedRole && (
                   <>
                     <span>•</span>
-                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-slate-600">
+                    <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       {task.assignedRole.replace(/_/g, ' ')}
                     </span>
                   </>
                 )}
               </div>
               {task.description && (
-                <p className="text-sm text-slate-400 mt-2">{task.description}</p>
+                <p className="text-sm text-muted-foreground mt-2">{task.description}</p>
               )}
 
               {task.disclosureReason && (

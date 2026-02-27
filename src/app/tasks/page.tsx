@@ -391,15 +391,15 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           {roleBuckets.map((bucketConfig) => (
             <div
               key={bucketConfig.id}
-              className={`rounded-xl border bg-slate-50/40 p-2.5 ${
+                className={`rounded-xl border bg-card/70 p-2.5 ${
                 activeBucket === bucketConfig.id
                   ? 'border-blue-300 ring-1 ring-blue-200'
-                  : 'border-slate-200'
+                    : 'border-border'
               }`}
             >
               <div className="mb-2.5 flex items-center justify-between">
                 <div>
-                  <h2 className="text-xs font-semibold text-slate-900">
+                    <h2 className="text-xs font-semibold text-foreground">
                     {bucketConfig.label}
                   </h2>
                   <span

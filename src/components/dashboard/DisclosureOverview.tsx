@@ -93,14 +93,14 @@ export function DisclosureOverview({ tasks }: { tasks: DisclosureTask[] }) {
         <Link
           key={card.id}
           href={card.href}
-          className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow"
+          className="rounded-xl border border-border bg-card p-5 shadow-sm hover:shadow-md transition-shadow"
         >
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {card.title}
           </p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">{card.count}</p>
-          <p className="mt-2 text-sm text-slate-500">{card.subtitle}</p>
-          <p className="mt-4 text-xs font-semibold text-blue-600">Open in Tasks</p>
+          <p className="mt-2 text-3xl font-bold text-foreground">{card.count}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{card.subtitle}</p>
+          <p className="mt-4 text-xs font-semibold text-primary">Open in Tasks</p>
         </Link>
       ))}
     </div>
