@@ -557,11 +557,11 @@ export function TaskList({
                 >
                   <FileText className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 w-full">
                   <button
                     type="button"
                     onClick={() => setFocusedTaskId(task.id)}
-                    className="group relative rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                    className="group relative w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
                     title="Open Task"
                   >
                     <span className="block text-sm font-semibold text-foreground whitespace-normal break-words pr-1">
