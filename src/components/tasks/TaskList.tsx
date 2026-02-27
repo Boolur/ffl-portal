@@ -8,6 +8,12 @@ import {
   Trash2,
   Loader2,
   X,
+  User,
+  DollarSign,
+  Briefcase,
+  Fingerprint,
+  Hash,
+  MessageSquare,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
@@ -242,12 +248,12 @@ function getWorkflowChip(
     return {
       label:
         reason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-          ? 'Ready to Complete'
-          : 'LO Responded (Needs Review)',
+          ? 'Returned to Disclosure: Approved'
+          : 'Returned to Disclosure: Revision Needed',
       className:
         reason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          : 'border-violet-200 bg-violet-50 text-violet-700',
+          ? 'border-blue-200 bg-blue-50 text-blue-700'
+          : 'border-amber-200 bg-amber-50 text-amber-700',
     };
   }
   return null;
@@ -268,6 +274,29 @@ function getAttachmentPurposeMeta(purpose: TaskAttachmentPurpose): {
     label: 'Submission',
     badgeClassName: 'border-blue-200 bg-blue-50 text-blue-700',
   };
+}
+
+const groupIcons: Record<string, React.ElementType> = {
+  'Loan Identity': Fingerprint,
+  'Borrower': User,
+  'Loan Terms': DollarSign,
+  'Origination & Underwriting': Briefcase,
+  'Loan Officer & Notes': FileText,
+  'Additional Details': Hash,
+};
+
+function getInitials(name: string) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatDisplayValue(key: string, value: string) {
+  if (key === 'loanAmount' && !isNaN(Number(value))) {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(value));
+  }
+  return value;
 }
 
 type Task = {
@@ -563,6 +592,21 @@ export function TaskList({
         const submissionDataGroups = getGroupedSubmissionDetails(
           parsedSubmissionData as Record<string, unknown> | null
         );
+        const loReturnBadge =
+          currentRole === UserRole.LOAN_OFFICER &&
+          task.kind === TaskKind.SUBMIT_DISCLOSURES &&
+          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+            ? task.disclosureReason ===
+              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+              ? {
+                  label: 'Sent to Disclosure: Approved',
+                  className: 'border-blue-200 bg-blue-50 text-blue-700',
+                }
+              : {
+                  label: 'Sent to Disclosure: Revision Needed',
+                  className: 'border-amber-200 bg-amber-50 text-amber-700',
+                }
+            : null;
         const isFocused = focusedTaskId === task.id;
 
         return (
@@ -593,6 +637,13 @@ export function TaskList({
                     <span className="block text-xs font-medium text-muted-foreground whitespace-normal break-words pr-1">
                       {task.loan.loanNumber}
                     </span>
+                    {loReturnBadge && (
+                      <span
+                        className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${loReturnBadge.className}`}
+                      >
+                        {loReturnBadge.label}
+                      </span>
+                    )}
                     <span className="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-xl bg-emerald-100/70 text-emerald-800 text-xs font-bold group-hover:flex">
                       Open Task
                     </span>
@@ -608,100 +659,132 @@ export function TaskList({
                 onClick={() => setFocusedTaskId(null)}
               >
                 <div
-                  className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-2xl"
+                  className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-[24px] border border-slate-200/60 bg-slate-50 p-6 sm:p-10 shadow-2xl"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                    <div>
-                      <p className="text-lg font-bold text-foreground">{task.loan.borrowerName}</p>
-                      <p className="text-sm font-semibold text-muted-foreground">{task.loan.loanNumber}</p>
-                      <p className="mt-1 text-sm font-semibold text-foreground">{task.title}</p>
+                  <div className="flex items-start justify-between gap-6 border-b border-slate-200/60 pb-8">
+                    <div className="flex items-center gap-5">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-xl font-bold text-white shadow-lg shadow-blue-600/20 ring-4 ring-white">
+                        {getInitials(task.loan.borrowerName)}
+                      </div>
+                      <div>
+                        <div className="mb-1.5 flex items-center gap-3">
+                          <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
+                            {task.loan.borrowerName}
+                          </h2>
+                          <span className="inline-flex items-center rounded-md bg-white px-2.5 py-1 text-sm font-mono font-bold text-slate-600 ring-1 ring-inset ring-slate-200 shadow-sm">
+                            {task.loan.loanNumber}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
+                          <span className="flex h-2 w-2 rounded-full bg-blue-500"></span>
+                          {task.title}
+                        </div>
+                      </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => setFocusedTaskId(null)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 hover:shadow-sm transition-all"
                       aria-label="Close task modal"
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-5 w-5" />
                     </button>
                   </div>
 
-                  <div className="mt-5 rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-5 shadow-sm">
-                    <h4 className="mb-4 border-b border-slate-200 pb-3 text-base font-extrabold tracking-tight text-slate-900">
+                  <div className="mt-8">
+                    <h4 className="mb-5 flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                        <FileText className="h-4 w-4" />
+                      </div>
                       Submission Details
                     </h4>
                     {submissionDataRows.length > 0 ? (
-                      <div className="space-y-4">
-                        {submissionDataGroups.map((group) => (
-                          <div
-                            key={group.title}
-                            className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-                          >
-                            <p className="mb-3 text-xs font-extrabold uppercase tracking-[0.1em] text-slate-600">
-                              {group.title}
-                            </p>
-                            <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2">
-                              {group.rows.map((row) => (
-                                <div key={row.key} className="text-sm">
-                                  <p className="mb-1 text-sm font-extrabold leading-tight text-slate-800">
-                                    {row.label}
-                                  </p>
-                                  <p className="break-words text-[15px] font-medium leading-6 text-slate-900">
-                                    {row.value}
-                                  </p>
+                      <div className="space-y-5">
+                        {submissionDataGroups.map((group) => {
+                          const Icon = groupIcons[group.title] || FileText;
+                          return (
+                            <div
+                              key={group.title}
+                              className="relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200/60"
+                            >
+                              <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-slate-50 opacity-50 blur-2xl"></div>
+                              <div className="relative">
+                                <div className="mb-5 flex items-center gap-3 border-b border-slate-100 pb-4">
+                                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-50 text-slate-500 ring-1 ring-slate-200/50">
+                                    <Icon className="h-4 w-4" />
+                                  </div>
+                                  <h5 className="text-sm font-bold text-slate-900">{group.title}</h5>
                                 </div>
-                              ))}
+                                <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
+                                  {group.rows.map((row) => (
+                                    <div key={row.key} className="flex flex-col">
+                                      <span className="mb-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                                        {row.label}
+                                      </span>
+                                      <span className="text-[15px] font-semibold text-slate-900 break-words">
+                                        {formatDisplayValue(row.key, row.value)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
-                      <p className="text-sm italic text-slate-500">
-                        No additional submitted fields were captured for this task.
-                      </p>
+                      <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200/60">
+                        <p className="text-sm italic text-slate-500">
+                          No additional submitted fields were captured for this task.
+                        </p>
+                      </div>
                     )}
                   </div>
 
-                  <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+                  <div className="mt-8 flex flex-wrap items-center gap-3 text-sm">
                     {task.dueDate && (
-                      <p className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                        <Calendar className="mr-1 h-3 w-3" />
+                      <p className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">
+                        <Calendar className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
                         {new Date(task.dueDate).toLocaleDateString()}
                       </p>
                     )}
                     {task.disclosureReason && (
-                      <p className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                      <p className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 shadow-sm">
                         Reason: {disclosureReasonLabel[task.disclosureReason]}
                       </p>
                     )}
                     {workflowChip ? (
-                      <p className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${workflowChip.className}`}>
+                      <p className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm ${workflowChip.className}`}>
                         {workflowChip.label}
                       </p>
                     ) : task.workflowState !== TaskWorkflowState.NONE ? (
-                      <p className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                      <p className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 shadow-sm">
                         {workflowStateLabel[task.workflowState]}
                       </p>
                     ) : null}
                   </div>
 
                   {task.description && (
-                    <p className="mt-3 text-sm font-medium text-muted-foreground break-words">
-                      {task.description}
-                    </p>
+                    <div className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200/60">
+                      <p className="text-sm font-medium leading-relaxed text-slate-600 break-words">
+                        {task.description}
+                      </p>
+                    </div>
                   )}
 
                   {(task.attachments?.length || 0) > 0 && (
-                    <div className="mt-5">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-extrabold tracking-tight text-slate-900">
+                    <div className="mt-8">
+                      <div className="mb-5 flex items-center justify-between">
+                        <h4 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
+                            <FileText className="h-4 w-4" />
+                          </div>
                           Attachments
-                        </p>
-                        <p className="text-xs font-semibold text-slate-500">
-                          {task.attachments!.length} file
-                          {task.attachments!.length === 1 ? '' : 's'}
-                        </p>
+                        </h4>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
+                          {task.attachments!.length} file{task.attachments!.length === 1 ? '' : 's'}
+                        </span>
                       </div>
                       <div className="flex flex-wrap gap-2.5">
                       {task.attachments!.map((att) => (
@@ -767,10 +850,13 @@ export function TaskList({
                   {isDisclosureRole &&
                     isDisclosureSubmissionTask(task) &&
                     task.status !== 'COMPLETED' && (
-                      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                          Disclosure Action
-                        </p>
+                      <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/50 p-6 shadow-sm space-y-4">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                            <MessageSquare className="h-4 w-4" />
+                          </div>
+                          <h4 className="text-sm font-bold text-blue-900">Disclosure Action</h4>
+                        </div>
                         <select
                           value={selectedReason}
                           onChange={(event) =>
@@ -779,7 +865,7 @@ export function TaskList({
                               [task.id]: event.target.value as DisclosureDecisionReason,
                             }))
                           }
-                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                         >
                           {disclosureReasonOptions.map((option) => (
                             <option key={option.value} value={option.value}>
@@ -796,19 +882,22 @@ export function TaskList({
                             }))
                           }
                           placeholder="Add context for the LO (what changed, what is missing, next steps)..."
-                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm min-h-[100px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                         />
-                        <p className="text-xs font-medium text-slate-600">
+                        <p className="text-xs font-semibold text-slate-500">
                           Add a note, then use the bottom action bar to route this task.
                         </p>
                       </div>
                     )}
 
                   {isQcRole && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
-                    <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                        QC Action
-                      </p>
+                    <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/50 p-6 shadow-sm space-y-4">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                          <MessageSquare className="h-4 w-4" />
+                        </div>
+                        <h4 className="text-sm font-bold text-blue-900">QC Action</h4>
+                      </div>
                       <select
                         value={selectedQcReason}
                         onChange={(event) =>
@@ -817,7 +906,7 @@ export function TaskList({
                             [task.id]: event.target.value as DisclosureDecisionReason,
                           }))
                         }
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                       >
                         {qcReasonOptions.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -834,19 +923,22 @@ export function TaskList({
                           }))
                         }
                         placeholder="Add context for LO (what is missing or what needs correction)..."
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm min-h-[100px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                       />
-                      <p className="text-xs font-medium text-slate-600">
+                      <p className="text-xs font-semibold text-slate-500">
                         Add a note, then use the bottom action bar to route this task.
                       </p>
                     </div>
                   )}
 
                   {isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
-                    <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-                        Loan Officer Response
-                      </p>
+                    <div className="mt-8 rounded-2xl border border-blue-200 bg-blue-50/60 p-6 shadow-sm space-y-4">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                          <MessageSquare className="h-4 w-4" />
+                        </div>
+                        <h4 className="text-sm font-bold text-blue-900">Loan Officer Response</h4>
+                      </div>
                       <textarea
                         value={loResponseByTask[task.id] || ''}
                         onChange={(event) =>
@@ -856,15 +948,15 @@ export function TaskList({
                           }))
                         }
                         placeholder="Describe your response and what you updated for Disclosure..."
-                        className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm min-h-20"
+                        className="w-full rounded-xl border border-blue-200 bg-white px-4 py-3 text-sm font-medium shadow-sm min-h-[100px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                       />
-                      <p className="text-xs font-medium text-blue-700/80">
+                      <p className="text-xs font-semibold text-blue-700/80">
                         Notes are required before submitting from the footer.
                       </p>
                     </div>
                   )}
 
-                  <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+                  <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200/60 pt-6">
                     {task.status === 'PENDING' &&
                       !isDisclosureInitialRoutingState &&
                       !shouldRouteFromFooter &&
@@ -998,3 +1090,4 @@ export function TaskList({
     </div>
   );
 }
+

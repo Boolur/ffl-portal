@@ -767,7 +767,7 @@ export async function reviewInitialDisclosureFigures(input: {
           data: {
             status: TaskStatus.PENDING,
             workflowState: TaskWorkflowState.READY_TO_COMPLETE,
-            disclosureReason: DisclosureDecisionReason.OTHER,
+            disclosureReason: DisclosureDecisionReason.MISSING_ITEMS,
             loanOfficerApprovedAt: null,
             description: note
               ? `${note}\n\nRevision requested by LO.`
@@ -820,3 +820,4 @@ export async function deleteTask(taskId: string) {
     return { success: false, error: 'Failed to delete task.' };
   }
 }
+

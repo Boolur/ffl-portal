@@ -190,8 +190,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         tasks: disclosureTasks.filter(
           (task) =>
             task.status !== TaskStatus.COMPLETED &&
-            task.workflowState !== TaskWorkflowState.WAITING_ON_LO &&
-            task.workflowState !== TaskWorkflowState.WAITING_ON_LO_APPROVAL
+            task.workflowState === TaskWorkflowState.NONE
         ),
       },
       {
@@ -249,7 +248,8 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         tasks: disclosureTasks.filter(
           (task) =>
             task.status !== TaskStatus.COMPLETED &&
-            task.workflowState === TaskWorkflowState.NONE
+            (task.workflowState === TaskWorkflowState.NONE ||
+              task.workflowState === TaskWorkflowState.READY_TO_COMPLETE)
         ),
       },
       {
@@ -397,7 +397,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                     : 'border-border'
               }`}
             >
-              <div className="mb-2.5 flex min-h-[72px] items-start justify-between gap-2">
+              <div className="mb-2.5 flex min-h-[92px] items-start justify-between gap-2">
                 <div className="min-w-0">
                     <h2
                       className="text-sm font-bold leading-tight text-foreground whitespace-nowrap overflow-hidden text-ellipsis"
@@ -410,6 +410,17 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                   >
                     {bucketConfig.chipLabel}
                   </span>
+                  {sessionRole === UserRole.LOAN_OFFICER &&
+                    bucketConfig.id === 'submitted-disclosures' && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                          Blue = Approved sent back
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                          Orange = Revision sent back
+                        </span>
+                      </div>
+                    )}
                 </div>
                 <span className="app-count-badge">{bucketConfig.tasks.length}</span>
               </div>
