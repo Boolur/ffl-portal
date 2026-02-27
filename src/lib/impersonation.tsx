@@ -14,7 +14,12 @@ const ImpersonationContext = createContext<ImpersonationContextType | undefined>
 
 export function ImpersonationProvider({ children, initialRole }: { children: React.ReactNode, initialRole: UserRole }) {
   const [activeRole, setActiveRole] = useState<UserRole>(initialRole);
-  const [originalRole] = useState<UserRole>(initialRole);
+  const [originalRole, setOriginalRole] = useState<UserRole>(initialRole);
+
+  React.useEffect(() => {
+    setActiveRole(initialRole);
+    setOriginalRole(initialRole);
+  }, [initialRole]);
 
   const isImpersonating = activeRole !== originalRole;
 
