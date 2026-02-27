@@ -80,7 +80,7 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
   const roleContent: Record<string, { title: string; subtitle: string }> = {
     [UserRole.LOAN_OFFICER]: {
       title: 'Overview',
-      subtitle: 'Quick snapshot of your pipeline and active tasks.',
+      subtitle: 'Quick snapshot of your active requests and task workload.',
     },
     [UserRole.ADMIN]: {
       title: 'Operations Overview',

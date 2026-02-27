@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import { 
   PanelLeftClose,
   PanelLeftOpen,
-  FileText, 
   Users, 
   CheckSquare, 
   BarChart, 
@@ -39,12 +38,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       icon: LayoutGrid, 
       href: '/', 
       roles: ['all'] 
-    },
-    { 
-      name: 'My Pipeline', 
-      icon: FileText, 
-      href: '/pipeline', 
-      roles: [UserRole.LOAN_OFFICER, UserRole.MANAGER, UserRole.PROCESSOR_SR, UserRole.PROCESSOR_JR] 
     },
     { 
       name: 'Tasks', 
@@ -119,10 +112,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   if (activeRole === UserRole.LOAN_OFFICER) {
     const taskItem = navItems.find(i => i.name === 'Tasks');
     if (taskItem && !mainNavItems.find(i => i.name === 'Tasks')) {
-      // Insert it after My Pipeline
-      const pipelineIndex = mainNavItems.findIndex(i => i.name === 'My Pipeline');
-      if (pipelineIndex !== -1) {
-        mainNavItems.splice(pipelineIndex + 1, 0, taskItem);
+      // Insert it after Overview
+      const overviewIndex = mainNavItems.findIndex(i => i.name === 'Overview');
+      if (overviewIndex !== -1) {
+        mainNavItems.splice(overviewIndex + 1, 0, taskItem);
       } else {
         mainNavItems.push(taskItem);
       }
