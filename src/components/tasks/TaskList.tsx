@@ -544,7 +544,7 @@ export function TaskList({
 
         return (
           <React.Fragment key={task.id}>
-            <div className="bg-card p-4 rounded-xl border border-border hover:shadow-md transition-shadow flex items-center justify-between gap-4">
+            <div className="bg-card p-4 rounded-xl border border-border hover:shadow-md transition-shadow flex items-center justify-between gap-4 min-h-[96px]">
               <div className="flex items-center space-x-3 min-w-0 flex-1">
                 <div
                   className={`p-2 rounded-lg shrink-0 ${
@@ -558,25 +558,29 @@ export function TaskList({
                   <FileText className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-base font-semibold text-foreground truncate">
-                    {task.loan.borrowerName}
-                  </p>
-                  <p className="text-sm font-medium text-muted-foreground truncate">
-                    {task.loan.loanNumber}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setFocusedTaskId(task.id)}
+                    className="group relative rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                    title="Open Task"
+                  >
+                    <span className="block text-sm font-semibold text-foreground whitespace-normal break-words pr-1">
+                      {task.loan.borrowerName}
+                    </span>
+                    <span className="block text-xs font-medium text-muted-foreground whitespace-normal break-words pr-1">
+                      {task.loan.loanNumber}
+                    </span>
+                    <span className="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-xl bg-emerald-100/70 text-emerald-800 text-xs font-bold group-hover:flex">
+                      Open Task
+                    </span>
+                  </button>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setFocusedTaskId(task.id)}
-                className="app-btn-secondary h-9 px-3 text-sm shrink-0"
-              >
-                Open Task
-              </button>
             </div>
 
             {isFocused && (
               <div
+                data-live-refresh-pause="true"
                 className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
                 onClick={() => setFocusedTaskId(null)}
               >
@@ -741,19 +745,9 @@ export function TaskList({
                           placeholder="Add context for the LO (what changed, what is missing, next steps)..."
                           className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
                         />
-                        <button
-                          type="button"
-                          onClick={() => void handleSendToLoanOfficer(task)}
-                          disabled={sendingToLoId === task.id || proofCount < 1}
-                          className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {sendingToLoId === task.id && (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          )}
-                          {selectedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-                            ? 'Send to LO for Approval'
-                            : 'Send Back to LO'}
-                        </button>
+                        <p className="text-xs font-medium text-slate-600">
+                          Use the bottom action bar to route this task.
+                        </p>
                       </div>
                     )}
 
@@ -789,17 +783,9 @@ export function TaskList({
                         placeholder="Add context for LO (what is missing or what needs correction)..."
                         className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
                       />
-                      <button
-                        type="button"
-                        onClick={() => void handleSendToLoanOfficer(task)}
-                        disabled={sendingToLoId === task.id || proofCount < 1}
-                        className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        {sendingToLoId === task.id && (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        )}
-                        Send Back to LO
-                      </button>
+                      <p className="text-xs font-medium text-slate-600">
+                        Use the bottom action bar to route this task.
+                      </p>
                     </div>
                   )}
 

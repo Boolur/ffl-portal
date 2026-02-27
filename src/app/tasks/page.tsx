@@ -196,7 +196,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
       },
       {
         id: 'waiting-missing',
-        label: 'Waiting for Missing/Incomplete Items',
+        label: 'Waiting Missing/Incomplete',
         chipLabel: 'Pending LO',
         chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
         tasks: disclosureTasks.filter(
@@ -207,7 +207,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
       },
       {
         id: 'lo-responded',
-        label: 'LO Responded (Needs Review)',
+        label: 'LO Responded (Review)',
         chipLabel: 'Needs Review',
         chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
         tasks: disclosureTasks.filter(
@@ -278,7 +278,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
       },
       {
         id: 'disclosures-sent-completed',
-        label: 'Disclosures Sent/Completed',
+        label: 'Disclosures Sent / Completed',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
         tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
@@ -397,9 +397,12 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                     : 'border-border'
               }`}
             >
-              <div className="mb-2.5 flex items-center justify-between">
-                <div>
-                    <h2 className="text-sm font-bold leading-snug text-foreground">
+              <div className="mb-2.5 flex min-h-[72px] items-start justify-between gap-2">
+                <div className="min-w-0">
+                    <h2
+                      className="text-sm font-bold leading-tight text-foreground whitespace-nowrap overflow-hidden text-ellipsis"
+                      title={bucketConfig.label}
+                    >
                     {bucketConfig.label}
                   </h2>
                   <span

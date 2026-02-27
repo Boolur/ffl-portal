@@ -6,6 +6,7 @@ import { TopNav } from './TopNav';
 import { useImpersonation } from '@/lib/impersonation';
 import { ImpersonationControls } from '@/components/admin/ImpersonationControls';
 import { UserRole } from '@prisma/client';
+import { usePathname, useRouter } from 'next/navigation';
 
 type DashboardShellProps = {
   children: React.ReactNode;
@@ -15,6 +16,34 @@ type DashboardShellProps = {
 function DashboardContent({ children, user }: DashboardShellProps) {
   const { activeRole } = useImpersonation();
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
+  const pathname = usePathname();
+  const router = useRouter();
+
+  React.useEffect(() => {
+    const shouldAutoRefresh =
+      pathname === '/' || pathname === '/tasks';
+    if (!shouldAutoRefresh) return;
+
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+
+      const activeElement = document.activeElement as HTMLElement | null;
+      const isTyping =
+        !!activeElement &&
+        (activeElement.tagName === 'INPUT' ||
+          activeElement.tagName === 'TEXTAREA' ||
+          activeElement.tagName === 'SELECT' ||
+          activeElement.isContentEditable);
+      if (isTyping) return;
+
+      // Skip auto-refresh while an interactive modal is open.
+      if (document.querySelector('[data-live-refresh-pause="true"]')) return;
+
+      router.refresh();
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, [pathname, router]);
 
   // Create a display user that reflects the impersonated role
   const displayUser = {

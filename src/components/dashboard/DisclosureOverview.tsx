@@ -98,28 +98,47 @@ export function DisclosureOverview({ tasks }: { tasks: DisclosureTask[] }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-      {cards.map((card) => (
-        <Link
-          key={card.id}
-          href={card.href}
-          className="rounded-xl border border-border bg-card/70 p-4 hover:shadow-md transition-all hover:border-blue-300"
-        >
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground leading-tight">
-              {card.title}
-            </p>
-            <span className="app-count-badge shrink-0">{card.count}</span>
-          </div>
-          <span
-            className={`mt-2 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${card.chipClassName}`}
+    <div className="space-y-4">
+      <Link
+        href="/tasks?bucket=new-disclosure"
+        className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3 hover:bg-blue-50 transition-colors"
+      >
+        <div>
+          <p className="text-sm font-bold text-blue-900">New Requests in Queue</p>
+          <p className="text-xs font-medium text-blue-700">
+            {newCount > 0
+              ? `${newCount} request${newCount === 1 ? '' : 's'} ready for first review.`
+              : 'No new requests waiting right now.'}
+          </p>
+        </div>
+        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-blue-200 bg-white px-2 text-xs font-bold text-blue-700">
+          {newCount}
+        </span>
+      </Link>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+        {cards.map((card) => (
+          <Link
+            key={card.id}
+            href={card.href}
+            className="rounded-xl border border-border bg-card/70 p-4 hover:shadow-md transition-all hover:border-blue-300"
           >
-            {card.chipLabel}
-          </span>
-          <p className="mt-2 text-xs text-muted-foreground">{card.subtitle}</p>
-          <p className="mt-3 text-xs font-semibold text-primary">Open in Tasks</p>
-        </Link>
-      ))}
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground leading-tight">
+                {card.title}
+              </p>
+              <span className="app-count-badge shrink-0">{card.count}</span>
+            </div>
+            <span
+              className={`mt-2 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${card.chipClassName}`}
+            >
+              {card.chipLabel}
+            </span>
+            <p className="mt-2 text-xs text-muted-foreground">{card.subtitle}</p>
+            <p className="mt-3 text-xs font-semibold text-primary">Open in Tasks</p>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
