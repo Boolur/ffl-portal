@@ -365,13 +365,30 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     const kind =
       submissionType === 'QC' ? TaskKind.SUBMIT_QC : TaskKind.SUBMIT_DISCLOSURES;
 
+    let finalSubmissionData = submissionData;
+    if (notes?.trim()) {
+      const dataObj = (submissionData && typeof submissionData === 'object') 
+        ? { ...(submissionData as Record<string, any>) } 
+        : {};
+      
+      const initialNote = {
+        author: session?.user?.name || loanOfficerName || 'Loan Officer',
+        role: UserRole.LOAN_OFFICER,
+        message: `Initial Submission Notes: ${notes.trim()}`,
+        date: new Date().toISOString(),
+      };
+      
+      dataObj.notesHistory = [initialNote];
+      finalSubmissionData = dataObj;
+    }
+
     const createdTask = await prisma.task.create({
       data: {
         loanId: loan.id,
         title: taskTitle,
         kind,
         description: notes || null,
-        submissionData: submissionData ?? undefined,
+        submissionData: finalSubmissionData ?? undefined,
         status: TaskStatus.PENDING,
         priority: TaskPriority.NORMAL,
         assignedRole,
@@ -462,6 +479,24 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     }
 
     await prisma.$transaction(async (tx) => {
+      const noteEntry = input.message?.trim() ? {
+        author: session?.user?.name || 'Unknown',
+        role: role,
+        message: input.message.trim(),
+        date: new Date().toISOString(),
+      } : null;
+
+      let updatedSubmissionData = task.submissionData;
+      if (noteEntry) {
+        const dataObj = (task.submissionData && typeof task.submissionData === 'object') 
+          ? { ...(task.submissionData as Record<string, any>) } 
+          : {};
+        const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
+        notes.push(noteEntry);
+        dataObj.notesHistory = notes;
+        updatedSubmissionData = dataObj;
+      }
+
       await tx.task.update({
         where: { id: taskId },
         data: {
@@ -473,6 +508,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
               ? TaskWorkflowState.WAITING_ON_LO_APPROVAL
               : TaskWorkflowState.WAITING_ON_LO,
           loanOfficerApprovedAt: null,
+          submissionData: updatedSubmissionData ?? undefined,
         },
       });
 
@@ -488,6 +524,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           kind: TaskKind.LO_NEEDS_INFO,
           disclosureReason: input.reason,
           description: input.message?.trim() || null,
+          submissionData: updatedSubmissionData ?? undefined,
           status: TaskStatus.PENDING,
           priority: TaskPriority.HIGH,
           assignedUserId: task.loan.loanOfficerId,
@@ -542,6 +579,7 @@ export async function respondToDisclosureRequest(
         parentTaskId: true,
         assignedUserId: true,
         disclosureReason: true,
+        submissionData: true,
       },
     });
 
@@ -553,6 +591,12 @@ export async function respondToDisclosureRequest(
       return { success: false, error: 'This LO response task is already completed.' };
     }
 
+    const parentTask = await prisma.task.findUnique({
+      where: { id: task.parentTaskId },
+      select: { submissionData: true },
+    });
+    if (!parentTask) return { success: false, error: 'Parent task not found.' };
+
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const canRespond = canManageAll || (role === UserRole.LOAN_OFFICER && task.assignedUserId === userId);
     if (!canRespond) return { success: false, error: 'Not authorized.' };
@@ -562,12 +606,31 @@ export async function respondToDisclosureRequest(
         ? `${task.description ? `${task.description}\n\n` : ''}LO Response: ${responseMessage.trim()}`
         : task.description;
 
+      const noteEntry = responseMessage.trim() ? {
+        author: session?.user?.name || 'Unknown',
+        role: role,
+        message: responseMessage.trim(),
+        date: new Date().toISOString(),
+      } : null;
+
+      let updatedSubmissionData = parentTask.submissionData;
+      if (noteEntry) {
+        const dataObj = (parentTask.submissionData && typeof parentTask.submissionData === 'object') 
+          ? { ...(parentTask.submissionData as Record<string, any>) } 
+          : {};
+        const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
+        notes.push(noteEntry);
+        dataObj.notesHistory = notes;
+        updatedSubmissionData = dataObj;
+      }
+
       await tx.task.update({
         where: { id: taskId },
         data: {
           status: TaskStatus.COMPLETED,
           completedAt: new Date(),
           description: stampedResponse || null,
+          submissionData: updatedSubmissionData ?? undefined,
         },
       });
 
@@ -581,6 +644,7 @@ export async function respondToDisclosureRequest(
             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
               ? new Date()
               : undefined,
+          submissionData: updatedSubmissionData ?? undefined,
         },
       });
     });
@@ -615,6 +679,7 @@ export async function reviewInitialDisclosureFigures(input: {
         parentTaskId: true,
         assignedUserId: true,
         disclosureReason: true,
+        submissionData: true,
       },
     });
 
@@ -636,6 +701,12 @@ export async function reviewInitialDisclosureFigures(input: {
       return { success: false, error: 'This review task is already completed.' };
     }
 
+    const parentTask = await prisma.task.findUnique({
+      where: { id: task.parentTaskId },
+      select: { submissionData: true },
+    });
+    if (!parentTask) return { success: false, error: 'Parent task not found.' };
+
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const canReview =
       canManageAll ||
@@ -649,12 +720,34 @@ export async function reviewInitialDisclosureFigures(input: {
         ? `${task.description ? `${task.description}\n\n` : ''}LO Review: ${note}`
         : task.description;
 
+      const noteEntry = note ? {
+        author: session?.user?.name || 'Unknown',
+        role: role,
+        message: `LO Review (${input.decision}): ${note}`,
+        date: new Date().toISOString(),
+      } : {
+        author: session?.user?.name || 'Unknown',
+        role: role,
+        message: `LO Review: ${input.decision}`,
+        date: new Date().toISOString(),
+      };
+
+      let updatedSubmissionData = parentTask.submissionData;
+      const dataObj = (parentTask.submissionData && typeof parentTask.submissionData === 'object') 
+        ? { ...(parentTask.submissionData as Record<string, any>) } 
+        : {};
+      const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
+      notes.push(noteEntry);
+      dataObj.notesHistory = notes;
+      updatedSubmissionData = dataObj;
+
       await tx.task.update({
         where: { id: input.taskId },
         data: {
           status: TaskStatus.COMPLETED,
           completedAt: new Date(),
           description: stampedResponse || null,
+          submissionData: updatedSubmissionData ?? undefined,
         },
       });
 
@@ -665,6 +758,7 @@ export async function reviewInitialDisclosureFigures(input: {
             status: TaskStatus.PENDING,
             workflowState: TaskWorkflowState.READY_TO_COMPLETE,
             loanOfficerApprovedAt: new Date(),
+            submissionData: updatedSubmissionData ?? undefined,
           },
         });
       } else {
@@ -678,6 +772,7 @@ export async function reviewInitialDisclosureFigures(input: {
             description: note
               ? `${note}\n\nRevision requested by LO.`
               : 'Revision requested by LO.',
+            submissionData: updatedSubmissionData ?? undefined,
           },
         });
       }

@@ -387,8 +387,8 @@ export function TaskList({
           key={task.id} 
           className="bg-card p-4 rounded-xl border border-border hover:shadow-md transition-shadow flex items-start justify-between gap-4 group"
         >
-          <div className="flex items-start space-x-4">
-            <div className={`mt-1 p-2 rounded-lg ${
+          <div className="flex items-start space-x-4 min-w-0 flex-1">
+            <div className={`mt-1 p-2 rounded-lg shrink-0 ${
               task.status === 'COMPLETED' ? 'bg-green-100 text-green-600' : 
               task.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-600' : 
               'bg-secondary text-muted-foreground'
@@ -396,18 +396,18 @@ export function TaskList({
               <FileText className="w-5 h-5" />
             </div>
             
-            <div>
-              <h3 className={`font-medium text-foreground ${task.status === 'COMPLETED' ? 'line-through text-muted-foreground' : ''}`}>
+            <div className="min-w-0 flex-1">
+              <h3 className={`font-medium text-foreground truncate ${task.status === 'COMPLETED' ? 'line-through text-muted-foreground' : ''}`}>
                 {task.title}
               </h3>
-              <div className="flex items-center space-x-3 mt-1 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{task.loan.borrowerName}</span>
+              <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground truncate max-w-[150px]">{task.loan.borrowerName}</span>
                 <span>•</span>
-                <span>{task.loan.loanNumber}</span>
+                <span className="truncate">{task.loan.loanNumber}</span>
                 {task.loan.stage && (
                   <>
                     <span>•</span>
-                    <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium border border-blue-100">
+                    <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-[10px] font-medium border border-blue-100 whitespace-nowrap">
                       {task.loan.stage.replace(/_/g, ' ')}
                     </span>
                   </>
@@ -415,7 +415,7 @@ export function TaskList({
                 {task.assignedRole && (
                   <>
                     <span>•</span>
-                    <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                       {task.assignedRole.replace(/_/g, ' ')}
                     </span>
                   </>
@@ -671,29 +671,49 @@ export function TaskList({
               </div>
 
               {isExpanded && (
-                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  {submissionDataRows.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
-                      {submissionDataRows.map(([key, value]) => (
-                        <div key={key} className="text-xs">
-                          <p className="font-semibold uppercase tracking-wide text-slate-500">
-                            {key}
-                          </p>
-                          <p className="text-slate-700 break-words">{String(value)}</p>
-                        </div>
-                      ))}
+                <div className="mt-3 space-y-4">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-slate-200 pb-2">Submission Details</h4>
+                    {submissionDataRows.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                        {submissionDataRows.map(([key, value]) => (
+                          <div key={key} className="text-sm">
+                            <p className="font-semibold text-slate-500 mb-0.5">
+                              {key}
+                            </p>
+                            <p className="text-slate-800 break-words font-medium">{String(value)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500 italic">
+                        No additional submitted fields were captured for this task.
+                      </p>
+                    )}
+                  </div>
+
+                  {task.submissionData && typeof task.submissionData === 'object' && Array.isArray((task.submissionData as any).notesHistory) && (task.submissionData as any).notesHistory.length > 0 && (
+                    <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-4">
+                      <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-blue-100 pb-2">Notes & History</h4>
+                      <div className="space-y-3">
+                        {(task.submissionData as any).notesHistory.map((note: any, idx: number) => (
+                          <div key={idx} className="bg-white p-3 rounded-md border border-blue-100 shadow-sm">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="text-xs font-bold text-slate-700">{note.author} <span className="text-slate-400 font-normal">({note.role})</span></span>
+                              <span className="text-[10px] text-slate-400">{new Date(note.date).toLocaleString()}</span>
+                            </div>
+                            <p className="text-sm text-slate-800 whitespace-pre-wrap">{note.message}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ) : (
-                    <p className="text-xs text-slate-500">
-                      No additional submitted fields were captured for this task.
-                    </p>
                   )}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex flex-col items-end space-y-3">
+          <div className="flex flex-col items-end space-y-3 shrink-0 ml-4">
             {task.dueDate && (
               <div className={`flex items-center text-xs font-medium ${
                 new Date(task.dueDate) < new Date() && task.status !== 'COMPLETED' 
