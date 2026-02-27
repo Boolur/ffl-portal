@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, ChevronDown, LogOut, PanelLeft, Search } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, PanelLeft, Search, Shield } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 
 export function TopNav({
@@ -77,31 +77,44 @@ export function TopNav({
           <Bell className="h-5 w-5" />
           <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-card"></span>
         </button>
-        
+
         <div ref={menuRef} className="relative flex items-center space-x-3 pl-4 border-l border-border">
           <div className="text-right hidden sm:block">
             <p className="text-sm font-semibold text-foreground">{user.name}</p>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{user.role.replace(/_/g, ' ')}</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+              {user.role.replace(/_/g, ' ')}
+            </p>
           </div>
           <button
             onClick={() => setMenuOpen((prev) => !prev)}
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-card pr-1 hover:bg-secondary"
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white pr-1.5 pl-0.5 shadow-sm transition-all hover:bg-slate-50"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label="Open user menu"
           >
-            <div className="h-9 w-9 rounded-full bg-secondary flex items-center justify-center text-foreground font-bold border border-border">
+            <div className="h-9 w-9 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-700 font-bold border border-slate-200">
               {user.name.charAt(0)}
             </div>
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            <ChevronDown
+              className={`h-4 w-4 text-slate-500 transition-transform ${
+                menuOpen ? 'rotate-180' : ''
+              }`}
+            />
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-12 w-44 rounded-lg border border-border bg-card shadow-lg py-1 z-20">
+            <div className="absolute right-0 top-[3.25rem] w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl py-1 z-20">
+              <div className="px-3 py-3 border-b border-slate-100 bg-slate-50/70">
+                <p className="text-sm font-semibold text-slate-900 truncate">{user.name}</p>
+                <p className="mt-0.5 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <Shield className="h-3 w-3" />
+                  {user.role.replace(/_/g, ' ')}
+                </p>
+              </div>
               <button
                 onClick={handleSignOut}
                 disabled={isSigningOut}
-                className="w-full inline-flex items-center gap-2 px-3 py-2 text-sm text-red-500 hover:bg-red-500/10 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="m-1.5 w-[calc(100%-0.75rem)] inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
                 role="menuitem"
               >
                 <LogOut className="h-4 w-4" />

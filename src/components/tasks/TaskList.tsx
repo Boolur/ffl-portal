@@ -533,7 +533,7 @@ export function TaskList({
         <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-50 shadow-sm ring-1 ring-slate-200/60">
           <CheckCircle className="h-6 w-6 text-slate-400" />
         </div>
-        <h3 className="text-lg font-extrabold tracking-tight text-slate-900">All caught up!</h3>
+        <h3 className="text-lg font-bold text-slate-900">All caught up!</h3>
         <p className="mt-1 text-sm font-medium text-slate-500">No pending tasks in your queue.</p>
       </div>
     );
@@ -634,7 +634,7 @@ export function TaskList({
                     className="w-full text-left focus:outline-none"
                     title="Open Task"
                   >
-                    <span className="block text-sm font-extrabold leading-snug tracking-tight text-slate-900 group-hover:text-blue-950 transition-colors whitespace-normal break-words pr-1">
+                    <span className="block text-sm font-bold leading-snug text-slate-900 group-hover:text-blue-950 transition-colors whitespace-normal break-words pr-1">
                       {task.loan.borrowerName}
                     </span>
                     <span className="block text-xs font-medium text-slate-500 whitespace-normal break-words pr-1">

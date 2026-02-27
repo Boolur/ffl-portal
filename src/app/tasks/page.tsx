@@ -393,22 +393,22 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                     : 'border-slate-200/80'
               }`}
             >
-              <div className="mb-4 flex flex-col gap-3 border-b border-border/50 pb-3">
+              <div className="mb-4 flex min-h-[128px] flex-col gap-3 border-b border-border/50 pb-3">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                       <h2
-                        className="text-sm font-extrabold leading-tight text-slate-900 whitespace-nowrap overflow-hidden text-ellipsis"
+                        className="text-base font-bold leading-snug text-slate-900"
                         title={bucketConfig.label}
                       >
                       {bucketConfig.label}
                     </h2>
                     <span
-                      className={`mt-1.5 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ${bucketConfig.chipClassName}`}
+                      className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ${bucketConfig.chipClassName}`}
                     >
                       {bucketConfig.chipLabel}
                     </span>
                   </div>
-                  <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+                  <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
                     {bucketConfig.tasks.length}
                   </span>
                 </div>
@@ -446,3 +446,4 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     </DashboardShell>
   );
 }
+
