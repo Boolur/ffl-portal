@@ -53,6 +53,8 @@ export function DisclosureOverview({ tasks }: { tasks: DisclosureTask[] }) {
     {
       id: 'new-disclosure',
       title: 'New Disclosure Requests',
+      chipLabel: 'New',
+      chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
       subtitle: 'Newly submitted files ready for first review.',
       count: newCount,
       href: '/tasks?bucket=new-disclosure',
@@ -60,27 +62,35 @@ export function DisclosureOverview({ tasks }: { tasks: DisclosureTask[] }) {
     {
       id: 'waiting-missing',
       title: 'Waiting for Missing/Incomplete Items',
+      chipLabel: 'Pending LO',
+      chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
       subtitle: 'Files waiting on LO follow-up before review can continue.',
       count: waitingMissingCount,
       href: '/tasks?bucket=waiting-missing',
     },
     {
-      id: 'waiting-approval',
-      title: 'Waiting for Approval',
-      subtitle: 'Initial figures sent to LO and pending approval/revision.',
-      count: waitingApprovalCount,
-      href: '/tasks?bucket=waiting-approval',
-    },
-    {
       id: 'lo-responded',
       title: 'LO Responded (Needs Review)',
+      chipLabel: 'Needs Review',
+      chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
       subtitle: 'LO has replied and disclosure desk review is required.',
       count: loRespondedCount,
       href: '/tasks?bucket=lo-responded',
     },
     {
+      id: 'waiting-approval',
+      title: 'Waiting for Approval',
+      chipLabel: 'Awaiting Approval',
+      chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+      subtitle: 'Initial figures sent to LO and pending approval/revision.',
+      count: waitingApprovalCount,
+      href: '/tasks?bucket=waiting-approval',
+    },
+    {
       id: 'completed-disclosure',
       title: 'Completed Disclosure Requests',
+      chipLabel: 'Completed',
+      chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
       subtitle: 'Disclosure flow finished and marked complete.',
       count: completedCount,
       href: '/tasks?bucket=completed-disclosure',
@@ -93,14 +103,21 @@ export function DisclosureOverview({ tasks }: { tasks: DisclosureTask[] }) {
         <Link
           key={card.id}
           href={card.href}
-          className="rounded-xl border border-border bg-card p-5 shadow-sm hover:shadow-md transition-shadow"
+          className="rounded-xl border border-border bg-card/70 p-4 hover:shadow-md transition-all hover:border-blue-300"
         >
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {card.title}
-          </p>
-          <p className="mt-2 text-3xl font-bold text-foreground">{card.count}</p>
-          <p className="mt-2 text-sm text-muted-foreground">{card.subtitle}</p>
-          <p className="mt-4 text-xs font-semibold text-primary">Open in Tasks</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground leading-tight">
+              {card.title}
+            </p>
+            <span className="app-count-badge shrink-0">{card.count}</span>
+          </div>
+          <span
+            className={`mt-2 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${card.chipClassName}`}
+          >
+            {card.chipLabel}
+          </span>
+          <p className="mt-2 text-xs text-muted-foreground">{card.subtitle}</p>
+          <p className="mt-3 text-xs font-semibold text-primary">Open in Tasks</p>
         </Link>
       ))}
     </div>

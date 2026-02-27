@@ -206,17 +206,6 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         ),
       },
       {
-        id: 'waiting-approval',
-        label: 'Waiting for Approval',
-        chipLabel: 'Awaiting Approval',
-        chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
-        tasks: disclosureTasks.filter(
-          (task) =>
-            task.status !== TaskStatus.COMPLETED &&
-            task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
-        ),
-      },
-      {
         id: 'lo-responded',
         label: 'LO Responded (Needs Review)',
         chipLabel: 'Needs Review',
@@ -225,6 +214,17 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
           (task) =>
             task.status !== TaskStatus.COMPLETED &&
             task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'waiting-approval',
+        label: 'Waiting for Approval',
+        chipLabel: 'Awaiting Approval',
+        chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
         ),
       },
       {
@@ -383,7 +383,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
       {showBuckets && (
         <div
-          className="grid gap-3"
+          className="grid gap-3.5"
           style={{
             gridTemplateColumns: `repeat(${roleBuckets.length}, minmax(0, 1fr))`,
           }}
@@ -391,7 +391,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           {roleBuckets.map((bucketConfig) => (
             <div
               key={bucketConfig.id}
-                className={`rounded-xl border bg-card/70 p-2.5 ${
+                className={`rounded-xl border bg-card/70 p-3 ${
                 activeBucket === bucketConfig.id
                   ? 'border-blue-300 ring-1 ring-blue-200'
                     : 'border-border'
@@ -399,11 +399,11 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             >
               <div className="mb-2.5 flex items-center justify-between">
                 <div>
-                    <h2 className="text-xs font-semibold text-foreground">
+                    <h2 className="text-sm font-bold leading-snug text-foreground">
                     {bucketConfig.label}
                   </h2>
                   <span
-                    className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${bucketConfig.chipClassName}`}
+                    className={`mt-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${bucketConfig.chipClassName}`}
                   >
                     {bucketConfig.chipLabel}
                   </span>

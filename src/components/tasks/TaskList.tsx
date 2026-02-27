@@ -4,10 +4,10 @@ import React from 'react';
 import {
   Calendar,
   CheckCircle,
-  ChevronDown,
   FileText,
   Trash2,
   Loader2,
+  X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
@@ -139,7 +139,7 @@ export function TaskList({
   const [updatingId, setUpdatingId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [uploadingId, setUploadingId] = React.useState<string | null>(null);
-  const [expandedTaskId, setExpandedTaskId] = React.useState<string | null>(null);
+  const [focusedTaskId, setFocusedTaskId] = React.useState<string | null>(null);
   const [sendingToLoId, setSendingToLoId] = React.useState<string | null>(null);
   const [respondingId, setRespondingId] = React.useState<string | null>(null);
   const [disclosureReasonByTask, setDisclosureReasonByTask] = React.useState<
@@ -330,8 +330,8 @@ export function TaskList({
         <div className="bg-secondary w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
           <CheckCircle className="w-6 h-6 text-muted-foreground" />
         </div>
-        <h3 className="text-lg font-medium text-foreground">All caught up!</h3>
-        <p className="text-muted-foreground mt-1">No pending tasks in your queue.</p>
+        <h3 className="text-xl font-semibold text-foreground">All caught up!</h3>
+        <p className="text-sm font-medium text-muted-foreground mt-1">No pending tasks in your queue.</p>
       </div>
     );
   }
@@ -339,7 +339,6 @@ export function TaskList({
   return (
     <div className="space-y-4">
       {tasks.map((task) => {
-        const isExpanded = expandedTaskId === task.id;
         const selectedReason =
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
@@ -381,306 +380,308 @@ export function TaskList({
               );
             })
           : [];
+        const isFocused = focusedTaskId === task.id;
 
         return (
-        <div 
-          key={task.id} 
-          className="bg-card p-4 rounded-xl border border-border hover:shadow-md transition-shadow flex items-start justify-between gap-4 group"
-        >
-          <div className="flex items-start space-x-4 min-w-0 flex-1">
-            <div className={`mt-1 p-2 rounded-lg shrink-0 ${
-              task.status === 'COMPLETED' ? 'bg-green-100 text-green-600' : 
-              task.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-600' : 
-              'bg-secondary text-muted-foreground'
-            }`}>
-              <FileText className="w-5 h-5" />
-            </div>
-            
-            <div className="min-w-0 flex-1">
-              <h3 className={`font-medium text-foreground truncate ${task.status === 'COMPLETED' ? 'line-through text-muted-foreground' : ''}`}>
-                {task.title}
-              </h3>
-              <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground truncate max-w-[150px]">{task.loan.borrowerName}</span>
-                <span>•</span>
-                <span className="truncate">{task.loan.loanNumber}</span>
-                {task.loan.stage && (
-                  <>
-                    <span>•</span>
-                    <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-[10px] font-medium border border-blue-100 whitespace-nowrap">
-                      {task.loan.stage.replace(/_/g, ' ')}
-                    </span>
-                  </>
-                )}
-                {task.assignedRole && (
-                  <>
-                    <span>•</span>
-                    <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">
-                      {task.assignedRole.replace(/_/g, ' ')}
-                    </span>
-                  </>
-                )}
-              </div>
-              {task.description && (
-                <p className="text-sm text-muted-foreground mt-2">{task.description}</p>
-              )}
-
-              {task.disclosureReason && (
-                <p className="mt-2 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                  Reason: {disclosureReasonLabel[task.disclosureReason]}
-                </p>
-              )}
-
-              {workflowChip ? (
-                <p
-                  className={`mt-2 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${workflowChip.className}`}
+          <React.Fragment key={task.id}>
+            <div className="bg-card p-4 rounded-xl border border-border hover:shadow-md transition-shadow flex items-center justify-between gap-4">
+              <div className="flex items-center space-x-3 min-w-0 flex-1">
+                <div
+                  className={`p-2 rounded-lg shrink-0 ${
+                    task.status === 'COMPLETED'
+                      ? 'bg-green-100 text-green-600'
+                      : task.status === 'IN_PROGRESS'
+                      ? 'bg-blue-100 text-blue-600'
+                      : 'bg-secondary text-muted-foreground'
+                  }`}
                 >
-                  {workflowChip.label}
-                </p>
-              ) : task.workflowState !== TaskWorkflowState.NONE ? (
-                <p className="mt-2 inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
-                  {workflowStateLabel[task.workflowState]}
-                </p>
-              ) : null}
-
-              {(task.attachments?.length || 0) > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {task.attachments!.map((att) => (
-                    <button
-                      key={att.id}
-                      onClick={() => handleViewAttachment(att.id)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                      type="button"
-                    >
-                      <FileText className="h-3.5 w-3.5 text-slate-500" />
-                      <span className="max-w-[220px] truncate">{att.filename}</span>
-                    </button>
-                  ))}
+                  <FileText className="w-5 h-5" />
                 </div>
-              )}
+                <div className="min-w-0">
+                  <p className="text-base font-semibold text-foreground truncate">
+                    {task.loan.borrowerName}
+                  </p>
+                  <p className="text-sm font-medium text-muted-foreground truncate">
+                    {task.loan.loanNumber}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFocusedTaskId(task.id)}
+                className="app-btn-secondary h-9 px-3 text-sm shrink-0"
+              >
+                Open Task
+              </button>
+            </div>
 
-              {shouldShowProofUploader && (
-                <div className="mt-3">
-                  <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
-                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
-                      Proof required
-                    </span>
-                    <span className="text-slate-500">
-                      Upload PDF/Image before completing or sending this task.
-                    </span>
-                  </label>
-                  <div className="mt-2 flex items-center gap-2">
-                    <input
-                      type="file"
-                      accept="application/pdf,image/*"
-                      disabled={!!uploadingId}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        e.currentTarget.value = '';
-                        if (!f) return;
-                        void handleUploadProof(task.id, f);
-                      }}
-                      className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60"
-                    />
-                    {uploadingId === task.id && (
-                      <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Uploading...
+            {isFocused && (
+              <div
+                className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
+                onClick={() => setFocusedTaskId(null)}
+              >
+                <div
+                  className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
+                    <div>
+                      <p className="text-lg font-bold text-foreground">{task.loan.borrowerName}</p>
+                      <p className="text-sm font-semibold text-muted-foreground">{task.loan.loanNumber}</p>
+                      <p className="mt-1 text-sm font-semibold text-foreground">{task.title}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFocusedTaskId(null)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      aria-label="Close task modal"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+                    {task.dueDate && (
+                      <p className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                        <Calendar className="mr-1 h-3 w-3" />
+                        {new Date(task.dueDate).toLocaleDateString()}
+                      </p>
+                    )}
+                    {task.disclosureReason && (
+                      <p className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                        Reason: {disclosureReasonLabel[task.disclosureReason]}
+                      </p>
+                    )}
+                    {workflowChip ? (
+                      <p className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${workflowChip.className}`}>
+                        {workflowChip.label}
+                      </p>
+                    ) : task.workflowState !== TaskWorkflowState.NONE ? (
+                      <p className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                        {workflowStateLabel[task.workflowState]}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {task.description && (
+                    <p className="mt-3 text-sm font-medium text-muted-foreground break-words">
+                      {task.description}
+                    </p>
+                  )}
+
+                  {(task.attachments?.length || 0) > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {task.attachments!.map((att) => (
+                        <button
+                          key={att.id}
+                          onClick={() => handleViewAttachment(att.id)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                          type="button"
+                        >
+                          <FileText className="h-3.5 w-3.5 text-slate-500" />
+                          <span className="max-w-[320px] truncate">{att.filename}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {shouldShowProofUploader && (
+                    <div className="mt-4">
+                      <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                          Proof required
+                        </span>
+                        <span className="text-slate-500">
+                          Upload PDF/Image before completing or sending this task.
+                        </span>
+                      </label>
+                      <div className="mt-2 flex items-center gap-2">
+                        <input
+                          type="file"
+                          accept="application/pdf,image/*"
+                          disabled={!!uploadingId}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.currentTarget.value = '';
+                            if (!f) return;
+                            void handleUploadProof(task.id, f);
+                          }}
+                          className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60"
+                        />
+                        {uploadingId === task.id && (
+                          <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Uploading...
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {isDisclosureRole &&
+                    isDisclosureSubmissionTask(task) &&
+                    task.status !== 'COMPLETED' && (
+                      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                          Disclosure Action
+                        </p>
+                        <select
+                          value={selectedReason}
+                          onChange={(event) =>
+                            setDisclosureReasonByTask((prev) => ({
+                              ...prev,
+                              [task.id]: event.target.value as DisclosureDecisionReason,
+                            }))
+                          }
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                        >
+                          {disclosureReasonOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <textarea
+                          value={disclosureMessageByTask[task.id] || ''}
+                          onChange={(event) =>
+                            setDisclosureMessageByTask((prev) => ({
+                              ...prev,
+                              [task.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="Add context for the LO (what changed, what is missing, next steps)..."
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleSendToLoanOfficer(task)}
+                          disabled={sendingToLoId === task.id || proofCount < 1}
+                          className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {sendingToLoId === task.id && (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          )}
+                          {selectedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                            ? 'Send to LO for Approval'
+                            : 'Send Back to LO'}
+                        </button>
                       </div>
                     )}
-                  </div>
-                </div>
-              )}
 
-              {isDisclosureRole &&
-                isDisclosureSubmissionTask(task) &&
-                task.status !== 'COMPLETED' && (
-                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                      Disclosure Action
-                    </p>
-                    <select
-                      value={selectedReason}
-                      onChange={(event) =>
-                        setDisclosureReasonByTask((prev) => ({
-                          ...prev,
-                          [task.id]: event.target.value as DisclosureDecisionReason,
-                        }))
-                      }
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                    >
-                      {disclosureReasonOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <textarea
-                      value={disclosureMessageByTask[task.id] || ''}
-                      onChange={(event) =>
-                        setDisclosureMessageByTask((prev) => ({
-                          ...prev,
-                          [task.id]: event.target.value,
-                        }))
-                      }
-                      placeholder="Add context for the LO (what changed, what is missing, next steps)..."
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleSendToLoanOfficer(task)}
-                      disabled={sendingToLoId === task.id || proofCount < 1}
-                      className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      {sendingToLoId === task.id && (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      )}
-                      {selectedReason ===
-                      DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-                        ? 'Send to LO for Approval'
-                        : 'Send Back to LO'}
-                    </button>
-                  </div>
-                )}
-
-              {isQcRole && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
-                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    QC Action
-                  </p>
-                  <select
-                    value={selectedQcReason}
-                    onChange={(event) =>
-                      setDisclosureReasonByTask((prev) => ({
-                        ...prev,
-                        [task.id]: event.target.value as DisclosureDecisionReason,
-                      }))
-                    }
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                  >
-                    {qcReasonOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <textarea
-                    value={disclosureMessageByTask[task.id] || ''}
-                    onChange={(event) =>
-                      setDisclosureMessageByTask((prev) => ({
-                        ...prev,
-                        [task.id]: event.target.value,
-                      }))
-                    }
-                    placeholder="Add context for LO (what is missing or what needs correction)..."
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void handleSendToLoanOfficer(task)}
-                      disabled={sendingToLoId === task.id || proofCount < 1}
-                    className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {sendingToLoId === task.id && (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    )}
-                    Send Back to LO
-                  </button>
-                </div>
-              )}
-
-              {isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
-                <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-                    Loan Officer Response
-                  </p>
-                  <textarea
-                    value={loResponseByTask[task.id] || ''}
-                    onChange={(event) =>
-                      setLoResponseByTask((prev) => ({
-                        ...prev,
-                        [task.id]: event.target.value,
-                      }))
-                    }
-                    placeholder="Describe your response and what you updated for Disclosure..."
-                    className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm min-h-20"
-                  />
-                  {isApprovalReviewTask ? (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleLoanOfficerDisclosureReview(task, 'APPROVE')
+                  {isQcRole && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
+                    <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        QC Action
+                      </p>
+                      <select
+                        value={selectedQcReason}
+                        onChange={(event) =>
+                          setDisclosureReasonByTask((prev) => ({
+                            ...prev,
+                            [task.id]: event.target.value as DisclosureDecisionReason,
+                          }))
                         }
-                        disabled={respondingId === task.id}
-                        className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                       >
-                        {respondingId === task.id && (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        )}
-                        Approve Figures
-                      </button>
+                        {qcReasonOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <textarea
+                        value={disclosureMessageByTask[task.id] || ''}
+                        onChange={(event) =>
+                          setDisclosureMessageByTask((prev) => ({
+                            ...prev,
+                            [task.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Add context for LO (what is missing or what needs correction)..."
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm min-h-20"
+                      />
                       <button
                         type="button"
-                        onClick={() =>
-                          void handleLoanOfficerDisclosureReview(
-                            task,
-                            'REVISION_REQUIRED'
-                          )
-                        }
-                        disabled={respondingId === task.id}
+                        onClick={() => void handleSendToLoanOfficer(task)}
+                        disabled={sendingToLoId === task.id || proofCount < 1}
                         className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        {respondingId === task.id && (
+                        {sendingToLoId === task.id && (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         )}
-                        Request Revision
+                        Send Back to LO
                       </button>
                     </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void handleLoanOfficerResponse(task)}
-                      disabled={respondingId === task.id}
-                      className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      {respondingId === task.id && (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      )}
-                      Respond to Disclosure
-                    </button>
                   )}
-                </div>
-              )}
 
-              <div className="mt-4">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpandedTaskId((prev) => (prev === task.id ? null : task.id))
-                  }
-                  className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
-                >
-                  <ChevronDown
-                    className={`h-4 w-4 transition-transform ${
-                      isExpanded ? 'rotate-180' : ''
-                    }`}
-                  />
-                  {isExpanded ? 'Hide Details' : 'View Details'}
-                </button>
-              </div>
+                  {isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
+                    <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                        Loan Officer Response
+                      </p>
+                      <textarea
+                        value={loResponseByTask[task.id] || ''}
+                        onChange={(event) =>
+                          setLoResponseByTask((prev) => ({
+                            ...prev,
+                            [task.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Describe your response and what you updated for Disclosure..."
+                        className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm min-h-20"
+                      />
+                      {isApprovalReviewTask ? (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleLoanOfficerDisclosureReview(task, 'APPROVE')}
+                            disabled={respondingId === task.id}
+                            className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {respondingId === task.id && (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            )}
+                            Approve Figures
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleLoanOfficerDisclosureReview(task, 'REVISION_REQUIRED')
+                            }
+                            disabled={respondingId === task.id}
+                            className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {respondingId === task.id && (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            )}
+                            Request Revision
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void handleLoanOfficerResponse(task)}
+                          disabled={respondingId === task.id}
+                          className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {respondingId === task.id && (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          )}
+                          Respond to Disclosure
+                        </button>
+                      )}
+                    </div>
+                  )}
 
-              {isExpanded && (
-                <div className="mt-3 space-y-4">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-slate-200 pb-2">Submission Details</h4>
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-slate-200 pb-2">
+                      Submission Details
+                    </h4>
                     {submissionDataRows.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
                         {submissionDataRows.map(([key, value]) => (
                           <div key={key} className="text-sm">
-                            <p className="font-semibold text-slate-500 mb-0.5">
-                              {key}
-                            </p>
+                            <p className="font-semibold text-slate-500 mb-0.5">{key}</p>
                             <p className="text-slate-800 break-words font-medium">{String(value)}</p>
                           </div>
                         ))}
@@ -692,86 +693,61 @@ export function TaskList({
                     )}
                   </div>
 
-                  {task.submissionData && typeof task.submissionData === 'object' && Array.isArray((task.submissionData as any).notesHistory) && (task.submissionData as any).notesHistory.length > 0 && (
-                    <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-4">
-                      <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-blue-100 pb-2">Notes & History</h4>
-                      <div className="space-y-3">
-                        {(task.submissionData as any).notesHistory.map((note: any, idx: number) => (
-                          <div key={idx} className="bg-white p-3 rounded-md border border-blue-100 shadow-sm">
-                            <div className="flex justify-between items-start mb-1">
-                              <span className="text-xs font-bold text-slate-700">{note.author} <span className="text-slate-400 font-normal">({note.role})</span></span>
-                              <span className="text-[10px] text-slate-400">{new Date(note.date).toLocaleString()}</span>
-                            </div>
-                            <p className="text-sm text-slate-800 whitespace-pre-wrap">{note.message}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+                    {task.status === 'PENDING' && (
+                      <button
+                        onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
+                        disabled={!!updatingId}
+                        className="inline-flex h-9 items-center px-3 text-slate-600 text-sm font-semibold hover:text-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed gap-2"
+                      >
+                        {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                        Start
+                      </button>
+                    )}
+                    {!isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
+                      <button
+                        onClick={() => handleStatusChange(task.id, 'COMPLETED')}
+                        disabled={!!updatingId || !canCompleteTask}
+                        className="inline-flex h-9 items-center px-3 bg-green-50 text-green-700 text-sm font-semibold rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {updatingId === task.id ? (
+                          <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                        ) : (
+                          <CheckCircle className="w-4 h-4 mr-1.5" />
+                        )}
+                        {updatingId === task.id
+                          ? 'Saving...'
+                          : !canCompleteTask
+                          ? 'Upload Proof First'
+                          : 'Complete'}
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        onClick={() => handleDelete(task.id)}
+                        disabled={!!deletingId}
+                        className="inline-flex h-9 w-9 items-center justify-center text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="Delete task"
+                      >
+                        {deletingId === task.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setFocusedTaskId(null)}
+                      className="app-btn-secondary h-9 px-3 text-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-col items-end space-y-3 shrink-0 ml-4">
-            {task.dueDate && (
-              <div className={`flex items-center text-xs font-medium ${
-                new Date(task.dueDate) < new Date() && task.status !== 'COMPLETED' 
-                  ? 'text-red-600 bg-red-50 px-2 py-1 rounded' 
-                  : 'text-slate-500'
-              }`}>
-                <Calendar className="w-3 h-3 mr-1" />
-                {new Date(task.dueDate).toLocaleDateString()}
               </div>
             )}
-
-            <div className="flex items-center space-x-2">
-              {!isLoTaskForCurrentLoanOfficer && task.status !== 'COMPLETED' && (
-                <button 
-                  onClick={() => handleStatusChange(task.id, 'COMPLETED')}
-                  disabled={!!updatingId || !canCompleteTask}
-                  className="inline-flex h-9 items-center px-3 bg-green-50 text-green-700 text-sm font-medium rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {updatingId === task.id ? (
-                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                  ) : (
-                    <CheckCircle className="w-4 h-4 mr-1.5" />
-                  )}
-                  {updatingId === task.id
-                    ? 'Saving...'
-                    : !canCompleteTask
-                    ? 'Upload Proof First'
-                    : 'Complete'}
-                </button>
-              )}
-              
-              {task.status === 'PENDING' && (
-                <button 
-                  onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
-                  disabled={!!updatingId}
-                  className="inline-flex h-9 items-center px-3 text-slate-500 text-sm font-medium hover:text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed gap-2"
-                >
-                  {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin" />}
-                  Start
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  onClick={() => handleDelete(task.id)}
-                  disabled={!!deletingId}
-                  className="inline-flex h-9 w-9 items-center justify-center text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  aria-label="Delete task"
-                >
-                  {deletingId === task.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-4 h-4" />
-                  )}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+          </React.Fragment>
         );
       })}
     </div>
