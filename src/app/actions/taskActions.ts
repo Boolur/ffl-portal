@@ -13,6 +13,7 @@ import {
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { sendEmail } from '@/lib/email';
 
 function isSubmissionTask(task: {
   kind: TaskKind | null;
@@ -38,6 +39,100 @@ function isDisclosureSubmissionTask(task: {
     (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
       task.title.toLowerCase().includes('disclosure'))
   );
+}
+
+const workflowStateEmailLabel: Record<TaskWorkflowState, string> = {
+  [TaskWorkflowState.NONE]: 'None',
+  [TaskWorkflowState.WAITING_ON_LO]: 'Waiting on LO',
+  [TaskWorkflowState.WAITING_ON_LO_APPROVAL]: 'Waiting on LO Approval',
+  [TaskWorkflowState.READY_TO_COMPLETE]: 'Returned to Disclosure',
+};
+
+const disclosureReasonEmailLabel: Record<DisclosureDecisionReason, string> = {
+  [DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES]:
+    'Approve Initial Disclosures',
+  [DisclosureDecisionReason.MISSING_ITEMS]: 'Missing Items',
+  [DisclosureDecisionReason.OTHER]: 'Other',
+};
+
+async function sendTaskWorkflowNotificationsByTaskId(input: {
+  taskId: string;
+  eventLabel: string;
+  changedBy?: string | null;
+}) {
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: input.taskId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        workflowState: true,
+        disclosureReason: true,
+        loanId: true,
+      },
+    });
+    if (!task) return;
+
+    const [loan, disclosureUsers] = await Promise.all([
+      prisma.loan.findUnique({
+        where: { id: task.loanId },
+        select: {
+          loanNumber: true,
+          borrowerName: true,
+          loanOfficer: {
+            select: { email: true, name: true, active: true },
+          },
+        },
+      }),
+      prisma.user.findMany({
+        where: {
+          role: UserRole.DISCLOSURE_SPECIALIST,
+          active: true,
+        },
+        select: { email: true },
+      }),
+    ]);
+
+    if (!loan) return;
+
+    const recipientSet = new Set<string>();
+    for (const user of disclosureUsers) {
+      if (user.email?.trim()) recipientSet.add(user.email.trim().toLowerCase());
+    }
+    if (loan.loanOfficer?.active && loan.loanOfficer.email?.trim()) {
+      recipientSet.add(loan.loanOfficer.email.trim().toLowerCase());
+    }
+
+    if (recipientSet.size === 0) return;
+
+    const subject = `[FFL Portal] ${input.eventLabel}: ${loan.borrowerName} (${loan.loanNumber})`;
+    const bodyLines = [
+      `Event: ${input.eventLabel}`,
+      `Borrower: ${loan.borrowerName}`,
+      `Loan Number: ${loan.loanNumber}`,
+      `Task: ${task.title}`,
+      `Status: ${task.status}`,
+      `Workflow: ${workflowStateEmailLabel[task.workflowState]}`,
+      task.disclosureReason
+        ? `Reason: ${disclosureReasonEmailLabel[task.disclosureReason]}`
+        : null,
+      input.changedBy ? `Changed By: ${input.changedBy}` : null,
+      'Open Tasks: /tasks',
+    ].filter(Boolean) as string[];
+
+    await Promise.all(
+      Array.from(recipientSet).map((to) =>
+        sendEmail({
+          to,
+          subject,
+          text: bodyLines.join('\n'),
+        })
+      )
+    );
+  } catch (error) {
+    console.error('Failed to send task workflow notifications:', error);
+  }
 }
 
 export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
@@ -260,6 +355,24 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
         });
       }
     }
+
+    if (
+      newStatus === TaskStatus.COMPLETED &&
+      existing.kind === TaskKind.LO_NEEDS_INFO &&
+      existing.parentTaskId
+    ) {
+      await sendTaskWorkflowNotificationsByTaskId({
+        taskId: existing.parentTaskId,
+        eventLabel: 'Task Returned to Disclosure',
+        changedBy: session?.user?.name,
+      });
+    } else {
+      await sendTaskWorkflowNotificationsByTaskId({
+        taskId,
+        eventLabel: 'Task Status Updated',
+        changedBy: session?.user?.name,
+      });
+    }
     
     revalidatePath('/tasks');
     return { success: true };
@@ -404,6 +517,12 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         assignedRole,
         dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
+    });
+
+    await sendTaskWorkflowNotificationsByTaskId({
+      taskId: createdTask.id,
+      eventLabel: 'New Request Submitted',
+      changedBy: session?.user?.name || loanOfficerName || null,
     });
 
     revalidatePath('/');
@@ -560,6 +679,12 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       }
     });
 
+    await sendTaskWorkflowNotificationsByTaskId({
+      taskId,
+      eventLabel: 'Sent to Loan Officer',
+      changedBy: session?.user?.name,
+    });
+
     revalidatePath('/tasks');
     revalidatePath('/');
     return { success: true };
@@ -657,6 +782,12 @@ export async function respondToDisclosureRequest(
           submissionData: updatedSubmissionData ?? undefined,
         },
       });
+    });
+
+    await sendTaskWorkflowNotificationsByTaskId({
+      taskId: task.parentTaskId,
+      eventLabel: 'Loan Officer Responded',
+      changedBy: session?.user?.name,
     });
 
     revalidatePath('/tasks');
@@ -786,6 +917,15 @@ export async function reviewInitialDisclosureFigures(input: {
           },
         });
       }
+    });
+
+    await sendTaskWorkflowNotificationsByTaskId({
+      taskId: task.parentTaskId,
+      eventLabel:
+        input.decision === 'APPROVE'
+          ? 'Loan Officer Approved Figures'
+          : 'Loan Officer Requested Revision',
+      changedBy: session?.user?.name,
     });
 
     revalidatePath('/tasks');
