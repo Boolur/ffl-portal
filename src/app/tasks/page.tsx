@@ -382,43 +382,41 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       </div>
 
       {showBuckets && (
-        <div className="overflow-x-auto pb-2">
-          <div
-            className="grid gap-4 min-w-max"
-            style={{
-              gridTemplateColumns: `repeat(${roleBuckets.length}, minmax(320px, 1fr))`,
-            }}
-          >
-            {roleBuckets.map((bucketConfig) => (
-              <div
-                key={bucketConfig.id}
-                className={`rounded-xl border bg-slate-50/40 p-3 ${
-                  activeBucket === bucketConfig.id
-                    ? 'border-blue-300 ring-1 ring-blue-200'
-                    : 'border-slate-200'
-                }`}
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-sm font-semibold text-slate-900">
-                      {bucketConfig.label}
-                    </h2>
-                    <span
-                      className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${bucketConfig.chipClassName}`}
-                    >
-                      {bucketConfig.chipLabel}
-                    </span>
-                  </div>
-                  <span className="app-count-badge">{bucketConfig.tasks.length}</span>
+        <div
+          className="grid gap-3"
+          style={{
+            gridTemplateColumns: `repeat(${roleBuckets.length}, minmax(0, 1fr))`,
+          }}
+        >
+          {roleBuckets.map((bucketConfig) => (
+            <div
+              key={bucketConfig.id}
+              className={`rounded-xl border bg-slate-50/40 p-2.5 ${
+                activeBucket === bucketConfig.id
+                  ? 'border-blue-300 ring-1 ring-blue-200'
+                  : 'border-slate-200'
+              }`}
+            >
+              <div className="mb-2.5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xs font-semibold text-slate-900">
+                    {bucketConfig.label}
+                  </h2>
+                  <span
+                    className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${bucketConfig.chipClassName}`}
+                  >
+                    {bucketConfig.chipLabel}
+                  </span>
                 </div>
-                <TaskList
-                  tasks={bucketConfig.tasks}
-                  canDelete={canDelete}
-                  currentRole={sessionRole}
-                />
+                <span className="app-count-badge">{bucketConfig.tasks.length}</span>
               </div>
-            ))}
-          </div>
+              <TaskList
+                tasks={bucketConfig.tasks}
+                canDelete={canDelete}
+                currentRole={sessionRole}
+              />
+            </div>
+          ))}
         </div>
       )}
 
