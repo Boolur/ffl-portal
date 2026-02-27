@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { ImpersonationProvider } from "@/lib/impersonation";
 import { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,6 +52,7 @@ export default async function RootLayout({
             {children}
           </ImpersonationProvider>
         </Providers>
+        <SpeedInsights />
       </body>
     </html>
   );
