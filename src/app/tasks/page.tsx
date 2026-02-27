@@ -387,38 +387,48 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           {roleBuckets.map((bucketConfig) => (
             <div
               key={bucketConfig.id}
-                className={`rounded-xl border bg-card/70 p-3 ${
+                className={`flex flex-col rounded-2xl border bg-white p-4 shadow-sm transition-all hover:shadow-md ${
                 activeBucket === bucketConfig.id
                   ? 'border-blue-300 ring-1 ring-blue-200'
-                    : 'border-border'
+                    : 'border-slate-200/80'
               }`}
             >
-              <div className="mb-2.5 flex min-h-[92px] items-start justify-between gap-2">
-                <div className="min-w-0">
-                    <h2
-                      className="text-sm font-bold leading-tight text-foreground whitespace-nowrap overflow-hidden text-ellipsis"
-                      title={bucketConfig.label}
+              <div className="mb-4 flex flex-col gap-3 border-b border-border/50 pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                      <h2
+                        className="text-sm font-extrabold leading-tight text-slate-900 whitespace-nowrap overflow-hidden text-ellipsis"
+                        title={bucketConfig.label}
+                      >
+                      {bucketConfig.label}
+                    </h2>
+                    <span
+                      className={`mt-1.5 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ${bucketConfig.chipClassName}`}
                     >
-                    {bucketConfig.label}
-                  </h2>
-                  <span
-                    className={`mt-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${bucketConfig.chipClassName}`}
-                  >
-                    {bucketConfig.chipLabel}
+                      {bucketConfig.chipLabel}
+                    </span>
+                  </div>
+                  <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+                    {bucketConfig.tasks.length}
                   </span>
-                  {sessionRole === UserRole.LOAN_OFFICER &&
-                    bucketConfig.id === 'returned-to-disclosure' && (
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
-                          Blue = Approved sent back
-                        </span>
-                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
-                          Orange = Revision sent back
-                        </span>
-                      </div>
-                    )}
                 </div>
-                <span className="app-count-badge">{bucketConfig.tasks.length}</span>
+                {sessionRole === UserRole.LOAN_OFFICER &&
+                  bucketConfig.id === 'returned-to-disclosure' && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      <span
+                        title="Blue = Approved sent back"
+                        className="shrink-0 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-700 shadow-sm"
+                      >
+                        Blue: Approved Back
+                      </span>
+                      <span
+                        title="Orange = Revision sent back"
+                        className="shrink-0 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 shadow-sm"
+                      >
+                        Orange: Revision Back
+                      </span>
+                    </div>
+                  )}
               </div>
               <TaskList
                 tasks={bucketConfig.tasks}

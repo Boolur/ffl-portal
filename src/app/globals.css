@@ -66,6 +66,26 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Use pointer cursor consistently on interactive controls */
+a[href],
+button,
+[role='button'],
+summary,
+input[type='button'],
+input[type='submit'],
+input[type='reset'],
+label[for] {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled,
+[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
 .app-shell-bg {
   background: color-mix(in oklab, var(--background) 90%, var(--secondary) 10%);
 }

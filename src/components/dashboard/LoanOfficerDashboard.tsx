@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ClipboardCheck, ShieldCheck } from 'lucide-react';
 import { NewTaskModal } from '@/components/loanOfficer/NewTaskModal';
+import { TaskKind, TaskStatus } from '@prisma/client';
 
 type Loan = {
   id: string;
@@ -16,7 +17,8 @@ type LoanOfficerDashboardProps = {
   submissions?: Array<{
     id: string;
     title: string;
-    status: string;
+    status: TaskStatus;
+    kind: TaskKind | null;
     createdAt: Date;
     loan: {
       loanNumber: string;
@@ -30,12 +32,16 @@ type LoanOfficerDashboardProps = {
 export function LoanOfficerDashboard({ submissions = [], loanOfficerName }: LoanOfficerDashboardProps) {
   const [showNewTask, setShowNewTask] = useState(false);
   const [initialTaskType, setInitialTaskType] = useState<'DISCLOSURES' | 'QC'>('DISCLOSURES');
-  const filteredSubmissions = loanOfficerName
+  const scopedSubmissions = loanOfficerName
     ? submissions.filter((t) => t.loan.loanOfficer?.name === loanOfficerName)
     : submissions;
-  const pendingCount = filteredSubmissions.filter((t) => t.status === 'PENDING').length;
-  const inProgressCount = filteredSubmissions.filter((t) => t.status === 'IN_PROGRESS').length;
-  const completedCount = filteredSubmissions.filter((t) => t.status === 'COMPLETED').length;
+  // Keep dashboard counts aligned with LO request queues (not child workflow tasks).
+  const requestSubmissions = scopedSubmissions.filter(
+    (t) => t.kind === TaskKind.SUBMIT_DISCLOSURES || t.kind === TaskKind.SUBMIT_QC
+  );
+  const pendingCount = requestSubmissions.filter((t) => t.status === TaskStatus.PENDING).length;
+  const inProgressCount = requestSubmissions.filter((t) => t.status === TaskStatus.IN_PROGRESS).length;
+  const completedCount = requestSubmissions.filter((t) => t.status === TaskStatus.COMPLETED).length;
 
   const openTaskModal = (type: 'DISCLOSURES' | 'QC') => {
     setInitialTaskType(type);
@@ -117,10 +123,10 @@ export function LoanOfficerDashboard({ submissions = [], loanOfficerName }: Loan
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900">Recent Task Requests</h2>
-          <span className="text-xs text-slate-500">{filteredSubmissions.length} total</span>
+          <span className="text-xs text-slate-500">{requestSubmissions.length} total</span>
         </div>
         <div className="divide-y divide-slate-100">
-          {filteredSubmissions.map((task) => (
+          {requestSubmissions.map((task) => (
             <div key={task.id} className="p-6 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-900">{task.title}</p>
@@ -131,7 +137,7 @@ export function LoanOfficerDashboard({ submissions = [], loanOfficerName }: Loan
               <span className="text-xs text-slate-500">{new Date(task.createdAt).toLocaleString()}</span>
             </div>
           ))}
-          {filteredSubmissions.length === 0 && (
+          {requestSubmissions.length === 0 && (
             <div className="p-6 text-sm text-slate-500">No task requests yet.</div>
           )}
         </div>

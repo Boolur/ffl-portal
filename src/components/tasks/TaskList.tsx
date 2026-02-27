@@ -529,12 +529,12 @@ export function TaskList({
 
   if (tasks.length === 0) {
     return (
-      <div className="text-center py-12 bg-card rounded-xl border border-border">
-        <div className="bg-secondary w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
-          <CheckCircle className="w-6 h-6 text-muted-foreground" />
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-50 shadow-sm ring-1 ring-slate-200/60">
+          <CheckCircle className="h-6 w-6 text-slate-400" />
         </div>
-        <h3 className="text-xl font-semibold text-foreground">All caught up!</h3>
-        <p className="text-sm font-medium text-muted-foreground mt-1">No pending tasks in your queue.</p>
+        <h3 className="text-lg font-extrabold tracking-tight text-slate-900">All caught up!</h3>
+        <p className="mt-1 text-sm font-medium text-slate-500">No pending tasks in your queue.</p>
       </div>
     );
   }
@@ -613,42 +613,40 @@ export function TaskList({
 
         return (
           <React.Fragment key={task.id}>
-            <div className="bg-card p-4 rounded-xl border border-border hover:shadow-md transition-shadow flex items-center justify-between gap-4 min-h-[96px]">
-              <div className="flex items-center space-x-3 min-w-0 flex-1">
+            <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-blue-300 hover:ring-1 hover:ring-blue-100 min-h-[96px]">
+              <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
+              <div className="relative flex items-center space-x-4 min-w-0 flex-1">
                 <div
-                  className={`p-2 rounded-lg shrink-0 ${
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl shadow-sm ring-1 ring-black/5 ${
                     task.status === 'COMPLETED'
-                      ? 'bg-green-100 text-green-600'
+                      ? 'bg-emerald-100 text-emerald-600'
                       : task.status === 'IN_PROGRESS'
                       ? 'bg-blue-100 text-blue-600'
-                      : 'bg-secondary text-muted-foreground'
+                      : 'bg-slate-100 text-slate-500'
                   }`}
                 >
-                  <FileText className="w-5 h-5" />
+                  <FileText className="h-6 w-6" />
                 </div>
                 <div className="min-w-0 w-full">
                   <button
                     type="button"
                     onClick={() => setFocusedTaskId(task.id)}
-                    className="group relative w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                    className="w-full text-left focus:outline-none"
                     title="Open Task"
                   >
-                    <span className="block text-sm font-semibold text-foreground whitespace-normal break-words pr-1">
+                    <span className="block text-sm font-extrabold leading-snug tracking-tight text-slate-900 group-hover:text-blue-950 transition-colors whitespace-normal break-words pr-1">
                       {task.loan.borrowerName}
                     </span>
-                    <span className="block text-xs font-medium text-muted-foreground whitespace-normal break-words pr-1">
+                    <span className="block text-xs font-medium text-slate-500 whitespace-normal break-words pr-1">
                       {task.loan.loanNumber}
                     </span>
                     {loReturnBadge && (
                       <span
-                        className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${loReturnBadge.className}`}
+                        className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ${loReturnBadge.className}`}
                       >
                         {loReturnBadge.label}
                       </span>
                     )}
-                    <span className="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-xl bg-emerald-100/70 text-emerald-800 text-xs font-bold group-hover:flex">
-                      Open Task
-                    </span>
                   </button>
                 </div>
               </div>
