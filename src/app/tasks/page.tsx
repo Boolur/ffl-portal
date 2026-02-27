@@ -21,14 +21,44 @@ const MOCK_USER = {
   role: UserRole.DISCLOSURE_SPECIALIST,
 };
 
-type TaskBucketFilter = 'all' | 'new' | 'pending-lo' | 'completed';
+function normalizeRole(role?: string | null): UserRole {
+  if (!role) return MOCK_USER.role;
+  const normalized = role.trim().toUpperCase();
+  const roles = Object.values(UserRole) as string[];
+  if (!roles.includes(normalized)) return MOCK_USER.role;
+  return normalized as UserRole;
+}
+
+type TaskBucketFilter =
+  | 'all'
+  | 'new'
+  | 'pending-lo'
+  | 'completed'
+  | 'new-disclosure'
+  | 'waiting-missing'
+  | 'waiting-approval'
+  | 'lo-responded'
+  | 'completed-disclosure'
+  | 'submitted-disclosures'
+  | 'pending-incomplete'
+  | 'approval-initial-figures'
+  | 'disclosures-sent-completed';
 
 function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
   if (
     value === 'all' ||
     value === 'new' ||
     value === 'pending-lo' ||
-    value === 'completed'
+    value === 'completed' ||
+    value === 'new-disclosure' ||
+    value === 'waiting-missing' ||
+    value === 'waiting-approval' ||
+    value === 'lo-responded' ||
+    value === 'completed-disclosure' ||
+    value === 'submitted-disclosures' ||
+    value === 'pending-incomplete' ||
+    value === 'approval-initial-figures' ||
+    value === 'disclosures-sent-completed'
   ) {
     return value;
   }
@@ -65,13 +95,26 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   // Fetch tasks assigned to this role OR specifically to this user
   // For LOs, we want to see tasks for loans they own OR tasks assigned to them
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
+  const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
   
-  const where: Prisma.TaskWhereInput = {};
+  const where: Prisma.TaskWhereInput = isAdminOrManager ? {} : {};
 
-  if (isLoanOfficer && userId) {
+  if (isAdminOrManager) {
+    // no-op: managers/admins can review all queues
+  } else if (isLoanOfficer && userId) {
     where.OR = [
       { assignedUserId: userId },
       { loan: { loanOfficerId: userId } } // See tasks for their loans
+    ];
+  } else if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    where.OR = [
+      { assignedRole: role as UserRole },
+      { kind: TaskKind.SUBMIT_DISCLOSURES },
+    ];
+  } else if (role === UserRole.QC) {
+    where.OR = [
+      { assignedRole: role as UserRole },
+      { kind: TaskKind.SUBMIT_QC },
     ];
   } else {
     where.OR = [
@@ -108,67 +151,178 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   return tasks as TaskRow[];
 }
 
-function isSubmissionTaskForRole(role: UserRole, task: TaskRow) {
-  if (role === UserRole.DISCLOSURE_SPECIALIST) {
-    return (
-      task.kind === TaskKind.SUBMIT_DISCLOSURES ||
-      (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
-        task.title.toLowerCase().includes('disclosure'))
-    );
-  }
-  if (role === UserRole.QC) {
-    return (
-      task.kind === TaskKind.SUBMIT_QC ||
-      (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
-    );
-  }
-  return true;
+function isDisclosureSubmissionTask(task: TaskRow) {
+  return (
+    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+    (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
+      task.title.toLowerCase().includes('disclosure'))
+  );
 }
 
-function filterTasksByBucket(
-  role: UserRole,
-  tasks: TaskRow[],
-  bucket: TaskBucketFilter
-): TaskRow[] {
-  if (bucket === 'all') return tasks;
+function isQcSubmissionTask(task: TaskRow) {
+  return (
+    task.kind === TaskKind.SUBMIT_QC ||
+    (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
+  );
+}
 
-  if (role === UserRole.DISCLOSURE_SPECIALIST || role === UserRole.QC) {
-    const roleSubmissionTasks = tasks.filter((task) => isSubmissionTaskForRole(role, task));
-    if (bucket === 'completed') {
-      return roleSubmissionTasks.filter((task) => task.status === TaskStatus.COMPLETED);
-    }
-    if (bucket === 'pending-lo') {
-      return roleSubmissionTasks.filter(
-        (task) =>
-          task.status !== TaskStatus.COMPLETED &&
-          (task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
-            task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL)
-      );
-    }
-    if (bucket === 'new') {
-      return roleSubmissionTasks.filter(
-        (task) =>
-          task.status !== TaskStatus.COMPLETED &&
-          task.workflowState !== TaskWorkflowState.WAITING_ON_LO &&
-          task.workflowState !== TaskWorkflowState.WAITING_ON_LO_APPROVAL
-      );
-    }
+function isLoResponseTask(task: TaskRow) {
+  return task.kind === TaskKind.LO_NEEDS_INFO;
+}
+
+type RoleBucket = {
+  id: TaskBucketFilter;
+  label: string;
+  chipLabel: string;
+  chipClassName: string;
+  tasks: TaskRow[];
+};
+
+function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
+  if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    const disclosureTasks = allTasks.filter(isDisclosureSubmissionTask);
+    return [
+      {
+        id: 'new-disclosure',
+        label: 'New Disclosure Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState !== TaskWorkflowState.WAITING_ON_LO &&
+            task.workflowState !== TaskWorkflowState.WAITING_ON_LO_APPROVAL
+        ),
+      },
+      {
+        id: 'waiting-missing',
+        label: 'Waiting for Missing/Incomplete Items',
+        chipLabel: 'Pending LO',
+        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO
+        ),
+      },
+      {
+        id: 'waiting-approval',
+        label: 'Waiting for Approval',
+        chipLabel: 'Awaiting Approval',
+        chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
+        ),
+      },
+      {
+        id: 'lo-responded',
+        label: 'LO Responded (Needs Review)',
+        chipLabel: 'Needs Review',
+        chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'completed-disclosure',
+        label: 'Completed Disclosure Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
   }
 
   if (role === UserRole.LOAN_OFFICER) {
-    const loRoundTripTasks = tasks.filter((task) => task.kind === TaskKind.LO_NEEDS_INFO);
-    if (bucket === 'completed') {
-      return loRoundTripTasks.filter((task) => task.status === TaskStatus.COMPLETED);
-    }
-    if (bucket === 'pending-lo' || bucket === 'new') {
-      return loRoundTripTasks.filter((task) => task.status !== TaskStatus.COMPLETED);
-    }
+    const disclosureTasks = allTasks.filter(isDisclosureSubmissionTask);
+    const loResponseTasks = allTasks.filter(isLoResponseTask);
+    return [
+      {
+        id: 'submitted-disclosures',
+        label: 'Submitted for Disclosures',
+        chipLabel: 'Submitted',
+        chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.NONE
+        ),
+      },
+      {
+        id: 'pending-incomplete',
+        label: 'Pending/Incomplete Tasks',
+        chipLabel: 'Pending',
+        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+        tasks: loResponseTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.disclosureReason !==
+              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+        ),
+      },
+      {
+        id: 'approval-initial-figures',
+        label: 'Approve Initial Figures',
+        chipLabel: 'Approval',
+        chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+        tasks: loResponseTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.disclosureReason ===
+              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+        ),
+      },
+      {
+        id: 'disclosures-sent-completed',
+        label: 'Disclosures Sent/Completed',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
   }
 
-  if (bucket === 'completed') {
-    return tasks.filter((task) => task.status === TaskStatus.COMPLETED);
+  if (role === UserRole.QC) {
+    const qcTasks = allTasks.filter(isQcSubmissionTask);
+    return [
+      {
+        id: 'new',
+        label: 'New QC Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+        tasks: qcTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.NONE
+        ),
+      },
+      {
+        id: 'pending-lo',
+        label: 'Pending LO',
+        chipLabel: 'Pending LO',
+        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+        tasks: qcTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            (task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
+              task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL)
+        ),
+      },
+      {
+        id: 'completed',
+        label: 'Completed',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        tasks: qcTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
   }
-  return tasks.filter((task) => task.status !== TaskStatus.COMPLETED);
+
+  return [];
 }
 
 type TasksPageProps = {
@@ -177,7 +331,7 @@ type TasksPageProps = {
 
 export default async function TasksPage({ searchParams }: TasksPageProps) {
   const session = await getServerSession(authOptions);
-  const sessionRole = (session?.user?.role as UserRole | undefined) || MOCK_USER.role;
+  const sessionRole = normalizeRole(session?.user?.role);
   const sessionUser = {
     name: session?.user?.name || MOCK_USER.name,
     role: sessionRole,
@@ -190,10 +344,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     typeof rawBucket === 'string' ? rawBucket : undefined
   ) || 'all';
   const allTasks = await getTasks(sessionRole, sessionUser.id);
-  const tasks = filterTasksByBucket(sessionRole, allTasks, bucket);
-  const newTasks = filterTasksByBucket(sessionRole, allTasks, 'new');
-  const pendingLoTasks = filterTasksByBucket(sessionRole, allTasks, 'pending-lo');
-  const completedTasks = filterTasksByBucket(sessionRole, allTasks, 'completed');
+  const roleBuckets = getRoleBuckets(sessionRole, allTasks);
   const canDelete =
     sessionRole === UserRole.ADMIN || sessionRole === UserRole.MANAGER;
   const roleTaskSubtitle: Record<string, string> = {
@@ -211,10 +362,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     [UserRole.PROCESSOR_SR]: 'Handle advanced processing tasks and escalations.',
   };
 
-  const showBuckets =
-    sessionRole === UserRole.DISCLOSURE_SPECIALIST ||
-    sessionRole === UserRole.QC ||
-    sessionRole === UserRole.LOAN_OFFICER;
+  const showBuckets = roleBuckets.length > 0;
+  const activeBucket = roleBuckets.find((b) => b.id === bucket)?.id || null;
 
   return (
     <DashboardShell user={sessionUser}>
@@ -233,51 +382,48 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       </div>
 
       {showBuckets && (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="overflow-x-auto pb-2">
           <div
-            className={`rounded-xl border bg-slate-50/40 p-3 ${
-              bucket === 'new' ? 'border-blue-300 ring-1 ring-blue-200' : 'border-slate-200'
-            }`}
+            className="grid gap-4 min-w-max"
+            style={{
+              gridTemplateColumns: `repeat(${roleBuckets.length}, minmax(320px, 1fr))`,
+            }}
           >
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">New</h2>
-              <span className="app-count-badge">{newTasks.length}</span>
-            </div>
-            <TaskList tasks={newTasks} canDelete={canDelete} currentRole={sessionRole} />
-          </div>
-          <div
-            className={`rounded-xl border bg-slate-50/40 p-3 ${
-              bucket === 'pending-lo'
-                ? 'border-blue-300 ring-1 ring-blue-200'
-                : 'border-slate-200'
-            }`}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">
-                {sessionRole === UserRole.LOAN_OFFICER ? 'Pending Response' : 'Pending LO'}
-              </h2>
-              <span className="app-count-badge">{pendingLoTasks.length}</span>
-            </div>
-            <TaskList tasks={pendingLoTasks} canDelete={canDelete} currentRole={sessionRole} />
-          </div>
-          <div
-            className={`rounded-xl border bg-slate-50/40 p-3 ${
-              bucket === 'completed'
-                ? 'border-blue-300 ring-1 ring-blue-200'
-                : 'border-slate-200'
-            }`}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">Completed</h2>
-              <span className="app-count-badge">{completedTasks.length}</span>
-            </div>
-            <TaskList tasks={completedTasks} canDelete={canDelete} currentRole={sessionRole} />
+            {roleBuckets.map((bucketConfig) => (
+              <div
+                key={bucketConfig.id}
+                className={`rounded-xl border bg-slate-50/40 p-3 ${
+                  activeBucket === bucketConfig.id
+                    ? 'border-blue-300 ring-1 ring-blue-200'
+                    : 'border-slate-200'
+                }`}
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900">
+                      {bucketConfig.label}
+                    </h2>
+                    <span
+                      className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${bucketConfig.chipClassName}`}
+                    >
+                      {bucketConfig.chipLabel}
+                    </span>
+                  </div>
+                  <span className="app-count-badge">{bucketConfig.tasks.length}</span>
+                </div>
+                <TaskList
+                  tasks={bucketConfig.tasks}
+                  canDelete={canDelete}
+                  currentRole={sessionRole}
+                />
+              </div>
+            ))}
           </div>
         </div>
       )}
 
       {!showBuckets && (
-        <TaskList tasks={tasks} canDelete={canDelete} currentRole={sessionRole} />
+        <TaskList tasks={allTasks} canDelete={canDelete} currentRole={sessionRole} />
       )}
     </DashboardShell>
   );

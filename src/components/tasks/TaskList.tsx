@@ -87,8 +87,14 @@ function getWorkflowChip(
   }
   if (workflowState === TaskWorkflowState.READY_TO_COMPLETE) {
     return {
-      label: 'Ready to Complete',
-      className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      label:
+        reason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+          ? 'Ready to Complete'
+          : 'LO Responded (Needs Review)',
+      className:
+        reason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          : 'border-violet-200 bg-violet-50 text-violet-700',
     };
   }
   return null;

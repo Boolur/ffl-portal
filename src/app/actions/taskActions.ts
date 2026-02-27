@@ -415,6 +415,19 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     });
     if (!task) return { success: false, error: 'Task not found.' };
 
+    const parentAttachments = await prisma.taskAttachment.findMany({
+      where: { taskId },
+      select: {
+        clientDocumentId: true,
+        purpose: true,
+        storagePath: true,
+        filename: true,
+        contentType: true,
+        sizeBytes: true,
+        uploadedById: true,
+      },
+    });
+
     if (!isSubmissionTask(task)) {
       return {
         success: false,
@@ -463,7 +476,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         },
       });
 
-      await tx.task.create({
+      const loChildTask = await tx.task.create({
         data: {
           loanId: task.loanId,
           parentTaskId: taskId,
@@ -481,7 +494,23 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           assignedRole: UserRole.LOAN_OFFICER,
           dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
+        select: { id: true },
       });
+
+      if (parentAttachments.length > 0) {
+        await tx.taskAttachment.createMany({
+          data: parentAttachments.map((att) => ({
+            taskId: loChildTask.id,
+            clientDocumentId: att.clientDocumentId,
+            purpose: att.purpose,
+            storagePath: att.storagePath,
+            filename: att.filename,
+            contentType: att.contentType,
+            sizeBytes: att.sizeBytes,
+            uploadedById: att.uploadedById || userId,
+          })),
+        });
+      }
     });
 
     revalidatePath('/tasks');
@@ -643,7 +672,7 @@ export async function reviewInitialDisclosureFigures(input: {
           where: { id: task.parentTaskId! },
           data: {
             status: TaskStatus.PENDING,
-            workflowState: TaskWorkflowState.NONE,
+            workflowState: TaskWorkflowState.READY_TO_COMPLETE,
             disclosureReason: DisclosureDecisionReason.OTHER,
             loanOfficerApprovedAt: null,
             description: note

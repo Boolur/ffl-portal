@@ -66,7 +66,16 @@ type DashboardWrapperProps = {
 
 function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
   const { activeRole } = useImpersonation();
-  const roleTasks = adminTasks.filter((t) => t.assignedRole === activeRole);
+  const roleTasks = adminTasks.filter((t) => {
+    if (t.assignedRole === activeRole) return true;
+    if (activeRole === UserRole.DISCLOSURE_SPECIALIST) {
+      return t.kind === TaskKind.SUBMIT_DISCLOSURES;
+    }
+    if (activeRole === UserRole.QC) {
+      return t.kind === TaskKind.SUBMIT_QC;
+    }
+    return false;
+  });
 
   const roleContent: Record<string, { title: string; subtitle: string }> = {
     [UserRole.LOAN_OFFICER]: {

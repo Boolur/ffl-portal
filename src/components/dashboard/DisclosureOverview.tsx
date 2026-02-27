@@ -1,7 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { TaskKind, TaskStatus, TaskWorkflowState } from '@prisma/client';
+import {
+  TaskKind,
+  TaskStatus,
+  TaskWorkflowState,
+} from '@prisma/client';
 
 type DisclosureTask = {
   id: string;
@@ -17,21 +21,29 @@ function isDisclosureTask(task: DisclosureTask) {
 export function DisclosureOverview({ tasks }: { tasks: DisclosureTask[] }) {
   const disclosureTasks = tasks.filter(isDisclosureTask);
 
-  const newCount = disclosureTasks.filter((task) => {
-    if (task.status === TaskStatus.COMPLETED) return false;
-    return (
-      task.workflowState !== TaskWorkflowState.WAITING_ON_LO &&
-      task.workflowState !== TaskWorkflowState.WAITING_ON_LO_APPROVAL
-    );
-  }).length;
-
-  const pendingLoCount = disclosureTasks.filter((task) => {
-    return (
+  const newCount = disclosureTasks.filter(
+    (task) =>
       task.status !== TaskStatus.COMPLETED &&
-      (task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
-        task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL)
-    );
-  }).length;
+      task.workflowState === TaskWorkflowState.NONE
+  ).length;
+
+  const waitingMissingCount = disclosureTasks.filter(
+    (task) =>
+      task.status !== TaskStatus.COMPLETED &&
+      task.workflowState === TaskWorkflowState.WAITING_ON_LO
+  ).length;
+
+  const waitingApprovalCount = disclosureTasks.filter(
+    (task) =>
+      task.status !== TaskStatus.COMPLETED &&
+      task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
+  ).length;
+
+  const loRespondedCount = disclosureTasks.filter(
+    (task) =>
+      task.status !== TaskStatus.COMPLETED &&
+      task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+  ).length;
 
   const completedCount = disclosureTasks.filter(
     (task) => task.status === TaskStatus.COMPLETED
@@ -39,30 +51,44 @@ export function DisclosureOverview({ tasks }: { tasks: DisclosureTask[] }) {
 
   const cards = [
     {
-      id: 'new',
+      id: 'new-disclosure',
       title: 'New Disclosure Requests',
-      subtitle: 'New or ready-to-work disclosure files.',
+      subtitle: 'Newly submitted files ready for first review.',
       count: newCount,
-      href: '/tasks?bucket=new',
+      href: '/tasks?bucket=new-disclosure',
     },
     {
-      id: 'pending-lo',
-      title: 'Pending LO Tasks',
-      subtitle: 'Waiting on loan officer approval or missing items.',
-      count: pendingLoCount,
-      href: '/tasks?bucket=pending-lo',
+      id: 'waiting-missing',
+      title: 'Waiting for Missing/Incomplete Items',
+      subtitle: 'Files waiting on LO follow-up before review can continue.',
+      count: waitingMissingCount,
+      href: '/tasks?bucket=waiting-missing',
     },
     {
-      id: 'completed',
-      title: 'Completed',
-      subtitle: 'Disclosure requests fully completed.',
+      id: 'waiting-approval',
+      title: 'Waiting for Approval',
+      subtitle: 'Initial figures sent to LO and pending approval/revision.',
+      count: waitingApprovalCount,
+      href: '/tasks?bucket=waiting-approval',
+    },
+    {
+      id: 'lo-responded',
+      title: 'LO Responded (Needs Review)',
+      subtitle: 'LO has replied and disclosure desk review is required.',
+      count: loRespondedCount,
+      href: '/tasks?bucket=lo-responded',
+    },
+    {
+      id: 'completed-disclosure',
+      title: 'Completed Disclosure Requests',
+      subtitle: 'Disclosure flow finished and marked complete.',
       count: completedCount,
-      href: '/tasks?bucket=completed',
+      href: '/tasks?bucket=completed-disclosure',
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
       {cards.map((card) => (
         <Link
           key={card.id}
