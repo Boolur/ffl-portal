@@ -366,6 +366,12 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
         eventLabel: 'Task Returned to Disclosure',
         changedBy: session?.user?.name,
       });
+    } else if (newStatus === TaskStatus.COMPLETED) {
+      await sendTaskWorkflowNotificationsByTaskId({
+        taskId,
+        eventLabel: 'Task Completed',
+        changedBy: session?.user?.name,
+      });
     } else {
       await sendTaskWorkflowNotificationsByTaskId({
         taskId,

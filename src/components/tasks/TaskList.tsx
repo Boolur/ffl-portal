@@ -573,9 +573,11 @@ export function TaskList({
           isDisclosureSubmissionTask(task) &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.NONE;
+        const shouldHideGenericStartForDisclosureSubmission =
+          isDisclosureRole && isDisclosureSubmissionTask(task);
         const shouldRouteFromFooter =
           task.status !== TaskStatus.COMPLETED &&
-          ((isDisclosureRole && isDisclosureSubmissionTask(task)) ||
+          ((isDisclosureInitialRoutingState) ||
             (isQcRole && isQcSubmissionTask(task)));
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
@@ -847,9 +849,7 @@ export function TaskList({
                     </div>
                   )}
 
-                  {isDisclosureRole &&
-                    isDisclosureSubmissionTask(task) &&
-                    task.status !== 'COMPLETED' && (
+                  {isDisclosureInitialRoutingState && (
                       <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/50 p-6 shadow-sm space-y-4">
                         <div className="flex items-center gap-3 mb-2">
                           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
@@ -958,6 +958,7 @@ export function TaskList({
 
                   <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200/60 pt-6">
                     {task.status === 'PENDING' &&
+                      !shouldHideGenericStartForDisclosureSubmission &&
                       !isDisclosureInitialRoutingState &&
                       !shouldRouteFromFooter &&
                       !shouldLoRespondFromFooter &&
