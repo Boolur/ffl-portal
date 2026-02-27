@@ -795,12 +795,25 @@ export async function deleteTask(taskId: string) {
       return { success: false, error: 'Not authorized to delete tasks.' };
     }
 
-    await prisma.task.delete({
+    const existing = await prisma.task.findUnique({
       where: { id: taskId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return { success: false, error: 'Task not found.' };
+    }
+
+    // Admin/Manager hard-delete supports any task state. Also remove direct
+    // child handoff tasks so workflow chains don't leave orphaned items.
+    await prisma.task.deleteMany({
+      where: {
+        OR: [{ id: taskId }, { parentTaskId: taskId }],
+      },
     });
 
     revalidatePath('/tasks');
     revalidatePath('/');
+    revalidatePath('/team');
     return { success: true };
   } catch (error) {
     console.error('Failed to delete task:', error);

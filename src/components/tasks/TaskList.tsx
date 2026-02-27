@@ -66,6 +66,159 @@ const workflowStateLabel: Record<TaskWorkflowState, string> = {
   [TaskWorkflowState.READY_TO_COMPLETE]: 'Ready to Complete',
 };
 
+type SubmissionDetailRow = {
+  key: string;
+  label: string;
+  value: string;
+};
+
+type SubmissionDetailGroup = {
+  title: string;
+  rows: SubmissionDetailRow[];
+};
+
+const submissionDetailOrder = [
+  'arriveLoanNumber',
+  'borrowerFirstName',
+  'borrowerLastName',
+  'borrowerPhone',
+  'borrowerEmail',
+  'loanAmount',
+  'loanType',
+  'loanProgram',
+  'loanPurpose',
+  'channel',
+  'investor',
+  'creditReportType',
+  'aus',
+  'loanOfficer',
+  'notes',
+] as const;
+
+const submissionDetailLabels: Record<string, string> = {
+  arriveLoanNumber: 'Arrive Loan Number',
+  borrowerFirstName: 'Borrower First Name',
+  borrowerLastName: 'Borrower Last Name',
+  borrowerPhone: 'Borrower Phone',
+  borrowerEmail: 'Borrower Email',
+  loanAmount: 'Loan Amount',
+  loanType: 'Loan Type',
+  loanProgram: 'Loan Program',
+  loanPurpose: 'Loan Purpose',
+  channel: 'Channel',
+  investor: 'Investor',
+  creditReportType: 'Credit Report Type',
+  aus: 'AUS',
+  loanOfficer: 'Loan Officer',
+  notes: 'Notes',
+};
+
+const submissionDetailGroupConfig = [
+  {
+    title: 'Loan Identity',
+    keys: ['arriveLoanNumber'],
+  },
+  {
+    title: 'Borrower',
+    keys: ['borrowerFirstName', 'borrowerLastName', 'borrowerPhone', 'borrowerEmail'],
+  },
+  {
+    title: 'Loan Terms',
+    keys: ['loanAmount', 'loanType', 'loanProgram', 'loanPurpose'],
+  },
+  {
+    title: 'Origination & Underwriting',
+    keys: ['channel', 'investor', 'creditReportType', 'aus'],
+  },
+  {
+    title: 'Loan Officer & Notes',
+    keys: ['loanOfficer', 'notes'],
+  },
+] as const;
+
+function toReadableLabel(key: string) {
+  if (submissionDetailLabels[key]) return submissionDetailLabels[key];
+  const spaced = key
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function getOrderedSubmissionDetails(
+  data: Record<string, unknown> | null
+): SubmissionDetailRow[] {
+  if (!data) return [];
+
+  const primitiveEntries = Object.entries(data).filter(([, value]) => {
+    return (
+      value !== null &&
+      (typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean')
+    );
+  });
+
+  const valueByKey = new Map(primitiveEntries);
+  const orderedRows: SubmissionDetailRow[] = [];
+
+  for (const key of submissionDetailOrder) {
+    if (!valueByKey.has(key)) continue;
+    orderedRows.push({
+      key,
+      label: toReadableLabel(key),
+      value: String(valueByKey.get(key)),
+    });
+    valueByKey.delete(key);
+  }
+
+  const remainingRows = Array.from(valueByKey.entries())
+    .map(([key, value]) => ({
+      key,
+      label: toReadableLabel(key),
+      value: String(value),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [...orderedRows, ...remainingRows];
+}
+
+function getGroupedSubmissionDetails(
+  data: Record<string, unknown> | null
+): SubmissionDetailGroup[] {
+  const rows = getOrderedSubmissionDetails(data);
+  if (rows.length === 0) return [];
+
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  const groups: SubmissionDetailGroup[] = [];
+
+  for (const groupConfig of submissionDetailGroupConfig) {
+    const groupRows: SubmissionDetailRow[] = [];
+    for (const key of groupConfig.keys) {
+      const row = byKey.get(key);
+      if (!row) continue;
+      groupRows.push(row);
+      byKey.delete(key);
+    }
+    if (groupRows.length > 0) {
+      groups.push({
+        title: groupConfig.title,
+        rows: groupRows,
+      });
+    }
+  }
+
+  const remaining = Array.from(byKey.values());
+  if (remaining.length > 0) {
+    groups.push({
+      title: 'Additional Details',
+      rows: remaining,
+    });
+  }
+
+  return groups;
+}
+
 function getWorkflowChip(
   workflowState: TaskWorkflowState,
   reason: DisclosureDecisionReason | null
@@ -370,16 +523,12 @@ export function TaskList({
             ? task.submissionData
             : null;
         const workflowChip = getWorkflowChip(task.workflowState, task.disclosureReason);
-        const submissionDataRows = parsedSubmissionData
-          ? Object.entries(parsedSubmissionData).filter(([, value]) => {
-              return (
-                value !== null &&
-                (typeof value === 'string' ||
-                  typeof value === 'number' ||
-                  typeof value === 'boolean')
-              );
-            })
-          : [];
+        const submissionDataRows = getOrderedSubmissionDetails(
+          parsedSubmissionData as Record<string, unknown> | null
+        );
+        const submissionDataGroups = getGroupedSubmissionDetails(
+          parsedSubmissionData as Record<string, unknown> | null
+        );
         const isFocused = focusedTaskId === task.id;
 
         return (
@@ -438,6 +587,35 @@ export function TaskList({
                     >
                       <X className="h-4 w-4" />
                     </button>
+                  </div>
+
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <h4 className="text-sm font-bold text-slate-900 mb-3 border-b border-slate-200 pb-2">
+                      Submission Details
+                    </h4>
+                    {submissionDataRows.length > 0 ? (
+                      <div className="space-y-4">
+                        {submissionDataGroups.map((group) => (
+                          <div key={group.title} className="rounded-lg border border-slate-200 bg-white p-3">
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate-600 mb-2">
+                              {group.title}
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                              {group.rows.map((row) => (
+                                <div key={row.key} className="text-sm">
+                                  <p className="font-bold text-slate-700 mb-0.5">{row.label}</p>
+                                  <p className="text-slate-900 break-words font-medium">{row.value}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500 italic">
+                        No additional submitted fields were captured for this task.
+                      </p>
+                    )}
                   </div>
 
                   <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
@@ -672,26 +850,6 @@ export function TaskList({
                       )}
                     </div>
                   )}
-
-                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-slate-200 pb-2">
-                      Submission Details
-                    </h4>
-                    {submissionDataRows.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-                        {submissionDataRows.map(([key, value]) => (
-                          <div key={key} className="text-sm">
-                            <p className="font-semibold text-slate-500 mb-0.5">{key}</p>
-                            <p className="text-slate-800 break-words font-medium">{String(value)}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-slate-500 italic">
-                        No additional submitted fields were captured for this task.
-                      </p>
-                    )}
-                  </div>
 
                   <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
                     {task.status === 'PENDING' && (
