@@ -94,6 +94,16 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
 
     const isSubmissionWorkflowTask = isSubmissionTask(existing);
 
+    // Loan Officers should not use generic status transitions for submission tasks.
+    // Their workflow is controlled through disclosure/QC response actions instead.
+    if (role === UserRole.LOAN_OFFICER && isDisclosureTask) {
+      return {
+        success: false,
+        error:
+          'Loan Officers cannot change status for submitted disclosure requests from this control.',
+      };
+    }
+
     if (
       newStatus === TaskStatus.COMPLETED &&
       (isVaKind || isVaRole || isSubmissionWorkflowTask)

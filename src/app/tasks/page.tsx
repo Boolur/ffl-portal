@@ -40,8 +40,8 @@ type TaskBucketFilter =
   | 'lo-responded'
   | 'completed-disclosure'
   | 'submitted-disclosures'
-  | 'pending-incomplete'
-  | 'approval-initial-figures'
+  | 'action-required'
+  | 'returned-to-disclosure'
   | 'disclosures-sent-completed';
 
 function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
@@ -56,8 +56,8 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
     value === 'lo-responded' ||
     value === 'completed-disclosure' ||
     value === 'submitted-disclosures' ||
-    value === 'pending-incomplete' ||
-    value === 'approval-initial-figures' ||
+    value === 'action-required' ||
+    value === 'returned-to-disclosure' ||
     value === 'disclosures-sent-completed'
   ) {
     return value;
@@ -248,32 +248,27 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         tasks: disclosureTasks.filter(
           (task) =>
             task.status !== TaskStatus.COMPLETED &&
-            (task.workflowState === TaskWorkflowState.NONE ||
-              task.workflowState === TaskWorkflowState.READY_TO_COMPLETE)
+            task.workflowState === TaskWorkflowState.NONE
         ),
       },
       {
-        id: 'pending-incomplete',
-        label: 'Pending/Incomplete Tasks',
-        chipLabel: 'Pending',
-        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
-        tasks: loResponseTasks.filter(
-          (task) =>
-            task.status !== TaskStatus.COMPLETED &&
-            task.disclosureReason !==
-              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-        ),
-      },
-      {
-        id: 'approval-initial-figures',
-        label: 'Approve Initial Figures',
-        chipLabel: 'Approval',
+        id: 'action-required',
+        label: 'Action Required (Approve Figures / Missing Info)',
+        chipLabel: 'Action Required',
         chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
         tasks: loResponseTasks.filter(
+          (task) => task.status !== TaskStatus.COMPLETED
+        ),
+      },
+      {
+        id: 'returned-to-disclosure',
+        label: 'Returned to Disclosure',
+        chipLabel: 'Tracking',
+        chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
+        tasks: disclosureTasks.filter(
           (task) =>
             task.status !== TaskStatus.COMPLETED &&
-            task.disclosureReason ===
-              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
         ),
       },
       {
@@ -348,7 +343,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const canDelete =
     sessionRole === UserRole.ADMIN || sessionRole === UserRole.MANAGER;
   const roleTaskSubtitle: Record<string, string> = {
-    [UserRole.LOAN_OFFICER]: 'Manage your active requests and workflow tasks.',
+    [UserRole.LOAN_OFFICER]:
+      'Manage submitted requests, complete LO actions, and track returns sent back to Disclosure.',
     [UserRole.ADMIN]: 'Manage and clean up tasks across all teams.',
     [UserRole.MANAGER]: 'Oversee team workload and remove invalid requests.',
     [UserRole.DISCLOSURE_SPECIALIST]: 'Work disclosure tasks by due date and status.',
@@ -411,7 +407,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                     {bucketConfig.chipLabel}
                   </span>
                   {sessionRole === UserRole.LOAN_OFFICER &&
-                    bucketConfig.id === 'submitted-disclosures' && (
+                    bucketConfig.id === 'returned-to-disclosure' && (
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
                           Blue = Approved sent back

@@ -562,6 +562,8 @@ export function TaskList({
         const canCompleteTask = !requiresProofForCompletion || proofCount > 0;
         const isLoTaskForCurrentLoanOfficer =
           currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
+        const isLoanOfficerSubmissionTask =
+          currentRole === UserRole.LOAN_OFFICER && isDisclosureSubmissionTask(task);
         const isApprovalReviewTask =
           isLoTaskForCurrentLoanOfficer &&
           task.disclosureReason ===
@@ -960,7 +962,8 @@ export function TaskList({
                     {task.status === 'PENDING' &&
                       !isDisclosureInitialRoutingState &&
                       !shouldRouteFromFooter &&
-                      !shouldLoRespondFromFooter && (
+                      !shouldLoRespondFromFooter &&
+                      !isLoanOfficerSubmissionTask && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
                         disabled={!!updatingId}
@@ -973,7 +976,8 @@ export function TaskList({
                     {!isLoTaskForCurrentLoanOfficer &&
                       task.status !== 'COMPLETED' &&
                       !isDisclosureInitialRoutingState &&
-                      !shouldRouteFromFooter && (
+                      !shouldRouteFromFooter &&
+                      !isLoanOfficerSubmissionTask && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'COMPLETED')}
                         disabled={!!updatingId || !canCompleteTask}
