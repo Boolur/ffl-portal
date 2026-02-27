@@ -12,6 +12,7 @@ type NewTaskModalProps = {
   open: boolean;
   onClose: () => void;
   loanOfficerName: string;
+  initialType?: SubmissionType;
 };
 
 type SubmissionType = 'DISCLOSURES' | 'QC';
@@ -24,11 +25,18 @@ type PipelineLoanOption = {
 };
 type ClientFolderDocOption = { id: string; filename: string; createdAt: Date };
 
-export function NewTaskModal({ open, onClose, loanOfficerName }: NewTaskModalProps) {
-  const [type, setType] = useState<SubmissionType>('DISCLOSURES');
+export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DISCLOSURES' }: NewTaskModalProps) {
+  const [type, setType] = useState<SubmissionType>(initialType);
   const [submitted, setSubmitted] = useState(false);
   const router = useRouter();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setType(initialType);
+      setSubmitted(false);
+    }
+  }, [open, initialType]);
 
   useEffect(() => {
     if (!open) return;

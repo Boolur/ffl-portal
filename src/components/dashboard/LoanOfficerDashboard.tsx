@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, AlertCircle, ArrowRight, TrendingUp } from 'lucide-react';
+import { Clock, AlertCircle, ArrowRight, TrendingUp, ClipboardCheck, ShieldCheck } from 'lucide-react';
 import { NewTaskModal } from '@/components/loanOfficer/NewTaskModal';
 
 type Loan = {
@@ -29,19 +29,53 @@ type LoanOfficerDashboardProps = {
 
 export function LoanOfficerDashboard({ loans = [], submissions = [], loanOfficerName }: LoanOfficerDashboardProps) {
   const [showNewTask, setShowNewTask] = useState(false);
+  const [initialTaskType, setInitialTaskType] = useState<'DISCLOSURES' | 'QC'>('DISCLOSURES');
+
+  const openTaskModal = (type: 'DISCLOSURES' | 'QC') => {
+    setInitialTaskType(type);
+    setShowNewTask(true);
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Loan Officer Workspace</h2>
-          <p className="text-sm text-slate-500">Create requests, monitor task progress, and track pipeline movement.</p>
-        </div>
+    <div className="space-y-8">
+      {/* Primary Action Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <button
-          onClick={() => setShowNewTask(true)}
-          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 shadow-sm"
+          onClick={() => openTaskModal('DISCLOSURES')}
+          className="group relative flex flex-col items-start p-8 rounded-2xl border border-blue-200 bg-white shadow-sm hover:shadow-md hover:border-blue-300 transition-all text-left overflow-hidden"
         >
-          Create Task
+          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+            <ClipboardCheck className="w-32 h-32 text-blue-600" />
+          </div>
+          <div className="w-14 h-14 rounded-xl bg-blue-600 text-white flex items-center justify-center mb-6 shadow-sm group-hover:scale-105 transition-transform">
+            <ClipboardCheck className="w-7 h-7" />
+          </div>
+          <h3 className="text-2xl font-bold text-slate-900 mb-2">Submit for Disclosures</h3>
+          <p className="text-slate-500 mb-8 max-w-sm">
+            Send loan information and initial documents to the Disclosure Team for processing.
+          </p>
+          <div className="mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl bg-blue-50 text-blue-700 font-semibold group-hover:bg-blue-600 group-hover:text-white transition-colors">
+            Start Request
+          </div>
+        </button>
+
+        <button
+          onClick={() => openTaskModal('QC')}
+          className="group relative flex flex-col items-start p-8 rounded-2xl border border-indigo-200 bg-white shadow-sm hover:shadow-md hover:border-indigo-300 transition-all text-left overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+            <ShieldCheck className="w-32 h-32 text-indigo-600" />
+          </div>
+          <div className="w-14 h-14 rounded-xl bg-indigo-600 text-white flex items-center justify-center mb-6 shadow-sm group-hover:scale-105 transition-transform">
+            <ShieldCheck className="w-7 h-7" />
+          </div>
+          <h3 className="text-2xl font-bold text-slate-900 mb-2">Submit for QC</h3>
+          <p className="text-slate-500 mb-8 max-w-sm">
+            Send a completed loan file to the Quality Control team for final review and approval.
+          </p>
+          <div className="mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-50 text-indigo-700 font-semibold group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+            Start Request
+          </div>
         </button>
       </div>
 
@@ -152,6 +186,7 @@ export function LoanOfficerDashboard({ loans = [], submissions = [], loanOfficer
         open={showNewTask}
         onClose={() => setShowNewTask(false)}
         loanOfficerName={loanOfficerName || 'Admin User'}
+        initialType={initialTaskType}
       />
     </div>
   );

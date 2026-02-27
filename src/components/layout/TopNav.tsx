@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, ChevronDown, LogOut, Moon, PanelLeft, Search, Sun } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, PanelLeft, Search } from 'lucide-react';
 import { signOut } from 'next-auth/react';
-import { useTheme } from 'next-themes';
 
 export function TopNav({
   user,
@@ -16,9 +15,7 @@ export function TopNav({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const { resolvedTheme, setTheme } = useTheme();
 
   useEffect(() => {
     const onClickOutside = (event: MouseEvent) => {
@@ -40,10 +37,6 @@ export function TopNav({
       document.removeEventListener('mousedown', onClickOutside);
       document.removeEventListener('keydown', onEsc);
     };
-  }, []);
-
-  useEffect(() => {
-    setMounted(true);
   }, []);
 
   const handleSignOut = async () => {
@@ -80,22 +73,6 @@ export function TopNav({
       </div>
 
       <div className="flex items-center space-x-4">
-        <button
-          type="button"
-          className="p-2 text-muted-foreground hover:text-foreground relative hover:bg-secondary rounded-full transition-colors"
-          onClick={() => {
-            if (!mounted) return;
-            setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
-          }}
-          aria-label="Toggle theme"
-        >
-          {mounted && resolvedTheme === 'dark' ? (
-            <Sun className="h-5 w-5" />
-          ) : (
-            <Moon className="h-5 w-5" />
-          )}
-        </button>
-
         <button className="p-2 text-muted-foreground hover:text-foreground relative hover:bg-secondary rounded-full transition-colors">
           <Bell className="h-5 w-5" />
           <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-card"></span>
