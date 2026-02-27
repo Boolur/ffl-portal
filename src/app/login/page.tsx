@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Building2, CheckCircle2, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -41,69 +42,58 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 app-shell-bg">
-      <section className="hidden lg:flex relative overflow-hidden border-r border-border">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(37,99,235,0.22),transparent_40%),radial-gradient(circle_at_80%_10%,rgba(99,102,241,0.2),transparent_35%),radial-gradient(circle_at_50%_80%,rgba(14,165,233,0.18),transparent_45%)]" />
-        <div className="relative z-10 flex h-full w-full flex-col justify-between p-10">
-          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-            <Building2 className="h-3.5 w-3.5" />
-            Federal First Lending Portal
+    <div className="min-h-screen flex flex-col items-center justify-center app-shell-bg px-4 py-12 relative overflow-hidden">
+      {/* Subtle background pattern matching the brand's professional feel */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(37,99,235,0.1),transparent_50%)]" />
+      
+      <div className="w-full max-w-[420px] relative z-10">
+        {/* Company Logo */}
+        <div className="flex justify-center mb-8">
+          <div className="relative h-20 w-72">
+            <Image
+              src="/assets/Federal-First-Lending-text.png"
+              alt="Federal First Lending"
+              fill
+              className="object-contain drop-shadow-sm"
+              priority
+            />
           </div>
-          <div className="space-y-6">
-            <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-foreground">
-              Modern lending operations, built for high-performance teams.
-            </h1>
-            <p className="max-w-lg text-sm text-muted-foreground">
-              Manage pipelines, disclosures, QC, and team workflows in one secure workspace.
-            </p>
-            <div className="grid gap-3">
-              <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm text-card-foreground">
-                <CheckCircle2 className="h-4 w-4 text-primary" />
-                Real-time role-based workflow visibility
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm text-card-foreground">
-                <ShieldCheck className="h-4 w-4 text-primary" />
-                Secure document and task lifecycle tracking
-              </div>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Designed for Loan Officers, Disclosure, QC, VAs, Managers, and Admins.
-          </p>
         </div>
-      </section>
 
-      <section className="flex items-center justify-center p-5 sm:p-8">
-        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl shadow-slate-950/5">
-          <h2 className="text-2xl font-bold text-card-foreground">Welcome back</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Sign in to continue to your dashboard.
-          </p>
+        {/* Login Card */}
+        <div className="rounded-2xl border border-border bg-card/95 backdrop-blur-xl p-8 shadow-2xl shadow-slate-950/10">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold text-foreground tracking-tight">Employee Portal</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Sign in with your Federal First Lending credentials
+            </p>
+          </div>
 
-          <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          <form className="space-y-5" onSubmit={handleSubmit}>
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                 Email
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full rounded-lg border border-input bg-background/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                 placeholder="you@federalfirstlending.com"
                 required
               />
             </div>
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                 Password
               </label>
-              <div className="relative mt-2">
+              <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-lg border border-input bg-background/50 px-4 py-2.5 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                  placeholder="••••••••"
                   required
                 />
                 <button
@@ -117,10 +107,11 @@ export default function LoginPage() {
               </div>
             </div>
             {error && <p className="text-sm text-red-500">{error}</p>}
+            
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:scale-[0.99] hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-70 flex items-center justify-center gap-2"
+              className="mt-2 w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 flex items-center justify-center gap-2 shadow-sm"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               {loading ? 'Signing in...' : 'Sign in'}
@@ -134,7 +125,16 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-      </section>
+
+        {/* Footer */}
+        <div className="mt-8 text-center">
+          <p className="text-xs text-muted-foreground">
+            Secure internal portal for Federal First Lending employees.
+            <br />
+            Need access? Contact your IT administrator.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
