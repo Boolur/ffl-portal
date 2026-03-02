@@ -25,6 +25,7 @@ import {
 } from '@/app/actions/taskActions';
 import {
   createTaskAttachmentUploadUrl,
+  deleteTaskAttachment,
   finalizeTaskAttachment,
   getTaskAttachmentDownloadUrl,
 } from '@/app/actions/attachmentActions';
@@ -562,6 +563,7 @@ export function TaskList({
   const [updatingId, setUpdatingId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [uploadingId, setUploadingId] = React.useState<string | null>(null);
+  const [deletingAttachmentId, setDeletingAttachmentId] = React.useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = React.useState<string | null>(null);
   const [sendingToLoId, setSendingToLoId] = React.useState<string | null>(null);
   const [respondingId, setRespondingId] = React.useState<string | null>(null);
@@ -658,6 +660,21 @@ export function TaskList({
       return;
     }
     window.open(result.url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleDeleteProofAttachment = async (attachmentId: string) => {
+    if (deletingAttachmentId) return;
+    const confirmed = window.confirm('Delete this proof attachment?');
+    if (!confirmed) return;
+    setDeletingAttachmentId(attachmentId);
+    const result = await deleteTaskAttachment(attachmentId);
+    if (!result.success) {
+      alert(result.error || 'Failed to delete attachment.');
+      setDeletingAttachmentId(null);
+      return;
+    }
+    router.refresh();
+    setDeletingAttachmentId(null);
   };
 
   const handleSendToLoanOfficer = async (task: Task) => {
@@ -779,14 +796,24 @@ export function TaskList({
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const selectedQcReason =
           disclosureReasonByTask[task.id] || DisclosureDecisionReason.MISSING_ITEMS;
+        const canDisclosureEditProofAttachments =
+          isDisclosureRole &&
+          isDisclosureSubmissionTask(task) &&
+          task.status !== TaskStatus.BLOCKED &&
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState !== TaskWorkflowState.WAITING_ON_LO &&
+          task.workflowState !== TaskWorkflowState.WAITING_ON_LO_APPROVAL;
         const shouldShowProofUploader =
           task.status !== 'COMPLETED' &&
           ((isVaSubRole && isVaTaskKind(task.kind)) ||
-            (isDisclosureRole && isDisclosureSubmissionTask(task)) ||
+            canDisclosureEditProofAttachments ||
             (isQcRole && isQcSubmissionTask(task)));
         const proofCount =
           task.attachments?.filter((att) => att.purpose === TaskAttachmentPurpose.PROOF)
             .length || 0;
+        const proofAttachments =
+          task.attachments?.filter((att) => att.purpose === TaskAttachmentPurpose.PROOF) ||
+          [];
         const requiresProofForCompletion =
           isVaTaskKind(task.kind) ||
           isDisclosureSubmissionTask(task) ||
@@ -1167,6 +1194,38 @@ export function TaskList({
                           </div>
                         )}
                       </div>
+                      {canDisclosureEditProofAttachments && proofAttachments.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                            Uploaded Proof
+                          </p>
+                          {proofAttachments.map((att) => (
+                            <div
+                              key={att.id}
+                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleViewAttachment(att.id)}
+                                className="min-w-0 truncate text-left text-sm font-semibold text-slate-700 hover:text-blue-700"
+                              >
+                                {att.filename}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteProofAttachment(att.id)}
+                                disabled={deletingAttachmentId === att.id}
+                                className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {deletingAttachmentId === att.id && (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                )}
+                                Delete
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

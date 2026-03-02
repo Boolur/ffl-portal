@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma';
 import {
   TaskAttachmentPurpose,
   TaskKind,
+  TaskStatus,
+  TaskWorkflowState,
   UserRole,
 } from '@prisma/client';
 import { getServerSession } from 'next-auth';
@@ -188,6 +190,95 @@ export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
   } catch (error) {
     console.error('Failed to get download URL:', error);
     return { success: false, error: 'Failed to get download URL.' };
+  }
+}
+
+export async function deleteTaskAttachment(attachmentId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) return { success: false, error: 'Not authenticated.' };
+
+    const attachment = await prisma.taskAttachment.findUnique({
+      where: { id: attachmentId },
+      select: {
+        id: true,
+        purpose: true,
+        storagePath: true,
+        uploadedById: true,
+        task: {
+          select: {
+            id: true,
+            kind: true,
+            status: true,
+            workflowState: true,
+            assignedRole: true,
+            assignedUserId: true,
+            loan: { select: { loanOfficerId: true } },
+          },
+        },
+      },
+    });
+
+    if (!attachment) return { success: false, error: 'Attachment not found.' };
+
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const isDisclosureUser = role === UserRole.DISCLOSURE_SPECIALIST;
+
+    // This delete flow is intended for Disclosure proof attachments before routing.
+    if (!canManageAll && !isDisclosureUser) {
+      return { success: false, error: 'Not authorized.' };
+    }
+    if (attachment.purpose !== TaskAttachmentPurpose.PROOF) {
+      return { success: false, error: 'Only proof attachments can be deleted here.' };
+    }
+    if (attachment.task.kind !== TaskKind.SUBMIT_DISCLOSURES) {
+      return {
+        success: false,
+        error: 'Attachment deletion is only available on disclosure submission tasks.',
+      };
+    }
+    if (
+      attachment.task.status === TaskStatus.BLOCKED ||
+      attachment.task.status === TaskStatus.COMPLETED ||
+      attachment.task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
+      attachment.task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
+    ) {
+      return {
+        success: false,
+        error: 'Attachments can only be deleted before sending the task to LO.',
+      };
+    }
+
+    if (!canManageAll) {
+      const isAssignedToRole = attachment.task.assignedRole === role;
+      const isAssignedToUser = attachment.task.assignedUserId === userId;
+      const isLoanOwner =
+        role === UserRole.LOAN_OFFICER && attachment.task.loan.loanOfficerId === userId;
+      const isUploader = attachment.uploadedById === userId;
+      if (!isAssignedToRole && !isAssignedToUser && !isLoanOwner && !isUploader) {
+        return { success: false, error: 'Not authorized.' };
+      }
+    }
+
+    const supabase = getSupabaseAdmin();
+    const bucket = getTaskAttachmentsBucket();
+    const { error: storageError } = await supabase.storage
+      .from(bucket)
+      .remove([attachment.storagePath]);
+    if (storageError) {
+      console.error('[attachments] remove failed', storageError);
+    }
+
+    await prisma.taskAttachment.delete({ where: { id: attachmentId } });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to delete task attachment:', error);
+    return { success: false, error: 'Failed to delete attachment.' };
   }
 }
 
