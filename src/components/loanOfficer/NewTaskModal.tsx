@@ -151,6 +151,7 @@ type MismoPrefill = {
   loanType?: string;
   loanProgram?: string;
   loanAmount?: string;
+  homeValue?: string;
 };
 
 function parseMismoXml(xmlText: string): MismoPrefill {
@@ -218,6 +219,9 @@ function parseMismoXml(xmlText: string): MismoPrefill {
   const loanProgram = '';
   const loanAmount =
     getText(doc, 'BaseLoanAmount') || getText(doc, 'NoteAmount');
+  const homeValue =
+    getText(doc, 'PropertyEstimatedValueAmount') ||
+    getText(doc, 'EstimatedValueAmount');
 
   return {
     loanOfficer,
@@ -229,6 +233,7 @@ function parseMismoXml(xmlText: string): MismoPrefill {
     loanType,
     loanProgram,
     loanAmount,
+    homeValue,
   };
 }
 
@@ -313,6 +318,7 @@ function DisclosuresForm({
     loanType: '',
     loanProgram: '',
     loanAmount: '',
+    homeValue: '',
     aus: '',
     creditReportType: '',
     notes: '',
@@ -365,6 +371,7 @@ function DisclosuresForm({
         loanType: prefill.loanType || prev.loanType,
         loanProgram: prefill.loanProgram || prev.loanProgram,
         loanAmount: prefill.loanAmount || prev.loanAmount,
+        homeValue: prefill.homeValue || prev.homeValue,
       }));
     } catch {
       setImportError('Could not read this MISMO file. Please verify the XML export.');
@@ -390,6 +397,7 @@ function DisclosuresForm({
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required />
+        <Input label="Home Value" value={form.homeValue} onChange={(v) => update('homeValue', v)} required />
         <Select label="AUS" value={form.aus} onChange={(v) => update('aus', v)} options={['DU', 'LP', 'Manual UW']} required />
         <Select label="Credit Report Type" value={form.creditReportType} onChange={(v) => update('creditReportType', v)} options={['Soft Check', 'Hard Report']} required />
       </div>

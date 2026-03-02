@@ -88,6 +88,8 @@ type TaskRow = {
     filename: string;
     purpose: TaskAttachmentPurpose;
     createdAt: Date;
+    uploadedByName: string | null;
+    uploadedByRole: UserRole | null;
   }[];
 };
 
@@ -139,6 +141,12 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
           filename: true,
           purpose: true,
           createdAt: true,
+          uploadedBy: {
+            select: {
+              name: true,
+              role: true,
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
       },
@@ -148,7 +156,17 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     },
   });
   
-  return tasks as TaskRow[];
+  return tasks.map((task) => ({
+    ...task,
+    attachments: task.attachments.map((att) => ({
+      id: att.id,
+      filename: att.filename,
+      purpose: att.purpose,
+      createdAt: att.createdAt,
+      uploadedByName: att.uploadedBy?.name || null,
+      uploadedByRole: att.uploadedBy?.role || null,
+    })),
+  })) as TaskRow[];
 }
 
 function isDisclosureSubmissionTask(task: TaskRow) {

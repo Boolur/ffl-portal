@@ -83,6 +83,25 @@ type SubmissionDetailGroup = {
   rows: SubmissionDetailRow[];
 };
 
+type NoteHistoryEntry = {
+  author: string;
+  role: UserRole | null;
+  message: string;
+  date: string;
+};
+
+type TimelineItem = {
+  id: string;
+  type: 'note' | 'attachment';
+  createdAt: string;
+  actorName: string;
+  actorRole: UserRole | null;
+  message?: string;
+  attachmentId?: string;
+  attachmentFilename?: string;
+  attachmentPurpose?: TaskAttachmentPurpose;
+};
+
 type ContributorSummary = {
   visibleContributors: Array<{ name: string; role: UserRole | null }>;
   overflowCount: number;
@@ -95,6 +114,7 @@ const submissionDetailOrder = [
   'borrowerPhone',
   'borrowerEmail',
   'loanAmount',
+  'homeValue',
   'loanType',
   'loanProgram',
   'loanPurpose',
@@ -113,6 +133,7 @@ const submissionDetailLabels: Record<string, string> = {
   borrowerPhone: 'Borrower Phone',
   borrowerEmail: 'Borrower Email',
   loanAmount: 'Loan Amount',
+  homeValue: 'Home Value',
   loanType: 'Loan Type',
   loanProgram: 'Loan Program',
   loanPurpose: 'Loan Purpose',
@@ -135,7 +156,7 @@ const submissionDetailGroupConfig = [
   },
   {
     title: 'Loan Terms',
-    keys: ['loanAmount', 'loanType', 'loanProgram', 'loanPurpose'],
+    keys: ['loanAmount', 'homeValue', 'loanType', 'loanProgram', 'loanPurpose'],
   },
   {
     title: 'Origination & Underwriting',
@@ -298,10 +319,55 @@ function getInitials(name: string) {
 }
 
 function formatDisplayValue(key: string, value: string) {
-  if (key === 'loanAmount' && !isNaN(Number(value))) {
+  if ((key === 'loanAmount' || key === 'homeValue') && !isNaN(Number(value))) {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(value));
   }
   return value;
+}
+
+function formatPacificTimestamp(value: string | Date) {
+  const dt = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(dt.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZoneName: 'short',
+  }).format(dt);
+}
+
+function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntry[] {
+  if (!data || typeof data !== 'object') return [];
+  const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
+  if (!Array.isArray(notesHistory)) return [];
+
+  const entries: NoteHistoryEntry[] = [];
+  for (const item of notesHistory) {
+    if (!item || typeof item !== 'object') continue;
+    const author = (item as { author?: unknown }).author;
+    const message = (item as { message?: unknown }).message;
+    const date = (item as { date?: unknown }).date;
+    const roleRaw = (item as { role?: unknown }).role;
+    const role =
+      typeof roleRaw === 'string' &&
+      (Object.values(UserRole) as string[]).includes(roleRaw)
+        ? (roleRaw as UserRole)
+        : null;
+    if (typeof author !== 'string' || typeof message !== 'string' || typeof date !== 'string') {
+      continue;
+    }
+    entries.push({
+      author: author.trim() || 'Team Member',
+      role,
+      message: message.trim(),
+      date,
+    });
+  }
+  return entries;
 }
 
 function getContributorSummaryFromSubmissionData(
@@ -415,6 +481,8 @@ type Task = {
     filename: string;
     purpose: TaskAttachmentPurpose;
     createdAt: Date;
+    uploadedByName?: string | null;
+    uploadedByRole?: UserRole | null;
   }[];
 };
 
@@ -695,8 +763,37 @@ export function TaskList({
         const submissionDataGroups = getGroupedSubmissionDetails(
           parsedSubmissionData as Record<string, unknown> | null
         );
+        const noteHistoryEntries = parseNoteHistory(
+          parsedSubmissionData as Record<string, unknown> | null
+        );
         const workedBySummary = getContributorSummaryFromSubmissionData(
           parsedSubmissionData as Record<string, unknown> | null
+        );
+        const timelineItems: TimelineItem[] = [
+          ...noteHistoryEntries.map((entry, index) => ({
+            id: `note-${index}-${entry.date}`,
+            type: 'note' as const,
+            createdAt: entry.date,
+            actorName: entry.author,
+            actorRole: entry.role,
+            message: entry.message,
+          })),
+          ...(task.attachments || []).map((att) => ({
+            id: `attachment-${att.id}`,
+            type: 'attachment' as const,
+            createdAt:
+              att.createdAt instanceof Date
+                ? att.createdAt.toISOString()
+                : new Date(att.createdAt).toISOString(),
+            actorName: att.uploadedByName || 'Team Member',
+            actorRole: att.uploadedByRole || null,
+            attachmentId: att.id,
+            attachmentFilename: att.filename,
+            attachmentPurpose: att.purpose,
+          })),
+        ].sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
         const loReturnBadge =
           currentRole === UserRole.LOAN_OFFICER &&
@@ -883,43 +980,75 @@ export function TaskList({
                     </div>
                   )}
 
-                  {(task.attachments?.length || 0) > 0 && (
+                  {timelineItems.length > 0 && (
                     <div className="mt-8">
                       <div className="mb-5 flex items-center justify-between">
                         <h4 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
                           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
-                            <FileText className="h-4 w-4" />
+                            <MessageSquare className="h-4 w-4" />
                           </div>
-                          Attachments
+                          Notes & Attachments
                         </h4>
                         <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
-                          {task.attachments!.length} file{task.attachments!.length === 1 ? '' : 's'}
+                          {timelineItems.length} update{timelineItems.length === 1 ? '' : 's'}
                         </span>
                       </div>
-                      <div className="flex flex-wrap gap-2.5">
-                      {task.attachments!.map((att) => (
-                        (() => {
-                          const purposeMeta = getAttachmentPurposeMeta(att.purpose);
+                      <div className="space-y-3">
+                        {timelineItems.map((item) => {
+                          const purposeMeta =
+                            item.type === 'attachment' && item.attachmentPurpose
+                              ? getAttachmentPurposeMeta(item.attachmentPurpose)
+                              : null;
                           return (
-                            <button
-                              key={att.id}
-                              onClick={() => handleViewAttachment(att.id)}
-                              className="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-                              type="button"
+                            <div
+                              key={item.id}
+                              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
                             >
-                              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                                <FileText className="h-4 w-4" />
-                              </span>
-                              <span className="max-w-[320px] truncate">{att.filename}</span>
-                              <span
-                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${purposeMeta.badgeClassName}`}
-                              >
-                                {purposeMeta.label}
-                              </span>
-                            </button>
+                              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                                <span className="font-bold text-slate-800">
+                                  {item.actorName}
+                                </span>
+                                {item.actorRole && (
+                                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-semibold uppercase tracking-wide text-slate-500">
+                                    {item.actorRole.replace(/_/g, ' ')}
+                                  </span>
+                                )}
+                                <span className="text-slate-400">•</span>
+                                <span className="font-medium text-slate-500">
+                                  {formatPacificTimestamp(item.createdAt)}
+                                </span>
+                              </div>
+                              {item.type === 'note' ? (
+                                <p className="text-sm font-medium leading-relaxed text-slate-700">
+                                  {item.message}
+                                </p>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    item.attachmentId &&
+                                    handleViewAttachment(item.attachmentId)
+                                  }
+                                  className="inline-flex max-w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                                >
+                                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-slate-600 ring-1 ring-slate-200">
+                                    <FileText className="h-4 w-4" />
+                                  </span>
+                                  <span className="max-w-[360px] truncate">
+                                    {item.attachmentFilename}
+                                  </span>
+                                  {purposeMeta && (
+                                    <span
+                                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${purposeMeta.badgeClassName}`}
+                                    >
+                                      {purposeMeta.label}
+                                    </span>
+                                  )}
+                                </button>
+                              )}
+                            </div>
                           );
-                        })()
-                      ))}
+                        })}
                       </div>
                     </div>
                   )}
