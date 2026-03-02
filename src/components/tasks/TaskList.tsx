@@ -83,6 +83,11 @@ type SubmissionDetailGroup = {
   rows: SubmissionDetailRow[];
 };
 
+type ContributorSummary = {
+  visibleNames: string[];
+  overflowCount: number;
+};
+
 const submissionDetailOrder = [
   'arriveLoanNumber',
   'borrowerFirstName',
@@ -297,6 +302,80 @@ function formatDisplayValue(key: string, value: string) {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(value));
   }
   return value;
+}
+
+function getContributorSummaryFromSubmissionData(
+  data: Record<string, unknown> | null
+): ContributorSummary | null {
+  if (!data || typeof data !== 'object') return null;
+
+  const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
+  if (!Array.isArray(notesHistory)) return null;
+
+  const uniqueNames: string[] = [];
+  const seen = new Set<string>();
+
+  // Read newest to oldest so the tag order reflects latest contributors first.
+  for (let i = notesHistory.length - 1; i >= 0; i -= 1) {
+    const entry = notesHistory[i];
+    if (!entry || typeof entry !== 'object') continue;
+    const author = (entry as { author?: unknown }).author;
+    if (typeof author !== 'string') continue;
+    const normalized = author.trim();
+    if (!normalized) continue;
+    const dedupeKey = normalized.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    uniqueNames.push(normalized);
+  }
+
+  if (uniqueNames.length === 0) return null;
+
+  return {
+    visibleNames: uniqueNames.slice(0, 2),
+    overflowCount: Math.max(0, uniqueNames.length - 2),
+  };
+}
+
+function WorkedByTags({
+  summary,
+  compact = false,
+  className = '',
+}: {
+  summary: ContributorSummary | null;
+  compact?: boolean;
+  className?: string;
+}) {
+  if (!summary) return null;
+  const chipSize = compact ? 'text-[10px] px-2 py-0.5' : 'text-xs px-2.5 py-1';
+  const labelSize = compact ? 'text-[10px] px-2 py-0.5' : 'text-[11px] px-2.5 py-1';
+
+  return (
+    <div className={`flex flex-wrap items-center gap-1.5 ${className}`.trim()}>
+      <span
+        className={`inline-flex items-center rounded-full border border-slate-200 bg-slate-50 font-bold uppercase tracking-wide text-slate-600 ${labelSize}`}
+      >
+        Worked By
+      </span>
+      {summary.visibleNames.map((name) => (
+        <span
+          key={name}
+          className={`inline-flex items-center rounded-full border border-blue-200 bg-blue-50 font-semibold text-blue-700 ${chipSize}`}
+          title={name}
+        >
+          {name}
+        </span>
+      ))}
+      {summary.overflowCount > 0 && (
+        <span
+          className={`inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 font-semibold text-indigo-700 ${chipSize}`}
+          title={`${summary.overflowCount} more contributor${summary.overflowCount === 1 ? '' : 's'}`}
+        >
+          +{summary.overflowCount} more
+        </span>
+      )}
+    </div>
+  );
 }
 
 type Task = {
@@ -602,6 +681,9 @@ export function TaskList({
         const submissionDataGroups = getGroupedSubmissionDetails(
           parsedSubmissionData as Record<string, unknown> | null
         );
+        const workedBySummary = getContributorSummaryFromSubmissionData(
+          parsedSubmissionData as Record<string, unknown> | null
+        );
         const loReturnBadge =
           currentRole === UserRole.LOAN_OFFICER &&
           task.kind === TaskKind.SUBMIT_DISCLOSURES &&
@@ -648,6 +730,11 @@ export function TaskList({
                     <span className="block text-xs font-medium text-slate-500 whitespace-normal break-words pr-1">
                       {task.loan.loanNumber}
                     </span>
+                    <WorkedByTags
+                      summary={workedBySummary}
+                      compact
+                      className="mt-2"
+                    />
                     {loReturnBadge && (
                       <span
                         className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ${loReturnBadge.className}`}
@@ -684,6 +771,7 @@ export function TaskList({
                             {task.loan.loanNumber}
                           </span>
                         </div>
+                        <WorkedByTags summary={workedBySummary} className="mb-2" />
                         <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
                           <span className="flex h-2 w-2 rounded-full bg-blue-500"></span>
                           {task.title}
@@ -964,6 +1052,7 @@ export function TaskList({
                   )}
 
                   <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200/60 pt-6">
+                    <WorkedByTags summary={workedBySummary} className="mr-auto" />
                     {task.status === 'PENDING' &&
                       !shouldHideGenericStartForDisclosureSubmission &&
                       !isDisclosureInitialRoutingState &&
