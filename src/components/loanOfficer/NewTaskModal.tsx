@@ -211,6 +211,8 @@ function parseMismoXml(xmlText: string): MismoPrefill {
   const borrowerParty = findPartyByRole('Borrower');
   const loanOriginatorParty = findPartyByRole('LoanOriginator');
   const employerParty = findPartyByRole('Employer');
+  const primaryEmployer =
+    doc.getElementsByTagNameNS('*', 'EMPLOYER')[0] ?? null;
   const primaryEmployment =
     doc.getElementsByTagNameNS('*', 'EMPLOYMENT')[0] ?? null;
 
@@ -252,8 +254,18 @@ function parseMismoXml(xmlText: string): MismoPrefill {
 
   const employerName =
     getFirstText(primaryEmployment, ['EmployerName', 'LegalEntityName']) ||
+    getFirstText(primaryEmployer, [
+      'EmployerName',
+      'LegalEntityName',
+      'FullName',
+      'Name',
+    ]) ||
     getFirstText(employerParty, ['FullName', 'Name']);
   const employerAddressParts = [
+    getFirstText(primaryEmployer, ['AddressLineText']),
+    getFirstText(primaryEmployer, ['CityName']),
+    getFirstText(primaryEmployer, ['StateCode']),
+    getFirstText(primaryEmployer, ['PostalCode']),
     getFirstText(primaryEmployment, ['AddressLineText']),
     getFirstText(primaryEmployment, ['CityName']),
     getFirstText(primaryEmployment, ['StateCode']),
@@ -275,6 +287,7 @@ function parseMismoXml(xmlText: string): MismoPrefill {
     'YearBuilt',
   ]);
   const originalCost = getFirstText(doc, [
+    'PropertyOriginalCostAmount',
     'OriginalCostAmount',
     'OriginalPurchasePriceAmount',
     'PurchasePriceAmount',
