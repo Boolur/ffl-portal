@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { X, ClipboardCheck, ShieldCheck, Loader2 } from 'lucide-react';
+import { X, ClipboardCheck, ShieldCheck, Loader2, FileText, Upload } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createSubmissionTask } from '@/app/actions/taskActions';
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
@@ -24,6 +24,15 @@ type PipelineLoanOption = {
   borrowerEmail: string | null;
 };
 type ClientFolderDocOption = { id: string; filename: string; createdAt: Date };
+
+const investorOptions = ['UWM', 'Kind', 'EPM', 'Sun West', 'Button'];
+const buttonPricingOptions = [
+  'Max Comp',
+  'Max Comp 2',
+  '3.0% Comp',
+  'Default',
+  'Buydown',
+];
 
 export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DISCLOSURES' }: NewTaskModalProps) {
   const [type, setType] = useState<SubmissionType>(
@@ -319,39 +328,135 @@ function DisclosuresForm({
     loanProgram: '',
     loanAmount: '',
     homeValue: '',
+    runId: '',
+    pricingOption: '',
     aus: '',
     creditReportType: '',
     notes: '',
   });
   const [importError, setImportError] = useState('');
+  const [buttonAttachmentError, setButtonAttachmentError] = useState('');
+  const [buttonFiles, setButtonFiles] = useState<{
+    avm: File | null;
+    titleSheet: File | null;
+    pricingSheet: File | null;
+  }>({
+    avm: null,
+    titleSheet: null,
+    pricingSheet: null,
+  });
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const submit = (e: React.FormEvent) => {
+  const isButtonInvestor = form.investor === 'Button';
+  const hasAllButtonAttachments =
+    !!buttonFiles.avm && !!buttonFiles.titleSheet && !!buttonFiles.pricingSheet;
+
+  const uploadDisclosureAttachment = async (
+    taskId: string,
+    file: File,
+    labeledFilename: string
+  ) => {
+    const upload = await createTaskAttachmentUploadUrl({
+      taskId,
+      purpose: TaskAttachmentPurpose.OTHER,
+      filename: labeledFilename,
+    });
+
+    if (!upload.success || !upload.signedUrl || !upload.path) {
+      throw new Error(upload.error || 'Failed to initialize file upload.');
+    }
+
+    const put = await fetch(upload.signedUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+
+    if (!put.ok) {
+      throw new Error('Failed to upload file.');
+    }
+
+    const saved = await finalizeTaskAttachment({
+      taskId,
+      purpose: TaskAttachmentPurpose.OTHER,
+      storagePath: upload.path,
+      filename: labeledFilename,
+      contentType: file.type || 'application/octet-stream',
+      sizeBytes: file.size,
+    });
+
+    if (!saved.success) {
+      throw new Error(saved.error || 'Failed to save uploaded file.');
+    }
+  };
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+    setButtonAttachmentError('');
+
+    if (isButtonInvestor) {
+      if (!form.runId.trim() || !form.pricingOption.trim()) {
+        setButtonAttachmentError('Run ID and Pricing Option are required for Button.');
+        return;
+      }
+      if (!hasAllButtonAttachments) {
+        setButtonAttachmentError(
+          'Attach AVM, Title Sheet, and Pricing Sheet for Button submissions.'
+        );
+        return;
+      }
+    }
+
     setIsSubmitting(true);
-    createSubmissionTask({
-      submissionType: 'DISCLOSURES',
-      loanOfficerName: form.loanOfficer,
-      borrowerFirstName: form.borrowerFirstName,
-      borrowerLastName: form.borrowerLastName,
-      borrowerPhone: form.borrowerPhone,
-      borrowerEmail: form.borrowerEmail,
-      arriveLoanNumber: form.arriveLoanNumber,
-      loanAmount: form.loanAmount,
-      notes: form.notes,
-      submissionData: form,
-    }).then((res) => {
+    try {
+      const res = await createSubmissionTask({
+        submissionType: 'DISCLOSURES',
+        loanOfficerName: form.loanOfficer,
+        borrowerFirstName: form.borrowerFirstName,
+        borrowerLastName: form.borrowerLastName,
+        borrowerPhone: form.borrowerPhone,
+        borrowerEmail: form.borrowerEmail,
+        arriveLoanNumber: form.arriveLoanNumber,
+        loanAmount: form.loanAmount,
+        notes: form.notes,
+        submissionData: form,
+      });
+
       if (res.success) {
+        if (isButtonInvestor && res.taskId) {
+          if (!buttonFiles.avm || !buttonFiles.titleSheet || !buttonFiles.pricingSheet) {
+            throw new Error('Missing required Button attachment(s).');
+          }
+          await uploadDisclosureAttachment(
+            res.taskId,
+            buttonFiles.avm,
+            `Attach AVM - ${buttonFiles.avm.name}`
+          );
+          await uploadDisclosureAttachment(
+            res.taskId,
+            buttonFiles.titleSheet,
+            `Attach Title Sheet - ${buttonFiles.titleSheet.name}`
+          );
+          await uploadDisclosureAttachment(
+            res.taskId,
+            buttonFiles.pricingSheet,
+            `Attach Pricing Sheet - ${buttonFiles.pricingSheet.name}`
+          );
+        }
         onSubmitted();
       } else {
+        setButtonAttachmentError(res.error || 'Could not submit this disclosure request.');
         setIsSubmitting(false);
       }
-    }).catch(() => {
+    } catch {
+      setButtonAttachmentError('Could not submit this disclosure request.');
       setIsSubmitting(false);
-    });
+    }
   };
 
   const handleFileUpload = async (file: File | null) => {
@@ -392,15 +497,70 @@ function DisclosuresForm({
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required />
         <Input label="Borrower Phone (recommended)" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} />
         <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} />
-        <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required />
-        <Input label="Investor" value={form.investor} onChange={(v) => update('investor', v)} required />
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required />
         <Input label="Home Value" value={form.homeValue} onChange={(v) => update('homeValue', v)} required />
         <Select label="AUS" value={form.aus} onChange={(v) => update('aus', v)} options={['DU', 'LP', 'Manual UW']} required />
         <Select label="Credit Report Type" value={form.creditReportType} onChange={(v) => update('creditReportType', v)} options={['Soft Check', 'Hard Report']} required />
+        <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required />
+        <Select
+          label="Investor"
+          value={form.investor}
+          onChange={(v) => update('investor', v)}
+          options={investorOptions}
+          required
+        />
+        {isButtonInvestor && (
+          <>
+            <Input
+              label="Run ID"
+              value={form.runId}
+              onChange={(v) => update('runId', v)}
+              required
+            />
+            <Select
+              label="Pricing Option"
+              value={form.pricingOption}
+              onChange={(v) => update('pricingOption', v)}
+              options={buttonPricingOptions}
+              required
+            />
+          </>
+        )}
       </div>
+      {isButtonInvestor && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+          <div className="mb-3">
+            <p className="text-sm font-semibold text-blue-900">Button Required Attachments</p>
+            <p className="text-xs text-blue-700">Upload all 3 files before submitting.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <AttachmentRequiredCard
+              label="Attach AVM"
+              file={buttonFiles.avm}
+              onFileSelected={(file) => setButtonFiles((prev) => ({ ...prev, avm: file }))}
+            />
+            <AttachmentRequiredCard
+              label="Attach Title Sheet"
+              file={buttonFiles.titleSheet}
+              onFileSelected={(file) =>
+                setButtonFiles((prev) => ({ ...prev, titleSheet: file }))
+              }
+            />
+            <AttachmentRequiredCard
+              label="Attach Pricing Sheet"
+              file={buttonFiles.pricingSheet}
+              onFileSelected={(file) =>
+                setButtonFiles((prev) => ({ ...prev, pricingSheet: file }))
+              }
+            />
+          </div>
+          {buttonAttachmentError && (
+            <p className="mt-2 text-xs font-semibold text-red-600">{buttonAttachmentError}</p>
+          )}
+        </div>
+      )}
       <Textarea label="Notes / Special Instructions" value={form.notes} onChange={(v) => update('notes', v)} />
 
       <div className="flex justify-end gap-3 pt-2">
@@ -758,8 +918,6 @@ function QcForm({
           options={['Yes', 'No']}
           required
         />
-        <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required />
-        <Input label="Investor" value={form.investor} onChange={(v) => update('investor', v)} required />
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required />
@@ -767,6 +925,14 @@ function QcForm({
         <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} />
         <Select label="AUS" value={form.aus} onChange={(v) => update('aus', v)} options={['DU', 'LP', 'Manual UW']} required />
         <Select label="Credit Report Type" value={form.creditReportType} onChange={(v) => update('creditReportType', v)} options={['Soft Check', 'Hard Report']} required />
+        <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required />
+        <Select
+          label="Investor"
+          value={form.investor}
+          onChange={(v) => update('investor', v)}
+          options={investorOptions}
+          required
+        />
         <RadioGroup
           label="Was UWM free credit used?"
           value={form.uwmFreeCreditUsed}
@@ -848,6 +1014,40 @@ function FileUpload({ onFileSelected }: { onFileSelected: (file: File | null) =>
           className="text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
         />
       </div>
+    </label>
+  );
+}
+
+function AttachmentRequiredCard({
+  label,
+  file,
+  onFileSelected,
+}: {
+  label: string;
+  file: File | null;
+  onFileSelected: (file: File | null) => void;
+}) {
+  return (
+    <label className="block rounded-xl border border-slate-200 bg-white p-3 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+          <FileText className="h-4 w-4" />
+        </span>
+        <span className="text-sm font-semibold text-slate-900">{label}</span>
+      </div>
+      <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
+        <Upload className="h-3.5 w-3.5" />
+        {file ? 'Replace File' : 'Upload File'}
+      </div>
+      <p className="mt-2 truncate text-xs text-slate-500">
+        {file ? file.name : 'No file selected'}
+      </p>
+      <input
+        type="file"
+        accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+        className="hidden"
+        onChange={(e) => onFileSelected(e.target.files?.[0] || null)}
+      />
     </label>
   );
 }
