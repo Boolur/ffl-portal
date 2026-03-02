@@ -807,13 +807,6 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       select: { id: true },
     });
 
-    if (existingOpenLoTask) {
-      return {
-        success: false,
-        error: 'This task is already waiting on a Loan Officer response.',
-      };
-    }
-
     await prisma.$transaction(async (tx) => {
       const noteEntry = input.message?.trim() ? {
         author: session?.user?.name || 'Unknown',
@@ -848,32 +841,57 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         },
       });
 
-      const loChildTask = await tx.task.create({
-        data: {
-          loanId: task.loanId,
-          parentTaskId: taskId,
-          title:
-            input.reason ===
-            DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-              ? 'LO: Approve Initial Disclosures'
-              : 'LO: Needs Info',
-          kind: TaskKind.LO_NEEDS_INFO,
-          disclosureReason: input.reason,
-          description: input.message?.trim() || null,
-          submissionData: updatedSubmissionData ?? undefined,
-          status: TaskStatus.PENDING,
-          priority: TaskPriority.HIGH,
-          assignedUserId: task.loan.loanOfficerId,
-          assignedRole: UserRole.LOAN_OFFICER,
-          dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        },
-        select: { id: true },
-      });
+      let loChildTaskId: string;
+      if (existingOpenLoTask) {
+        await tx.task.update({
+          where: { id: existingOpenLoTask.id },
+          data: {
+            title:
+              input.reason ===
+              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                ? 'LO: Approve Initial Disclosures'
+                : 'LO: Needs Info',
+            disclosureReason: input.reason,
+            description: input.message?.trim() || null,
+            submissionData: updatedSubmissionData ?? undefined,
+            status: TaskStatus.PENDING,
+            priority: TaskPriority.HIGH,
+            assignedUserId: task.loan.loanOfficerId,
+            assignedRole: UserRole.LOAN_OFFICER,
+            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            completedAt: null,
+          },
+        });
+        loChildTaskId = existingOpenLoTask.id;
+      } else {
+        const loChildTask = await tx.task.create({
+          data: {
+            loanId: task.loanId,
+            parentTaskId: taskId,
+            title:
+              input.reason ===
+              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                ? 'LO: Approve Initial Disclosures'
+                : 'LO: Needs Info',
+            kind: TaskKind.LO_NEEDS_INFO,
+            disclosureReason: input.reason,
+            description: input.message?.trim() || null,
+            submissionData: updatedSubmissionData ?? undefined,
+            status: TaskStatus.PENDING,
+            priority: TaskPriority.HIGH,
+            assignedUserId: task.loan.loanOfficerId,
+            assignedRole: UserRole.LOAN_OFFICER,
+            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+          select: { id: true },
+        });
+        loChildTaskId = loChildTask.id;
+      }
 
-      if (parentAttachments.length > 0) {
+      if (parentAttachments.length > 0 && !existingOpenLoTask) {
         await tx.taskAttachment.createMany({
           data: parentAttachments.map((att) => ({
-            taskId: loChildTask.id,
+            taskId: loChildTaskId,
             clientDocumentId: att.clientDocumentId,
             purpose: att.purpose,
             storagePath: att.storagePath,

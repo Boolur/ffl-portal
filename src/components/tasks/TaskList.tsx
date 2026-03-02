@@ -1295,9 +1295,17 @@ export function TaskList({
                       ) &&
                       !isLoanOfficerSubmissionTask && (
                       <button
-                        onClick={() => handleStatusChange(task.id, 'COMPLETED')}
+                        onClick={() => {
+                          if (isDisclosureRole) {
+                            const confirmed = window.confirm(
+                              'Are you Sure you want to complete this task?'
+                            );
+                            if (!confirmed) return;
+                          }
+                          handleStatusChange(task.id, 'COMPLETED');
+                        }}
                         disabled={!!updatingId || !canCompleteTask}
-                        className="inline-flex h-9 items-center px-3 bg-green-50 text-green-700 text-sm font-semibold rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="inline-flex h-9 items-center px-3 rounded-lg border border-emerald-300 bg-white text-emerald-700 text-sm font-semibold shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {updatingId === task.id ? (
                           <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
