@@ -254,10 +254,8 @@ export async function deleteTaskAttachment(attachmentId: string) {
     if (!canManageAll) {
       const isAssignedToRole = attachment.task.assignedRole === role;
       const isAssignedToUser = attachment.task.assignedUserId === userId;
-      const isLoanOwner =
-        role === UserRole.LOAN_OFFICER && attachment.task.loan.loanOfficerId === userId;
       const isUploader = attachment.uploadedById === userId;
-      if (!isAssignedToRole && !isAssignedToUser && !isLoanOwner && !isUploader) {
+      if (!isAssignedToRole && !isAssignedToUser && !isUploader) {
         return { success: false, error: 'Not authorized.' };
       }
     }
