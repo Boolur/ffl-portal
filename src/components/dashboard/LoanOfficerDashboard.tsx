@@ -72,21 +72,28 @@ export function LoanOfficerDashboard({ submissions = [], loanOfficerName }: Loan
         </button>
 
         <button
-          onClick={() => openTaskModal('QC')}
-          className="group relative flex flex-col items-start p-8 rounded-2xl border border-indigo-200 bg-white shadow-sm hover:shadow-md hover:border-indigo-300 transition-all text-left overflow-hidden"
+          type="button"
+          disabled
+          title="Submit for QC is coming soon."
+          className="group relative flex flex-col items-start p-8 rounded-2xl border border-slate-200 bg-slate-50/70 shadow-sm text-left overflow-hidden cursor-not-allowed"
         >
-          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-            <ShieldCheck className="w-32 h-32 text-indigo-600" />
+          <div className="absolute top-0 right-0 p-8 opacity-5">
+            <ShieldCheck className="w-32 h-32 text-slate-500" />
           </div>
-          <div className="w-14 h-14 rounded-xl bg-indigo-600 text-white flex items-center justify-center mb-6 shadow-sm group-hover:scale-105 transition-transform">
+          <div className="w-14 h-14 rounded-xl bg-slate-200 text-slate-500 flex items-center justify-center mb-6 shadow-sm">
             <ShieldCheck className="w-7 h-7" />
           </div>
-          <h3 className="text-2xl font-bold text-slate-900 mb-2">Submit for QC</h3>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h3 className="text-2xl font-bold text-slate-700">Submit for QC</h3>
+            <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Coming Soon
+            </span>
+          </div>
           <p className="text-slate-500 mb-8 max-w-sm">
             Send a completed loan file to the Quality Control team for final review and approval.
           </p>
-          <div className="mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-50 text-indigo-700 font-semibold group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-            Start Request
+          <div className="mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl bg-slate-200 text-slate-500 font-semibold">
+            Coming Soon
           </div>
         </button>
       </div>

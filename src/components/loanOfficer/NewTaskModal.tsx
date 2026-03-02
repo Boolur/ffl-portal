@@ -26,15 +26,19 @@ type PipelineLoanOption = {
 type ClientFolderDocOption = { id: string; filename: string; createdAt: Date };
 
 export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DISCLOSURES' }: NewTaskModalProps) {
-  const [type, setType] = useState<SubmissionType>(initialType);
+  const [type, setType] = useState<SubmissionType>(
+    initialType === 'QC' ? 'DISCLOSURES' : initialType
+  );
   const [submitted, setSubmitted] = useState(false);
+  const [showQcComingSoon, setShowQcComingSoon] = useState(false);
   const router = useRouter();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (open) {
-      setType(initialType);
+      setType(initialType === 'QC' ? 'DISCLOSURES' : initialType);
       setSubmitted(false);
+      setShowQcComingSoon(false);
     }
   }, [open, initialType]);
 
@@ -93,9 +97,17 @@ export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DI
             icon={ShieldCheck}
             title="Submit for QC"
             description="Send loan to Quality Control"
-            onClick={() => setType('QC')}
+            disabled
+            comingSoon
+            onClick={() => setShowQcComingSoon(true)}
           />
         </div>
+
+        {showQcComingSoon && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+            Submit for QC is coming soon. It is temporarily disabled.
+          </div>
+        )}
 
         <div className="mt-6 overflow-y-auto pr-1">
           {type === 'DISCLOSURES' ? (
@@ -225,19 +237,28 @@ function TypeButton({
   icon: Icon,
   title,
   description,
+  disabled = false,
+  comingSoon = false,
   onClick,
 }: {
   active: boolean;
   icon: React.ElementType;
   title: string;
   description: string;
+  disabled?: boolean;
+  comingSoon?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
+      disabled={disabled}
+      title={comingSoon ? `${title} is coming soon.` : undefined}
       className={`flex-1 text-left p-4 rounded-xl border transition-all ${
-        active
+        disabled
+          ? 'border-slate-200 bg-slate-50 text-slate-500 cursor-not-allowed'
+          : active
           ? 'border-blue-500 bg-blue-50 shadow-sm'
           : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
       }`}
@@ -245,13 +266,26 @@ function TypeButton({
       <div className="flex items-center gap-3">
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-            active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
+            disabled
+              ? 'bg-slate-200 text-slate-500'
+              : active
+              ? 'bg-blue-600 text-white'
+              : 'bg-slate-100 text-slate-600'
           }`}
         >
           <Icon className="w-5 h-5" />
         </div>
         <div>
-          <p className="font-semibold text-slate-900">{title}</p>
+          <div className="flex items-center gap-2">
+            <p className={`font-semibold ${disabled ? 'text-slate-600' : 'text-slate-900'}`}>
+              {title}
+            </p>
+            {comingSoon && (
+              <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                Coming Soon
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">{description}</p>
         </div>
       </div>
