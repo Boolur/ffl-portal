@@ -551,10 +551,12 @@ export function TaskList({
   tasks,
   canDelete = false,
   currentRole,
+  initialFocusedTaskId = null,
 }: {
   tasks: Task[];
   canDelete?: boolean;
   currentRole: string;
+  initialFocusedTaskId?: string | null;
 }) {
   const router = useRouter();
   const [updatingId, setUpdatingId] = React.useState<string | null>(null);
@@ -572,6 +574,14 @@ export function TaskList({
   const [loResponseByTask, setLoResponseByTask] = React.useState<
     Record<string, string>
   >({});
+
+  React.useEffect(() => {
+    if (!initialFocusedTaskId) return;
+    const existsInList = tasks.some((task) => task.id === initialFocusedTaskId);
+    if (existsInList) {
+      setFocusedTaskId(initialFocusedTaskId);
+    }
+  }, [initialFocusedTaskId, tasks]);
 
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
     if (updatingId) return;

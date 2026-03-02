@@ -55,6 +55,113 @@ const disclosureReasonEmailLabel: Record<DisclosureDecisionReason, string> = {
   [DisclosureDecisionReason.OTHER]: 'Other',
 };
 
+function getPortalBaseUrl() {
+  const fromEnv = process.env.NEXTAUTH_URL?.trim();
+  return fromEnv && fromEnv.length > 0 ? fromEnv.replace(/\/$/, '') : 'http://localhost:3000';
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildTaskNotificationHtml(input: {
+  logoUrl: string;
+  subject: string;
+  eventLabel: string;
+  borrowerName: string;
+  loanNumber: string;
+  taskTitle: string;
+  status: string;
+  workflow: string;
+  reason?: string | null;
+  changedBy?: string | null;
+  taskUrl: string;
+}) {
+  const rows = [
+    { label: 'Update Type', value: input.eventLabel },
+    { label: 'Borrower', value: input.borrowerName },
+    { label: 'Loan Number', value: input.loanNumber },
+    { label: 'Task', value: input.taskTitle },
+    { label: 'Status', value: input.status },
+    { label: 'Workflow', value: input.workflow },
+    ...(input.reason ? [{ label: 'Reason', value: input.reason }] : []),
+    ...(input.changedBy ? [{ label: 'Updated By', value: input.changedBy }] : []),
+  ];
+
+  const rowHtml = rows
+    .map(
+      (row) => `
+        <tr>
+          <td style="padding:10px 0;color:#64748b;font-size:13px;font-weight:600;width:160px;vertical-align:top;">${escapeHtml(
+            row.label
+          )}</td>
+          <td style="padding:10px 0;color:#0f172a;font-size:14px;font-weight:600;">${escapeHtml(
+            row.value
+          )}</td>
+        </tr>
+      `
+    )
+    .join('');
+
+  return `
+  <div style="margin:0;padding:24px;background:#f8fafc;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" style="max-width:680px;width:100%;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+      <tr>
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;background:linear-gradient(135deg,#eff6ff,#eef2ff);">
+          <table role="presentation" style="width:100%;">
+            <tr>
+              <td style="vertical-align:middle;">
+                <img src="${escapeHtml(
+                  input.logoUrl
+                )}" alt="Federal First Lending" style="height:40px;max-width:220px;display:block;" />
+              </td>
+              <td style="vertical-align:middle;text-align:right;">
+                <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">Task Update</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:28px 24px 12px;">
+          <h1 style="margin:0 0 8px;font-size:22px;line-height:1.3;color:#0f172a;">${escapeHtml(
+            input.subject
+          )}</h1>
+          <p style="margin:0;color:#475569;font-size:14px;line-height:1.6;">
+            A workflow update was posted in Federal First Lending Portal. Use the button below to jump directly to the task details.
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:4px 24px 8px;">
+          <table role="presentation" style="width:100%;border-collapse:collapse;">${rowHtml}</table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:18px 24px 28px;">
+          <a href="${escapeHtml(
+            input.taskUrl
+          )}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:12px 18px;border-radius:10px;">
+            Open Task in Portal
+          </a>
+          <p style="margin:14px 0 0;color:#64748b;font-size:12px;line-height:1.5;">
+            If the button above does not work, copy and paste this URL into your browser:<br />
+            <a href="${escapeHtml(input.taskUrl)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(
+    input.taskUrl
+  )}</a>
+          </p>
+        </td>
+      </tr>
+    </table>
+  </div>
+  `;
+}
+
 async function sendTaskWorkflowNotificationsByTaskId(input: {
   taskId: string;
   eventLabel: string;
@@ -107,25 +214,46 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     if (recipientSet.size === 0) return;
 
     const subject = `[FFL Portal] ${input.eventLabel}: ${loan.borrowerName} (${loan.loanNumber})`;
+    const portalBaseUrl = getPortalBaseUrl();
+    const taskUrl = `${portalBaseUrl}/tasks?taskId=${encodeURIComponent(task.id)}`;
+    const logoUrl =
+      process.env.EMAIL_BRAND_LOGO_URL?.trim() || `${portalBaseUrl}/logo.png`;
+    const workflowLabel = workflowStateEmailLabel[task.workflowState];
+    const reasonLabel = task.disclosureReason
+      ? disclosureReasonEmailLabel[task.disclosureReason]
+      : null;
     const bodyLines = [
       `Event: ${input.eventLabel}`,
       `Borrower: ${loan.borrowerName}`,
       `Loan Number: ${loan.loanNumber}`,
       `Task: ${task.title}`,
       `Status: ${task.status}`,
-      `Workflow: ${workflowStateEmailLabel[task.workflowState]}`,
-      task.disclosureReason
-        ? `Reason: ${disclosureReasonEmailLabel[task.disclosureReason]}`
-        : null,
+      `Workflow: ${workflowLabel}`,
+      reasonLabel ? `Reason: ${reasonLabel}` : null,
       input.changedBy ? `Changed By: ${input.changedBy}` : null,
-      'Open Tasks: /tasks',
+      `Open Task: ${taskUrl}`,
     ].filter(Boolean) as string[];
+
+    const html = buildTaskNotificationHtml({
+      logoUrl,
+      subject,
+      eventLabel: input.eventLabel,
+      borrowerName: loan.borrowerName,
+      loanNumber: loan.loanNumber,
+      taskTitle: task.title,
+      status: task.status,
+      workflow: workflowLabel,
+      reason: reasonLabel,
+      changedBy: input.changedBy || null,
+      taskUrl,
+    });
 
     await Promise.all(
       Array.from(recipientSet).map((to) =>
         sendEmail({
           to,
           subject,
+          html,
           text: bodyLines.join('\n'),
         })
       )

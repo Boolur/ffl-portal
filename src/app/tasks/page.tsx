@@ -469,6 +469,11 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   };
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const rawBucket = resolvedSearchParams?.bucket;
+  const rawTaskId = resolvedSearchParams?.taskId;
+  const focusedTaskId =
+    typeof rawTaskId === 'string' && rawTaskId.trim().length > 0
+      ? rawTaskId.trim()
+      : null;
   const bucket =
     normalizeBucketFilter(
     typeof rawBucket === 'string' ? rawBucket : undefined
@@ -569,6 +574,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 tasks={bucketConfig.tasks}
                 canDelete={canDelete}
                 currentRole={sessionRole}
+                initialFocusedTaskId={focusedTaskId}
               />
             </div>
           ))}
@@ -576,7 +582,12 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       )}
 
       {!showBuckets && (
-        <TaskList tasks={allTasks} canDelete={canDelete} currentRole={sessionRole} />
+        <TaskList
+          tasks={allTasks}
+          canDelete={canDelete}
+          currentRole={sessionRole}
+          initialFocusedTaskId={focusedTaskId}
+        />
       )}
     </DashboardShell>
   );
