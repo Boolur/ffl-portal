@@ -370,6 +370,19 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
   return entries;
 }
 
+function getRoleBubbleClass(role: UserRole | null) {
+  if (role === UserRole.LOAN_OFFICER) {
+    return 'border-violet-200 bg-violet-50 text-violet-700';
+  }
+  if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    return 'border-blue-200 bg-blue-50 text-blue-700';
+  }
+  if (role === UserRole.QC) {
+    return 'border-indigo-200 bg-indigo-50 text-indigo-700';
+  }
+  return 'border-slate-200 bg-slate-50 text-slate-500';
+}
+
 function getContributorSummaryFromSubmissionData(
   data: Record<string, unknown> | null
 ): ContributorSummary | null {
@@ -477,6 +490,14 @@ type Task = {
   };
   assignedRole: string | null;
   attachments?: {
+    id: string;
+    filename: string;
+    purpose: TaskAttachmentPurpose;
+    createdAt: Date;
+    uploadedByName?: string | null;
+    uploadedByRole?: UserRole | null;
+  }[];
+  timelineAttachments?: {
     id: string;
     filename: string;
     purpose: TaskAttachmentPurpose;
@@ -778,7 +799,10 @@ export function TaskList({
             actorRole: entry.role,
             message: entry.message,
           })),
-          ...(task.attachments || []).map((att) => ({
+          ...((task.timelineAttachments && task.timelineAttachments.length > 0
+            ? task.timelineAttachments
+            : task.attachments || []
+          ).map((att) => ({
             id: `attachment-${att.id}`,
             type: 'attachment' as const,
             createdAt:
@@ -790,7 +814,7 @@ export function TaskList({
             attachmentId: att.id,
             attachmentFilename: att.filename,
             attachmentPurpose: att.purpose,
-          })),
+          }))),
         ].sort(
           (a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -1009,7 +1033,9 @@ export function TaskList({
                                   {item.actorName}
                                 </span>
                                 {item.actorRole && (
-                                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-semibold uppercase tracking-wide text-slate-500">
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold uppercase tracking-wide ${getRoleBubbleClass(item.actorRole)}`}
+                                  >
                                     {item.actorRole.replace(/_/g, ' ')}
                                   </span>
                                 )}

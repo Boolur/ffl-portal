@@ -91,6 +91,14 @@ type TaskRow = {
     uploadedByName: string | null;
     uploadedByRole: UserRole | null;
   }[];
+  timelineAttachments: {
+    id: string;
+    filename: string;
+    purpose: TaskAttachmentPurpose;
+    createdAt: Date;
+    uploadedByName: string | null;
+    uploadedByRole: UserRole | null;
+  }[];
 };
 
 async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
@@ -155,18 +163,127 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
       dueDate: 'asc', // Urgent first
     },
   });
-  
-  return tasks.map((task) => ({
-    ...task,
-    attachments: task.attachments.map((att) => ({
-      id: att.id,
-      filename: att.filename,
-      purpose: att.purpose,
-      createdAt: att.createdAt,
-      uploadedByName: att.uploadedBy?.name || null,
-      uploadedByRole: att.uploadedBy?.role || null,
-    })),
-  })) as TaskRow[];
+
+  const taskIds = tasks.map((task) => task.id);
+  const parentTaskIds = Array.from(
+    new Set(
+      tasks
+        .map((task) => task.parentTaskId)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  const relatedTasks =
+    taskIds.length > 0
+      ? await prisma.task.findMany({
+          where: {
+            OR: [
+              { id: { in: taskIds } },
+              { parentTaskId: { in: taskIds } },
+              ...(parentTaskIds.length > 0
+                ? [
+                    { id: { in: parentTaskIds } },
+                    { parentTaskId: { in: parentTaskIds } },
+                  ]
+                : []),
+            ],
+          },
+          select: {
+            id: true,
+            parentTaskId: true,
+          },
+        })
+      : [];
+
+  const childrenByParent = new Map<string, string[]>();
+  for (const rel of relatedTasks) {
+    if (!rel.parentTaskId) continue;
+    const existing = childrenByParent.get(rel.parentTaskId) || [];
+    existing.push(rel.id);
+    childrenByParent.set(rel.parentTaskId, existing);
+  }
+
+  const allRelatedIds = Array.from(new Set(relatedTasks.map((task) => task.id)));
+  const timelineAttachmentsRows =
+    allRelatedIds.length > 0
+      ? await prisma.taskAttachment.findMany({
+          where: {
+            taskId: { in: allRelatedIds },
+          },
+          select: {
+            id: true,
+            taskId: true,
+            filename: true,
+            purpose: true,
+            createdAt: true,
+            uploadedBy: {
+              select: {
+                name: true,
+                role: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        })
+      : [];
+
+  const attachmentsByTaskId = new Map<string, typeof timelineAttachmentsRows>();
+  for (const att of timelineAttachmentsRows) {
+    const existing = attachmentsByTaskId.get(att.taskId) || [];
+    existing.push(att);
+    attachmentsByTaskId.set(att.taskId, existing);
+  }
+
+  return tasks.map((task) => {
+    const parentId = task.parentTaskId || task.id;
+    const chainIds = [parentId, ...(childrenByParent.get(parentId) || [])];
+
+    const timelineAttachmentsMap = new Map<
+      string,
+      {
+        id: string;
+        filename: string;
+        purpose: TaskAttachmentPurpose;
+        createdAt: Date;
+        uploadedByName: string | null;
+        uploadedByRole: UserRole | null;
+      }
+    >();
+
+    for (const chainTaskId of chainIds) {
+      const chainAttachments = attachmentsByTaskId.get(chainTaskId) || [];
+      for (const att of chainAttachments) {
+        if (timelineAttachmentsMap.has(att.id)) continue;
+        timelineAttachmentsMap.set(att.id, {
+          id: att.id,
+          filename: att.filename,
+          purpose: att.purpose,
+          createdAt: att.createdAt,
+          uploadedByName: att.uploadedBy?.name || null,
+          uploadedByRole: att.uploadedBy?.role || null,
+        });
+      }
+    }
+
+    const timelineAttachments = Array.from(timelineAttachmentsMap.values()).sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+
+    return {
+      ...task,
+      attachments: task.attachments.map((att) => ({
+        id: att.id,
+        filename: att.filename,
+        purpose: att.purpose,
+        createdAt: att.createdAt,
+        uploadedByName: att.uploadedBy?.name || null,
+        uploadedByRole: att.uploadedBy?.role || null,
+      })),
+      timelineAttachments,
+    };
+  }) as TaskRow[];
 }
 
 function isDisclosureSubmissionTask(task: TaskRow) {
