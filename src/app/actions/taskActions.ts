@@ -445,6 +445,13 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     } = payload;
 
     if (submissionType === 'DISCLOSURES') {
+      if (!notes?.trim()) {
+        return {
+          success: false,
+          error: 'Notes / Special Instructions is required before submitting.',
+        };
+      }
+
       const submissionObject =
         submissionData &&
         typeof submissionData === 'object' &&

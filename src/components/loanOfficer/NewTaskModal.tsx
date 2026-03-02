@@ -489,6 +489,11 @@ function DisclosuresForm({
     if (isSubmitting) return;
     setSubmitError('');
 
+    if (!form.notes.trim()) {
+      setSubmitError('Notes / Special Instructions is required before submitting.');
+      return;
+    }
+
     if (form.qualificationStatus !== 'Yes') {
       setSubmitError('Qualification Status must be set to Yes before submitting.');
       return;
@@ -758,12 +763,14 @@ function DisclosuresForm({
           </div>
             </div>
           )}
-          <Textarea label="Notes / Special Instructions" value={form.notes} onChange={(v) => update('notes', v)} />
+          <Textarea
+            label="Notes / Special Instructions"
+            value={form.notes}
+            onChange={(v) => update('notes', v)}
+            required
+          />
 
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" className="app-btn-secondary">
-              Save Draft
-            </button>
             <button
               type="submit"
               disabled={isSubmitting}
@@ -1179,9 +1186,6 @@ function QcForm({
       )}
 
       <div className="flex justify-end gap-3 pt-2">
-        <button type="button" className="app-btn-secondary">
-          Save Draft
-        </button>
         <button
           type="submit"
           disabled={isSubmitting}
@@ -1378,18 +1382,21 @@ function Textarea({
   label,
   value,
   onChange,
+  required,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  required?: boolean;
 }) {
   return (
     <label className="space-y-1 text-sm block">
-      <span className="text-slate-700 font-medium">{label}</span>
+      <span className="text-slate-700 font-medium">{label}{required ? ' *' : ''}</span>
       <textarea
         className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 min-h-[96px]"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        required={required}
       />
     </label>
   );
