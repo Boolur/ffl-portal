@@ -84,7 +84,7 @@ type SubmissionDetailGroup = {
 };
 
 type ContributorSummary = {
-  visibleNames: string[];
+  visibleContributors: Array<{ name: string; role: UserRole | null }>;
   overflowCount: number;
 };
 
@@ -312,7 +312,7 @@ function getContributorSummaryFromSubmissionData(
   const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
   if (!Array.isArray(notesHistory)) return null;
 
-  const uniqueNames: string[] = [];
+  const uniqueContributors: Array<{ name: string; role: UserRole | null }> = [];
   const seen = new Set<string>();
 
   // Read newest to oldest so the tag order reflects latest contributors first.
@@ -325,15 +325,21 @@ function getContributorSummaryFromSubmissionData(
     if (!normalized) continue;
     const dedupeKey = normalized.toLowerCase();
     if (seen.has(dedupeKey)) continue;
+    const roleRaw = (entry as { role?: unknown }).role;
+    const normalizedRole =
+      typeof roleRaw === 'string' &&
+      (Object.values(UserRole) as string[]).includes(roleRaw)
+        ? (roleRaw as UserRole)
+        : null;
     seen.add(dedupeKey);
-    uniqueNames.push(normalized);
+    uniqueContributors.push({ name: normalized, role: normalizedRole });
   }
 
-  if (uniqueNames.length === 0) return null;
+  if (uniqueContributors.length === 0) return null;
 
   return {
-    visibleNames: uniqueNames.slice(0, 2),
-    overflowCount: Math.max(0, uniqueNames.length - 2),
+    visibleContributors: uniqueContributors.slice(0, 2),
+    overflowCount: Math.max(0, uniqueContributors.length - 2),
   };
 }
 
@@ -357,13 +363,21 @@ function WorkedByTags({
       >
         Worked By
       </span>
-      {summary.visibleNames.map((name) => (
+      {summary.visibleContributors.map((contributor) => (
         <span
-          key={name}
-          className={`inline-flex items-center rounded-full border border-blue-200 bg-blue-50 font-semibold text-blue-700 ${chipSize}`}
-          title={name}
+          key={contributor.name}
+          className={`inline-flex items-center rounded-full border font-semibold ${chipSize} ${
+            contributor.role === UserRole.LOAN_OFFICER
+              ? 'border-violet-200 bg-violet-50 text-violet-700'
+              : 'border-blue-200 bg-blue-50 text-blue-700'
+          }`}
+          title={
+            contributor.role === UserRole.LOAN_OFFICER
+              ? `${contributor.name} (Loan Officer)`
+              : contributor.name
+          }
         >
-          {name}
+          {contributor.name}
         </span>
       ))}
       {summary.overflowCount > 0 && (
