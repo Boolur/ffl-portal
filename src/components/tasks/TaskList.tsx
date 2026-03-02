@@ -1130,16 +1130,24 @@ export function TaskList({
                   )}
 
                   {shouldShowProofUploader && (
-                    <div className="mt-4">
-                      <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
-                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
-                          Proof required
+                    <div className="mt-6 rounded-2xl border border-amber-200 bg-gradient-to-b from-amber-50/70 to-white p-5 shadow-sm">
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                            <FileText className="h-4 w-4" />
+                          </span>
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">Proof Attachment</p>
+                            <p className="text-xs font-medium text-slate-600">
+                              Upload proof before completing or routing this task.
+                            </p>
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-700">
+                          Required
                         </span>
-                        <span className="text-slate-500">
-                          Upload PDF/Image before completing or sending this task.
-                        </span>
-                      </label>
-                      <div className="mt-2 flex items-center gap-2">
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
                         <input
                           type="file"
                           accept="application/pdf,image/*"
@@ -1150,12 +1158,12 @@ export function TaskList({
                             if (!f) return;
                             void handleUploadProof(task.id, f);
                           }}
-                          className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60"
+                          className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-50 disabled:opacity-60"
                         />
                         {uploadingId === task.id && (
-                          <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
+                          <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
                             <Loader2 className="h-4 w-4 animate-spin" />
-                            Uploading...
+                            Uploading proof...
                           </div>
                         )}
                       </div>
@@ -1164,43 +1172,65 @@ export function TaskList({
 
                   {(isDisclosureInitialRoutingState ||
                     isDisclosureReturnedRoutingState) && (
-                      <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/50 p-6 shadow-sm space-y-4">
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
-                            <MessageSquare className="h-4 w-4" />
+                      <div className="mt-8 rounded-2xl border border-blue-200 bg-gradient-to-b from-blue-50/80 to-white p-6 shadow-sm space-y-4">
+                        <div className="mb-2 flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                              <MessageSquare className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-blue-900">Disclosure Action</h4>
+                              <p className="text-xs font-medium text-blue-800/80">
+                                Choose action type and include context for the LO.
+                              </p>
+                            </div>
                           </div>
-                          <h4 className="text-sm font-bold text-blue-900">Disclosure Action</h4>
+                          <span className="inline-flex items-center rounded-full border border-blue-200 bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-blue-700">
+                            Required Note
+                          </span>
                         </div>
-                        <select
-                          value={selectedReason}
-                          onChange={(event) =>
-                            setDisclosureReasonByTask((prev) => ({
-                              ...prev,
-                              [task.id]: event.target.value as DisclosureDecisionReason,
-                            }))
-                          }
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                        >
-                          {disclosureReasonOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        <textarea
-                          value={disclosureMessageByTask[task.id] || ''}
-                          onChange={(event) =>
-                            setDisclosureMessageByTask((prev) => ({
-                              ...prev,
-                              [task.id]: event.target.value,
-                            }))
-                          }
-                          placeholder="Add context for the LO (what changed, what is missing, next steps)..."
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm min-h-[100px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                        />
-                        <p className="text-xs font-semibold text-slate-500">
-                          Add a note, then use the bottom action bar to route this task if needed.
-                        </p>
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                            Action Type
+                          </label>
+                          <select
+                            value={selectedReason}
+                            onChange={(event) =>
+                              setDisclosureReasonByTask((prev) => ({
+                                ...prev,
+                                [task.id]: event.target.value as DisclosureDecisionReason,
+                              }))
+                            }
+                            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                          >
+                            {disclosureReasonOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                            LO Context / Notes
+                          </label>
+                          <textarea
+                            value={disclosureMessageByTask[task.id] || ''}
+                            onChange={(event) =>
+                              setDisclosureMessageByTask((prev) => ({
+                                ...prev,
+                                [task.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Add context for the LO (what changed, what is missing, next steps)..."
+                            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm min-h-[110px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                          <p className="text-xs font-semibold text-slate-600">
+                            Add a clear note, then use the bottom action bar to route this task.
+                          </p>
+                        </div>
                       </div>
                     )}
 
