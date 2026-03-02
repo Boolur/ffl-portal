@@ -118,7 +118,7 @@ function buildTaskNotificationHtml(input: {
               <td style="vertical-align:middle;">
                 <img src="${escapeHtml(
                   input.logoUrl
-                )}" alt="Federal First Lending" style="height:40px;max-width:220px;display:block;" />
+                )}" alt="Federal First Lending" width="180" style="display:block;width:180px;max-width:180px;height:auto;max-height:44px;object-fit:contain;" />
               </td>
               <td style="vertical-align:middle;text-align:right;">
                 <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">Task Update</span>
@@ -143,12 +143,19 @@ function buildTaskNotificationHtml(input: {
         </td>
       </tr>
       <tr>
-        <td style="padding:18px 24px 28px;">
-          <a href="${escapeHtml(
-            input.taskUrl
-          )}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:12px 18px;border-radius:10px;">
-            Open Task in Portal
-          </a>
+        <td style="padding:20px 24px 28px;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:separate;">
+            <tr>
+              <td bgcolor="#1d4ed8" style="border-radius:12px;background:#1d4ed8;">
+                <a
+                  href="${escapeHtml(input.taskUrl)}"
+                  style="display:inline-block;padding:14px 24px;border:1px solid #1e40af;border-radius:12px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#ffffff;font-size:15px;line-height:1.2;font-weight:700;text-decoration:none;letter-spacing:0.01em;"
+                >
+                  Open Task in Portal
+                </a>
+              </td>
+            </tr>
+          </table>
           <p style="margin:14px 0 0;color:#64748b;font-size:12px;line-height:1.5;">
             If the button above does not work, copy and paste this URL into your browser:<br />
             <a href="${escapeHtml(input.taskUrl)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(
