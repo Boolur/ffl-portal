@@ -403,6 +403,32 @@ type SubmissionPayload = {
   submissionData?: Prisma.InputJsonValue;
 };
 
+const disclosureReadonlyRequiredFields: Array<{
+  key:
+    | 'employerName'
+    | 'employerAddress'
+    | 'employerDurationLineOfWork'
+    | 'yearBuiltProperty'
+    | 'originalCost'
+    | 'yearAquired'
+    | 'mannerInWhichTitleWillBeHeld';
+  label: string;
+}> = [
+  { key: 'employerName', label: 'Employer Name' },
+  { key: 'employerAddress', label: 'Employer Address' },
+  {
+    key: 'employerDurationLineOfWork',
+    label: 'Employer - Duration in Line of Work',
+  },
+  { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
+  { key: 'originalCost', label: 'Original Cost' },
+  { key: 'yearAquired', label: 'Year Aquired' },
+  {
+    key: 'mannerInWhichTitleWillBeHeld',
+    label: 'Manner in Which Title Will be Held',
+  },
+];
+
 export async function createSubmissionTask(payload: SubmissionPayload) {
   try {
     const {
@@ -417,6 +443,46 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       notes,
       submissionData,
     } = payload;
+
+    if (submissionType === 'DISCLOSURES') {
+      const submissionObject =
+        submissionData &&
+        typeof submissionData === 'object' &&
+        !Array.isArray(submissionData)
+          ? (submissionData as Record<string, unknown>)
+          : null;
+
+      if (!submissionObject) {
+        return {
+          success: false,
+          error:
+            'MISMO data is required. Please upload MISMO 3.4 with all required fields.',
+        };
+      }
+
+      const qualificationStatus = String(
+        submissionObject.qualificationStatus ?? ''
+      ).trim();
+      if (qualificationStatus !== 'Yes') {
+        return {
+          success: false,
+          error: 'Qualification Status must be set to Yes before submitting.',
+        };
+      }
+
+      const missingFields = disclosureReadonlyRequiredFields
+        .filter(({ key }) => !String(submissionObject[key] ?? '').trim())
+        .map(({ label }) => label);
+
+      if (missingFields.length > 0) {
+        return {
+          success: false,
+          error: `MISMO is missing required fields: ${missingFields.join(
+            ', '
+          )}. Please complete them in Arrive before exporting MISMO 3.4.`,
+        };
+      }
+    }
 
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;

@@ -108,6 +108,7 @@ type ContributorSummary = {
 };
 
 const submissionDetailOrder = [
+  'qualificationStatus',
   'arriveLoanNumber',
   'borrowerFirstName',
   'borrowerLastName',
@@ -118,8 +119,17 @@ const submissionDetailOrder = [
   'loanType',
   'loanProgram',
   'loanPurpose',
+  'employerName',
+  'employerAddress',
+  'employerDurationLineOfWork',
+  'yearBuiltProperty',
+  'originalCost',
+  'yearAquired',
+  'mannerInWhichTitleWillBeHeld',
   'channel',
   'investor',
+  'runId',
+  'pricingOption',
   'creditReportType',
   'aus',
   'loanOfficer',
@@ -127,6 +137,7 @@ const submissionDetailOrder = [
 ] as const;
 
 const submissionDetailLabels: Record<string, string> = {
+  qualificationStatus: 'Qualification Status',
   arriveLoanNumber: 'Arrive Loan Number',
   borrowerFirstName: 'Borrower First Name',
   borrowerLastName: 'Borrower Last Name',
@@ -137,8 +148,17 @@ const submissionDetailLabels: Record<string, string> = {
   loanType: 'Loan Type',
   loanProgram: 'Loan Program',
   loanPurpose: 'Loan Purpose',
+  employerName: 'Employer Name',
+  employerAddress: 'Employer Address',
+  employerDurationLineOfWork: 'Employer - Duration in Line of Work',
+  yearBuiltProperty: 'Year Built (Property)',
+  originalCost: 'Original Cost',
+  yearAquired: 'Year Aquired',
+  mannerInWhichTitleWillBeHeld: 'Manner in Which Title Will be Held',
   channel: 'Channel',
   investor: 'Investor',
+  runId: 'Run ID',
+  pricingOption: 'Pricing Option',
   creditReportType: 'Credit Report Type',
   aus: 'AUS',
   loanOfficer: 'Loan Officer',
@@ -146,6 +166,10 @@ const submissionDetailLabels: Record<string, string> = {
 };
 
 const submissionDetailGroupConfig = [
+  {
+    title: 'Qualification',
+    keys: ['qualificationStatus'],
+  },
   {
     title: 'Loan Identity',
     keys: ['arriveLoanNumber'],
@@ -156,11 +180,25 @@ const submissionDetailGroupConfig = [
   },
   {
     title: 'Loan Terms',
-    keys: ['loanAmount', 'homeValue', 'loanType', 'loanProgram', 'loanPurpose'],
+    keys: [
+      'loanAmount',
+      'homeValue',
+      'loanType',
+      'loanProgram',
+      'loanPurpose',
+      'yearBuiltProperty',
+      'originalCost',
+      'yearAquired',
+      'mannerInWhichTitleWillBeHeld',
+    ],
+  },
+  {
+    title: 'Employment',
+    keys: ['employerName', 'employerAddress', 'employerDurationLineOfWork'],
   },
   {
     title: 'Origination & Underwriting',
-    keys: ['channel', 'investor', 'creditReportType', 'aus'],
+    keys: ['channel', 'investor', 'runId', 'pricingOption', 'creditReportType', 'aus'],
   },
   {
     title: 'Loan Officer & Notes',
@@ -303,9 +341,11 @@ function getAttachmentPurposeMeta(purpose: TaskAttachmentPurpose): {
 }
 
 const groupIcons: Record<string, React.ElementType> = {
+  'Qualification': CheckCircle,
   'Loan Identity': Fingerprint,
   'Borrower': User,
   'Loan Terms': DollarSign,
+  'Employment': Briefcase,
   'Origination & Underwriting': Briefcase,
   'Loan Officer & Notes': FileText,
   'Additional Details': Hash,

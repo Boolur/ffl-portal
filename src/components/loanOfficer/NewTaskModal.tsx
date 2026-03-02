@@ -161,6 +161,13 @@ type MismoPrefill = {
   loanProgram?: string;
   loanAmount?: string;
   homeValue?: string;
+  employerName?: string;
+  employerAddress?: string;
+  employerDurationLineOfWork?: string;
+  yearBuiltProperty?: string;
+  originalCost?: string;
+  yearAquired?: string;
+  mannerInWhichTitleWillBeHeld?: string;
 };
 
 function parseMismoXml(xmlText: string): MismoPrefill {
@@ -182,6 +189,14 @@ function parseMismoXml(xmlText: string): MismoPrefill {
     return node?.textContent?.trim() ?? '';
   };
 
+  const getFirstText = (parent: Element | Document | null, localNames: string[]) => {
+    for (const localName of localNames) {
+      const value = getText(parent, localName);
+      if (value) return value;
+    }
+    return '';
+  };
+
   const findPartyByRole = (roleType: string) => {
     const parties = Array.from(doc.getElementsByTagNameNS('*', 'PARTY'));
     for (const party of parties) {
@@ -195,6 +210,9 @@ function parseMismoXml(xmlText: string): MismoPrefill {
 
   const borrowerParty = findPartyByRole('Borrower');
   const loanOriginatorParty = findPartyByRole('LoanOriginator');
+  const employerParty = findPartyByRole('Employer');
+  const primaryEmployment =
+    doc.getElementsByTagNameNS('*', 'EMPLOYMENT')[0] ?? null;
 
   const borrowerFirstName = getTextFromElement(borrowerParty, 'FirstName');
   const borrowerLastName = getTextFromElement(borrowerParty, 'LastName');
@@ -232,6 +250,47 @@ function parseMismoXml(xmlText: string): MismoPrefill {
     getText(doc, 'PropertyEstimatedValueAmount') ||
     getText(doc, 'EstimatedValueAmount');
 
+  const employerName =
+    getFirstText(primaryEmployment, ['EmployerName', 'LegalEntityName']) ||
+    getFirstText(employerParty, ['FullName', 'Name']);
+  const employerAddressParts = [
+    getFirstText(primaryEmployment, ['AddressLineText']),
+    getFirstText(primaryEmployment, ['CityName']),
+    getFirstText(primaryEmployment, ['StateCode']),
+    getFirstText(primaryEmployment, ['PostalCode']),
+  ].filter(Boolean);
+  const employerAddress =
+    employerAddressParts.join(', ') ||
+    getFirstText(employerParty, ['AddressLineText']) ||
+    getFirstText(doc, ['EmployerAddress']);
+  const employerDurationLineOfWork = getFirstText(doc, [
+    'EmploymentTimeInLineOfWorkMonthsCount',
+    'EmploymentMonthsOnJobCount',
+    'EmploymentMonthsInCurrentJobCount',
+    'BorrowerTotalYearsInLineOfWorkCount',
+  ]);
+  const yearBuiltProperty = getFirstText(doc, [
+    'PropertyStructureBuiltYear',
+    'BuiltYear',
+    'YearBuilt',
+  ]);
+  const originalCost = getFirstText(doc, [
+    'OriginalCostAmount',
+    'OriginalPurchasePriceAmount',
+    'PurchasePriceAmount',
+  ]);
+  const yearAquired = getFirstText(doc, [
+    'PropertyAcquiredYear',
+    'AcquiredYear',
+    'PropertyPurchaseYear',
+  ]);
+  const mannerInWhichTitleWillBeHeld = getFirstText(doc, [
+    'EstateHeldInNameType',
+    'MannerOfTitleHeldType',
+    'TitleHeldDescription',
+    'PropertyEstateType',
+  ]);
+
   return {
     loanOfficer,
     borrowerFirstName,
@@ -243,6 +302,13 @@ function parseMismoXml(xmlText: string): MismoPrefill {
     loanProgram,
     loanAmount,
     homeValue,
+    employerName,
+    employerAddress,
+    employerDurationLineOfWork,
+    yearBuiltProperty,
+    originalCost,
+    yearAquired,
+    mannerInWhichTitleWillBeHeld,
   };
 }
 
@@ -315,7 +381,11 @@ function DisclosuresForm({
   onSubmitted: () => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [disclosureStep, setDisclosureStep] = useState<1 | 2>(1);
+  const [isParsingMismo, setIsParsingMismo] = useState(false);
+  const [mismoFilename, setMismoFilename] = useState('');
   const [form, setForm] = useState({
+    qualificationStatus: '',
     loanOfficer: loanOfficerName,
     borrowerFirstName: '',
     borrowerLastName: '',
@@ -328,6 +398,13 @@ function DisclosuresForm({
     loanProgram: '',
     loanAmount: '',
     homeValue: '',
+    employerName: '',
+    employerAddress: '',
+    employerDurationLineOfWork: '',
+    yearBuiltProperty: '',
+    originalCost: '',
+    yearAquired: '',
+    mannerInWhichTitleWillBeHeld: '',
     runId: '',
     pricingOption: '',
     aus: '',
@@ -335,7 +412,7 @@ function DisclosuresForm({
     notes: '',
   });
   const [importError, setImportError] = useState('');
-  const [buttonAttachmentError, setButtonAttachmentError] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const [buttonFiles, setButtonFiles] = useState<{
     avm: File | null;
     titleSheet: File | null;
@@ -397,15 +474,41 @@ function DisclosuresForm({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
-    setButtonAttachmentError('');
+    setSubmitError('');
+
+    if (form.qualificationStatus !== 'Yes') {
+      setSubmitError('Qualification Status must be set to Yes before submitting.');
+      return;
+    }
+
+    const requiredReadonlyFields = [
+      { key: 'employerName', label: 'Employer Name' },
+      { key: 'employerAddress', label: 'Employer Address' },
+      { key: 'employerDurationLineOfWork', label: 'Employer - Duration in Line of Work' },
+      { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
+      { key: 'originalCost', label: 'Original Cost' },
+      { key: 'yearAquired', label: 'Year Aquired' },
+      { key: 'mannerInWhichTitleWillBeHeld', label: 'Manner in Which Title Will be Held' },
+    ] as const;
+    const missingReadonly = requiredReadonlyFields
+      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .map(({ label }) => label);
+    if (missingReadonly.length > 0) {
+      setSubmitError(
+        `MISMO is missing required fields: ${missingReadonly.join(
+          ', '
+        )}. Please complete them in Arrive before exporting MISMO 3.4.`
+      );
+      return;
+    }
 
     if (isButtonInvestor) {
       if (!form.runId.trim() || !form.pricingOption.trim()) {
-        setButtonAttachmentError('Run ID and Pricing Option are required for Button.');
+        setSubmitError('Run ID and Pricing Option are required for Button.');
         return;
       }
       if (!hasAllButtonAttachments) {
-        setButtonAttachmentError(
+        setSubmitError(
           'Attach AVM, Title Sheet, and Pricing Sheet for Button submissions.'
         );
         return;
@@ -450,21 +553,24 @@ function DisclosuresForm({
         }
         onSubmitted();
       } else {
-        setButtonAttachmentError(res.error || 'Could not submit this disclosure request.');
+        setSubmitError(res.error || 'Could not submit this disclosure request.');
         setIsSubmitting(false);
       }
     } catch {
-      setButtonAttachmentError('Could not submit this disclosure request.');
+      setSubmitError('Could not submit this disclosure request.');
       setIsSubmitting(false);
     }
   };
 
   const handleFileUpload = async (file: File | null) => {
     if (!file) return;
+    setIsParsingMismo(true);
     try {
       const text = await file.text();
       const prefill = parseMismoXml(text);
       setImportError('');
+      setSubmitError('');
+      setMismoFilename(file.name);
       setForm((prev) => ({
         ...prev,
         loanOfficer: prefill.loanOfficer || prev.loanOfficer,
@@ -477,20 +583,78 @@ function DisclosuresForm({
         loanProgram: prefill.loanProgram || prev.loanProgram,
         loanAmount: prefill.loanAmount || prev.loanAmount,
         homeValue: prefill.homeValue || prev.homeValue,
+        employerName: prefill.employerName || prev.employerName,
+        employerAddress: prefill.employerAddress || prev.employerAddress,
+        employerDurationLineOfWork:
+          prefill.employerDurationLineOfWork || prev.employerDurationLineOfWork,
+        yearBuiltProperty: prefill.yearBuiltProperty || prev.yearBuiltProperty,
+        originalCost: prefill.originalCost || prev.originalCost,
+        yearAquired: prefill.yearAquired || prev.yearAquired,
+        mannerInWhichTitleWillBeHeld:
+          prefill.mannerInWhichTitleWillBeHeld || prev.mannerInWhichTitleWillBeHeld,
       }));
+      setDisclosureStep(2);
     } catch {
       setImportError('Could not read this MISMO file. Please verify the XML export.');
+      setDisclosureStep(1);
+    } finally {
+      setIsParsingMismo(false);
     }
   };
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      <SectionTitle title="Disclosure Submission Details" />
-      <FileUpload onFileSelected={handleFileUpload} />
-      {importError && (
-        <p className="text-xs text-red-600">{importError}</p>
-      )}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {disclosureStep === 1 ? (
+        <DisclosureMismoStep
+          onFileSelected={handleFileUpload}
+          isParsing={isParsingMismo}
+          importError={importError}
+        />
+      ) : (
+        <>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Step 1 Complete
+                </p>
+                <p className="text-sm font-semibold text-slate-900">
+                  MISMO 3.4 uploaded: {mismoFilename || 'Imported file'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDisclosureStep(1);
+                  setSubmitError('');
+                }}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Replace MISMO File
+              </button>
+            </div>
+          </div>
+
+          <SectionTitle title="Step 2) Complete Disclosure Submission Details" />
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <RadioGroup
+              label="Is this Loan in Qualification Status?"
+              value={form.qualificationStatus}
+              onChange={(v) => update('qualificationStatus', v)}
+              options={['Yes', 'No']}
+              required
+            />
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              Required: this must be Yes to continue.
+            </p>
+          </div>
+          {importError && (
+            <p className="text-xs text-red-600">{importError}</p>
+          )}
+          {submitError && (
+            <p className="text-xs text-red-600">{submitError}</p>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required />
         <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required />
@@ -528,9 +692,32 @@ function DisclosuresForm({
             />
           </>
         )}
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="mb-3">
+          <p className="text-sm font-semibold text-slate-900">MISMO Required Fields (Read-Only)</p>
+          <p className="text-xs text-slate-600">
+            These are auto-populated from MISMO and must be present before submission.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <ReadonlyRequiredField label="Employer Name" value={form.employerName} />
+          <ReadonlyRequiredField label="Employer Address" value={form.employerAddress} />
+          <ReadonlyRequiredField
+            label="Employer - Duration in Line of Work"
+            value={form.employerDurationLineOfWork}
+          />
+          <ReadonlyRequiredField label="Year Built (Property)" value={form.yearBuiltProperty} />
+          <ReadonlyRequiredField label="Original Cost" value={form.originalCost} />
+          <ReadonlyRequiredField label="Year Aquired" value={form.yearAquired} />
+          <ReadonlyRequiredField
+            label="Manner in Which Title Will be Held"
+            value={form.mannerInWhichTitleWillBeHeld}
+          />
+        </div>
       </div>
-      {isButtonInvestor && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+          {isButtonInvestor && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
           <div className="mb-3">
             <p className="text-sm font-semibold text-blue-900">Button Required Attachments</p>
             <p className="text-xs text-blue-700">Upload all 3 files before submitting.</p>
@@ -556,26 +743,25 @@ function DisclosuresForm({
               }
             />
           </div>
-          {buttonAttachmentError && (
-            <p className="mt-2 text-xs font-semibold text-red-600">{buttonAttachmentError}</p>
+            </div>
           )}
-        </div>
-      )}
-      <Textarea label="Notes / Special Instructions" value={form.notes} onChange={(v) => update('notes', v)} />
+          <Textarea label="Notes / Special Instructions" value={form.notes} onChange={(v) => update('notes', v)} />
 
-      <div className="flex justify-end gap-3 pt-2">
-        <button type="button" className="app-btn-secondary">
-          Save Draft
-        </button>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="app-btn-primary disabled:opacity-70 disabled:cursor-not-allowed"
-        >
-          {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-          {isSubmitting ? 'Processing...' : 'Submit for Disclosures'}
-        </button>
-      </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" className="app-btn-secondary">
+              Save Draft
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="app-btn-primary disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isSubmitting ? 'Processing...' : 'Submit for Disclosures'}
+            </button>
+          </div>
+        </>
+      )}
     </form>
   );
 }
@@ -1000,6 +1186,84 @@ function SectionTitle({ title }: { title: string }) {
   return <h3 className="text-sm font-semibold text-slate-900">{title}</h3>;
 }
 
+function DisclosureMismoStep({
+  onFileSelected,
+  isParsing,
+  importError,
+}: {
+  onFileSelected: (file: File | null) => void | Promise<void>;
+  isParsing: boolean;
+  importError: string;
+}) {
+  const [dragActive, setDragActive] = useState(false);
+  const [selectedName, setSelectedName] = useState('');
+
+  const handlePickedFile = async (file: File | null) => {
+    if (!file) return;
+    setSelectedName(file.name);
+    await onFileSelected(file);
+  };
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle title="Step 1) Upload MISMO 3.4 File" />
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragActive(true);
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragActive(false);
+          const file = e.dataTransfer.files?.[0] || null;
+          void handlePickedFile(file);
+        }}
+        className={`rounded-2xl border-2 border-dashed p-8 transition ${
+          dragActive
+            ? 'border-blue-400 bg-blue-50'
+            : 'border-slate-300 bg-gradient-to-br from-slate-50 to-white'
+        }`}
+      >
+        <div className="mx-auto max-w-xl text-center">
+          <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-blue-700">
+            <Upload className="h-6 w-6" />
+          </span>
+          <p className="mt-3 text-base font-semibold text-slate-900">
+            Drag and drop MISMO 3.4 XML here
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            or choose a file to auto-fill submission details
+          </p>
+          <label className="mt-5 inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+            Choose File
+            <input
+              type="file"
+              accept=".xml,text/xml,application/xml"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                void handlePickedFile(file);
+              }}
+            />
+          </label>
+          <p className="mt-3 text-xs font-medium text-slate-500">
+            Accepted format: .xml (MISMO 3.4)
+          </p>
+          {(selectedName || isParsing) && (
+            <p className="mt-2 text-xs font-semibold text-slate-700">
+              {isParsing ? 'Importing MISMO file...' : `Selected: ${selectedName}`}
+            </p>
+          )}
+        </div>
+      </div>
+      {importError && (
+        <p className="text-xs text-red-600">{importError}</p>
+      )}
+    </div>
+  );
+}
+
 function FileUpload({ onFileSelected }: { onFileSelected: (file: File | null) => void }) {
   return (
     <label className="block">
@@ -1047,6 +1311,27 @@ function AttachmentRequiredCard({
         accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
         className="hidden"
         onChange={(e) => onFileSelected(e.target.files?.[0] || null)}
+      />
+    </label>
+  );
+}
+
+function ReadonlyRequiredField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <label className="space-y-1 text-sm">
+      <span className="text-slate-700 font-medium">{label} *</span>
+      <input
+        value={value}
+        readOnly
+        disabled
+        placeholder="Populated from MISMO import"
+        className="w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
       />
     </label>
   );
