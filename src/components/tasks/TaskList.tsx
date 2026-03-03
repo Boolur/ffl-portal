@@ -4,6 +4,8 @@ import React from 'react';
 import {
   Calendar,
   CheckCircle,
+  ChevronDown,
+  ChevronUp,
   FileText,
   Trash2,
   Loader2,
@@ -486,7 +488,7 @@ function WorkedByTags({
       {summary.visibleContributors.map((contributor) => (
         <span
           key={contributor.name}
-          className={`inline-flex items-center rounded-full border font-semibold ${chipSize} ${
+          className={`inline-flex max-w-[130px] items-center truncate rounded-full border font-semibold ${chipSize} ${
             contributor.role === UserRole.LOAN_OFFICER
               ? 'border-violet-200 bg-violet-50 text-violet-700'
               : 'border-blue-200 bg-blue-50 text-blue-700'
@@ -497,7 +499,7 @@ function WorkedByTags({
               : contributor.name
           }
         >
-          {contributor.name}
+          <span className="truncate">{contributor.name}</span>
         </span>
       ))}
       {summary.overflowCount > 0 && (
@@ -571,6 +573,9 @@ export function TaskList({
   const [uploadingId, setUploadingId] = React.useState<string | null>(null);
   const [deletingAttachmentId, setDeletingAttachmentId] = React.useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = React.useState<string | null>(null);
+  const [expandedTaskIds, setExpandedTaskIds] = React.useState<Set<string>>(
+    () => new Set()
+  );
   const [initialFocusConsumed, setInitialFocusConsumed] = React.useState(false);
   const [startingDisclosureId, setStartingDisclosureId] = React.useState<string | null>(
     null
@@ -781,6 +786,18 @@ export function TaskList({
     setDeletingId(null);
   };
 
+  const toggleTaskExpanded = (taskId: string) => {
+    setExpandedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
   const isVaSubRole =
     currentRole === UserRole.VA_TITLE ||
     currentRole === UserRole.VA_HOI ||
@@ -954,56 +971,131 @@ export function TaskList({
                 }
             : null;
         const isFocused = focusedTaskId === task.id;
+        const isExpanded = expandedTaskIds.has(task.id);
+        const compactStatusChipClassName =
+          task.status === TaskStatus.COMPLETED
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            : task.status === TaskStatus.IN_PROGRESS
+            ? 'border-blue-200 bg-blue-50 text-blue-700'
+            : task.status === TaskStatus.BLOCKED
+            ? 'border-amber-200 bg-amber-50 text-amber-700'
+            : 'border-slate-200 bg-slate-50 text-slate-600';
 
         return (
           <React.Fragment key={task.id}>
-            <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-blue-300 hover:ring-1 hover:ring-blue-100 min-h-[96px]">
-              <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
-              <div className="relative flex items-center space-x-4 min-w-0 flex-1">
-                <div
-                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl shadow-sm ring-1 ring-black/5 ${
-                    task.status === 'COMPLETED'
+            <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:shadow-md hover:border-blue-300 hover:ring-1 hover:ring-blue-100">
+              <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => toggleTaskExpanded(task.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    toggleTaskExpanded(task.id);
+                  }
+                }}
+                aria-expanded={isExpanded}
+                aria-controls={`task-expanded-${task.id}`}
+                className="relative flex items-start gap-3 min-w-0"
+              >
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setFocusedTaskId(task.id);
+                  }}
+                  className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/5 ${
+                    task.status === TaskStatus.COMPLETED
                       ? 'bg-emerald-100 text-emerald-600'
-                      : task.status === 'IN_PROGRESS'
+                      : task.status === TaskStatus.IN_PROGRESS
                       ? 'bg-blue-100 text-blue-600'
                       : 'bg-slate-100 text-slate-500'
                   }`}
+                  title="Open task details"
+                  aria-label={`Open details for ${task.loan.borrowerName}`}
                 >
-                  <FileText className="h-6 w-6" />
-                </div>
-                <div className="min-w-0 w-full">
-                  <button
-                    type="button"
-                    onClick={() => setFocusedTaskId(task.id)}
-                    className="w-full text-left focus:outline-none"
-                    title="Open Task"
-                  >
-                    <span className="block text-sm font-bold leading-snug text-slate-900 group-hover:text-blue-950 transition-colors whitespace-normal break-words pr-1">
-                      {task.loan.borrowerName}
-                    </span>
-                    <span className="block text-xs font-medium text-slate-500 whitespace-normal break-words pr-1">
-                      {task.loan.loanNumber}
+                  <FileText className="h-4 w-4" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold leading-snug text-slate-900 line-clamp-1">
+                        {task.loan.borrowerName}
+                      </p>
+                      <p className="text-xs font-medium text-slate-500 truncate">
+                        {task.loan.loanNumber}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleTaskExpanded(task.id);
+                      }}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                      aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
+                    >
+                      {isExpanded ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${compactStatusChipClassName}`}
+                    >
+                      {task.status}
                     </span>
                     {assignedSpecialistName && isDisclosureSubmissionTask(task) && (
-                      <span className="mt-1 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                      <span className="inline-flex max-w-full items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700 truncate">
                         Assigned: {assignedSpecialistName}
                       </span>
                     )}
-                    <WorkedByTags
-                      summary={workedBySummary}
-                      compact
-                      className="mt-2"
-                    />
                     {loReturnBadge && (
                       <span
-                        className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ${loReturnBadge.className}`}
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${loReturnBadge.className}`}
                       >
                         {loReturnBadge.label}
                       </span>
                     )}
-                  </button>
+                  </div>
+                  <WorkedByTags summary={workedBySummary} compact className="mt-1.5" />
                 </div>
               </div>
+
+              {isExpanded && (
+                <div
+                  id={`task-expanded-${task.id}`}
+                  className="relative mt-3 border-t border-slate-200/80 pt-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    {task.dueDate && (
+                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-semibold text-slate-600">
+                        <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                        {new Date(task.dueDate).toLocaleDateString()}
+                      </span>
+                    )}
+                    {task.disclosureReason && (
+                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">
+                        Reason: {disclosureReasonLabel[task.disclosureReason]}
+                      </span>
+                    )}
+                    {workflowChip && (
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold ${workflowChip.className}`}>
+                        {workflowChip.label}
+                      </span>
+                    )}
+                  </div>
+                  {task.description && (
+                    <p className="mt-2 text-xs leading-relaxed text-slate-600 line-clamp-3">
+                      {task.description}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {isFocused && (

@@ -36,7 +36,7 @@ const buttonPricingOptions = [
   'Buydown 3',
 ];
 
-export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DISCLOSURES' }: NewTaskModalProps) {
+export function NewTaskModal({ open, onClose, loanOfficerName }: NewTaskModalProps) {
   const type: SubmissionType = 'DISCLOSURES';
   const [showQcComingSoon, setShowQcComingSoon] = useState(false);
   const router = useRouter();
