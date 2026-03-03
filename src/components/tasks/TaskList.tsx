@@ -1210,14 +1210,6 @@ export function TaskList({
                     )}
                   </div>
 
-                  {task.description && (
-                    <div className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200/60">
-                      <p className="text-sm font-medium leading-relaxed text-slate-600 break-words">
-                        {task.description}
-                      </p>
-                    </div>
-                  )}
-
                   {timelineItems.length > 0 && (
                     <div className="mt-8">
                       <div className="mb-5 flex items-center justify-between">
