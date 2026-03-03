@@ -177,7 +177,7 @@ export function TaskBucketsBoard({
                   : 'border-slate-200/80'
               }`}
             >
-              <div className="mb-2.5 flex min-h-[158px] flex-col gap-2 border-b border-border/50 pb-2">
+              <div className="mb-1.5 flex min-h-[124px] flex-col gap-1.5 border-b border-border/50 pb-1.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <h2
