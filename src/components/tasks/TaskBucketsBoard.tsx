@@ -166,6 +166,8 @@ export function TaskBucketsBoard({
       >
         {processedBuckets.map((bucket) => {
           const isCollapsed = bucket.controls.collapsed;
+          const isLoReturnedBucket =
+            currentRole === 'LOAN_OFFICER' && bucket.id === 'returned-to-disclosure';
           return (
             <div
               key={bucket.id}
@@ -184,11 +186,28 @@ export function TaskBucketsBoard({
                     >
                       {bucket.label}
                     </h2>
-                    <span
-                      className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ${bucket.chipClassName}`}
-                    >
-                      {bucket.chipLabel}
-                    </span>
+                    {isLoReturnedBucket ? (
+                      <div className="mt-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        <span
+                          title="Blue = Approved sent back"
+                          className="shrink-0 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-700 shadow-sm"
+                        >
+                          Blue: Approved Back
+                        </span>
+                        <span
+                          title="Orange = Revision sent back"
+                          className="shrink-0 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 shadow-sm"
+                        >
+                          Orange: Revision Back
+                        </span>
+                      </div>
+                    ) : (
+                      <span
+                        className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ${bucket.chipClassName}`}
+                      >
+                        {bucket.chipLabel}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
@@ -240,26 +259,6 @@ export function TaskBucketsBoard({
                     ))}
                   </select>
                 </div>
-
-                {currentRole === 'LOAN_OFFICER' && bucket.id === 'returned-to-disclosure' && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    <span
-                      title="Blue = Approved sent back"
-                      className="shrink-0 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-700 shadow-sm"
-                    >
-                      Blue: Approved Back
-                    </span>
-                    <span
-                      title="Orange = Revision sent back"
-                      className="shrink-0 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 shadow-sm"
-                    >
-                      Orange: Revision Back
-                    </span>
-                  </div>
-                )}
-                {!(currentRole === 'LOAN_OFFICER' && bucket.id === 'returned-to-disclosure') && (
-                  <div className="h-[20px]" />
-                )}
               </div>
 
               {isCollapsed ? (

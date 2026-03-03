@@ -366,6 +366,38 @@ function getRoleSpecificEmailContent(input: {
   };
 }
 
+async function createInAppNotificationsForAudience(input: {
+  recipientEmails: string[];
+  taskId: string;
+  eventLabel: string;
+  title: string;
+  message: string;
+  href: string;
+}) {
+  if (input.recipientEmails.length === 0) return;
+
+  const recipientUsers = await prisma.user.findMany({
+    where: {
+      active: true,
+      email: { in: input.recipientEmails },
+    },
+    select: { id: true },
+  });
+
+  if (recipientUsers.length === 0) return;
+
+  await prisma.notification.createMany({
+    data: recipientUsers.map((user) => ({
+      userId: user.id,
+      taskId: input.taskId,
+      eventLabel: input.eventLabel,
+      title: input.title,
+      message: input.message,
+      href: input.href,
+    })),
+  });
+}
+
 async function sendTaskWorkflowNotificationsByTaskId(input: {
   taskId: string;
   eventLabel: string;
@@ -431,6 +463,15 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
 
     const sendByAudience = async (audience: EmailAudience, recipients: string[]) => {
       if (recipients.length === 0) return;
+      const normalizedRecipients = Array.from(
+        new Set(
+          recipients
+            .map((entry) => entry.trim().toLowerCase())
+            .filter(Boolean)
+        )
+      );
+      if (normalizedRecipients.length === 0) return;
+
       const copy = getRoleSpecificEmailContent({
         audience,
         eventLabel: input.eventLabel,
@@ -441,6 +482,15 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         workflowLabel,
         reasonLabel,
         changedBy: input.changedBy,
+      });
+
+      await createInAppNotificationsForAudience({
+        recipientEmails: normalizedRecipients,
+        taskId: task.id,
+        eventLabel: copy.eventLabel,
+        title: copy.subject.replace(/^\[FFL Portal\]\s*/i, ''),
+        message: `${loan.borrowerName} (${loan.loanNumber}) - ${copy.intro}`,
+        href: `/tasks?taskId=${encodeURIComponent(task.id)}`,
       });
 
       const bodyLines = [
@@ -471,8 +521,8 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         taskUrl,
       });
 
-      await Promise.all(
-        recipients.map((to) =>
+      await Promise.allSettled(
+        normalizedRecipients.map((to) =>
           sendEmail({
             to,
             subject: copy.subject,

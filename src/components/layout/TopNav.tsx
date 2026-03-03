@@ -4,8 +4,37 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Bell, ChevronDown, LogOut, PanelLeft, Search, Shield } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { UserRole } from '@prisma/client';
+import { useRouter } from 'next/navigation';
+import {
+  getMyNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from '@/app/actions/notificationActions';
 
 const formatRole = (role: string) => role.replace(/_/g, ' ');
+const formatRelativeTime = (iso: string) => {
+  const created = new Date(iso);
+  if (Number.isNaN(created.getTime())) return '';
+  const deltaMs = Date.now() - created.getTime();
+  const mins = Math.floor(deltaMs / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return created.toLocaleDateString();
+};
+
+type NotificationItem = {
+  id: string;
+  eventLabel: string;
+  title: string;
+  message: string;
+  href: string | null;
+  createdAt: string;
+  readAt: string | null;
+};
 
 export function TopNav({
   user,
@@ -20,22 +49,50 @@ export function TopNav({
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }) {
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isSwitchingRole, setIsSwitchingRole] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const notificationRef = useRef<HTMLDivElement | null>(null);
+
+  const loadNotifications = React.useCallback(async (showLoader = false) => {
+    if (showLoader) setIsLoadingNotifications(true);
+    try {
+      const result = await getMyNotifications(12);
+      if (!result.success) return;
+      setNotifications(result.notifications as NotificationItem[]);
+      setUnreadCount(result.unreadCount);
+    } finally {
+      if (showLoader) setIsLoadingNotifications(false);
+    }
+  }, []);
 
   useEffect(() => {
     const onClickOutside = (event: MouseEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(event.target as Node)) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(event.target as Node)
+      ) {
         setMenuOpen(false);
+      }
+      if (
+        notificationRef.current &&
+        !notificationRef.current.contains(event.target as Node)
+      ) {
+        setNotificationOpen(false);
       }
     };
 
     const onEsc = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setMenuOpen(false);
+        setNotificationOpen(false);
       }
     };
 
@@ -46,6 +103,18 @@ export function TopNav({
       document.removeEventListener('keydown', onEsc);
     };
   }, []);
+
+  useEffect(() => {
+    void loadNotifications(true);
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void loadNotifications(false);
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [loadNotifications]);
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
@@ -62,6 +131,47 @@ export function TopNav({
     } finally {
       setIsSwitchingRole(false);
     }
+  };
+
+  const handleOpenNotifications = async () => {
+    const nextOpen = !notificationOpen;
+    setNotificationOpen(nextOpen);
+    if (!nextOpen) return;
+    await loadNotifications(true);
+  };
+
+  const handleMarkAllRead = async () => {
+    if (isMarkingAllRead || unreadCount === 0) return;
+    setIsMarkingAllRead(true);
+    try {
+      const result = await markAllNotificationsRead();
+      if (!result.success) return;
+      setNotifications((prev) =>
+        prev.map((item) => (item.readAt ? item : { ...item, readAt: new Date().toISOString() }))
+      );
+      setUnreadCount(0);
+    } finally {
+      setIsMarkingAllRead(false);
+    }
+  };
+
+  const handleNotificationClick = async (item: NotificationItem) => {
+    if (!item.readAt) {
+      const result = await markNotificationRead(item.id);
+      if (result.success) {
+        setNotifications((prev) =>
+          prev.map((entry) =>
+            entry.id === item.id
+              ? { ...entry, readAt: new Date().toISOString() }
+              : entry
+          )
+        );
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+    }
+
+    setNotificationOpen(false);
+    router.push(item.href || '/tasks');
   };
 
   return (
@@ -92,10 +202,75 @@ export function TopNav({
       </div>
 
       <div className="flex items-center space-x-4">
-        <button className="p-2 text-muted-foreground hover:text-foreground relative hover:bg-secondary rounded-full transition-colors">
-          <Bell className="h-5 w-5" />
-          <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-card"></span>
-        </button>
+        <div ref={notificationRef} className="relative">
+          <button
+            type="button"
+            onClick={() => void handleOpenNotifications()}
+            className="p-2 text-muted-foreground hover:text-foreground relative hover:bg-secondary rounded-full transition-colors"
+            aria-haspopup="menu"
+            aria-expanded={notificationOpen}
+            aria-label="Open notifications"
+          >
+            <Bell className="h-5 w-5" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-card"></span>
+            )}
+          </button>
+
+          {notificationOpen && (
+            <div className="absolute right-0 top-[2.8rem] z-20 w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Notifications</p>
+                  <p className="text-[11px] font-medium text-slate-500">
+                    {unreadCount} unread
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleMarkAllRead()}
+                  disabled={isMarkingAllRead || unreadCount === 0}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isMarkingAllRead ? 'Marking...' : 'Mark all read'}
+                </button>
+              </div>
+
+              <div className="max-h-[420px] overflow-y-auto">
+                {isLoadingNotifications && notifications.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm font-medium text-slate-500">
+                    Loading notifications...
+                  </div>
+                ) : notifications.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm font-medium text-slate-500">
+                    No notifications yet.
+                  </div>
+                ) : (
+                  notifications.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => void handleNotificationClick(item)}
+                      className={`w-full border-b border-slate-100 px-3 py-2.5 text-left transition-colors last:border-b-0 ${
+                        item.readAt ? 'bg-white hover:bg-slate-50' : 'bg-blue-50/40 hover:bg-blue-50/60'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="line-clamp-1 text-xs font-bold text-slate-800">{item.title}</p>
+                        <span className="shrink-0 text-[10px] font-semibold text-slate-500">
+                          {formatRelativeTime(item.createdAt)}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 line-clamp-2 text-[11px] font-medium text-slate-600">
+                        {item.message}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         <div ref={menuRef} className="relative flex items-center space-x-3 pl-4 border-l border-border">
           <div className="text-right hidden sm:block">
