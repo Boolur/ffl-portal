@@ -15,6 +15,111 @@ const normalizeEmail = (email: string) => email.toLowerCase().trim();
 const getBaseUrl = () => process.env.NEXTAUTH_URL || 'http://localhost:3000';
 const normalizeRoleList = (roles: UserRole[]) =>
   Array.from(new Set(roles.filter((role) => ALLOWED_ROLES.includes(role))));
+const formatRoleLabel = (role: UserRole) => role.replace(/_/g, ' ');
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+function buildAccountInviteEmail(input: {
+  recipientName: string;
+  role: UserRole;
+  inviteUrl: string;
+  baseUrl: string;
+}) {
+  const roleLabel = formatRoleLabel(input.role);
+  const subject = 'Welcome to FFL Portal - Set up your account';
+  const logoUrl = process.env.EMAIL_BRAND_LOGO_URL?.trim() || `${input.baseUrl}/logo.png`;
+
+  const html = `
+  <div style="margin:0;padding:24px;background:#f8fafc;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" style="max-width:680px;width:100%;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+      <tr>
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;background:linear-gradient(135deg,#eff6ff,#eef2ff);">
+          <table role="presentation" style="width:100%;">
+            <tr>
+              <td style="vertical-align:middle;">
+                <img src="${escapeHtml(
+                  logoUrl
+                )}" alt="Federal First Lending" width="180" style="display:block;width:180px;max-width:180px;height:auto;max-height:44px;object-fit:contain;" />
+              </td>
+              <td style="vertical-align:middle;text-align:right;">
+                <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">Account Invite</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:28px 24px 8px;">
+          <h1 style="margin:0 0 10px;font-size:24px;line-height:1.2;color:#0f172a;">You're invited to FFL Portal</h1>
+          <p style="margin:0;color:#475569;font-size:15px;line-height:1.7;">
+            Hi ${escapeHtml(
+              input.recipientName
+            )}, your account is ready. Click below to create your password and finish setup.
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:4px 24px 12px;">
+          <table role="presentation" style="width:100%;border-collapse:collapse;">
+            <tr>
+              <td style="padding:10px 0;color:#64748b;font-size:13px;font-weight:600;width:140px;vertical-align:top;">Role</td>
+              <td style="padding:10px 0;color:#0f172a;font-size:14px;font-weight:700;">${escapeHtml(
+                roleLabel
+              )}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 0;color:#64748b;font-size:13px;font-weight:600;width:140px;vertical-align:top;">Invite Expires</td>
+              <td style="padding:10px 0;color:#0f172a;font-size:14px;font-weight:700;">In ${INVITE_TTL_HOURS} hours</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:16px 24px 28px;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:separate;">
+            <tr>
+              <td bgcolor="#1d4ed8" style="border-radius:12px;background:#1d4ed8;">
+                <a
+                  href="${escapeHtml(input.inviteUrl)}"
+                  style="display:inline-block;padding:14px 24px;border:1px solid #1e40af;border-radius:12px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#ffffff;font-size:15px;line-height:1.2;font-weight:700;text-decoration:none;letter-spacing:0.01em;"
+                >
+                  Set Up My Account
+                </a>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:14px 0 0;color:#64748b;font-size:12px;line-height:1.6;">
+            If the button above does not work, copy and paste this URL into your browser:<br />
+            <a href="${escapeHtml(input.inviteUrl)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(
+    input.inviteUrl
+  )}</a>
+          </p>
+          <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;line-height:1.6;">
+            This invitation link is private to you. If you did not expect this email, you can safely ignore it.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </div>
+  `;
+
+  const text = [
+    'You are invited to FFL Portal.',
+    '',
+    `Name: ${input.recipientName}`,
+    `Role: ${roleLabel}`,
+    `Invite expires in: ${INVITE_TTL_HOURS} hours`,
+    '',
+    `Set up your account: ${input.inviteUrl}`,
+  ].join('\n');
+
+  return { subject, html, text };
+}
 
 export async function getAllUsers() {
   return prisma.user.findMany({
@@ -146,11 +251,17 @@ export async function inviteUser({
     });
 
     const inviteUrl = `${getBaseUrl()}/auth/invite/${token}`;
+    const inviteEmail = buildAccountInviteEmail({
+      recipientName: trimmedName,
+      role,
+      inviteUrl,
+      baseUrl: getBaseUrl(),
+    });
     await sendEmail({
       to: trimmedEmail,
-      subject: 'Your FFL Portal invite',
-      text: `You have been invited to FFL Portal. Set your password here: ${inviteUrl}`,
-      html: `<p>You have been invited to FFL Portal.</p><p><a href="${inviteUrl}">Set your password</a></p>`,
+      subject: inviteEmail.subject,
+      text: inviteEmail.text,
+      html: inviteEmail.html,
     });
 
     revalidatePath('/admin/users');
@@ -209,11 +320,17 @@ export async function resendInvite(inviteId: string) {
     ]);
 
     const inviteUrl = `${getBaseUrl()}/auth/invite/${token}`;
+    const inviteEmail = buildAccountInviteEmail({
+      recipientName: existing.name?.trim() || existing.email,
+      role: existing.role,
+      inviteUrl,
+      baseUrl: getBaseUrl(),
+    });
     await sendEmail({
       to: existing.email,
-      subject: 'Your FFL Portal invite',
-      text: `You have been invited to FFL Portal. Set your password here: ${inviteUrl}`,
-      html: `<p>You have been invited to FFL Portal.</p><p><a href="${inviteUrl}">Set your password</a></p>`,
+      subject: inviteEmail.subject,
+      text: inviteEmail.text,
+      html: inviteEmail.html,
     });
 
     revalidatePath('/admin/users');
