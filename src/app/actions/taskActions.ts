@@ -1114,14 +1114,18 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       };
     }
 
-    const proofCount = await prisma.taskAttachment.count({
-      where: { taskId, purpose: 'PROOF' },
-    });
-    if (proofCount < 1) {
-      return {
-        success: false,
-        error: 'Upload proof/error attachment before sending this back to LO.',
-      };
+    const requiresProofForRouting =
+      input.reason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+    if (requiresProofForRouting) {
+      const proofCount = await prisma.taskAttachment.count({
+        where: { taskId, purpose: 'PROOF' },
+      });
+      if (proofCount < 1) {
+        return {
+          success: false,
+          error: 'Upload proof/error attachment before sending this back to LO.',
+        };
+      }
     }
 
     const existingOpenLoTask = await prisma.task.findFirst({

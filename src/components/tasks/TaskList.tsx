@@ -827,11 +827,6 @@ export function TaskList({
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState !== TaskWorkflowState.WAITING_ON_LO &&
           task.workflowState !== TaskWorkflowState.WAITING_ON_LO_APPROVAL;
-        const shouldShowProofUploader =
-          task.status !== 'COMPLETED' &&
-          ((isVaSubRole && isVaTaskKind(task.kind)) ||
-            canDisclosureEditProofAttachments ||
-            (isQcRole && isQcSubmissionTask(task)));
         const proofCount =
           task.attachments?.filter((att) => att.purpose === TaskAttachmentPurpose.PROOF)
             .length || 0;
@@ -868,6 +863,21 @@ export function TaskList({
           ((isDisclosureInitialRoutingState ||
             isDisclosureReturnedRoutingState) ||
             (isQcRole && isQcSubmissionTask(task)));
+        const isDisclosureMissingItemsRoute =
+          isDisclosureRole &&
+          isDisclosureSubmissionTask(task) &&
+          (isDisclosureInitialRoutingState || isDisclosureReturnedRoutingState) &&
+          selectedReason === DisclosureDecisionReason.MISSING_ITEMS;
+        const shouldShowProofUploader =
+          task.status !== 'COMPLETED' &&
+          ((isVaSubRole && isVaTaskKind(task.kind)) ||
+            (canDisclosureEditProofAttachments && !isDisclosureMissingItemsRoute) ||
+            (isQcRole && isQcSubmissionTask(task)));
+        const requiresProofForRouting =
+          (isDisclosureRole &&
+            isDisclosureSubmissionTask(task) &&
+            selectedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES) ||
+          (isQcRole && isQcSubmissionTask(task));
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
         const assignedSpecialistName = task.assignedUser?.name?.trim() || '';
@@ -1270,6 +1280,24 @@ export function TaskList({
                       )}
                     </div>
                   )}
+                  {isDisclosureMissingItemsRoute && (
+                    <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-200 text-slate-600">
+                          <FileText className="h-4 w-4" />
+                        </span>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">
+                            Proof Attachment Not Required
+                          </p>
+                          <p className="text-xs font-medium text-slate-600">
+                            For <span className="font-semibold">Missing Items / Incomplete</span>,
+                            you can route this task back to LO without uploading proof.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {(isDisclosureInitialRoutingState ||
                     isDisclosureReturnedRoutingState) && (
@@ -1476,7 +1504,7 @@ export function TaskList({
                         onClick={() => void handleSendToLoanOfficer(task)}
                         disabled={
                           sendingToLoId === task.id ||
-                          proofCount < 1 ||
+                          (requiresProofForRouting && proofCount < 1) ||
                           !disclosureFooterMessage
                         }
                         className={`disabled:opacity-60 disabled:cursor-not-allowed ${
