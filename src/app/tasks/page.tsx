@@ -83,6 +83,10 @@ type TaskRow = {
     stage: string;
   };
   assignedRole: UserRole | null;
+  assignedUser: {
+    id: string;
+    name: string;
+  } | null;
   attachments: {
     id: string;
     filename: string;
@@ -157,6 +161,12 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
           },
         },
         orderBy: { createdAt: 'desc' },
+      },
+      assignedUser: {
+        select: {
+          id: true,
+          name: true,
+        },
       },
     },
     orderBy: {
@@ -574,6 +584,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 tasks={bucketConfig.tasks}
                 canDelete={canDelete}
                 currentRole={sessionRole}
+                currentUserId={sessionUser.id}
                 initialFocusedTaskId={focusedTaskId}
               />
             </div>
@@ -586,6 +597,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           tasks={allTasks}
           canDelete={canDelete}
           currentRole={sessionRole}
+          currentUserId={sessionUser.id}
           initialFocusedTaskId={focusedTaskId}
         />
       )}

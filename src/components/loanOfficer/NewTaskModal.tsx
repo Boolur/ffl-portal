@@ -31,7 +31,9 @@ const buttonPricingOptions = [
   'Max Comp 2',
   '3.0% Comp',
   'Default',
-  'Buydown',
+  'Buydown 1',
+  'Buydown 2',
+  'Buydown 3',
 ];
 
 export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DISCLOSURES' }: NewTaskModalProps) {
@@ -154,6 +156,8 @@ type MismoPrefill = {
   loanOfficer?: string;
   borrowerFirstName?: string;
   borrowerLastName?: string;
+  borrowerPhone?: string;
+  borrowerEmail?: string;
   arriveLoanNumber?: string;
   channel?: string;
   investor?: string;
@@ -218,6 +222,34 @@ function parseMismoXml(xmlText: string): MismoPrefill {
 
   const borrowerFirstName = getTextFromElement(borrowerParty, 'FirstName');
   const borrowerLastName = getTextFromElement(borrowerParty, 'LastName');
+  const borrowerPhone =
+    getFirstText(borrowerParty, [
+      'ContactPointTelephoneValue',
+      'TelephoneNumber',
+      'PhoneNumber',
+      'PhoneNumberValue',
+      'BorrowerHomeTelephoneNumber',
+    ]) ||
+    getFirstText(doc, [
+      'ContactPointTelephoneValue',
+      'TelephoneNumber',
+      'PhoneNumber',
+      'PhoneNumberValue',
+      'BorrowerHomeTelephoneNumber',
+    ]);
+  const borrowerEmail =
+    getFirstText(borrowerParty, [
+      'ContactPointEmailValue',
+      'EmailAddressText',
+      'Email',
+      'BorrowerEmailAddress',
+    ]) ||
+    getFirstText(doc, [
+      'ContactPointEmailValue',
+      'EmailAddressText',
+      'Email',
+      'BorrowerEmailAddress',
+    ]);
   const loanOfficer = getTextFromElement(loanOriginatorParty, 'FullName') ||
     [getTextFromElement(loanOriginatorParty, 'FirstName'), getTextFromElement(loanOriginatorParty, 'LastName')].filter(Boolean).join(' ');
 
@@ -308,6 +340,8 @@ function parseMismoXml(xmlText: string): MismoPrefill {
     loanOfficer,
     borrowerFirstName,
     borrowerLastName,
+    borrowerPhone,
+    borrowerEmail,
     arriveLoanNumber,
     channel,
     investor,
@@ -442,6 +476,28 @@ function DisclosuresForm({
   const isButtonInvestor = form.investor === 'Button';
   const hasAllButtonAttachments =
     !!buttonFiles.avm && !!buttonFiles.titleSheet && !!buttonFiles.pricingSheet;
+  const requiredReadonlyFields = [
+    { key: 'employerName', label: 'Employer Name' },
+    { key: 'employerAddress', label: 'Employer Address' },
+    { key: 'employerDurationLineOfWork', label: 'Employer - Duration in Line of Work' },
+    { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
+    { key: 'originalCost', label: 'Original Cost' },
+    { key: 'yearAquired', label: 'Year Aquired' },
+    { key: 'mannerInWhichTitleWillBeHeld', label: 'Manner in Which Title Will be Held' },
+  ] as const;
+  const missingReadonlyKeys = new Set(
+    requiredReadonlyFields
+      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .map(({ key }) => key)
+  );
+  const missingReadonlyLabels = requiredReadonlyFields
+    .filter(({ key }) => !String(form[key] ?? '').trim())
+    .map(({ label }) => label);
+  const missingMismoLabels = [
+    !form.borrowerPhone.trim() ? 'Borrower Phone' : null,
+    !form.borrowerEmail.trim() ? 'Borrower Email' : null,
+    ...missingReadonlyLabels,
+  ].filter(Boolean) as string[];
 
   const uploadDisclosureAttachment = async (
     taskId: string,
@@ -499,23 +555,25 @@ function DisclosuresForm({
       return;
     }
 
-    const requiredReadonlyFields = [
-      { key: 'employerName', label: 'Employer Name' },
-      { key: 'employerAddress', label: 'Employer Address' },
-      { key: 'employerDurationLineOfWork', label: 'Employer - Duration in Line of Work' },
-      { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
-      { key: 'originalCost', label: 'Original Cost' },
-      { key: 'yearAquired', label: 'Year Aquired' },
-      { key: 'mannerInWhichTitleWillBeHeld', label: 'Manner in Which Title Will be Held' },
-    ] as const;
-    const missingReadonly = requiredReadonlyFields
-      .filter(({ key }) => !String(form[key] ?? '').trim())
-      .map(({ label }) => label);
-    if (missingReadonly.length > 0) {
+    if (!form.borrowerPhone.trim() || !form.borrowerEmail.trim()) {
+      const phoneEmailError =
+        'Borrower Phone and Borrower Email are required from MISMO before submitting.';
+      setSubmitError(phoneEmailError);
+      window.alert(
+        `${phoneEmailError} Please complete the missing items in Arrive, export a new MISMO 3.4 file, and re-upload it.`
+      );
+      return;
+    }
+
+    if (missingReadonlyLabels.length > 0) {
+      const missingReadonlyError = `MISMO is missing required fields: ${missingReadonlyLabels.join(
+        ', '
+      )}.`;
       setSubmitError(
-        `MISMO is missing required fields: ${missingReadonly.join(
-          ', '
-        )}. Please complete them in Arrive before exporting MISMO 3.4.`
+        `${missingReadonlyError} Please complete them in Arrive before exporting MISMO 3.4.`
+      );
+      window.alert(
+        `${missingReadonlyError} Please complete these items in Arrive, export a fresh MISMO 3.4 file, and re-upload it.`
       );
       return;
     }
@@ -594,6 +652,8 @@ function DisclosuresForm({
         loanOfficer: prefill.loanOfficer || prev.loanOfficer,
         borrowerFirstName: prefill.borrowerFirstName || prev.borrowerFirstName,
         borrowerLastName: prefill.borrowerLastName || prev.borrowerLastName,
+        borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
+        borrowerEmail: prefill.borrowerEmail || prev.borrowerEmail,
         arriveLoanNumber: prefill.arriveLoanNumber || prev.arriveLoanNumber,
         channel: prefill.channel || prev.channel,
         investor: prefill.investor || prev.investor,
@@ -611,6 +671,34 @@ function DisclosuresForm({
         mannerInWhichTitleWillBeHeld:
           prefill.mannerInWhichTitleWillBeHeld || prev.mannerInWhichTitleWillBeHeld,
       }));
+      const merged = {
+        ...form,
+        borrowerPhone: prefill.borrowerPhone || form.borrowerPhone,
+        borrowerEmail: prefill.borrowerEmail || form.borrowerEmail,
+        employerName: prefill.employerName || form.employerName,
+        employerAddress: prefill.employerAddress || form.employerAddress,
+        employerDurationLineOfWork:
+          prefill.employerDurationLineOfWork || form.employerDurationLineOfWork,
+        yearBuiltProperty: prefill.yearBuiltProperty || form.yearBuiltProperty,
+        originalCost: prefill.originalCost || form.originalCost,
+        yearAquired: prefill.yearAquired || form.yearAquired,
+        mannerInWhichTitleWillBeHeld:
+          prefill.mannerInWhichTitleWillBeHeld || form.mannerInWhichTitleWillBeHeld,
+      };
+      const missingFromMismo = [
+        !String(merged.borrowerPhone ?? '').trim() ? 'Borrower Phone' : null,
+        !String(merged.borrowerEmail ?? '').trim() ? 'Borrower Email' : null,
+        ...requiredReadonlyFields
+          .filter(({ key }) => !String(merged[key] ?? '').trim())
+          .map(({ label }) => label),
+      ].filter(Boolean) as string[];
+      if (missingFromMismo.length > 0) {
+        const warningMessage = `MISMO is missing required fields: ${missingFromMismo.join(
+          ', '
+        )}. Please complete these in Arrive, export a new MISMO 3.4 file, and re-upload.`;
+        setSubmitError(warningMessage);
+        window.alert(warningMessage);
+      }
       setDisclosureStep(2);
     } catch {
       setImportError('Could not read this MISMO file. Please verify the XML export.');
@@ -677,8 +765,8 @@ function DisclosuresForm({
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required />
         <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required />
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required />
-        <Input label="Borrower Phone (recommended)" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} />
-        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} />
+        <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required />
+        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required />
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required />
@@ -718,19 +806,46 @@ function DisclosuresForm({
             These are auto-populated from MISMO and must be present before submission.
           </p>
         </div>
+        {missingMismoLabels.length > 0 && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+            Missing MISMO fields: {missingMismoLabels.join(', ')}. Re-upload MISMO after completing these in Arrive.
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <ReadonlyRequiredField label="Employer Name" value={form.employerName} />
-          <ReadonlyRequiredField label="Employer Address" value={form.employerAddress} />
+          <ReadonlyRequiredField
+            label="Employer Name"
+            value={form.employerName}
+            isMissing={missingReadonlyKeys.has('employerName')}
+          />
+          <ReadonlyRequiredField
+            label="Employer Address"
+            value={form.employerAddress}
+            isMissing={missingReadonlyKeys.has('employerAddress')}
+          />
           <ReadonlyRequiredField
             label="Employer - Duration in Line of Work"
             value={form.employerDurationLineOfWork}
+            isMissing={missingReadonlyKeys.has('employerDurationLineOfWork')}
           />
-          <ReadonlyRequiredField label="Year Built (Property)" value={form.yearBuiltProperty} />
-          <ReadonlyRequiredField label="Original Cost" value={form.originalCost} />
-          <ReadonlyRequiredField label="Year Aquired" value={form.yearAquired} />
+          <ReadonlyRequiredField
+            label="Year Built (Property)"
+            value={form.yearBuiltProperty}
+            isMissing={missingReadonlyKeys.has('yearBuiltProperty')}
+          />
+          <ReadonlyRequiredField
+            label="Original Cost"
+            value={form.originalCost}
+            isMissing={missingReadonlyKeys.has('originalCost')}
+          />
+          <ReadonlyRequiredField
+            label="Year Aquired"
+            value={form.yearAquired}
+            isMissing={missingReadonlyKeys.has('yearAquired')}
+          />
           <ReadonlyRequiredField
             label="Manner in Which Title Will be Held"
             value={form.mannerInWhichTitleWillBeHeld}
+            isMissing={missingReadonlyKeys.has('mannerInWhichTitleWillBeHeld')}
           />
         </div>
       </div>
@@ -1336,19 +1451,27 @@ function AttachmentRequiredCard({
 function ReadonlyRequiredField({
   label,
   value,
+  isMissing = false,
 }: {
   label: string;
   value: string;
+  isMissing?: boolean;
 }) {
   return (
     <label className="space-y-1 text-sm">
-      <span className="text-slate-700 font-medium">{label} *</span>
+      <span className={isMissing ? 'font-medium text-red-700' : 'text-slate-700 font-medium'}>
+        {label} *
+      </span>
       <input
         value={value}
         readOnly
         disabled
         placeholder="Populated from MISMO import"
-        className="w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
+        className={`w-full rounded-lg px-3 py-2 text-sm cursor-not-allowed ${
+          isMissing
+            ? 'border border-red-300 bg-red-50 text-red-700'
+            : 'border border-slate-200 bg-slate-100 text-slate-600'
+        }`}
       />
     </label>
   );

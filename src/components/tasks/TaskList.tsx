@@ -21,6 +21,7 @@ import {
   reviewInitialDisclosureFigures,
   requestInfoFromLoanOfficer,
   respondToDisclosureRequest,
+  startDisclosureRequest,
   updateTaskStatus,
 } from '@/app/actions/taskActions';
 import {
@@ -529,6 +530,10 @@ type Task = {
     stage?: string;
   };
   assignedRole: string | null;
+  assignedUser?: {
+    id?: string;
+    name: string;
+  } | null;
   attachments?: {
     id: string;
     filename: string;
@@ -551,11 +556,13 @@ export function TaskList({
   tasks,
   canDelete = false,
   currentRole,
+  currentUserId,
   initialFocusedTaskId = null,
 }: {
   tasks: Task[];
   canDelete?: boolean;
   currentRole: string;
+  currentUserId?: string;
   initialFocusedTaskId?: string | null;
 }) {
   const router = useRouter();
@@ -565,6 +572,9 @@ export function TaskList({
   const [deletingAttachmentId, setDeletingAttachmentId] = React.useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = React.useState<string | null>(null);
   const [initialFocusConsumed, setInitialFocusConsumed] = React.useState(false);
+  const [startingDisclosureId, setStartingDisclosureId] = React.useState<string | null>(
+    null
+  );
   const [sendingToLoId, setSendingToLoId] = React.useState<string | null>(null);
   const [respondingId, setRespondingId] = React.useState<string | null>(null);
   const [disclosureReasonByTask, setDisclosureReasonByTask] = React.useState<
@@ -697,6 +707,19 @@ export function TaskList({
     }
     router.refresh();
     setSendingToLoId(null);
+  };
+
+  const handleStartDisclosureRequest = async (taskId: string) => {
+    if (startingDisclosureId) return;
+    setStartingDisclosureId(taskId);
+    const result = await startDisclosureRequest(taskId);
+    if (!result.success) {
+      alert(result.error || 'Failed to start disclosure request.');
+      setStartingDisclosureId(null);
+      return;
+    }
+    router.refresh();
+    setStartingDisclosureId(null);
   };
 
   const handleLoanOfficerResponse = async (task: Task) => {
@@ -847,6 +870,14 @@ export function TaskList({
             (isQcRole && isQcSubmissionTask(task)));
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
+        const assignedSpecialistName = task.assignedUser?.name?.trim() || '';
+        const hasAssignedSpecialist = Boolean(task.assignedUser?.id);
+        const isAssignedToCurrentUser =
+          Boolean(currentUserId) && task.assignedUser?.id === currentUserId;
+        const showDisclosureStartButton =
+          isDisclosureInitialRoutingState && task.status === TaskStatus.PENDING;
+        const disableDisclosureStartButton =
+          hasAssignedSpecialist && !isAssignedToCurrentUser;
         const disclosureFooterMessage = (disclosureMessageByTask[task.id] || '').trim();
         const loFooterResponse = (loResponseByTask[task.id] || '').trim();
         const parsedSubmissionData =
@@ -943,6 +974,11 @@ export function TaskList({
                     <span className="block text-xs font-medium text-slate-500 whitespace-normal break-words pr-1">
                       {task.loan.loanNumber}
                     </span>
+                    {assignedSpecialistName && isDisclosureSubmissionTask(task) && (
+                      <span className="mt-1 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                        Assigned: {assignedSpecialistName}
+                      </span>
+                    )}
                     <WorkedByTags
                       summary={workedBySummary}
                       compact
@@ -1072,6 +1108,11 @@ export function TaskList({
                         {workflowStateLabel[task.workflowState]}
                       </p>
                     ) : null}
+                    {assignedSpecialistName && isDisclosureSubmissionTask(task) && (
+                      <p className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 shadow-sm">
+                        Assigned Specialist: {assignedSpecialistName}
+                      </p>
+                    )}
                   </div>
 
                   {task.description && (
@@ -1362,6 +1403,26 @@ export function TaskList({
 
                   <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200/60 pt-6">
                     <WorkedByTags summary={workedBySummary} className="mr-auto" />
+                    {showDisclosureStartButton && (
+                      <button
+                        type="button"
+                        onClick={() => void handleStartDisclosureRequest(task.id)}
+                        disabled={startingDisclosureId === task.id || disableDisclosureStartButton}
+                        className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                        title={
+                          disableDisclosureStartButton
+                            ? `Already started by ${assignedSpecialistName || 'another specialist'}`
+                            : 'Claim and start this disclosure request'
+                        }
+                      >
+                        {startingDisclosureId === task.id && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        {disableDisclosureStartButton
+                          ? `Started by ${assignedSpecialistName || 'another specialist'}`
+                          : 'Start'}
+                      </button>
+                    )}
                     {task.status === 'PENDING' &&
                       !shouldHideGenericStartForDisclosureSubmission &&
                       !isDisclosureInitialRoutingState &&

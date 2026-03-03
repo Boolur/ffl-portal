@@ -197,6 +197,7 @@ function getRoleSpecificEmailContent(input: {
   status: TaskStatus;
   workflowLabel: string;
   reasonLabel: string | null;
+  changedBy?: string | null;
 }) {
   const base = {
     eventLabel: input.eventLabel,
@@ -335,6 +336,30 @@ function getRoleSpecificEmailContent(input: {
     };
   }
 
+  if (input.eventLabel === 'Disclosure Request Started') {
+    const starterName = input.changedBy?.trim() || 'Disclosure Desk';
+    if (input.audience === 'LO') {
+      return {
+        ...base,
+        subject: `[FFL Portal] ${starterName} started your disclosure request: ${input.borrowerName} (${input.loanNumber})`,
+        eventLabel: 'Disclosure Request Started',
+        intro: `${starterName} has started your disclosure request and is actively working this file.`,
+        ctaLabel: 'Track Disclosure Request',
+        statusLabel: 'IN PROGRESS',
+        workflowLabel: 'New Disclosure Request',
+      };
+    }
+    return {
+      ...base,
+      subject: `[FFL Portal] Request Started: ${input.borrowerName} (${input.loanNumber})`,
+      eventLabel: 'Disclosure Request Started',
+      intro: `${starterName} claimed this disclosure request and has started working it.`,
+      ctaLabel: 'Track Task in Portal',
+      statusLabel: 'IN PROGRESS',
+      workflowLabel: 'New Disclosure Request',
+    };
+  }
+
   return {
     ...base,
     subject: `[FFL Portal] ${input.eventLabel}: ${input.borrowerName} (${input.loanNumber})`,
@@ -415,6 +440,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         status: task.status,
         workflowLabel,
         reasonLabel,
+        changedBy: input.changedBy,
       });
 
       const bodyLines = [
@@ -801,6 +827,20 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         };
       }
 
+      const resolvedBorrowerPhone = String(
+        submissionObject.borrowerPhone ?? borrowerPhone ?? ''
+      ).trim();
+      const resolvedBorrowerEmail = String(
+        submissionObject.borrowerEmail ?? borrowerEmail ?? ''
+      ).trim();
+      if (!resolvedBorrowerPhone || !resolvedBorrowerEmail) {
+        return {
+          success: false,
+          error:
+            'Borrower Phone and Borrower Email are required from MISMO. Please complete them in Arrive and re-export MISMO 3.4.',
+        };
+      }
+
       const qualificationStatus = String(
         submissionObject.qualificationStatus ?? ''
       ).trim();
@@ -950,6 +990,86 @@ type RequestInfoInput = {
   reason: DisclosureDecisionReason;
   message?: string;
 };
+
+export async function startDisclosureRequest(taskId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) return { success: false, error: 'Not authenticated.' };
+
+    const canStart =
+      role === UserRole.ADMIN ||
+      role === UserRole.MANAGER ||
+      role === UserRole.DISCLOSURE_SPECIALIST;
+    if (!canStart) {
+      return {
+        success: false,
+        error: 'Only Disclosure, Manager, or Admin can start this request.',
+      };
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        title: true,
+        status: true,
+        workflowState: true,
+        assignedRole: true,
+        assignedUserId: true,
+        assignedUser: { select: { name: true } },
+      },
+    });
+
+    if (!task) return { success: false, error: 'Task not found.' };
+    if (!isDisclosureSubmissionTask(task)) {
+      return {
+        success: false,
+        error: 'Only disclosure submission requests can be started here.',
+      };
+    }
+    if (task.status === TaskStatus.COMPLETED) {
+      return { success: false, error: 'This request is already completed.' };
+    }
+    if (task.workflowState !== TaskWorkflowState.NONE) {
+      return {
+        success: false,
+        error: 'This request has already moved beyond the new-request queue.',
+      };
+    }
+    if (task.assignedUserId && task.assignedUserId !== userId) {
+      const starterName = task.assignedUser?.name?.trim() || 'another specialist';
+      return {
+        success: false,
+        error: `This request was already started by ${starterName}.`,
+      };
+    }
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        assignedUserId: userId,
+        assignedRole: UserRole.DISCLOSURE_SPECIALIST,
+        status: TaskStatus.IN_PROGRESS,
+      },
+    });
+
+    await sendTaskWorkflowNotificationsByTaskId({
+      taskId,
+      eventLabel: 'Disclosure Request Started',
+      changedBy: session?.user?.name,
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to start disclosure request:', error);
+    return { success: false, error: 'Failed to start disclosure request.' };
+  }
+}
 
 export async function requestInfoFromLoanOfficer(taskId: string, input: RequestInfoInput) {
   try {
