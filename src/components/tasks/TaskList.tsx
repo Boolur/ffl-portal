@@ -527,11 +527,12 @@ function WorkedByTags({
   );
 }
 
-type Task = {
+export type Task = {
   id: string;
   title: string;
   description: string | null;
   status: TaskStatus;
+  updatedAt?: Date;
   dueDate: Date | null;
   kind: TaskKind | null;
   workflowState: TaskWorkflowState;

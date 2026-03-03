@@ -2,6 +2,7 @@ import React from 'react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { prisma } from '@/lib/prisma';
 import { TaskList } from '@/components/tasks/TaskList';
+import { TaskBucketsBoard } from '@/components/tasks/TaskBucketsBoard';
 import {
   DisclosureDecisionReason,
   TaskAttachmentPurpose,
@@ -70,6 +71,7 @@ type TaskRow = {
   title: string;
   description: string | null;
   status: TaskStatus;
+  updatedAt: Date;
   dueDate: Date | null;
   kind: TaskKind | null;
   workflowState: TaskWorkflowState;
@@ -116,10 +118,8 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   if (isAdminOrManager) {
     // no-op: managers/admins can review all queues
   } else if (isLoanOfficer && userId) {
-    where.OR = [
-      { assignedUserId: userId },
-      { loan: { loanOfficerId: userId } } // See tasks for their loans
-    ];
+    // Strict LO scope: only tasks tied to loans they own.
+    where.OR = [{ loan: { loanOfficerId: userId } }];
   } else if (role === UserRole.DISCLOSURE_SPECIALIST) {
     where.OR = [
       { assignedRole: role as UserRole },
@@ -528,68 +528,14 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       </div>
 
       {showBuckets && (
-        <div
-          className="grid gap-3.5"
-          style={{
-            gridTemplateColumns: `repeat(${roleBuckets.length}, minmax(0, 1fr))`,
-          }}
-        >
-          {roleBuckets.map((bucketConfig) => (
-            <div
-              key={bucketConfig.id}
-                className={`flex flex-col rounded-2xl border bg-white p-4 shadow-sm transition-all hover:shadow-md ${
-                activeBucket === bucketConfig.id
-                  ? 'border-blue-300 ring-1 ring-blue-200'
-                    : 'border-slate-200/80'
-              }`}
-            >
-              <div className="mb-2.5 flex min-h-[102px] flex-col gap-2 border-b border-border/50 pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                      <h2
-                        className="text-base font-bold leading-snug text-slate-900"
-                        title={bucketConfig.label}
-                      >
-                      {bucketConfig.label}
-                    </h2>
-                    <span
-                      className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ${bucketConfig.chipClassName}`}
-                    >
-                      {bucketConfig.chipLabel}
-                    </span>
-                  </div>
-                  <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
-                    {bucketConfig.tasks.length}
-                  </span>
-                </div>
-                {sessionRole === UserRole.LOAN_OFFICER &&
-                  bucketConfig.id === 'returned-to-disclosure' && (
-                    <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                      <span
-                        title="Blue = Approved sent back"
-                        className="shrink-0 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-700 shadow-sm"
-                      >
-                        Blue: Approved Back
-                      </span>
-                      <span
-                        title="Orange = Revision sent back"
-                        className="shrink-0 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 shadow-sm"
-                      >
-                        Orange: Revision Back
-                      </span>
-                    </div>
-                  )}
-              </div>
-              <TaskList
-                tasks={bucketConfig.tasks}
-                canDelete={canDelete}
-                currentRole={sessionRole}
-                currentUserId={sessionUser.id}
-                initialFocusedTaskId={focusedTaskId}
-              />
-            </div>
-          ))}
-        </div>
+        <TaskBucketsBoard
+          buckets={roleBuckets}
+          activeBucketId={activeBucket}
+          canDelete={canDelete}
+          currentRole={sessionRole}
+          currentUserId={sessionUser.id}
+          initialFocusedTaskId={focusedTaskId}
+        />
       )}
 
       {!showBuckets && (
