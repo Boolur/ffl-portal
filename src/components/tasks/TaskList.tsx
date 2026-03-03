@@ -574,12 +574,14 @@ export function TaskList({
   currentRole,
   currentUserId,
   initialFocusedTaskId = null,
+  emptyState = 'all_caught_up',
 }: {
   tasks: Task[];
   canDelete?: boolean;
   currentRole: string;
   currentUserId?: string;
   initialFocusedTaskId?: string | null;
+  emptyState?: 'all_caught_up' | 'no_results';
 }) {
   const router = useRouter();
   const [updatingId, setUpdatingId] = React.useState<string | null>(null);
@@ -837,8 +839,14 @@ export function TaskList({
         <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-50 shadow-sm ring-1 ring-slate-200/60">
           <CheckCircle className="h-6 w-6 text-slate-400" />
         </div>
-        <h3 className="text-lg font-bold text-slate-900">All caught up!</h3>
-        <p className="mt-1 text-sm font-medium text-slate-500">No pending tasks in your queue.</p>
+        {emptyState === 'no_results' && (
+          <>
+            <h3 className="text-lg font-bold text-slate-900">No Results</h3>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              No tasks match your current search.
+            </p>
+          </>
+        )}
       </div>
     );
   }

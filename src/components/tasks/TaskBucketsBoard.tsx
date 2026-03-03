@@ -33,6 +33,12 @@ const sortOptions: Array<{ value: SortOption; label: string }> = [
   { value: 'borrower_asc', label: 'Borrower (A to Z)' },
   { value: 'borrower_desc', label: 'Borrower (Z to A)' },
 ];
+const sortLabelByValue: Record<SortOption, string> = {
+  updated_desc: 'Updated (Newest)',
+  updated_asc: 'Updated (Oldest)',
+  borrower_asc: 'Borrower (A to Z)',
+  borrower_desc: 'Borrower (Z to A)',
+};
 
 function normalizeDate(value?: Date) {
   if (!value) return 0;
@@ -159,8 +165,6 @@ export function TaskBucketsBoard({
         style={{ gridTemplateColumns: `repeat(${processedBuckets.length}, minmax(0, 1fr))` }}
       >
         {processedBuckets.map((bucket) => {
-          const selectedSort =
-            bucket.controls.sort === 'global' ? globalSort : bucket.controls.sort;
           const isCollapsed = bucket.controls.collapsed;
           return (
             <div
@@ -171,10 +175,13 @@ export function TaskBucketsBoard({
                   : 'border-slate-200/80'
               }`}
             >
-              <div className="mb-2.5 flex min-h-[102px] flex-col gap-2 border-b border-border/50 pb-2">
+              <div className="mb-2.5 flex min-h-[158px] flex-col gap-2 border-b border-border/50 pb-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-base font-bold leading-snug text-slate-900" title={bucket.label}>
+                    <h2
+                      className="min-h-[2.5rem] text-base font-bold leading-snug text-slate-900 line-clamp-2"
+                      title={bucket.label}
+                    >
                       {bucket.label}
                     </h2>
                     <span
@@ -225,7 +232,7 @@ export function TaskBucketsBoard({
                     }
                     className="min-w-[125px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
                   >
-                    <option value="global">Use Global ({selectedSort.replace('_', ' ')})</option>
+                    <option value="global">Use Global ({sortLabelByValue[globalSort]})</option>
                     {sortOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
@@ -250,6 +257,9 @@ export function TaskBucketsBoard({
                     </span>
                   </div>
                 )}
+                {!(currentRole === 'LOAN_OFFICER' && bucket.id === 'returned-to-disclosure') && (
+                  <div className="h-[20px]" />
+                )}
               </div>
 
               {isCollapsed ? (
@@ -263,6 +273,12 @@ export function TaskBucketsBoard({
                   currentRole={currentRole}
                   currentUserId={currentUserId}
                   initialFocusedTaskId={initialFocusedTaskId}
+                  emptyState={
+                    bucket.visibleTasks.length === 0 &&
+                    Boolean(deferredGlobalSearch || bucket.controls.search.trim())
+                      ? 'no_results'
+                      : 'all_caught_up'
+                  }
                 />
               )}
             </div>
