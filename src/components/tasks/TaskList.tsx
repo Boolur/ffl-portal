@@ -383,6 +383,19 @@ function formatPacificTimestamp(value: string | Date) {
   }).format(dt);
 }
 
+function formatCompactDateTime(value: string | Date) {
+  const dt = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(dt.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(dt);
+}
+
 function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntry[] {
   if (!data || typeof data !== 'object') return [];
   const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
@@ -955,21 +968,6 @@ export function TaskList({
           (a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
-        const loReturnBadge =
-          currentRole === UserRole.LOAN_OFFICER &&
-          task.kind === TaskKind.SUBMIT_DISCLOSURES &&
-          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
-            ? task.disclosureReason ===
-              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-              ? {
-                  label: 'Sent to Disclosure: Approved',
-                  className: 'border-blue-200 bg-blue-50 text-blue-700',
-                }
-              : {
-                  label: 'Sent to Disclosure: Revision Needed',
-                  className: 'border-amber-200 bg-amber-50 text-amber-700',
-                }
-            : null;
         const isFocused = focusedTaskId === task.id;
         const isExpanded = expandedTaskIds.has(task.id);
         const compactStatusChipClassName =
@@ -980,6 +978,7 @@ export function TaskList({
             : task.status === TaskStatus.BLOCKED
             ? 'border-amber-200 bg-amber-50 text-amber-700'
             : 'border-slate-200 bg-slate-50 text-slate-600';
+        const compactDateTime = task.dueDate ? formatCompactDateTime(task.dueDate) : '';
 
         return (
           <React.Fragment key={task.id}>
@@ -1020,6 +1019,12 @@ export function TaskList({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
+                      {compactDateTime && (
+                        <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                          <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                          {compactDateTime}
+                        </p>
+                      )}
                       <p className="text-sm font-bold leading-snug text-slate-900 line-clamp-1">
                         {task.loan.borrowerName}
                       </p>
@@ -1043,7 +1048,15 @@ export function TaskList({
                       )}
                     </button>
                   </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div
+                  id={`task-expanded-${task.id}`}
+                  className="relative mt-3 border-t border-slate-200/80 pt-3"
+                >
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span
                       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${compactStatusChipClassName}`}
                     >
@@ -1054,46 +1067,8 @@ export function TaskList({
                         Assigned: {assignedSpecialistName}
                       </span>
                     )}
-                    {loReturnBadge && (
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${loReturnBadge.className}`}
-                      >
-                        {loReturnBadge.label}
-                      </span>
-                    )}
                   </div>
                   <WorkedByTags summary={workedBySummary} compact className="mt-1.5" />
-                </div>
-              </div>
-
-              {isExpanded && (
-                <div
-                  id={`task-expanded-${task.id}`}
-                  className="relative mt-3 border-t border-slate-200/80 pt-3"
-                >
-                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                    {task.dueDate && (
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-semibold text-slate-600">
-                        <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                        {new Date(task.dueDate).toLocaleDateString()}
-                      </span>
-                    )}
-                    {task.disclosureReason && (
-                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">
-                        Reason: {disclosureReasonLabel[task.disclosureReason]}
-                      </span>
-                    )}
-                    {workflowChip && (
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold ${workflowChip.className}`}>
-                        {workflowChip.label}
-                      </span>
-                    )}
-                  </div>
-                  {task.description && (
-                    <p className="mt-2 text-xs leading-relaxed text-slate-600 line-clamp-3">
-                      {task.description}
-                    </p>
-                  )}
                 </div>
               )}
             </div>
