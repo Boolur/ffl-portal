@@ -4,20 +4,21 @@ import React from 'react';
 import { Sidebar } from './Sidebar';
 import { TopNav } from './TopNav';
 import { useImpersonation } from '@/lib/impersonation';
-import { ImpersonationControls } from '@/components/admin/ImpersonationControls';
 import { UserRole } from '@prisma/client';
 import { usePathname, useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 
 type DashboardShellProps = {
   children: React.ReactNode;
-  user: { name: string; role: string }; // Real user from session
+  user: { name: string; role: string };
 };
 
 function DashboardContent({ children, user }: DashboardShellProps) {
-  const { activeRole } = useImpersonation();
+  const { activeRole, availableRoles, setActiveRole } = useImpersonation();
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
   const pathname = usePathname();
   const router = useRouter();
+  const { update } = useSession();
 
   React.useEffect(() => {
     const shouldAutoRefresh =
@@ -51,6 +52,16 @@ function DashboardContent({ children, user }: DashboardShellProps) {
     role: activeRole,
   };
 
+  const handleRoleChange = React.useCallback(
+    async (nextRole: UserRole) => {
+      if (nextRole === activeRole) return;
+      setActiveRole(nextRole);
+      await update({ activeRole: nextRole });
+      router.refresh();
+    },
+    [activeRole, router, setActiveRole, update]
+  );
+
   return (
     <div className="min-h-screen app-shell-bg">
       <Sidebar
@@ -59,6 +70,8 @@ function DashboardContent({ children, user }: DashboardShellProps) {
       />
       <TopNav
         user={displayUser}
+        availableRoles={availableRoles}
+        onRoleChange={handleRoleChange}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
       />
@@ -71,7 +84,6 @@ function DashboardContent({ children, user }: DashboardShellProps) {
           {children}
         </div>
       </main>
-      <ImpersonationControls currentUserRole={user.role as UserRole} />
     </div>
   );
 }

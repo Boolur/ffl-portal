@@ -3,18 +3,26 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bell, ChevronDown, LogOut, PanelLeft, Search, Shield } from 'lucide-react';
 import { signOut } from 'next-auth/react';
+import { UserRole } from '@prisma/client';
+
+const formatRole = (role: string) => role.replace(/_/g, ' ');
 
 export function TopNav({
   user,
+  availableRoles,
+  onRoleChange,
   sidebarCollapsed,
   onToggleSidebar,
 }: {
-  user: { name: string; role: string };
+  user: { name: string; role: UserRole };
+  availableRoles: UserRole[];
+  onRoleChange: (role: UserRole) => Promise<void>;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isSwitchingRole, setIsSwitchingRole] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -43,6 +51,17 @@ export function TopNav({
     if (isSigningOut) return;
     setIsSigningOut(true);
     await signOut({ callbackUrl: '/login' });
+  };
+
+  const handleRoleSelect = async (role: UserRole) => {
+    if (isSwitchingRole || role === user.role) return;
+    setIsSwitchingRole(true);
+    try {
+      await onRoleChange(role);
+      setMenuOpen(false);
+    } finally {
+      setIsSwitchingRole(false);
+    }
   };
 
   return (
@@ -82,7 +101,7 @@ export function TopNav({
           <div className="text-right hidden sm:block">
             <p className="text-sm font-semibold text-foreground">{user.name}</p>
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-              {user.role.replace(/_/g, ' ')}
+              {formatRole(user.role)}
             </p>
           </div>
           <button
@@ -108,9 +127,32 @@ export function TopNav({
                 <p className="text-sm font-semibold text-slate-900 truncate">{user.name}</p>
                 <p className="mt-0.5 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   <Shield className="h-3 w-3" />
-                  {user.role.replace(/_/g, ' ')}
+                  {formatRole(user.role)}
                 </p>
               </div>
+              {availableRoles.length > 1 && (
+                <div className="px-3 pt-2 pb-1">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    Switch Role
+                  </p>
+                  <div className="space-y-1">
+                    {availableRoles.map((role) => (
+                      <button
+                        key={role}
+                        onClick={() => handleRoleSelect(role)}
+                        disabled={isSwitchingRole}
+                        className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs font-semibold transition-colors ${
+                          user.role === role
+                            ? 'border-blue-200 bg-blue-50 text-blue-700'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        } disabled:opacity-60 disabled:cursor-not-allowed`}
+                      >
+                        {formatRole(role)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <button
                 onClick={handleSignOut}
                 disabled={isSigningOut}

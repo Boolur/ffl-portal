@@ -40,7 +40,8 @@ const authProxy = withAuth({
   callbacks: {
     authorized: ({ token, req }) => {
       if (!token) return false;
-      if (isAllowed(req.nextUrl.pathname, token.role as string)) return true;
+      const effectiveRole = (token.activeRole as string) || (token.role as string);
+      if (isAllowed(req.nextUrl.pathname, effectiveRole)) return true;
       // Fail-soft for older sessions that might have malformed role claims.
       if (req.nextUrl.pathname.startsWith('/tasks')) return true;
       return false;

@@ -13,6 +13,8 @@ const RESET_TTL_HOURS = 2;
 
 const normalizeEmail = (email: string) => email.toLowerCase().trim();
 const getBaseUrl = () => process.env.NEXTAUTH_URL || 'http://localhost:3000';
+const normalizeRoleList = (roles: UserRole[]) =>
+  Array.from(new Set(roles.filter((role) => ALLOWED_ROLES.includes(role))));
 
 export async function getAllUsers() {
   return prisma.user.findMany({
@@ -22,6 +24,7 @@ export async function getAllUsers() {
       name: true,
       email: true,
       role: true,
+      roles: true,
       active: true,
       createdAt: true,
     },
@@ -31,12 +34,12 @@ export async function getAllUsers() {
 export async function createUser({
   name,
   email,
-  role,
+  roles,
   password,
 }: {
   name: string;
   email: string;
-  role: UserRole;
+  roles: UserRole[];
   password: string;
 }) {
   const trimmedName = name.trim();
@@ -47,8 +50,9 @@ export async function createUser({
     return { success: false, error: 'Name, email, and password are required.' };
   }
 
-  if (!ALLOWED_ROLES.includes(role)) {
-    return { success: false, error: 'Invalid role selected.' };
+  const normalizedRoles = normalizeRoleList(roles);
+  if (normalizedRoles.length === 0) {
+    return { success: false, error: 'Select at least one valid role.' };
   }
 
   const existing = await prisma.user.findUnique({
@@ -66,7 +70,8 @@ export async function createUser({
     data: {
       name: trimmedName,
       email: trimmedEmail,
-      role,
+      role: normalizedRoles[0],
+      roles: normalizedRoles,
       passwordHash,
       active: true,
     },
@@ -254,6 +259,7 @@ export async function acceptInvite({
       update: {
         name: trimmedName,
         role: invite.role,
+        roles: [invite.role],
         passwordHash,
         active: true,
       },
@@ -261,6 +267,7 @@ export async function acceptInvite({
         email: invite.email,
         name: trimmedName,
         role: invite.role,
+        roles: [invite.role],
         passwordHash,
         active: true,
       },
@@ -351,14 +358,18 @@ export async function resetPasswordWithToken(token: string, password: string) {
   return { success: true };
 }
 
-export async function updateUserRole(userId: string, role: UserRole) {
-  if (!ALLOWED_ROLES.includes(role)) {
-    return { success: false, error: 'Invalid role selected.' };
+export async function updateUserRoles(userId: string, roles: UserRole[]) {
+  const normalizedRoles = normalizeRoleList(roles);
+  if (normalizedRoles.length === 0) {
+    return { success: false, error: 'Select at least one valid role.' };
   }
 
   await prisma.user.update({
     where: { id: userId },
-    data: { role },
+    data: {
+      role: normalizedRoles[0],
+      roles: normalizedRoles,
+    },
   });
 
   revalidatePath('/admin/users');

@@ -2,6 +2,36 @@ import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { prisma } from '@/lib/prisma';
 import { compare } from 'bcryptjs';
+import { UserRole } from '@prisma/client';
+
+const ALL_ROLES = Object.values(UserRole) as string[];
+
+function normalizeRole(value?: string | null): UserRole | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  if (!ALL_ROLES.includes(normalized)) return null;
+  return normalized as UserRole;
+}
+
+function normalizeRoles(values?: string[] | null, fallbackRole?: UserRole | null): UserRole[] {
+  const normalized = (values || [])
+    .map((value) => normalizeRole(value))
+    .filter((value): value is UserRole => Boolean(value));
+  const deduped = Array.from(new Set(normalized));
+  if (deduped.length > 0) return deduped;
+  if (fallbackRole) return [fallbackRole];
+  return [UserRole.LOAN_OFFICER];
+}
+
+function resolveActiveRole(
+  roles: UserRole[],
+  preferredRole?: UserRole | null,
+  fallbackRole?: UserRole | null
+): UserRole {
+  if (preferredRole && roles.includes(preferredRole)) return preferredRole;
+  if (fallbackRole && roles.includes(fallbackRole)) return fallbackRole;
+  return roles[0] || UserRole.LOAN_OFFICER;
+}
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: 'jwt' },
@@ -51,15 +81,40 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           email: user.email,
           role: user.role,
+          roles: user.roles?.length ? user.roles : [user.role],
+          activeRole: user.role,
         };
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
-        token.role = (user as { role?: string }).role;
         token.id = (user as { id?: string }).id;
+        const fallbackRole = normalizeRole((user as { role?: string }).role);
+        const roles = normalizeRoles((user as { roles?: string[] }).roles, fallbackRole);
+        const activeRole = resolveActiveRole(
+          roles,
+          normalizeRole((user as { activeRole?: string }).activeRole),
+          fallbackRole
+        );
+        token.roles = roles;
+        token.activeRole = activeRole;
+        token.role = activeRole;
+      }
+
+      if (trigger === 'update') {
+        const tokenRoles = normalizeRoles(
+          (token.roles as string[] | undefined) || undefined,
+          normalizeRole((token.role as string | undefined) || undefined)
+        );
+        const requestedActiveRole = normalizeRole(
+          (session as { activeRole?: string } | undefined)?.activeRole
+        );
+        const activeRole = resolveActiveRole(tokenRoles, requestedActiveRole, token.activeRole as UserRole);
+        token.roles = tokenRoles;
+        token.activeRole = activeRole;
+        token.role = activeRole;
       }
       return token;
     },
@@ -71,17 +126,49 @@ export const authOptions: NextAuthOptions = {
         if (tokenUserId) {
           const dbUser = await prisma.user.findUnique({
             where: { id: tokenUserId },
-            select: { role: true, name: true, active: true },
+            select: { role: true, roles: true, name: true, active: true },
           });
           if (dbUser?.active) {
-            session.user.role = dbUser.role;
+            const roles = normalizeRoles(dbUser.roles, dbUser.role);
+            const activeRole = resolveActiveRole(
+              roles,
+              normalizeRole((token.activeRole as string | undefined) || undefined),
+              normalizeRole((token.role as string | undefined) || undefined)
+            );
+            session.user.roles = roles;
+            session.user.activeRole = activeRole;
+            session.user.role = activeRole;
             session.user.name = dbUser.name || session.user.name;
-            token.role = dbUser.role;
+            token.roles = roles;
+            token.activeRole = activeRole;
+            token.role = activeRole;
           } else {
-            session.user.role = token.role as string;
+            const roles = normalizeRoles(
+              (token.roles as string[] | undefined) || undefined,
+              normalizeRole((token.role as string | undefined) || undefined)
+            );
+            const activeRole = resolveActiveRole(
+              roles,
+              normalizeRole((token.activeRole as string | undefined) || undefined),
+              normalizeRole((token.role as string | undefined) || undefined)
+            );
+            session.user.roles = roles;
+            session.user.activeRole = activeRole;
+            session.user.role = activeRole;
           }
         } else {
-          session.user.role = token.role as string;
+          const roles = normalizeRoles(
+            (token.roles as string[] | undefined) || undefined,
+            normalizeRole((token.role as string | undefined) || undefined)
+          );
+          const activeRole = resolveActiveRole(
+            roles,
+            normalizeRole((token.activeRole as string | undefined) || undefined),
+            normalizeRole((token.role as string | undefined) || undefined)
+          );
+          session.user.roles = roles;
+          session.user.activeRole = activeRole;
+          session.user.role = activeRole;
         }
       }
       return session;

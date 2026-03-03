@@ -7,7 +7,7 @@ export default async function EmailSettingsPage() {
   const session = await getServerSession(authOptions);
   const user = {
     name: session?.user?.name || 'Admin User',
-    role: session?.user?.role || 'ADMIN',
+    role: session?.user?.activeRole || session?.user?.role || 'ADMIN',
   };
 
   return (

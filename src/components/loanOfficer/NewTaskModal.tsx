@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, ClipboardCheck, ShieldCheck, Loader2, FileText, Upload } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createSubmissionTask } from '@/app/actions/taskActions';
@@ -37,21 +37,14 @@ const buttonPricingOptions = [
 ];
 
 export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DISCLOSURES' }: NewTaskModalProps) {
-  const [type, setType] = useState<SubmissionType>(
-    initialType === 'QC' ? 'DISCLOSURES' : initialType
-  );
-  const [submitted, setSubmitted] = useState(false);
+  const type: SubmissionType = 'DISCLOSURES';
   const [showQcComingSoon, setShowQcComingSoon] = useState(false);
   const router = useRouter();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setType(initialType === 'QC' ? 'DISCLOSURES' : initialType);
-      setSubmitted(false);
-      setShowQcComingSoon(false);
-    }
-  }, [open, initialType]);
+  const handleClose = useCallback(() => {
+    setShowQcComingSoon(false);
+    onClose();
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -60,19 +53,19 @@ export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DI
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        handleClose();
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  }, [open, handleClose]);
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
-      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={handleClose} />
       <div
         role="dialog"
         aria-modal="true"
@@ -88,7 +81,7 @@ export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DI
           <button
             ref={closeButtonRef}
             className="app-icon-btn"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />
@@ -101,10 +94,10 @@ export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DI
             icon={ClipboardCheck}
             title="Submit for Disclosures"
             description="Send loan info to the Disclosure Team"
-            onClick={() => setType('DISCLOSURES')}
+            onClick={() => setShowQcComingSoon(false)}
           />
           <TypeButton
-            active={type === 'QC'}
+            active={false}
             icon={ShieldCheck}
             title="Submit for QC"
             description="Send loan to Quality Control"
@@ -125,8 +118,7 @@ export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DI
             <DisclosuresForm
               loanOfficerName={loanOfficerName}
               onSubmitted={() => {
-                setSubmitted(true);
-                onClose();
+                handleClose();
                 router.refresh();
               }}
             />
@@ -134,19 +126,12 @@ export function NewTaskModal({ open, onClose, loanOfficerName, initialType = 'DI
             <QcForm
               loanOfficerName={loanOfficerName}
               onSubmitted={() => {
-                setSubmitted(true);
-                onClose();
+                handleClose();
                 router.refresh();
               }}
             />
           )}
         </div>
-
-        {submitted && (
-          <div className="mt-4 p-3 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm">
-            Submission received. We will route this to the appropriate team.
-          </div>
-        )}
       </div>
     </div>
   );

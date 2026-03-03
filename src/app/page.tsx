@@ -31,15 +31,13 @@ async function getLoans(role?: string | null, userId?: string | null) {
 export default async function Home() {
   const session = await getServerSession(authOptions);
   const sessionUserId = session?.user?.id || '';
-  const dbUser = sessionUserId
-    ? await prisma.user.findUnique({
-        where: { id: sessionUserId },
-        select: { name: true, role: true },
-      })
-    : null;
+  const sessionRole = (session?.user?.activeRole || session?.user?.role || 'LOAN_OFFICER') as UserRole;
+  const sessionRoles = ((session?.user?.roles as UserRole[] | undefined) || [sessionRole]);
   const user = {
-    name: dbUser?.name || session?.user?.name || 'User',
-    role: dbUser?.role || session?.user?.role || 'LOAN_OFFICER',
+    name: session?.user?.name || 'User',
+    role: sessionRole,
+    activeRole: sessionRole,
+    roles: sessionRoles,
     id: sessionUserId,
   };
   const [loans, adminTasks] = await Promise.all([

@@ -8,7 +8,7 @@ export default async function Pipeline() {
   const session = await getServerSession(authOptions);
   const user = {
     name: session?.user?.name || 'User',
-    role: session?.user?.role || 'LOAN_OFFICER',
+    role: session?.user?.activeRole || session?.user?.role || 'LOAN_OFFICER',
   };
 
   return (

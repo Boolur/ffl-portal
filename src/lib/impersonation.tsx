@@ -5,6 +5,9 @@ import { UserRole } from '@prisma/client';
 
 type ImpersonationContextType = {
   activeRole: UserRole;
+  availableRoles: UserRole[];
+  setActiveRole: (role: UserRole) => void;
+  // Backward-compatible aliases while callers migrate.
   isImpersonating: boolean;
   startImpersonating: (role: UserRole) => void;
   stopImpersonating: () => void;
@@ -12,27 +15,50 @@ type ImpersonationContextType = {
 
 const ImpersonationContext = createContext<ImpersonationContextType | undefined>(undefined);
 
-export function ImpersonationProvider({ children, initialRole }: { children: React.ReactNode, initialRole: UserRole }) {
-  const [activeRole, setActiveRole] = useState<UserRole>(initialRole);
-  const [originalRole, setOriginalRole] = useState<UserRole>(initialRole);
+export function ImpersonationProvider({
+  children,
+  initialRole,
+  availableRoles,
+}: {
+  children: React.ReactNode;
+  initialRole: UserRole;
+  availableRoles: UserRole[];
+}) {
+  const normalizedRoles = availableRoles.length > 0 ? availableRoles : [initialRole];
+  const initialActiveRole = normalizedRoles.includes(initialRole) ? initialRole : normalizedRoles[0];
+  const [activeRole, setActiveRole] = useState<UserRole>(initialActiveRole);
+  const [roles, setRoles] = useState<UserRole[]>(normalizedRoles);
 
   React.useEffect(() => {
-    setActiveRole(initialRole);
-    setOriginalRole(initialRole);
-  }, [initialRole]);
+    const nextRoles = availableRoles.length > 0 ? availableRoles : [initialRole];
+    setRoles(nextRoles);
+    setActiveRole(nextRoles.includes(initialRole) ? initialRole : nextRoles[0]);
+  }, [availableRoles, initialRole]);
 
-  const isImpersonating = activeRole !== originalRole;
-
-  const startImpersonating = (role: UserRole) => {
+  const applyActiveRole = (role: UserRole) => {
+    if (!roles.includes(role)) return;
     setActiveRole(role);
   };
 
+  const startImpersonating = (role: UserRole) => {
+    applyActiveRole(role);
+  };
+
   const stopImpersonating = () => {
-    setActiveRole(originalRole);
+    setActiveRole(initialActiveRole);
   };
 
   return (
-    <ImpersonationContext.Provider value={{ activeRole, isImpersonating, startImpersonating, stopImpersonating }}>
+    <ImpersonationContext.Provider
+      value={{
+        activeRole,
+        availableRoles: roles,
+        setActiveRole: applyActiveRole,
+        isImpersonating: false,
+        startImpersonating,
+        stopImpersonating,
+      }}
+    >
       {children}
     </ImpersonationContext.Provider>
   );

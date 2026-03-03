@@ -943,8 +943,8 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 
     let finalSubmissionData = submissionData;
     if (notes?.trim()) {
-      const dataObj = (submissionData && typeof submissionData === 'object') 
-        ? { ...(submissionData as Record<string, any>) } 
+      const dataObj = (submissionData && typeof submissionData === 'object')
+        ? { ...(submissionData as Record<string, unknown>) }
         : {};
       
       const initialNote = {
@@ -955,7 +955,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       };
       
       dataObj.notesHistory = [initialNote];
-      finalSubmissionData = dataObj;
+      finalSubmissionData = dataObj as Prisma.JsonObject;
     }
 
     const createdTask = await prisma.task.create({
@@ -1147,13 +1147,13 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
 
       let updatedSubmissionData = task.submissionData;
       if (noteEntry) {
-        const dataObj = (task.submissionData && typeof task.submissionData === 'object') 
-          ? { ...(task.submissionData as Record<string, any>) } 
+        const dataObj = (task.submissionData && typeof task.submissionData === 'object')
+          ? { ...(task.submissionData as Record<string, unknown>) }
           : {};
         const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
         notes.push(noteEntry);
         dataObj.notesHistory = notes;
-        updatedSubmissionData = dataObj;
+        updatedSubmissionData = dataObj as Prisma.JsonObject;
       }
 
       await tx.task.update({
@@ -1305,13 +1305,13 @@ export async function respondToDisclosureRequest(
 
       let updatedSubmissionData = parentTask.submissionData;
       if (noteEntry) {
-        const dataObj = (parentTask.submissionData && typeof parentTask.submissionData === 'object') 
-          ? { ...(parentTask.submissionData as Record<string, any>) } 
+        const dataObj = (parentTask.submissionData && typeof parentTask.submissionData === 'object')
+          ? { ...(parentTask.submissionData as Record<string, unknown>) }
           : {};
         const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
         notes.push(noteEntry);
         dataObj.notesHistory = notes;
-        updatedSubmissionData = dataObj;
+        updatedSubmissionData = dataObj as Prisma.JsonObject;
       }
 
       await tx.task.update({
@@ -1429,13 +1429,13 @@ export async function reviewInitialDisclosureFigures(input: {
       };
 
       let updatedSubmissionData = parentTask.submissionData;
-      const dataObj = (parentTask.submissionData && typeof parentTask.submissionData === 'object') 
-        ? { ...(parentTask.submissionData as Record<string, any>) } 
+      const dataObj = (parentTask.submissionData && typeof parentTask.submissionData === 'object')
+        ? { ...(parentTask.submissionData as Record<string, unknown>) }
         : {};
       const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
       notes.push(noteEntry);
       dataObj.notesHistory = notes;
-      updatedSubmissionData = dataObj;
+      updatedSubmissionData = dataObj as Prisma.JsonObject;
 
       await tx.task.update({
         where: { id: input.taskId },

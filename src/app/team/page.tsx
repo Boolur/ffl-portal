@@ -9,7 +9,7 @@ export default async function TeamPage() {
   const session = await getServerSession(authOptions);
   const user = {
     name: session?.user?.name || 'Manager',
-    role: session?.user?.role || 'MANAGER',
+    role: session?.user?.activeRole || session?.user?.role || 'MANAGER',
     id: session?.user?.id || '',
   };
 

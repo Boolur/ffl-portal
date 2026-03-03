@@ -36,7 +36,7 @@ export default async function LeadMailboxAdminPage() {
 
   const user = {
     name: session?.user?.name || 'Admin User',
-    role: session?.user?.role || 'ADMIN',
+    role: session?.user?.activeRole || session?.user?.role || 'ADMIN',
   };
 
   return (

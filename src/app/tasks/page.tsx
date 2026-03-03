@@ -471,7 +471,7 @@ type TasksPageProps = {
 
 export default async function TasksPage({ searchParams }: TasksPageProps) {
   const session = await getServerSession(authOptions);
-  const sessionRole = normalizeRole(session?.user?.role);
+  const sessionRole = normalizeRole(session?.user?.activeRole || session?.user?.role);
   const sessionUser = {
     name: session?.user?.name || MOCK_USER.name,
     role: sessionRole,

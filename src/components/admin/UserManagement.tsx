@@ -5,7 +5,7 @@ import { UserRole } from '@prisma/client';
 import {
   createUser,
   inviteUser,
-  updateUserRole,
+  updateUserRoles,
   updateUserStatus,
   resetUserPassword,
   requestPasswordReset,
@@ -21,6 +21,7 @@ type UserRow = {
   name: string;
   email: string;
   role: UserRole;
+  roles: UserRole[];
   active: boolean;
   createdAt: string;
 };
@@ -52,12 +53,12 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
   const [formState, setFormState] = useState<{
     name: string;
     email: string;
-    role: UserRole;
+    roles: UserRole[];
     password: string;
   }>({
     name: '',
     email: '',
-    role: UserRole.LOAN_OFFICER,
+    roles: [UserRole.LOAN_OFFICER],
     password: '',
   });
   const [inviteState, setInviteState] = useState<{
@@ -93,7 +94,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
       setFormState({
         name: '',
         email: '',
-        role: UserRole.LOAN_OFFICER,
+        roles: [UserRole.LOAN_OFFICER],
         password: '',
       });
       setCreateStatus({ type: 'success', message: 'User created successfully.' });
@@ -168,9 +169,19 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
     router.refresh();
   };
 
-  const handleRoleChange = async (userId: string, role: UserRole) => {
-    await updateUserRole(userId, role);
+  const handleRoleChange = async (userId: string, roles: UserRole[]) => {
+    const nextRoles = Array.from(new Set(roles));
+    if (nextRoles.length === 0) {
+      setDirectoryStatus({ type: 'error', message: 'Each user must have at least one role.' });
+      return;
+    }
+    await updateUserRoles(userId, nextRoles);
     router.refresh();
+  };
+
+  const toggleRoleInList = (roles: UserRole[], role: UserRole) => {
+    if (roles.includes(role)) return roles.filter((r) => r !== role);
+    return [...roles, role];
   };
 
   const handleStatusChange = async (userId: string, active: boolean) => {
@@ -262,19 +273,28 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                 className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
               />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <select
-                  value={formState.role}
-                  onChange={(event) =>
-                    setFormState({ ...formState, role: event.target.value as UserRole })
-                  }
-                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
-                >
-                  {roleOptions.map((role) => (
-                    <option key={role} value={role}>
-                      {role.replace(/_/g, ' ')}
-                    </option>
-                  ))}
-                </select>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                    Roles
+                  </p>
+                  <div className="max-h-36 overflow-y-auto space-y-1.5">
+                    {roleOptions.map((role) => (
+                      <label key={role} className="flex items-center gap-2 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={formState.roles.includes(role)}
+                          onChange={() =>
+                            setFormState((prev) => ({
+                              ...prev,
+                              roles: toggleRoleInList(prev.roles, role),
+                            }))
+                          }
+                        />
+                        {role.replace(/_/g, ' ')}
+                      </label>
+                    ))}
+                  </div>
+                </div>
                 <input
                   type="password"
                   name="create_temp_password"
@@ -386,17 +406,29 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <select
-                  value={user.role}
-                  onChange={(event) => handleRoleChange(user.id, event.target.value as UserRole)}
-                  className="px-3 py-2 border border-slate-200 rounded-lg text-xs"
-                >
-                  {roleOptions.map((role) => (
-                    <option key={role} value={role}>
-                      {role.replace(/_/g, ' ')}
-                    </option>
-                  ))}
-                </select>
+                <div className="rounded-lg border border-slate-200 px-2.5 py-2">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Roles
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {roleOptions.map((role) => {
+                      const roleList = user.roles?.length ? user.roles : [user.role];
+                      const checked = roleList.includes(role);
+                      return (
+                        <label key={`${user.id}-${role}`} className="inline-flex items-center gap-1.5 text-[11px] text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              handleRoleChange(user.id, toggleRoleInList(roleList, role))
+                            }
+                          />
+                          {role.replace(/_/g, ' ')}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
 
                 <label className="flex items-center gap-2 text-xs text-slate-600">
                   <input

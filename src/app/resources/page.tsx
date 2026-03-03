@@ -7,7 +7,7 @@ export default async function ResourcesPage() {
   const session = await getServerSession(authOptions);
   const user = {
     name: session?.user?.name || 'User',
-    role: session?.user?.role || 'LOAN_OFFICER',
+    role: session?.user?.activeRole || session?.user?.role || 'LOAN_OFFICER',
   };
 
   return (
