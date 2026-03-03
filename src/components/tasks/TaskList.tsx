@@ -988,6 +988,21 @@ export function TaskList({
             ? 'border-amber-200 bg-amber-50 text-amber-700'
             : 'border-slate-200 bg-slate-50 text-slate-600';
         const compactDateTime = task.dueDate ? formatCompactDateTime(task.dueDate) : '';
+        const isReturnedToDisclosure =
+          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE;
+        const returnedToDisclosureIconClassName =
+          task.disclosureReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+            ? 'bg-blue-100 text-blue-600'
+            : 'bg-amber-100 text-amber-600';
+        const defaultIconClassName =
+          task.status === TaskStatus.COMPLETED
+            ? 'bg-emerald-100 text-emerald-600'
+            : task.status === TaskStatus.IN_PROGRESS
+            ? 'bg-blue-100 text-blue-600'
+            : 'bg-slate-100 text-slate-500';
+        const iconClassName = isReturnedToDisclosure
+          ? returnedToDisclosureIconClassName
+          : defaultIconClassName;
 
         return (
           <React.Fragment key={task.id}>
@@ -1013,13 +1028,7 @@ export function TaskList({
                     event.stopPropagation();
                     setFocusedTaskId(task.id);
                   }}
-                  className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/5 ${
-                    task.status === TaskStatus.COMPLETED
-                      ? 'bg-emerald-100 text-emerald-600'
-                      : task.status === TaskStatus.IN_PROGRESS
-                      ? 'bg-blue-100 text-blue-600'
-                      : 'bg-slate-100 text-slate-500'
-                  }`}
+                  className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/5 ${iconClassName}`}
                   title="Open task details"
                   aria-label={`Open details for ${task.loan.borrowerName}`}
                 >

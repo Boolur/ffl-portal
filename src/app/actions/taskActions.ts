@@ -484,14 +484,19 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         changedBy: input.changedBy,
       });
 
-      await createInAppNotificationsForAudience({
-        recipientEmails: normalizedRecipients,
-        taskId: task.id,
-        eventLabel: copy.eventLabel,
-        title: copy.subject.replace(/^\[FFL Portal\]\s*/i, ''),
-        message: `${loan.borrowerName} (${loan.loanNumber}) - ${copy.intro}`,
-        href: `/tasks?taskId=${encodeURIComponent(task.id)}`,
-      });
+      try {
+        await createInAppNotificationsForAudience({
+          recipientEmails: normalizedRecipients,
+          taskId: task.id,
+          eventLabel: copy.eventLabel,
+          title: copy.subject.replace(/^\[FFL Portal\]\s*/i, ''),
+          message: `${loan.borrowerName} (${loan.loanNumber}) - ${copy.intro}`,
+          href: `/tasks?taskId=${encodeURIComponent(task.id)}`,
+        });
+      } catch (error) {
+        // Keep email delivery resilient even if in-app notifications fail.
+        console.error('Failed to create in-app task notifications:', error);
+      }
 
       const bodyLines = [
         `Event: ${copy.eventLabel}`,
