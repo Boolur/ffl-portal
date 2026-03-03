@@ -48,7 +48,6 @@ const disclosureReasonOptions: Array<{
     label: 'Approve Initial Disclosures',
   },
   { value: DisclosureDecisionReason.MISSING_ITEMS, label: 'Missing Items' },
-  { value: DisclosureDecisionReason.OTHER, label: 'Other' },
 ];
 
 const qcReasonOptions: Array<{
@@ -565,6 +564,7 @@ export function TaskList({
   const [uploadingId, setUploadingId] = React.useState<string | null>(null);
   const [deletingAttachmentId, setDeletingAttachmentId] = React.useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = React.useState<string | null>(null);
+  const [initialFocusConsumed, setInitialFocusConsumed] = React.useState(false);
   const [sendingToLoId, setSendingToLoId] = React.useState<string | null>(null);
   const [respondingId, setRespondingId] = React.useState<string | null>(null);
   const [disclosureReasonByTask, setDisclosureReasonByTask] = React.useState<
@@ -578,12 +578,13 @@ export function TaskList({
   >({});
 
   React.useEffect(() => {
-    if (!initialFocusedTaskId) return;
+    if (!initialFocusedTaskId || initialFocusConsumed) return;
     const existsInList = tasks.some((task) => task.id === initialFocusedTaskId);
     if (existsInList) {
       setFocusedTaskId(initialFocusedTaskId);
+      setInitialFocusConsumed(true);
     }
-  }, [initialFocusedTaskId, tasks]);
+  }, [initialFocusedTaskId, initialFocusConsumed, tasks]);
 
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
     if (updatingId) return;
@@ -1417,7 +1418,9 @@ export function TaskList({
                           proofCount < 1 ||
                           !disclosureFooterMessage
                         }
-                        className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                        className={`disabled:opacity-60 disabled:cursor-not-allowed ${
+                          isDisclosureRole ? 'app-btn-primary' : 'app-btn-secondary'
+                        }`}
                       >
                         {sendingToLoId === task.id && (
                           <Loader2 className="w-4 h-4 animate-spin" />

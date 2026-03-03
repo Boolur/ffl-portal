@@ -73,6 +73,8 @@ function buildTaskNotificationHtml(input: {
   logoUrl: string;
   subject: string;
   eventLabel: string;
+  intro: string;
+  ctaLabel: string;
   borrowerName: string;
   loanNumber: string;
   taskTitle: string;
@@ -133,7 +135,7 @@ function buildTaskNotificationHtml(input: {
             input.subject
           )}</h1>
           <p style="margin:0;color:#475569;font-size:14px;line-height:1.6;">
-            A workflow update was posted in Federal First Lending Portal. Use the button below to jump directly to the task details.
+            ${escapeHtml(input.intro)}
           </p>
         </td>
       </tr>
@@ -151,7 +153,7 @@ function buildTaskNotificationHtml(input: {
                   href="${escapeHtml(input.taskUrl)}"
                   style="display:inline-block;padding:14px 24px;border:1px solid #1e40af;border-radius:12px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#ffffff;font-size:15px;line-height:1.2;font-weight:700;text-decoration:none;letter-spacing:0.01em;"
                 >
-                  Open Task in Portal
+                  ${escapeHtml(input.ctaLabel)}
                 </a>
               </td>
             </tr>
@@ -167,6 +169,176 @@ function buildTaskNotificationHtml(input: {
     </table>
   </div>
   `;
+}
+
+type EmailAudience = 'LO' | 'DISCLOSURE';
+
+function getEffectiveReasonLabel(task: {
+  workflowState: TaskWorkflowState;
+  disclosureReason: DisclosureDecisionReason | null;
+}) {
+  if (task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL) {
+    return 'Approve Initial Figures';
+  }
+  if (task.workflowState === TaskWorkflowState.WAITING_ON_LO) {
+    return 'Missing Items';
+  }
+  return task.disclosureReason
+    ? disclosureReasonEmailLabel[task.disclosureReason]
+    : null;
+}
+
+function getRoleSpecificEmailContent(input: {
+  audience: EmailAudience;
+  eventLabel: string;
+  borrowerName: string;
+  loanNumber: string;
+  taskTitle: string;
+  status: TaskStatus;
+  workflowLabel: string;
+  reasonLabel: string | null;
+}) {
+  const base = {
+    eventLabel: input.eventLabel,
+    intro:
+      input.audience === 'LO'
+        ? 'A workflow update was posted in Federal First Lending Portal. Please review this task now.'
+        : 'A workflow update was posted in Federal First Lending Portal. Use the button below to review or track this task.',
+    ctaLabel:
+      input.audience === 'LO' ? 'Open Task in Portal' : 'Track Task in Portal',
+    statusLabel: input.status,
+    workflowLabel: input.workflowLabel,
+    reasonLabel: input.reasonLabel,
+  };
+
+  if (input.eventLabel === 'Sent to Loan Officer') {
+    if (input.audience === 'LO') {
+      const isApproval = input.reasonLabel === 'Approve Initial Figures';
+      return {
+        ...base,
+        subject: `[FFL Portal] Action Required: ${input.borrowerName} (${input.loanNumber})`,
+        eventLabel: isApproval
+          ? 'Approve Initial Figures Required'
+          : 'Missing Items Requested',
+        intro: isApproval
+          ? 'Disclosure Desk routed this file to you for approval of initial figures.'
+          : 'Disclosure Desk routed this file to you for missing or corrected items.',
+        ctaLabel: isApproval
+          ? 'Review & Approve Figures'
+          : 'Review Missing Items',
+        statusLabel: 'ACTION REQUIRED',
+        workflowLabel: 'Waiting on LO',
+      };
+    }
+    return {
+      ...base,
+      subject: `[FFL Portal] Waiting on LO: ${input.borrowerName} (${input.loanNumber})`,
+      eventLabel: 'Waiting on LO',
+      intro:
+        'This request has been sent to the Loan Officer and is now waiting on LO response.',
+      ctaLabel: 'Track Task in Portal',
+      statusLabel: 'IN PROGRESS',
+      workflowLabel: 'Waiting on LO',
+    };
+  }
+
+  if (input.eventLabel === 'Loan Officer Responded') {
+    if (input.audience === 'LO') {
+      return {
+        ...base,
+        subject: `[FFL Portal] Response Sent: ${input.borrowerName} (${input.loanNumber})`,
+        eventLabel: 'Response Sent to Disclosure',
+        intro:
+          'Your response was sent back to Disclosure. You can track progress from the task page.',
+        statusLabel: 'SENT',
+      };
+    }
+    return {
+      ...base,
+      subject: `[FFL Portal] Returned to Disclosure: ${input.borrowerName} (${input.loanNumber})`,
+      eventLabel: 'LO Responded - Review Needed',
+      intro:
+        'Loan Officer response has been received. Review details and complete next disclosure action.',
+      ctaLabel: 'Review Response in Portal',
+      statusLabel: 'REVIEW NEEDED',
+      workflowLabel: 'Returned to Disclosure',
+    };
+  }
+
+  if (input.eventLabel === 'Loan Officer Approved Figures') {
+    if (input.audience === 'LO') {
+      return {
+        ...base,
+        subject: `[FFL Portal] Approval Submitted: ${input.borrowerName} (${input.loanNumber})`,
+        eventLabel: 'Approval Sent to Disclosure',
+        intro:
+          'Your approval was submitted successfully. Disclosure Desk will complete the next step.',
+        statusLabel: 'SENT',
+      };
+    }
+    return {
+      ...base,
+      subject: `[FFL Portal] LO Approved Figures: ${input.borrowerName} (${input.loanNumber})`,
+      eventLabel: 'LO Approved Initial Figures',
+      intro:
+        'Loan Officer approved the initial figures. Proceed with disclosure completion steps.',
+      ctaLabel: 'Complete Disclosure Task',
+      statusLabel: 'READY TO COMPLETE',
+      workflowLabel: 'Returned to Disclosure',
+      reasonLabel: 'Approve Initial Figures',
+    };
+  }
+
+  if (input.eventLabel === 'Loan Officer Requested Revision') {
+    if (input.audience === 'LO') {
+      return {
+        ...base,
+        subject: `[FFL Portal] Revision Submitted: ${input.borrowerName} (${input.loanNumber})`,
+        eventLabel: 'Revision Request Sent',
+        intro:
+          'Your revision request was sent back to Disclosure for updates.',
+        statusLabel: 'SENT',
+      };
+    }
+    return {
+      ...base,
+      subject: `[FFL Portal] LO Requested Revision: ${input.borrowerName} (${input.loanNumber})`,
+      eventLabel: 'Revision Needed - Returned to Disclosure',
+      intro:
+        'Loan Officer requested revisions. Review the notes and prepare the next disclosure update.',
+      ctaLabel: 'Review Revision Request',
+      statusLabel: 'REVISION NEEDED',
+      workflowLabel: 'Returned to Disclosure',
+      reasonLabel: 'Missing Items',
+    };
+  }
+
+  if (input.eventLabel === 'New Request Submitted') {
+    if (input.audience === 'LO') {
+      return {
+        ...base,
+        subject: `[FFL Portal] Request Submitted: ${input.borrowerName} (${input.loanNumber})`,
+        eventLabel: 'Submission Received',
+        intro:
+          'Your new request has been submitted and is now queued with Disclosure Desk.',
+      };
+    }
+    return {
+      ...base,
+      subject: `[FFL Portal] New Disclosure Request: ${input.borrowerName} (${input.loanNumber})`,
+      eventLabel: 'New Request Submitted',
+      intro:
+        'A new disclosure request is in your queue. Review details and take action.',
+      ctaLabel: 'Open New Request',
+      statusLabel: 'NEW',
+      workflowLabel: 'New Disclosure Request',
+    };
+  }
+
+  return {
+    ...base,
+    subject: `[FFL Portal] ${input.eventLabel}: ${input.borrowerName} (${input.loanNumber})`,
+  };
 }
 
 async function sendTaskWorkflowNotificationsByTaskId(input: {
@@ -210,61 +382,88 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
 
     if (!loan) return;
 
-    const recipientSet = new Set<string>();
+    const disclosureRecipientSet = new Set<string>();
     for (const user of disclosureUsers) {
-      if (user.email?.trim()) recipientSet.add(user.email.trim().toLowerCase());
+      if (user.email?.trim()) {
+        disclosureRecipientSet.add(user.email.trim().toLowerCase());
+      }
     }
-    if (loan.loanOfficer?.active && loan.loanOfficer.email?.trim()) {
-      recipientSet.add(loan.loanOfficer.email.trim().toLowerCase());
+    const loanOfficerEmail =
+      loan.loanOfficer?.active && loan.loanOfficer.email?.trim()
+        ? loan.loanOfficer.email.trim().toLowerCase()
+        : null;
+    if (loanOfficerEmail) {
+      disclosureRecipientSet.delete(loanOfficerEmail);
     }
+    if (disclosureRecipientSet.size === 0 && !loanOfficerEmail) return;
 
-    if (recipientSet.size === 0) return;
-
-    const subject = `[FFL Portal] ${input.eventLabel}: ${loan.borrowerName} (${loan.loanNumber})`;
     const portalBaseUrl = getPortalBaseUrl();
     const taskUrl = `${portalBaseUrl}/tasks?taskId=${encodeURIComponent(task.id)}`;
     const logoUrl =
       process.env.EMAIL_BRAND_LOGO_URL?.trim() || `${portalBaseUrl}/logo.png`;
     const workflowLabel = workflowStateEmailLabel[task.workflowState];
-    const reasonLabel = task.disclosureReason
-      ? disclosureReasonEmailLabel[task.disclosureReason]
-      : null;
-    const bodyLines = [
-      `Event: ${input.eventLabel}`,
-      `Borrower: ${loan.borrowerName}`,
-      `Loan Number: ${loan.loanNumber}`,
-      `Task: ${task.title}`,
-      `Status: ${task.status}`,
-      `Workflow: ${workflowLabel}`,
-      reasonLabel ? `Reason: ${reasonLabel}` : null,
-      input.changedBy ? `Changed By: ${input.changedBy}` : null,
-      `Open Task: ${taskUrl}`,
-    ].filter(Boolean) as string[];
+    const reasonLabel = getEffectiveReasonLabel(task);
 
-    const html = buildTaskNotificationHtml({
-      logoUrl,
-      subject,
-      eventLabel: input.eventLabel,
-      borrowerName: loan.borrowerName,
-      loanNumber: loan.loanNumber,
-      taskTitle: task.title,
-      status: task.status,
-      workflow: workflowLabel,
-      reason: reasonLabel,
-      changedBy: input.changedBy || null,
-      taskUrl,
-    });
+    const sendByAudience = async (audience: EmailAudience, recipients: string[]) => {
+      if (recipients.length === 0) return;
+      const copy = getRoleSpecificEmailContent({
+        audience,
+        eventLabel: input.eventLabel,
+        borrowerName: loan.borrowerName,
+        loanNumber: loan.loanNumber,
+        taskTitle: task.title,
+        status: task.status,
+        workflowLabel,
+        reasonLabel,
+      });
 
-    await Promise.all(
-      Array.from(recipientSet).map((to) =>
-        sendEmail({
-          to,
-          subject,
-          html,
-          text: bodyLines.join('\n'),
-        })
-      )
+      const bodyLines = [
+        `Event: ${copy.eventLabel}`,
+        `Borrower: ${loan.borrowerName}`,
+        `Loan Number: ${loan.loanNumber}`,
+        `Task: ${task.title}`,
+        `Status: ${copy.statusLabel}`,
+        `Workflow: ${copy.workflowLabel}`,
+        copy.reasonLabel ? `Reason: ${copy.reasonLabel}` : 'Reason: Not specified',
+        input.changedBy ? `Changed By: ${input.changedBy}` : null,
+        `Open Task: ${taskUrl}`,
+      ].filter(Boolean) as string[];
+
+      const html = buildTaskNotificationHtml({
+        logoUrl,
+        subject: copy.subject,
+        eventLabel: copy.eventLabel,
+        intro: copy.intro,
+        ctaLabel: copy.ctaLabel,
+        borrowerName: loan.borrowerName,
+        loanNumber: loan.loanNumber,
+        taskTitle: task.title,
+        status: String(copy.statusLabel),
+        workflow: copy.workflowLabel,
+        reason: copy.reasonLabel,
+        changedBy: input.changedBy || null,
+        taskUrl,
+      });
+
+      await Promise.all(
+        recipients.map((to) =>
+          sendEmail({
+            to,
+            subject: copy.subject,
+            html,
+            text: bodyLines.join('\n'),
+          })
+        )
+      );
+    };
+
+    await sendByAudience(
+      'DISCLOSURE',
+      Array.from(disclosureRecipientSet)
     );
+    if (loanOfficerEmail) {
+      await sendByAudience('LO', [loanOfficerEmail]);
+    }
   } catch (error) {
     console.error('Failed to send task workflow notifications:', error);
   }
