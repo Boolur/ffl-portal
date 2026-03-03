@@ -225,6 +225,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
             taskId: true,
             filename: true,
             purpose: true,
+            storagePath: true,
             createdAt: true,
             uploadedBy: {
               select: {
@@ -265,8 +266,11 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     for (const chainTaskId of chainIds) {
       const chainAttachments = attachmentsByTaskId.get(chainTaskId) || [];
       for (const att of chainAttachments) {
-        if (timelineAttachmentsMap.has(att.id)) continue;
-        timelineAttachmentsMap.set(att.id, {
+        // Parent/child workflow tasks can carry mirrored attachment rows.
+        // Dedupe by storagePath so one bucket transition shows one attachment event.
+        const dedupeKey = `${att.storagePath}::${att.purpose}`;
+        if (timelineAttachmentsMap.has(dedupeKey)) continue;
+        timelineAttachmentsMap.set(dedupeKey, {
           id: att.id,
           filename: att.filename,
           purpose: att.purpose,
