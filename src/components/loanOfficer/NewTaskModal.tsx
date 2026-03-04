@@ -969,8 +969,7 @@ function DisclosuresForm({
         </div>
         {!mismoIncomeProfile.employmentFieldsRequired && mismoIncomeProfile.hasAnyIncomeItems && (
           <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
-            Employment income was not detected in this MISMO file, so employer fields are optional
-            for this submission.
+            Other Income/Loan Type detected in the MISMO File. Employer Fields Not Required.
           </div>
         )}
         {missingMismoLabels.length > 0 && (
