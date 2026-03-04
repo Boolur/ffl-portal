@@ -175,7 +175,7 @@ export function TaskBucketsBoard({
                 activeBucketId === bucket.id
                   ? 'border-blue-300 ring-1 ring-blue-200'
                   : 'border-slate-200/80'
-              }`}
+              } ${isCollapsed ? 'self-start' : ''}`}
             >
               <div
                 className={`flex flex-col gap-1.5 ${
