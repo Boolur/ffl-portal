@@ -585,6 +585,8 @@ export type Task = {
   title: string;
   description: string | null;
   status: TaskStatus;
+  createdAt?: Date | string;
+  completedAt?: Date | string | null;
   updatedAt?: Date;
   dueDate: Date | null;
   kind: TaskKind | null;
@@ -672,7 +674,10 @@ export function TaskList({
   }, [initialFocusedTaskId, initialFocusConsumed, tasks]);
 
   React.useEffect(() => {
-    if (currentRole !== UserRole.DISCLOSURE_SPECIALIST) return;
+    const canViewDisclosureSlaTimer =
+      currentRole === UserRole.DISCLOSURE_SPECIALIST ||
+      currentRole === UserRole.LOAN_OFFICER;
+    if (!canViewDisclosureSlaTimer) return;
     const intervalId = window.setInterval(() => {
       setTimerNowMs(Date.now());
     }, 30_000);
@@ -889,6 +894,7 @@ export function TaskList({
     kind === TaskKind.VA_APPRAISAL;
 
   const isDisclosureRole = currentRole === UserRole.DISCLOSURE_SPECIALIST;
+  const isLoanOfficerRole = currentRole === UserRole.LOAN_OFFICER;
   const isQcRole = currentRole === UserRole.QC;
   const isDisclosureSubmissionTask = (task: Task) =>
     task.kind === TaskKind.SUBMIT_DISCLOSURES;
@@ -1067,12 +1073,17 @@ export function TaskList({
           ? returnedToDisclosureIconClassName
           : defaultIconClassName;
         const shouldShowDisclosureSlaTimer =
-          isDisclosureRole &&
+          (isDisclosureRole || isLoanOfficerRole) &&
           isDisclosureSubmissionTask(task) &&
           task.status !== TaskStatus.COMPLETED;
         const disclosureSlaTimerMeta = shouldShowDisclosureSlaTimer
           ? getDisclosureSlaTimerMeta(task.updatedAt, timerNowMs)
           : null;
+        const completionEndValue = task.completedAt || task.updatedAt;
+        const completedTotalTimeMeta =
+          task.status === TaskStatus.COMPLETED && task.createdAt && completionEndValue
+            ? getDisclosureSlaTimerMeta(task.createdAt, new Date(completionEndValue).getTime())
+            : null;
 
         return (
           <React.Fragment key={task.id}>
@@ -1122,6 +1133,15 @@ export function TaskList({
                             >
                               <Clock3 className="mr-1 h-2.5 w-2.5" />
                               {disclosureSlaTimerMeta.label}
+                            </span>
+                          )}
+                          {completedTotalTimeMeta && (
+                            <span
+                              className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold leading-none text-slate-700"
+                              title="Total time from submission to completion"
+                            >
+                              <Clock3 className="mr-1 h-2.5 w-2.5" />
+                              Total {completedTotalTimeMeta.label}
                             </span>
                           )}
                         </div>
