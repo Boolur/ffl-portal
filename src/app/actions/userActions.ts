@@ -602,6 +602,24 @@ export async function updateUserStatus(userId: string, active: boolean) {
   return { success: true };
 }
 
+export async function updateUserName(userId: string, name: string) {
+  const trimmedName = name.trim();
+  if (!userId) {
+    return { success: false, error: 'Missing user ID.' };
+  }
+  if (!trimmedName) {
+    return { success: false, error: 'Name cannot be empty.' };
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { name: trimmedName },
+  });
+
+  revalidatePath('/admin/users');
+  return { success: true };
+}
+
 export async function deleteUser(userId: string, currentUserId?: string) {
   try {
     if (!userId) {

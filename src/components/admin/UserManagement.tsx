@@ -7,6 +7,7 @@ import {
   inviteUser,
   updateUserRoles,
   updateUserStatus,
+  updateUserName,
   resetUserPassword,
   requestPasswordReset,
   deleteInvite,
@@ -231,6 +232,23 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
         message: 'Delete failed unexpectedly. Please try again.',
       });
     }
+  };
+
+  const handleEditUserName = async (userId: string, currentName: string) => {
+    const nextName = window.prompt('Enter updated display name:', currentName);
+    if (!nextName) return;
+    const trimmed = nextName.trim();
+    if (!trimmed || trimmed === currentName.trim()) return;
+
+    const result = await updateUserName(userId, trimmed);
+    if (!result.success) {
+      const message = result.error || 'Failed to update name.';
+      setDirectoryStatus({ type: 'error', message });
+      window.alert(message);
+      return;
+    }
+    setDirectoryStatus({ type: 'success', message: 'User name updated.' });
+    router.refresh();
   };
 
   const renderStatus = (
@@ -487,6 +505,12 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                           <td className="px-4 py-3.5">
                             <div className="flex flex-wrap gap-1.5">
                               <button
+                                onClick={() => handleEditUserName(user.id, user.name)}
+                                className="app-btn-secondary h-8 px-2.5 text-xs"
+                              >
+                                Edit
+                              </button>
+                              <button
                                 onClick={() => handleResetPassword(user.id)}
                                 className="app-btn-secondary h-8 px-2.5 text-xs"
                               >
@@ -566,6 +590,12 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                       </div>
 
                       <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => handleEditUserName(user.id, user.name)}
+                          className="app-btn-secondary h-8 px-2.5 text-xs"
+                        >
+                          Edit
+                        </button>
                         <button
                           onClick={() => handleResetPassword(user.id)}
                           className="app-btn-secondary h-8 px-2.5 text-xs"

@@ -4,6 +4,7 @@ import React from 'react';
 import {
   Calendar,
   CheckCircle,
+  Clock3,
   ChevronDown,
   ChevronUp,
   FileText,
@@ -396,6 +397,58 @@ function formatCompactDateTime(value: string | Date) {
   }).format(dt);
 }
 
+function formatElapsedTimerLabel(elapsedMs: number) {
+  const elapsedMinutes = Math.max(0, Math.floor(elapsedMs / 60000));
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
+  const hours = Math.floor(elapsedMinutes / 60);
+  const minutes = elapsedMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+function getDisclosureSlaTimerMeta(startValue: Date | string | undefined, nowMs: number) {
+  if (!startValue) return null;
+  const startDate = startValue instanceof Date ? startValue : new Date(startValue);
+  if (Number.isNaN(startDate.getTime())) return null;
+
+  const elapsedMs = Math.max(0, nowMs - startDate.getTime());
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+  const label = formatElapsedTimerLabel(elapsedMs);
+
+  if (elapsedMinutes < 45) {
+    return {
+      label,
+      className: 'border-emerald-300 bg-emerald-100 text-emerald-800',
+    };
+  }
+
+  if (elapsedMinutes < 90) {
+    return {
+      label,
+      className: 'border-green-300 bg-green-100 text-green-800',
+    };
+  }
+
+  if (elapsedMinutes < 135) {
+    return {
+      label,
+      className: 'border-yellow-300 bg-yellow-100 text-yellow-800',
+    };
+  }
+
+  if (elapsedMinutes < 175) {
+    return {
+      label,
+      className: 'border-orange-300 bg-orange-100 text-orange-800',
+    };
+  }
+
+  return {
+    label,
+    className:
+      'border-rose-400 bg-rose-100 text-rose-800 ring-1 ring-rose-200 animate-pulse',
+  };
+}
+
 function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntry[] {
   if (!data || typeof data !== 'object') return [];
   const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
@@ -607,6 +660,7 @@ export function TaskList({
   const [loResponseByTask, setLoResponseByTask] = React.useState<
     Record<string, string>
   >({});
+  const [timerNowMs, setTimerNowMs] = React.useState(() => Date.now());
 
   React.useEffect(() => {
     if (!initialFocusedTaskId || initialFocusConsumed) return;
@@ -616,6 +670,14 @@ export function TaskList({
       setInitialFocusConsumed(true);
     }
   }, [initialFocusedTaskId, initialFocusConsumed, tasks]);
+
+  React.useEffect(() => {
+    if (currentRole !== UserRole.DISCLOSURE_SPECIALIST) return;
+    const intervalId = window.setInterval(() => {
+      setTimerNowMs(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [currentRole]);
 
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
     if (updatingId) return;
@@ -1004,6 +1066,13 @@ export function TaskList({
         const iconClassName = isReturnedToDisclosure
           ? returnedToDisclosureIconClassName
           : defaultIconClassName;
+        const shouldShowDisclosureSlaTimer =
+          isDisclosureRole &&
+          isDisclosureSubmissionTask(task) &&
+          task.status !== TaskStatus.COMPLETED;
+        const disclosureSlaTimerMeta = shouldShowDisclosureSlaTimer
+          ? getDisclosureSlaTimerMeta(task.updatedAt, timerNowMs)
+          : null;
 
         return (
           <React.Fragment key={task.id}>
@@ -1038,11 +1107,24 @@ export function TaskList({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      {compactDateTime && (
-                        <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                          <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                          {compactDateTime}
-                        </p>
+                      {(compactDateTime || disclosureSlaTimerMeta) && (
+                        <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
+                          {compactDateTime && (
+                            <p className="inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                              <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                              {compactDateTime}
+                            </p>
+                          )}
+                          {disclosureSlaTimerMeta && (
+                            <span
+                              className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${disclosureSlaTimerMeta.className}`}
+                              title="Disclosure SLA timer (resets when task updates)"
+                            >
+                              <Clock3 className="mr-1 h-2.5 w-2.5" />
+                              {disclosureSlaTimerMeta.label}
+                            </span>
+                          )}
+                        </div>
                       )}
                       <p className="text-sm font-bold leading-snug text-slate-900 line-clamp-1">
                         {task.loan.borrowerName}

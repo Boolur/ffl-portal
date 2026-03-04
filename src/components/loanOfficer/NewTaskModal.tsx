@@ -157,6 +157,21 @@ type MismoPrefill = {
   originalCost?: string;
   yearAquired?: string;
   mannerInWhichTitleWillBeHeld?: string;
+  incomeProfile?: MismoIncomeProfile;
+};
+
+type MismoIncomeProfile = {
+  hasAnyIncomeItems: boolean;
+  hasEmploymentIncome: boolean;
+  hasNonEmploymentIncome: boolean;
+  employmentFieldsRequired: boolean;
+};
+
+const DEFAULT_MISMO_INCOME_PROFILE: MismoIncomeProfile = {
+  hasAnyIncomeItems: false,
+  hasEmploymentIncome: false,
+  hasNonEmploymentIncome: false,
+  employmentFieldsRequired: true,
 };
 
 function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
@@ -199,6 +214,13 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     return '';
   };
 
+  const parseBooleanText = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+    return null;
+  };
+
   const findPartyByRole = (roleType: string) => {
     const parties = Array.from(doc.getElementsByTagNameNS('*', 'PARTY'));
     for (const party of parties) {
@@ -210,13 +232,99 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     return null;
   };
 
-  const borrowerParty = findPartyByRole('Borrower');
+  const findPartiesByRole = (roleType: string) => {
+    const parties = Array.from(doc.getElementsByTagNameNS('*', 'PARTY'));
+    return parties.filter((party) => {
+      const roleTypes = Array.from(party.getElementsByTagNameNS('*', 'PartyRoleType')).map((n) =>
+        n.textContent?.trim()
+      );
+      return roleTypes.includes(roleType);
+    });
+  };
+
+  const borrowerParties = findPartiesByRole('Borrower');
+  const borrowerParty = borrowerParties[0] ?? null;
   const loanOriginatorParty = findPartyByRole('LoanOriginator');
   const employerParty = findPartyByRole('Employer');
   const primaryEmployer =
     doc.getElementsByTagNameNS('*', 'EMPLOYER')[0] ?? null;
   const primaryEmployment =
     doc.getElementsByTagNameNS('*', 'EMPLOYMENT')[0] ?? null;
+
+  const nonEmploymentIncomeTypes = new Set([
+    'ALIMONY',
+    'ANNUITY',
+    'CHILDSUPPORT',
+    'DISABILITY',
+    'INTERESTANDDIVIDENDS',
+    'MILITARYENTITLEMENT',
+    'MORTGAGECREDITCERTIFICATE',
+    'NOTESRECEIVABLE',
+    'PENSION',
+    'PUBLICASSISTANCE',
+    'RETIREMENT',
+    'ROYALTYPAYMENTS',
+    'SOCIALSECURITY',
+    'TRUST',
+    'UNEMPLOYMENT',
+    'VABENEFITSNONEDUCATIONAL',
+    'VABENEFITSEDUCATIONAL',
+  ]);
+
+  const employmentIncomeTypes = new Set([
+    'BASE',
+    'BONUS',
+    'COMMISSION',
+    'EMPLOYMENT',
+    'MILITARYBASEPAY',
+    'OTHER',
+    'OVERTIME',
+    'SELFEMPLOYED',
+    'TIPINCOME',
+    'WAGES',
+  ]);
+
+  let incomeItemCount = 0;
+  let hasEmploymentIncome = false;
+  let hasNonEmploymentIncome = false;
+  for (const party of borrowerParties) {
+    const incomeDetails = Array.from(
+      party.getElementsByTagNameNS('*', 'CURRENT_INCOME_ITEM_DETAIL')
+    );
+    for (const detail of incomeDetails) {
+      incomeItemCount += 1;
+      const employmentIndicator = parseBooleanText(
+        getTextFromElement(detail, 'EmploymentIncomeIndicator')
+      );
+      const incomeType = getTextFromElement(detail, 'IncomeType');
+      const incomeTypeNormalized = incomeType.trim().toUpperCase();
+
+      let isEmploymentIncome = true;
+      if (employmentIndicator === true) {
+        isEmploymentIncome = true;
+      } else if (employmentIndicator === false) {
+        isEmploymentIncome = false;
+      } else if (incomeTypeNormalized && nonEmploymentIncomeTypes.has(incomeTypeNormalized)) {
+        isEmploymentIncome = false;
+      } else if (incomeTypeNormalized && employmentIncomeTypes.has(incomeTypeNormalized)) {
+        isEmploymentIncome = true;
+      }
+
+      if (isEmploymentIncome) {
+        hasEmploymentIncome = true;
+      } else {
+        hasNonEmploymentIncome = true;
+      }
+    }
+  }
+  const hasAnyIncomeItems = incomeItemCount > 0;
+  const incomeProfile: MismoIncomeProfile = {
+    hasAnyIncomeItems,
+    hasEmploymentIncome,
+    hasNonEmploymentIncome,
+    // Fail-safe: if income is unavailable/ambiguous, keep employer fields required.
+    employmentFieldsRequired: hasAnyIncomeItems ? hasEmploymentIncome : true,
+  };
 
   const borrowerFirstName = getTextFromElement(borrowerParty, 'FirstName');
   const borrowerLastName = getTextFromElement(borrowerParty, 'LastName');
@@ -372,6 +480,7 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     originalCost,
     yearAquired,
     mannerInWhichTitleWillBeHeld,
+    incomeProfile,
   };
 }
 
@@ -476,6 +585,10 @@ function DisclosuresForm({
   });
   const [importError, setImportError] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const [mismoIncomeProfile, setMismoIncomeProfile] = useState<MismoIncomeProfile>(
+    DEFAULT_MISMO_INCOME_PROFILE
+  );
+  const [overrideEmployerFields, setOverrideEmployerFields] = useState(false);
   const [buttonFiles, setButtonFiles] = useState<{
     avm: File | null;
     titleSheet: File | null;
@@ -492,15 +605,21 @@ function DisclosuresForm({
   const isButtonInvestor = form.investor === 'Button';
   const hasAllButtonAttachments =
     !!buttonFiles.avm && !!buttonFiles.titleSheet && !!buttonFiles.pricingSheet;
-  const requiredReadonlyFields = [
+  const employerReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     { key: 'employerName', label: 'Employer Name' },
     { key: 'employerAddress', label: 'Employer Address' },
     { key: 'employerDurationLineOfWork', label: 'Employer - Duration in Line of Work' },
+  ];
+  const coreReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
     { key: 'originalCost', label: 'Original Cost' },
     { key: 'yearAquired', label: 'Year Aquired' },
     { key: 'mannerInWhichTitleWillBeHeld', label: 'Manner in Which Title Will be Held' },
-  ] as const;
+  ];
+  const requiredReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
+    ...(mismoIncomeProfile.employmentFieldsRequired ? employerReadonlyFields : []),
+    ...coreReadonlyFields,
+  ];
   const missingReadonlyKeys = new Set(
     requiredReadonlyFields
       .filter(({ key }) => !String(form[key] ?? '').trim())
@@ -660,9 +779,17 @@ function DisclosuresForm({
     try {
       const text = await file.text();
       const prefill = parseMismoXml(text, file.name);
+      const parsedIncomeProfile = prefill.incomeProfile || DEFAULT_MISMO_INCOME_PROFILE;
+      const readonlyFieldsForThisImport: ReadonlyArray<{ key: keyof typeof form; label: string }> =
+        [
+          ...(parsedIncomeProfile.employmentFieldsRequired ? employerReadonlyFields : []),
+          ...coreReadonlyFields,
+        ];
       setImportError('');
       setSubmitError('');
       setMismoFilename(file.name);
+      setOverrideEmployerFields(false);
+      setMismoIncomeProfile(parsedIncomeProfile);
       setForm((prev) => ({
         ...prev,
         loanOfficer: prefill.loanOfficer || prev.loanOfficer,
@@ -704,7 +831,7 @@ function DisclosuresForm({
       const missingFromMismo = [
         !String(merged.borrowerPhone ?? '').trim() ? 'Borrower Phone' : null,
         !String(merged.borrowerEmail ?? '').trim() ? 'Borrower Email' : null,
-        ...requiredReadonlyFields
+        ...readonlyFieldsForThisImport
           .filter(({ key }) => !String(merged[key] ?? '').trim())
           .map(({ label }) => label),
       ].filter(Boolean) as string[];
@@ -718,6 +845,8 @@ function DisclosuresForm({
       setDisclosureStep(2);
     } catch {
       setImportError('Could not read this MISMO file. Please verify the XML export.');
+      setOverrideEmployerFields(false);
+      setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
       setDisclosureStep(1);
     } finally {
       setIsParsingMismo(false);
@@ -749,6 +878,8 @@ function DisclosuresForm({
                 onClick={() => {
                   setDisclosureStep(1);
                   setSubmitError('');
+                  setOverrideEmployerFields(false);
+                  setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
                 }}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
               >
@@ -816,33 +947,81 @@ function DisclosuresForm({
         )}
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <div className="mb-3">
-          <p className="text-sm font-semibold text-slate-900">MISMO Required Fields (Read-Only)</p>
-          <p className="text-xs text-slate-600">
-            These are auto-populated from MISMO and must be present before submission.
-          </p>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">MISMO Required Fields (Read-Only)</p>
+            <p className="text-xs text-slate-600">
+              These are auto-populated from MISMO and must be present before submission.
+              Employer fields are required only when MISMO includes employment income.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOverrideEmployerFields((prev) => !prev)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+              overrideEmployerFields
+                ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            {overrideEmployerFields ? 'Disable Override' : 'Override Employer Fields'}
+          </button>
         </div>
+        {!mismoIncomeProfile.employmentFieldsRequired && mismoIncomeProfile.hasAnyIncomeItems && (
+          <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
+            Employment income was not detected in this MISMO file, so employer fields are optional
+            for this submission.
+          </div>
+        )}
         {missingMismoLabels.length > 0 && (
           <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
             Missing MISMO fields: {missingMismoLabels.join(', ')}. Re-upload MISMO after completing these in Arrive.
           </div>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <ReadonlyRequiredField
-            label="Employer Name"
-            value={form.employerName}
-            isMissing={missingReadonlyKeys.has('employerName')}
-          />
-          <ReadonlyRequiredField
-            label="Employer Address"
-            value={form.employerAddress}
-            isMissing={missingReadonlyKeys.has('employerAddress')}
-          />
-          <ReadonlyRequiredField
-            label="Employer - Duration in Line of Work"
-            value={form.employerDurationLineOfWork}
-            isMissing={missingReadonlyKeys.has('employerDurationLineOfWork')}
-          />
+          {overrideEmployerFields ? (
+            <>
+              <Input
+                label="Employer Name"
+                value={form.employerName}
+                onChange={(v) => update('employerName', v)}
+                required={mismoIncomeProfile.employmentFieldsRequired}
+              />
+              <Input
+                label="Employer Address"
+                value={form.employerAddress}
+                onChange={(v) => update('employerAddress', v)}
+                required={mismoIncomeProfile.employmentFieldsRequired}
+              />
+              <Input
+                label="Employer - Duration in Line of Work"
+                value={form.employerDurationLineOfWork}
+                onChange={(v) => update('employerDurationLineOfWork', v)}
+                required={mismoIncomeProfile.employmentFieldsRequired}
+              />
+            </>
+          ) : (
+            <>
+              <ReadonlyRequiredField
+                label="Employer Name"
+                value={form.employerName}
+                required={mismoIncomeProfile.employmentFieldsRequired}
+                isMissing={missingReadonlyKeys.has('employerName')}
+              />
+              <ReadonlyRequiredField
+                label="Employer Address"
+                value={form.employerAddress}
+                required={mismoIncomeProfile.employmentFieldsRequired}
+                isMissing={missingReadonlyKeys.has('employerAddress')}
+              />
+              <ReadonlyRequiredField
+                label="Employer - Duration in Line of Work"
+                value={form.employerDurationLineOfWork}
+                required={mismoIncomeProfile.employmentFieldsRequired}
+                isMissing={missingReadonlyKeys.has('employerDurationLineOfWork')}
+              />
+            </>
+          )}
           <ReadonlyRequiredField
             label="Year Built (Property)"
             value={form.yearBuiltProperty}
@@ -1467,16 +1646,19 @@ function AttachmentRequiredCard({
 function ReadonlyRequiredField({
   label,
   value,
+  required = true,
   isMissing = false,
 }: {
   label: string;
   value: string;
+  required?: boolean;
   isMissing?: boolean;
 }) {
   return (
     <label className="space-y-1 text-sm">
       <span className={isMissing ? 'font-medium text-red-700' : 'text-slate-700 font-medium'}>
-        {label} *
+        {label}
+        {required ? ' *' : ' (Optional)'}
       </span>
       <input
         value={value}
