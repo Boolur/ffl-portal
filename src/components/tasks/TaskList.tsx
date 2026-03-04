@@ -987,7 +987,8 @@ export function TaskList({
             : task.status === TaskStatus.BLOCKED
             ? 'border-amber-200 bg-amber-50 text-amber-700'
             : 'border-slate-200 bg-slate-50 text-slate-600';
-        const compactDateTime = task.dueDate ? formatCompactDateTime(task.dueDate) : '';
+        const compactDateSource = task.updatedAt || task.dueDate;
+        const compactDateTime = compactDateSource ? formatCompactDateTime(compactDateSource) : '';
         const isReturnedToDisclosure =
           task.workflowState === TaskWorkflowState.READY_TO_COMPLETE;
         const returnedToDisclosureIconClassName =
