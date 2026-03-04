@@ -73,12 +73,19 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
 
   const filteredUsers = useMemo(() => {
     const term = search.toLowerCase().trim();
-    if (!term) return users;
-    return users.filter(
-      (user) =>
-        user.name.toLowerCase().includes(term) ||
-        user.email.toLowerCase().includes(term)
-    );
+    const matchingUsers = !term
+      ? users
+      : users.filter(
+          (user) =>
+            user.name.toLowerCase().includes(term) ||
+            user.email.toLowerCase().includes(term)
+        );
+
+    return [...matchingUsers].sort((a, b) => {
+      const byName = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      if (byName !== 0) return byName;
+      return a.email.localeCompare(b.email, undefined, { sensitivity: 'base' });
+    });
   }, [search, users]);
 
   const handleCreate = async () => {
