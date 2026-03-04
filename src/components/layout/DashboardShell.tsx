@@ -25,25 +25,53 @@ function DashboardContent({ children, user }: DashboardShellProps) {
       pathname === '/' || pathname === '/tasks';
     if (!shouldAutoRefresh) return;
 
-    const interval = window.setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
+    const INTERACTION_PAUSE_MS = 4000;
+    let lastInteractionAt = Date.now();
+    const markInteraction = () => {
+      lastInteractionAt = Date.now();
+    };
 
-      const activeElement = document.activeElement as HTMLElement | null;
-      const isTyping =
-        !!activeElement &&
-        (activeElement.tagName === 'INPUT' ||
-          activeElement.tagName === 'TEXTAREA' ||
-          activeElement.tagName === 'SELECT' ||
-          activeElement.isContentEditable);
-      if (isTyping) return;
+    const refreshIfSafe = () => {
+      if (document.visibilityState !== 'visible') return;
 
       // Skip auto-refresh while an interactive modal is open.
       if (document.querySelector('[data-live-refresh-pause="true"]')) return;
 
-      router.refresh();
-    }, 15000);
+      // Briefly pause refresh after recent user interaction to avoid UI interruptions.
+      if (Date.now() - lastInteractionAt < INTERACTION_PAUSE_MS) return;
 
-    return () => window.clearInterval(interval);
+      router.refresh();
+    };
+
+    const interval = window.setInterval(refreshIfSafe, 10000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      // Allow immediate catch-up refresh when the tab becomes visible.
+      lastInteractionAt = 0;
+      refreshIfSafe();
+    };
+
+    const handleWindowFocus = () => {
+      // Allow immediate catch-up refresh when user returns to window.
+      lastInteractionAt = 0;
+      refreshIfSafe();
+    };
+
+    document.addEventListener('pointerdown', markInteraction, true);
+    document.addEventListener('keydown', markInteraction, true);
+    document.addEventListener('input', markInteraction, true);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('pointerdown', markInteraction, true);
+      document.removeEventListener('keydown', markInteraction, true);
+      document.removeEventListener('input', markInteraction, true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
   }, [pathname, router]);
 
   // Create a display user that reflects the impersonated role
