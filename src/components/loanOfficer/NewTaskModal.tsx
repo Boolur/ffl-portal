@@ -159,12 +159,23 @@ type MismoPrefill = {
   mannerInWhichTitleWillBeHeld?: string;
 };
 
-function parseMismoXml(xmlText: string): MismoPrefill {
+function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlText, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length > 0) {
     throw new Error('Invalid XML');
   }
+
+  const isGuidLike = (value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    );
+  const extractLoanNumberFromFilename = (filename?: string) => {
+    if (!filename) return '';
+    const stem = filename.replace(/\.[^/.]+$/, '');
+    const match = stem.match(/\b(\d{6,})\b/);
+    return match?.[1] || '';
+  };
 
   const getText = (parent: Element | Document | null, localName: string) => {
     if (!parent) return '';
@@ -240,15 +251,33 @@ function parseMismoXml(xmlText: string): MismoPrefill {
 
   const loanIdentifiers = Array.from(doc.getElementsByTagNameNS('*', 'LOAN_IDENTIFIER'));
   let arriveLoanNumber = '';
+  const identifierCandidates: string[] = [];
   for (const id of loanIdentifiers) {
     const type = getTextFromElement(id, 'LoanIdentifierType');
+    const identifier = getTextFromElement(id, 'LoanIdentifier');
+    if (identifier) identifierCandidates.push(identifier);
     if (type === 'LenderLoan') {
-      arriveLoanNumber = getTextFromElement(id, 'LoanIdentifier');
+      arriveLoanNumber = identifier;
       break;
     }
   }
-  if (!arriveLoanNumber && loanIdentifiers.length > 0) {
-    arriveLoanNumber = getTextFromElement(loanIdentifiers[0], 'LoanIdentifier');
+  if (!arriveLoanNumber) {
+    // Prefer a non-GUID candidate when no explicit LenderLoan identifier exists.
+    arriveLoanNumber =
+      identifierCandidates.find((value) => value && !isGuidLike(value)) || '';
+  }
+  if (!arriveLoanNumber) {
+    arriveLoanNumber = getFirstText(doc, [
+      'LoanNumber',
+      'MortgageLoanNumber',
+      'LenderLoanNumber',
+      'AgencyCaseIdentifier',
+    ]);
+  }
+  const filenameLoanNumber = extractLoanNumberFromFilename(sourceFilename);
+  if ((!arriveLoanNumber || isGuidLike(arriveLoanNumber)) && filenameLoanNumber) {
+    // Last-resort fallback for exports where XML stores only opaque GUID identifiers.
+    arriveLoanNumber = filenameLoanNumber;
   }
 
   const loanOriginatorType = getText(doc, 'LoanOriginatorType');
@@ -628,7 +657,7 @@ function DisclosuresForm({
     setIsParsingMismo(true);
     try {
       const text = await file.text();
-      const prefill = parseMismoXml(text);
+      const prefill = parseMismoXml(text, file.name);
       setImportError('');
       setSubmitError('');
       setMismoFilename(file.name);
@@ -1075,7 +1104,7 @@ function QcForm({
     if (!file) return;
     try {
       const text = await file.text();
-      const prefill = parseMismoXml(text);
+      const prefill = parseMismoXml(text, file.name);
       setImportError('');
       setForm((prev) => ({
         ...prev,
