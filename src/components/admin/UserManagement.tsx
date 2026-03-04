@@ -213,13 +213,21 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
     );
     if (!confirmed) return;
     setDirectoryStatus(null);
-    const result = await deleteUser(userId, currentUserId);
-    if (!result.success) {
-      setDirectoryStatus({ type: 'error', message: result.error || 'Failed to delete user.' });
-      return;
+    try {
+      const result = await deleteUser(userId, currentUserId);
+      if (!result.success) {
+        setDirectoryStatus({ type: 'error', message: result.error || 'Failed to delete user.' });
+        return;
+      }
+      setDirectoryStatus({ type: 'success', message: 'User deleted.' });
+      router.refresh();
+    } catch (error) {
+      console.error('Delete user failed unexpectedly', error);
+      setDirectoryStatus({
+        type: 'error',
+        message: 'Delete failed unexpectedly. Please try again.',
+      });
     }
-    setDirectoryStatus({ type: 'success', message: 'User deleted.' });
-    router.refresh();
   };
 
   const renderStatus = (

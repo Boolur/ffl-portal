@@ -603,73 +603,74 @@ export async function updateUserStatus(userId: string, active: boolean) {
 }
 
 export async function deleteUser(userId: string, currentUserId?: string) {
-  if (!userId) {
-    return { success: false, error: 'Missing user ID.' };
-  }
-  if (currentUserId && userId === currentUserId) {
-    return { success: false, error: 'You cannot delete your own account.' };
-  }
+  try {
+    if (!userId) {
+      return { success: false, error: 'Missing user ID.' };
+    }
+    if (currentUserId && userId === currentUserId) {
+      return { success: false, error: 'You cannot delete your own account.' };
+    }
 
-  const [activeLoanCount, activeProcessorCount] = await Promise.all([
-    prisma.loan.count({
+    const [activeLoanCount, activeProcessorCount] = await Promise.all([
+      prisma.loan.count({
+        where: {
+          loanOfficerId: userId,
+          stage: { not: 'INTAKE' },
+        },
+      }),
+      prisma.loan.count({
+        where: {
+          processorId: userId,
+          stage: { not: 'INTAKE' },
+        },
+      }),
+    ]);
+
+    if (activeLoanCount > 0 || activeProcessorCount > 0) {
+      return {
+        success: false,
+        error:
+          'User has active loans (in progress). Reassign loans or deactivate the account instead.',
+      };
+    }
+
+    // Delete leads (INTAKE loans) associated with this user before deleting the user.
+    await prisma.loan.deleteMany({
       where: {
         loanOfficerId: userId,
-        stage: { not: 'INTAKE' },
+        stage: 'INTAKE',
       },
-    }),
-    prisma.loan.count({
-      where: {
-        processorId: userId,
-        stage: { not: 'INTAKE' },
-      },
-    }),
-  ]);
+    });
 
-  if (activeLoanCount > 0 || activeProcessorCount > 0) {
-    return {
-      success: false,
-      error: 'User has active loans (in progress). Reassign loans or deactivate the account instead.',
-    };
+    await prisma.$transaction([
+      prisma.task.updateMany({
+        where: { assignedUserId: userId },
+        data: { assignedUserId: null },
+      }),
+      prisma.loan.updateMany({
+        where: { pipelineStage: { userId } },
+        data: { pipelineStageId: null },
+      }),
+      prisma.pipelineStage.deleteMany({ where: { userId } }),
+      prisma.pipelineNote.deleteMany({ where: { userId } }),
+      prisma.externalUser.deleteMany({ where: { userId } }),
+      prisma.leadMailboxLead.deleteMany({ where: { userId } }),
+      prisma.inviteToken.deleteMany({ where: { createdById: userId } }),
+      prisma.passwordResetToken.deleteMany({ where: { userId } }),
+      prisma.auditLog.deleteMany({ where: { userId } }),
+      prisma.user.delete({ where: { id: userId } }),
+    ]);
+
+    revalidatePath('/admin/users');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to delete user:', error);
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Failed to delete user.';
+    return { success: false, error: message };
   }
-
-  // Delete leads (INTAKE loans) associated with this user before deleting the user
-  await prisma.loan.deleteMany({
-    where: {
-      loanOfficerId: userId,
-      stage: 'INTAKE',
-    },
-  });
-
-  await prisma.$transaction([
-    prisma.task.updateMany({
-      where: { assignedUserId: userId },
-      data: { assignedUserId: null },
-    }),
-    // We already deleted INTAKE loans above.
-    // For any remaining loans (which shouldn't exist if check passed, but for safety):
-    prisma.loan.updateMany({
-      where: { loanOfficerId: userId },
-      data: { loanOfficerId: 'deleted-user' }, // This might fail if 'deleted-user' doesn't exist.
-      // Actually, since we block on active loans, and delete inactive ones, this shouldn't be hit for LOs.
-      // But for processors, we might need to handle it.
-      // Let's just rely on the count check above.
-    }),
-    prisma.loan.updateMany({
-      where: { pipelineStage: { userId } },
-      data: { pipelineStageId: null },
-    }),
-    prisma.pipelineStage.deleteMany({ where: { userId } }),
-    prisma.pipelineNote.deleteMany({ where: { userId } }),
-    prisma.externalUser.deleteMany({ where: { userId } }),
-    prisma.leadMailboxLead.deleteMany({ where: { userId } }),
-    prisma.inviteToken.deleteMany({ where: { createdById: userId } }),
-    prisma.passwordResetToken.deleteMany({ where: { userId } }),
-    prisma.auditLog.deleteMany({ where: { userId } }),
-    prisma.user.delete({ where: { id: userId } }),
-  ]);
-
-  revalidatePath('/admin/users');
-  return { success: true };
 }
 
 export async function resetUserPassword(userId: string, password: string) {
