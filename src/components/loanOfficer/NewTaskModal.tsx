@@ -174,6 +174,14 @@ const DEFAULT_MISMO_INCOME_PROFILE: MismoIncomeProfile = {
   employmentFieldsRequired: true,
 };
 
+function isMismoValidationErrorMessage(message: string) {
+  const trimmed = message.trim();
+  return (
+    trimmed.startsWith('MISMO is missing required fields:') ||
+    trimmed.startsWith('Borrower Phone and Borrower Email are required from MISMO')
+  );
+}
+
 function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlText, 'application/xml');
@@ -904,7 +912,7 @@ function DisclosuresForm({
           {importError && (
             <p className="text-xs text-red-600">{importError}</p>
           )}
-          {submitError && (
+          {submitError && !isMismoValidationErrorMessage(submitError) && (
             <p className="text-xs text-red-600">{submitError}</p>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
