@@ -177,7 +177,13 @@ export function TaskBucketsBoard({
                   : 'border-slate-200/80'
               }`}
             >
-              <div className="mb-1.5 flex min-h-[124px] flex-col gap-1.5 border-b border-border/50 pb-1.5">
+              <div
+                className={`flex flex-col gap-1.5 ${
+                  isCollapsed
+                    ? 'mb-0 border-b-0 pb-0'
+                    : 'mb-1.5 min-h-[124px] border-b border-border/50 pb-1.5'
+                }`}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <h2
@@ -261,11 +267,7 @@ export function TaskBucketsBoard({
                 </div>
               </div>
 
-              {isCollapsed ? (
-                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-3 py-2 text-xs font-medium text-slate-500">
-                  Bucket collapsed.
-                </div>
-              ) : (
+              {isCollapsed ? null : (
                 <TaskList
                   tasks={bucket.visibleTasks}
                   canDelete={canDelete}
