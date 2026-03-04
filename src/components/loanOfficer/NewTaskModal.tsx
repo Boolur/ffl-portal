@@ -193,6 +193,7 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       value.trim()
     );
+  const looksLikeOpaqueNumericId = (value: string) => /^\d{12,}$/.test(value.trim());
   const extractLoanNumberFromFilename = (filename?: string) => {
     if (!filename) return '';
     const stem = filename.replace(/\.[^/.]+$/, '');
@@ -393,9 +394,17 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     ]);
   }
   const filenameLoanNumber = extractLoanNumberFromFilename(sourceFilename);
-  if ((!arriveLoanNumber || isGuidLike(arriveLoanNumber)) && filenameLoanNumber) {
-    // Last-resort fallback for exports where XML stores only opaque GUID identifiers.
-    arriveLoanNumber = filenameLoanNumber;
+  if (filenameLoanNumber) {
+    const normalizedCurrent = arriveLoanNumber.trim();
+    const shouldPreferFilename =
+      !normalizedCurrent ||
+      isGuidLike(normalizedCurrent) ||
+      looksLikeOpaqueNumericId(normalizedCurrent) ||
+      normalizedCurrent.endsWith(filenameLoanNumber);
+    if (shouldPreferFilename) {
+      // Use filename token for exports that only provide GUID/MIN-style identifiers.
+      arriveLoanNumber = filenameLoanNumber;
+    }
   }
 
   const loanOriginatorType = getText(doc, 'LoanOriginatorType');
