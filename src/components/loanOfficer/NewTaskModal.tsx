@@ -173,8 +173,10 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
   const extractLoanNumberFromFilename = (filename?: string) => {
     if (!filename) return '';
     const stem = filename.replace(/\.[^/.]+$/, '');
-    const match = stem.match(/\b(\d{6,})\b/);
-    return match?.[1] || '';
+    const allNumericRuns = stem.match(/\d{6,}/g);
+    if (!allNumericRuns || allNumericRuns.length === 0) return '';
+    // Prefer the longest numeric token; if tied, use the last occurrence.
+    return allNumericRuns.sort((a, b) => b.length - a.length).at(0) || '';
   };
 
   const getText = (parent: Element | Document | null, localName: string) => {
