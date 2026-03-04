@@ -611,7 +611,12 @@ export async function deleteUser(userId: string, currentUserId?: string) {
       return { success: false, error: 'You cannot delete your own account.' };
     }
 
-    const [activeLoanCount, activeProcessorCount] = await Promise.all([
+    const [
+      activeLoanCount,
+      activeProcessorCount,
+      uploadedTaskAttachmentCount,
+      uploadedClientDocumentCount,
+    ] = await Promise.all([
       prisma.loan.count({
         where: {
           loanOfficerId: userId,
@@ -624,6 +629,12 @@ export async function deleteUser(userId: string, currentUserId?: string) {
           stage: { not: 'INTAKE' },
         },
       }),
+      prisma.taskAttachment.count({
+        where: { uploadedById: userId },
+      }),
+      prisma.clientDocument.count({
+        where: { uploadedById: userId },
+      }),
     ]);
 
     if (activeLoanCount > 0 || activeProcessorCount > 0) {
@@ -631,6 +642,13 @@ export async function deleteUser(userId: string, currentUserId?: string) {
         success: false,
         error:
           'User has active loans (in progress). Reassign loans or deactivate the account instead.',
+      };
+    }
+    if (uploadedTaskAttachmentCount > 0 || uploadedClientDocumentCount > 0) {
+      return {
+        success: false,
+        error:
+          'User has uploaded documents/attachments in the system. Deactivate this account instead of deleting it.',
       };
     }
 
@@ -646,6 +664,10 @@ export async function deleteUser(userId: string, currentUserId?: string) {
       prisma.task.updateMany({
         where: { assignedUserId: userId },
         data: { assignedUserId: null },
+      }),
+      prisma.loan.updateMany({
+        where: { processorId: userId },
+        data: { processorId: null },
       }),
       prisma.loan.updateMany({
         where: { pipelineStage: { userId } },
