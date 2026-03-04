@@ -818,15 +818,11 @@ type SubmissionPayload = {
   submissionData?: Prisma.InputJsonValue;
 };
 
-const disclosureReadonlyRequiredFields: Array<{
+const disclosureEmployerReadonlyFields: Array<{
   key:
     | 'employerName'
     | 'employerAddress'
     | 'employerDurationLineOfWork'
-    | 'yearBuiltProperty'
-    | 'originalCost'
-    | 'yearAquired'
-    | 'mannerInWhichTitleWillBeHeld';
   label: string;
 }> = [
   { key: 'employerName', label: 'Employer Name' },
@@ -835,6 +831,16 @@ const disclosureReadonlyRequiredFields: Array<{
     key: 'employerDurationLineOfWork',
     label: 'Employer - Duration in Line of Work',
   },
+];
+
+const disclosureCoreReadonlyFields: Array<{
+  key:
+    | 'yearBuiltProperty'
+    | 'originalCost'
+    | 'yearAquired'
+    | 'mannerInWhichTitleWillBeHeld';
+  label: string;
+}> = [
   { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
   { key: 'originalCost', label: 'Original Cost' },
   { key: 'yearAquired', label: 'Year Aquired' },
@@ -905,6 +911,21 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           error: 'Qualification Status must be set to Yes before submitting.',
         };
       }
+
+      const incomeProfileRaw =
+        submissionObject.incomeProfile &&
+        typeof submissionObject.incomeProfile === 'object' &&
+        !Array.isArray(submissionObject.incomeProfile)
+          ? (submissionObject.incomeProfile as Record<string, unknown>)
+          : null;
+      const hasAnyIncomeItems = Boolean(incomeProfileRaw?.hasAnyIncomeItems);
+      const hasEmploymentIncome = Boolean(incomeProfileRaw?.hasEmploymentIncome);
+      const employmentFieldsRequired = hasAnyIncomeItems ? hasEmploymentIncome : true;
+
+      const disclosureReadonlyRequiredFields = [
+        ...(employmentFieldsRequired ? disclosureEmployerReadonlyFields : []),
+        ...disclosureCoreReadonlyFields,
+      ];
 
       const missingFields = disclosureReadonlyRequiredFields
         .filter(({ key }) => !String(submissionObject[key] ?? '').trim())

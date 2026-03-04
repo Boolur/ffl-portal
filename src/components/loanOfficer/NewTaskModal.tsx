@@ -775,7 +775,7 @@ function DisclosuresForm({
         arriveLoanNumber: form.arriveLoanNumber,
         loanAmount: form.loanAmount,
         notes: form.notes,
-        submissionData: form,
+        submissionData: { ...form, incomeProfile: mismoIncomeProfile },
       });
 
       if (res.success) {
@@ -801,7 +801,12 @@ function DisclosuresForm({
         }
         onSubmitted();
       } else {
-        setSubmitError(res.error || 'Could not submit this disclosure request.');
+        const failureMessage = res.error || 'Could not submit this disclosure request.';
+        setSubmitError(failureMessage);
+        if (isMismoValidationErrorMessage(failureMessage)) {
+          mimoRequiredFieldsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          window.alert(failureMessage);
+        }
         setIsSubmitting(false);
       }
     } catch {
