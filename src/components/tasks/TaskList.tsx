@@ -1118,14 +1118,22 @@ export function TaskList({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      {(compactDateTime || disclosureSlaTimerMeta) && (
+                      {compactDateTime && (
                         <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
-                          {compactDateTime && (
-                            <p className="inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                              <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                              {compactDateTime}
-                            </p>
-                          )}
+                          <p className="inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                            <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                            {compactDateTime}
+                          </p>
+                        </div>
+                      )}
+                      <p className="text-sm font-bold leading-snug text-slate-900 line-clamp-1">
+                        {task.loan.borrowerName}
+                      </p>
+                      <p className="text-xs font-medium text-slate-500 truncate">
+                        {task.loan.loanNumber}
+                      </p>
+                      {(disclosureSlaTimerMeta || completedTotalTimeMeta) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           {disclosureSlaTimerMeta && (
                             <span
                               className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${disclosureSlaTimerMeta.className}`}
@@ -1146,12 +1154,6 @@ export function TaskList({
                           )}
                         </div>
                       )}
-                      <p className="text-sm font-bold leading-snug text-slate-900 line-clamp-1">
-                        {task.loan.borrowerName}
-                      </p>
-                      <p className="text-xs font-medium text-slate-500 truncate">
-                        {task.loan.loanNumber}
-                      </p>
                     </div>
                     <button
                       type="button"

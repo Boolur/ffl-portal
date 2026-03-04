@@ -597,6 +597,7 @@ function DisclosuresForm({
     DEFAULT_MISMO_INCOME_PROFILE
   );
   const [overrideEmployerFields, setOverrideEmployerFields] = useState(false);
+  const mimoRequiredFieldsRef = useRef<HTMLDivElement | null>(null);
   const [buttonFiles, setButtonFiles] = useState<{
     avm: File | null;
     titleSheet: File | null;
@@ -702,6 +703,7 @@ function DisclosuresForm({
       const phoneEmailError =
         'Borrower Phone and Borrower Email are required from MISMO before submitting.';
       setSubmitError(phoneEmailError);
+      mimoRequiredFieldsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       window.alert(
         `${phoneEmailError} Please complete the missing items in Arrive, export a new MISMO 3.4 file, and re-upload it.`
       );
@@ -715,6 +717,7 @@ function DisclosuresForm({
       setSubmitError(
         `${missingReadonlyError} Please complete them in Arrive before exporting MISMO 3.4.`
       );
+      mimoRequiredFieldsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       window.alert(
         `${missingReadonlyError} Please complete these items in Arrive, export a fresh MISMO 3.4 file, and re-upload it.`
       );
@@ -954,7 +957,10 @@ function DisclosuresForm({
           </>
         )}
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div
+            ref={mimoRequiredFieldsRef}
+            className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+          >
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">MISMO Required Fields (Read-Only)</p>
@@ -982,7 +988,8 @@ function DisclosuresForm({
         )}
         {missingMismoLabels.length > 0 && (
           <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-            Missing MISMO fields: {missingMismoLabels.join(', ')}. Re-upload MISMO after completing these in Arrive.
+            Missing MISMO fields: {missingMismoLabels.join(', ')}. Re-upload MISMO after
+            completing these in Arrive.
           </div>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1027,28 +1034,28 @@ function DisclosuresForm({
                 required={mismoIncomeProfile.employmentFieldsRequired}
                 isMissing={missingReadonlyKeys.has('employerDurationLineOfWork')}
               />
+              <ReadonlyRequiredField
+                label="Year Built (Property)"
+                value={form.yearBuiltProperty}
+                isMissing={missingReadonlyKeys.has('yearBuiltProperty')}
+              />
+              <ReadonlyRequiredField
+                label="Original Cost"
+                value={form.originalCost}
+                isMissing={missingReadonlyKeys.has('originalCost')}
+              />
+              <ReadonlyRequiredField
+                label="Year Aquired"
+                value={form.yearAquired}
+                isMissing={missingReadonlyKeys.has('yearAquired')}
+              />
+              <ReadonlyRequiredField
+                label="Manner in Which Title Will be Held"
+                value={form.mannerInWhichTitleWillBeHeld}
+                isMissing={missingReadonlyKeys.has('mannerInWhichTitleWillBeHeld')}
+              />
             </>
           )}
-          <ReadonlyRequiredField
-            label="Year Built (Property)"
-            value={form.yearBuiltProperty}
-            isMissing={missingReadonlyKeys.has('yearBuiltProperty')}
-          />
-          <ReadonlyRequiredField
-            label="Original Cost"
-            value={form.originalCost}
-            isMissing={missingReadonlyKeys.has('originalCost')}
-          />
-          <ReadonlyRequiredField
-            label="Year Aquired"
-            value={form.yearAquired}
-            isMissing={missingReadonlyKeys.has('yearAquired')}
-          />
-          <ReadonlyRequiredField
-            label="Manner in Which Title Will be Held"
-            value={form.mannerInWhichTitleWillBeHeld}
-            isMissing={missingReadonlyKeys.has('mannerInWhichTitleWillBeHeld')}
-          />
         </div>
       </div>
           {isButtonInvestor && (
