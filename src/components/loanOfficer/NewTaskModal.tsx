@@ -642,6 +642,19 @@ function DisclosuresForm({
     !form.borrowerEmail.trim() ? 'Borrower Email' : null,
     ...missingReadonlyLabels,
   ].filter(Boolean) as string[];
+  const requiredEntryFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
+    { key: 'arriveLoanNumber', label: 'Arrive Loan Number' },
+    { key: 'borrowerFirstName', label: 'Borrower First Name' },
+    { key: 'borrowerLastName', label: 'Borrower Last Name' },
+    { key: 'loanType', label: 'Loan Type' },
+    { key: 'loanProgram', label: 'Loan Program' },
+    { key: 'loanAmount', label: 'Loan Amount' },
+    { key: 'homeValue', label: 'Home Value' },
+    { key: 'aus', label: 'AUS' },
+    { key: 'creditReportType', label: 'Credit Report Type' },
+    { key: 'channel', label: 'Channel' },
+    { key: 'investor', label: 'Investor' },
+  ];
 
   const uploadDisclosureAttachment = async (
     taskId: string,
@@ -688,6 +701,19 @@ function DisclosuresForm({
     e.preventDefault();
     if (isSubmitting) return;
     setSubmitError('');
+
+    const missingEntryLabels = requiredEntryFields
+      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .map(({ label }) => label);
+    if (missingEntryLabels.length > 0) {
+      setSubmitError(
+        `Please complete required fields before submitting: ${missingEntryLabels.join(', ')}.`
+      );
+      window.alert(
+        `Please complete required fields before submitting: ${missingEntryLabels.join(', ')}.`
+      );
+      return;
+    }
 
     if (!form.notes.trim()) {
       setSubmitError('Notes / Special Instructions is required before submitting.');
@@ -865,7 +891,7 @@ function DisclosuresForm({
   };
 
   return (
-    <form onSubmit={submit} className="space-y-4">
+    <form onSubmit={submit} noValidate className="space-y-4">
       {disclosureStep === 1 ? (
         <DisclosureMismoStep
           onFileSelected={handleFileUpload}
