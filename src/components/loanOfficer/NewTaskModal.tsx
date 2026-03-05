@@ -570,6 +570,7 @@ function DisclosuresForm({
   onSubmitted: () => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [disclosureStep, setDisclosureStep] = useState<1 | 2>(1);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [mismoFilename, setMismoFilename] = useState('');
@@ -664,6 +665,26 @@ function DisclosuresForm({
     { key: 'channel', label: 'Channel' },
     { key: 'investor', label: 'Investor' },
   ];
+  const missingEntryKeys = new Set<keyof typeof form>(
+    requiredEntryFields
+      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .map(({ key }) => key)
+  );
+  const highlightedMissingFields = new Set<keyof typeof form>();
+  if (showValidationErrors) {
+    for (const key of missingEntryKeys) highlightedMissingFields.add(key);
+    if (!form.notes.trim()) highlightedMissingFields.add('notes');
+    if (form.qualificationStatus !== 'Yes') highlightedMissingFields.add('qualificationStatus');
+    if (!form.borrowerPhone.trim()) highlightedMissingFields.add('borrowerPhone');
+    if (!form.borrowerEmail.trim()) highlightedMissingFields.add('borrowerEmail');
+    if (isButtonInvestor) {
+      if (!form.runId.trim()) highlightedMissingFields.add('runId');
+      if (!form.pricingOption.trim()) highlightedMissingFields.add('pricingOption');
+    }
+    if (overrideEmployerFields) {
+      for (const key of missingReadonlyKeys) highlightedMissingFields.add(key);
+    }
+  }
 
   const uploadDisclosureAttachment = async (
     taskId: string,
@@ -710,6 +731,7 @@ function DisclosuresForm({
     e.preventDefault();
     if (isSubmitting) return;
     setSubmitError('');
+    setShowValidationErrors(true);
 
     const missingEntryLabels = requiredEntryFields
       .filter(({ key }) => !String(form[key] ?? '').trim())
@@ -838,6 +860,7 @@ function DisclosuresForm({
         ];
       setImportError('');
       setSubmitError('');
+      setShowValidationErrors(false);
       setMismoFilename(file.name);
       setOverrideEmployerFields(false);
       setMismoIncomeProfile(parsedIncomeProfile);
@@ -898,6 +921,7 @@ function DisclosuresForm({
       setImportError('Could not read this MISMO file. Please verify the XML export.');
       setOverrideEmployerFields(false);
       setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
+      setShowValidationErrors(false);
       setDisclosureStep(1);
     } finally {
       setIsParsingMismo(false);
@@ -929,6 +953,7 @@ function DisclosuresForm({
                 onClick={() => {
                   setDisclosureStep(1);
                   setSubmitError('');
+                  setShowValidationErrors(false);
                   setOverrideEmployerFields(false);
                   setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
                 }}
@@ -947,6 +972,7 @@ function DisclosuresForm({
               onChange={(v) => update('qualificationStatus', v)}
               options={['Yes', 'No']}
               required
+              invalid={highlightedMissingFields.has('qualificationStatus')}
             />
             <p className="mt-1 text-xs font-medium text-slate-500">
               Required: this must be Yes to continue.
@@ -960,24 +986,25 @@ function DisclosuresForm({
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
-        <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required />
-        <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required />
-        <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required />
-        <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required />
-        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required />
-        <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required />
-        <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required />
-        <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required />
-        <Input label="Home Value" value={form.homeValue} onChange={(v) => update('homeValue', v)} required />
-        <Select label="AUS" value={form.aus} onChange={(v) => update('aus', v)} options={['DU', 'LP', 'Manual UW']} required />
-        <Select label="Credit Report Type" value={form.creditReportType} onChange={(v) => update('creditReportType', v)} options={['Soft Check', 'Hard Report']} required />
-        <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required />
+        <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
+        <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required invalid={highlightedMissingFields.has('borrowerFirstName')} />
+        <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required invalid={highlightedMissingFields.has('borrowerLastName')} />
+        <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required invalid={highlightedMissingFields.has('borrowerPhone')} />
+        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required invalid={highlightedMissingFields.has('borrowerEmail')} />
+        <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required invalid={highlightedMissingFields.has('loanType')} />
+        <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required invalid={highlightedMissingFields.has('loanProgram')} />
+        <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
+        <Input label="Home Value" value={form.homeValue} onChange={(v) => update('homeValue', v)} required invalid={highlightedMissingFields.has('homeValue')} />
+        <Select label="AUS" value={form.aus} onChange={(v) => update('aus', v)} options={['DU', 'LP', 'Manual UW']} required invalid={highlightedMissingFields.has('aus')} />
+        <Select label="Credit Report Type" value={form.creditReportType} onChange={(v) => update('creditReportType', v)} options={['Soft Check', 'Hard Report']} required invalid={highlightedMissingFields.has('creditReportType')} />
+        <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required invalid={highlightedMissingFields.has('channel')} />
         <Select
           label="Investor"
           value={form.investor}
           onChange={(v) => update('investor', v)}
           options={investorOptions}
           required
+          invalid={highlightedMissingFields.has('investor')}
         />
         {isButtonInvestor && (
           <>
@@ -986,6 +1013,7 @@ function DisclosuresForm({
               value={form.runId}
               onChange={(v) => update('runId', v)}
               required
+              invalid={highlightedMissingFields.has('runId')}
             />
             <Select
               label="Pricing Option"
@@ -993,6 +1021,7 @@ function DisclosuresForm({
               onChange={(v) => update('pricingOption', v)}
               options={buttonPricingOptions}
               required
+              invalid={highlightedMissingFields.has('pricingOption')}
             />
           </>
         )}
@@ -1040,18 +1069,21 @@ function DisclosuresForm({
                 value={form.employerName}
                 onChange={(v) => update('employerName', v)}
                 required={mismoIncomeProfile.employmentFieldsRequired}
+                invalid={highlightedMissingFields.has('employerName')}
               />
               <Input
                 label="Employer Address"
                 value={form.employerAddress}
                 onChange={(v) => update('employerAddress', v)}
                 required={mismoIncomeProfile.employmentFieldsRequired}
+                invalid={highlightedMissingFields.has('employerAddress')}
               />
               <Input
                 label="Employer - Duration in Line of Work"
                 value={form.employerDurationLineOfWork}
                 onChange={(v) => update('employerDurationLineOfWork', v)}
                 required={mismoIncomeProfile.employmentFieldsRequired}
+                invalid={highlightedMissingFields.has('employerDurationLineOfWork')}
               />
             </>
           ) : (
@@ -1132,6 +1164,7 @@ function DisclosuresForm({
             value={form.notes}
             onChange={(v) => update('notes', v)}
             required
+            invalid={highlightedMissingFields.has('notes')}
           />
 
           <div className="flex justify-end gap-3 pt-2">
@@ -1734,17 +1767,26 @@ function Input({
   value,
   onChange,
   required,
+  invalid,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   required?: boolean;
+  invalid?: boolean;
 }) {
   return (
     <label className="space-y-1 text-sm">
-      <span className="text-slate-700 font-medium">{label}{required ? ' *' : ''}</span>
+      <span className={invalid ? 'font-medium text-red-700' : 'text-slate-700 font-medium'}>
+        {label}
+        {required ? ' *' : ''}
+      </span>
       <input
-        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+        className={`w-full rounded-lg bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+          invalid
+            ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
+            : 'border border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+        }`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
@@ -1758,17 +1800,26 @@ function Textarea({
   value,
   onChange,
   required,
+  invalid,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   required?: boolean;
+  invalid?: boolean;
 }) {
   return (
     <label className="space-y-1 text-sm block">
-      <span className="text-slate-700 font-medium">{label}{required ? ' *' : ''}</span>
+      <span className={invalid ? 'font-medium text-red-700' : 'text-slate-700 font-medium'}>
+        {label}
+        {required ? ' *' : ''}
+      </span>
       <textarea
-        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 min-h-[96px]"
+        className={`w-full rounded-lg px-3 py-2 text-sm min-h-[96px] focus:outline-none focus:ring-2 ${
+          invalid
+            ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
+            : 'border border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-500/20'
+        }`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
@@ -1783,18 +1834,27 @@ function Select({
   onChange,
   options,
   required,
+  invalid,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: string[];
   required?: boolean;
+  invalid?: boolean;
 }) {
   return (
     <label className="space-y-1 text-sm">
-      <span className="text-slate-700 font-medium">{label}{required ? ' *' : ''}</span>
+      <span className={invalid ? 'font-medium text-red-700' : 'text-slate-700 font-medium'}>
+        {label}
+        {required ? ' *' : ''}
+      </span>
       <select
-        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+        className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+          invalid
+            ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
+            : 'border border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-500/20'
+        }`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
@@ -1816,16 +1876,25 @@ function RadioGroup({
   onChange,
   options,
   required,
+  invalid,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: string[];
   required?: boolean;
+  invalid?: boolean;
 }) {
   return (
-    <fieldset className="space-y-2 text-sm">
-      <legend className="text-slate-700 font-medium">{label}{required ? ' *' : ''}</legend>
+    <fieldset
+      className={`space-y-2 rounded-lg border p-2 text-sm ${
+        invalid ? 'border-red-300 bg-red-50/40' : 'border-transparent'
+      }`}
+    >
+      <legend className={invalid ? 'font-medium text-red-700' : 'text-slate-700 font-medium'}>
+        {label}
+        {required ? ' *' : ''}
+      </legend>
       <div className="flex flex-wrap gap-4">
         {options.map((opt) => (
           <label key={opt} className="inline-flex items-center gap-2 text-slate-600">
