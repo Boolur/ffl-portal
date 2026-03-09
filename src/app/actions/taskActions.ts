@@ -627,7 +627,9 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
 
     if (
       newStatus === TaskStatus.COMPLETED &&
-      (isVaKind || isVaRole || isSubmissionWorkflowTask)
+      (isVaKind ||
+        isVaRole ||
+        (isSubmissionWorkflowTask && !isQcSubmissionTask(existing)))
     ) {
       const proofCount = await prisma.taskAttachment.count({
         where: { taskId, purpose: 'PROOF' },
@@ -970,6 +972,25 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         return {
           success: false,
           error: 'Submit for QC is not enabled for this user yet.',
+        };
+      }
+
+      const submissionObject =
+        submissionData &&
+        typeof submissionData === 'object' &&
+        !Array.isArray(submissionData)
+          ? (submissionData as Record<string, unknown>)
+          : null;
+
+      const qcCashBack = String(submissionObject?.cashBack ?? '').trim();
+      const qcProjectedRevenue = String(submissionObject?.projectedRevenue ?? '').trim();
+      const qcNotes = String(notes ?? '').trim();
+
+      if (!qcCashBack || !qcProjectedRevenue || !qcNotes) {
+        return {
+          success: false,
+          error:
+            'Cash Back, Projected Revenue, and Notes / Goals are required before submitting QC.',
         };
       }
     }

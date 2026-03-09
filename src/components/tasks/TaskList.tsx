@@ -945,8 +945,7 @@ export function TaskList({
           [];
         const requiresProofForCompletion =
           isVaTaskKind(task.kind) ||
-          isDisclosureSubmissionTask(task) ||
-          isQcSubmissionTask(task);
+          isDisclosureSubmissionTask(task);
         const canCompleteTask = !requiresProofForCompletion || proofCount > 0;
         const isLoTaskForCurrentLoanOfficer =
           currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
@@ -983,6 +982,7 @@ export function TaskList({
           ((isVaSubRole && isVaTaskKind(task.kind)) ||
             (canDisclosureEditProofAttachments && !isDisclosureMissingItemsRoute) ||
             (isQcRole && isQcSubmissionTask(task)));
+        const isQcAttachmentSection = isQcRole && isQcSubmissionTask(task);
         const requiresProofForRouting =
           (isDisclosureRole &&
             isDisclosureSubmissionTask(task) &&
@@ -1400,14 +1400,24 @@ export function TaskList({
                             <FileText className="h-4 w-4" />
                           </span>
                           <div>
-                            <p className="text-sm font-bold text-slate-900">Proof Attachment</p>
+                            <p className="text-sm font-bold text-slate-900">
+                              {isQcAttachmentSection ? 'Attach Documents' : 'Proof Attachment'}
+                            </p>
                             <p className="text-xs font-medium text-slate-600">
-                              Upload proof before completing or routing this task.
+                              {isQcAttachmentSection
+                                ? 'Add supporting documents if needed before routing or completing this task.'
+                                : 'Upload proof before completing or routing this task.'}
                             </p>
                           </div>
                         </div>
-                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-700">
-                          Required
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
+                            isQcAttachmentSection
+                              ? 'border-slate-200 bg-white text-slate-600'
+                              : 'border-amber-200 bg-white text-amber-700'
+                          }`}
+                        >
+                          {isQcAttachmentSection ? 'Optional' : 'Required'}
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
@@ -1426,7 +1436,9 @@ export function TaskList({
                         {uploadingId === task.id && (
                           <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
                             <Loader2 className="h-4 w-4 animate-spin" />
-                            Uploading proof...
+                            {isQcAttachmentSection
+                              ? 'Uploading attachment...'
+                              : 'Uploading proof...'}
                           </div>
                         )}
                       </div>
