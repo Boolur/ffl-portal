@@ -1,0 +1,2 @@
+ALTER TABLE "User"
+ADD COLUMN "loQcTwoRowPilot" BOOLEAN NOT NULL DEFAULT false;

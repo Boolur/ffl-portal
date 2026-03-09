@@ -676,7 +676,8 @@ export function TaskList({
   React.useEffect(() => {
     const canViewDisclosureSlaTimer =
       currentRole === UserRole.DISCLOSURE_SPECIALIST ||
-      currentRole === UserRole.LOAN_OFFICER;
+      currentRole === UserRole.LOAN_OFFICER ||
+      currentRole === UserRole.QC;
     if (!canViewDisclosureSlaTimer) return;
     const intervalId = window.setInterval(() => {
       setTimerNowMs(Date.now());
@@ -1073,8 +1074,8 @@ export function TaskList({
           ? returnedToDisclosureIconClassName
           : defaultIconClassName;
         const shouldShowDisclosureSlaTimer =
-          (isDisclosureRole || isLoanOfficerRole) &&
-          isDisclosureSubmissionTask(task) &&
+          (isDisclosureRole || isLoanOfficerRole || isQcRole) &&
+          (isDisclosureSubmissionTask(task) || isQcSubmissionTask(task)) &&
           task.status !== TaskStatus.COMPLETED;
         const disclosureSlaTimerMeta = shouldShowDisclosureSlaTimer
           ? getDisclosureSlaTimerMeta(task.updatedAt, timerNowMs)

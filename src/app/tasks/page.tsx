@@ -43,7 +43,11 @@ type TaskBucketFilter =
   | 'submitted-disclosures'
   | 'action-required'
   | 'returned-to-disclosure'
-  | 'disclosures-sent-completed';
+  | 'disclosures-sent-completed'
+  | 'submitted-qc'
+  | 'action-required-qc'
+  | 'returned-to-qc'
+  | 'qc-completed';
 
 function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
   if (
@@ -59,7 +63,11 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
     value === 'submitted-disclosures' ||
     value === 'action-required' ||
     value === 'returned-to-disclosure' ||
-    value === 'disclosures-sent-completed'
+    value === 'disclosures-sent-completed' ||
+    value === 'submitted-qc' ||
+    value === 'action-required-qc' ||
+    value === 'returned-to-qc' ||
+    value === 'qc-completed'
   ) {
     return value;
   }
@@ -77,6 +85,11 @@ type TaskRow = {
   workflowState: TaskWorkflowState;
   disclosureReason: DisclosureDecisionReason | null;
   parentTaskId: string | null;
+  parentTask: {
+    kind: TaskKind | null;
+    assignedRole: UserRole | null;
+    title: string;
+  } | null;
   loanOfficerApprovedAt: Date | null;
   submissionData: Prisma.JsonValue | null;
   loan: {
@@ -166,6 +179,13 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
         select: {
           id: true,
           name: true,
+        },
+      },
+      parentTask: {
+        select: {
+          kind: true,
+          assignedRole: true,
+          title: true,
         },
       },
     },
@@ -319,6 +339,29 @@ function isLoResponseTask(task: TaskRow) {
   return task.kind === TaskKind.LO_NEEDS_INFO;
 }
 
+function isDisclosureSubmissionTaskRef(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+  title: string;
+}) {
+  return (
+    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+    (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
+      task.title.toLowerCase().includes('disclosure'))
+  );
+}
+
+function isQcSubmissionTaskRef(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+  title: string;
+}) {
+  return (
+    task.kind === TaskKind.SUBMIT_QC ||
+    (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
+  );
+}
+
 type RoleBucket = {
   id: TaskBucketFilter;
   label: string;
@@ -326,6 +369,103 @@ type RoleBucket = {
   chipClassName: string;
   tasks: TaskRow[];
 };
+
+function getLoPilotRows(allTasks: TaskRow[]) {
+  const disclosureTasks = allTasks.filter(isDisclosureSubmissionTask);
+  const qcTasks = allTasks.filter(isQcSubmissionTask);
+  const loResponseTasks = allTasks.filter(isLoResponseTask);
+
+  const disclosureActionRequired = loResponseTasks.filter((task) => {
+    if (!task.parentTask) return true;
+    return isDisclosureSubmissionTaskRef(task.parentTask);
+  });
+  const qcActionRequired = loResponseTasks.filter((task) => {
+    if (!task.parentTask) return false;
+    return isQcSubmissionTaskRef(task.parentTask);
+  });
+
+  const disclosureBuckets: RoleBucket[] = [
+    {
+      id: 'submitted-disclosures',
+      label: 'Submitted for Disclosures',
+      chipLabel: 'Submitted',
+      chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+      tasks: disclosureTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.NONE
+      ),
+    },
+    {
+      id: 'action-required',
+      label: 'Action Required (Approve Figures / Missing Info)',
+      chipLabel: 'Action Required',
+      chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+      tasks: disclosureActionRequired.filter(
+        (task) => task.status !== TaskStatus.COMPLETED
+      ),
+    },
+    {
+      id: 'returned-to-disclosure',
+      label: 'Returned to Disclosure',
+      chipLabel: 'Tracking',
+      chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
+      tasks: disclosureTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+      ),
+    },
+    {
+      id: 'disclosures-sent-completed',
+      label: 'Disclosures Sent / Completed',
+      chipLabel: 'Completed',
+      chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+    },
+  ];
+
+  const qcBuckets: RoleBucket[] = [
+    {
+      id: 'submitted-qc',
+      label: 'Submitted for QC',
+      chipLabel: 'Submitted',
+      chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+      tasks: qcTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.NONE
+      ),
+    },
+    {
+      id: 'action-required-qc',
+      label: 'Action Required (QC Info / Approval)',
+      chipLabel: 'Action Required',
+      chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+      tasks: qcActionRequired.filter((task) => task.status !== TaskStatus.COMPLETED),
+    },
+    {
+      id: 'returned-to-qc',
+      label: 'Returned to QC',
+      chipLabel: 'Tracking',
+      chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
+      tasks: qcTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+      ),
+    },
+    {
+      id: 'qc-completed',
+      label: 'QC Sent / Completed',
+      chipLabel: 'Completed',
+      chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      tasks: qcTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+    },
+  ];
+
+  return { disclosureBuckets, qcBuckets };
+}
 
 function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
@@ -493,7 +633,20 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     typeof rawBucket === 'string' ? rawBucket : undefined
   ) || 'all';
   const allTasks = await getTasks(sessionRole, sessionUser.id);
+  const loPilotFlagRows =
+    sessionRole === UserRole.LOAN_OFFICER && sessionUser.id
+      ? await prisma.$queryRaw<Array<{ loQcTwoRowPilot: boolean }>>`
+          SELECT "loQcTwoRowPilot"
+          FROM "User"
+          WHERE id = ${sessionUser.id}
+          LIMIT 1
+        `
+      : [];
+  const isLoTwoRowPilot =
+    sessionRole === UserRole.LOAN_OFFICER &&
+    Boolean(loPilotFlagRows[0]?.loQcTwoRowPilot);
   const roleBuckets = getRoleBuckets(sessionRole, allTasks);
+  const loPilotRows = isLoTwoRowPilot ? getLoPilotRows(allTasks) : null;
   const canDelete =
     sessionRole === UserRole.ADMIN || sessionRole === UserRole.MANAGER;
   const roleTaskSubtitle: Record<string, string> = {
@@ -531,7 +684,50 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         </div>
       </div>
 
-      {showBuckets && (
+      {isLoTwoRowPilot && loPilotRows && (
+        <div className="space-y-5">
+          <section>
+            <div className="mb-2">
+              <h2 className="text-base font-bold text-slate-900">Disclosure Requests</h2>
+              <p className="text-xs font-medium text-slate-500">
+                Your existing disclosure workflow queue.
+              </p>
+            </div>
+            <TaskBucketsBoard
+              buckets={loPilotRows.disclosureBuckets}
+              activeBucketId={
+                loPilotRows.disclosureBuckets.find((b) => b.id === bucket)?.id || null
+              }
+              canDelete={canDelete}
+              currentRole={sessionRole}
+              currentUserId={sessionUser.id}
+              initialFocusedTaskId={focusedTaskId}
+              bucketScrollMode="fixed"
+            />
+          </section>
+          <section>
+            <div className="mb-2">
+              <h2 className="text-base font-bold text-slate-900">QC Requests</h2>
+              <p className="text-xs font-medium text-slate-500">
+                QC queue with the same bucket UX and controls.
+              </p>
+            </div>
+            <TaskBucketsBoard
+              buckets={loPilotRows.qcBuckets}
+              activeBucketId={
+                loPilotRows.qcBuckets.find((b) => b.id === bucket)?.id || null
+              }
+              canDelete={canDelete}
+              currentRole={sessionRole}
+              currentUserId={sessionUser.id}
+              initialFocusedTaskId={focusedTaskId}
+              bucketScrollMode="fixed"
+            />
+          </section>
+        </div>
+      )}
+
+      {!isLoTwoRowPilot && showBuckets && (
         <TaskBucketsBoard
           buckets={roleBuckets}
           activeBucketId={activeBucket}
@@ -539,6 +735,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           currentRole={sessionRole}
           currentUserId={sessionUser.id}
           initialFocusedTaskId={focusedTaskId}
+          bucketScrollMode="auto"
         />
       )}
 

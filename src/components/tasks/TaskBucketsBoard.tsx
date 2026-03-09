@@ -79,6 +79,7 @@ export function TaskBucketsBoard({
   currentRole,
   currentUserId,
   initialFocusedTaskId,
+  bucketScrollMode = 'auto',
 }: {
   buckets: BucketConfig[];
   activeBucketId: string | null;
@@ -86,6 +87,7 @@ export function TaskBucketsBoard({
   currentRole: string;
   currentUserId?: string;
   initialFocusedTaskId?: string | null;
+  bucketScrollMode?: 'auto' | 'fixed';
 }) {
   const [globalSearch, setGlobalSearch] = useState('');
   const [globalSort, setGlobalSort] = useState<SortOption>('updated_desc');
@@ -268,19 +270,27 @@ export function TaskBucketsBoard({
               </div>
 
               {isCollapsed ? null : (
-                <TaskList
-                  tasks={bucket.visibleTasks}
-                  canDelete={canDelete}
-                  currentRole={currentRole}
-                  currentUserId={currentUserId}
-                  initialFocusedTaskId={initialFocusedTaskId}
-                  emptyState={
-                    bucket.visibleTasks.length === 0 &&
-                    Boolean(deferredGlobalSearch || bucket.controls.search.trim())
-                      ? 'no_results'
-                      : 'all_caught_up'
+                <div
+                  className={
+                    bucketScrollMode === 'fixed'
+                      ? 'max-h-[520px] overflow-y-auto pr-1'
+                      : undefined
                   }
-                />
+                >
+                  <TaskList
+                    tasks={bucket.visibleTasks}
+                    canDelete={canDelete}
+                    currentRole={currentRole}
+                    currentUserId={currentUserId}
+                    initialFocusedTaskId={initialFocusedTaskId}
+                    emptyState={
+                      bucket.visibleTasks.length === 0 &&
+                      Boolean(deferredGlobalSearch || bucket.controls.search.trim())
+                        ? 'no_results'
+                        : 'all_caught_up'
+                    }
+                  />
+                </div>
               )}
             </div>
           );

@@ -89,6 +89,7 @@ model User {
   passwordHash  String?   // Nullable for SSO users later
   role          UserRole
   roles         UserRole[] @default([])
+  loQcTwoRowPilot Boolean @default(false)
   active        Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
