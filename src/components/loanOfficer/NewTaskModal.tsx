@@ -1015,6 +1015,7 @@ function DisclosuresForm({
           onFileSelected={handleFileUpload}
           isParsing={isParsingMismo}
           importError={importError}
+          tone="violet"
         />
       ) : (
         <>
@@ -1509,10 +1510,12 @@ function DisclosureMismoStep({
   onFileSelected,
   isParsing,
   importError,
+  tone = 'blue',
 }: {
   onFileSelected: (file: File | null) => void | Promise<void>;
   isParsing: boolean;
   importError: string;
+  tone?: 'blue' | 'violet';
 }) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedName, setSelectedName] = useState('');
@@ -1522,6 +1525,9 @@ function DisclosureMismoStep({
     setSelectedName(file.name);
     await onFileSelected(file);
   };
+
+  const accentBorderClass = tone === 'violet' ? 'border-violet-400 bg-violet-50' : 'border-blue-400 bg-blue-50';
+  const accentIconClass = tone === 'violet' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700';
 
   return (
     <div className="space-y-4">
@@ -1540,12 +1546,12 @@ function DisclosureMismoStep({
         }}
         className={`rounded-2xl border-2 border-dashed p-8 transition ${
           dragActive
-            ? 'border-blue-400 bg-blue-50'
+            ? accentBorderClass
             : 'border-slate-300 bg-gradient-to-br from-slate-50 to-white'
         }`}
       >
         <div className="mx-auto max-w-xl text-center">
-          <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-blue-700">
+          <span className={`mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl ${accentIconClass}`}>
             <Upload className="h-6 w-6" />
           </span>
           <p className="mt-3 text-base font-semibold text-slate-900">
