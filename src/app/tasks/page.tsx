@@ -51,7 +51,6 @@ type TaskBucketFilter =
   | 'qc-new'
   | 'qc-waiting-missing'
   | 'qc-lo-responded'
-  | 'qc-waiting-approval'
   | 'qc-completed-requests';
 
 function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
@@ -76,7 +75,6 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
     value === 'qc-new' ||
     value === 'qc-waiting-missing' ||
     value === 'qc-lo-responded' ||
-    value === 'qc-waiting-approval' ||
     value === 'qc-completed-requests'
   ) {
     return value;
@@ -602,7 +600,8 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         tasks: qcTasks.filter(
           (task) =>
             task.status !== TaskStatus.COMPLETED &&
-            task.workflowState === TaskWorkflowState.WAITING_ON_LO
+            (task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
+              task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL)
         ),
       },
       {
@@ -614,17 +613,6 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
           (task) =>
             task.status !== TaskStatus.COMPLETED &&
             task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
-        ),
-      },
-      {
-        id: 'qc-waiting-approval',
-        label: 'Waiting for Approval',
-        chipLabel: 'Awaiting Approval',
-        chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
-        tasks: qcTasks.filter(
-          (task) =>
-            task.status !== TaskStatus.COMPLETED &&
-            task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
         ),
       },
       {

@@ -59,7 +59,6 @@ const qcReasonOptions: Array<{
   label: string;
 }> = [
   { value: DisclosureDecisionReason.MISSING_ITEMS, label: 'Missing Items' },
-  { value: DisclosureDecisionReason.OTHER, label: 'Other' },
 ];
 
 const disclosureReasonLabel: Record<DisclosureDecisionReason, string> = {
@@ -779,9 +778,12 @@ export function TaskList({
 
   const handleSendToLoanOfficer = async (task: Task) => {
     if (sendingToLoId) return;
+    const isQcRoutingTask = isQcSubmissionTask(task);
     const reason =
-      disclosureReasonByTask[task.id] ||
-      DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+      isQcRoutingTask
+        ? DisclosureDecisionReason.MISSING_ITEMS
+        : disclosureReasonByTask[task.id] ||
+          DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
     const message = (disclosureMessageByTask[task.id] || '').trim();
     if (!message) {
       alert('Please add a note before routing this task.');
@@ -984,8 +986,7 @@ export function TaskList({
         const requiresProofForRouting =
           (isDisclosureRole &&
             isDisclosureSubmissionTask(task) &&
-            selectedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES) ||
-          (isQcRole && isQcSubmissionTask(task));
+            selectedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES);
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
         const assignedSpecialistName = task.assignedUser?.name?.trim() || '';

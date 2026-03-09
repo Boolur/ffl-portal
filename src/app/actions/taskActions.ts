@@ -41,6 +41,17 @@ function isDisclosureSubmissionTask(task: {
   );
 }
 
+function isQcSubmissionTask(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+  title: string;
+}) {
+  return (
+    task.kind === TaskKind.SUBMIT_QC ||
+    (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
+  );
+}
+
 const workflowStateEmailLabel: Record<TaskWorkflowState, string> = {
   [TaskWorkflowState.NONE]: 'None',
   [TaskWorkflowState.WAITING_ON_LO]: 'Waiting on LO',
@@ -1207,9 +1218,14 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         error: 'This action is only supported for disclosure/QC submission tasks.',
       };
     }
+    const qcSubmissionTask = isQcSubmissionTask(task);
+    const normalizedReason = qcSubmissionTask
+      ? DisclosureDecisionReason.MISSING_ITEMS
+      : input.reason;
 
     const requiresProofForRouting =
-      input.reason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+      !qcSubmissionTask &&
+      normalizedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
     if (requiresProofForRouting) {
       const proofCount = await prisma.taskAttachment.count({
         where: { taskId, purpose: 'PROOF' },
@@ -1254,10 +1270,12 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         where: { id: taskId },
         data: {
           status: TaskStatus.BLOCKED,
-          disclosureReason: input.reason,
+          disclosureReason: normalizedReason,
           workflowState:
-            input.reason ===
-            DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+            qcSubmissionTask
+              ? TaskWorkflowState.WAITING_ON_LO
+              : normalizedReason ===
+                DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
               ? TaskWorkflowState.WAITING_ON_LO_APPROVAL
               : TaskWorkflowState.WAITING_ON_LO,
           loanOfficerApprovedAt: null,
@@ -1271,11 +1289,12 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           where: { id: existingOpenLoTask.id },
           data: {
             title:
-              input.reason ===
-              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+              !qcSubmissionTask &&
+              normalizedReason ===
+                DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
                 ? 'LO: Approve Initial Disclosures'
                 : 'LO: Needs Info',
-            disclosureReason: input.reason,
+            disclosureReason: normalizedReason,
             description: input.message?.trim() || null,
             submissionData: updatedSubmissionData ?? undefined,
             status: TaskStatus.PENDING,
@@ -1293,12 +1312,13 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
             loanId: task.loanId,
             parentTaskId: taskId,
             title:
-              input.reason ===
-              DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+              !qcSubmissionTask &&
+              normalizedReason ===
+                DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
                 ? 'LO: Approve Initial Disclosures'
                 : 'LO: Needs Info',
             kind: TaskKind.LO_NEEDS_INFO,
-            disclosureReason: input.reason,
+            disclosureReason: normalizedReason,
             description: input.message?.trim() || null,
             submissionData: updatedSubmissionData ?? undefined,
             status: TaskStatus.PENDING,
