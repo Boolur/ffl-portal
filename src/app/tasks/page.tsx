@@ -742,6 +742,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
               currentUserId={sessionUser.id}
               initialFocusedTaskId={focusedTaskId}
               bucketScrollMode="fixed"
+              fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
             />
           </section>
         </div>
