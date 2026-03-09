@@ -61,7 +61,7 @@ type DashboardTask = {
 type DashboardWrapperProps = {
   loans: DashboardLoan[];
   adminTasks: DashboardTask[];
-  user: { name: string; role: string };
+  user: { name: string; role: string; email?: string; loQcTwoRowPilot?: boolean };
 };
 
 function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
@@ -145,6 +145,7 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
           loans={loans}
           submissions={adminTasks}
           loanOfficerName={user.name}
+          qcEnabled={Boolean(user.loQcTwoRowPilot)}
         />
       )}
       

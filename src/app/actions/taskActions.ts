@@ -945,6 +945,24 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     const role = session?.user?.role as UserRole | undefined;
     const sessionUserId = session?.user?.id as string | undefined;
 
+    if (submissionType === 'QC') {
+      if (!sessionUserId) {
+        return { success: false, error: 'Not authenticated.' };
+      }
+      const pilotRows = await prisma.$queryRaw<Array<{ loQcTwoRowPilot: boolean }>>`
+        SELECT "loQcTwoRowPilot"
+        FROM "User"
+        WHERE id = ${sessionUserId}
+        LIMIT 1
+      `;
+      if (!pilotRows[0]?.loQcTwoRowPilot) {
+        return {
+          success: false,
+          error: 'Submit for QC is not enabled for this user yet.',
+        };
+      }
+    }
+
     // Prefer the session user as the loan officer when possible.
     // (Keeps pipelines isolated per-LO and avoids name-based lookups.)
     let loanOfficerUser =

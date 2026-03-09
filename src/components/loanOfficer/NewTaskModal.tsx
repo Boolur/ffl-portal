@@ -13,6 +13,7 @@ type NewTaskModalProps = {
   onClose: () => void;
   loanOfficerName: string;
   initialType?: SubmissionType;
+  qcEnabled?: boolean;
 };
 
 type SubmissionType = 'DISCLOSURES' | 'QC';
@@ -36,18 +37,30 @@ const buttonPricingOptions = [
   'Buydown 3',
 ];
 
-export function NewTaskModal({ open, onClose, loanOfficerName }: NewTaskModalProps) {
-  const type: SubmissionType = 'DISCLOSURES';
+export function NewTaskModal({
+  open,
+  onClose,
+  loanOfficerName,
+  initialType = 'DISCLOSURES',
+  qcEnabled = false,
+}: NewTaskModalProps) {
+  const [type, setType] = useState<SubmissionType>(
+    initialType === 'QC' && qcEnabled ? 'QC' : 'DISCLOSURES'
+  );
   const [showQcComingSoon, setShowQcComingSoon] = useState(false);
   const router = useRouter();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const handleClose = useCallback(() => {
     setShowQcComingSoon(false);
+    setType('DISCLOSURES');
     onClose();
   }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
+
+    setType(initialType === 'QC' && qcEnabled ? 'QC' : 'DISCLOSURES');
+    setShowQcComingSoon(false);
 
     closeButtonRef.current?.focus();
 
@@ -59,7 +72,7 @@ export function NewTaskModal({ open, onClose, loanOfficerName }: NewTaskModalPro
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, handleClose]);
+  }, [open, handleClose, initialType, qcEnabled]);
 
   if (!open) return null;
 
@@ -94,22 +107,32 @@ export function NewTaskModal({ open, onClose, loanOfficerName }: NewTaskModalPro
             icon={ClipboardCheck}
             title="Submit for Disclosures"
             description="Send loan info to the Disclosure Team"
-            onClick={() => setShowQcComingSoon(false)}
+            onClick={() => {
+              setType('DISCLOSURES');
+              setShowQcComingSoon(false);
+            }}
           />
           <TypeButton
-            active={false}
+            active={type === 'QC'}
             icon={ShieldCheck}
             title="Submit for QC"
             description="Send loan to Quality Control"
-            disabled
-            comingSoon
-            onClick={() => setShowQcComingSoon(true)}
+            disabled={!qcEnabled}
+            comingSoon={!qcEnabled}
+            onClick={() => {
+              if (!qcEnabled) {
+                setShowQcComingSoon(true);
+                return;
+              }
+              setType('QC');
+              setShowQcComingSoon(false);
+            }}
           />
         </div>
 
-        {showQcComingSoon && (
+        {!qcEnabled && showQcComingSoon && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-            Submit for QC is coming soon. It is temporarily disabled.
+            Submit for QC is currently pilot-only and not enabled for this account.
           </div>
         )}
 
