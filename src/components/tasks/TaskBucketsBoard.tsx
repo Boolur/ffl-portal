@@ -80,6 +80,7 @@ export function TaskBucketsBoard({
   currentUserId,
   initialFocusedTaskId,
   bucketScrollMode = 'auto',
+  fixedScrollClassName = 'max-h-[520px] overflow-y-auto pr-1',
 }: {
   buckets: BucketConfig[];
   activeBucketId: string | null;
@@ -88,6 +89,7 @@ export function TaskBucketsBoard({
   currentUserId?: string;
   initialFocusedTaskId?: string | null;
   bucketScrollMode?: 'auto' | 'fixed';
+  fixedScrollClassName?: string;
 }) {
   const [globalSearch, setGlobalSearch] = useState('');
   const [globalSort, setGlobalSort] = useState<SortOption>('updated_desc');
@@ -273,7 +275,7 @@ export function TaskBucketsBoard({
                 <div
                   className={
                     bucketScrollMode === 'fixed'
-                      ? 'max-h-[520px] overflow-y-auto pr-1'
+                      ? fixedScrollClassName
                       : undefined
                   }
                 >

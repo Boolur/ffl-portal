@@ -47,7 +47,12 @@ type TaskBucketFilter =
   | 'submitted-qc'
   | 'action-required-qc'
   | 'returned-to-qc'
-  | 'qc-completed';
+  | 'qc-completed'
+  | 'qc-new'
+  | 'qc-waiting-missing'
+  | 'qc-lo-responded'
+  | 'qc-waiting-approval'
+  | 'qc-completed-requests';
 
 function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
   if (
@@ -67,7 +72,12 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
     value === 'submitted-qc' ||
     value === 'action-required-qc' ||
     value === 'returned-to-qc' ||
-    value === 'qc-completed'
+    value === 'qc-completed' ||
+    value === 'qc-new' ||
+    value === 'qc-waiting-missing' ||
+    value === 'qc-lo-responded' ||
+    value === 'qc-waiting-approval' ||
+    value === 'qc-completed-requests'
   ) {
     return value;
   }
@@ -574,7 +584,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
     const qcTasks = allTasks.filter(isQcSubmissionTask);
     return [
       {
-        id: 'new',
+        id: 'qc-new',
         label: 'New QC Requests',
         chipLabel: 'New',
         chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
@@ -585,20 +595,41 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         ),
       },
       {
-        id: 'pending-lo',
-        label: 'Pending LO',
+        id: 'qc-waiting-missing',
+        label: 'Waiting Missing/Incomplete',
         chipLabel: 'Pending LO',
         chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
         tasks: qcTasks.filter(
           (task) =>
             task.status !== TaskStatus.COMPLETED &&
-            (task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
-              task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL)
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO
         ),
       },
       {
-        id: 'completed',
-        label: 'Completed',
+        id: 'qc-lo-responded',
+        label: 'LO Responded (Review)',
+        chipLabel: 'Needs Review',
+        chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
+        tasks: qcTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'qc-waiting-approval',
+        label: 'Waiting for Approval',
+        chipLabel: 'Awaiting Approval',
+        chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+        tasks: qcTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
+        ),
+      },
+      {
+        id: 'qc-completed-requests',
+        label: 'Completed QC Requests',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
         tasks: qcTasks.filter((task) => task.status === TaskStatus.COMPLETED),
@@ -703,6 +734,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
               currentUserId={sessionUser.id}
               initialFocusedTaskId={focusedTaskId}
               bucketScrollMode="fixed"
+              fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
             />
           </section>
           <section>
