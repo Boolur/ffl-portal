@@ -848,18 +848,21 @@ const disclosureCoreReadonlyFields: Array<{
   key:
     | 'yearBuiltProperty'
     | 'originalCost'
-    | 'yearAquired'
     | 'mannerInWhichTitleWillBeHeld';
   label: string;
 }> = [
   { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
   { key: 'originalCost', label: 'Original Cost' },
-  { key: 'yearAquired', label: 'Year Aquired' },
   {
     key: 'mannerInWhichTitleWillBeHeld',
     label: 'Manner in Which Title Will be Held',
   },
 ];
+
+const disclosureYearAquiredReadonlyField: {
+  key: 'yearAquired';
+  label: string;
+} = { key: 'yearAquired', label: 'Year Aquired' };
 
 export async function createSubmissionTask(payload: SubmissionPayload) {
   try {
@@ -932,10 +935,19 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       const hasAnyIncomeItems = Boolean(incomeProfileRaw?.hasAnyIncomeItems);
       const hasEmploymentIncome = Boolean(incomeProfileRaw?.hasEmploymentIncome);
       const employmentFieldsRequired = hasAnyIncomeItems ? hasEmploymentIncome : true;
+      const loanProgram = String(submissionObject.loanProgram ?? '')
+        .trim()
+        .toUpperCase();
+      const loanPurposeType = String(submissionObject.loanPurposeType ?? '')
+        .trim()
+        .toUpperCase();
+      const isPurchaseLikeLoan =
+        loanProgram === 'PURCHASE' || loanPurposeType === 'PURCHASE';
 
       const disclosureReadonlyRequiredFields = [
         ...(employmentFieldsRequired ? disclosureEmployerReadonlyFields : []),
         ...disclosureCoreReadonlyFields,
+        ...(isPurchaseLikeLoan ? [] : [disclosureYearAquiredReadonlyField]),
       ];
 
       const missingFields = disclosureReadonlyRequiredFields

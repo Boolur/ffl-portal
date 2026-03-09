@@ -489,7 +489,11 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
   const loanType =
     ['Conventional', 'FHA', 'VA'].includes(mortgageType) ? mortgageType : '';
 
-  const loanProgram = '';
+  const loanPurposeType = getText(doc, 'LoanPurposeType').trim().toUpperCase();
+  const loanProgram =
+    loanPurposeType === 'PURCHASE'
+      ? 'Purchase'
+      : '';
   const loanAmount =
     getText(doc, 'BaseLoanAmount') || getText(doc, 'NoteAmount');
   const homeValue =
@@ -712,12 +716,15 @@ function DisclosuresForm({
   const coreReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
     { key: 'originalCost', label: 'Original Cost' },
-    { key: 'yearAquired', label: 'Year Aquired' },
     { key: 'mannerInWhichTitleWillBeHeld', label: 'Manner in Which Title Will be Held' },
   ];
+  const isPurchaseLikeLoan = form.loanProgram.trim().toUpperCase() === 'PURCHASE';
+  const yearAquiredReadonlyField: ReadonlyArray<{ key: keyof typeof form; label: string }> =
+    isPurchaseLikeLoan ? [] : [{ key: 'yearAquired', label: 'Year Aquired' }];
   const requiredReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     ...(mismoIncomeProfile.employmentFieldsRequired ? employerReadonlyFields : []),
     ...coreReadonlyFields,
+    ...yearAquiredReadonlyField,
   ];
   const missingReadonlyKeys = new Set(
     requiredReadonlyFields
