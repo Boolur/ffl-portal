@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { createSubmissionTask } from '@/app/actions/taskActions';
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
 import { TaskAttachmentPurpose } from '@prisma/client';
-import { attachClientDocumentsToTask, getClientFolderForLoan, getMyPipelineClients } from '@/app/actions/clientFolderActions';
 
 type NewTaskModalProps = {
   open: boolean;
@@ -17,14 +16,6 @@ type NewTaskModalProps = {
 };
 
 type SubmissionType = 'DISCLOSURES' | 'QC';
-type PipelineLoanOption = {
-  id: string;
-  loanNumber: string;
-  borrowerName: string;
-  borrowerPhone: string | null;
-  borrowerEmail: string | null;
-};
-type ClientFolderDocOption = { id: string; filename: string; createdAt: Date };
 
 const investorOptions = ['UWM', 'Kind', 'EPM', 'Sun West', 'Button'];
 const buttonPricingOptions = [
@@ -119,6 +110,7 @@ export function NewTaskModal({
             description="Send loan to Quality Control"
             disabled={!qcEnabled}
             comingSoon={!qcEnabled}
+            tone="violet"
             onClick={() => {
               if (!qcEnabled) {
                 setShowQcComingSoon(true);
@@ -180,6 +172,9 @@ type MismoPrefill = {
   originalCost?: string;
   yearAquired?: string;
   mannerInWhichTitleWillBeHeld?: string;
+  creditReportNotesExp?: string;
+  creditReportNotesEqf?: string;
+  creditReportNotesTui?: string;
   incomeProfile?: MismoIncomeProfile;
 };
 
@@ -388,6 +383,59 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
       'Email',
       'BorrowerEmailAddress',
     ]);
+  const normalizeRepository = (value: string) => value.trim().toUpperCase();
+  const toScoreString = (value: string) => {
+    const digits = value.trim().match(/\d{2,3}/)?.[0] || '';
+    return digits;
+  };
+  const creditReportNotesByRepo: Record<'EXP' | 'EQF' | 'TUI', string> = {
+    EXP: '',
+    EQF: '',
+    TUI: '',
+  };
+  const creditScoreContainers = [
+    ...Array.from(doc.getElementsByTagNameNS('*', 'CREDIT_SCORE')),
+    ...Array.from(doc.getElementsByTagNameNS('*', 'CREDIT_SCORE_DETAIL')),
+  ];
+  for (const node of creditScoreContainers) {
+    const repo = normalizeRepository(
+      getFirstText(node, [
+        'CreditRepositorySourceType',
+        'CreditScoreRepositoryType',
+        'BorrowerCreditReportRepositoryType',
+        'RepositorySourceType',
+        'CreditReportBureauType',
+      ])
+    );
+    const score = toScoreString(
+      getFirstText(node, [
+        'CreditScoreValue',
+        'BorrowerCreditScoreValue',
+        'CreditScore',
+      ])
+    );
+    if (!score) continue;
+    if (!creditReportNotesByRepo.EXP && (repo.includes('EXP') || repo.includes('EXPERIAN'))) {
+      creditReportNotesByRepo.EXP = score;
+      continue;
+    }
+    if (!creditReportNotesByRepo.EQF && (repo.includes('EQF') || repo.includes('EQUIFAX'))) {
+      creditReportNotesByRepo.EQF = score;
+      continue;
+    }
+    if (!creditReportNotesByRepo.TUI && (repo.includes('TUI') || repo.includes('TRANSUNION'))) {
+      creditReportNotesByRepo.TUI = score;
+    }
+  }
+  const loanLevelCreditScore = toScoreString(
+    getFirstText(doc, ['LoanLevelCreditScoreValue'])
+  );
+  if (loanLevelCreditScore) {
+    // Some MISMO exports only provide a single consolidated score.
+    if (!creditReportNotesByRepo.EXP) creditReportNotesByRepo.EXP = loanLevelCreditScore;
+    if (!creditReportNotesByRepo.EQF) creditReportNotesByRepo.EQF = loanLevelCreditScore;
+    if (!creditReportNotesByRepo.TUI) creditReportNotesByRepo.TUI = loanLevelCreditScore;
+  }
   const loanOfficer = getTextFromElement(loanOriginatorParty, 'FullName') ||
     [getTextFromElement(loanOriginatorParty, 'FirstName'), getTextFromElement(loanOriginatorParty, 'LastName')].filter(Boolean).join(' ');
 
@@ -520,6 +568,9 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     originalCost,
     yearAquired,
     mannerInWhichTitleWillBeHeld,
+    creditReportNotesExp: creditReportNotesByRepo.EXP,
+    creditReportNotesEqf: creditReportNotesByRepo.EQF,
+    creditReportNotesTui: creditReportNotesByRepo.TUI,
     incomeProfile,
   };
 }
@@ -531,6 +582,7 @@ function TypeButton({
   description,
   disabled = false,
   comingSoon = false,
+  tone = 'blue',
   onClick,
 }: {
   active: boolean;
@@ -539,8 +591,13 @@ function TypeButton({
   description: string;
   disabled?: boolean;
   comingSoon?: boolean;
+  tone?: 'blue' | 'violet';
   onClick: () => void;
 }) {
+  const activeBorderClass =
+    tone === 'violet' ? 'border-violet-500 bg-violet-50 shadow-sm' : 'border-blue-500 bg-blue-50 shadow-sm';
+  const activeIconClass =
+    tone === 'violet' ? 'bg-violet-600 text-white' : 'bg-blue-600 text-white';
   return (
     <button
       type="button"
@@ -551,7 +608,7 @@ function TypeButton({
         disabled
           ? 'border-slate-200 bg-slate-50 text-slate-500 cursor-not-allowed'
           : active
-          ? 'border-blue-500 bg-blue-50 shadow-sm'
+          ? activeBorderClass
           : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
       }`}
     >
@@ -561,7 +618,7 @@ function TypeButton({
             disabled
               ? 'bg-slate-200 text-slate-500'
               : active
-              ? 'bg-blue-600 text-white'
+              ? activeIconClass
               : 'bg-slate-100 text-slate-600'
           }`}
         >
@@ -1214,12 +1271,8 @@ function QcForm({
   onSubmitted: () => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [stipFiles, setStipFiles] = useState<File[]>([]);
-  const [stipError, setStipError] = useState('');
-  const [pipelineLoans, setPipelineLoans] = useState<PipelineLoanOption[]>([]);
-  const [selectedPipelineLoanId, setSelectedPipelineLoanId] = useState<string>('');
-  const [clientFolderDocs, setClientFolderDocs] = useState<ClientFolderDocOption[]>([]);
-  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [qcStep, setQcStep] = useState<1 | 2>(1);
+  const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [form, setForm] = useState({
     preApproved: '',
     loanOfficer: loanOfficerName,
@@ -1253,57 +1306,10 @@ function QcForm({
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  useEffect(() => {
-    const load = async () => {
-      const result = await getMyPipelineClients();
-      if (result.success && Array.isArray(result.loans)) {
-        setPipelineLoans(
-          result.loans.map((l) => ({
-            id: l.id,
-            loanNumber: l.loanNumber,
-            borrowerName: l.borrowerName,
-            borrowerPhone: l.borrowerPhone ?? null,
-            borrowerEmail: l.borrowerEmail ?? null,
-          }))
-        );
-      }
-    };
-    load();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedPipelineLoanId) {
-      return;
-    }
-
-    const loadDocs = async () => {
-      const folder = await getClientFolderForLoan(selectedPipelineLoanId);
-      if (folder.success && Array.isArray(folder.documents)) {
-        setClientFolderDocs(
-          folder.documents.map((d) => ({
-            id: d.id,
-            filename: d.filename,
-            createdAt: d.createdAt,
-          }))
-        );
-      } else {
-        setClientFolderDocs([]);
-      }
-    };
-    loadDocs();
-  }, [selectedPipelineLoanId, pipelineLoans]);
-
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     setSubmitError('');
-
-    if (stipFiles.length < 1) {
-      setStipError('Initial STIPs are required (upload at least 1 file).');
-      return;
-    }
-
-    setStipError('');
     setIsSubmitting(true);
 
     try {
@@ -1320,67 +1326,10 @@ function QcForm({
         submissionData: form,
       });
 
-      if (!res.success || !res.taskId) {
+      if (!res.success) {
         setSubmitError(res.error || 'Failed to submit QC task.');
         setIsSubmitting(false);
         return;
-      }
-
-      // Upload required STIPs and attach to task
-      for (const file of stipFiles) {
-        const upload = await createTaskAttachmentUploadUrl({
-          taskId: res.taskId,
-          purpose: TaskAttachmentPurpose.STIP,
-          filename: file.name,
-        });
-
-        if (!upload.success || !upload.signedUrl || !upload.path) {
-          setSubmitError(upload.error || 'Failed to create upload URL.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        const put = await fetch(upload.signedUrl, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': file.type || 'application/octet-stream',
-          },
-          body: file,
-        });
-
-        if (!put.ok) {
-          setSubmitError('Failed to upload a STIP file. Please try again.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        const saved = await finalizeTaskAttachment({
-          taskId: res.taskId,
-          purpose: TaskAttachmentPurpose.STIP,
-          storagePath: upload.path,
-          filename: file.name,
-          contentType: file.type || 'application/octet-stream',
-          sizeBytes: file.size,
-        });
-
-        if (!saved.success) {
-          setSubmitError(saved.error || 'Failed to save uploaded file.');
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      if (selectedDocIds.length > 0) {
-        const attached = await attachClientDocumentsToTask({
-          taskId: res.taskId,
-          documentIds: selectedDocIds,
-          purpose: TaskAttachmentPurpose.STIP,
-        });
-        if (!attached.success) {
-          setSubmitError(attached.error || 'Failed to attach client documents.');
-          setIsSubmitting(false);
-          return;
-        }
       }
 
       onSubmitted();
@@ -1393,6 +1342,7 @@ function QcForm({
 
   const handleFileUpload = async (file: File | null) => {
     if (!file) return;
+    setIsParsingMismo(true);
     try {
       const text = await file.text();
       const prefill = parseMismoXml(text, file.name);
@@ -1402,140 +1352,70 @@ function QcForm({
         loanOfficer: prefill.loanOfficer || prev.loanOfficer,
         borrowerFirstName: prefill.borrowerFirstName || prev.borrowerFirstName,
         borrowerLastName: prefill.borrowerLastName || prev.borrowerLastName,
+        borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
+        borrowerEmail: prefill.borrowerEmail || prev.borrowerEmail,
         arriveLoanNumber: prefill.arriveLoanNumber || prev.arriveLoanNumber,
         channel: prefill.channel || prev.channel,
         investor: prefill.investor || prev.investor,
         loanType: prefill.loanType || prev.loanType,
         loanProgram: prefill.loanProgram || prev.loanProgram,
         loanAmount: prefill.loanAmount || prev.loanAmount,
+        creditReportNotesExp:
+          prefill.creditReportNotesExp || prev.creditReportNotesExp,
+        creditReportNotesEqf:
+          prefill.creditReportNotesEqf || prev.creditReportNotesEqf,
+        creditReportNotesTui:
+          prefill.creditReportNotesTui || prev.creditReportNotesTui,
       }));
+      setQcStep(2);
     } catch {
       setImportError('Could not read this MISMO file. Please verify the XML export.');
+      setQcStep(1);
+    } finally {
+      setIsParsingMismo(false);
     }
   };
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      <SectionTitle title="QC Submission Details" />
-      <FileUpload onFileSelected={handleFileUpload} />
-      {importError && (
-        <p className="text-xs text-red-600">{importError}</p>
-      )}
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="text-sm font-semibold text-slate-900">Select Client (optional)</p>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Pick a client from your pipeline to auto-fill and optionally include docs from their folder.
-        </p>
-        <select
-          value={selectedPipelineLoanId}
-          onChange={(e) => {
-            const nextLoanId = e.target.value;
-            setSelectedPipelineLoanId(nextLoanId);
-            if (!nextLoanId) {
-              setClientFolderDocs([]);
-              setSelectedDocIds([]);
-              return;
-            }
-            const loan = pipelineLoans.find((l) => l.id === nextLoanId);
-            if (!loan) return;
-            const parts = (loan.borrowerName || '').trim().split(/\s+/).filter(Boolean);
-            const first = parts[0] || '';
-            const last = parts.length > 1 ? parts.slice(1).join(' ') : '';
-            setForm((prev) => ({
-              ...prev,
-              borrowerFirstName: first || prev.borrowerFirstName,
-              borrowerLastName: last || prev.borrowerLastName,
-              arriveLoanNumber: loan.loanNumber || prev.arriveLoanNumber,
-              borrowerPhone: loan.borrowerPhone || prev.borrowerPhone,
-              borrowerEmail: loan.borrowerEmail || prev.borrowerEmail,
-            }));
-          }}
-          disabled={isSubmitting}
-          className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-60"
-        >
-          <option value="">No selection</option>
-          {pipelineLoans.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.borrowerName} • {l.loanNumber}
-            </option>
-          ))}
-        </select>
-
-        {clientFolderDocs.length > 0 && (
-          <div className="mt-3">
-            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-              Include from Client Folder
-            </p>
-            <div className="mt-2 max-h-36 overflow-y-auto space-y-2 pr-1">
-              {clientFolderDocs.map((d) => {
-                const checked = selectedDocIds.includes(d.id);
-                return (
-                  <label
-                    key={d.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-700 truncate">{d.filename}</p>
-                      <p className="text-[10px] text-slate-400">
-                        {new Date(d.createdAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => {
-                        setSelectedDocIds((prev) =>
-                          checked ? prev.filter((id) => id !== d.id) : [...prev, d.id]
-                        );
-                      }}
-                      disabled={isSubmitting}
-                    />
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
-        <div className="flex items-center justify-between gap-3">
+      {qcStep === 1 ? (
+        <DisclosureMismoStep
+          onFileSelected={handleFileUpload}
+          isParsing={isParsingMismo}
+          importError={importError}
+        />
+      ) : (
+        <>
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Initial STIPs (required)</p>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Upload at least 1 file (PDF/Image/Doc). These will be attached to the QC task.
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Step 1 Complete
+            </p>
+            <p className="text-sm font-semibold text-slate-900">
+              MISMO 3.4 uploaded for QC submission.
             </p>
           </div>
-          <span className="text-xs font-semibold text-slate-700 rounded-full border border-slate-200 bg-white px-2 py-1">
-            {stipFiles.length} selected
-          </span>
-        </div>
-
-        <div className="mt-3">
-          <input
-            type="file"
-            multiple
-            accept="application/pdf,image/*,.doc,.docx"
-            disabled={isSubmitting}
-            onChange={(e) => {
-              const files = Array.from(e.target.files || []);
-              setStipFiles(files);
-              if (files.length) setStipError('');
-              e.currentTarget.value = '';
+          <button
+            type="button"
+            onClick={() => {
+              setQcStep(1);
+              setSubmitError('');
             }}
-            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60"
-          />
-          {stipError && <p className="mt-2 text-xs text-red-600">{stipError}</p>}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            Replace MISMO File
+          </button>
         </div>
       </div>
+      <SectionTitle title="Step 2) Complete QC Submission Details" />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
         <Input label="Secondary Loan Officer" value={form.secondaryLoanOfficer} onChange={(v) => update('secondaryLoanOfficer', v)} />
         <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required />
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required />
-        <Input label="Borrower Phone (recommended)" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} />
-        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} />
+        <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required />
+        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required />
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required />
         <RadioGroup
           label="Is loan in Pre-Approved Status in Arrive?"
@@ -1615,6 +1495,8 @@ function QcForm({
           {isSubmitting ? 'Processing...' : 'Submit for QC'}
         </button>
       </div>
+        </>
+      )}
     </form>
   );
 }

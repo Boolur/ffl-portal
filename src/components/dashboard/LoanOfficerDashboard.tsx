@@ -86,16 +86,16 @@ export function LoanOfficerDashboard({
           title={qcEnabled ? 'Submit for QC' : 'Submit for QC is currently limited to pilot access.'}
           className={`group relative flex flex-col items-start p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
             qcEnabled
-              ? 'border-indigo-200 bg-white hover:shadow-md hover:border-indigo-300 transition-all'
+              ? 'border-violet-200 bg-white hover:shadow-md hover:border-violet-300 transition-all'
               : 'border-slate-200 bg-slate-50/70 cursor-not-allowed'
           }`}
         >
           <div className={`absolute top-0 right-0 p-8 ${qcEnabled ? 'opacity-10' : 'opacity-5'}`}>
-            <ShieldCheck className={`w-32 h-32 ${qcEnabled ? 'text-indigo-600' : 'text-slate-500'}`} />
+            <ShieldCheck className={`w-32 h-32 ${qcEnabled ? 'text-violet-600' : 'text-slate-500'}`} />
           </div>
           <div
             className={`w-14 h-14 rounded-xl flex items-center justify-center mb-6 shadow-sm ${
-              qcEnabled ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'
+              qcEnabled ? 'bg-violet-600 text-white' : 'bg-slate-200 text-slate-500'
             }`}
           >
             <ShieldCheck className="w-7 h-7" />
@@ -114,7 +114,7 @@ export function LoanOfficerDashboard({
           <div
             className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold ${
               qcEnabled
-                ? 'bg-indigo-50 text-indigo-700 group-hover:bg-indigo-600 group-hover:text-white transition-colors'
+                ? 'bg-violet-50 text-violet-700 group-hover:bg-violet-600 group-hover:text-white transition-colors'
                 : 'bg-slate-200 text-slate-500'
             }`}
           >
