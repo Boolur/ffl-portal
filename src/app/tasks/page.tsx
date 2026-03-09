@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { ClipboardCheck, ShieldCheck } from 'lucide-react';
 
 // In a real app, we'd get the current user from the session
 const MOCK_USER = {
@@ -707,7 +708,12 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         <div className="space-y-5">
           <section>
             <div className="mb-2">
-              <h2 className="text-base font-bold text-slate-900">Disclosure Requests</h2>
+              <h2 className="inline-flex items-center gap-2 text-base font-bold text-slate-900">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                </span>
+                Disclosure Requests
+              </h2>
               <p className="text-xs font-medium text-slate-500">
                 Your existing disclosure workflow queue.
               </p>
@@ -727,7 +733,12 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           </section>
           <section>
             <div className="mb-2">
-              <h2 className="text-base font-bold text-slate-900">QC Requests</h2>
+              <h2 className="inline-flex items-center gap-2 text-base font-bold text-slate-900">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                </span>
+                QC Requests
+              </h2>
               <p className="text-xs font-medium text-slate-500">
                 QC queue with the same bucket UX and controls.
               </p>

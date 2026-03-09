@@ -1015,7 +1015,6 @@ function DisclosuresForm({
           onFileSelected={handleFileUpload}
           isParsing={isParsingMismo}
           importError={importError}
-          tone="violet"
         />
       ) : (
         <>
@@ -1384,6 +1383,7 @@ function QcForm({
           onFileSelected={handleFileUpload}
           isParsing={isParsingMismo}
           importError={importError}
+          tone="violet"
         />
       ) : (
         <>
