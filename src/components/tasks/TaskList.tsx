@@ -58,6 +58,10 @@ const qcReasonOptions: Array<{
   value: DisclosureDecisionReason;
   label: string;
 }> = [
+  {
+    value: DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES,
+    label: 'Complete QC',
+  },
   { value: DisclosureDecisionReason.MISSING_ITEMS, label: 'Missing Items' },
 ];
 
@@ -778,12 +782,9 @@ export function TaskList({
 
   const handleSendToLoanOfficer = async (task: Task) => {
     if (sendingToLoId) return;
-    const isQcRoutingTask = isQcSubmissionTask(task);
     const reason =
-      isQcRoutingTask
-        ? DisclosureDecisionReason.MISSING_ITEMS
-        : disclosureReasonByTask[task.id] ||
-          DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+      disclosureReasonByTask[task.id] ||
+      DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
     const message = (disclosureMessageByTask[task.id] || '').trim();
     if (!message) {
       alert('Please add a note before routing this task.');
@@ -929,7 +930,8 @@ export function TaskList({
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const selectedQcReason =
-          disclosureReasonByTask[task.id] || DisclosureDecisionReason.MISSING_ITEMS;
+          disclosureReasonByTask[task.id] ||
+          DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const canDisclosureEditProofAttachments =
           isDisclosureRole &&
           isDisclosureSubmissionTask(task) &&
@@ -1715,6 +1717,9 @@ export function TaskList({
                             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
                             ? 'Send to LO for Approval'
                             : 'Send Back to LO'
+                          : selectedQcReason ===
+                            DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                          ? 'Complete QC'
                           : 'Send Back to LO'}
                       </button>
                     )}

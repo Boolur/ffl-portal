@@ -1240,9 +1240,26 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       };
     }
     const qcSubmissionTask = isQcSubmissionTask(task);
-    const normalizedReason = qcSubmissionTask
-      ? DisclosureDecisionReason.MISSING_ITEMS
-      : input.reason;
+    const normalizedReason = input.reason;
+    const normalizedMessage = input.message?.trim() || '';
+
+    if (qcSubmissionTask) {
+      const isAllowedQcAction =
+        normalizedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES ||
+        normalizedReason === DisclosureDecisionReason.MISSING_ITEMS;
+      if (!isAllowedQcAction) {
+        return {
+          success: false,
+          error: 'QC action must be either Complete QC or Missing Items.',
+        };
+      }
+      if (!normalizedMessage) {
+        return {
+          success: false,
+          error: 'Please add a note before submitting the QC action.',
+        };
+      }
+    }
 
     const requiresProofForRouting =
       !qcSubmissionTask &&
@@ -1268,13 +1285,19 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       select: { id: true },
     });
 
+    const isQcCompleteAction =
+      qcSubmissionTask &&
+      normalizedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+
     await prisma.$transaction(async (tx) => {
-      const noteEntry = input.message?.trim() ? {
+      const noteEntry = normalizedMessage
+        ? {
         author: session?.user?.name || 'Unknown',
         role: role,
-        message: input.message.trim(),
+        message: normalizedMessage,
         date: new Date().toISOString(),
-      } : null;
+      }
+        : null;
 
       let updatedSubmissionData = task.submissionData;
       if (noteEntry) {
@@ -1287,91 +1310,181 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         updatedSubmissionData = dataObj as Prisma.JsonObject;
       }
 
-      await tx.task.update({
-        where: { id: taskId },
-        data: {
-          status: TaskStatus.BLOCKED,
-          disclosureReason: normalizedReason,
-          workflowState:
-            qcSubmissionTask
-              ? TaskWorkflowState.WAITING_ON_LO
-              : normalizedReason ===
-                DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-              ? TaskWorkflowState.WAITING_ON_LO_APPROVAL
-              : TaskWorkflowState.WAITING_ON_LO,
-          loanOfficerApprovedAt: null,
-          submissionData: updatedSubmissionData ?? undefined,
-        },
-      });
-
-      let loChildTaskId: string;
-      if (existingOpenLoTask) {
+      if (isQcCompleteAction) {
         await tx.task.update({
-          where: { id: existingOpenLoTask.id },
+          where: { id: taskId },
           data: {
-            title:
-              !qcSubmissionTask &&
-              normalizedReason ===
-                DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-                ? 'LO: Approve Initial Disclosures'
-                : 'LO: Needs Info',
+            status: TaskStatus.COMPLETED,
             disclosureReason: normalizedReason,
-            description: input.message?.trim() || null,
+            workflowState: TaskWorkflowState.NONE,
+            completedAt: new Date(),
+            description: normalizedMessage || null,
+            loanOfficerApprovedAt: null,
             submissionData: updatedSubmissionData ?? undefined,
-            status: TaskStatus.PENDING,
-            priority: TaskPriority.HIGH,
-            assignedUserId: task.loan.loanOfficerId,
-            assignedRole: UserRole.LOAN_OFFICER,
-            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-            completedAt: null,
           },
         });
-        loChildTaskId = existingOpenLoTask.id;
+
+        if (existingOpenLoTask) {
+          await tx.task.update({
+            where: { id: existingOpenLoTask.id },
+            data: {
+              status: TaskStatus.COMPLETED,
+              completedAt: new Date(),
+              description: 'Closed automatically after QC completion.',
+            },
+          });
+        }
       } else {
-        const loChildTask = await tx.task.create({
+        await tx.task.update({
+          where: { id: taskId },
           data: {
-            loanId: task.loanId,
-            parentTaskId: taskId,
-            title:
-              !qcSubmissionTask &&
-              normalizedReason ===
-                DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-                ? 'LO: Approve Initial Disclosures'
-                : 'LO: Needs Info',
-            kind: TaskKind.LO_NEEDS_INFO,
+            status: TaskStatus.BLOCKED,
             disclosureReason: normalizedReason,
-            description: input.message?.trim() || null,
+            workflowState:
+              qcSubmissionTask
+                ? TaskWorkflowState.WAITING_ON_LO
+                : normalizedReason ===
+                  DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                ? TaskWorkflowState.WAITING_ON_LO_APPROVAL
+                : TaskWorkflowState.WAITING_ON_LO,
+            loanOfficerApprovedAt: null,
             submissionData: updatedSubmissionData ?? undefined,
-            status: TaskStatus.PENDING,
-            priority: TaskPriority.HIGH,
-            assignedUserId: task.loan.loanOfficerId,
-            assignedRole: UserRole.LOAN_OFFICER,
-            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
           },
-          select: { id: true },
         });
-        loChildTaskId = loChildTask.id;
       }
 
-      if (parentAttachments.length > 0 && !existingOpenLoTask) {
-        await tx.taskAttachment.createMany({
-          data: parentAttachments.map((att) => ({
-            taskId: loChildTaskId,
-            clientDocumentId: att.clientDocumentId,
-            purpose: att.purpose,
-            storagePath: att.storagePath,
-            filename: att.filename,
-            contentType: att.contentType,
-            sizeBytes: att.sizeBytes,
-            uploadedById: att.uploadedById || userId,
-          })),
-        });
+      if (!isQcCompleteAction) {
+        let loChildTaskId: string;
+        if (existingOpenLoTask) {
+          await tx.task.update({
+            where: { id: existingOpenLoTask.id },
+            data: {
+              title:
+                !qcSubmissionTask &&
+                normalizedReason ===
+                  DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                  ? 'LO: Approve Initial Disclosures'
+                  : 'LO: Needs Info',
+              disclosureReason: normalizedReason,
+              description: normalizedMessage || null,
+              submissionData: updatedSubmissionData ?? undefined,
+              status: TaskStatus.PENDING,
+              priority: TaskPriority.HIGH,
+              assignedUserId: task.loan.loanOfficerId,
+              assignedRole: UserRole.LOAN_OFFICER,
+              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              completedAt: null,
+            },
+          });
+          loChildTaskId = existingOpenLoTask.id;
+        } else {
+          const loChildTask = await tx.task.create({
+            data: {
+              loanId: task.loanId,
+              parentTaskId: taskId,
+              title:
+                !qcSubmissionTask &&
+                normalizedReason ===
+                  DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                  ? 'LO: Approve Initial Disclosures'
+                  : 'LO: Needs Info',
+              kind: TaskKind.LO_NEEDS_INFO,
+              disclosureReason: normalizedReason,
+              description: normalizedMessage || null,
+              submissionData: updatedSubmissionData ?? undefined,
+              status: TaskStatus.PENDING,
+              priority: TaskPriority.HIGH,
+              assignedUserId: task.loan.loanOfficerId,
+              assignedRole: UserRole.LOAN_OFFICER,
+              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            },
+            select: { id: true },
+          });
+          loChildTaskId = loChildTask.id;
+        }
+
+        if (parentAttachments.length > 0 && !existingOpenLoTask) {
+          await tx.taskAttachment.createMany({
+            data: parentAttachments.map((att) => ({
+              taskId: loChildTaskId,
+              clientDocumentId: att.clientDocumentId,
+              purpose: att.purpose,
+              storagePath: att.storagePath,
+              filename: att.filename,
+              contentType: att.contentType,
+              sizeBytes: att.sizeBytes,
+              uploadedById: att.uploadedById || userId,
+            })),
+          });
+        }
       }
     });
 
+    if (isQcCompleteAction) {
+      await prisma.$transaction(async (tx) => {
+        const existingKinds = await tx.task.findMany({
+          where: { loanId: task.loanId },
+          select: { kind: true, assignedRole: true },
+        });
+
+        const has = (kind: TaskKind, assignedRole: UserRole) =>
+          existingKinds.some((t) => t.kind === kind || t.assignedRole === assignedRole);
+
+        const toCreate: { kind: TaskKind; assignedRole: UserRole; title: string }[] = [];
+
+        if (!has(TaskKind.VA_TITLE, UserRole.VA_TITLE)) {
+          toCreate.push({
+            kind: TaskKind.VA_TITLE,
+            assignedRole: UserRole.VA_TITLE,
+            title: 'VA: Title',
+          });
+        }
+        if (!has(TaskKind.VA_HOI, UserRole.VA_HOI)) {
+          toCreate.push({
+            kind: TaskKind.VA_HOI,
+            assignedRole: UserRole.VA_HOI,
+            title: 'VA: HOI',
+          });
+        }
+        if (!has(TaskKind.VA_PAYOFF, UserRole.VA_PAYOFF)) {
+          toCreate.push({
+            kind: TaskKind.VA_PAYOFF,
+            assignedRole: UserRole.VA_PAYOFF,
+            title: 'VA: Payoff',
+          });
+        }
+        if (!has(TaskKind.VA_APPRAISAL, UserRole.VA_APPRAISAL)) {
+          toCreate.push({
+            kind: TaskKind.VA_APPRAISAL,
+            assignedRole: UserRole.VA_APPRAISAL,
+            title: 'VA: Appraisal',
+          });
+        }
+
+        if (toCreate.length) {
+          await tx.task.createMany({
+            data: toCreate.map((t) => ({
+              loanId: task.loanId,
+              title: t.title,
+              kind: t.kind,
+              status: TaskStatus.PENDING,
+              priority: TaskPriority.NORMAL,
+              assignedRole: t.assignedRole,
+              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            })),
+          });
+        }
+
+        await tx.loan.update({
+          where: { id: task.loanId },
+          data: { stage: 'SUBMIT_TO_UW_PREP' },
+        });
+      });
+    }
+
     await sendTaskWorkflowNotificationsByTaskId({
       taskId,
-      eventLabel: 'Sent to Loan Officer',
+      eventLabel: isQcCompleteAction ? 'Task Completed' : 'Sent to Loan Officer',
       changedBy: session?.user?.name,
     });
 
