@@ -952,7 +952,8 @@ export function TaskList({
         const isLoTaskForCurrentLoanOfficer =
           currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
         const isLoanOfficerSubmissionTask =
-          currentRole === UserRole.LOAN_OFFICER && isDisclosureSubmissionTask(task);
+          currentRole === UserRole.LOAN_OFFICER &&
+          (isDisclosureSubmissionTask(task) || isQcSubmissionTask(task));
         const isApprovalReviewTask =
           isLoTaskForCurrentLoanOfficer &&
           task.disclosureReason ===
