@@ -87,8 +87,8 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
       subtitle: 'Monitor teams, queues, and bottlenecks across the organization.',
     },
     [UserRole.MANAGER]: {
-      title: 'Team Overview',
-      subtitle: 'Track workload health and keep departments moving.',
+      title: 'Desk Overview',
+      subtitle: 'Monitor both Disclosure and QC queues in one view.',
     },
     [UserRole.DISCLOSURE_SPECIALIST]: {
       title: 'Disclosure Queue',
@@ -149,8 +149,27 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
         />
       )}
       
-      {(activeRole === 'ADMIN' || activeRole === 'MANAGER') && (
+      {activeRole === 'ADMIN' && (
         <DepartmentBoard tasks={adminTasks} />
+      )}
+
+      {activeRole === UserRole.MANAGER && (
+        <div className="space-y-8">
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">Disclosure Desk</h2>
+              <p className="app-page-subtitle">Live disclosure request workload and status mix.</p>
+            </div>
+            <DisclosureOverview tasks={adminTasks} />
+          </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">QC Desk</h2>
+              <p className="app-page-subtitle">Live QC request workload and status mix.</p>
+            </div>
+            <QcOverview tasks={adminTasks} />
+          </section>
+        </div>
       )}
 
       {/* For other roles, we show their specific queue */}

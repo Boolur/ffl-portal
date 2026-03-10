@@ -682,7 +682,8 @@ export function TaskList({
     const canViewDisclosureSlaTimer =
       currentRole === UserRole.DISCLOSURE_SPECIALIST ||
       currentRole === UserRole.LOAN_OFFICER ||
-      currentRole === UserRole.QC;
+      currentRole === UserRole.QC ||
+      currentRole === UserRole.MANAGER;
     if (!canViewDisclosureSlaTimer) return;
     const intervalId = window.setInterval(() => {
       setTimerNowMs(Date.now());
@@ -915,6 +916,9 @@ export function TaskList({
   const isDisclosureRole = currentRole === UserRole.DISCLOSURE_SPECIALIST;
   const isLoanOfficerRole = currentRole === UserRole.LOAN_OFFICER;
   const isQcRole = currentRole === UserRole.QC;
+  const isManagerRole = currentRole === UserRole.MANAGER;
+  const canManageDisclosureDesk = isDisclosureRole || isManagerRole;
+  const canManageQcDesk = isQcRole || isManagerRole;
   const isDisclosureSubmissionTask = (task: Task) =>
     task.kind === TaskKind.SUBMIT_DISCLOSURES;
   const isQcSubmissionTask = (task: Task) => task.kind === TaskKind.SUBMIT_QC;
@@ -948,7 +952,7 @@ export function TaskList({
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const canDisclosureEditProofAttachments =
-          isDisclosureRole &&
+          canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
           task.status !== TaskStatus.BLOCKED &&
           task.status !== TaskStatus.COMPLETED &&
@@ -974,24 +978,24 @@ export function TaskList({
           task.disclosureReason ===
             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const isDisclosureInitialRoutingState =
-          isDisclosureRole &&
+          canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.NONE;
         const isDisclosureReturnedRoutingState =
-          isDisclosureRole &&
+          canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.READY_TO_COMPLETE;
         const shouldHideGenericStartForDisclosureSubmission =
-          isDisclosureRole && isDisclosureSubmissionTask(task);
+          canManageDisclosureDesk && isDisclosureSubmissionTask(task);
         const shouldRouteFromFooter =
           task.status !== TaskStatus.COMPLETED &&
           ((isDisclosureInitialRoutingState ||
             isDisclosureReturnedRoutingState) ||
-            (isQcRole && isQcSubmissionTask(task)));
+            (canManageQcDesk && isQcSubmissionTask(task)));
         const isDisclosureMissingItemsRoute =
-          isDisclosureRole &&
+          canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
           (isDisclosureInitialRoutingState || isDisclosureReturnedRoutingState) &&
           selectedReason === DisclosureDecisionReason.MISSING_ITEMS;
@@ -999,21 +1003,21 @@ export function TaskList({
           task.status !== 'COMPLETED' &&
           ((isVaSubRole && isVaTaskKind(task.kind)) ||
             (canDisclosureEditProofAttachments && !isDisclosureMissingItemsRoute) ||
-            (isQcRole && isQcSubmissionTask(task)));
-        const isQcAttachmentSection = isQcRole && isQcSubmissionTask(task);
+            (canManageQcDesk && isQcSubmissionTask(task)));
+        const isQcAttachmentSection = canManageQcDesk && isQcSubmissionTask(task);
         const requiresProofForRouting =
-          (isDisclosureRole &&
+          (canManageDisclosureDesk &&
             isDisclosureSubmissionTask(task) &&
             selectedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES);
         const isQcCompleteRouteAction =
-          isQcRole &&
+          canManageQcDesk &&
           isQcSubmissionTask(task) &&
           selectedQcReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const isMissingItemsRouteAction =
-          (isDisclosureRole &&
+          (canManageDisclosureDesk &&
             isDisclosureSubmissionTask(task) &&
             selectedReason === DisclosureDecisionReason.MISSING_ITEMS) ||
-          (isQcRole &&
+          (canManageQcDesk &&
             isQcSubmissionTask(task) &&
             selectedQcReason === DisclosureDecisionReason.MISSING_ITEMS);
         const shouldLoRespondFromFooter =
@@ -1027,7 +1031,7 @@ export function TaskList({
         const disableDisclosureStartButton =
           hasAssignedSpecialist && !isAssignedToCurrentUser;
         const isQcInitialRoutingState =
-          isQcRole &&
+          canManageQcDesk &&
           isQcSubmissionTask(task) &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.NONE;
@@ -1113,7 +1117,7 @@ export function TaskList({
           ? returnedToDisclosureIconClassName
           : defaultIconClassName;
         const shouldShowDisclosureSlaTimer =
-          (isDisclosureRole || isLoanOfficerRole || isQcRole) &&
+          (isDisclosureRole || isLoanOfficerRole || isQcRole || isManagerRole) &&
           (isDisclosureSubmissionTask(task) || isQcSubmissionTask(task)) &&
           task.status !== TaskStatus.COMPLETED;
         const disclosureSlaTimerMeta = shouldShowDisclosureSlaTimer
@@ -1597,7 +1601,7 @@ export function TaskList({
                       </div>
                     )}
 
-                  {isQcRole && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
+                  {canManageQcDesk && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
                     <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/50 p-6 shadow-sm space-y-4">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
@@ -1764,7 +1768,7 @@ export function TaskList({
                         className={`disabled:opacity-60 disabled:cursor-not-allowed ${
                           isMissingItemsRouteAction
                             ? 'inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100'
-                            : isDisclosureRole
+                            : isDisclosureSubmissionTask(task)
                             ? 'app-btn-primary'
                             : isQcCompleteRouteAction
                             ? 'inline-flex h-9 items-center rounded-lg border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors'
@@ -1774,7 +1778,7 @@ export function TaskList({
                         {sendingToLoId === task.id && (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         )}
-                        {isDisclosureRole
+                        {isDisclosureSubmissionTask(task)
                           ? selectedReason ===
                             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
                             ? 'Send to LO for Approval'

@@ -629,6 +629,13 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
   return [];
 }
 
+function getManagerDeskRows(allTasks: TaskRow[]) {
+  return {
+    disclosureBuckets: getRoleBuckets(UserRole.DISCLOSURE_SPECIALIST, allTasks),
+    qcBuckets: getRoleBuckets(UserRole.QC, allTasks),
+  };
+}
+
 type TasksPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -666,7 +673,12 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     sessionRole === UserRole.LOAN_OFFICER &&
     Boolean(loPilotFlagRows[0]?.loQcTwoRowPilot);
   const roleBuckets = getRoleBuckets(sessionRole, allTasks);
-  const loPilotRows = isLoTwoRowPilot ? getLoPilotRows(allTasks) : null;
+  const dualDeskRows = isLoTwoRowPilot
+    ? getLoPilotRows(allTasks)
+    : sessionRole === UserRole.MANAGER
+    ? getManagerDeskRows(allTasks)
+    : null;
+  const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete =
     sessionRole === UserRole.ADMIN || sessionRole === UserRole.MANAGER;
   const roleTaskSubtitle: Record<string, string> = {
@@ -704,7 +716,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         </div>
       </div>
 
-      {isLoTwoRowPilot && loPilotRows && (
+      {isDualDeskMode && dualDeskRows && (
         <div className="space-y-5">
           <section>
             <div className="mb-2">
@@ -716,9 +728,9 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
               </h2>
             </div>
             <TaskBucketsBoard
-              buckets={loPilotRows.disclosureBuckets}
+              buckets={dualDeskRows.disclosureBuckets}
               activeBucketId={
-                loPilotRows.disclosureBuckets.find((b) => b.id === bucket)?.id || null
+                dualDeskRows.disclosureBuckets.find((b) => b.id === bucket)?.id || null
               }
               canDelete={canDelete}
               currentRole={sessionRole}
@@ -738,9 +750,9 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
               </h2>
             </div>
             <TaskBucketsBoard
-              buckets={loPilotRows.qcBuckets}
+              buckets={dualDeskRows.qcBuckets}
               activeBucketId={
-                loPilotRows.qcBuckets.find((b) => b.id === bucket)?.id || null
+                dualDeskRows.qcBuckets.find((b) => b.id === bucket)?.id || null
               }
               canDelete={canDelete}
               currentRole={sessionRole}
@@ -753,7 +765,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         </div>
       )}
 
-      {!isLoTwoRowPilot && showBuckets && (
+      {!isDualDeskMode && showBuckets && (
         <TaskBucketsBoard
           buckets={roleBuckets}
           activeBucketId={activeBucket}
@@ -765,7 +777,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         />
       )}
 
-      {!showBuckets && (
+      {!isDualDeskMode && !showBuckets && (
         <TaskList
           tasks={allTasks}
           canDelete={canDelete}
