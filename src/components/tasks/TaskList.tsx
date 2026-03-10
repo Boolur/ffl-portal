@@ -115,6 +115,31 @@ type ContributorSummary = {
   overflowCount: number;
 };
 
+function injectLoanOfficerContributor(
+  summary: ContributorSummary | null,
+  loanOfficerName?: string | null
+): ContributorSummary | null {
+  const normalizedLoanOfficer = loanOfficerName?.trim();
+  if (!normalizedLoanOfficer) return summary;
+
+  const existing = summary?.visibleContributors ?? [];
+  const alreadyPresent = existing.some(
+    (contributor) => contributor.name.trim().toLowerCase() === normalizedLoanOfficer.toLowerCase()
+  );
+  if (alreadyPresent) return summary;
+
+  const contributors = [
+    { name: normalizedLoanOfficer, role: UserRole.LOAN_OFFICER as UserRole | null },
+    ...existing,
+  ];
+
+  const totalCount = contributors.length + (summary?.overflowCount ?? 0);
+  return {
+    visibleContributors: contributors.slice(0, 2),
+    overflowCount: Math.max(0, totalCount - 2),
+  };
+}
+
 const submissionDetailOrder = [
   'qualificationStatus',
   'arriveLoanNumber',
@@ -609,6 +634,7 @@ export type Task = {
     loanNumber: string;
     borrowerName: string;
     stage?: string;
+    loanOfficer?: { name?: string } | null;
   };
   assignedRole: string | null;
   assignedUser?: {
@@ -1073,8 +1099,11 @@ export function TaskList({
         const noteHistoryEntries = parseNoteHistory(
           parsedSubmissionData as Record<string, unknown> | null
         );
-        const workedBySummary = getContributorSummaryFromSubmissionData(
-          parsedSubmissionData as Record<string, unknown> | null
+        const workedBySummary = injectLoanOfficerContributor(
+          getContributorSummaryFromSubmissionData(
+            parsedSubmissionData as Record<string, unknown> | null
+          ),
+          task.loan.loanOfficer?.name || null
         );
         const timelineItems: TimelineItem[] = [
           ...noteHistoryEntries.map((entry, index) => ({

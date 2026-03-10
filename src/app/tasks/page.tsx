@@ -106,6 +106,9 @@ type TaskRow = {
     loanNumber: string;
     borrowerName: string;
     stage: string;
+    loanOfficer: {
+      name: string;
+    } | null;
   };
   assignedRole: UserRole | null;
   assignedUser: {
@@ -168,6 +171,11 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
           loanNumber: true,
           borrowerName: true,
           stage: true, // Include stage
+          loanOfficer: {
+            select: {
+              name: true,
+            },
+          },
         },
       },
       attachments: {
