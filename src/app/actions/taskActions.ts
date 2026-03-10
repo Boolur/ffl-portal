@@ -182,7 +182,7 @@ function buildTaskNotificationHtml(input: {
   `;
 }
 
-type EmailAudience = 'LO' | 'DISCLOSURE';
+type EmailAudience = 'LO' | 'DISCLOSURE' | 'QC';
 
 function getEffectiveReasonLabel(task: {
   workflowState: TaskWorkflowState;
@@ -371,6 +371,30 @@ function getRoleSpecificEmailContent(input: {
     };
   }
 
+  if (input.eventLabel === 'QC Request Started') {
+    const starterName = input.changedBy?.trim() || 'QC Desk';
+    if (input.audience === 'LO') {
+      return {
+        ...base,
+        subject: `[FFL Portal] ${starterName} started your QC request: ${input.borrowerName} (${input.loanNumber})`,
+        eventLabel: 'QC Request Started',
+        intro: `${starterName} has started your QC request and is actively working this file.`,
+        ctaLabel: 'Track QC Request',
+        statusLabel: 'IN PROGRESS',
+        workflowLabel: 'New QC Request',
+      };
+    }
+    return {
+      ...base,
+      subject: `[FFL Portal] QC Request Started: ${input.borrowerName} (${input.loanNumber})`,
+      eventLabel: 'QC Request Started',
+      intro: `${starterName} claimed this QC request and has started working it.`,
+      ctaLabel: 'Track Task in Portal',
+      statusLabel: 'IN PROGRESS',
+      workflowLabel: 'New QC Request',
+    };
+  }
+
   return {
     ...base,
     subject: `[FFL Portal] ${input.eventLabel}: ${input.borrowerName} (${input.loanNumber})`,
@@ -428,7 +452,11 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     });
     if (!task) return;
 
-    const [loan, disclosureUsers] = await Promise.all([
+    const isQcTask = isQcSubmissionTask(task);
+    const teamRole = isQcTask ? UserRole.QC : UserRole.DISCLOSURE_SPECIALIST;
+    const teamAudience: EmailAudience = isQcTask ? 'QC' : 'DISCLOSURE';
+
+    const [loan, teamUsers] = await Promise.all([
       prisma.loan.findUnique({
         where: { id: task.loanId },
         select: {
@@ -441,7 +469,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       }),
       prisma.user.findMany({
         where: {
-          role: UserRole.DISCLOSURE_SPECIALIST,
+          role: teamRole,
           active: true,
         },
         select: { email: true },
@@ -450,10 +478,10 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
 
     if (!loan) return;
 
-    const disclosureRecipientSet = new Set<string>();
-    for (const user of disclosureUsers) {
+    const teamRecipientSet = new Set<string>();
+    for (const user of teamUsers) {
       if (user.email?.trim()) {
-        disclosureRecipientSet.add(user.email.trim().toLowerCase());
+        teamRecipientSet.add(user.email.trim().toLowerCase());
       }
     }
     const loanOfficerEmail =
@@ -461,9 +489,9 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         ? loan.loanOfficer.email.trim().toLowerCase()
         : null;
     if (loanOfficerEmail) {
-      disclosureRecipientSet.delete(loanOfficerEmail);
+      teamRecipientSet.delete(loanOfficerEmail);
     }
-    if (disclosureRecipientSet.size === 0 && !loanOfficerEmail) return;
+    if (teamRecipientSet.size === 0 && !loanOfficerEmail) return;
 
     const portalBaseUrl = getPortalBaseUrl();
     const taskUrl = `${portalBaseUrl}/tasks?taskId=${encodeURIComponent(task.id)}`;
@@ -550,8 +578,8 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     };
 
     await sendByAudience(
-      'DISCLOSURE',
-      Array.from(disclosureRecipientSet)
+      teamAudience,
+      Array.from(teamRecipientSet)
     );
     if (loanOfficerEmail) {
       await sendByAudience('LO', [loanOfficerEmail]);
@@ -1204,6 +1232,84 @@ export async function startDisclosureRequest(taskId: string) {
   } catch (error) {
     console.error('Failed to start disclosure request:', error);
     return { success: false, error: 'Failed to start disclosure request.' };
+  }
+}
+
+export async function startQcRequest(taskId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) return { success: false, error: 'Not authenticated.' };
+
+    const canStart =
+      role === UserRole.ADMIN ||
+      role === UserRole.MANAGER ||
+      role === UserRole.QC;
+    if (!canStart) {
+      return {
+        success: false,
+        error: 'Only QC, Manager, or Admin can start this request.',
+      };
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        workflowState: true,
+        assignedUserId: true,
+        assignedUser: { select: { name: true } },
+      },
+    });
+
+    if (!task) return { success: false, error: 'Task not found.' };
+    if (!isQcSubmissionTask(task)) {
+      return {
+        success: false,
+        error: 'Only QC submission requests can be started here.',
+      };
+    }
+    if (task.status === TaskStatus.COMPLETED) {
+      return { success: false, error: 'This request is already completed.' };
+    }
+    if (task.workflowState !== TaskWorkflowState.NONE) {
+      return {
+        success: false,
+        error: 'This request has already moved beyond the new-request queue.',
+      };
+    }
+    if (task.assignedUserId && task.assignedUserId !== userId) {
+      const starterName = task.assignedUser?.name?.trim() || 'another specialist';
+      return {
+        success: false,
+        error: `This request was already started by ${starterName}.`,
+      };
+    }
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        assignedUserId: userId,
+        assignedRole: UserRole.QC,
+        status: TaskStatus.IN_PROGRESS,
+      },
+    });
+
+    await sendTaskWorkflowNotificationsByTaskId({
+      taskId,
+      eventLabel: 'QC Request Started',
+      changedBy: session?.user?.name,
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to start QC request:', error);
+    return { success: false, error: 'Failed to start QC request.' };
   }
 }
 

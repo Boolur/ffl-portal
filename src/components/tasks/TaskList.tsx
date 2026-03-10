@@ -25,6 +25,7 @@ import {
   requestInfoFromLoanOfficer,
   respondToDisclosureRequest,
   startDisclosureRequest,
+  startQcRequest,
   updateTaskStatus,
 } from '@/app/actions/taskActions';
 import {
@@ -654,6 +655,7 @@ export function TaskList({
   const [startingDisclosureId, setStartingDisclosureId] = React.useState<string | null>(
     null
   );
+  const [startingQcId, setStartingQcId] = React.useState<string | null>(null);
   const [sendingToLoId, setSendingToLoId] = React.useState<string | null>(null);
   const [respondingId, setRespondingId] = React.useState<string | null>(null);
   const [disclosureReasonByTask, setDisclosureReasonByTask] = React.useState<
@@ -812,6 +814,19 @@ export function TaskList({
     }
     router.refresh();
     setStartingDisclosureId(null);
+  };
+
+  const handleStartQcRequest = async (taskId: string) => {
+    if (startingQcId) return;
+    setStartingQcId(taskId);
+    const result = await startQcRequest(taskId);
+    if (!result.success) {
+      alert(result.error || 'Failed to start QC request.');
+      setStartingQcId(null);
+      return;
+    }
+    router.refresh();
+    setStartingQcId(null);
   };
 
   const handleLoanOfficerResponse = async (task: Task) => {
@@ -999,6 +1014,15 @@ export function TaskList({
         const showDisclosureStartButton =
           isDisclosureInitialRoutingState && task.status === TaskStatus.PENDING;
         const disableDisclosureStartButton =
+          hasAssignedSpecialist && !isAssignedToCurrentUser;
+        const isQcInitialRoutingState =
+          isQcRole &&
+          isQcSubmissionTask(task) &&
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.NONE;
+        const showQcStartButton =
+          isQcInitialRoutingState && task.status === TaskStatus.PENDING;
+        const disableQcStartButton =
           hasAssignedSpecialist && !isAssignedToCurrentUser;
         const disclosureFooterMessage = (disclosureMessageByTask[task.id] || '').trim();
         const loFooterResponse = (loResponseByTask[task.id] || '').trim();
@@ -1646,6 +1670,26 @@ export function TaskList({
                           <Loader2 className="w-4 h-4 animate-spin" />
                         )}
                         {disableDisclosureStartButton
+                          ? `Started by ${assignedSpecialistName || 'another specialist'}`
+                          : 'Start'}
+                      </button>
+                    )}
+                    {showQcStartButton && (
+                      <button
+                        type="button"
+                        onClick={() => void handleStartQcRequest(task.id)}
+                        disabled={startingQcId === task.id || disableQcStartButton}
+                        className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+                        title={
+                          disableQcStartButton
+                            ? `Already started by ${assignedSpecialistName || 'another specialist'}`
+                            : 'Claim and start this QC request'
+                        }
+                      >
+                        {startingQcId === task.id && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        {disableQcStartButton
                           ? `Started by ${assignedSpecialistName || 'another specialist'}`
                           : 'Start'}
                       </button>
