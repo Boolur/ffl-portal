@@ -98,6 +98,7 @@ type TaskRow = {
     kind: TaskKind | null;
     assignedRole: UserRole | null;
     title: string;
+    submissionData: Prisma.JsonValue | null;
   } | null;
   loanOfficerApprovedAt: Date | null;
   submissionData: Prisma.JsonValue | null;
@@ -195,6 +196,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
           kind: true,
           assignedRole: true,
           title: true,
+          submissionData: true,
         },
       },
     },

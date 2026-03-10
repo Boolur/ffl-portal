@@ -597,6 +597,12 @@ export type Task = {
   workflowState: TaskWorkflowState;
   disclosureReason: DisclosureDecisionReason | null;
   parentTaskId: string | null;
+  parentTask?: {
+    kind: TaskKind | null;
+    assignedRole: UserRole | null;
+    title: string;
+    submissionData?: Prisma.JsonValue | null;
+  } | null;
   loanOfficerApprovedAt: Date | null;
   submissionData?: Prisma.JsonValue | null;
   loan: {
@@ -970,6 +976,12 @@ export function TaskList({
         const canCompleteTask = !requiresProofForCompletion || proofCount > 0;
         const isLoTaskForCurrentLoanOfficer =
           currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
+        const isQcLinkedLoResponseTask =
+          isLoResponseTask(task) &&
+          Boolean(task.parentTask) &&
+          (task.parentTask?.kind === TaskKind.SUBMIT_QC ||
+            (task.parentTask?.assignedRole === UserRole.QC &&
+              task.parentTask?.title.toLowerCase().includes('qc')));
         const isLoanOfficerSubmissionTask =
           currentRole === UserRole.LOAN_OFFICER &&
           (isDisclosureSubmissionTask(task) || isQcSubmissionTask(task));
@@ -1046,6 +1058,10 @@ export function TaskList({
           typeof task.submissionData === 'object' &&
           !Array.isArray(task.submissionData)
             ? task.submissionData
+            : task.parentTask?.submissionData &&
+              typeof task.parentTask.submissionData === 'object' &&
+              !Array.isArray(task.parentTask.submissionData)
+            ? task.parentTask.submissionData
             : null;
         const workflowChip = getWorkflowChip(task.workflowState, task.disclosureReason);
         const submissionDataRows = getOrderedSubmissionDetails(
@@ -1118,7 +1134,9 @@ export function TaskList({
           : defaultIconClassName;
         const shouldShowDisclosureSlaTimer =
           (isDisclosureRole || isLoanOfficerRole || isQcRole || isManagerRole) &&
-          (isDisclosureSubmissionTask(task) || isQcSubmissionTask(task)) &&
+          (isDisclosureSubmissionTask(task) ||
+            isQcSubmissionTask(task) ||
+            isQcLinkedLoResponseTask) &&
           task.status !== TaskStatus.COMPLETED;
         const disclosureSlaTimerMeta = shouldShowDisclosureSlaTimer
           ? getDisclosureSlaTimerMeta(task.updatedAt, timerNowMs)
