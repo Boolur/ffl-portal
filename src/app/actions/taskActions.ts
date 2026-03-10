@@ -443,6 +443,8 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       where: { id: input.taskId },
       select: {
         id: true,
+        kind: true,
+        assignedRole: true,
         title: true,
         status: true,
         workflowState: true,
