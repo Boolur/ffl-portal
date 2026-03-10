@@ -1009,6 +1009,13 @@ export function TaskList({
           isQcRole &&
           isQcSubmissionTask(task) &&
           selectedQcReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+        const isMissingItemsRouteAction =
+          (isDisclosureRole &&
+            isDisclosureSubmissionTask(task) &&
+            selectedReason === DisclosureDecisionReason.MISSING_ITEMS) ||
+          (isQcRole &&
+            isQcSubmissionTask(task) &&
+            selectedQcReason === DisclosureDecisionReason.MISSING_ITEMS);
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
         const assignedSpecialistName = task.assignedUser?.name?.trim() || '';
@@ -1755,7 +1762,9 @@ export function TaskList({
                           !disclosureFooterMessage
                         }
                         className={`disabled:opacity-60 disabled:cursor-not-allowed ${
-                          isDisclosureRole
+                          isMissingItemsRouteAction
+                            ? 'inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100'
+                            : isDisclosureRole
                             ? 'app-btn-primary'
                             : isQcCompleteRouteAction
                             ? 'inline-flex h-9 items-center rounded-lg border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors'
