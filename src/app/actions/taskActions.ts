@@ -1259,7 +1259,9 @@ export async function startQcRequest(taskId: string) {
       where: { id: taskId },
       select: {
         id: true,
+        title: true,
         kind: true,
+        assignedRole: true,
         status: true,
         workflowState: true,
         assignedUserId: true,
