@@ -1005,6 +1005,10 @@ export function TaskList({
           (isDisclosureRole &&
             isDisclosureSubmissionTask(task) &&
             selectedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES);
+        const isQcCompleteRouteAction =
+          isQcRole &&
+          isQcSubmissionTask(task) &&
+          selectedQcReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
         const assignedSpecialistName = task.assignedUser?.name?.trim() || '';
@@ -1751,7 +1755,11 @@ export function TaskList({
                           !disclosureFooterMessage
                         }
                         className={`disabled:opacity-60 disabled:cursor-not-allowed ${
-                          isDisclosureRole ? 'app-btn-primary' : 'app-btn-secondary'
+                          isDisclosureRole
+                            ? 'app-btn-primary'
+                            : isQcCompleteRouteAction
+                            ? 'inline-flex h-9 items-center rounded-lg border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors'
+                            : 'app-btn-secondary'
                         }`}
                       >
                         {sendingToLoId === task.id && (
