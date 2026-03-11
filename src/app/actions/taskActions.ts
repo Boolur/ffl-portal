@@ -1549,7 +1549,17 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         const dataObj = (task.submissionData && typeof task.submissionData === 'object')
           ? { ...(task.submissionData as Record<string, unknown>) }
           : {};
-        const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
+        const existingNotes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
+        const notes = parsedQcChecklist
+          ? existingNotes.filter(
+              (entry) =>
+                !(
+                  entry &&
+                  typeof entry === 'object' &&
+                  (entry as { entryType?: unknown }).entryType === 'qcChecklist'
+                )
+            )
+          : existingNotes;
         notes.push(noteEntry);
         dataObj.notesHistory = notes;
         updatedSubmissionData = dataObj as Prisma.JsonObject;

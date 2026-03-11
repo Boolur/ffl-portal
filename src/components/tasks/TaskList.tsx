@@ -10,6 +10,7 @@ import {
   FileText,
   Trash2,
   Loader2,
+  Plus,
   X,
   User,
   DollarSign,
@@ -142,6 +143,7 @@ type QcChecklistDraftItem = {
   label: string;
   noteOption: QcChecklistNoteOption | '';
   noteText: string;
+  isCustom?: boolean;
 };
 
 const qcChecklistTemplate: Array<{ id: string; label: string }> = [
@@ -160,6 +162,9 @@ const qcChecklistNoteOptions: Array<{ value: QcChecklistNoteOption; label: strin
   { value: 'NOT_APPLICABLE', label: 'Not Required, Not Applicable' },
   { value: 'OTHER', label: 'Other' },
 ];
+const qcChecklistNoteOptionSet = new Set<QcChecklistNoteOption>(
+  qcChecklistNoteOptions.map((entry) => entry.value)
+);
 
 const qcChecklistGreenOptions = new Set<QcChecklistNoteOption>([
   'CONFIRMED_IN_FILE',
@@ -222,6 +227,7 @@ function hasQcChecklistRedItem(items: QcChecklistDraftItem[]) {
 
 function hasQcChecklistMissingSelections(items: QcChecklistDraftItem[]) {
   return items.some((item) => {
+    if (!item.label.trim()) return true;
     if (!item.noteOption) return true;
     const status = getQcChecklistStatusFromOption(item.noteOption);
     if (status === 'RED_X' && !item.noteText.trim()) return true;
@@ -253,7 +259,57 @@ function createDefaultQcChecklistRows(): QcChecklistDraftItem[] {
     label: item.label,
     noteOption: '',
     noteText: '',
+    isCustom: false,
   }));
+}
+
+function createCustomQcChecklistRow(): QcChecklistDraftItem {
+  return {
+    id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    label: '',
+    noteOption: '',
+    noteText: '',
+    isCustom: true,
+  };
+}
+
+function normalizeQcChecklistNoteOption(value: unknown): QcChecklistDraftItem['noteOption'] {
+  return typeof value === 'string' && qcChecklistNoteOptionSet.has(value as QcChecklistNoteOption)
+    ? (value as QcChecklistNoteOption)
+    : '';
+}
+
+function getSavedQcChecklistRowsFromSubmissionData(
+  data: Record<string, unknown> | null
+): QcChecklistDraftItem[] | null {
+  const noteHistoryEntries = parseNoteHistory(data);
+  for (let i = noteHistoryEntries.length - 1; i >= 0; i -= 1) {
+    const entry = noteHistoryEntries[i];
+    if (entry.entryType !== 'qcChecklist' || !entry.checklist?.length) continue;
+    const savedRowsById = new Map(entry.checklist.map((row) => [row.id, row]));
+    const templateRows: QcChecklistDraftItem[] = qcChecklistTemplate.map((templateRow) => {
+      const saved = savedRowsById.get(templateRow.id);
+      return {
+        id: templateRow.id,
+        label: templateRow.label,
+        noteOption: normalizeQcChecklistNoteOption(saved?.noteOption),
+        noteText: saved?.noteText ?? '',
+        isCustom: false,
+      };
+    });
+    const templateIds = new Set(qcChecklistTemplate.map((row) => row.id));
+    const customRows: QcChecklistDraftItem[] = entry.checklist
+      .filter((row) => !templateIds.has(row.id))
+      .map((row) => ({
+        id: row.id,
+        label: row.label,
+        noteOption: normalizeQcChecklistNoteOption(row.noteOption),
+        noteText: row.noteText || '',
+        isCustom: true,
+      }));
+    return [...templateRows, ...customRows];
+  }
+  return null;
 }
 
 function injectLoanOfficerContributor(
@@ -891,7 +947,7 @@ export function TaskList({
     (
       taskId: string,
       rowId: string,
-      updates: Partial<Pick<QcChecklistDraftItem, 'noteOption' | 'noteText'>>
+      updates: Partial<Pick<QcChecklistDraftItem, 'noteOption' | 'noteText' | 'label'>>
     ) => {
       setQcChecklistByTask((prev) => {
         const current = prev[taskId] ?? createDefaultQcChecklistRows();
@@ -904,6 +960,20 @@ export function TaskList({
     },
     []
   );
+
+  const addCustomQcChecklistRow = React.useCallback((taskId: string) => {
+    setQcChecklistByTask((prev) => {
+      const current = prev[taskId] ?? createDefaultQcChecklistRows();
+      return { ...prev, [taskId]: [...current, createCustomQcChecklistRow()] };
+    });
+  }, []);
+
+  const removeCustomQcChecklistRow = React.useCallback((taskId: string, rowId: string) => {
+    setQcChecklistByTask((prev) => {
+      const current = prev[taskId] ?? createDefaultQcChecklistRows();
+      return { ...prev, [taskId]: current.filter((row) => row.id !== rowId) };
+    });
+  }, []);
 
   React.useEffect(() => {
     if (!initialFocusedTaskId || initialFocusConsumed) return;
@@ -926,6 +996,33 @@ export function TaskList({
     }, 30_000);
     return () => window.clearInterval(intervalId);
   }, [currentRole]);
+
+  React.useEffect(() => {
+    setQcChecklistByTask((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const task of tasks) {
+        if (task.kind !== TaskKind.SUBMIT_QC || next[task.id]) continue;
+        const parsedSubmissionData =
+          task.submissionData &&
+          typeof task.submissionData === 'object' &&
+          !Array.isArray(task.submissionData)
+            ? (task.submissionData as Record<string, unknown>)
+            : task.parentTask?.submissionData &&
+                typeof task.parentTask.submissionData === 'object' &&
+                !Array.isArray(task.parentTask.submissionData)
+              ? (task.parentTask.submissionData as Record<string, unknown>)
+              : null;
+        const savedRows = getSavedQcChecklistRowsFromSubmissionData(parsedSubmissionData);
+        if (!savedRows) continue;
+        next[task.id] = savedRows;
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [tasks]);
 
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
     if (updatingId) return;
@@ -1979,6 +2076,16 @@ export function TaskList({
                         )}
                       </div>
                       <div className="space-y-3">
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => addCustomQcChecklistRow(task.id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Add Custom Item
+                          </button>
+                        </div>
                         {qcChecklistRows.map((row) => {
                           const status = getQcChecklistStatusFromOption(row.noteOption);
                           const statusMeta = getQcChecklistStatusPresentation(status);
@@ -1989,7 +2096,35 @@ export function TaskList({
                               key={row.id}
                               className="rounded-xl border border-violet-100 bg-white p-4 shadow-sm"
                             >
-                              <p className="text-sm font-semibold text-slate-900">{row.label}</p>
+                              <div className="flex items-start justify-between gap-3">
+                                {row.isCustom ? (
+                                  <input
+                                    value={row.label}
+                                    onChange={(event) =>
+                                      updateQcChecklistRow(task.id, row.id, {
+                                        label: event.target.value,
+                                      })
+                                    }
+                                    placeholder="Custom item name"
+                                    className={`w-full rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 ${
+                                      !row.label.trim() ? 'border-rose-300' : 'border-slate-200'
+                                    }`}
+                                  />
+                                ) : (
+                                  <p className="text-sm font-semibold text-slate-900">{row.label}</p>
+                                )}
+                                {row.isCustom && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeCustomQcChecklistRow(task.id, row.id)}
+                                    className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-700 hover:bg-rose-100"
+                                    aria-label="Remove custom checklist item"
+                                    title="Remove custom checklist item"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
                               <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
                                   <span

@@ -1320,6 +1320,13 @@ function QcForm({
         />
       ) : (
         <>
+      <RadioGroup
+        label="Is Loan in Pre-Approved Status in Arrive?"
+        value={form.preApproved}
+        onChange={(v) => update('preApproved', v)}
+        options={['Yes', 'No']}
+        required
+      />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
         <Input label="Secondary Loan Officer" value={form.secondaryLoanOfficer} onChange={(v) => update('secondaryLoanOfficer', v)} />
@@ -1328,13 +1335,6 @@ function QcForm({
         <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required />
         <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required />
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required />
-        <RadioGroup
-          label="Is loan in Pre-Approved Status in Arrive?"
-          value={form.preApproved}
-          onChange={(v) => update('preApproved', v)}
-          options={['Yes', 'No']}
-          required
-        />
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required />
