@@ -119,7 +119,7 @@ type ContributorSummary = {
   overflowCount: number;
 };
 
-type QcChecklistStatus = 'GREEN_CHECK' | 'RED_X';
+type QcChecklistStatus = 'GREEN_CHECK' | 'RED_X' | 'YELLOW';
 type QcChecklistNoteOption =
   | 'CONFIRMED_IN_FILE'
   | 'NOT_NEEDED'
@@ -139,7 +139,6 @@ type QcChecklistItem = {
 type QcChecklistDraftItem = {
   id: string;
   label: string;
-  status: QcChecklistStatus | null;
   noteOption: QcChecklistNoteOption | '';
   noteText: string;
 };
@@ -153,18 +152,102 @@ const qcChecklistTemplate: Array<{ id: string; label: string }> = [
 ];
 
 const qcChecklistNoteOptions: Array<{ value: QcChecklistNoteOption; label: string }> = [
-  { value: 'CONFIRMED_IN_FILE', label: 'Confirmed in file' },
-  { value: 'MISSING_FROM_FILE', label: 'Missing from file' },
+  { value: 'CONFIRMED_IN_FILE', label: 'Confirmed in File' },
+  { value: 'MISSING_FROM_FILE', label: 'Missing from File' },
   { value: 'FREE_AND_CLEAR', label: 'Not Required, Free and Clear' },
   { value: 'PURCHASE_NOT_NEEDED', label: 'Not Required, Purchase' },
-  { value: 'OTHER', label: 'Other - With Side Note Input' },
+  { value: 'OTHER', label: 'Other' },
 ];
+
+const qcChecklistGreenOptions = new Set<QcChecklistNoteOption>([
+  'CONFIRMED_IN_FILE',
+  'NOT_NEEDED',
+  'FREE_AND_CLEAR',
+  'PURCHASE_NOT_NEEDED',
+]);
+
+function getQcChecklistStatusFromOption(
+  option: QcChecklistDraftItem['noteOption']
+): QcChecklistStatus | null {
+  if (!option) return null;
+  if (option === 'MISSING_FROM_FILE') return 'RED_X';
+  if (qcChecklistGreenOptions.has(option)) return 'GREEN_CHECK';
+  return 'YELLOW';
+}
+
+function getQcChecklistStatusPresentation(status: QcChecklistStatus | null) {
+  if (status === 'GREEN_CHECK') {
+    return {
+      label: 'Green Check',
+      className: 'border-emerald-300 bg-emerald-100 text-emerald-800',
+    };
+  }
+  if (status === 'RED_X') {
+    return {
+      label: 'Red X',
+      className: 'border-rose-300 bg-rose-100 text-rose-800',
+    };
+  }
+  if (status === 'YELLOW') {
+    return {
+      label: 'Other',
+      className: 'border-yellow-300 bg-yellow-100 text-yellow-800',
+    };
+  }
+  return {
+    label: 'Select option',
+    className: 'border-slate-200 bg-white text-slate-500',
+  };
+}
+
+function getQcChecklistStatusIcon(status: QcChecklistStatus | null) {
+  if (status === 'GREEN_CHECK') return CheckCircle;
+  if (status === 'RED_X') return X;
+  return Clock3;
+}
+
+function isQcChecklistGreenOnly(items: QcChecklistDraftItem[]) {
+  return (
+    items.length > 0 &&
+    items.every((item) => getQcChecklistStatusFromOption(item.noteOption) === 'GREEN_CHECK')
+  );
+}
+
+function hasQcChecklistRedItem(items: QcChecklistDraftItem[]) {
+  return items.some((item) => getQcChecklistStatusFromOption(item.noteOption) === 'RED_X');
+}
+
+function hasQcChecklistMissingSelections(items: QcChecklistDraftItem[]) {
+  return items.some((item) => {
+    if (!item.noteOption) return true;
+    const status = getQcChecklistStatusFromOption(item.noteOption);
+    if (status === 'RED_X' && !item.noteText.trim()) return true;
+    return false;
+  });
+}
+
+function buildQcChecklistSummary(items: QcChecklistDraftItem[]) {
+  const green = items.filter(
+    (item) => getQcChecklistStatusFromOption(item.noteOption) === 'GREEN_CHECK'
+  ).length;
+  const red = items.filter(
+    (item) => getQcChecklistStatusFromOption(item.noteOption) === 'RED_X'
+  ).length;
+  const yellow = items.filter(
+    (item) => getQcChecklistStatusFromOption(item.noteOption) === 'YELLOW'
+  ).length;
+  return `QC checklist: ${green} green, ${red} red, ${yellow} other.`;
+}
+
+function getChecklistNoteOptionLabel(option: QcChecklistNoteOption) {
+  if (option === 'NOT_NEEDED') return 'Not Required';
+  return qcChecklistNoteOptions.find((entry) => entry.value === option)?.label || option;
+}
 
 function createDefaultQcChecklistRows(): QcChecklistDraftItem[] {
   return qcChecklistTemplate.map((item) => ({
     id: item.id,
     label: item.label,
-    status: null,
     noteOption: '',
     noteText: '',
   }));
@@ -572,7 +655,13 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
                 const noteOptionRaw = (row as { noteOption?: unknown }).noteOption;
                 const noteText = String((row as { noteText?: unknown }).noteText ?? '').trim();
                 if (!id || !label) return null;
-                if (statusRaw !== 'GREEN_CHECK' && statusRaw !== 'RED_X') return null;
+                if (
+                  statusRaw !== 'GREEN_CHECK' &&
+                  statusRaw !== 'RED_X' &&
+                  statusRaw !== 'YELLOW'
+                ) {
+                  return null;
+                }
                 const validNoteOption = qcChecklistNoteOptions.some(
                   (option) => option.value === noteOptionRaw
                 );
@@ -797,7 +886,7 @@ export function TaskList({
     (
       taskId: string,
       rowId: string,
-      updates: Partial<Pick<QcChecklistDraftItem, 'status' | 'noteOption' | 'noteText'>>
+      updates: Partial<Pick<QcChecklistDraftItem, 'noteOption' | 'noteText'>>
     ) => {
       setQcChecklistByTask((prev) => {
         const current = prev[taskId] ?? createDefaultQcChecklistRows();
@@ -941,12 +1030,7 @@ export function TaskList({
 
     if (isQcTask) {
       const checklistRows = getQcChecklistRows(task.id);
-      const missingRequiredChecklistFields = checklistRows.some((row) => {
-        if (!row.status) return true;
-        if (!row.noteOption) return true;
-        if (row.noteOption === 'OTHER' && !row.noteText.trim()) return true;
-        return false;
-      });
+      const missingRequiredChecklistFields = hasQcChecklistMissingSelections(checklistRows);
       if (missingRequiredChecklistFields) {
         alert('Please complete all QC checklist items before routing this task.');
         return;
@@ -954,11 +1038,12 @@ export function TaskList({
       const checklistItems: QcChecklistItem[] = checklistRows.map((row) => ({
         id: row.id,
         label: row.label,
-        status: row.status as QcChecklistStatus,
+        status: getQcChecklistStatusFromOption(row.noteOption) as QcChecklistStatus,
         noteOption: row.noteOption as QcChecklistNoteOption,
         noteText: row.noteText.trim() || undefined,
       }));
-      const hasRedXItems = checklistItems.some((item) => item.status === 'RED_X');
+      const hasRedXItems = hasQcChecklistRedItem(checklistRows);
+      const isAllGreenSelection = isQcChecklistGreenOnly(checklistRows);
       if (
         hasRedXItems &&
         reason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
@@ -966,10 +1051,15 @@ export function TaskList({
         alert('Complete QC is blocked while checklist items are marked Red X. Use Missing Items.');
         return;
       }
+      if (
+        isAllGreenSelection &&
+        reason === DisclosureDecisionReason.MISSING_ITEMS
+      ) {
+        alert('Missing Items is blocked while all checklist items are green.');
+        return;
+      }
       if (!message) {
-        message = hasRedXItems
-          ? 'QC checklist indicates missing items that require LO updates.'
-          : 'QC checklist completed successfully.';
+        message = buildQcChecklistSummary(checklistRows);
       }
       qcChecklistPayload = {
         items: checklistItems,
@@ -1142,19 +1232,17 @@ export function TaskList({
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const qcChecklistRows = getQcChecklistRows(task.id);
-        const qcChecklistHasRedXItems = qcChecklistRows.some(
-          (row) => row.status === 'RED_X'
-        );
-        const qcChecklistMissingFields = qcChecklistRows.some((row) => {
-          if (!row.status) return true;
-          if (!row.noteOption) return true;
-          if (row.noteOption === 'OTHER' && !row.noteText.trim()) return true;
-          return false;
-        });
+        const qcChecklistHasRedXItems = hasQcChecklistRedItem(qcChecklistRows);
+        const qcChecklistAllGreen = isQcChecklistGreenOnly(qcChecklistRows);
+        const qcChecklistMissingFields = hasQcChecklistMissingSelections(qcChecklistRows);
         const qcChecklistBlocksCompleteAction =
           isQcSubmissionTask(task) &&
           selectedQcReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES &&
           qcChecklistHasRedXItems;
+        const qcChecklistBlocksMissingItemsAction =
+          isQcSubmissionTask(task) &&
+          selectedQcReason === DisclosureDecisionReason.MISSING_ITEMS &&
+          qcChecklistAllGreen;
         const canDisclosureEditProofAttachments =
           canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
@@ -1632,10 +1720,8 @@ export function TaskList({
                                     )}
                                     <div className="space-y-2">
                                       {item.checklist.map((row) => {
-                                        const optionLabel =
-                                          qcChecklistNoteOptions.find(
-                                            (option) => option.value === row.noteOption
-                                          )?.label || row.noteOption;
+                                        const statusMeta = getQcChecklistStatusPresentation(row.status);
+                                        const StatusIcon = getQcChecklistStatusIcon(row.status);
                                         return (
                                           <div
                                             key={`${item.id}-${row.id}`}
@@ -1643,20 +1729,10 @@ export function TaskList({
                                           >
                                             <div className="flex flex-wrap items-center gap-2">
                                               <span
-                                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${
-                                                  row.status === 'GREEN_CHECK'
-                                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                                    : 'border-rose-300 bg-rose-100 text-rose-800'
-                                                }`}
+                                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${statusMeta.className}`}
                                               >
-                                                {row.status === 'GREEN_CHECK' ? (
-                                                  <CheckCircle className="h-3 w-3" />
-                                                ) : (
-                                                  <X className="h-3 w-3" />
-                                                )}
-                                                {row.status === 'GREEN_CHECK'
-                                                  ? 'Green Check'
-                                                  : 'Red X'}
+                                                <StatusIcon className="h-3 w-3" />
+                                                {statusMeta.label}
                                               </span>
                                               <span className="text-xs font-semibold text-slate-800">
                                                 {row.label}
@@ -1666,7 +1742,7 @@ export function TaskList({
                                               <span className="font-semibold text-slate-700">
                                                 Note:
                                               </span>{' '}
-                                              {optionLabel}
+                                              {getChecklistNoteOptionLabel(row.noteOption)}
                                               {row.noteText ? ` - ${row.noteText}` : ''}
                                             </div>
                                           </div>
@@ -1903,51 +1979,23 @@ export function TaskList({
                       </select>
                       <div className="space-y-3">
                         {qcChecklistRows.map((row) => {
-                          const showOtherNoteInput = row.noteOption === 'OTHER';
+                          const status = getQcChecklistStatusFromOption(row.noteOption);
+                          const statusMeta = getQcChecklistStatusPresentation(status);
+                          const StatusIcon = getQcChecklistStatusIcon(status);
+                          const noteRequired = status === 'RED_X';
                           return (
                             <div
                               key={row.id}
                               className="rounded-xl border border-violet-100 bg-white p-4 shadow-sm"
                             >
                               <p className="text-sm font-semibold text-slate-900">{row.label}</p>
-                              <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    updateQcChecklistRow(task.id, row.id, { status: 'GREEN_CHECK' })
-                                  }
-                                  className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                                    row.status === 'GREEN_CHECK'
-                                      ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <CheckCircle className="h-3.5 w-3.5" />
-                                  Green Check
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    updateQcChecklistRow(task.id, row.id, { status: 'RED_X' })
-                                  }
-                                  className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                                    row.status === 'RED_X'
-                                      ? 'border-rose-300 bg-rose-100 text-rose-800'
-                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                  Red X
-                                </button>
-                              </div>
                               <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                                 <select
                                   value={row.noteOption}
                                   onChange={(event) =>
                                     updateQcChecklistRow(task.id, row.id, {
                                       noteOption: event.target.value as QcChecklistNoteOption,
-                                      noteText:
-                                        event.target.value === 'OTHER' ? row.noteText : '',
+                                      noteText: row.noteText,
                                     })
                                   }
                                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
@@ -1959,21 +2007,30 @@ export function TaskList({
                                     </option>
                                   ))}
                                 </select>
-                                {showOtherNoteInput ? (
-                                  <input
-                                    value={row.noteText}
-                                    onChange={(event) =>
-                                      updateQcChecklistRow(task.id, row.id, {
-                                        noteText: event.target.value,
-                                      })
-                                    }
-                                    placeholder="Add note..."
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-                                  />
-                                ) : (
-                                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-400">
-                                    Optional note auto-selected by dropdown
-                                  </div>
+                                <input
+                                  value={row.noteText}
+                                  onChange={(event) =>
+                                    updateQcChecklistRow(task.id, row.id, {
+                                      noteText: event.target.value,
+                                    })
+                                  }
+                                  placeholder="Notes"
+                                  className={`w-full rounded-lg border bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 ${
+                                    noteRequired && !row.noteText.trim()
+                                      ? 'border-rose-300'
+                                      : 'border-slate-200'
+                                  }`}
+                                />
+                              </div>
+                              <div
+                                className={`mt-2 inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold ${statusMeta.className}`}
+                              >
+                                <StatusIcon className="h-3.5 w-3.5" />
+                                {statusMeta.label}
+                                {noteRequired && (
+                                  <span className="ml-1 rounded-full border border-rose-300 bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700">
+                                    Note Required
+                                  </span>
                                 )}
                               </div>
                             </div>
@@ -1982,12 +2039,17 @@ export function TaskList({
                       </div>
                       {qcChecklistMissingFields && (
                         <p className="text-xs font-semibold text-rose-700">
-                          Complete each checklist row with Green/Red and a dropdown selection before routing.
+                          Complete each checklist row with a dropdown selection. Red items require a note.
                         </p>
                       )}
                       {qcChecklistBlocksCompleteAction && (
                         <p className="text-xs font-semibold text-amber-700">
                           Complete QC is blocked because at least one checklist item is Red X. Use Missing Items.
+                        </p>
+                      )}
+                      {qcChecklistBlocksMissingItemsAction && (
+                        <p className="text-xs font-semibold text-amber-700">
+                          Missing Items is blocked because all checklist items are green.
                         </p>
                       )}
                     </div>
@@ -2114,7 +2176,9 @@ export function TaskList({
                           sendingToLoId === task.id ||
                           (requiresProofForRouting && proofCount < 1) ||
                           (isQcRouteTask
-                            ? qcChecklistMissingFields || qcChecklistBlocksCompleteAction
+                            ? qcChecklistMissingFields ||
+                              qcChecklistBlocksCompleteAction ||
+                              qcChecklistBlocksMissingItemsAction
                             : !disclosureFooterMessage);
                         return (
                       <button

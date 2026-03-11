@@ -1159,7 +1159,7 @@ type RequestInfoInput = {
     items: Array<{
       id: string;
       label: string;
-      status: 'GREEN_CHECK' | 'RED_X';
+      status: 'GREEN_CHECK' | 'RED_X' | 'YELLOW';
       noteOption:
         | 'CONFIRMED_IN_FILE'
         | 'NOT_NEEDED'
@@ -1185,7 +1185,7 @@ const QC_CHECKLIST_NOTE_OPTIONS = new Set([
 type ParsedQcChecklistItem = {
   id: string;
   label: string;
-  status: 'GREEN_CHECK' | 'RED_X';
+  status: 'GREEN_CHECK' | 'RED_X' | 'YELLOW';
   noteOption:
     | 'CONFIRMED_IN_FILE'
     | 'NOT_NEEDED'
@@ -1211,14 +1211,14 @@ function parseQcChecklistInput(input: RequestInfoInput['qcChecklist']): ParsedQc
     const noteOption = raw?.noteOption;
     const noteText = String(raw?.noteText ?? '').trim();
     if (!id || !label) return null;
-    if (status !== 'GREEN_CHECK' && status !== 'RED_X') return null;
+    if (status !== 'GREEN_CHECK' && status !== 'RED_X' && status !== 'YELLOW') return null;
     if (
       typeof noteOption !== 'string' ||
       !QC_CHECKLIST_NOTE_OPTIONS.has(noteOption as ParsedQcChecklistItem['noteOption'])
     ) {
       return null;
     }
-    if (noteOption === 'OTHER' && !noteText) return null;
+    if (noteOption === 'MISSING_FROM_FILE' && !noteText) return null;
     parsedItems.push({
       id,
       label,
@@ -1439,7 +1439,18 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     const normalizedMessage = input.message?.trim() || '';
     const parsedQcChecklist = qcSubmissionTask ? parseQcChecklistInput(input.qcChecklist) : null;
     const hasRedXChecklistItems = Boolean(
-      parsedQcChecklist?.items.some((item) => item.status === 'RED_X')
+      parsedQcChecklist?.items.some(
+        (item) => item.noteOption === 'MISSING_FROM_FILE' || item.status === 'RED_X'
+      )
+    );
+    const allChecklistItemsGreen = Boolean(
+      parsedQcChecklist?.items.length &&
+        parsedQcChecklist.items.every((item) =>
+          item.noteOption === 'CONFIRMED_IN_FILE' ||
+          item.noteOption === 'NOT_NEEDED' ||
+          item.noteOption === 'FREE_AND_CLEAR' ||
+          item.noteOption === 'PURCHASE_NOT_NEEDED'
+        )
     );
     const effectiveMessage =
       normalizedMessage ||
@@ -1473,6 +1484,15 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         return {
           success: false,
           error: 'Complete QC is blocked while any checklist item is marked Red X.',
+        };
+      }
+      if (
+        normalizedReason === DisclosureDecisionReason.MISSING_ITEMS &&
+        allChecklistItemsGreen
+      ) {
+        return {
+          success: false,
+          error: 'Missing Items is blocked while all checklist items are green.',
         };
       }
       if (!effectiveMessage) {
