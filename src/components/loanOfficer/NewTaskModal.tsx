@@ -629,12 +629,11 @@ function DisclosuresForm({
 }: {
   loanOfficerName: string;
   onSubmitted: () => void;
-  onStepChange?: (step: 1 | 2) => void;
-  currentStep?: 1 | 2;
+  onStepChange: (step: 1 | 2) => void;
+  currentStep: 1 | 2;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
-  const [disclosureStep, setDisclosureStep] = useState<1 | 2>(1);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [mismoFilename, setMismoFilename] = useState('');
   const [form, setForm] = useState({
@@ -679,17 +678,7 @@ function DisclosuresForm({
     titleSheet: null,
     pricingSheet: null,
   });
-
-  useEffect(() => {
-    onStepChange?.(disclosureStep);
-  }, [disclosureStep, onStepChange]);
-
-  useEffect(() => {
-    if (!currentStep) return;
-    if (currentStep !== disclosureStep) {
-      setDisclosureStep(currentStep);
-    }
-  }, [currentStep, disclosureStep]);
+  const disclosureStep = currentStep;
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -988,12 +977,12 @@ function DisclosuresForm({
         setSubmitError(warningMessage);
         window.alert(warningMessage);
       }
-      setDisclosureStep(2);
+      onStepChange(2);
     } catch {
       setImportError('Could not read this MISMO file. Please verify the XML export.');
       setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
       setShowValidationErrors(false);
-      setDisclosureStep(1);
+      onStepChange(1);
     } finally {
       setIsParsingMismo(false);
     }
@@ -1022,7 +1011,7 @@ function DisclosuresForm({
               <button
                 type="button"
                 onClick={() => {
-                  setDisclosureStep(1);
+                  onStepChange(1);
                   setSubmitError('');
                   setShowValidationErrors(false);
                   setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
@@ -1224,11 +1213,10 @@ function QcForm({
 }: {
   loanOfficerName: string;
   onSubmitted: () => void;
-  onStepChange?: (step: 1 | 2) => void;
-  currentStep?: 1 | 2;
+  onStepChange: (step: 1 | 2) => void;
+  currentStep: 1 | 2;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [qcStep, setQcStep] = useState<1 | 2>(1);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [form, setForm] = useState({
     preApproved: '',
@@ -1259,17 +1247,7 @@ function QcForm({
   });
   const [importError, setImportError] = useState('');
   const [submitError, setSubmitError] = useState('');
-
-  useEffect(() => {
-    onStepChange?.(qcStep);
-  }, [qcStep, onStepChange]);
-
-  useEffect(() => {
-    if (!currentStep) return;
-    if (currentStep !== qcStep) {
-      setQcStep(currentStep);
-    }
-  }, [currentStep, qcStep]);
+  const qcStep = currentStep;
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -1335,10 +1313,10 @@ function QcForm({
         creditReportNotesTui:
           prefill.creditReportNotesTui || prev.creditReportNotesTui,
       }));
-      setQcStep(2);
+      onStepChange(2);
     } catch {
       setImportError('Could not read this MISMO file. Please verify the XML export.');
-      setQcStep(1);
+      onStepChange(1);
     } finally {
       setIsParsingMismo(false);
     }
@@ -1368,7 +1346,7 @@ function QcForm({
           <button
             type="button"
             onClick={() => {
-              setQcStep(1);
+              onStepChange(1);
               setSubmitError('');
             }}
             className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
