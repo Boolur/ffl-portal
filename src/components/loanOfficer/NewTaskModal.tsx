@@ -576,24 +576,36 @@ function SubmissionProgress({
 }) {
   const clampedStep = Math.min(Math.max(currentStep, 1), totalSteps);
   const progressPercent = (clampedStep / totalSteps) * 100;
+  const isQcTone = type === 'QC';
   const stepLabels =
-    type === 'QC'
-      ? ['Upload MISMO', 'QC Details']
-      : ['Upload MISMO', 'Disclosure Details'];
+    isQcTone ? ['Upload MISMO', 'QC Details'] : ['Upload MISMO', 'Disclosure Details'];
+
+  const containerClass = isQcTone
+    ? 'border-violet-200 bg-violet-50/40'
+    : 'border-blue-200 bg-blue-50/40';
+  const stepMetaClass = isQcTone ? 'text-violet-700' : 'text-blue-700';
+  const trackClass = isQcTone ? 'bg-violet-100' : 'bg-blue-100';
+  const fillClass = isQcTone ? 'bg-violet-500' : 'bg-blue-500';
+  const completedStepClass = isQcTone
+    ? 'border-violet-300 bg-violet-100 text-violet-800'
+    : 'border-blue-300 bg-blue-100 text-blue-800';
+  const activeStepClass = isQcTone
+    ? 'border-violet-300 bg-white text-violet-700'
+    : 'border-blue-300 bg-white text-blue-700';
 
   return (
-    <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+    <div className={`rounded-xl border p-4 ${containerClass}`}>
       <div className="mb-2 flex items-center justify-between">
         <p className="text-sm font-semibold text-slate-900">
           {type === 'QC' ? 'Submit for QC' : 'Submit for Disclosures'}
         </p>
-        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+        <p className={`text-xs font-semibold uppercase tracking-wide ${stepMetaClass}`}>
           Step {clampedStep} of {totalSteps}
         </p>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-emerald-100">
+      <div className={`h-2 w-full overflow-hidden rounded-full ${trackClass}`}>
         <div
-          className="h-full rounded-full bg-emerald-500 transition-all duration-300 ease-out"
+          className={`h-full rounded-full transition-all duration-300 ease-out ${fillClass}`}
           style={{ width: `${progressPercent}%` }}
         />
       </div>
@@ -609,9 +621,9 @@ function SubmissionProgress({
               onClick={() => onStepRequest(stepNumber as 1 | 2)}
               className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
                 isComplete
-                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                  ? completedStepClass
                   : isActive
-                  ? 'border-emerald-300 bg-white text-emerald-700'
+                  ? activeStepClass
                   : 'border-slate-200 bg-white text-slate-500'
               }`}
             >
@@ -638,7 +650,6 @@ function DisclosuresForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
-  const [mismoFilename, setMismoFilename] = useState('');
   const [form, setForm] = useState({
     qualificationStatus: '',
     loanOfficer: loanOfficerName,
@@ -926,7 +937,6 @@ function DisclosuresForm({
       setImportError('');
       setSubmitError('');
       setShowValidationErrors(false);
-      setMismoFilename(file.name);
       setMismoIncomeProfile(parsedIncomeProfile);
       setForm((prev) => ({
         ...prev,
@@ -1001,32 +1011,6 @@ function DisclosuresForm({
         />
       ) : (
         <>
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                  Step 1 Complete
-                </p>
-                <p className="text-sm font-semibold text-slate-900">
-                  MISMO 3.4 uploaded: {mismoFilename || 'Imported file'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  onStepChange(1);
-                  setSubmitError('');
-                  setShowValidationErrors(false);
-                  setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
-                }}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-              >
-                Replace MISMO File
-              </button>
-            </div>
-          </div>
-
-          <SectionTitle title="Step 2) Complete Disclosure Submission Details" />
           <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
             <RadioGroup
               label="Is this Loan in Qualification Status?"
@@ -1336,29 +1320,6 @@ function QcForm({
         />
       ) : (
         <>
-      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-              Step 1 Complete
-            </p>
-            <p className="text-sm font-semibold text-slate-900">
-              MISMO 3.4 uploaded for QC submission.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              onStepChange(1);
-              setSubmitError('');
-            }}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-          >
-            Replace MISMO File
-          </button>
-        </div>
-      </div>
-      <SectionTitle title="Step 2) Complete QC Submission Details" />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
         <Input label="Secondary Loan Officer" value={form.secondaryLoanOfficer} onChange={(v) => update('secondaryLoanOfficer', v)} />
