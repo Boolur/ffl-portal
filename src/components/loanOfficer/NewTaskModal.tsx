@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, ClipboardCheck, ShieldCheck, Loader2, FileText, Upload } from 'lucide-react';
+import { X, Loader2, FileText, Upload } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createSubmissionTask } from '@/app/actions/taskActions';
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
@@ -38,12 +38,12 @@ export function NewTaskModal({
   const [type, setType] = useState<SubmissionType>(
     initialType === 'QC' && qcEnabled ? 'QC' : 'DISCLOSURES'
   );
-  const [showQcComingSoon, setShowQcComingSoon] = useState(false);
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const router = useRouter();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const handleClose = useCallback(() => {
-    setShowQcComingSoon(false);
     setType('DISCLOSURES');
+    setCurrentStep(1);
     onClose();
   }, [onClose]);
 
@@ -51,7 +51,7 @@ export function NewTaskModal({
     if (!open) return;
 
     setType(initialType === 'QC' && qcEnabled ? 'QC' : 'DISCLOSURES');
-    setShowQcComingSoon(false);
+    setCurrentStep(1);
 
     closeButtonRef.current?.focus();
 
@@ -79,7 +79,7 @@ export function NewTaskModal({
           <div>
             <h2 className="text-xl font-bold text-slate-900">New Task Submission</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Choose a submission type and complete the required fields.
+              Complete each step to submit your {type === 'QC' ? 'QC' : 'Disclosure'} request.
             </p>
           </div>
           <button
@@ -92,46 +92,25 @@ export function NewTaskModal({
           </button>
         </div>
 
-        <div className="mt-6 flex gap-3">
-          <TypeButton
-            active={type === 'DISCLOSURES'}
-            icon={ClipboardCheck}
-            title="Submit for Disclosures"
-            description="Send loan info to the Disclosure Team"
-            onClick={() => {
-              setType('DISCLOSURES');
-              setShowQcComingSoon(false);
-            }}
-          />
-          <TypeButton
-            active={type === 'QC'}
-            icon={ShieldCheck}
-            title="Submit for QC"
-            description="Send loan to Quality Control"
-            disabled={!qcEnabled}
-            comingSoon={!qcEnabled}
-            tone="violet"
-            onClick={() => {
-              if (!qcEnabled) {
-                setShowQcComingSoon(true);
-                return;
+        <div className="mt-6">
+          <SubmissionProgress
+            type={type}
+            currentStep={currentStep}
+            totalSteps={2}
+            onStepRequest={(step) => {
+              if (step <= currentStep) {
+                setCurrentStep(step);
               }
-              setType('QC');
-              setShowQcComingSoon(false);
             }}
           />
         </div>
-
-        {!qcEnabled && showQcComingSoon && (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-            Submit for QC is currently pilot-only and not enabled for this account.
-          </div>
-        )}
 
         <div className="mt-6 overflow-y-auto pr-1">
           {type === 'DISCLOSURES' ? (
             <DisclosuresForm
               loanOfficerName={loanOfficerName}
+              onStepChange={setCurrentStep}
+              currentStep={currentStep}
               onSubmitted={() => {
                 handleClose();
                 router.refresh();
@@ -140,6 +119,8 @@ export function NewTaskModal({
           ) : (
             <QcForm
               loanOfficerName={loanOfficerName}
+              onStepChange={setCurrentStep}
+              currentStep={currentStep}
               onSubmitted={() => {
                 handleClose();
                 router.refresh();
@@ -579,79 +560,77 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
   };
 }
 
-function TypeButton({
-  active,
-  icon: Icon,
-  title,
-  description,
-  disabled = false,
-  comingSoon = false,
-  tone = 'blue',
-  onClick,
+function SubmissionProgress({
+  type,
+  currentStep,
+  totalSteps,
+  onStepRequest,
 }: {
-  active: boolean;
-  icon: React.ElementType;
-  title: string;
-  description: string;
-  disabled?: boolean;
-  comingSoon?: boolean;
-  tone?: 'blue' | 'violet';
-  onClick: () => void;
+  type: SubmissionType;
+  currentStep: number;
+  totalSteps: number;
+  onStepRequest: (step: 1 | 2) => void;
 }) {
-  const activeBorderClass =
-    tone === 'violet' ? 'border-violet-500 bg-violet-50 shadow-sm' : 'border-blue-500 bg-blue-50 shadow-sm';
-  const activeIconClass =
-    tone === 'violet' ? 'bg-violet-600 text-white' : 'bg-blue-600 text-white';
+  const clampedStep = Math.min(Math.max(currentStep, 1), totalSteps);
+  const progressPercent = (clampedStep / totalSteps) * 100;
+  const stepLabels =
+    type === 'QC'
+      ? ['Upload MISMO', 'QC Details']
+      : ['Upload MISMO', 'Disclosure Details'];
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={comingSoon ? `${title} is coming soon.` : undefined}
-      className={`flex-1 text-left p-4 rounded-xl border transition-all ${
-        disabled
-          ? 'border-slate-200 bg-slate-50 text-slate-500 cursor-not-allowed'
-          : active
-          ? activeBorderClass
-          : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-      }`}
-    >
-      <div className="flex items-center gap-3">
-        <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-            disabled
-              ? 'bg-slate-200 text-slate-500'
-              : active
-              ? activeIconClass
-              : 'bg-slate-100 text-slate-600'
-          }`}
-        >
-          <Icon className="w-5 h-5" />
-        </div>
-        <div>
-          <div className="flex items-center gap-2">
-            <p className={`font-semibold ${disabled ? 'text-slate-600' : 'text-slate-900'}`}>
-              {title}
-            </p>
-            {comingSoon && (
-              <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                Coming Soon
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-slate-500 mt-0.5">{description}</p>
-        </div>
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-sm font-semibold text-slate-900">
+          {type === 'QC' ? 'Submit for QC' : 'Submit for Disclosures'}
+        </p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+          Step {clampedStep} of {totalSteps}
+        </p>
       </div>
-    </button>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-emerald-100">
+        <div
+          className="h-full rounded-full bg-emerald-500 transition-all duration-300 ease-out"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {stepLabels.map((label, idx) => {
+          const stepNumber = idx + 1;
+          const isComplete = stepNumber < clampedStep;
+          const isActive = stepNumber === clampedStep;
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => onStepRequest(stepNumber as 1 | 2)}
+              className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                isComplete
+                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                  : isActive
+                  ? 'border-emerald-300 bg-white text-emerald-700'
+                  : 'border-slate-200 bg-white text-slate-500'
+              }`}
+            >
+              {stepNumber}. {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
 function DisclosuresForm({
   loanOfficerName,
   onSubmitted,
+  onStepChange,
+  currentStep,
 }: {
   loanOfficerName: string;
   onSubmitted: () => void;
+  onStepChange?: (step: 1 | 2) => void;
+  currentStep?: 1 | 2;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
@@ -690,7 +669,6 @@ function DisclosuresForm({
   const [mismoIncomeProfile, setMismoIncomeProfile] = useState<MismoIncomeProfile>(
     DEFAULT_MISMO_INCOME_PROFILE
   );
-  const [overrideEmployerFields, setOverrideEmployerFields] = useState(false);
   const mimoRequiredFieldsRef = useRef<HTMLDivElement | null>(null);
   const [buttonFiles, setButtonFiles] = useState<{
     avm: File | null;
@@ -701,6 +679,17 @@ function DisclosuresForm({
     titleSheet: null,
     pricingSheet: null,
   });
+
+  useEffect(() => {
+    onStepChange?.(disclosureStep);
+  }, [disclosureStep, onStepChange]);
+
+  useEffect(() => {
+    if (!currentStep) return;
+    if (currentStep !== disclosureStep) {
+      setDisclosureStep(currentStep);
+    }
+  }, [currentStep, disclosureStep]);
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -767,9 +756,6 @@ function DisclosuresForm({
     if (isButtonInvestor) {
       if (!form.runId.trim()) highlightedMissingFields.add('runId');
       if (!form.pricingOption.trim()) highlightedMissingFields.add('pricingOption');
-    }
-    if (overrideEmployerFields) {
-      for (const key of missingReadonlyKeys) highlightedMissingFields.add(key);
     }
   }
 
@@ -949,7 +935,6 @@ function DisclosuresForm({
       setSubmitError('');
       setShowValidationErrors(false);
       setMismoFilename(file.name);
-      setOverrideEmployerFields(false);
       setMismoIncomeProfile(parsedIncomeProfile);
       setForm((prev) => ({
         ...prev,
@@ -1006,7 +991,6 @@ function DisclosuresForm({
       setDisclosureStep(2);
     } catch {
       setImportError('Could not read this MISMO file. Please verify the XML export.');
-      setOverrideEmployerFields(false);
       setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
       setShowValidationErrors(false);
       setDisclosureStep(1);
@@ -1041,7 +1025,6 @@ function DisclosuresForm({
                   setDisclosureStep(1);
                   setSubmitError('');
                   setShowValidationErrors(false);
-                  setOverrideEmployerFields(false);
                   setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
                 }}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
@@ -1125,17 +1108,6 @@ function DisclosuresForm({
               Employer fields are required only when MISMO includes employment income.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setOverrideEmployerFields((prev) => !prev)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-              overrideEmployerFields
-                ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            {overrideEmployerFields ? 'Disable Override' : 'Override Employer Fields'}
-          </button>
         </div>
         {!mismoIncomeProfile.employmentFieldsRequired && mismoIncomeProfile.hasAnyIncomeItems && (
           <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
@@ -1149,72 +1121,46 @@ function DisclosuresForm({
           </div>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {overrideEmployerFields ? (
-            <>
-              <Input
-                label="Employer Name"
-                value={form.employerName}
-                onChange={(v) => update('employerName', v)}
-                required={mismoIncomeProfile.employmentFieldsRequired}
-                invalid={highlightedMissingFields.has('employerName')}
-              />
-              <Input
-                label="Employer Address"
-                value={form.employerAddress}
-                onChange={(v) => update('employerAddress', v)}
-                required={mismoIncomeProfile.employmentFieldsRequired}
-                invalid={highlightedMissingFields.has('employerAddress')}
-              />
-              <Input
-                label="Employer - Duration in Line of Work"
-                value={form.employerDurationLineOfWork}
-                onChange={(v) => update('employerDurationLineOfWork', v)}
-                required={mismoIncomeProfile.employmentFieldsRequired}
-                invalid={highlightedMissingFields.has('employerDurationLineOfWork')}
-              />
-            </>
-          ) : (
-            <>
-              <ReadonlyRequiredField
-                label="Employer Name"
-                value={form.employerName}
-                required={mismoIncomeProfile.employmentFieldsRequired}
-                isMissing={missingReadonlyKeys.has('employerName')}
-              />
-              <ReadonlyRequiredField
-                label="Employer Address"
-                value={form.employerAddress}
-                required={mismoIncomeProfile.employmentFieldsRequired}
-                isMissing={missingReadonlyKeys.has('employerAddress')}
-              />
-              <ReadonlyRequiredField
-                label="Employer - Duration in Line of Work"
-                value={form.employerDurationLineOfWork}
-                required={mismoIncomeProfile.employmentFieldsRequired}
-                isMissing={missingReadonlyKeys.has('employerDurationLineOfWork')}
-              />
-              <ReadonlyRequiredField
-                label="Year Built (Property)"
-                value={form.yearBuiltProperty}
-                isMissing={missingReadonlyKeys.has('yearBuiltProperty')}
-              />
-              <ReadonlyRequiredField
-                label="Original Cost"
-                value={form.originalCost}
-                isMissing={missingReadonlyKeys.has('originalCost')}
-              />
-              <ReadonlyRequiredField
-                label="Year Aquired"
-                value={form.yearAquired}
-                isMissing={missingReadonlyKeys.has('yearAquired')}
-              />
-              <ReadonlyRequiredField
-                label="Manner in Which Title Will be Held"
-                value={form.mannerInWhichTitleWillBeHeld}
-                isMissing={missingReadonlyKeys.has('mannerInWhichTitleWillBeHeld')}
-              />
-            </>
-          )}
+          <>
+            <ReadonlyRequiredField
+              label="Employer Name"
+              value={form.employerName}
+              required={mismoIncomeProfile.employmentFieldsRequired}
+              isMissing={missingReadonlyKeys.has('employerName')}
+            />
+            <ReadonlyRequiredField
+              label="Employer Address"
+              value={form.employerAddress}
+              required={mismoIncomeProfile.employmentFieldsRequired}
+              isMissing={missingReadonlyKeys.has('employerAddress')}
+            />
+            <ReadonlyRequiredField
+              label="Employer - Duration in Line of Work"
+              value={form.employerDurationLineOfWork}
+              required={mismoIncomeProfile.employmentFieldsRequired}
+              isMissing={missingReadonlyKeys.has('employerDurationLineOfWork')}
+            />
+            <ReadonlyRequiredField
+              label="Year Built (Property)"
+              value={form.yearBuiltProperty}
+              isMissing={missingReadonlyKeys.has('yearBuiltProperty')}
+            />
+            <ReadonlyRequiredField
+              label="Original Cost"
+              value={form.originalCost}
+              isMissing={missingReadonlyKeys.has('originalCost')}
+            />
+            <ReadonlyRequiredField
+              label="Year Aquired"
+              value={form.yearAquired}
+              isMissing={missingReadonlyKeys.has('yearAquired')}
+            />
+            <ReadonlyRequiredField
+              label="Manner in Which Title Will be Held"
+              value={form.mannerInWhichTitleWillBeHeld}
+              isMissing={missingReadonlyKeys.has('mannerInWhichTitleWillBeHeld')}
+            />
+          </>
         </div>
       </div>
           {isButtonInvestor && (
@@ -1273,9 +1219,13 @@ function DisclosuresForm({
 function QcForm({
   loanOfficerName,
   onSubmitted,
+  onStepChange,
+  currentStep,
 }: {
   loanOfficerName: string;
   onSubmitted: () => void;
+  onStepChange?: (step: 1 | 2) => void;
+  currentStep?: 1 | 2;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [qcStep, setQcStep] = useState<1 | 2>(1);
@@ -1309,6 +1259,17 @@ function QcForm({
   });
   const [importError, setImportError] = useState('');
   const [submitError, setSubmitError] = useState('');
+
+  useEffect(() => {
+    onStepChange?.(qcStep);
+  }, [qcStep, onStepChange]);
+
+  useEffect(() => {
+    if (!currentStep) return;
+    if (currentStep !== qcStep) {
+      setQcStep(currentStep);
+    }
+  }, [currentStep, qcStep]);
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
