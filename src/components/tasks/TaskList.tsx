@@ -125,6 +125,7 @@ type QcChecklistNoteOption =
   | 'NOT_NEEDED'
   | 'FREE_AND_CLEAR'
   | 'PURCHASE_NOT_NEEDED'
+  | 'NOT_APPLICABLE'
   | 'MISSING_FROM_FILE'
   | 'OTHER';
 
@@ -156,6 +157,7 @@ const qcChecklistNoteOptions: Array<{ value: QcChecklistNoteOption; label: strin
   { value: 'MISSING_FROM_FILE', label: 'Missing from File' },
   { value: 'FREE_AND_CLEAR', label: 'Not Required, Free and Clear' },
   { value: 'PURCHASE_NOT_NEEDED', label: 'Not Required, Purchase' },
+  { value: 'NOT_APPLICABLE', label: 'Not Required, Not Applicable' },
   { value: 'OTHER', label: 'Other' },
 ];
 
@@ -164,6 +166,7 @@ const qcChecklistGreenOptions = new Set<QcChecklistNoteOption>([
   'NOT_NEEDED',
   'FREE_AND_CLEAR',
   'PURCHASE_NOT_NEEDED',
+  'NOT_APPLICABLE',
 ]);
 
 function getQcChecklistStatusFromOption(
@@ -1990,23 +1993,32 @@ export function TaskList({
                             >
                               <p className="text-sm font-semibold text-slate-900">{row.label}</p>
                               <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                                <select
-                                  value={row.noteOption}
-                                  onChange={(event) =>
-                                    updateQcChecklistRow(task.id, row.id, {
-                                      noteOption: event.target.value as QcChecklistNoteOption,
-                                      noteText: row.noteText,
-                                    })
-                                  }
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-                                >
-                                  <option value="">Select note option</option>
-                                  {qcChecklistNoteOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+                                  <span
+                                    className={`inline-flex h-9 w-9 items-center justify-center rounded-full border ${statusMeta.className}`}
+                                    aria-label={statusMeta.label}
+                                    title={statusMeta.label}
+                                  >
+                                    <StatusIcon className="h-4 w-4" />
+                                  </span>
+                                  <select
+                                    value={row.noteOption}
+                                    onChange={(event) =>
+                                      updateQcChecklistRow(task.id, row.id, {
+                                        noteOption: event.target.value as QcChecklistNoteOption,
+                                        noteText: row.noteText,
+                                      })
+                                    }
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                                  >
+                                    <option value="">Select note option</option>
+                                    {qcChecklistNoteOptions.map((option) => (
+                                      <option key={option.value} value={option.value}>
+                                        {option.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                                 <input
                                   value={row.noteText}
                                   onChange={(event) =>
@@ -2021,17 +2033,6 @@ export function TaskList({
                                       : 'border-slate-200'
                                   }`}
                                 />
-                              </div>
-                              <div
-                                className={`mt-2 inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold ${statusMeta.className}`}
-                              >
-                                <StatusIcon className="h-3.5 w-3.5" />
-                                {statusMeta.label}
-                                {noteRequired && (
-                                  <span className="ml-1 rounded-full border border-rose-300 bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700">
-                                    Note Required
-                                  </span>
-                                )}
                               </div>
                             </div>
                           );

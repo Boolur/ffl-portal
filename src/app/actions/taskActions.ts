@@ -1165,6 +1165,7 @@ type RequestInfoInput = {
         | 'NOT_NEEDED'
         | 'FREE_AND_CLEAR'
         | 'PURCHASE_NOT_NEEDED'
+        | 'NOT_APPLICABLE'
         | 'MISSING_FROM_FILE'
         | 'OTHER';
       noteText?: string;
@@ -1178,6 +1179,7 @@ const QC_CHECKLIST_NOTE_OPTIONS = new Set([
   'NOT_NEEDED',
   'FREE_AND_CLEAR',
   'PURCHASE_NOT_NEEDED',
+  'NOT_APPLICABLE',
   'MISSING_FROM_FILE',
   'OTHER',
 ] as const);
@@ -1191,6 +1193,7 @@ type ParsedQcChecklistItem = {
     | 'NOT_NEEDED'
     | 'FREE_AND_CLEAR'
     | 'PURCHASE_NOT_NEEDED'
+    | 'NOT_APPLICABLE'
     | 'MISSING_FROM_FILE'
     | 'OTHER';
   noteText: string;
@@ -1449,7 +1452,8 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           item.noteOption === 'CONFIRMED_IN_FILE' ||
           item.noteOption === 'NOT_NEEDED' ||
           item.noteOption === 'FREE_AND_CLEAR' ||
-          item.noteOption === 'PURCHASE_NOT_NEEDED'
+          item.noteOption === 'PURCHASE_NOT_NEEDED' ||
+          item.noteOption === 'NOT_APPLICABLE'
         )
     );
     const effectiveMessage =
