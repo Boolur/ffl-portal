@@ -752,7 +752,6 @@ function DisclosuresForm({
   const highlightedMissingFields = new Set<keyof typeof form>();
   if (showValidationErrors) {
     for (const key of missingEntryKeys) highlightedMissingFields.add(key);
-    if (!form.notes.trim()) highlightedMissingFields.add('notes');
     if (form.qualificationStatus !== 'Yes') highlightedMissingFields.add('qualificationStatus');
     if (!form.borrowerPhone.trim()) highlightedMissingFields.add('borrowerPhone');
     if (!form.borrowerEmail.trim()) highlightedMissingFields.add('borrowerEmail');
@@ -819,11 +818,6 @@ function DisclosuresForm({
       window.alert(
         `Please complete required fields before submitting: ${missingEntryLabels.join(', ')}.`
       );
-      return;
-    }
-
-    if (!form.notes.trim()) {
-      setSubmitError('Notes / Special Instructions is required before submitting.');
       return;
     }
 
@@ -1172,8 +1166,7 @@ function DisclosuresForm({
             label="Notes / Special Instructions"
             value={form.notes}
             onChange={(v) => update('notes', v)}
-            required
-            invalid={highlightedMissingFields.has('notes')}
+            required={false}
           />
 
           <div className="flex justify-end gap-3 pt-2">
@@ -1389,7 +1382,12 @@ function QcForm({
           required
         />
       </div>
-      <Textarea label="Notes / Goals" value={form.notesGoals} onChange={(v) => update('notesGoals', v)} required />
+      <Textarea
+        label="Notes / Goals"
+        value={form.notesGoals}
+        onChange={(v) => update('notesGoals', v)}
+        required={false}
+      />
       {submitError && (
         <p className="text-sm rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2">
           {submitError}

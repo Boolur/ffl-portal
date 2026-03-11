@@ -910,13 +910,6 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     } = payload;
 
     if (submissionType === 'DISCLOSURES') {
-      if (!notes?.trim()) {
-        return {
-          success: false,
-          error: 'Notes / Special Instructions is required before submitting.',
-        };
-      }
-
       const submissionObject =
         submissionData &&
         typeof submissionData === 'object' &&
@@ -1024,13 +1017,11 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 
       const qcCashBack = String(submissionObject?.cashBack ?? '').trim();
       const qcProjectedRevenue = String(submissionObject?.projectedRevenue ?? '').trim();
-      const qcNotes = String(notes ?? '').trim();
-
-      if (!qcCashBack || !qcProjectedRevenue || !qcNotes) {
+      if (!qcCashBack || !qcProjectedRevenue) {
         return {
           success: false,
           error:
-            'Cash Back, Projected Revenue, and Notes / Goals are required before submitting QC.',
+            'Cash Back and Projected Revenue are required before submitting QC.',
         };
       }
     }

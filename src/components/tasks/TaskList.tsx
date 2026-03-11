@@ -1683,7 +1683,8 @@ export function TaskList({
                 onClick={() => setFocusedTaskId(null)}
               >
                 <div
-                  className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-[24px] border border-slate-200/60 bg-slate-50 p-6 sm:p-10 shadow-2xl"
+                  className="w-full max-w-5xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-[24px] border border-slate-200/60 bg-slate-50 p-6 sm:p-10 shadow-2xl"
+                  style={{ scrollbarGutter: 'stable' }}
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-start justify-between gap-6 border-b border-slate-200/60 pb-8">
