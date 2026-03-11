@@ -29,6 +29,13 @@ export function ImpersonationControls({ currentUserRole }: { currentUserRole: Us
     'ADMIN'
   ];
 
+  const getRoleButtonClass = (role: UserRole) => {
+    if (role === UserRole.LOAN_OFFICER) return 'bg-amber-500 text-white';
+    if (role === UserRole.QC) return 'bg-violet-600 text-white';
+    if (role === UserRole.DISCLOSURE_SPECIALIST) return 'bg-blue-600 text-white';
+    return 'bg-blue-600 text-white';
+  };
+
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end space-y-2">
       {isImpersonating && (
@@ -71,7 +78,7 @@ export function ImpersonationControls({ currentUserRole }: { currentUserRole: Us
                   onClick={() => startImpersonating(role)}
                   className={`px-2 py-1.5 text-[10px] rounded-md transition-colors text-left truncate ${
                     activeRole === role 
-                      ? 'bg-blue-600 text-white' 
+                      ? getRoleButtonClass(role)
                       : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100'
                   }`}
                 >

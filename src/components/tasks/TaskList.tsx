@@ -686,13 +686,13 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
 
 function getRoleBubbleClass(role: UserRole | null) {
   if (role === UserRole.LOAN_OFFICER) {
-    return 'border-violet-200 bg-violet-50 text-violet-700';
+    return 'border-amber-200 bg-amber-50 text-amber-700';
   }
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
     return 'border-blue-200 bg-blue-50 text-blue-700';
   }
   if (role === UserRole.QC) {
-    return 'border-indigo-200 bg-indigo-50 text-indigo-700';
+    return 'border-violet-200 bg-violet-50 text-violet-700';
   }
   return 'border-slate-200 bg-slate-50 text-slate-500';
 }
@@ -761,6 +761,8 @@ function WorkedByTags({
           key={contributor.name}
           className={`inline-flex max-w-[130px] items-center truncate rounded-full border font-semibold ${chipSize} ${
             contributor.role === UserRole.LOAN_OFFICER
+              ? 'border-amber-200 bg-amber-50 text-amber-700'
+              : contributor.role === UserRole.QC
               ? 'border-violet-200 bg-violet-50 text-violet-700'
               : 'border-blue-200 bg-blue-50 text-blue-700'
           }`}

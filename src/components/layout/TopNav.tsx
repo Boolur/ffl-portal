@@ -12,6 +12,18 @@ import {
 } from '@/app/actions/notificationActions';
 
 const formatRole = (role: string) => role.replace(/_/g, ' ');
+const getRoleChipClass = (role: UserRole) => {
+  if (role === UserRole.LOAN_OFFICER) {
+    return 'border-amber-200 bg-amber-50 text-amber-700';
+  }
+  if (role === UserRole.QC) {
+    return 'border-violet-200 bg-violet-50 text-violet-700';
+  }
+  if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    return 'border-blue-200 bg-blue-50 text-blue-700';
+  }
+  return 'border-slate-200 bg-white text-slate-600';
+};
 const formatRelativeTime = (iso: string) => {
   const created = new Date(iso);
   if (Number.isNaN(created.getTime())) return '';
@@ -318,7 +330,7 @@ export function TopNav({
                         disabled={isSwitchingRole}
                         className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs font-semibold transition-colors ${
                           user.role === role
-                            ? 'border-blue-200 bg-blue-50 text-blue-700'
+                            ? getRoleChipClass(role)
                             : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                         } disabled:opacity-60 disabled:cursor-not-allowed`}
                       >
