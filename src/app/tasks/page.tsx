@@ -689,13 +689,13 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     ? getManagerDeskRows(allTasks)
     : null;
   const isDualDeskMode = Boolean(dualDeskRows);
-  const canDelete =
-    sessionRole === UserRole.ADMIN || sessionRole === UserRole.MANAGER;
+  const canDelete = sessionRole === UserRole.ADMIN;
   const roleTaskSubtitle: Record<string, string> = {
     [UserRole.LOAN_OFFICER]:
       'Manage submitted requests, complete LO actions, and track returns sent back to Disclosure.',
     [UserRole.ADMIN]: 'Manage and clean up tasks across all teams.',
-    [UserRole.MANAGER]: 'Oversee team workload and remove invalid requests.',
+    [UserRole.MANAGER]:
+      'Oversee Disclosure and QC queues with full desk-level actions across both rows.',
     [UserRole.DISCLOSURE_SPECIALIST]: 'Work disclosure tasks by due date and status.',
     [UserRole.VA]: 'Track support tasks and progress them to completion.',
     [UserRole.VA_TITLE]: 'Complete Title tasks and upload proof before finishing.',
