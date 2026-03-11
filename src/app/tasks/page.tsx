@@ -619,7 +619,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         id: 'qc-lo-responded',
         label: 'LO Responded (Review)',
         chipLabel: 'Needs Review',
-        chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
         tasks: qcTasks.filter(
           (task) =>
             task.status !== TaskStatus.COMPLETED &&
