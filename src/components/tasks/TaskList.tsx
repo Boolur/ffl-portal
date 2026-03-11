@@ -1738,10 +1738,11 @@ export function TaskList({
                                           >
                                             <div className="flex flex-wrap items-center gap-2">
                                               <span
-                                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${statusMeta.className}`}
+                                                className={`inline-flex h-7 w-7 items-center justify-center rounded-full border ${statusMeta.className}`}
+                                                aria-label={statusMeta.label}
+                                                title={statusMeta.label}
                                               >
-                                                <StatusIcon className="h-3 w-3" />
-                                                {statusMeta.label}
+                                                <StatusIcon className="h-3.5 w-3.5" />
                                               </span>
                                               <span className="text-xs font-semibold text-slate-800">
                                                 {row.label}
