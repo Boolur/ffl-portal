@@ -1964,22 +1964,6 @@ export function TaskList({
                         </div>
                         <h4 className="text-sm font-bold text-violet-900">QC Action Checklist</h4>
                       </div>
-                      <select
-                        value={selectedQcReason}
-                        onChange={(event) =>
-                          setDisclosureReasonByTask((prev) => ({
-                            ...prev,
-                            [task.id]: event.target.value as DisclosureDecisionReason,
-                          }))
-                        }
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-                      >
-                        {qcReasonOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
                       <div className="space-y-3">
                         {qcChecklistRows.map((row) => {
                           const status = getQcChecklistStatusFromOption(row.noteOption);
@@ -2053,6 +2037,27 @@ export function TaskList({
                           Missing Items is blocked because all checklist items are green.
                         </p>
                       )}
+                      <div className="rounded-xl border border-violet-200 bg-white p-4 shadow-sm">
+                        <p className="mb-2 text-[11px] font-bold uppercase tracking-widest text-violet-700">
+                          QC Final Decision
+                        </p>
+                        <select
+                          value={selectedQcReason}
+                          onChange={(event) =>
+                            setDisclosureReasonByTask((prev) => ({
+                              ...prev,
+                              [task.id]: event.target.value as DisclosureDecisionReason,
+                            }))
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                        >
+                          {qcReasonOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   )}
 
