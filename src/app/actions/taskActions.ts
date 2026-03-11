@@ -1456,14 +1456,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           item.noteOption === 'NOT_APPLICABLE'
         )
     );
-    const effectiveMessage =
-      normalizedMessage ||
-      parsedQcChecklist?.summaryMessage ||
-      (hasRedXChecklistItems
-        ? 'QC checklist indicates missing items.'
-        : qcSubmissionTask
-        ? 'QC checklist completed.'
-        : '');
+    const effectiveMessage = normalizedMessage;
 
     if (qcSubmissionTask) {
       const isAllowedQcAction =
@@ -1499,10 +1492,10 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           error: 'Missing Items is blocked while all checklist items are green.',
         };
       }
-      if (!effectiveMessage) {
+      if (!normalizedMessage) {
         return {
           success: false,
-          error: 'Please add a note before submitting the QC action.',
+          error: 'Please add general QC notes before submitting the QC action.',
         };
       }
     }

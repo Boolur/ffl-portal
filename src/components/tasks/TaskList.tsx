@@ -1062,11 +1062,12 @@ export function TaskList({
         return;
       }
       if (!message) {
-        message = buildQcChecklistSummary(checklistRows);
+        alert('Please add general QC notes before routing this task.');
+        return;
       }
       qcChecklistPayload = {
         items: checklistItems,
-        summaryMessage: message,
+        summaryMessage: buildQcChecklistSummary(checklistRows),
       };
     } else if (!message) {
       alert('Please add a note before routing this task.');
@@ -1246,6 +1247,9 @@ export function TaskList({
           isQcSubmissionTask(task) &&
           selectedQcReason === DisclosureDecisionReason.MISSING_ITEMS &&
           qcChecklistAllGreen;
+        const qcGeneralNotes = (disclosureMessageByTask[task.id] || '').trim();
+        const qcGeneralNotesMissing =
+          isQcSubmissionTask(task) && qcGeneralNotes.length === 0;
         const canDisclosureEditProofAttachments =
           canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
@@ -1958,11 +1962,18 @@ export function TaskList({
 
                   {canManageQcDesk && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
                     <div className="mt-8 rounded-2xl border border-violet-100 bg-violet-50/50 p-6 shadow-sm space-y-4">
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
-                          <MessageSquare className="h-4 w-4" />
+                      <div className="mb-2 flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                            <MessageSquare className="h-4 w-4" />
+                          </div>
+                          <h4 className="text-sm font-bold text-violet-900">QC Action Checklist</h4>
                         </div>
-                        <h4 className="text-sm font-bold text-violet-900">QC Action Checklist</h4>
+                        {qcChecklistMissingFields && (
+                          <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
+                            Complete all rows. Red items require notes.
+                          </span>
+                        )}
                       </div>
                       <div className="space-y-3">
                         {qcChecklistRows.map((row) => {
@@ -2022,21 +2033,6 @@ export function TaskList({
                           );
                         })}
                       </div>
-                      {qcChecklistMissingFields && (
-                        <p className="text-xs font-semibold text-rose-700">
-                          Complete each checklist row with a dropdown selection. Red items require a note.
-                        </p>
-                      )}
-                      {qcChecklistBlocksCompleteAction && (
-                        <p className="text-xs font-semibold text-amber-700">
-                          Complete QC is blocked because at least one checklist item is Red X. Use Missing Items.
-                        </p>
-                      )}
-                      {qcChecklistBlocksMissingItemsAction && (
-                        <p className="text-xs font-semibold text-amber-700">
-                          Missing Items is blocked because all checklist items are green.
-                        </p>
-                      )}
                       <div className="rounded-xl border border-violet-200 bg-white p-4 shadow-sm">
                         <p className="mb-2 text-[11px] font-bold uppercase tracking-widest text-violet-700">
                           QC Final Decision
@@ -2057,6 +2053,46 @@ export function TaskList({
                             </option>
                           ))}
                         </select>
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                              QC General Notes
+                            </label>
+                            <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700">
+                              Required
+                            </span>
+                          </div>
+                          <textarea
+                            value={disclosureMessageByTask[task.id] || ''}
+                            onChange={(event) =>
+                              setDisclosureMessageByTask((prev) => ({
+                                ...prev,
+                                [task.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Add general QC context for LO (summary, what is missing, next steps)..."
+                            className={`w-full rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[88px] focus:border-violet-500 focus:ring-1 focus:ring-violet-500 ${
+                              qcGeneralNotesMissing ? 'border-rose-300' : 'border-slate-200'
+                            }`}
+                          />
+                        </div>
+                        <div className="mt-2 min-h-[18px]">
+                          {qcGeneralNotesMissing && (
+                            <p className="text-xs font-semibold text-rose-700">
+                              Add general QC notes before submitting this decision.
+                            </p>
+                          )}
+                          {qcChecklistBlocksCompleteAction && (
+                            <p className="text-xs font-semibold text-amber-700">
+                              Complete QC is blocked because at least one checklist item is Red X. Use Missing Items.
+                            </p>
+                          )}
+                          {qcChecklistBlocksMissingItemsAction && (
+                            <p className="text-xs font-semibold text-amber-700">
+                              Missing Items is blocked because all checklist items are green.
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -2184,7 +2220,8 @@ export function TaskList({
                           (isQcRouteTask
                             ? qcChecklistMissingFields ||
                               qcChecklistBlocksCompleteAction ||
-                              qcChecklistBlocksMissingItemsAction
+                              qcChecklistBlocksMissingItemsAction ||
+                              qcGeneralNotesMissing
                             : !disclosureFooterMessage);
                         return (
                       <button
