@@ -96,6 +96,8 @@ type NoteHistoryEntry = {
   role: UserRole | null;
   message: string;
   date: string;
+  entryType?: 'note' | 'qcChecklist';
+  checklist?: QcChecklistItem[];
 };
 
 type TimelineItem = {
@@ -108,12 +110,65 @@ type TimelineItem = {
   attachmentId?: string;
   attachmentFilename?: string;
   attachmentPurpose?: TaskAttachmentPurpose;
+  noteEntryType?: 'note' | 'qcChecklist';
+  checklist?: QcChecklistItem[];
 };
 
 type ContributorSummary = {
   visibleContributors: Array<{ name: string; role: UserRole | null }>;
   overflowCount: number;
 };
+
+type QcChecklistStatus = 'GREEN_CHECK' | 'RED_X';
+type QcChecklistNoteOption =
+  | 'CONFIRMED_IN_FILE'
+  | 'NOT_NEEDED'
+  | 'FREE_AND_CLEAR'
+  | 'PURCHASE_NOT_NEEDED'
+  | 'MISSING_FROM_FILE'
+  | 'OTHER';
+
+type QcChecklistItem = {
+  id: string;
+  label: string;
+  status: QcChecklistStatus;
+  noteOption: QcChecklistNoteOption;
+  noteText?: string;
+};
+
+type QcChecklistDraftItem = {
+  id: string;
+  label: string;
+  status: QcChecklistStatus | null;
+  noteOption: QcChecklistNoteOption | '';
+  noteText: string;
+};
+
+const qcChecklistTemplate: Array<{ id: string; label: string }> = [
+  { id: 'mortgage-documents', label: 'Verify Mortgage Documents' },
+  { id: 'homeowners-insurance', label: 'Verify Homeowners Insurance Policy' },
+  { id: 'income-documents', label: 'Verify Income Documents (Employed / Self Employed / Retired)' },
+  { id: 'drivers-license', label: 'Verify Driver License' },
+  { id: 'dd214-veteran', label: 'Verify DD-214 (Veteran, if applicable)' },
+];
+
+const qcChecklistNoteOptions: Array<{ value: QcChecklistNoteOption; label: string }> = [
+  { value: 'CONFIRMED_IN_FILE', label: 'Confirmed in file' },
+  { value: 'MISSING_FROM_FILE', label: 'Missing from file' },
+  { value: 'FREE_AND_CLEAR', label: 'Not Required, Free and Clear' },
+  { value: 'PURCHASE_NOT_NEEDED', label: 'Not Required, Purchase' },
+  { value: 'OTHER', label: 'Other - With Side Note Input' },
+];
+
+function createDefaultQcChecklistRows(): QcChecklistDraftItem[] {
+  return qcChecklistTemplate.map((item) => ({
+    id: item.id,
+    label: item.label,
+    status: null,
+    noteOption: '',
+    noteText: '',
+  }));
+}
 
 function injectLoanOfficerContributor(
   summary: ContributorSummary | null,
@@ -490,6 +545,8 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
     const message = (item as { message?: unknown }).message;
     const date = (item as { date?: unknown }).date;
     const roleRaw = (item as { role?: unknown }).role;
+    const entryTypeRaw = (item as { entryType?: unknown }).entryType;
+    const checklistRaw = (item as { checklist?: unknown }).checklist;
     const role =
       typeof roleRaw === 'string' &&
       (Object.values(UserRole) as string[]).includes(roleRaw)
@@ -503,6 +560,33 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
       role,
       message: message.trim(),
       date,
+      entryType: entryTypeRaw === 'qcChecklist' ? 'qcChecklist' : 'note',
+      checklist:
+        entryTypeRaw === 'qcChecklist' && Array.isArray(checklistRaw)
+          ? checklistRaw
+              .map((row): QcChecklistItem | null => {
+                if (!row || typeof row !== 'object') return null;
+                const id = String((row as { id?: unknown }).id ?? '').trim();
+                const label = String((row as { label?: unknown }).label ?? '').trim();
+                const statusRaw = (row as { status?: unknown }).status;
+                const noteOptionRaw = (row as { noteOption?: unknown }).noteOption;
+                const noteText = String((row as { noteText?: unknown }).noteText ?? '').trim();
+                if (!id || !label) return null;
+                if (statusRaw !== 'GREEN_CHECK' && statusRaw !== 'RED_X') return null;
+                const validNoteOption = qcChecklistNoteOptions.some(
+                  (option) => option.value === noteOptionRaw
+                );
+                if (!validNoteOption) return null;
+                return {
+                  id,
+                  label,
+                  status: statusRaw,
+                  noteOption: noteOptionRaw as QcChecklistNoteOption,
+                  noteText,
+                };
+              })
+              .filter((row): row is QcChecklistItem => Boolean(row))
+          : undefined,
     });
   }
   return entries;
@@ -696,10 +780,36 @@ export function TaskList({
   const [disclosureMessageByTask, setDisclosureMessageByTask] = React.useState<
     Record<string, string>
   >({});
+  const [qcChecklistByTask, setQcChecklistByTask] = React.useState<
+    Record<string, QcChecklistDraftItem[]>
+  >({});
   const [loResponseByTask, setLoResponseByTask] = React.useState<
     Record<string, string>
   >({});
   const [timerNowMs, setTimerNowMs] = React.useState(() => Date.now());
+
+  const getQcChecklistRows = React.useCallback(
+    (taskId: string) => qcChecklistByTask[taskId] ?? createDefaultQcChecklistRows(),
+    [qcChecklistByTask]
+  );
+
+  const updateQcChecklistRow = React.useCallback(
+    (
+      taskId: string,
+      rowId: string,
+      updates: Partial<Pick<QcChecklistDraftItem, 'status' | 'noteOption' | 'noteText'>>
+    ) => {
+      setQcChecklistByTask((prev) => {
+        const current = prev[taskId] ?? createDefaultQcChecklistRows();
+        const next = current.map((row) => {
+          if (row.id !== rowId) return row;
+          return { ...row, ...updates };
+        });
+        return { ...prev, [taskId]: next };
+      });
+    },
+    []
+  );
 
   React.useEffect(() => {
     if (!initialFocusedTaskId || initialFocusConsumed) return;
@@ -820,13 +930,61 @@ export function TaskList({
     const reason =
       disclosureReasonByTask[task.id] ||
       DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
-    const message = (disclosureMessageByTask[task.id] || '').trim();
-    if (!message) {
+    let message = (disclosureMessageByTask[task.id] || '').trim();
+    const isQcTask = task.kind === TaskKind.SUBMIT_QC;
+    let qcChecklistPayload:
+      | {
+          items: QcChecklistItem[];
+          summaryMessage: string;
+        }
+      | undefined;
+
+    if (isQcTask) {
+      const checklistRows = getQcChecklistRows(task.id);
+      const missingRequiredChecklistFields = checklistRows.some((row) => {
+        if (!row.status) return true;
+        if (!row.noteOption) return true;
+        if (row.noteOption === 'OTHER' && !row.noteText.trim()) return true;
+        return false;
+      });
+      if (missingRequiredChecklistFields) {
+        alert('Please complete all QC checklist items before routing this task.');
+        return;
+      }
+      const checklistItems: QcChecklistItem[] = checklistRows.map((row) => ({
+        id: row.id,
+        label: row.label,
+        status: row.status as QcChecklistStatus,
+        noteOption: row.noteOption as QcChecklistNoteOption,
+        noteText: row.noteText.trim() || undefined,
+      }));
+      const hasRedXItems = checklistItems.some((item) => item.status === 'RED_X');
+      if (
+        hasRedXItems &&
+        reason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+      ) {
+        alert('Complete QC is blocked while checklist items are marked Red X. Use Missing Items.');
+        return;
+      }
+      if (!message) {
+        message = hasRedXItems
+          ? 'QC checklist indicates missing items that require LO updates.'
+          : 'QC checklist completed successfully.';
+      }
+      qcChecklistPayload = {
+        items: checklistItems,
+        summaryMessage: message,
+      };
+    } else if (!message) {
       alert('Please add a note before routing this task.');
       return;
     }
     setSendingToLoId(task.id);
-    const result = await requestInfoFromLoanOfficer(task.id, { reason, message });
+    const result = await requestInfoFromLoanOfficer(task.id, {
+      reason,
+      message,
+      qcChecklist: qcChecklistPayload,
+    });
     if (!result.success) {
       alert(result.error || 'Failed to send task to Loan Officer.');
       setSendingToLoId(null);
@@ -983,6 +1141,20 @@ export function TaskList({
         const selectedQcReason =
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+        const qcChecklistRows = getQcChecklistRows(task.id);
+        const qcChecklistHasRedXItems = qcChecklistRows.some(
+          (row) => row.status === 'RED_X'
+        );
+        const qcChecklistMissingFields = qcChecklistRows.some((row) => {
+          if (!row.status) return true;
+          if (!row.noteOption) return true;
+          if (row.noteOption === 'OTHER' && !row.noteText.trim()) return true;
+          return false;
+        });
+        const qcChecklistBlocksCompleteAction =
+          isQcSubmissionTask(task) &&
+          selectedQcReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES &&
+          qcChecklistHasRedXItems;
         const canDisclosureEditProofAttachments =
           canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
@@ -1113,6 +1285,8 @@ export function TaskList({
             actorName: entry.author,
             actorRole: entry.role,
             message: entry.message,
+            noteEntryType: entry.entryType || 'note',
+            checklist: entry.checklist,
           })),
           ...((task.timelineAttachments && task.timelineAttachments.length > 0
             ? task.timelineAttachments
@@ -1447,9 +1621,64 @@ export function TaskList({
                                 </span>
                               </div>
                               {item.type === 'note' ? (
-                                <p className="text-sm font-medium leading-relaxed text-slate-700">
-                                  {item.message}
-                                </p>
+                                item.noteEntryType === 'qcChecklist' &&
+                                Array.isArray(item.checklist) &&
+                                item.checklist.length > 0 ? (
+                                  <div className="space-y-3">
+                                    {item.message && (
+                                      <p className="text-sm font-semibold leading-relaxed text-slate-700">
+                                        {item.message}
+                                      </p>
+                                    )}
+                                    <div className="space-y-2">
+                                      {item.checklist.map((row) => {
+                                        const optionLabel =
+                                          qcChecklistNoteOptions.find(
+                                            (option) => option.value === row.noteOption
+                                          )?.label || row.noteOption;
+                                        return (
+                                          <div
+                                            key={`${item.id}-${row.id}`}
+                                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                                          >
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <span
+                                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${
+                                                  row.status === 'GREEN_CHECK'
+                                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                                    : 'border-rose-300 bg-rose-100 text-rose-800'
+                                                }`}
+                                              >
+                                                {row.status === 'GREEN_CHECK' ? (
+                                                  <CheckCircle className="h-3 w-3" />
+                                                ) : (
+                                                  <X className="h-3 w-3" />
+                                                )}
+                                                {row.status === 'GREEN_CHECK'
+                                                  ? 'Green Check'
+                                                  : 'Red X'}
+                                              </span>
+                                              <span className="text-xs font-semibold text-slate-800">
+                                                {row.label}
+                                              </span>
+                                            </div>
+                                            <div className="mt-1.5 text-xs font-medium text-slate-600">
+                                              <span className="font-semibold text-slate-700">
+                                                Note:
+                                              </span>{' '}
+                                              {optionLabel}
+                                              {row.noteText ? ` - ${row.noteText}` : ''}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-sm font-medium leading-relaxed text-slate-700">
+                                    {item.message}
+                                  </p>
+                                )
                               ) : (
                                 <button
                                   type="button"
@@ -1649,12 +1878,12 @@ export function TaskList({
                     )}
 
                   {canManageQcDesk && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
-                    <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/50 p-6 shadow-sm space-y-4">
+                    <div className="mt-8 rounded-2xl border border-violet-100 bg-violet-50/50 p-6 shadow-sm space-y-4">
                       <div className="flex items-center gap-3 mb-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
                           <MessageSquare className="h-4 w-4" />
                         </div>
-                        <h4 className="text-sm font-bold text-blue-900">QC Action</h4>
+                        <h4 className="text-sm font-bold text-violet-900">QC Action Checklist</h4>
                       </div>
                       <select
                         value={selectedQcReason}
@@ -1664,7 +1893,7 @@ export function TaskList({
                             [task.id]: event.target.value as DisclosureDecisionReason,
                           }))
                         }
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
                       >
                         {qcReasonOptions.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -1672,20 +1901,95 @@ export function TaskList({
                           </option>
                         ))}
                       </select>
-                      <textarea
-                        value={disclosureMessageByTask[task.id] || ''}
-                        onChange={(event) =>
-                          setDisclosureMessageByTask((prev) => ({
-                            ...prev,
-                            [task.id]: event.target.value,
-                          }))
-                        }
-                        placeholder="Add context for LO (what is missing or what needs correction)..."
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium shadow-sm min-h-[100px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                      />
-                      <p className="text-xs font-semibold text-slate-500">
-                        Add a note, then use the bottom action bar to route this task.
-                      </p>
+                      <div className="space-y-3">
+                        {qcChecklistRows.map((row) => {
+                          const showOtherNoteInput = row.noteOption === 'OTHER';
+                          return (
+                            <div
+                              key={row.id}
+                              className="rounded-xl border border-violet-100 bg-white p-4 shadow-sm"
+                            >
+                              <p className="text-sm font-semibold text-slate-900">{row.label}</p>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateQcChecklistRow(task.id, row.id, { status: 'GREEN_CHECK' })
+                                  }
+                                  className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                                    row.status === 'GREEN_CHECK'
+                                      ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <CheckCircle className="h-3.5 w-3.5" />
+                                  Green Check
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateQcChecklistRow(task.id, row.id, { status: 'RED_X' })
+                                  }
+                                  className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                                    row.status === 'RED_X'
+                                      ? 'border-rose-300 bg-rose-100 text-rose-800'
+                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                  Red X
+                                </button>
+                              </div>
+                              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                                <select
+                                  value={row.noteOption}
+                                  onChange={(event) =>
+                                    updateQcChecklistRow(task.id, row.id, {
+                                      noteOption: event.target.value as QcChecklistNoteOption,
+                                      noteText:
+                                        event.target.value === 'OTHER' ? row.noteText : '',
+                                    })
+                                  }
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                                >
+                                  <option value="">Select note option</option>
+                                  {qcChecklistNoteOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {showOtherNoteInput ? (
+                                  <input
+                                    value={row.noteText}
+                                    onChange={(event) =>
+                                      updateQcChecklistRow(task.id, row.id, {
+                                        noteText: event.target.value,
+                                      })
+                                    }
+                                    placeholder="Add note..."
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                                  />
+                                ) : (
+                                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-400">
+                                    Optional note auto-selected by dropdown
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {qcChecklistMissingFields && (
+                        <p className="text-xs font-semibold text-rose-700">
+                          Complete each checklist row with Green/Red and a dropdown selection before routing.
+                        </p>
+                      )}
+                      {qcChecklistBlocksCompleteAction && (
+                        <p className="text-xs font-semibold text-amber-700">
+                          Complete QC is blocked because at least one checklist item is Red X. Use Missing Items.
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -1804,14 +2108,19 @@ export function TaskList({
                       </button>
                     )}
                     {shouldRouteFromFooter && (
+                      (() => {
+                        const isQcRouteTask = isQcSubmissionTask(task);
+                        const disableRouteButton =
+                          sendingToLoId === task.id ||
+                          (requiresProofForRouting && proofCount < 1) ||
+                          (isQcRouteTask
+                            ? qcChecklistMissingFields || qcChecklistBlocksCompleteAction
+                            : !disclosureFooterMessage);
+                        return (
                       <button
                         type="button"
                         onClick={() => void handleSendToLoanOfficer(task)}
-                        disabled={
-                          sendingToLoId === task.id ||
-                          (requiresProofForRouting && proofCount < 1) ||
-                          !disclosureFooterMessage
-                        }
+                        disabled={disableRouteButton}
                         className={`disabled:opacity-60 disabled:cursor-not-allowed ${
                           isMissingItemsRouteAction
                             ? 'inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100'
@@ -1835,6 +2144,8 @@ export function TaskList({
                           ? 'Complete QC'
                           : 'Send Back to LO'}
                       </button>
+                        );
+                      })()
                     )}
                     {shouldLoRespondFromFooter &&
                       (isApprovalReviewTask ? (

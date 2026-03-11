@@ -1155,7 +1155,82 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 type RequestInfoInput = {
   reason: DisclosureDecisionReason;
   message?: string;
+  qcChecklist?: {
+    items: Array<{
+      id: string;
+      label: string;
+      status: 'GREEN_CHECK' | 'RED_X';
+      noteOption:
+        | 'CONFIRMED_IN_FILE'
+        | 'NOT_NEEDED'
+        | 'FREE_AND_CLEAR'
+        | 'PURCHASE_NOT_NEEDED'
+        | 'MISSING_FROM_FILE'
+        | 'OTHER';
+      noteText?: string;
+    }>;
+    summaryMessage?: string;
+  };
 };
+
+const QC_CHECKLIST_NOTE_OPTIONS = new Set([
+  'CONFIRMED_IN_FILE',
+  'NOT_NEEDED',
+  'FREE_AND_CLEAR',
+  'PURCHASE_NOT_NEEDED',
+  'MISSING_FROM_FILE',
+  'OTHER',
+] as const);
+
+type ParsedQcChecklistItem = {
+  id: string;
+  label: string;
+  status: 'GREEN_CHECK' | 'RED_X';
+  noteOption:
+    | 'CONFIRMED_IN_FILE'
+    | 'NOT_NEEDED'
+    | 'FREE_AND_CLEAR'
+    | 'PURCHASE_NOT_NEEDED'
+    | 'MISSING_FROM_FILE'
+    | 'OTHER';
+  noteText: string;
+};
+
+type ParsedQcChecklist = {
+  items: ParsedQcChecklistItem[];
+  summaryMessage: string;
+};
+
+function parseQcChecklistInput(input: RequestInfoInput['qcChecklist']): ParsedQcChecklist | null {
+  if (!input || !Array.isArray(input.items) || input.items.length === 0) return null;
+  const parsedItems: ParsedQcChecklistItem[] = [];
+  for (const raw of input.items) {
+    const id = String(raw?.id ?? '').trim();
+    const label = String(raw?.label ?? '').trim();
+    const status = raw?.status;
+    const noteOption = raw?.noteOption;
+    const noteText = String(raw?.noteText ?? '').trim();
+    if (!id || !label) return null;
+    if (status !== 'GREEN_CHECK' && status !== 'RED_X') return null;
+    if (
+      typeof noteOption !== 'string' ||
+      !QC_CHECKLIST_NOTE_OPTIONS.has(noteOption as ParsedQcChecklistItem['noteOption'])
+    ) {
+      return null;
+    }
+    if (noteOption === 'OTHER' && !noteText) return null;
+    parsedItems.push({
+      id,
+      label,
+      status,
+      noteOption,
+      noteText,
+    });
+  }
+
+  const summaryMessage = String(input.summaryMessage ?? '').trim();
+  return { items: parsedItems, summaryMessage };
+}
 
 export async function startDisclosureRequest(taskId: string) {
   try {
@@ -1362,6 +1437,18 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     const qcSubmissionTask = isQcSubmissionTask(task);
     const normalizedReason = input.reason;
     const normalizedMessage = input.message?.trim() || '';
+    const parsedQcChecklist = qcSubmissionTask ? parseQcChecklistInput(input.qcChecklist) : null;
+    const hasRedXChecklistItems = Boolean(
+      parsedQcChecklist?.items.some((item) => item.status === 'RED_X')
+    );
+    const effectiveMessage =
+      normalizedMessage ||
+      parsedQcChecklist?.summaryMessage ||
+      (hasRedXChecklistItems
+        ? 'QC checklist indicates missing items.'
+        : qcSubmissionTask
+        ? 'QC checklist completed.'
+        : '');
 
     if (qcSubmissionTask) {
       const isAllowedQcAction =
@@ -1373,7 +1460,22 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           error: 'QC action must be either Complete QC or Missing Items.',
         };
       }
-      if (!normalizedMessage) {
+      if (!parsedQcChecklist) {
+        return {
+          success: false,
+          error: 'Please complete the QC checklist before submitting the action.',
+        };
+      }
+      if (
+        normalizedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES &&
+        hasRedXChecklistItems
+      ) {
+        return {
+          success: false,
+          error: 'Complete QC is blocked while any checklist item is marked Red X.',
+        };
+      }
+      if (!effectiveMessage) {
         return {
           success: false,
           error: 'Please add a note before submitting the QC action.',
@@ -1410,12 +1512,18 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       normalizedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
 
     await prisma.$transaction(async (tx) => {
-      const noteEntry = normalizedMessage
+      const noteEntry = effectiveMessage
         ? {
         author: session?.user?.name || 'Unknown',
         role: role,
-        message: normalizedMessage,
+        message: effectiveMessage,
         date: new Date().toISOString(),
+        ...(parsedQcChecklist
+          ? {
+              entryType: 'qcChecklist',
+              checklist: parsedQcChecklist.items,
+            }
+          : {}),
       }
         : null;
 
@@ -1438,7 +1546,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
             disclosureReason: normalizedReason,
             workflowState: TaskWorkflowState.NONE,
             completedAt: new Date(),
-            description: normalizedMessage || null,
+            description: effectiveMessage || null,
             loanOfficerApprovedAt: null,
             submissionData: updatedSubmissionData ?? undefined,
           },
@@ -1486,7 +1594,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
                   ? 'LO: Approve Initial Disclosures'
                   : 'LO: Needs Info',
               disclosureReason: normalizedReason,
-              description: normalizedMessage || null,
+              description: effectiveMessage || null,
               submissionData: updatedSubmissionData ?? undefined,
               status: TaskStatus.PENDING,
               priority: TaskPriority.HIGH,
@@ -1510,7 +1618,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
                   : 'LO: Needs Info',
               kind: TaskKind.LO_NEEDS_INFO,
               disclosureReason: normalizedReason,
-              description: normalizedMessage || null,
+              description: effectiveMessage || null,
               submissionData: updatedSubmissionData ?? undefined,
               status: TaskStatus.PENDING,
               priority: TaskPriority.HIGH,
