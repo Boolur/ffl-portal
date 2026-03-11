@@ -54,7 +54,10 @@ export function NewTaskModal({
     setCurrentStep(1);
 
     closeButtonRef.current?.focus();
+  }, [open, initialType, qcEnabled]);
 
+  useEffect(() => {
+    if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         handleClose();
@@ -63,7 +66,7 @@ export function NewTaskModal({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, handleClose, initialType, qcEnabled]);
+  }, [open, handleClose]);
 
   if (!open) return null;
 
