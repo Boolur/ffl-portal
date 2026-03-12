@@ -1204,6 +1204,7 @@ function QcForm({
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [form, setForm] = useState({
     preApproved: '',
     loanOfficer: loanOfficerName,
@@ -1238,10 +1239,56 @@ function QcForm({
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  const requiredEntryFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
+    { key: 'preApproved', label: 'Pre-Approved Status in Arrive' },
+    { key: 'borrowerFirstName', label: 'Borrower First Name' },
+    { key: 'borrowerLastName', label: 'Borrower Last Name' },
+    { key: 'borrowerPhone', label: 'Borrower Phone' },
+    { key: 'borrowerEmail', label: 'Borrower Email' },
+    { key: 'arriveLoanNumber', label: 'Arrive Loan Number' },
+    { key: 'loanType', label: 'Loan Type' },
+    { key: 'loanProgram', label: 'Loan Program' },
+    { key: 'loanAmount', label: 'Loan Amount' },
+    { key: 'cashBack', label: 'Cash Back' },
+    { key: 'projectedRevenue', label: 'Projected Revenue' },
+    { key: 'aus', label: 'AUS' },
+    { key: 'creditReportType', label: 'Credit Report Type' },
+    { key: 'channel', label: 'Channel' },
+    { key: 'investor', label: 'Investor' },
+    { key: 'uwmFreeCreditUsed', label: 'UWM free credit used' },
+    { key: 'communityPropertyState', label: 'Community Property State' },
+    { key: 'titleCompany', label: 'Title' },
+    { key: 'appraisalWaiver', label: 'Appraisal Waiver' },
+  ];
+  const missingEntryKeys = new Set<keyof typeof form>(
+    requiredEntryFields
+      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .map(({ key }) => key)
+  );
+  const highlightedMissingFields = new Set<keyof typeof form>();
+  if (showValidationErrors) {
+    for (const key of missingEntryKeys) highlightedMissingFields.add(key);
+  }
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     setSubmitError('');
+    setShowValidationErrors(true);
+
+    const missingEntryLabels = requiredEntryFields
+      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .map(({ label }) => label);
+    if (missingEntryLabels.length > 0) {
+      setSubmitError(
+        `Please complete required fields before submitting: ${missingEntryLabels.join(', ')}.`
+      );
+      window.alert(
+        `Please complete required fields before submitting: ${missingEntryLabels.join(', ')}.`
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -1264,6 +1311,7 @@ function QcForm({
         return;
       }
 
+      setShowValidationErrors(false);
       onSubmitted();
     } catch (error) {
       console.error(error);
@@ -1309,7 +1357,7 @@ function QcForm({
   };
 
   return (
-    <form onSubmit={submit} className="space-y-4">
+    <form onSubmit={submit} noValidate className="space-y-4">
       {qcStep === 1 ? (
         <DisclosureMismoStep
           onFileSelected={handleFileUpload}
@@ -1321,7 +1369,8 @@ function QcForm({
         <>
       <div
         className={`rounded-xl border p-4 ${
-          form.preApproved === 'No'
+          form.preApproved === 'No' ||
+          (showValidationErrors && highlightedMissingFields.has('preApproved'))
             ? 'border-rose-200 bg-rose-50/80'
             : 'border-slate-200 bg-slate-50/70'
         }`}
@@ -1332,6 +1381,7 @@ function QcForm({
           onChange={(v) => update('preApproved', v)}
           options={['Yes', 'No']}
           required
+          invalid={highlightedMissingFields.has('preApproved')}
         />
         <p className="mt-1 text-xs font-medium text-slate-500">
           Required to continue.
@@ -1340,25 +1390,26 @@ function QcForm({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
         <Input label="Secondary Loan Officer" value={form.secondaryLoanOfficer} onChange={(v) => update('secondaryLoanOfficer', v)} />
-        <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required />
-        <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required />
-        <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required />
-        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required />
-        <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required />
-        <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required />
-        <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required />
-        <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required />
-        <Input label="Cash Back" value={form.cashBack} onChange={(v) => update('cashBack', v)} required />
-        <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} required />
-        <Select label="AUS" value={form.aus} onChange={(v) => update('aus', v)} options={['DU', 'LP', 'Manual UW']} required />
-        <Select label="Credit Report Type" value={form.creditReportType} onChange={(v) => update('creditReportType', v)} options={['Soft Check', 'Hard Report']} required />
-        <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required />
+        <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required invalid={highlightedMissingFields.has('borrowerFirstName')} />
+        <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required invalid={highlightedMissingFields.has('borrowerLastName')} />
+        <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required invalid={highlightedMissingFields.has('borrowerPhone')} />
+        <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required invalid={highlightedMissingFields.has('borrowerEmail')} />
+        <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
+        <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required invalid={highlightedMissingFields.has('loanType')} />
+        <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required invalid={highlightedMissingFields.has('loanProgram')} />
+        <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
+        <Input label="Cash Back" value={form.cashBack} onChange={(v) => update('cashBack', v)} required invalid={highlightedMissingFields.has('cashBack')} />
+        <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} required invalid={highlightedMissingFields.has('projectedRevenue')} />
+        <Select label="AUS" value={form.aus} onChange={(v) => update('aus', v)} options={['DU', 'LP', 'Manual UW']} required invalid={highlightedMissingFields.has('aus')} />
+        <Select label="Credit Report Type" value={form.creditReportType} onChange={(v) => update('creditReportType', v)} options={['Soft Check', 'Hard Report']} required invalid={highlightedMissingFields.has('creditReportType')} />
+        <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required invalid={highlightedMissingFields.has('channel')} />
         <Select
           label="Investor"
           value={form.investor}
           onChange={(v) => update('investor', v)}
           options={investorOptions}
           required
+          invalid={highlightedMissingFields.has('investor')}
         />
         <RadioGroup
           label="Was UWM free credit used?"
@@ -1366,6 +1417,7 @@ function QcForm({
           onChange={(v) => update('uwmFreeCreditUsed', v)}
           options={['Yes', 'No']}
           required
+          invalid={highlightedMissingFields.has('uwmFreeCreditUsed')}
         />
         <RadioGroup
           label="Community Property State - is NBS credit pulled and in liabilities? (FHA/VA)"
@@ -1373,6 +1425,7 @@ function QcForm({
           onChange={(v) => update('communityPropertyState', v)}
           options={['Yes', 'No']}
           required
+          invalid={highlightedMissingFields.has('communityPropertyState')}
         />
         <CreditReportNotes
           label="Credit Report Notes (scores/bureaus used)"
@@ -1390,13 +1443,14 @@ function QcForm({
             )
           }
         />
-        <Select label="Title" value={form.titleCompany} onChange={(v) => update('titleCompany', v)} options={['Acrisure', 'Unisource', 'BCHH', 'ServiceLink']} required />
+        <Select label="Title" value={form.titleCompany} onChange={(v) => update('titleCompany', v)} options={['Acrisure', 'Unisource', 'BCHH', 'ServiceLink']} required invalid={highlightedMissingFields.has('titleCompany')} />
         <RadioGroup
           label="Appraisal Waiver"
           value={form.appraisalWaiver}
           onChange={(v) => update('appraisalWaiver', v)}
           options={['Yes', 'No']}
           required
+          invalid={highlightedMissingFields.has('appraisalWaiver')}
         />
       </div>
       <Textarea
