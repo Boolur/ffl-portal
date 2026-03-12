@@ -648,7 +648,7 @@ function DisclosuresForm({
   currentStep: 1 | 2;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [showValidationErrors, setShowValidationErrors] = useState(true);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [form, setForm] = useState({
     qualificationStatus: '',
@@ -930,7 +930,6 @@ function DisclosuresForm({
         ];
       setImportError('');
       setSubmitError('');
-      setShowValidationErrors(false);
       setMismoIncomeProfile(parsedIncomeProfile);
       setForm((prev) => ({
         ...prev,
@@ -988,7 +987,6 @@ function DisclosuresForm({
     } catch {
       setImportError('Could not read this MISMO file. Please verify the XML export.');
       setMismoIncomeProfile(DEFAULT_MISMO_INCOME_PROFILE);
-      setShowValidationErrors(false);
       onStepChange(1);
     } finally {
       setIsParsingMismo(false);
@@ -1204,7 +1202,7 @@ function QcForm({
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
-  const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [showValidationErrors, setShowValidationErrors] = useState(true);
   const [form, setForm] = useState({
     preApproved: '',
     loanOfficer: loanOfficerName,
@@ -1311,7 +1309,6 @@ function QcForm({
         return;
       }
 
-      setShowValidationErrors(false);
       onSubmitted();
     } catch (error) {
       console.error(error);
@@ -1777,11 +1774,15 @@ function RadioGroup({
 }) {
   return (
     <fieldset
-      className={`space-y-2 rounded-lg border p-2 text-sm ${
-        invalid ? 'border-red-300 bg-red-50/40' : 'border-transparent'
+      className={`w-full min-w-0 space-y-2 rounded-lg border p-2 text-sm ${
+        invalid ? 'border-red-300 bg-red-50/40' : 'border-slate-200 bg-white'
       }`}
     >
-      <legend className={invalid ? 'font-medium text-red-700' : 'text-slate-700 font-medium'}>
+      <legend
+        className={`block max-w-full break-words pr-1 leading-snug ${
+          invalid ? 'font-medium text-red-700' : 'font-medium text-slate-700'
+        }`}
+      >
         {label}
         {required ? ' *' : ''}
       </legend>
