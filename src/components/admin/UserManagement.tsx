@@ -48,6 +48,7 @@ const roleOptions = Object.values(UserRole);
 export function UserManagement({ users, invites, inviteEmails, currentUserId }: UserManagementProps) {
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [selectedRoleFilters, setSelectedRoleFilters] = useState<UserRole[]>([]);
   const [createStatus, setCreateStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [inviteStatus, setInviteStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [directoryStatus, setDirectoryStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -84,13 +85,29 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
             user.name.toLowerCase().includes(term) ||
             user.email.toLowerCase().includes(term)
         );
+    const scopedUsers = selectedRoleFilters.length > 0
+      ? matchingUsers.filter((user) => {
+          const roleList = user.roles?.length ? user.roles : [user.role];
+          return roleList.some((role) => selectedRoleFilters.includes(role));
+        })
+      : matchingUsers;
 
-    return [...matchingUsers].sort((a, b) => {
+    return [...scopedUsers].sort((a, b) => {
       const byName = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
       if (byName !== 0) return byName;
       return a.email.localeCompare(b.email, undefined, { sensitivity: 'base' });
     });
-  }, [search, users]);
+  }, [search, selectedRoleFilters, users]);
+
+  const toggleRoleFilter = (role: UserRole) => {
+    setSelectedRoleFilters((prev) =>
+      prev.includes(role) ? prev.filter((item) => item !== role) : [...prev, role]
+    );
+  };
+
+  const clearRoleFilters = () => {
+    setSelectedRoleFilters([]);
+  };
 
   const handleCreate = async () => {
     if (isCreating) return;
@@ -450,6 +467,40 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
 
         <div className="mt-4">
           {renderStatus(directoryStatus)}
+
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/80 p-2.5">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Role Filters
+              </p>
+              <button
+                type="button"
+                onClick={clearRoleFilters}
+                className="text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {roleOptions.map((role) => {
+                const active = selectedRoleFilters.includes(role);
+                return (
+                  <button
+                    key={`filter-${role}`}
+                    type="button"
+                    onClick={() => toggleRoleFilter(role)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                      active
+                        ? 'border-blue-200 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {role.replace(/_/g, ' ')}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {filteredUsers.length === 0 && (
             <p className="text-sm text-slate-500 mt-3">No users found.</p>
