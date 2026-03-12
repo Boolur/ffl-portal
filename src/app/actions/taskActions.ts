@@ -499,15 +499,15 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       }),
       prisma.user.findMany({
         where: {
-          role: teamRole,
           active: true,
+          OR: [{ role: teamRole }, { roles: { has: teamRole } }],
         },
         select: { email: true },
       }),
       prisma.user.findMany({
         where: {
-          role: UserRole.MANAGER,
           active: true,
+          OR: [{ role: UserRole.MANAGER }, { roles: { has: UserRole.MANAGER } }],
         },
         select: { email: true },
       }),
@@ -530,10 +530,9 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       loan.loanOfficer?.active && loan.loanOfficer.email?.trim()
         ? loan.loanOfficer.email.trim().toLowerCase()
         : null;
-    if (loanOfficerEmail) {
-      teamRecipientSet.delete(loanOfficerEmail);
-    }
-    if (teamRecipientSet.size === 0 && !loanOfficerEmail) return;
+    const shouldSendLoanOfficerAudience =
+      Boolean(loanOfficerEmail) && !teamRecipientSet.has(loanOfficerEmail as string);
+    if (teamRecipientSet.size === 0 && !shouldSendLoanOfficerAudience) return;
 
     const portalBaseUrl = getPortalBaseUrl();
     const taskUrl = `${portalBaseUrl}/tasks?taskId=${encodeURIComponent(task.id)}`;
@@ -627,7 +626,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       teamAudience,
       Array.from(teamRecipientSet)
     );
-    if (loanOfficerEmail) {
+    if (loanOfficerEmail && shouldSendLoanOfficerAudience) {
       await sendByAudience('LO', [loanOfficerEmail]);
     }
   } catch (error) {
