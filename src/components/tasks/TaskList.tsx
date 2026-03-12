@@ -2113,10 +2113,18 @@ export function TaskList({
                           const statusMeta = getQcChecklistStatusPresentation(status);
                           const StatusIcon = getQcChecklistStatusIcon(status);
                           const noteRequired = status === 'RED_X';
+                          const rowToneClassName =
+                            status === 'GREEN_CHECK'
+                              ? 'border-emerald-200 bg-emerald-50/40'
+                              : status === 'RED_X'
+                              ? 'border-rose-200 bg-rose-50/40'
+                              : status === 'YELLOW'
+                              ? 'border-yellow-200 bg-yellow-50/45'
+                              : 'border-violet-100 bg-white';
                           return (
                             <div
                               key={row.id}
-                              className="rounded-xl border border-violet-100 bg-white p-4 shadow-sm"
+                              className={`rounded-xl border p-4 shadow-sm ${rowToneClassName}`}
                             >
                               <div className="flex items-start justify-between gap-3">
                                 {row.isCustom ? (
