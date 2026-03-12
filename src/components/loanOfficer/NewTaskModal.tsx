@@ -1005,7 +1005,13 @@ function DisclosuresForm({
         />
       ) : (
         <>
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+          <div
+            className={`rounded-xl border p-4 ${
+              form.qualificationStatus === 'No'
+                ? 'border-rose-200 bg-rose-50/80'
+                : 'border-slate-200 bg-slate-50/70'
+            }`}
+          >
             <RadioGroup
               label="Is this Loan in Qualification Status?"
               value={form.qualificationStatus}
@@ -1313,13 +1319,24 @@ function QcForm({
         />
       ) : (
         <>
-      <RadioGroup
-        label="Is Loan in Pre-Approved Status in Arrive?"
-        value={form.preApproved}
-        onChange={(v) => update('preApproved', v)}
-        options={['Yes', 'No']}
-        required
-      />
+      <div
+        className={`rounded-xl border p-4 ${
+          form.preApproved === 'No'
+            ? 'border-rose-200 bg-rose-50/80'
+            : 'border-slate-200 bg-slate-50/70'
+        }`}
+      >
+        <RadioGroup
+          label="Is Loan in Pre-Approved Status in Arrive?"
+          value={form.preApproved}
+          onChange={(v) => update('preApproved', v)}
+          options={['Yes', 'No']}
+          required
+        />
+        <p className="mt-1 text-xs font-medium text-slate-500">
+          Required to continue.
+        </p>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
         <Input label="Secondary Loan Officer" value={form.secondaryLoanOfficer} onChange={(v) => update('secondaryLoanOfficer', v)} />
