@@ -1614,42 +1614,21 @@ export function TaskList({
                         </div>
                       )}
                     </div>
-                    <div className="inline-flex shrink-0 flex-col items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleTaskExpanded(task.id);
-                        }}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                        aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
-                      >
-                        {isExpanded ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        )}
-                      </button>
-                      {isManagerRole && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDelete(task.id);
-                          }}
-                          disabled={!!deletingId}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                          aria-label="Delete task"
-                          title="Delete task"
-                        >
-                          {deletingId === task.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
-                          )}
-                        </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleTaskExpanded(task.id);
+                      }}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                      aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
+                    >
+                      {isExpanded ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
                       )}
-                    </div>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1672,6 +1651,27 @@ export function TaskList({
                     )}
                   </div>
                   <WorkedByTags summary={workedBySummary} compact className="mt-1.5" />
+                  {isManagerRole && (
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleDelete(task.id);
+                        }}
+                        disabled={!!deletingId}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="Delete task"
+                        title="Delete task"
+                      >
+                        {deletingId === task.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
