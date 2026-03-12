@@ -12,6 +12,7 @@ type NewTaskModalProps = {
   onClose: () => void;
   loanOfficerName: string;
   initialType?: SubmissionType;
+  disclosureEnabled?: boolean;
   qcEnabled?: boolean;
 };
 
@@ -33,28 +34,40 @@ export function NewTaskModal({
   onClose,
   loanOfficerName,
   initialType = 'DISCLOSURES',
+  disclosureEnabled = true,
   qcEnabled = false,
 }: NewTaskModalProps) {
+  const resolveAvailableType = useCallback(
+    (requestedType: SubmissionType): SubmissionType => {
+      if (requestedType === 'QC') {
+        if (qcEnabled) return 'QC';
+        return disclosureEnabled ? 'DISCLOSURES' : 'QC';
+      }
+      if (disclosureEnabled) return 'DISCLOSURES';
+      return qcEnabled ? 'QC' : 'DISCLOSURES';
+    },
+    [disclosureEnabled, qcEnabled]
+  );
   const [type, setType] = useState<SubmissionType>(
-    initialType === 'QC' && qcEnabled ? 'QC' : 'DISCLOSURES'
+    resolveAvailableType(initialType)
   );
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const router = useRouter();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const handleClose = useCallback(() => {
-    setType('DISCLOSURES');
+    setType(resolveAvailableType('DISCLOSURES'));
     setCurrentStep(1);
     onClose();
-  }, [onClose]);
+  }, [onClose, resolveAvailableType]);
 
   useEffect(() => {
     if (!open) return;
 
-    setType(initialType === 'QC' && qcEnabled ? 'QC' : 'DISCLOSURES');
+    setType(resolveAvailableType(initialType));
     setCurrentStep(1);
 
     closeButtonRef.current?.focus();
-  }, [open, initialType, qcEnabled]);
+  }, [open, initialType, resolveAvailableType]);
 
   useEffect(() => {
     if (!open) return;

@@ -224,6 +224,8 @@ export async function getAllUsers() {
       email: true,
       role: true,
       roles: true,
+      loDisclosureSubmissionEnabled: true,
+      loQcSubmissionEnabled: true,
       active: true,
       createdAt: true,
     },
@@ -271,6 +273,8 @@ export async function createUser({
       email: trimmedEmail,
       role: normalizedRoles[0],
       roles: normalizedRoles,
+      loDisclosureSubmissionEnabled: true,
+      loQcSubmissionEnabled: true,
       passwordHash,
       active: true,
     },
@@ -471,6 +475,8 @@ export async function acceptInvite({
         name: trimmedName,
         role: invite.role,
         roles: [invite.role],
+        loDisclosureSubmissionEnabled: true,
+        loQcSubmissionEnabled: true,
         passwordHash,
         active: true,
       },
@@ -479,6 +485,8 @@ export async function acceptInvite({
         name: trimmedName,
         role: invite.role,
         roles: [invite.role],
+        loDisclosureSubmissionEnabled: true,
+        loQcSubmissionEnabled: true,
         passwordHash,
         active: true,
       },
@@ -596,6 +604,27 @@ export async function updateUserStatus(userId: string, active: boolean) {
   await prisma.user.update({
     where: { id: userId },
     data: { active },
+  });
+
+  revalidatePath('/admin/users');
+  return { success: true };
+}
+
+export async function updateUserDeskPermissions(input: {
+  userId: string;
+  loDisclosureSubmissionEnabled: boolean;
+  loQcSubmissionEnabled: boolean;
+}) {
+  if (!input.userId) {
+    return { success: false, error: 'Missing user ID.' };
+  }
+
+  await prisma.user.update({
+    where: { id: input.userId },
+    data: {
+      loDisclosureSubmissionEnabled: Boolean(input.loDisclosureSubmissionEnabled),
+      loQcSubmissionEnabled: Boolean(input.loQcSubmissionEnabled),
+    },
   });
 
   revalidatePath('/admin/users');

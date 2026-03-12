@@ -670,20 +670,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     typeof rawBucket === 'string' ? rawBucket : undefined
   ) || 'all';
   const allTasks = await getTasks(sessionRole, sessionUser.id);
-  const loPilotFlagRows =
-    sessionRole === UserRole.LOAN_OFFICER && sessionUser.id
-      ? await prisma.$queryRaw<Array<{ loQcTwoRowPilot: boolean }>>`
-          SELECT "loQcTwoRowPilot"
-          FROM "User"
-          WHERE id = ${sessionUser.id}
-          LIMIT 1
-        `
-      : [];
-  const isLoTwoRowPilot =
-    sessionRole === UserRole.LOAN_OFFICER &&
-    Boolean(loPilotFlagRows[0]?.loQcTwoRowPilot);
   const roleBuckets = getRoleBuckets(sessionRole, allTasks);
-  const dualDeskRows = isLoTwoRowPilot
+  const dualDeskRows = sessionRole === UserRole.LOAN_OFFICER
     ? getLoPilotRows(allTasks)
     : sessionRole === UserRole.MANAGER
     ? getManagerDeskRows(allTasks)

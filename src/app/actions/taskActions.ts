@@ -86,6 +86,7 @@ function buildTaskNotificationHtml(input: {
   eventLabel: string;
   deskLabel: string;
   deskTone: 'blue' | 'violet';
+  eventTone?: 'default' | 'danger';
   intro: string;
   ctaLabel: string;
   borrowerName: string;
@@ -117,6 +118,10 @@ function buildTaskNotificationHtml(input: {
           buttonGradient: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
           linkColor: '#2563eb',
         };
+  const eventTagPalette =
+    input.eventTone === 'danger'
+      ? { bg: '#fee2e2', text: '#b91c1c' }
+      : { bg: '#e2e8f0', text: '#334155' };
   const rows = [
     { label: 'Desk', value: input.deskLabel },
     { label: 'Update Type', value: input.eventLabel },
@@ -160,7 +165,9 @@ function buildTaskNotificationHtml(input: {
                 <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:${palette.tagBg};color:${palette.tagText};font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">${escapeHtml(
                   input.deskLabel
                 )}</span>
-                <span style="display:inline-block;margin-left:8px;padding:6px 10px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">Task Update</span>
+                <span style="display:inline-block;margin-left:8px;padding:6px 10px;border-radius:999px;background:${eventTagPalette.bg};color:${eventTagPalette.text};font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">${
+                  input.eventTone === 'danger' ? 'Deleted' : 'Task Update'
+                }</span>
               </td>
             </tr>
           </table>
@@ -423,6 +430,28 @@ function getRoleSpecificEmailContent(input: {
     };
   }
 
+  if (input.eventLabel === 'Request Deleted') {
+    if (input.audience === 'LO') {
+      return {
+        ...base,
+        subject: `[FFL Portal] Request Deleted: ${input.borrowerName} (${input.loanNumber})`,
+        eventLabel: 'Request Deleted',
+        intro: `${deskLabel} removed this request from the queue.`,
+        ctaLabel: 'View Tasks',
+        statusLabel: 'DELETED',
+      };
+    }
+    return {
+      ...base,
+      subject: `[FFL Portal] ${deskLabel} Request Deleted: ${input.borrowerName} (${input.loanNumber})`,
+      eventLabel: 'Request Deleted',
+      intro: 'This request was deleted from the workflow queue.',
+      ctaLabel: 'View Task Queue',
+      statusLabel: 'DELETED',
+      workflowLabel: input.isQcTask ? 'QC Queue' : 'Disclosure Queue',
+    };
+  }
+
   return {
     ...base,
     subject: `[FFL Portal] ${input.eventLabel}: ${input.borrowerName} (${input.loanNumber})`,
@@ -598,6 +627,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         eventLabel: copy.eventLabel,
         deskLabel: isQcTask ? 'QC Desk' : 'Disclosure Desk',
         deskTone: isQcTask ? 'violet' : 'blue',
+        eventTone: input.eventLabel === 'Request Deleted' ? 'danger' : 'default',
         intro: copy.intro,
         ctaLabel: copy.ctaLabel,
         borrowerName: loan.borrowerName,
@@ -1033,22 +1063,40 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
     const sessionUserId = session?.user?.id as string | undefined;
+    const sessionUser = sessionUserId
+      ? await prisma.user.findUnique({
+          where: { id: sessionUserId },
+          select: {
+            id: true,
+            loDisclosureSubmissionEnabled: true,
+            loQcSubmissionEnabled: true,
+          },
+        })
+      : null;
+
+    if (
+      role === UserRole.LOAN_OFFICER &&
+      submissionType === 'DISCLOSURES' &&
+      !sessionUser?.loDisclosureSubmissionEnabled
+    ) {
+      return {
+        success: false,
+        error: 'Submit for Disclosures is disabled for your user by Admin.',
+      };
+    }
 
     if (submissionType === 'QC') {
-      if (!sessionUserId) {
-        return { success: false, error: 'Not authenticated.' };
-      }
-      const pilotRows = await prisma.$queryRaw<Array<{ loQcTwoRowPilot: boolean }>>`
-        SELECT "loQcTwoRowPilot"
-        FROM "User"
-        WHERE id = ${sessionUserId}
-        LIMIT 1
-      `;
-      if (!pilotRows[0]?.loQcTwoRowPilot) {
+      if (
+        role === UserRole.LOAN_OFFICER &&
+        !sessionUser?.loQcSubmissionEnabled
+      ) {
         return {
           success: false,
-          error: 'Submit for QC is not enabled for this user yet.',
+          error: 'Submit for QC is disabled for your user by Admin.',
         };
+      }
+      if (!sessionUserId) {
+        return { success: false, error: 'Not authenticated.' };
       }
 
       const submissionObject =
@@ -2039,10 +2087,25 @@ export async function deleteTask(taskId: string) {
 
     const existing = await prisma.task.findUnique({
       where: { id: taskId },
-      select: { id: true },
+      select: {
+        id: true,
+        kind: true,
+        assignedRole: true,
+        title: true,
+      },
     });
     if (!existing) {
       return { success: false, error: 'Task not found.' };
+    }
+
+    const shouldSendDeleteNotification =
+      isDisclosureSubmissionTask(existing) || isQcSubmissionTask(existing);
+    if (shouldSendDeleteNotification) {
+      await sendTaskWorkflowNotificationsByTaskId({
+        taskId: existing.id,
+        eventLabel: 'Request Deleted',
+        changedBy: session?.user?.name || null,
+      });
     }
 
     // Admin/Manager hard-delete supports any task state. Also remove direct

@@ -33,16 +33,16 @@ export default async function Home() {
   const sessionUserId = session?.user?.id || '';
   const sessionRole = (session?.user?.activeRole || session?.user?.role || 'LOAN_OFFICER') as UserRole;
   const sessionRoles = ((session?.user?.roles as UserRole[] | undefined) || [sessionRole]);
-  const loPilotFlagRows =
-    sessionUserId
-      ? await prisma.$queryRaw<Array<{ loQcTwoRowPilot: boolean }>>`
-          SELECT "loQcTwoRowPilot"
-          FROM "User"
-          WHERE id = ${sessionUserId}
-          LIMIT 1
-        `
-      : [];
-  const loQcTwoRowPilot = Boolean(loPilotFlagRows[0]?.loQcTwoRowPilot);
+  const userFlags = sessionUserId
+    ? await prisma.user.findUnique({
+        where: { id: sessionUserId },
+        select: {
+          loQcTwoRowPilot: true,
+          loDisclosureSubmissionEnabled: true,
+          loQcSubmissionEnabled: true,
+        },
+      })
+    : null;
   const user = {
     name: session?.user?.name || 'User',
     email: session?.user?.email || '',
@@ -50,7 +50,10 @@ export default async function Home() {
     activeRole: sessionRole,
     roles: sessionRoles,
     id: sessionUserId,
-    loQcTwoRowPilot,
+    loQcTwoRowPilot: Boolean(userFlags?.loQcTwoRowPilot),
+    loDisclosureSubmissionEnabled:
+      userFlags?.loDisclosureSubmissionEnabled ?? true,
+    loQcSubmissionEnabled: userFlags?.loQcSubmissionEnabled ?? true,
   };
   const [loans, adminTasks] = await Promise.all([
     getLoans(user.role, user.id),

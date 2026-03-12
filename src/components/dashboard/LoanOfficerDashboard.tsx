@@ -27,12 +27,14 @@ type LoanOfficerDashboardProps = {
     };
   }>;
   loanOfficerName?: string;
+  disclosureEnabled?: boolean;
   qcEnabled?: boolean;
 };
 
 export function LoanOfficerDashboard({
   submissions = [],
   loanOfficerName,
+  disclosureEnabled = true,
   qcEnabled = false,
 }: LoanOfficerDashboardProps) {
   const [showNewTask, setShowNewTask] = useState(false);
@@ -58,21 +60,43 @@ export function LoanOfficerDashboard({
       {/* Primary Action Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <button
-          onClick={() => openTaskModal('DISCLOSURES')}
-          className="group relative flex flex-col items-start p-8 rounded-2xl border border-blue-200 bg-white shadow-sm hover:shadow-md hover:border-blue-300 transition-all text-left overflow-hidden"
+          type="button"
+          onClick={() => {
+            if (!disclosureEnabled) return;
+            openTaskModal('DISCLOSURES');
+          }}
+          disabled={!disclosureEnabled}
+          title={
+            disclosureEnabled
+              ? 'Submit for Disclosures'
+              : 'Submit for Disclosures is disabled for this user by Admin.'
+          }
+          className={`group relative flex flex-col items-start p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
+            disclosureEnabled
+              ? 'border-blue-200 bg-white hover:shadow-md hover:border-blue-300 transition-all'
+              : 'border-slate-200 bg-slate-50/70 cursor-not-allowed'
+          }`}
         >
-          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-            <ClipboardCheck className="w-32 h-32 text-blue-600" />
+          <div className={`absolute top-0 right-0 p-8 ${disclosureEnabled ? 'opacity-5 group-hover:opacity-10 transition-opacity' : 'opacity-5'}`}>
+            <ClipboardCheck className={`w-32 h-32 ${disclosureEnabled ? 'text-blue-600' : 'text-slate-500'}`} />
           </div>
-          <div className="w-14 h-14 rounded-xl bg-blue-600 text-white flex items-center justify-center mb-6 shadow-sm group-hover:scale-105 transition-transform">
+          <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-6 shadow-sm ${
+            disclosureEnabled ? 'bg-blue-600 text-white group-hover:scale-105 transition-transform' : 'bg-slate-200 text-slate-500'
+          }`}>
             <ClipboardCheck className="w-7 h-7" />
           </div>
-          <h3 className="text-2xl font-bold text-slate-900 mb-2">Submit for Disclosures</h3>
+          <h3 className={`text-2xl font-bold mb-2 ${disclosureEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
+            Submit for Disclosures
+          </h3>
           <p className="text-slate-500 mb-8 max-w-sm">
             Send loan information and initial documents to the Disclosure Team for processing.
           </p>
-          <div className="mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl bg-blue-50 text-blue-700 font-semibold group-hover:bg-blue-600 group-hover:text-white transition-colors">
-            Start Request
+          <div className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold ${
+            disclosureEnabled
+              ? 'bg-blue-50 text-blue-700 group-hover:bg-blue-600 group-hover:text-white transition-colors'
+              : 'bg-slate-200 text-slate-500'
+          }`}>
+            {disclosureEnabled ? 'Start Request' : 'Disabled by Admin'}
           </div>
         </button>
 
@@ -83,7 +107,7 @@ export function LoanOfficerDashboard({
             openTaskModal('QC');
           }}
           disabled={!qcEnabled}
-          title={qcEnabled ? 'Submit for QC' : 'Submit for QC is currently limited to pilot access.'}
+          title={qcEnabled ? 'Submit for QC' : 'Submit for QC is disabled for this user by Admin.'}
           className={`group relative flex flex-col items-start p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
             qcEnabled
               ? 'border-violet-200 bg-white hover:shadow-md hover:border-violet-300 transition-all'
@@ -105,7 +129,7 @@ export function LoanOfficerDashboard({
               Submit for QC
             </h3>
             <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              {qcEnabled ? 'Pilot Enabled' : 'Pilot Only'}
+              {qcEnabled ? 'Active' : 'Disabled'}
             </span>
           </div>
           <p className="text-slate-500 mb-8 max-w-sm">
@@ -118,7 +142,7 @@ export function LoanOfficerDashboard({
                 : 'bg-slate-200 text-slate-500'
             }`}
           >
-            {qcEnabled ? 'Start Request' : 'Pilot Only'}
+            {qcEnabled ? 'Start Request' : 'Disabled by Admin'}
           </div>
         </button>
       </div>
@@ -180,6 +204,7 @@ export function LoanOfficerDashboard({
         onClose={() => setShowNewTask(false)}
         loanOfficerName={loanOfficerName || 'Admin User'}
         initialType={initialTaskType}
+        disclosureEnabled={disclosureEnabled}
         qcEnabled={qcEnabled}
       />
     </div>

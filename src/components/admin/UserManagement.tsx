@@ -7,6 +7,7 @@ import {
   inviteUser,
   updateUserRoles,
   updateUserStatus,
+  updateUserDeskPermissions,
   updateUserName,
   resetUserPassword,
   requestPasswordReset,
@@ -23,6 +24,8 @@ type UserRow = {
   email: string;
   role: UserRole;
   roles: UserRole[];
+  loDisclosureSubmissionEnabled: boolean;
+  loQcSubmissionEnabled: boolean;
   active: boolean;
   createdAt: string;
 };
@@ -194,6 +197,26 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
 
   const handleStatusChange = async (userId: string, active: boolean) => {
     await updateUserStatus(userId, active);
+    router.refresh();
+  };
+
+  const handleDeskPermissionsChange = async (
+    userId: string,
+    nextPermissions: { loDisclosureSubmissionEnabled: boolean; loQcSubmissionEnabled: boolean }
+  ) => {
+    const result = await updateUserDeskPermissions({
+      userId,
+      loDisclosureSubmissionEnabled: nextPermissions.loDisclosureSubmissionEnabled,
+      loQcSubmissionEnabled: nextPermissions.loQcSubmissionEnabled,
+    });
+    if (!result.success) {
+      setDirectoryStatus({
+        type: 'error',
+        message: result.error || 'Failed to update LO desk permissions.',
+      });
+      return;
+    }
+    setDirectoryStatus({ type: 'success', message: 'LO desk permissions updated.' });
     router.refresh();
   };
 
@@ -437,16 +460,19 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                 <table className="min-w-full table-fixed">
                   <thead className="sticky top-0 z-[1] bg-slate-50">
                     <tr className="border-b border-slate-200 text-left">
-                      <th className="w-[26%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="w-[22%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         User
                       </th>
-                      <th className="w-[44%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="w-[32%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         Roles
                       </th>
-                      <th className="w-[10%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="w-[22%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        LO Desk Submit Access
+                      </th>
+                      <th className="w-[8%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         Access
                       </th>
-                      <th className="w-[20%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="w-[16%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         Actions
                       </th>
                     </tr>
@@ -490,6 +516,40 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                                   </label>
                                 );
                               })}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                              <label className="inline-flex items-center gap-2 text-[11px] text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={user.loDisclosureSubmissionEnabled}
+                                  onChange={(event) =>
+                                    handleDeskPermissionsChange(user.id, {
+                                      loDisclosureSubmissionEnabled: event.target.checked,
+                                      loQcSubmissionEnabled: user.loQcSubmissionEnabled,
+                                    })
+                                  }
+                                />
+                                Disclosure Submit
+                              </label>
+                              <label className="inline-flex items-center gap-2 text-[11px] text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={user.loQcSubmissionEnabled}
+                                  onChange={(event) =>
+                                    handleDeskPermissionsChange(user.id, {
+                                      loDisclosureSubmissionEnabled:
+                                        user.loDisclosureSubmissionEnabled,
+                                      loQcSubmissionEnabled: event.target.checked,
+                                    })
+                                  }
+                                />
+                                QC Submit
+                              </label>
+                              <p className="text-[10px] text-slate-500">
+                                Applies to LO submission access.
+                              </p>
                             </div>
                           </td>
                           <td className="px-4 py-3.5">
@@ -576,6 +636,44 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                             </label>
                           );
                         })}
+                      </div>
+
+                      <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          LO Desk Submit Access
+                        </p>
+                        <div className="grid grid-cols-1 gap-1.5">
+                          <label className="inline-flex items-center gap-2 text-[11px] text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={user.loDisclosureSubmissionEnabled}
+                              onChange={(event) =>
+                                handleDeskPermissionsChange(user.id, {
+                                  loDisclosureSubmissionEnabled: event.target.checked,
+                                  loQcSubmissionEnabled: user.loQcSubmissionEnabled,
+                                })
+                              }
+                            />
+                            Disclosure Submit
+                          </label>
+                          <label className="inline-flex items-center gap-2 text-[11px] text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={user.loQcSubmissionEnabled}
+                              onChange={(event) =>
+                                handleDeskPermissionsChange(user.id, {
+                                  loDisclosureSubmissionEnabled:
+                                    user.loDisclosureSubmissionEnabled,
+                                  loQcSubmissionEnabled: event.target.checked,
+                                })
+                              }
+                            />
+                            QC Submit
+                          </label>
+                        </div>
+                        <p className="mt-1.5 text-[10px] text-slate-500">
+                          Applies to LO submission access.
+                        </p>
                       </div>
 
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
