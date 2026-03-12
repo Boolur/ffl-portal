@@ -84,6 +84,8 @@ function buildTaskNotificationHtml(input: {
   logoUrl: string;
   subject: string;
   eventLabel: string;
+  deskLabel: string;
+  deskTone: 'blue' | 'violet';
   intro: string;
   ctaLabel: string;
   borrowerName: string;
@@ -95,7 +97,28 @@ function buildTaskNotificationHtml(input: {
   changedBy?: string | null;
   taskUrl: string;
 }) {
+  const palette =
+    input.deskTone === 'violet'
+      ? {
+          headerGradient: 'linear-gradient(135deg,#f5f3ff,#eef2ff)',
+          tagBg: '#ede9fe',
+          tagText: '#6d28d9',
+          buttonBg: '#7c3aed',
+          buttonBorder: '#6d28d9',
+          buttonGradient: 'linear-gradient(135deg,#8b5cf6,#7c3aed)',
+          linkColor: '#7c3aed',
+        }
+      : {
+          headerGradient: 'linear-gradient(135deg,#eff6ff,#eef2ff)',
+          tagBg: '#dbeafe',
+          tagText: '#1d4ed8',
+          buttonBg: '#1d4ed8',
+          buttonBorder: '#1e40af',
+          buttonGradient: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
+          linkColor: '#2563eb',
+        };
   const rows = [
+    { label: 'Desk', value: input.deskLabel },
     { label: 'Update Type', value: input.eventLabel },
     { label: 'Borrower', value: input.borrowerName },
     { label: 'Loan Number', value: input.loanNumber },
@@ -125,7 +148,7 @@ function buildTaskNotificationHtml(input: {
   <div style="margin:0;padding:24px;background:#f8fafc;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;">
     <table role="presentation" style="max-width:680px;width:100%;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
       <tr>
-        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;background:linear-gradient(135deg,#eff6ff,#eef2ff);">
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;background:${palette.headerGradient};">
           <table role="presentation" style="width:100%;">
             <tr>
               <td style="vertical-align:middle;">
@@ -134,7 +157,10 @@ function buildTaskNotificationHtml(input: {
                 )}" alt="Federal First Lending" width="180" style="display:block;width:180px;max-width:180px;height:auto;max-height:44px;object-fit:contain;" />
               </td>
               <td style="vertical-align:middle;text-align:right;">
-                <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">Task Update</span>
+                <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:${palette.tagBg};color:${palette.tagText};font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">${escapeHtml(
+                  input.deskLabel
+                )}</span>
+                <span style="display:inline-block;margin-left:8px;padding:6px 10px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">Task Update</span>
               </td>
             </tr>
           </table>
@@ -159,10 +185,10 @@ function buildTaskNotificationHtml(input: {
         <td style="padding:20px 24px 28px;">
           <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:separate;">
             <tr>
-              <td bgcolor="#1d4ed8" style="border-radius:12px;background:#1d4ed8;">
+              <td bgcolor="${palette.buttonBg}" style="border-radius:12px;background:${palette.buttonBg};">
                 <a
                   href="${escapeHtml(input.taskUrl)}"
-                  style="display:inline-block;padding:14px 24px;border:1px solid #1e40af;border-radius:12px;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#ffffff;font-size:15px;line-height:1.2;font-weight:700;text-decoration:none;letter-spacing:0.01em;"
+                  style="display:inline-block;padding:14px 24px;border:1px solid ${palette.buttonBorder};border-radius:12px;background:${palette.buttonGradient};color:#ffffff;font-size:15px;line-height:1.2;font-weight:700;text-decoration:none;letter-spacing:0.01em;"
                 >
                   ${escapeHtml(input.ctaLabel)}
                 </a>
@@ -171,7 +197,7 @@ function buildTaskNotificationHtml(input: {
           </table>
           <p style="margin:14px 0 0;color:#64748b;font-size:12px;line-height:1.5;">
             If the button above does not work, copy and paste this URL into your browser:<br />
-            <a href="${escapeHtml(input.taskUrl)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(
+            <a href="${escapeHtml(input.taskUrl)}" style="color:${palette.linkColor};text-decoration:none;">${escapeHtml(
     input.taskUrl
   )}</a>
           </p>
@@ -201,6 +227,7 @@ function getEffectiveReasonLabel(task: {
 
 function getRoleSpecificEmailContent(input: {
   audience: EmailAudience;
+  isQcTask: boolean;
   eventLabel: string;
   borrowerName: string;
   loanNumber: string;
@@ -210,12 +237,13 @@ function getRoleSpecificEmailContent(input: {
   reasonLabel: string | null;
   changedBy?: string | null;
 }) {
+  const deskLabel = input.isQcTask ? 'QC Desk' : 'Disclosure Desk';
   const base = {
     eventLabel: input.eventLabel,
     intro:
       input.audience === 'LO'
-        ? 'A workflow update was posted in Federal First Lending Portal. Please review this task now.'
-        : 'A workflow update was posted in Federal First Lending Portal. Use the button below to review or track this task.',
+        ? `A ${deskLabel} workflow update was posted in Federal First Lending Portal. Please review this task now.`
+        : `A ${deskLabel} workflow update was posted in Federal First Lending Portal. Use the button below to review or track this task.`,
     ctaLabel:
       input.audience === 'LO' ? 'Open Task in Portal' : 'Track Task in Portal',
     statusLabel: input.status,
@@ -233,8 +261,8 @@ function getRoleSpecificEmailContent(input: {
           ? 'Approve Initial Figures Required'
           : 'Missing Items Requested',
         intro: isApproval
-          ? 'Disclosure Desk routed this file to you for approval of initial figures.'
-          : 'Disclosure Desk routed this file to you for missing or corrected items.',
+          ? `${deskLabel} routed this file to you for approval of initial figures.`
+          : `${deskLabel} routed this file to you for missing or corrected items.`,
         ctaLabel: isApproval
           ? 'Review & Approve Figures'
           : 'Review Missing Items',
@@ -267,13 +295,13 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] Returned to Disclosure: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[FFL Portal] Returned to ${input.isQcTask ? 'QC' : 'Disclosure'}: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'LO Responded - Review Needed',
       intro:
-        'Loan Officer response has been received. Review details and complete next disclosure action.',
+        `Loan Officer response has been received. Review details and complete the next ${input.isQcTask ? 'QC' : 'disclosure'} action.`,
       ctaLabel: 'Review Response in Portal',
       statusLabel: 'REVIEW NEEDED',
-      workflowLabel: 'Returned to Disclosure',
+      workflowLabel: input.isQcTask ? 'Returned to QC' : 'Returned to Disclosure',
     };
   }
 
@@ -332,18 +360,18 @@ function getRoleSpecificEmailContent(input: {
         subject: `[FFL Portal] Request Submitted: ${input.borrowerName} (${input.loanNumber})`,
         eventLabel: 'Submission Received',
         intro:
-          'Your new request has been submitted and is now queued with Disclosure Desk.',
+          `Your new request has been submitted and is now queued with ${deskLabel}.`,
       };
     }
     return {
       ...base,
-      subject: `[FFL Portal] New Disclosure Request: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[FFL Portal] New ${input.isQcTask ? 'QC' : 'Disclosure'} Request: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'New Request Submitted',
       intro:
-        'A new disclosure request is in your queue. Review details and take action.',
+        `A new ${input.isQcTask ? 'QC' : 'disclosure'} request is in your queue. Review details and take action.`,
       ctaLabel: 'Open New Request',
       statusLabel: 'NEW',
-      workflowLabel: 'New Disclosure Request',
+      workflowLabel: input.isQcTask ? 'New QC Request' : 'New Disclosure Request',
     };
   }
 
@@ -458,7 +486,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     const teamRole = isQcTask ? UserRole.QC : UserRole.DISCLOSURE_SPECIALIST;
     const teamAudience: EmailAudience = isQcTask ? 'QC' : 'DISCLOSURE';
 
-    const [loan, teamUsers] = await Promise.all([
+    const [loan, teamUsers, managerUsers] = await Promise.all([
       prisma.loan.findUnique({
         where: { id: task.loanId },
         select: {
@@ -476,6 +504,13 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         },
         select: { email: true },
       }),
+      prisma.user.findMany({
+        where: {
+          role: UserRole.MANAGER,
+          active: true,
+        },
+        select: { email: true },
+      }),
     ]);
 
     if (!loan) return;
@@ -484,6 +519,11 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     for (const user of teamUsers) {
       if (user.email?.trim()) {
         teamRecipientSet.add(user.email.trim().toLowerCase());
+      }
+    }
+    for (const manager of managerUsers) {
+      if (manager.email?.trim()) {
+        teamRecipientSet.add(manager.email.trim().toLowerCase());
       }
     }
     const loanOfficerEmail =
@@ -515,6 +555,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
 
       const copy = getRoleSpecificEmailContent({
         audience,
+        isQcTask,
         eventLabel: input.eventLabel,
         borrowerName: loan.borrowerName,
         loanNumber: loan.loanNumber,
@@ -540,6 +581,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       }
 
       const bodyLines = [
+        `Desk: ${isQcTask ? 'QC Desk' : 'Disclosure Desk'}`,
         `Event: ${copy.eventLabel}`,
         `Borrower: ${loan.borrowerName}`,
         `Loan Number: ${loan.loanNumber}`,
@@ -555,6 +597,8 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         logoUrl,
         subject: copy.subject,
         eventLabel: copy.eventLabel,
+        deskLabel: isQcTask ? 'QC Desk' : 'Disclosure Desk',
+        deskTone: isQcTask ? 'violet' : 'blue',
         intro: copy.intro,
         ctaLabel: copy.ctaLabel,
         borrowerName: loan.borrowerName,

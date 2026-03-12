@@ -1773,20 +1773,21 @@ function RadioGroup({
   invalid?: boolean;
 }) {
   return (
-    <fieldset
-      className={`w-full min-w-0 space-y-2 rounded-lg border p-2 text-sm ${
-        invalid ? 'border-red-300 bg-red-50/40' : 'border-slate-200 bg-white'
-      }`}
-    >
-      <legend
+    <div className="w-full min-w-0 space-y-1 text-sm">
+      <span
         className={`block max-w-full break-words pr-1 leading-snug ${
           invalid ? 'font-medium text-red-700' : 'font-medium text-slate-700'
         }`}
       >
         {label}
         {required ? ' *' : ''}
-      </legend>
-      <div className="flex flex-wrap gap-4">
+      </span>
+      <div
+        className={`w-full min-w-0 rounded-lg border px-3 py-2 ${
+          invalid ? 'border-red-300 bg-red-50/40' : 'border-slate-200 bg-white'
+        }`}
+      >
+        <div className="flex flex-wrap gap-4">
         {options.map((opt) => (
           <label key={opt} className="inline-flex items-center gap-2 text-slate-600">
             <input
@@ -1800,8 +1801,9 @@ function RadioGroup({
             {opt}
           </label>
         ))}
+        </div>
       </div>
-    </fieldset>
+    </div>
   );
 }
 
