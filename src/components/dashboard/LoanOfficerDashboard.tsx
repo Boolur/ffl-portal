@@ -85,9 +85,14 @@ export function LoanOfficerDashboard({
           }`}>
             <ClipboardCheck className="w-7 h-7" />
           </div>
-          <h3 className={`text-2xl font-bold mb-2 ${disclosureEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
-            Submit for Disclosures
-          </h3>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h3 className={`text-2xl font-bold ${disclosureEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
+              Submit for Disclosures
+            </h3>
+            <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              {disclosureEnabled ? 'Active' : 'Disabled'}
+            </span>
+          </div>
           <p className="text-slate-500 mb-8 max-w-sm">
             Send loan information and initial documents to the Disclosure Team for processing.
           </p>
