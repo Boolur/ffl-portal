@@ -8,7 +8,8 @@ import { randomBytes } from 'crypto';
 import { sendEmail } from '@/lib/email';
 
 const ALLOWED_ROLES = Object.values(UserRole);
-const INVITE_TTL_HOURS = 72;
+const INVITE_TTL_DAYS = 7;
+const INVITE_TTL_HOURS = INVITE_TTL_DAYS * 24;
 const RESET_TTL_HOURS = 2;
 
 const normalizeEmail = (email: string) => email.toLowerCase().trim();
@@ -74,7 +75,7 @@ function buildAccountInviteEmail(input: {
             </tr>
             <tr>
               <td style="padding:10px 0;color:#64748b;font-size:13px;font-weight:600;width:140px;vertical-align:top;">Invite Expires</td>
-              <td style="padding:10px 0;color:#0f172a;font-size:14px;font-weight:700;">In ${INVITE_TTL_HOURS} hours</td>
+              <td style="padding:10px 0;color:#0f172a;font-size:14px;font-weight:700;">In ${INVITE_TTL_DAYS} days</td>
             </tr>
           </table>
         </td>
@@ -113,7 +114,7 @@ function buildAccountInviteEmail(input: {
     '',
     `Name: ${input.recipientName}`,
     `Role: ${roleLabel}`,
-    `Invite expires in: ${INVITE_TTL_HOURS} hours`,
+    `Invite expires in: ${INVITE_TTL_DAYS} days`,
     '',
     `Set up your account: ${input.inviteUrl}`,
   ].join('\n');
