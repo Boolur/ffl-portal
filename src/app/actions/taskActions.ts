@@ -947,20 +947,23 @@ const disclosureEmployerReadonlyFields: Array<{
   },
 ];
 
-const disclosureCoreReadonlyFields: Array<{
+const disclosureAlwaysRequiredReadonlyFields: Array<{
   key:
     | 'yearBuiltProperty'
-    | 'originalCost'
     | 'mannerInWhichTitleWillBeHeld';
   label: string;
 }> = [
   { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
-  { key: 'originalCost', label: 'Original Cost' },
   {
     key: 'mannerInWhichTitleWillBeHeld',
     label: 'Manner in Which Title Will be Held',
   },
 ];
+
+const disclosureOriginalCostReadonlyField: Array<{
+  key: 'originalCost';
+  label: string;
+}> = [{ key: 'originalCost', label: 'Original Cost' }];
 
 const disclosureYearAquiredReadonlyField: {
   key: 'yearAquired';
@@ -1068,7 +1071,8 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 
       const disclosureReadonlyRequiredFields = [
         ...(employmentFieldsRequired ? disclosureEmployerReadonlyFields : []),
-        ...disclosureCoreReadonlyFields,
+        ...disclosureAlwaysRequiredReadonlyFields,
+        ...(isPurchaseLikeLoan ? [] : disclosureOriginalCostReadonlyField),
         ...(isPurchaseLikeLoan ? [] : [disclosureYearAquiredReadonlyField]),
       ];
 

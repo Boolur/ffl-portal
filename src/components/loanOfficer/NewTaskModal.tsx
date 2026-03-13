@@ -739,17 +739,20 @@ function DisclosuresForm({
     { key: 'employerAddress', label: 'Employer Address' },
     { key: 'employerDurationLineOfWork', label: 'Employer - Duration in Line of Work' },
   ];
-  const coreReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
+  const alwaysRequiredReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
-    { key: 'originalCost', label: 'Original Cost' },
     { key: 'mannerInWhichTitleWillBeHeld', label: 'Manner in Which Title Will be Held' },
+  ];
+  const originalCostReadonlyField: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
+    { key: 'originalCost', label: 'Original Cost' },
   ];
   const isPurchaseLikeLoan = form.loanProgram.trim().toUpperCase() === 'PURCHASE';
   const yearAquiredReadonlyField: ReadonlyArray<{ key: keyof typeof form; label: string }> =
     isPurchaseLikeLoan ? [] : [{ key: 'yearAquired', label: 'Year Aquired' }];
   const requiredReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     ...(mismoIncomeProfile.employmentFieldsRequired ? employerReadonlyFields : []),
-    ...coreReadonlyFields,
+    ...alwaysRequiredReadonlyFields,
+    ...(isPurchaseLikeLoan ? [] : originalCostReadonlyField),
     ...yearAquiredReadonlyField,
   ];
   const missingReadonlyKeys = new Set(
@@ -964,11 +967,20 @@ function DisclosuresForm({
       const text = await file.text();
       const prefill = parseMismoXml(text, file.name);
       const parsedIncomeProfile = prefill.incomeProfile || DEFAULT_MISMO_INCOME_PROFILE;
-      const readonlyFieldsForThisImport: ReadonlyArray<{ key: keyof typeof form; label: string }> =
-        [
-          ...(parsedIncomeProfile.employmentFieldsRequired ? employerReadonlyFields : []),
-          ...coreReadonlyFields,
-        ];
+      const mergedLoanProgram = String(
+        prefill.loanProgram || form.loanProgram || ''
+      ).trim().toUpperCase();
+      const isPurchaseLikeLoanFromImport = mergedLoanProgram === 'PURCHASE';
+      const yearAquiredReadonlyImportField: ReadonlyArray<{
+        key: keyof typeof form;
+        label: string;
+      }> = [{ key: 'yearAquired', label: 'Year Aquired' }];
+      const readonlyFieldsForThisImport: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
+        ...(parsedIncomeProfile.employmentFieldsRequired ? employerReadonlyFields : []),
+        ...alwaysRequiredReadonlyFields,
+        ...(isPurchaseLikeLoanFromImport ? [] : originalCostReadonlyField),
+        ...(isPurchaseLikeLoanFromImport ? [] : yearAquiredReadonlyImportField),
+      ];
       setImportError('');
       setSubmitError('');
       setMismoIncomeProfile(parsedIncomeProfile);
