@@ -90,7 +90,7 @@ model User {
   role          UserRole
   roles         UserRole[] @default([])
   loQcTwoRowPilot Boolean @default(false)
-  loDisclosureSubmissionEnabled Boolean @default(true)
+  loDisclosureSubmissionEnabled Boolean @default(false)
   loQcSubmissionEnabled Boolean @default(true)
   active        Boolean   @default(true)
   createdAt     DateTime  @default(now())
