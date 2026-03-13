@@ -155,6 +155,8 @@ type MismoPrefill = {
   borrowerLastName?: string;
   borrowerPhone?: string;
   borrowerEmail?: string;
+  coBorrowerEmail?: string;
+  hasMultipleBorrowers?: boolean;
   arriveLoanNumber?: string;
   channel?: string;
   investor?: string;
@@ -193,7 +195,8 @@ function isMismoValidationErrorMessage(message: string) {
   const trimmed = message.trim();
   return (
     trimmed.startsWith('MISMO is missing required fields:') ||
-    trimmed.startsWith('Borrower Phone and Borrower Email are required from MISMO')
+    trimmed.startsWith('Borrower Phone and Borrower Email are required from MISMO') ||
+    trimmed.startsWith("You cant have the Borrower and Co borrower's emails match for Button.")
   );
 }
 
@@ -352,6 +355,13 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
 
   const borrowerFirstName = getTextFromElement(borrowerParty, 'FirstName');
   const borrowerLastName = getTextFromElement(borrowerParty, 'LastName');
+  const getEmailFromParty = (party: Element | null) =>
+    getFirstText(party, [
+      'ContactPointEmailValue',
+      'EmailAddressText',
+      'Email',
+      'BorrowerEmailAddress',
+    ]);
   const borrowerPhone =
     getFirstText(borrowerParty, [
       'ContactPointTelephoneValue',
@@ -367,19 +377,17 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
       'PhoneNumberValue',
       'BorrowerHomeTelephoneNumber',
     ]);
+  const coBorrowerParty = borrowerParties.length > 1 ? borrowerParties[1] : null;
+  const hasMultipleBorrowers = borrowerParties.length > 1;
   const borrowerEmail =
-    getFirstText(borrowerParty, [
-      'ContactPointEmailValue',
-      'EmailAddressText',
-      'Email',
-      'BorrowerEmailAddress',
-    ]) ||
+    getEmailFromParty(borrowerParty) ||
     getFirstText(doc, [
       'ContactPointEmailValue',
       'EmailAddressText',
       'Email',
       'BorrowerEmailAddress',
     ]);
+  const coBorrowerEmail = getEmailFromParty(coBorrowerParty);
   const normalizeRepository = (value: string) => value.trim().toUpperCase();
   const toScoreString = (value: string) => {
     const digits = value.trim().match(/\d{2,3}/)?.[0] || '';
@@ -555,6 +563,8 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     borrowerLastName,
     borrowerPhone,
     borrowerEmail,
+    coBorrowerEmail,
+    hasMultipleBorrowers,
     arriveLoanNumber,
     channel,
     investor,
@@ -670,6 +680,8 @@ function DisclosuresForm({
     borrowerLastName: '',
     borrowerPhone: '',
     borrowerEmail: '',
+    coBorrowerEmail: '',
+    hasMultipleBorrowers: false,
     arriveLoanNumber: '',
     channel: '',
     investor: '',
@@ -711,6 +723,15 @@ function DisclosuresForm({
     setForm((prev) => ({ ...prev, [key]: value }));
 
   const isButtonInvestor = form.investor === 'Button';
+  const hasButtonBorrowerEmailMatch =
+    isButtonInvestor &&
+    form.hasMultipleBorrowers &&
+    Boolean(form.borrowerEmail.trim()) &&
+    Boolean(form.coBorrowerEmail.trim()) &&
+    form.borrowerEmail.trim().toLowerCase() ===
+      form.coBorrowerEmail.trim().toLowerCase();
+  const buttonBorrowerEmailMatchError =
+    "You cant have the Borrower and Co borrower's emails match for Button. Please reupload when done.";
   const hasAllButtonAttachments =
     !!buttonFiles.avm && !!buttonFiles.titleSheet && !!buttonFiles.pricingSheet;
   const employerReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
@@ -864,6 +885,13 @@ function DisclosuresForm({
       return;
     }
 
+    if (hasButtonBorrowerEmailMatch) {
+      setSubmitError(buttonBorrowerEmailMatchError);
+      mimoRequiredFieldsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      window.alert(buttonBorrowerEmailMatchError);
+      return;
+    }
+
     if (isButtonInvestor) {
       if (!form.runId.trim() || !form.pricingOption.trim()) {
         setSubmitError('Run ID and Pricing Option are required for Button.');
@@ -951,6 +979,8 @@ function DisclosuresForm({
         borrowerLastName: prefill.borrowerLastName || prev.borrowerLastName,
         borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
         borrowerEmail: prefill.borrowerEmail || prev.borrowerEmail,
+        coBorrowerEmail: prefill.coBorrowerEmail || prev.coBorrowerEmail,
+        hasMultipleBorrowers: Boolean(prefill.hasMultipleBorrowers),
         arriveLoanNumber: prefill.arriveLoanNumber || prev.arriveLoanNumber,
         channel: prefill.channel || prev.channel,
         investor: prefill.investor || prev.investor,
@@ -972,6 +1002,8 @@ function DisclosuresForm({
         ...form,
         borrowerPhone: prefill.borrowerPhone || form.borrowerPhone,
         borrowerEmail: prefill.borrowerEmail || form.borrowerEmail,
+        coBorrowerEmail: prefill.coBorrowerEmail || form.coBorrowerEmail,
+        hasMultipleBorrowers: Boolean(prefill.hasMultipleBorrowers),
         employerName: prefill.employerName || form.employerName,
         employerAddress: prefill.employerAddress || form.employerAddress,
         employerDurationLineOfWork:
@@ -1107,6 +1139,11 @@ function DisclosuresForm({
             completing these in Arrive.
           </div>
         )}
+        {hasButtonBorrowerEmailMatch && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+            {buttonBorrowerEmailMatchError}
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <>
             <ReadonlyRequiredField
@@ -1147,6 +1184,14 @@ function DisclosuresForm({
               value={form.mannerInWhichTitleWillBeHeld}
               isMissing={missingReadonlyKeys.has('mannerInWhichTitleWillBeHeld')}
             />
+            {isButtonInvestor && (
+              <ReadonlyRequiredField
+                label="Co Borrower's Email"
+                value={form.coBorrowerEmail}
+                required={false}
+                isMissing={hasButtonBorrowerEmailMatch}
+              />
+            )}
           </>
         </div>
       </div>

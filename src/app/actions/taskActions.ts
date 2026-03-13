@@ -998,6 +998,32 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         };
       }
 
+      const investor = String(submissionObject.investor ?? '').trim().toUpperCase();
+      const hasMultipleBorrowers = Boolean(submissionObject.hasMultipleBorrowers);
+      const normalizedBorrowerEmail = String(
+        submissionObject.borrowerEmail ?? borrowerEmail ?? ''
+      )
+        .trim()
+        .toLowerCase();
+      const normalizedCoBorrowerEmail = String(
+        submissionObject.coBorrowerEmail ?? ''
+      )
+        .trim()
+        .toLowerCase();
+      const hasButtonBorrowerEmailMatch =
+        investor === 'BUTTON' &&
+        hasMultipleBorrowers &&
+        Boolean(normalizedBorrowerEmail) &&
+        Boolean(normalizedCoBorrowerEmail) &&
+        normalizedBorrowerEmail === normalizedCoBorrowerEmail;
+      if (hasButtonBorrowerEmailMatch) {
+        return {
+          success: false,
+          error:
+            "You cant have the Borrower and Co borrower's emails match for Button. Please reupload when done.",
+        };
+      }
+
       const resolvedBorrowerPhone = String(
         submissionObject.borrowerPhone ?? borrowerPhone ?? ''
       ).trim();
