@@ -1218,8 +1218,9 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     }
 
     const isQcSubmissionWorkflowTask = isQcSubmissionTask(existing);
+    const shouldAppendStatusHistory = isQcSubmissionWorkflowTask || isVaKind;
     const statusHistoryMessage = `Status changed to ${newStatus.replace('_', ' ')}.`;
-    const submissionDataWithStatusHistory = isQcSubmissionWorkflowTask
+    const submissionDataWithStatusHistory = shouldAppendStatusHistory
       ? appendSubmissionHistoryEntry(existing.submissionData, {
           author: session?.user?.name || 'Unknown',
           role,
@@ -1228,16 +1229,21 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
         })
       : undefined;
 
+    const shouldClaimVaTask =
+      isVaKind && newStatus === TaskStatus.IN_PROGRESS && !existing.assignedUserId;
     await prisma.task.update({
       where: { id: taskId },
       data: {
         status: newStatus,
+        ...(shouldClaimVaTask ? { assignedUserId: userId } : {}),
         workflowState:
           newStatus === TaskStatus.COMPLETED
             ? TaskWorkflowState.NONE
             : existing.workflowState ?? TaskWorkflowState.NONE,
         completedAt: newStatus === 'COMPLETED' ? new Date() : null,
-        submissionData: submissionDataWithStatusHistory,
+        ...(submissionDataWithStatusHistory
+          ? { submissionData: submissionDataWithStatusHistory }
+          : {}),
       },
     });
 

@@ -810,6 +810,15 @@ function getRoleBubbleClass(role: UserRole | null) {
   if (role === UserRole.MANAGER) {
     return 'border-rose-200 bg-rose-50 text-rose-700';
   }
+  if (
+    role === UserRole.VA ||
+    role === UserRole.VA_TITLE ||
+    role === UserRole.VA_HOI ||
+    role === UserRole.VA_PAYOFF ||
+    role === UserRole.VA_APPRAISAL
+  ) {
+    return 'border-rose-200 bg-rose-50 text-rose-700';
+  }
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
     return 'border-blue-200 bg-blue-50 text-blue-700';
   }
@@ -881,15 +890,9 @@ function WorkedByTags({
       {summary.visibleContributors.map((contributor) => (
         <span
           key={contributor.name}
-          className={`inline-flex max-w-[130px] items-center truncate rounded-full border font-semibold ${chipSize} ${
-            contributor.role === UserRole.LOAN_OFFICER
-              ? 'border-amber-200 bg-amber-50 text-amber-700'
-              : contributor.role === UserRole.MANAGER
-              ? 'border-rose-200 bg-rose-50 text-rose-700'
-              : contributor.role === UserRole.QC
-              ? 'border-violet-200 bg-violet-50 text-violet-700'
-              : 'border-blue-200 bg-blue-50 text-blue-700'
-          }`}
+          className={`inline-flex max-w-[130px] items-center truncate rounded-full border font-semibold ${chipSize} ${getRoleBubbleClass(
+            contributor.role
+          )}`}
           title={
             contributor.role === UserRole.LOAN_OFFICER
               ? `${contributor.name} (Loan Officer)`
@@ -1654,15 +1657,21 @@ export function TaskList({
         const iconClassName = isReturnedToDisclosure
           ? returnedToDisclosureIconClassName
           : defaultIconClassName;
-        const shouldShowDisclosureSlaTimer =
-          (isDisclosureRole || isLoanOfficerRole || isQcRole || isManagerRole) &&
+        const isVaDeskTask = canManageVaDesk && isVaTaskKind(task.kind);
+        const shouldShowQueueTimer =
+          (isDisclosureRole || isLoanOfficerRole || isQcRole || isManagerRole || isVaSubRole) &&
           (isDisclosureSubmissionTask(task) ||
             isQcSubmissionTask(task) ||
-            isQcLinkedLoResponseTask) &&
+            isQcLinkedLoResponseTask ||
+            isVaDeskTask) &&
           task.status !== TaskStatus.COMPLETED;
-        const disclosureSlaTimerMeta = shouldShowDisclosureSlaTimer
-          ? getDisclosureSlaTimerMeta(task.updatedAt, timerNowMs)
+        const queueTimerStart = isVaDeskTask ? task.createdAt || task.updatedAt : task.updatedAt;
+        const queueTimerMeta = shouldShowQueueTimer
+          ? getDisclosureSlaTimerMeta(queueTimerStart, timerNowMs)
           : null;
+        const queueTimerTooltip = isVaDeskTask
+          ? 'VA queue timer (from request creation)'
+          : 'Disclosure SLA timer (resets when task updates)';
 
         return (
           <React.Fragment key={task.id}>
@@ -1711,15 +1720,15 @@ export function TaskList({
                       <p className="text-xs font-medium text-slate-500 truncate">
                         {task.loan.loanNumber}
                       </p>
-                      {(disclosureSlaTimerMeta || completedTotalTimeMeta) && (
+                      {(queueTimerMeta || completedTotalTimeMeta) && (
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          {disclosureSlaTimerMeta && (
+                          {queueTimerMeta && (
                             <span
-                              className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${disclosureSlaTimerMeta.className}`}
-                              title="Disclosure SLA timer (resets when task updates)"
+                              className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${queueTimerMeta.className}`}
+                              title={queueTimerTooltip}
                             >
                               <Clock3 className="mr-1 h-2.5 w-2.5" />
-                              {disclosureSlaTimerMeta.label}
+                              {queueTimerMeta.label}
                             </span>
                           )}
                           {completedTotalTimeMeta && (

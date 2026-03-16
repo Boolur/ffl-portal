@@ -11,7 +11,13 @@ import React, {
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { TaskList, type Task } from '@/components/tasks/TaskList';
 
-type SortOption = 'updated_desc' | 'updated_asc' | 'borrower_asc' | 'borrower_desc';
+type SortOption =
+  | 'updated_desc'
+  | 'updated_asc'
+  | 'created_asc'
+  | 'created_desc'
+  | 'borrower_asc'
+  | 'borrower_desc';
 type LocalSortOption = 'global' | SortOption;
 
 type BucketConfig = {
@@ -36,19 +42,23 @@ const defaultControls: BucketControls = {
 };
 
 const sortOptions: Array<{ value: SortOption; label: string }> = [
+  { value: 'created_asc', label: 'Queue Time (Oldest First)' },
+  { value: 'created_desc', label: 'Queue Time (Newest First)' },
   { value: 'updated_desc', label: 'Updated (Newest)' },
   { value: 'updated_asc', label: 'Updated (Oldest)' },
   { value: 'borrower_asc', label: 'Borrower (A to Z)' },
   { value: 'borrower_desc', label: 'Borrower (Z to A)' },
 ];
 const sortLabelByValue: Record<SortOption, string> = {
+  created_asc: 'Queue Time (Oldest First)',
+  created_desc: 'Queue Time (Newest First)',
   updated_desc: 'Updated (Newest)',
   updated_asc: 'Updated (Oldest)',
   borrower_asc: 'Borrower (A to Z)',
   borrower_desc: 'Borrower (Z to A)',
 };
 
-function normalizeDate(value?: Date) {
+function normalizeDate(value?: Date | string) {
   if (!value) return 0;
   const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
   return Number.isFinite(time) ? time : 0;
@@ -66,6 +76,12 @@ function sortTasks(tasks: Task[], sortBy: SortOption) {
   return tasks
     .map((task, index) => ({ task, index }))
     .sort((a, b) => {
+      if (sortBy === 'created_asc') {
+        return normalizeDate(a.task.createdAt) - normalizeDate(b.task.createdAt) || a.index - b.index;
+      }
+      if (sortBy === 'created_desc') {
+        return normalizeDate(b.task.createdAt) - normalizeDate(a.task.createdAt) || a.index - b.index;
+      }
       if (sortBy === 'updated_desc') {
         return normalizeDate(b.task.updatedAt) - normalizeDate(a.task.updatedAt) || a.index - b.index;
       }
@@ -114,8 +130,13 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   const defaultGlobalSort: SortOption =
     currentRole === 'DISCLOSURE_SPECIALIST' ||
     currentRole === 'QC' ||
-    currentRole === 'MANAGER'
-      ? 'updated_asc'
+    currentRole === 'MANAGER' ||
+    currentRole === 'VA' ||
+    currentRole === 'VA_TITLE' ||
+    currentRole === 'VA_HOI' ||
+    currentRole === 'VA_PAYOFF' ||
+    currentRole === 'VA_APPRAISAL'
+      ? 'created_asc'
       : 'updated_desc';
   const [globalSearch, setGlobalSearch] = useState('');
   const [globalSort, setGlobalSort] = useState<SortOption>(defaultGlobalSort);
