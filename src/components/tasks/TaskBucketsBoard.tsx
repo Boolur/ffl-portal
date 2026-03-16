@@ -140,9 +140,9 @@ export function TaskBucketsBoard({
 
   return (
     <div className="space-y-3.5">
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+      <div className="w-full max-w-4xl rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <label className="relative min-w-[220px] flex-1">
+          <label className="relative w-full md:w-[420px]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
               value={globalSearch}
