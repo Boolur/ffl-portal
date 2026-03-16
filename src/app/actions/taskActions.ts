@@ -551,8 +551,77 @@ type VaCreatedTaskNotification = {
   assignedRole: UserRole;
 };
 
+function asSubmissionObject(
+  value: Prisma.JsonValue | null | undefined
+): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>) };
+  }
+  return {};
+}
+
+function hasRenderableSubmissionFields(data: Record<string, unknown>): boolean {
+  return Object.entries(data).some(([key, value]) => {
+    if (key === 'notesHistory') return false;
+    return (
+      value !== null &&
+      (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    );
+  });
+}
+
+function buildLoanSubmissionFallback(loan: {
+  loanNumber: string;
+  borrowerName: string;
+  borrowerPhone: string | null;
+  borrowerEmail: string | null;
+  amount: Prisma.Decimal;
+  propertyAddress: string | null;
+}): Record<string, unknown> {
+  const borrowerName = loan.borrowerName?.trim() || '';
+  const [firstName, ...lastNameParts] = borrowerName.split(/\s+/).filter(Boolean);
+  const lastName = lastNameParts.join(' ');
+  return {
+    arriveLoanNumber: loan.loanNumber,
+    borrowerFirstName: firstName || borrowerName || 'Unknown',
+    borrowerLastName: lastName || '',
+    borrowerPhone: loan.borrowerPhone || '',
+    borrowerEmail: loan.borrowerEmail || '',
+    loanAmount: loan.amount?.toString?.() ?? '',
+    ...(loan.propertyAddress ? { subjectPropertyAddress: loan.propertyAddress } : {}),
+  };
+}
+
+function mergeSubmissionDataWithLoanFallback(
+  source: Prisma.JsonValue | null | undefined,
+  fallback: Record<string, unknown>
+): Prisma.JsonObject {
+  const sourceObject = asSubmissionObject(source);
+  const merged: Record<string, unknown> = { ...fallback, ...sourceObject };
+  if (!hasRenderableSubmissionFields(merged)) {
+    return fallback as Prisma.JsonObject;
+  }
+  return merged as Prisma.JsonObject;
+}
+
 async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: string) {
   const createdKinds = await prisma.$transaction(async (tx) => {
+    const loanSnapshot = await tx.loan.findUnique({
+      where: { id: loanId },
+      select: {
+        loanNumber: true,
+        borrowerName: true,
+        borrowerPhone: true,
+        borrowerEmail: true,
+        amount: true,
+        propertyAddress: true,
+      },
+    });
+    if (!loanSnapshot) {
+      return [] as TaskKind[];
+    }
+    const loanFallbackSubmissionData = buildLoanSubmissionFallback(loanSnapshot);
+
     const sourceQcSubmission = qcTaskId
       ? await tx.task.findUnique({
           where: { id: qcTaskId },
@@ -565,12 +634,20 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: s
           },
           select: {
             submissionData: true,
+            kind: true,
           },
           orderBy: {
             updatedAt: 'desc',
           },
         });
-    const qcSubmissionData = sourceQcSubmission?.submissionData || Prisma.JsonNull;
+    // Safety rail: VA fanout is only allowed from a true QC submission task.
+    if (!sourceQcSubmission || sourceQcSubmission.kind !== TaskKind.SUBMIT_QC) {
+      return [] as TaskKind[];
+    }
+    const qcSubmissionData = mergeSubmissionDataWithLoanFallback(
+      sourceQcSubmission?.submissionData,
+      loanFallbackSubmissionData
+    );
 
     const existingKinds = await tx.task.findMany({
       where: { loanId },
@@ -611,13 +688,9 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: s
       },
     });
     for (const vaTask of existingVaTasks) {
-      const data = vaTask.submissionData;
-      const isEmptyData =
-        data === null ||
-        (typeof data === 'object' &&
-          !Array.isArray(data) &&
-          Object.keys(data as Record<string, unknown>).length === 0);
-      if (!isEmptyData) continue;
+      const dataObj = asSubmissionObject(vaTask.submissionData);
+      const hasDetails = hasRenderableSubmissionFields(dataObj);
+      if (hasDetails) continue;
       await tx.task.update({
         where: { id: vaTask.id },
         data: { submissionData: qcSubmissionData },
@@ -1199,10 +1272,7 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
         });
       }
 
-      const isQcSubmission =
-        existing.kind === TaskKind.SUBMIT_QC ||
-        (existing.assignedRole === UserRole.QC &&
-          existing.title.toLowerCase().includes('qc'));
+      const isQcSubmission = existing.kind === TaskKind.SUBMIT_QC;
 
       if (isQcSubmission) {
         const createdVaTasks = await ensureVaTasksForLoanFromQcCompletion(
