@@ -239,23 +239,23 @@ export function LoVaBorrowerProgressList({
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      {item.latestUpdatedAt && (
-                        <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                          <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                          {formatCompactDateTime(item.latestUpdatedAt)}
-                        </p>
-                      )}
                       <div className="flex items-start gap-2 min-w-0">
                         <button
                           type="button"
                           onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
-                          className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm ring-1 ring-black/5 hover:bg-slate-200"
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm ring-1 ring-black/5 hover:bg-slate-200"
                           title={`Open VA submission details for ${item.borrowerName}`}
                           aria-label={`Open VA submission details for ${item.borrowerName}`}
                         >
                           <FileText className="h-4 w-4" />
                         </button>
                         <div className="min-w-0">
+                          {item.latestUpdatedAt && (
+                            <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                              <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                              {formatCompactDateTime(item.latestUpdatedAt)}
+                            </p>
+                          )}
                           <p className="truncate text-sm font-bold text-slate-900">
                             {item.borrowerName}
                           </p>
@@ -289,13 +289,6 @@ export function LoVaBorrowerProgressList({
                             className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800 hover:bg-amber-100"
                           >
                             Action Needed
-                          </Link>
-                        ) : item.detailTaskId ? (
-                          <Link
-                            href={`/tasks?taskId=${encodeURIComponent(item.detailTaskId)}`}
-                            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            View
                           </Link>
                         ) : null}
                       </div>
