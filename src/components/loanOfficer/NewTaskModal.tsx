@@ -28,6 +28,7 @@ const investorOptions = [
   'Loan United',
   'PennyMac',
 ];
+const qcInvestorOptions = [...investorOptions, 'Other'];
 const buttonPricingOptions = [
   'Max Comp',
   'Max Comp 2',
@@ -1315,6 +1316,7 @@ function QcForm({
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+  const isOtherInvestor = form.investor.trim().toUpperCase() === 'OTHER';
 
   const requiredEntryFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     { key: 'preApproved', label: 'Pre-Approved Status in Arrive' },
@@ -1345,6 +1347,7 @@ function QcForm({
   const highlightedMissingFields = new Set<keyof typeof form>();
   if (showValidationErrors) {
     for (const key of missingEntryKeys) highlightedMissingFields.add(key);
+    if (isOtherInvestor && !form.notesGoals.trim()) highlightedMissingFields.add('notesGoals');
   }
 
   const submit = async (e: React.FormEvent) => {
@@ -1356,6 +1359,9 @@ function QcForm({
     const missingEntryLabels = requiredEntryFields
       .filter(({ key }) => !String(form[key] ?? '').trim())
       .map(({ label }) => label);
+    if (isOtherInvestor && !form.notesGoals.trim()) {
+      missingEntryLabels.push('Notes / Goals');
+    }
     if (missingEntryLabels.length > 0) {
       setSubmitError(
         `Please complete required fields before submitting: ${missingEntryLabels.join(', ')}.`
@@ -1483,7 +1489,7 @@ function QcForm({
           label="Investor"
           value={form.investor}
           onChange={(v) => update('investor', v)}
-          options={investorOptions}
+          options={qcInvestorOptions}
           required
           invalid={highlightedMissingFields.has('investor')}
         />
@@ -1533,7 +1539,8 @@ function QcForm({
         label="Notes / Goals"
         value={form.notesGoals}
         onChange={(v) => update('notesGoals', v)}
-        required={false}
+        required={isOtherInvestor}
+        invalid={highlightedMissingFields.has('notesGoals')}
       />
       {submitError && (
         <p className="text-sm rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2">

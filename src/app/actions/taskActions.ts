@@ -1135,6 +1135,14 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         !Array.isArray(submissionData)
           ? (submissionData as Record<string, unknown>)
           : null;
+      const qcInvestor = String(submissionObject?.investor ?? '').trim().toUpperCase();
+      const qcNotes = String(notes ?? submissionObject?.notesGoals ?? '').trim();
+      if (qcInvestor === 'OTHER' && !qcNotes) {
+        return {
+          success: false,
+          error: 'Notes / Goals are required when Investor is set to Other.',
+        };
+      }
 
       const qcCashBack = String(submissionObject?.cashBack ?? '').trim();
       const qcProjectedRevenue = String(submissionObject?.projectedRevenue ?? '').trim();
