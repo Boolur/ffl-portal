@@ -553,6 +553,19 @@ type VaCreatedTaskNotification = {
 
 async function ensureVaTasksForLoanFromQcCompletion(loanId: string) {
   const createdKinds = await prisma.$transaction(async (tx) => {
+    const latestQcSubmission = await tx.task.findFirst({
+      where: {
+        loanId,
+        kind: TaskKind.SUBMIT_QC,
+      },
+      select: {
+        submissionData: true,
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    });
+
     const existingKinds = await tx.task.findMany({
       where: { loanId },
       select: { kind: true, assignedRole: true },
@@ -574,6 +587,7 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string) {
           status: TaskStatus.PENDING,
           priority: TaskPriority.NORMAL,
           assignedRole: task.assignedRole,
+          submissionData: latestQcSubmission?.submissionData || Prisma.JsonNull,
           dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
         })),
       });

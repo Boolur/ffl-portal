@@ -3,13 +3,13 @@
 import React from 'react';
 import Link from 'next/link';
 import {
-  AlertTriangle,
   CheckCircle2,
   Circle,
   CircleDot,
   Clock3,
+  FileCheck2,
+  Search,
   Loader2,
-  SearchCheck,
   ShieldCheck,
   UserCog,
   UserRoundCheck,
@@ -51,13 +51,6 @@ const chipMeta: Record<
   },
 };
 
-function summary(items: LoVaBorrowerProgressItem[]) {
-  const borrowerCount = items.length;
-  const completedTasks = items.reduce((sum, item) => sum + item.completedCount, 0);
-  const requiredResponses = items.filter((item) => item.needsLoResponse).length;
-  return { borrowerCount, completedTasks, requiredResponses };
-}
-
 function StatusChip({ label, state }: { label: string; state: VaChipState }) {
   return (
     <span
@@ -69,56 +62,59 @@ function StatusChip({ label, state }: { label: string; state: VaChipState }) {
   );
 }
 
-function StageCard({
+function BucketPanel({
   title,
   icon,
-  subtitle,
-  statusLabel,
+  chipLabel,
+  count,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
-  subtitle?: string;
-  statusLabel: string;
+  chipLabel: string;
+  count: number;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-full min-h-[138px] flex-col rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
-      <div className="mb-2 flex items-start justify-between gap-2">
+    <div className="flex h-full min-h-[420px] flex-col rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all hover:shadow-md">
+      <div className="mb-1.5 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           {icon}
-          <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-700">
-            {title}
-          </p>
+          <p className="truncate text-base font-bold leading-snug text-slate-900">{title}</p>
         </div>
-        <span className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
-          {statusLabel}
+        <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+          {count}
         </span>
       </div>
-      {subtitle ? <p className="mb-2 text-[11px] text-slate-500">{subtitle}</p> : null}
-      <div className="mt-auto flex flex-wrap items-center gap-1.5">{children}</div>
+      <div className="mb-3 flex flex-wrap items-center gap-1.5 border-b border-border/50 pb-1.5">
+        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 shadow-sm">
+          {chipLabel}
+        </span>
+      </div>
+      <div className="mb-2 flex items-center rounded-md border border-slate-200 bg-white py-1.5 pl-2.5 pr-2 text-[11px] text-slate-400">
+        <Search className="mr-1.5 h-3 w-3" />
+        Search bucket
+      </div>
+      <div className="h-[300px] overflow-y-auto pr-1">{children}</div>
     </div>
   );
 }
 
 export function LoVaBorrowerProgressList({
   items,
-  title = 'VA Borrower Progress',
-  subtitle = 'Track each borrower across Title, HOI, Payoff, and Appraisal without opening long bucket rows.',
   className,
 }: {
   items: LoVaBorrowerProgressItem[];
-  title?: string;
-  subtitle?: string;
   className?: string;
 }) {
   const [focusedItemKey, setFocusedItemKey] = React.useState<string | null>(null);
   const [openingAttachmentId, setOpeningAttachmentId] = React.useState<string | null>(null);
-  const totals = summary(items);
   const focusedItem =
     focusedItemKey === null
       ? null
       : items.find((item) => `${item.loanNumber}-${item.borrowerName}` === focusedItemKey) || null;
+  const jrQueueCount = 0;
+  const srQueueCount = 0;
 
   const openAttachment = async (attachmentId: string) => {
     setOpeningAttachmentId(attachmentId);
@@ -133,127 +129,111 @@ export function LoVaBorrowerProgressList({
   };
 
   return (
-    <section
-      className={`max-w-6xl rounded-2xl border border-slate-200 bg-white shadow-sm ${className || ''}`}
-    >
-      <div className="border-b border-slate-100 px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-            <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
-              <CircleDot className="mr-1 h-3.5 w-3.5" />
-              {totals.borrowerCount} Borrowers
-            </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-              {totals.completedTasks} Completed Tasks
-            </span>
-            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
-              <AlertTriangle className="mr-1 h-3.5 w-3.5" />
-              {totals.requiredResponses} Need LO Response
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {items.length === 0 ? (
-        <div className="px-5 py-8 text-sm text-slate-500">
-          No VA borrower tasks yet. This section will populate after QC completion creates VA work.
-        </div>
-      ) : (
-        <div className="divide-y divide-slate-100">
-          {items.map((item) => (
-            <article key={`${item.loanNumber}-${item.borrowerName}`} className="px-5 py-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
-                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                      title={`Open VA submission details for ${item.borrowerName}`}
-                      aria-label={`Open VA submission details for ${item.borrowerName}`}
-                    >
-                      <CircleDot className="h-3.5 w-3.5" />
-                    </button>
-                    <p className="truncate text-sm font-semibold text-slate-900">{item.borrowerName}</p>
+    <section className={`${className || ''}`}>
+      <div className="grid gap-3.5 md:grid-cols-3">
+        <BucketPanel
+          title="VA Bucket"
+          icon={<FileCheck2 className="h-4 w-4 text-rose-600" />}
+          chipLabel="VA Queue"
+          count={items.length}
+        >
+          {items.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <CheckCircle2 className="h-6 w-6 text-slate-300" />
+              <p className="mt-2 text-xs font-medium text-slate-500">No VA requests in queue.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {items.map((item) => (
+                <article
+                  key={`${item.loanNumber}-${item.borrowerName}`}
+                  className="rounded-xl border border-slate-200 bg-slate-50/40 p-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
+                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                          title={`Open VA submission details for ${item.borrowerName}`}
+                          aria-label={`Open VA submission details for ${item.borrowerName}`}
+                        >
+                          <CircleDot className="h-3.5 w-3.5" />
+                        </button>
+                        <p className="truncate text-sm font-semibold text-slate-900">
+                          {item.borrowerName}
+                        </p>
+                      </div>
+                      <p className="text-xs text-slate-500">{item.loanNumber}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                        <Clock3 className="mr-1 h-3 w-3" />
+                        {item.completedCount}/{item.totalCount}
+                      </span>
+                      {item.needsLoResponse && item.actionTaskId ? (
+                        <Link
+                          href={`/tasks?taskId=${encodeURIComponent(item.actionTaskId)}`}
+                          className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800 hover:bg-amber-100"
+                        >
+                          Action Needed
+                        </Link>
+                      ) : item.detailTaskId ? (
+                        <Link
+                          href={`/tasks?taskId=${encodeURIComponent(item.detailTaskId)}`}
+                          className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          View
+                        </Link>
+                      ) : null}
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-500">{item.loanNumber}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                    <Clock3 className="mr-1 h-3.5 w-3.5" />
-                    {item.completedCount}/{item.totalCount} Complete
-                  </span>
-                  {item.needsLoResponse && item.actionTaskId ? (
-                    <Link
-                      href={`/tasks?taskId=${encodeURIComponent(item.actionTaskId)}`}
-                      className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
-                    >
-                      Action Needed
-                    </Link>
-                  ) : item.detailTaskId ? (
-                    <Link
-                      href={`/tasks?taskId=${encodeURIComponent(item.detailTaskId)}`}
-                      className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      View
-                    </Link>
-                  ) : null}
-                </div>
-              </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
+                      <ShieldCheck className="mr-1 h-3 w-3" />
+                      QC
+                    </span>
+                    <StatusChip label="Title" state={item.chips.title} />
+                    <StatusChip label="HOI" state={item.chips.hoi} />
+                    <StatusChip label="Payoff" state={item.chips.payoff} />
+                    <StatusChip label="Appraisal" state={item.chips.appraisal} />
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </BucketPanel>
 
-              <div className="mt-3 grid gap-3.5 md:grid-cols-3">
-                <StageCard
-                  title="VA Bucket"
-                  icon={<CircleDot className="h-3.5 w-3.5 text-rose-600" />}
-                  subtitle="QC gate in progress"
-                  statusLabel="Active"
-                >
-                  <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
-                    <ShieldCheck className="mr-1 h-3 w-3" />
-                    QC
-                  </span>
-                  <StatusChip label="Title" state={item.chips.title} />
-                  <StatusChip label="HOI" state={item.chips.hoi} />
-                  <StatusChip label="Payoff" state={item.chips.payoff} />
-                  <StatusChip label="Appraisal" state={item.chips.appraisal} />
-                </StageCard>
+        <BucketPanel
+          title="JR Processor"
+          icon={<UserCog className="h-4 w-4 text-slate-600" />}
+          chipLabel="Processor Queue"
+          count={jrQueueCount}
+        >
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <UserCog className="h-6 w-6 text-slate-300" />
+            <p className="mt-2 text-xs font-medium text-slate-600">Queue not active yet.</p>
+            <p className="mt-1 max-w-[220px] text-[11px] text-slate-500">
+              Borrowers move here after VA stage is complete.
+            </p>
+          </div>
+        </BucketPanel>
 
-                <StageCard
-                  title="JR Processor"
-                  icon={<UserCog className="h-3.5 w-3.5 text-slate-600" />}
-                  subtitle="Future auto-handoff placeholder"
-                  statusLabel="Queue"
-                >
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                    Not Started
-                  </span>
-                </StageCard>
-
-                <StageCard
-                  title="SR Processor"
-                  icon={<UserRoundCheck className="h-3.5 w-3.5 text-slate-600" />}
-                  subtitle="Future auto-handoff placeholder"
-                  statusLabel="Queue"
-                >
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                    Not Started
-                  </span>
-                </StageCard>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
-      <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-2.5 text-xs text-slate-500">
-        <span className="inline-flex items-center">
-          <SearchCheck className="mr-1 h-3.5 w-3.5" />
-          Appraisal shows Action Needed when your response is required.
-        </span>
+        <BucketPanel
+          title="SR Processor"
+          icon={<UserRoundCheck className="h-4 w-4 text-slate-600" />}
+          chipLabel="Processor Queue"
+          count={srQueueCount}
+        >
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <UserRoundCheck className="h-6 w-6 text-slate-300" />
+            <p className="mt-2 text-xs font-medium text-slate-600">Queue not active yet.</p>
+            <p className="mt-1 max-w-[220px] text-[11px] text-slate-500">
+              Borrowers move here after JR Processor completion.
+            </p>
+          </div>
+        </BucketPanel>
       </div>
 
       {focusedItem && (

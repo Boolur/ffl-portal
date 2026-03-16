@@ -1487,7 +1487,8 @@ export function TaskList({
           canManageVaDesk &&
           task.kind === TaskKind.VA_APPRAISAL &&
           task.status !== TaskStatus.COMPLETED &&
-          (task.status === TaskStatus.IN_PROGRESS ||
+          (task.status === TaskStatus.PENDING ||
+            task.status === TaskStatus.IN_PROGRESS ||
             task.workflowState === TaskWorkflowState.READY_TO_COMPLETE);
         const isVaAppraisalMissingItemsAction =
           isVaAppraisalRouteState &&
@@ -1500,7 +1501,7 @@ export function TaskList({
           ((isDisclosureInitialRoutingState ||
             isDisclosureReturnedRoutingState) ||
             (canManageQcDesk && isQcSubmissionTask(task)) ||
-            isVaAppraisalRouteState);
+            (isVaAppraisalRouteState && task.status !== TaskStatus.PENDING));
         const isDisclosureMissingItemsRoute =
           canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&

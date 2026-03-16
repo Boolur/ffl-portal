@@ -184,11 +184,7 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
             qcEnabled={user.loQcSubmissionEnabled ?? true}
           />
           {showLoVaPilot && (
-            <LoVaBorrowerProgressList
-              items={loVaProgressItems}
-              title="VA Borrower Progress (Pilot)"
-              subtitle="Borrower-level progress across all 4 VA tasks with appraisal response callouts."
-            />
+            <LoVaBorrowerProgressList items={loVaProgressItems} />
           )}
         </div>
       )}

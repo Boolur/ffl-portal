@@ -896,11 +896,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
           />
           {sessionRole === UserRole.LOAN_OFFICER && showLoVaPilot && (
-            <LoVaBorrowerProgressList
-              items={loVaProgressItems}
-              title="VA Borrower Progress (Pilot)"
-              subtitle="One borrower row per loan with 0/4 progress and appraisal action-needed alerts."
-            />
+            <LoVaBorrowerProgressList items={loVaProgressItems} />
           )}
           {sessionRole === UserRole.MANAGER && managerVaRows && (
             <>
