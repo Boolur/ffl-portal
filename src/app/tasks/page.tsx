@@ -212,6 +212,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
         select: {
           id: true,
           name: true,
+          role: true,
         },
       },
       parentTask: {

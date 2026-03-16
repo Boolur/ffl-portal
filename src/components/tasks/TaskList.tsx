@@ -337,6 +337,31 @@ function injectLoanOfficerContributor(
   };
 }
 
+function injectAssignedContributor(
+  summary: ContributorSummary | null,
+  assignedUser?: { name?: string; role?: UserRole | null } | null
+): ContributorSummary | null {
+  const normalizedName = assignedUser?.name?.trim();
+  if (!normalizedName) return summary;
+
+  const existing = summary?.visibleContributors ?? [];
+  const alreadyPresent = existing.some(
+    (contributor) => contributor.name.trim().toLowerCase() === normalizedName.toLowerCase()
+  );
+  if (alreadyPresent) return summary;
+
+  const contributors = [
+    { name: normalizedName, role: assignedUser?.role ?? null },
+    ...existing,
+  ];
+
+  const totalCount = contributors.length + (summary?.overflowCount ?? 0);
+  return {
+    visibleContributors: contributors.slice(0, 2),
+    overflowCount: Math.max(0, totalCount - 2),
+  };
+}
+
 const submissionDetailOrder = [
   'qualificationStatus',
   'arriveLoanNumber',
@@ -945,6 +970,7 @@ export type Task = {
   assignedUser?: {
     id?: string;
     name: string;
+    role?: UserRole | null;
   } | null;
   attachments?: {
     id: string;
@@ -1581,8 +1607,11 @@ export function TaskList({
           parsedSubmissionData as Record<string, unknown> | null
         );
         const workedBySummary = injectLoanOfficerContributor(
-          getContributorSummaryFromSubmissionData(
-            parsedSubmissionData as Record<string, unknown> | null
+          injectAssignedContributor(
+            getContributorSummaryFromSubmissionData(
+              parsedSubmissionData as Record<string, unknown> | null
+            ),
+            task.assignedUser || null
           ),
           task.loan.loanOfficer?.name || null
         );
@@ -2611,6 +2640,7 @@ export function TaskList({
                     {!isLoTaskForCurrentLoanOfficer &&
                       task.status !== 'COMPLETED' &&
                       !isDisclosureInitialRoutingState &&
+                      !isVaAppraisalRouteState &&
                       !(
                         shouldRouteFromFooter &&
                         !isDisclosureReturnedRoutingState &&
@@ -2664,6 +2694,9 @@ export function TaskList({
                               qcGeneralNotesMissing
                             : !disclosureFooterMessage);
                         if (isVaAppraisalTask && isVaAppraisalCompleteAction) {
+                          const appraisalCompleteLabel = !canCompleteTask
+                            ? 'Upload Proof First'
+                            : 'Complete';
                           return (
                             <button
                               type="button"
@@ -2674,7 +2707,7 @@ export function TaskList({
                               {updatingId === task.id && (
                                 <Loader2 className="w-4 h-4 animate-spin" />
                               )}
-                              Complete
+                              {updatingId === task.id ? 'Saving...' : appraisalCompleteLabel}
                             </button>
                           );
                         }
