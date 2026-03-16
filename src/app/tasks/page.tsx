@@ -52,7 +52,13 @@ type TaskBucketFilter =
   | 'qc-new'
   | 'qc-waiting-missing'
   | 'qc-lo-responded'
-  | 'qc-completed-requests';
+  | 'qc-completed-requests'
+  | 'va-new-request'
+  | 'va-completed-requests'
+  | 'va-appraisal-new'
+  | 'va-appraisal-waiting-missing'
+  | 'va-appraisal-lo-responded'
+  | 'va-appraisal-completed';
 
 function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
   if (
@@ -76,7 +82,13 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
     value === 'qc-new' ||
     value === 'qc-waiting-missing' ||
     value === 'qc-lo-responded' ||
-    value === 'qc-completed-requests'
+    value === 'qc-completed-requests' ||
+    value === 'va-new-request' ||
+    value === 'va-completed-requests' ||
+    value === 'va-appraisal-new' ||
+    value === 'va-appraisal-waiting-missing' ||
+    value === 'va-appraisal-lo-responded' ||
+    value === 'va-appraisal-completed'
   ) {
     return value;
   }
@@ -638,6 +650,116 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
         isCompleted: true,
         tasks: qcTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.VA_TITLE) {
+    const vaTitleTasks = allTasks.filter((task) => task.kind === TaskKind.VA_TITLE);
+    return [
+      {
+        id: 'va-new-request',
+        label: 'New VA Title Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
+        tasks: vaTitleTasks.filter((task) => task.status !== TaskStatus.COMPLETED),
+      },
+      {
+        id: 'va-completed-requests',
+        label: 'Completed VA Title Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: vaTitleTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.VA_HOI) {
+    const vaHoiTasks = allTasks.filter((task) => task.kind === TaskKind.VA_HOI);
+    return [
+      {
+        id: 'va-new-request',
+        label: 'New VA HOI Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
+        tasks: vaHoiTasks.filter((task) => task.status !== TaskStatus.COMPLETED),
+      },
+      {
+        id: 'va-completed-requests',
+        label: 'Completed VA HOI Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: vaHoiTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.VA_PAYOFF) {
+    const vaPayoffTasks = allTasks.filter((task) => task.kind === TaskKind.VA_PAYOFF);
+    return [
+      {
+        id: 'va-new-request',
+        label: 'New VA Payoff Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
+        tasks: vaPayoffTasks.filter((task) => task.status !== TaskStatus.COMPLETED),
+      },
+      {
+        id: 'va-completed-requests',
+        label: 'Completed VA Payoff Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: vaPayoffTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.VA_APPRAISAL) {
+    const vaAppraisalTasks = allTasks.filter((task) => task.kind === TaskKind.VA_APPRAISAL);
+    return [
+      {
+        id: 'va-appraisal-new',
+        label: 'New VA Appraisal Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
+        tasks: vaAppraisalTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.NONE
+        ),
+      },
+      {
+        id: 'va-appraisal-waiting-missing',
+        label: 'Waiting Missing/Incomplete',
+        chipLabel: 'Pending LO',
+        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+        tasks: vaAppraisalTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO
+        ),
+      },
+      {
+        id: 'va-appraisal-lo-responded',
+        label: 'LO Responded (Review)',
+        chipLabel: 'Needs Review',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaAppraisalTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'va-appraisal-completed',
+        label: 'Completed VA Appraisal Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: vaAppraisalTasks.filter((task) => task.status === TaskStatus.COMPLETED),
       },
     ];
   }

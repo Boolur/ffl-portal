@@ -52,6 +52,42 @@ function isQcSubmissionTask(task: {
   );
 }
 
+const VA_TASK_BLUEPRINTS: Array<{
+  kind: TaskKind;
+  assignedRole: UserRole;
+  title: string;
+}> = [
+  { kind: TaskKind.VA_TITLE, assignedRole: UserRole.VA_TITLE, title: 'VA: Title' },
+  { kind: TaskKind.VA_HOI, assignedRole: UserRole.VA_HOI, title: 'VA: HOI' },
+  { kind: TaskKind.VA_PAYOFF, assignedRole: UserRole.VA_PAYOFF, title: 'VA: Payoff' },
+  { kind: TaskKind.VA_APPRAISAL, assignedRole: UserRole.VA_APPRAISAL, title: 'VA: Appraisal' },
+];
+
+function isVaTaskKind(kind: TaskKind | null) {
+  return (
+    kind === TaskKind.VA_TITLE ||
+    kind === TaskKind.VA_HOI ||
+    kind === TaskKind.VA_PAYOFF ||
+    kind === TaskKind.VA_APPRAISAL
+  );
+}
+
+function getVaAssignedRoleForTask(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+}) {
+  if (
+    task.assignedRole === UserRole.VA_TITLE ||
+    task.assignedRole === UserRole.VA_HOI ||
+    task.assignedRole === UserRole.VA_PAYOFF ||
+    task.assignedRole === UserRole.VA_APPRAISAL
+  ) {
+    return task.assignedRole;
+  }
+  const matched = VA_TASK_BLUEPRINTS.find((entry) => entry.kind === task.kind);
+  return matched?.assignedRole || null;
+}
+
 const workflowStateEmailLabel: Record<TaskWorkflowState, string> = {
   [TaskWorkflowState.NONE]: 'None',
   [TaskWorkflowState.WAITING_ON_LO]: 'Waiting on LO',
@@ -85,7 +121,7 @@ function buildTaskNotificationHtml(input: {
   subject: string;
   eventLabel: string;
   deskLabel: string;
-  deskTone: 'blue' | 'violet';
+  deskTone: 'blue' | 'violet' | 'rose';
   eventTone?: 'default' | 'danger';
   intro: string;
   ctaLabel: string;
@@ -108,6 +144,16 @@ function buildTaskNotificationHtml(input: {
           buttonBorder: '#6d28d9',
           buttonGradient: 'linear-gradient(135deg,#8b5cf6,#7c3aed)',
           linkColor: '#7c3aed',
+        }
+      : input.deskTone === 'rose'
+      ? {
+          headerGradient: 'linear-gradient(135deg,#fff1f2,#ffe4e6)',
+          tagBg: '#ffe4e6',
+          tagText: '#be123c',
+          buttonBg: '#e11d48',
+          buttonBorder: '#be123c',
+          buttonGradient: 'linear-gradient(135deg,#f43f5e,#e11d48)',
+          linkColor: '#e11d48',
         }
       : {
           headerGradient: 'linear-gradient(135deg,#eff6ff,#eef2ff)',
@@ -215,7 +261,8 @@ function buildTaskNotificationHtml(input: {
   `;
 }
 
-type EmailAudience = 'LO' | 'DISCLOSURE' | 'QC';
+type EmailAudience = 'LO' | 'DISCLOSURE' | 'QC' | 'VA';
+type DeskType = 'DISCLOSURE' | 'QC' | 'VA';
 
 function getEffectiveReasonLabel(task: {
   workflowState: TaskWorkflowState;
@@ -234,7 +281,7 @@ function getEffectiveReasonLabel(task: {
 
 function getRoleSpecificEmailContent(input: {
   audience: EmailAudience;
-  isQcTask: boolean;
+  deskType: DeskType;
   eventLabel: string;
   borrowerName: string;
   loanNumber: string;
@@ -244,7 +291,14 @@ function getRoleSpecificEmailContent(input: {
   reasonLabel: string | null;
   changedBy?: string | null;
 }) {
-  const deskLabel = input.isQcTask ? 'QC Desk' : 'Disclosure Desk';
+  const deskLabel =
+    input.deskType === 'QC'
+      ? 'QC Desk'
+      : input.deskType === 'VA'
+      ? 'VA Desk'
+      : 'Disclosure Desk';
+  const isQcTask = input.deskType === 'QC';
+  const isVaTask = input.deskType === 'VA';
   const base = {
     eventLabel: input.eventLabel,
     intro:
@@ -302,13 +356,13 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] Returned to ${input.isQcTask ? 'QC' : 'Disclosure'}: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[FFL Portal] Returned to ${isQcTask ? 'QC' : isVaTask ? 'Appraisal VA' : 'Disclosure'}: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'LO Responded - Review Needed',
       intro:
-        `Loan Officer response has been received. Review details and complete the next ${input.isQcTask ? 'QC' : 'disclosure'} action.`,
+        `Loan Officer response has been received. Review details and complete the next ${isQcTask ? 'QC' : isVaTask ? 'appraisal VA' : 'disclosure'} action.`,
       ctaLabel: 'Review Response in Portal',
       statusLabel: 'REVIEW NEEDED',
-      workflowLabel: input.isQcTask ? 'Returned to QC' : 'Returned to Disclosure',
+      workflowLabel: isQcTask ? 'Returned to QC' : isVaTask ? 'LO Responded (Review)' : 'Returned to Disclosure',
     };
   }
 
@@ -372,13 +426,13 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] New ${input.isQcTask ? 'QC' : 'Disclosure'} Request: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[FFL Portal] New ${isQcTask ? 'QC' : isVaTask ? 'VA' : 'Disclosure'} Request: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'New Request Submitted',
       intro:
-        `A new ${input.isQcTask ? 'QC' : 'disclosure'} request is in your queue. Review details and take action.`,
+        `A new ${isQcTask ? 'QC' : isVaTask ? 'VA' : 'disclosure'} request is in your queue. Review details and take action.`,
       ctaLabel: 'Open New Request',
       statusLabel: 'NEW',
-      workflowLabel: input.isQcTask ? 'New QC Request' : 'New Disclosure Request',
+      workflowLabel: isQcTask ? 'New QC Request' : isVaTask ? 'New VA Request' : 'New Disclosure Request',
     };
   }
 
@@ -448,7 +502,7 @@ function getRoleSpecificEmailContent(input: {
       intro: 'This request was deleted from the workflow queue.',
       ctaLabel: 'View Task Queue',
       statusLabel: 'DELETED',
-      workflowLabel: input.isQcTask ? 'QC Queue' : 'Disclosure Queue',
+      workflowLabel: isQcTask ? 'QC Queue' : isVaTask ? 'VA Queue' : 'Disclosure Queue',
     };
   }
 
@@ -490,6 +544,266 @@ async function createInAppNotificationsForAudience(input: {
   });
 }
 
+type VaCreatedTaskNotification = {
+  id: string;
+  kind: TaskKind;
+  title: string;
+  assignedRole: UserRole;
+};
+
+async function ensureVaTasksForLoanFromQcCompletion(loanId: string) {
+  const createdKinds = await prisma.$transaction(async (tx) => {
+    const existingKinds = await tx.task.findMany({
+      where: { loanId },
+      select: { kind: true, assignedRole: true },
+    });
+
+    const has = (kind: TaskKind, assignedRole: UserRole) =>
+      existingKinds.some((task) => task.kind === kind || task.assignedRole === assignedRole);
+
+    const toCreate = VA_TASK_BLUEPRINTS.filter(
+      (blueprint) => !has(blueprint.kind, blueprint.assignedRole)
+    );
+
+    if (toCreate.length > 0) {
+      await tx.task.createMany({
+        data: toCreate.map((task) => ({
+          loanId,
+          title: task.title,
+          kind: task.kind,
+          status: TaskStatus.PENDING,
+          priority: TaskPriority.NORMAL,
+          assignedRole: task.assignedRole,
+          dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        })),
+      });
+    }
+
+    await tx.loan.update({
+      where: { id: loanId },
+      data: { stage: 'SUBMIT_TO_UW_PREP' },
+    });
+
+    return toCreate.map((task) => task.kind);
+  });
+
+  if (createdKinds.length === 0) return [] as VaCreatedTaskNotification[];
+
+  const createdTasks = await prisma.task.findMany({
+    where: {
+      loanId,
+      kind: { in: createdKinds },
+    },
+    select: {
+      id: true,
+      kind: true,
+      title: true,
+      assignedRole: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const pickedByKind = new Map<TaskKind, VaCreatedTaskNotification>();
+  for (const task of createdTasks) {
+    if (!task.kind || !task.assignedRole) continue;
+    if (!createdKinds.includes(task.kind)) continue;
+    if (!pickedByKind.has(task.kind)) {
+      pickedByKind.set(task.kind, {
+        id: task.id,
+        kind: task.kind,
+        title: task.title,
+        assignedRole: task.assignedRole,
+      });
+    }
+  }
+
+  return createdKinds
+    .map((kind) => pickedByKind.get(kind))
+    .filter((task): task is VaCreatedTaskNotification => Boolean(task));
+}
+
+async function sendVaFanoutNotifications(input: {
+  loanId: string;
+  createdTasks: VaCreatedTaskNotification[];
+  changedBy?: string | null;
+}) {
+  if (input.createdTasks.length === 0) return;
+
+  const [loan, managerUsers] = await Promise.all([
+    prisma.loan.findUnique({
+      where: { id: input.loanId },
+      select: { borrowerName: true, loanNumber: true },
+    }),
+    prisma.user.findMany({
+      where: {
+        active: true,
+        OR: [{ role: UserRole.MANAGER }, { roles: { has: UserRole.MANAGER } }],
+      },
+      select: { email: true },
+    }),
+  ]);
+  if (!loan) return;
+
+  const rolesToNotify = Array.from(
+    new Set(input.createdTasks.map((task) => task.assignedRole))
+  );
+  const vaUsers = await prisma.user.findMany({
+    where: {
+      active: true,
+      OR: rolesToNotify.flatMap((role) => [{ role }, { roles: { has: role } }]),
+    },
+    select: { email: true, role: true, roles: true },
+  });
+
+  const recipientsByRole = new Map<UserRole, string[]>();
+  for (const role of rolesToNotify) {
+    const recipients = vaUsers
+      .filter((user) => user.role === role || user.roles.includes(role))
+      .map((user) => user.email.trim().toLowerCase())
+      .filter(Boolean);
+    recipientsByRole.set(role, Array.from(new Set(recipients)));
+  }
+
+  const portalBaseUrl = getPortalBaseUrl();
+  const logoUrl =
+    process.env.EMAIL_BRAND_LOGO_URL?.trim() || `${portalBaseUrl}/logo.png`;
+
+  for (const task of input.createdTasks) {
+    const recipients = recipientsByRole.get(task.assignedRole) || [];
+    if (recipients.length === 0) continue;
+    const taskUrl = `${portalBaseUrl}/tasks?taskId=${encodeURIComponent(task.id)}`;
+    const subject = `[FFL Portal] New ${task.title} Request: ${loan.borrowerName} (${loan.loanNumber})`;
+    const intro = `${input.changedBy?.trim() || 'QC Desk'} completed QC and created this ${task.title} request for your queue.`;
+
+    await createInAppNotificationsForAudience({
+      recipientEmails: recipients,
+      taskId: task.id,
+      eventLabel: 'New VA Request Submitted',
+      title: subject.replace(/^\[FFL Portal\]\s*/i, ''),
+      message: `${loan.borrowerName} (${loan.loanNumber}) - ${intro}`,
+      href: `/tasks?taskId=${encodeURIComponent(task.id)}`,
+    });
+
+    const html = buildTaskNotificationHtml({
+      logoUrl,
+      subject,
+      eventLabel: 'New VA Request Submitted',
+      deskLabel: 'VA Desk',
+      deskTone: 'rose',
+      intro,
+      ctaLabel: 'Open VA Request',
+      borrowerName: loan.borrowerName,
+      loanNumber: loan.loanNumber,
+      taskTitle: task.title,
+      status: 'NEW',
+      workflow: 'New VA Request',
+      reason: null,
+      changedBy: input.changedBy || null,
+      taskUrl,
+    });
+    const text = [
+      'Desk: VA Desk',
+      'Event: New VA Request Submitted',
+      `Borrower: ${loan.borrowerName}`,
+      `Loan Number: ${loan.loanNumber}`,
+      `Task: ${task.title}`,
+      'Status: NEW',
+      'Workflow: New VA Request',
+      input.changedBy ? `Changed By: ${input.changedBy}` : null,
+      `Open Task: ${taskUrl}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    await Promise.allSettled(
+      recipients.map((to) =>
+        sendEmail({
+          to,
+          subject,
+          html,
+          text,
+        })
+      )
+    );
+  }
+
+  const managerRecipients = Array.from(
+    new Set(
+      managerUsers
+        .map((user) => user.email.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+  if (managerRecipients.length === 0) return;
+
+  const tasksSummary = input.createdTasks.map((task) => `- ${task.title}`).join('\n');
+  const managerTaskUrl = `${portalBaseUrl}/tasks`;
+  const managerSubject = `[FFL Portal] VA Task Set Created from QC: ${loan.borrowerName} (${loan.loanNumber})`;
+  const managerText = [
+    'Desk: VA Desk',
+    'Event: New VA Task Set Created',
+    `Borrower: ${loan.borrowerName}`,
+    `Loan Number: ${loan.loanNumber}`,
+    'Created Tasks:',
+    tasksSummary,
+    input.changedBy ? `Changed By: ${input.changedBy}` : null,
+    `Open Tasks: ${managerTaskUrl}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const managerHtml = `
+  <div style="margin:0;padding:24px;background:#fff7f9;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" style="max-width:680px;width:100%;margin:0 auto;background:#ffffff;border:1px solid #fbcfe8;border-radius:16px;overflow:hidden;">
+      <tr>
+        <td style="padding:20px 24px;border-bottom:1px solid #fbcfe8;background:linear-gradient(135deg,#fff1f2,#ffe4e6);">
+          <h2 style="margin:0;font-size:20px;color:#9f1239;">${escapeHtml(managerSubject)}</h2>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:20px 24px;">
+          <p style="margin:0 0 10px;font-size:14px;color:#334155;">
+            ${escapeHtml(input.changedBy?.trim() || 'QC Desk')} completed QC and created these VA tasks:
+          </p>
+          <ul style="margin:0 0 14px 20px;padding:0;color:#0f172a;font-size:14px;line-height:1.6;">
+            ${input.createdTasks
+              .map((task) => `<li>${escapeHtml(task.title)}</li>`)
+              .join('')}
+          </ul>
+          <p style="margin:0;font-size:13px;color:#64748b;">
+            Borrower: <strong>${escapeHtml(loan.borrowerName)}</strong><br/>
+            Loan Number: <strong>${escapeHtml(loan.loanNumber)}</strong>
+          </p>
+          <p style="margin:14px 0 0;">
+            <a href="${escapeHtml(managerTaskUrl)}" style="display:inline-block;padding:10px 16px;border-radius:10px;background:#e11d48;color:#fff;text-decoration:none;font-weight:700;">Open Tasks</a>
+          </p>
+        </td>
+      </tr>
+    </table>
+  </div>
+  `;
+
+  await createInAppNotificationsForAudience({
+    recipientEmails: managerRecipients,
+    taskId: input.createdTasks[0].id,
+    eventLabel: 'New VA Task Set Created',
+    title: managerSubject.replace(/^\[FFL Portal\]\s*/i, ''),
+    message: `${loan.borrowerName} (${loan.loanNumber}) - ${input.createdTasks.length} VA tasks were created from QC completion.`,
+    href: '/tasks',
+  });
+
+  await Promise.allSettled(
+    managerRecipients.map((to) =>
+      sendEmail({
+        to,
+        subject: managerSubject,
+        html: managerHtml,
+        text: managerText,
+      })
+    )
+  );
+}
+
 async function sendTaskWorkflowNotificationsByTaskId(input: {
   taskId: string;
   eventLabel: string;
@@ -511,9 +825,23 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     });
     if (!task) return;
 
-    const isQcTask = isQcSubmissionTask(task);
-    const teamRole = isQcTask ? UserRole.QC : UserRole.DISCLOSURE_SPECIALIST;
-    const teamAudience: EmailAudience = isQcTask ? 'QC' : 'DISCLOSURE';
+    const deskType: DeskType = isVaTaskKind(task.kind)
+      ? 'VA'
+      : isQcSubmissionTask(task)
+      ? 'QC'
+      : 'DISCLOSURE';
+    const isQcTask = deskType === 'QC';
+    const deskLabel = isQcTask ? 'QC Desk' : deskType === 'VA' ? 'VA Desk' : 'Disclosure Desk';
+    const vaRole = getVaAssignedRoleForTask(task);
+    const teamRole =
+      deskType === 'QC'
+        ? UserRole.QC
+        : deskType === 'VA'
+        ? vaRole
+        : UserRole.DISCLOSURE_SPECIALIST;
+    if (deskType === 'VA' && !teamRole) return;
+    const teamAudience: EmailAudience =
+      deskType === 'QC' ? 'QC' : deskType === 'VA' ? 'VA' : 'DISCLOSURE';
 
     const [loan, teamUsers, managerUsers] = await Promise.all([
       prisma.loan.findUnique({
@@ -529,7 +857,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       prisma.user.findMany({
         where: {
           active: true,
-          OR: [{ role: teamRole }, { roles: { has: teamRole } }],
+          OR: [{ role: teamRole! }, { roles: { has: teamRole! } }],
         },
         select: { email: true },
       }),
@@ -583,7 +911,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
 
       const copy = getRoleSpecificEmailContent({
         audience,
-        isQcTask,
+        deskType,
         eventLabel: input.eventLabel,
         borrowerName: loan.borrowerName,
         loanNumber: loan.loanNumber,
@@ -609,7 +937,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       }
 
       const bodyLines = [
-        `Desk: ${isQcTask ? 'QC Desk' : 'Disclosure Desk'}`,
+        `Desk: ${deskLabel}`,
         `Event: ${copy.eventLabel}`,
         `Borrower: ${loan.borrowerName}`,
         `Loan Number: ${loan.loanNumber}`,
@@ -625,8 +953,8 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         logoUrl,
         subject: copy.subject,
         eventLabel: copy.eventLabel,
-        deskLabel: isQcTask ? 'QC Desk' : 'Disclosure Desk',
-        deskTone: isQcTask ? 'violet' : 'blue',
+        deskLabel,
+        deskTone: isQcTask ? 'violet' : deskType === 'VA' ? 'rose' : 'blue',
         eventTone: input.eventLabel === 'Request Deleted' ? 'danger' : 'default',
         intro: copy.intro,
         ctaLabel: copy.ctaLabel,
@@ -832,68 +1160,11 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
           existing.title.toLowerCase().includes('qc'));
 
       if (isQcSubmission) {
-        await prisma.$transaction(async (tx) => {
-          const existingKinds = await tx.task.findMany({
-            where: { loanId: existing.loanId },
-            select: { kind: true, assignedRole: true },
-          });
-
-          const has = (kind: TaskKind, role: UserRole) =>
-            existingKinds.some(
-              (t) => t.kind === kind || t.assignedRole === role
-            );
-
-          const toCreate: { kind: TaskKind; assignedRole: UserRole; title: string }[] =
-            [];
-
-          if (!has(TaskKind.VA_TITLE, UserRole.VA_TITLE)) {
-            toCreate.push({
-              kind: TaskKind.VA_TITLE,
-              assignedRole: UserRole.VA_TITLE,
-              title: 'VA: Title',
-            });
-          }
-          if (!has(TaskKind.VA_HOI, UserRole.VA_HOI)) {
-            toCreate.push({
-              kind: TaskKind.VA_HOI,
-              assignedRole: UserRole.VA_HOI,
-              title: 'VA: HOI',
-            });
-          }
-          if (!has(TaskKind.VA_PAYOFF, UserRole.VA_PAYOFF)) {
-            toCreate.push({
-              kind: TaskKind.VA_PAYOFF,
-              assignedRole: UserRole.VA_PAYOFF,
-              title: 'VA: Payoff',
-            });
-          }
-          if (!has(TaskKind.VA_APPRAISAL, UserRole.VA_APPRAISAL)) {
-            toCreate.push({
-              kind: TaskKind.VA_APPRAISAL,
-              assignedRole: UserRole.VA_APPRAISAL,
-              title: 'VA: Appraisal',
-            });
-          }
-
-          if (toCreate.length) {
-            await tx.task.createMany({
-              data: toCreate.map((t) => ({
-                loanId: existing.loanId,
-                title: t.title,
-                kind: t.kind,
-                status: TaskStatus.PENDING,
-                priority: TaskPriority.NORMAL,
-                assignedRole: t.assignedRole,
-                dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-              })),
-            });
-          }
-
-          // Move loan forward to next workflow stage (keeps Leads vs Active clean)
-          await tx.loan.update({
-            where: { id: existing.loanId },
-            data: { stage: 'SUBMIT_TO_UW_PREP' },
-          });
+        const createdVaTasks = await ensureVaTasksForLoanFromQcCompletion(existing.loanId);
+        await sendVaFanoutNotifications({
+          loanId: existing.loanId,
+          createdTasks: createdVaTasks,
+          changedBy: session?.user?.name || null,
         });
       }
     }
@@ -1598,10 +1869,11 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       },
     });
 
-    if (!isSubmissionTask(task)) {
+    const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
+    if (!isSubmissionTask(task) && !isVaAppraisalTask) {
       return {
         success: false,
-        error: 'This action is only supported for disclosure/QC submission tasks.',
+        error: 'This action is only supported for disclosure/QC submissions and VA Appraisal tasks.',
       };
     }
     const qcSubmissionTask = isQcSubmissionTask(task);
@@ -1665,6 +1937,13 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           error: 'Please add general QC notes before submitting the QC action.',
         };
       }
+    }
+
+    if (isVaAppraisalTask && normalizedReason !== DisclosureDecisionReason.MISSING_ITEMS) {
+      return {
+        success: false,
+        error: 'VA Appraisal can only send Missing/Incomplete items back to LO.',
+      };
     }
 
     const requiresProofForRouting =
@@ -1843,64 +2122,11 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     });
 
     if (isQcCompleteAction) {
-      await prisma.$transaction(async (tx) => {
-        const existingKinds = await tx.task.findMany({
-          where: { loanId: task.loanId },
-          select: { kind: true, assignedRole: true },
-        });
-
-        const has = (kind: TaskKind, assignedRole: UserRole) =>
-          existingKinds.some((t) => t.kind === kind || t.assignedRole === assignedRole);
-
-        const toCreate: { kind: TaskKind; assignedRole: UserRole; title: string }[] = [];
-
-        if (!has(TaskKind.VA_TITLE, UserRole.VA_TITLE)) {
-          toCreate.push({
-            kind: TaskKind.VA_TITLE,
-            assignedRole: UserRole.VA_TITLE,
-            title: 'VA: Title',
-          });
-        }
-        if (!has(TaskKind.VA_HOI, UserRole.VA_HOI)) {
-          toCreate.push({
-            kind: TaskKind.VA_HOI,
-            assignedRole: UserRole.VA_HOI,
-            title: 'VA: HOI',
-          });
-        }
-        if (!has(TaskKind.VA_PAYOFF, UserRole.VA_PAYOFF)) {
-          toCreate.push({
-            kind: TaskKind.VA_PAYOFF,
-            assignedRole: UserRole.VA_PAYOFF,
-            title: 'VA: Payoff',
-          });
-        }
-        if (!has(TaskKind.VA_APPRAISAL, UserRole.VA_APPRAISAL)) {
-          toCreate.push({
-            kind: TaskKind.VA_APPRAISAL,
-            assignedRole: UserRole.VA_APPRAISAL,
-            title: 'VA: Appraisal',
-          });
-        }
-
-        if (toCreate.length) {
-          await tx.task.createMany({
-            data: toCreate.map((t) => ({
-              loanId: task.loanId,
-              title: t.title,
-              kind: t.kind,
-              status: TaskStatus.PENDING,
-              priority: TaskPriority.NORMAL,
-              assignedRole: t.assignedRole,
-              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-            })),
-          });
-        }
-
-        await tx.loan.update({
-          where: { id: task.loanId },
-          data: { stage: 'SUBMIT_TO_UW_PREP' },
-        });
+      const createdVaTasks = await ensureVaTasksForLoanFromQcCompletion(task.loanId);
+      await sendVaFanoutNotifications({
+        loanId: task.loanId,
+        createdTasks: createdVaTasks,
+        changedBy: session?.user?.name || null,
       });
     }
 

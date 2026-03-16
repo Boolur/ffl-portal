@@ -5,6 +5,8 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LoanOfficerDashboard } from '@/components/dashboard/LoanOfficerDashboard';
 import { DisclosureOverview } from '@/components/dashboard/DisclosureOverview';
 import { QcOverview } from '@/components/dashboard/QcOverview';
+import { VaOverview } from '@/components/dashboard/VaOverview';
+import type { VaRole } from '@/components/dashboard/VaOverview';
 import { DepartmentBoard } from '@/components/admin/DepartmentBoard';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useImpersonation } from '@/lib/impersonation';
@@ -139,6 +141,15 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
     title: 'Overview',
     subtitle: 'Manage your assigned work and activity.',
   };
+  const isVaDeskRole =
+    activeRole === UserRole.VA_TITLE ||
+    activeRole === UserRole.VA_HOI ||
+    activeRole === UserRole.VA_PAYOFF ||
+    activeRole === UserRole.VA_APPRAISAL;
+  const isProcessorOrLegacyVaRole =
+    activeRole === UserRole.VA ||
+    activeRole === UserRole.PROCESSOR_JR ||
+    activeRole === UserRole.PROCESSOR_SR;
 
   return (
     <>
@@ -180,16 +191,15 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
         </div>
       )}
 
-      {/* For other roles, we show their specific queue */}
-      {[
-        'VA',
-        'VA_TITLE',
-        'VA_HOI',
-        'VA_PAYOFF',
-        'VA_APPRAISAL',
-        'PROCESSOR_JR',
-        'PROCESSOR_SR',
-      ].includes(activeRole) && (
+      {isVaDeskRole && (
+        <VaOverview
+          tasks={roleTasks}
+          role={activeRole as VaRole}
+        />
+      )}
+
+      {/* For processor/legacy VA role, keep task list view */}
+      {isProcessorOrLegacyVaRole && (
         <div className="bg-card rounded-xl border border-border shadow-sm">
           <div className="px-6 py-4 border-b border-border flex items-center justify-between">
             <h2 className="text-lg font-semibold text-foreground">Active Tasks</h2>

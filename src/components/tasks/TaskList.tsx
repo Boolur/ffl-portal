@@ -1170,9 +1170,11 @@ export function TaskList({
 
   const handleSendToLoanOfficer = async (task: Task) => {
     if (sendingToLoId) return;
-    const reason =
-      disclosureReasonByTask[task.id] ||
-      DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+    const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
+    const reason = isVaAppraisalTask
+      ? DisclosureDecisionReason.MISSING_ITEMS
+      : disclosureReasonByTask[task.id] ||
+        DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
     let message = (disclosureMessageByTask[task.id] || '').trim();
     const isQcTask = task.kind === TaskKind.SUBMIT_QC;
     let qcChecklistPayload:
@@ -1417,7 +1419,14 @@ export function TaskList({
         const requiresProofForCompletion =
           isVaTaskKind(task.kind) ||
           isDisclosureSubmissionTask(task);
-        const canCompleteTask = !requiresProofForCompletion || proofCount > 0;
+        const isVaAppraisalWaitingOnLoState =
+          currentRole === UserRole.VA_APPRAISAL &&
+          task.kind === TaskKind.VA_APPRAISAL &&
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.WAITING_ON_LO;
+        const canCompleteTask =
+          (!requiresProofForCompletion || proofCount > 0) &&
+          !isVaAppraisalWaitingOnLoState;
         const isLoTaskForCurrentLoanOfficer =
           currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
         const isQcLinkedLoResponseTask =
@@ -1426,6 +1435,15 @@ export function TaskList({
           (task.parentTask?.kind === TaskKind.SUBMIT_QC ||
             (task.parentTask?.assignedRole === UserRole.QC &&
               task.parentTask?.title.toLowerCase().includes('qc')));
+        const isVaAppraisalLinkedLoResponseTask =
+          isLoResponseTask(task) &&
+          Boolean(task.parentTask) &&
+          task.parentTask?.kind === TaskKind.VA_APPRAISAL;
+        const loResponseDeskLabel = isVaAppraisalLinkedLoResponseTask
+          ? 'Appraisal VA'
+          : isQcLinkedLoResponseTask
+          ? 'QC'
+          : 'Disclosure';
         const isLoanOfficerSubmissionTask =
           currentRole === UserRole.LOAN_OFFICER &&
           (isDisclosureSubmissionTask(task) || isQcSubmissionTask(task));
@@ -1445,11 +1463,18 @@ export function TaskList({
           task.workflowState === TaskWorkflowState.READY_TO_COMPLETE;
         const shouldHideGenericStartForDisclosureSubmission =
           canManageDisclosureDesk && isDisclosureSubmissionTask(task);
+        const isVaAppraisalRouteState =
+          currentRole === UserRole.VA_APPRAISAL &&
+          task.kind === TaskKind.VA_APPRAISAL &&
+          task.status !== TaskStatus.COMPLETED &&
+          (task.workflowState === TaskWorkflowState.NONE ||
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE);
         const shouldRouteFromFooter =
           task.status !== TaskStatus.COMPLETED &&
           ((isDisclosureInitialRoutingState ||
             isDisclosureReturnedRoutingState) ||
-            (canManageQcDesk && isQcSubmissionTask(task)));
+            (canManageQcDesk && isQcSubmissionTask(task)) ||
+            isVaAppraisalRouteState);
         const isDisclosureMissingItemsRoute =
           canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
@@ -1475,7 +1500,8 @@ export function TaskList({
             selectedReason === DisclosureDecisionReason.MISSING_ITEMS) ||
           (canManageQcDesk &&
             isQcSubmissionTask(task) &&
-            selectedQcReason === DisclosureDecisionReason.MISSING_ITEMS);
+            selectedQcReason === DisclosureDecisionReason.MISSING_ITEMS) ||
+          isVaAppraisalRouteState;
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
         const assignedSpecialistName = task.assignedUser?.name?.trim() || '';
@@ -2137,6 +2163,48 @@ export function TaskList({
                       </div>
                     )}
 
+                  {isVaAppraisalRouteState && (
+                    <div className="mt-8 rounded-2xl border border-rose-200 bg-gradient-to-b from-rose-50/80 to-white p-6 shadow-sm space-y-4">
+                      <div className="mb-2 flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-100 text-rose-700">
+                            <MessageSquare className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-rose-900">Appraisal VA Action</h4>
+                            <p className="text-xs font-medium text-rose-800/80">
+                              Add context for LO and route Missing/Incomplete items.
+                            </p>
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center rounded-full border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-700">
+                          Required Note
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                          LO Context / Notes
+                        </label>
+                        <textarea
+                          value={disclosureMessageByTask[task.id] || ''}
+                          onChange={(event) =>
+                            setDisclosureMessageByTask((prev) => ({
+                              ...prev,
+                              [task.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="Example: Borrower card form missing, card declined, or clarification needed."
+                          className="w-full rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm min-h-[110px] focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+                        />
+                      </div>
+                      <div className="rounded-lg border border-rose-200 bg-white px-3 py-2">
+                        <p className="text-xs font-semibold text-rose-700">
+                          Use the bottom action bar to send this request back to LO.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {canManageQcDesk && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
                     <div className="mt-8 rounded-2xl border border-violet-100 bg-violet-50/50 p-6 shadow-sm space-y-4">
                       <div className="mb-2 flex items-start justify-between gap-3">
@@ -2336,7 +2404,7 @@ export function TaskList({
                             [task.id]: event.target.value,
                           }))
                         }
-                        placeholder="Describe your response and what you updated for Disclosure..."
+                        placeholder={`Describe your response and what you updated for ${loResponseDeskLabel}...`}
                         className="w-full rounded-xl border border-blue-200 bg-white px-4 py-3 text-sm font-medium shadow-sm min-h-[100px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                       />
                       <p className="text-xs font-semibold text-blue-700/80">
@@ -2406,7 +2474,9 @@ export function TaskList({
                       task.status !== 'COMPLETED' &&
                       !isDisclosureInitialRoutingState &&
                       !(
-                        shouldRouteFromFooter && !isDisclosureReturnedRoutingState
+                        shouldRouteFromFooter &&
+                        !isDisclosureReturnedRoutingState &&
+                        !isVaAppraisalRouteState
                       ) &&
                       !isLoanOfficerSubmissionTask && (
                       <button
@@ -2472,6 +2542,8 @@ export function TaskList({
                             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
                             ? 'Send to LO for Approval'
                             : 'Send Back to LO'
+                          : task.kind === TaskKind.VA_APPRAISAL
+                          ? 'Send Back to LO'
                           : selectedQcReason ===
                             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
                           ? 'Complete QC'
@@ -2523,7 +2595,7 @@ export function TaskList({
                           {respondingId === task.id && (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           )}
-                          Respond to Disclosure
+                          {`Respond to ${loResponseDeskLabel}`}
                         </button>
                       ))}
                     {canDelete && (
