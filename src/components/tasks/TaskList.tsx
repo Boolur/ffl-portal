@@ -1019,6 +1019,9 @@ export function TaskList({
     null
   );
   const [startingQcId, setStartingQcId] = React.useState<string | null>(null);
+  const [uploadStatusByTask, setUploadStatusByTask] = React.useState<
+    Record<string, { type: 'success' | 'error'; message: string }>
+  >({});
   const [sendingToLoId, setSendingToLoId] = React.useState<string | null>(null);
   const [respondingId, setRespondingId] = React.useState<string | null>(null);
   const [disclosureReasonByTask, setDisclosureReasonByTask] = React.useState<
@@ -1136,6 +1139,12 @@ export function TaskList({
   const handleUploadProof = async (taskId: string, file: File) => {
     if (uploadingId) return;
     setUploadingId(taskId);
+    setUploadStatusByTask((prev) => {
+      if (!prev[taskId]) return prev;
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
 
     try {
       const upload = await createTaskAttachmentUploadUrl({
@@ -1145,13 +1154,18 @@ export function TaskList({
       });
 
       if (!upload.success || !upload.signedUrl || !upload.path) {
-        alert(upload.error || 'Failed to create upload URL.');
-        setUploadingId(null);
+        setUploadStatusByTask((prev) => ({
+          ...prev,
+          [taskId]: {
+            type: 'error',
+            message: upload.error || 'Failed to create upload URL.',
+          },
+        }));
         return;
       }
 
       const uploadAbort = new AbortController();
-      const uploadTimeout = window.setTimeout(() => uploadAbort.abort(), 90_000);
+      const uploadTimeout = window.setTimeout(() => uploadAbort.abort(), 20_000);
       const put = await fetch(upload.signedUrl, {
         method: 'PUT',
         headers: {
@@ -1165,8 +1179,13 @@ export function TaskList({
 
       if (!put.ok) {
         console.error('Upload failed', await put.text());
-        alert('Upload failed. Please try again.');
-        setUploadingId(null);
+        setUploadStatusByTask((prev) => ({
+          ...prev,
+          [taskId]: {
+            type: 'error',
+            message: 'Upload failed. Please try again.',
+          },
+        }));
         return;
       }
 
@@ -1175,7 +1194,7 @@ export function TaskList({
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutHandle = window.setTimeout(
             () => reject(new Error('Saving attachment timed out. Please try again.')),
-            30_000
+            15_000
           );
         });
         try {
@@ -1197,20 +1216,50 @@ export function TaskList({
       const saved = await saveWithTimeout();
 
       if (!saved.success) {
-        alert(saved.error || 'Failed to save attachment.');
-        setUploadingId(null);
+        setUploadStatusByTask((prev) => ({
+          ...prev,
+          [taskId]: {
+            type: 'error',
+            message: saved.error || 'Failed to save attachment.',
+          },
+        }));
         return;
       }
 
+      setUploadStatusByTask((prev) => ({
+        ...prev,
+        [taskId]: {
+          type: 'success',
+          message: 'Proof uploaded successfully.',
+        },
+      }));
       router.refresh();
     } catch (error) {
       console.error(error);
       if (error instanceof DOMException && error.name === 'AbortError') {
-        alert('Upload timed out. Please check connection and try again.');
+        setUploadStatusByTask((prev) => ({
+          ...prev,
+          [taskId]: {
+            type: 'error',
+            message: 'Upload timed out after 20 seconds. Please retry.',
+          },
+        }));
       } else if (error instanceof Error) {
-        alert(error.message || 'Upload failed. Please try again.');
+        setUploadStatusByTask((prev) => ({
+          ...prev,
+          [taskId]: {
+            type: 'error',
+            message: error.message || 'Upload failed. Please try again.',
+          },
+        }));
       } else {
-        alert('Upload failed. Please try again.');
+        setUploadStatusByTask((prev) => ({
+          ...prev,
+          [taskId]: {
+            type: 'error',
+            message: 'Upload failed. Please try again.',
+          },
+        }));
       }
     } finally {
       setUploadingId(null);
@@ -2104,6 +2153,17 @@ export function TaskList({
 
                   {shouldShowProofUploader && (
                     <div className="mt-6 rounded-2xl border border-amber-200 bg-gradient-to-b from-amber-50/70 to-white p-5 shadow-sm">
+                      {uploadStatusByTask[task.id] && (
+                        <div
+                          className={`mb-3 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                            uploadStatusByTask[task.id].type === 'success'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-rose-200 bg-rose-50 text-rose-700'
+                          }`}
+                        >
+                          {uploadStatusByTask[task.id].message}
+                        </div>
+                      )}
                       <div className="mb-3 flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
                           <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
