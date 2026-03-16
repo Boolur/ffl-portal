@@ -1188,7 +1188,7 @@ export function TaskList({
     if (sendingToLoId) return;
     const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
     const reason = isVaAppraisalTask
-      ? DisclosureDecisionReason.MISSING_ITEMS
+      ? disclosureReasonByTask[task.id] || DisclosureDecisionReason.MISSING_ITEMS
       : disclosureReasonByTask[task.id] ||
         DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
     let message = (disclosureMessageByTask[task.id] || '').trim();
@@ -1405,6 +1405,9 @@ export function TaskList({
         const selectedQcReason =
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+        const selectedVaReason =
+          disclosureReasonByTask[task.id] ||
+          DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const qcChecklistRows = getQcChecklistRows(task.id);
         const qcChecklistHasRedXItems = hasQcChecklistRedItem(qcChecklistRows);
         const qcChecklistAllGreen = isQcChecklistGreenOnly(qcChecklistRows);
@@ -1484,8 +1487,14 @@ export function TaskList({
           canManageVaDesk &&
           task.kind === TaskKind.VA_APPRAISAL &&
           task.status !== TaskStatus.COMPLETED &&
-          (task.workflowState === TaskWorkflowState.NONE ||
+          (task.status === TaskStatus.IN_PROGRESS ||
             task.workflowState === TaskWorkflowState.READY_TO_COMPLETE);
+        const isVaAppraisalMissingItemsAction =
+          isVaAppraisalRouteState &&
+          selectedVaReason === DisclosureDecisionReason.MISSING_ITEMS;
+        const isVaAppraisalCompleteAction =
+          isVaAppraisalRouteState &&
+          selectedVaReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const shouldRouteFromFooter =
           task.status !== TaskStatus.COMPLETED &&
           ((isDisclosureInitialRoutingState ||
@@ -1518,7 +1527,7 @@ export function TaskList({
           (canManageQcDesk &&
             isQcSubmissionTask(task) &&
             selectedQcReason === DisclosureDecisionReason.MISSING_ITEMS) ||
-          isVaAppraisalRouteState;
+          isVaAppraisalMissingItemsAction;
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
         const assignedSpecialistName = task.assignedUser?.name?.trim() || '';
@@ -1538,6 +1547,11 @@ export function TaskList({
           isQcInitialRoutingState && task.status === TaskStatus.PENDING;
         const disableQcStartButton =
           hasAssignedSpecialist && !isAssignedToCurrentUser;
+        const showVaStartButton =
+          canManageVaDesk &&
+          isVaTaskKind(task.kind) &&
+          task.status === TaskStatus.PENDING &&
+          task.workflowState === TaskWorkflowState.NONE;
         const disclosureFooterMessage = (disclosureMessageByTask[task.id] || '').trim();
         const loFooterResponse = (loResponseByTask[task.id] || '').trim();
         const parsedSubmissionData =
@@ -2188,24 +2202,84 @@ export function TaskList({
                     )}
 
                   {isVaAppraisalRouteState && (
-                    <div className="mt-8 rounded-2xl border border-rose-200 bg-gradient-to-b from-rose-50/80 to-white p-6 shadow-sm space-y-4">
+                    <div
+                      className={`mt-8 rounded-2xl border p-6 shadow-sm space-y-4 ${
+                        isVaAppraisalCompleteAction
+                          ? 'border-emerald-200 bg-gradient-to-b from-emerald-50/80 to-white'
+                          : 'border-amber-200 bg-gradient-to-b from-amber-50/80 to-white'
+                      }`}
+                    >
                       <div className="mb-2 flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-100 text-rose-700">
+                          <div
+                            className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                              isVaAppraisalCompleteAction
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
                             <MessageSquare className="h-4 w-4" />
                           </div>
                           <div>
-                            <h4 className="text-sm font-bold text-rose-900">Appraisal VA Action</h4>
-                            <p className="text-xs font-medium text-rose-800/80">
-                              Add context for LO and route Missing/Incomplete items.
+                            <h4
+                              className={`text-sm font-bold ${
+                                isVaAppraisalCompleteAction
+                                  ? 'text-emerald-900'
+                                  : 'text-amber-900'
+                              }`}
+                            >
+                              Appraisal VA Action
+                            </h4>
+                            <p
+                              className={`text-xs font-medium ${
+                                isVaAppraisalCompleteAction
+                                  ? 'text-emerald-800/80'
+                                  : 'text-amber-800/80'
+                              }`}
+                            >
+                              Choose whether to complete this request or send Missing/Incomplete
+                              items back to LO.
                             </p>
                           </div>
                         </div>
-                        <span className="inline-flex items-center rounded-full border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-700">
-                          Required Note
+                        <span
+                          className={`inline-flex items-center rounded-full border bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
+                            isVaAppraisalCompleteAction
+                              ? 'border-emerald-200 text-emerald-700'
+                              : 'border-amber-200 text-amber-700'
+                          }`}
+                        >
+                          {isVaAppraisalCompleteAction ? 'Complete Request' : 'Required Note'}
                         </span>
                       </div>
                       <div className="space-y-2">
+                        <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                          Action Type
+                        </label>
+                        <select
+                          value={selectedVaReason}
+                          onChange={(event) =>
+                            setDisclosureReasonByTask((prev) => ({
+                              ...prev,
+                              [task.id]: event.target.value as DisclosureDecisionReason,
+                            }))
+                          }
+                          className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-semibold shadow-sm ${
+                            isVaAppraisalCompleteAction
+                              ? 'border-emerald-200 text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                              : 'border-amber-200 text-amber-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
+                          }`}
+                        >
+                          <option value={DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES}>
+                            Complete Request
+                          </option>
+                          <option value={DisclosureDecisionReason.MISSING_ITEMS}>
+                            Send Back - Missing/Incomplete
+                          </option>
+                        </select>
+                      </div>
+                      {!isVaAppraisalCompleteAction && (
+                        <div className="space-y-2">
                         <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
                           LO Context / Notes
                         </label>
@@ -2218,12 +2292,27 @@ export function TaskList({
                             }))
                           }
                           placeholder="Example: Borrower card form missing, card declined, or clarification needed."
-                          className="w-full rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm min-h-[110px] focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+                          className="w-full rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm min-h-[110px] focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
                         />
                       </div>
-                      <div className="rounded-lg border border-rose-200 bg-white px-3 py-2">
-                        <p className="text-xs font-semibold text-rose-700">
-                          Use the bottom action bar to send this request back to LO.
+                      )}
+                      <div
+                        className={`rounded-lg border bg-white px-3 py-2 ${
+                          isVaAppraisalCompleteAction
+                            ? 'border-emerald-200'
+                            : 'border-amber-200'
+                        }`}
+                      >
+                        <p
+                          className={`text-xs font-semibold ${
+                            isVaAppraisalCompleteAction
+                              ? 'text-emerald-700'
+                              : 'text-amber-700'
+                          }`}
+                        >
+                          {isVaAppraisalCompleteAction
+                            ? 'Use the bottom action bar to complete this appraisal request.'
+                            : 'Use the bottom action bar to send this request back to LO.'}
                         </p>
                       </div>
                     </div>
@@ -2479,9 +2568,24 @@ export function TaskList({
                           : 'Start'}
                       </button>
                     )}
+                    {showVaStartButton && (
+                      <button
+                        type="button"
+                        onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
+                        disabled={!!updatingId}
+                        className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                        title="Start this VA request"
+                      >
+                        {updatingId === task.id && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        Start
+                      </button>
+                    )}
                     {task.status === 'PENDING' &&
                       !shouldHideGenericStartForDisclosureSubmission &&
                       !isDisclosureInitialRoutingState &&
+                      !showVaStartButton &&
                       !shouldRouteFromFooter &&
                       !shouldLoRespondFromFooter &&
                       !isLoanOfficerSubmissionTask && (
@@ -2534,15 +2638,36 @@ export function TaskList({
                     {shouldRouteFromFooter && (
                       (() => {
                         const isQcRouteTask = isQcSubmissionTask(task);
+                        const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
                         const disableRouteButton =
                           sendingToLoId === task.id ||
                           (requiresProofForRouting && proofCount < 1) ||
+                          (isVaAppraisalTask
+                            ? isVaAppraisalMissingItemsAction
+                              ? !disclosureFooterMessage
+                              : !canCompleteTask
+                            : false) ||
                           (isQcRouteTask
                             ? qcChecklistMissingFields ||
                               qcChecklistBlocksCompleteAction ||
                               qcChecklistBlocksMissingItemsAction ||
                               qcGeneralNotesMissing
                             : !disclosureFooterMessage);
+                        if (isVaAppraisalTask && isVaAppraisalCompleteAction) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleStatusChange(task.id, 'COMPLETED')}
+                              disabled={disableRouteButton || !!updatingId}
+                              className="inline-flex h-9 items-center rounded-lg border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {updatingId === task.id && (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              )}
+                              Complete
+                            </button>
+                          );
+                        }
                         return (
                       <button
                         type="button"

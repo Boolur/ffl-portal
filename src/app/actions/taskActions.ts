@@ -1844,7 +1844,8 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       role === UserRole.ADMIN ||
       role === UserRole.MANAGER ||
       role === UserRole.QC ||
-      role === UserRole.DISCLOSURE_SPECIALIST;
+      role === UserRole.DISCLOSURE_SPECIALIST ||
+      role === UserRole.VA_APPRAISAL;
 
     if (!canRequest) {
       return { success: false, error: 'Not authorized.' };
