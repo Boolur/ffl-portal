@@ -62,11 +62,6 @@ function StatusChip({ label, state }: { label: string; state: VaChipState }) {
       }`}
       title={`${label}: ${completed ? 'Completed' : 'Incomplete'}`}
     >
-      {completed ? (
-        <CheckCircle2 className="mr-1 h-3 w-3" />
-      ) : (
-        <Circle className="mr-1 h-3 w-3 fill-current" />
-      )}
       {label}: {completed ? 'Completed' : 'Incomplete'}
     </span>
   );
