@@ -14,7 +14,7 @@ import {
 } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { ClipboardCheck, ShieldCheck } from 'lucide-react';
+import { ClipboardCheck, FileCheck2, Home, Landmark, ShieldCheck } from 'lucide-react';
 
 // In a real app, we'd get the current user from the session
 const MOCK_USER = {
@@ -774,6 +774,15 @@ function getManagerDeskRows(allTasks: TaskRow[]) {
   };
 }
 
+function getManagerVaDeskRows(allTasks: TaskRow[]) {
+  return {
+    vaTitleBuckets: getRoleBuckets(UserRole.VA_TITLE, allTasks),
+    vaHoiBuckets: getRoleBuckets(UserRole.VA_HOI, allTasks),
+    vaPayoffBuckets: getRoleBuckets(UserRole.VA_PAYOFF, allTasks),
+    vaAppraisalBuckets: getRoleBuckets(UserRole.VA_APPRAISAL, allTasks),
+  };
+}
+
 type TasksPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -804,6 +813,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     : sessionRole === UserRole.MANAGER
     ? getManagerDeskRows(allTasks)
     : null;
+  const managerVaRows =
+    sessionRole === UserRole.MANAGER ? getManagerVaDeskRows(allTasks) : null;
   const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete = sessionRole === UserRole.ADMIN;
   const roleTaskSubtitle: Record<string, string> = {
@@ -811,7 +822,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       'Manage submitted requests, complete LO actions, and track returns sent back to Disclosure.',
     [UserRole.ADMIN]: 'Manage and clean up tasks across all teams.',
     [UserRole.MANAGER]:
-      'Oversee Disclosure and QC queues with full desk-level actions across both rows.',
+      'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
     [UserRole.DISCLOSURE_SPECIALIST]: 'Work disclosure tasks by due date and status.',
     [UserRole.VA]: 'Track support tasks and progress them to completion.',
     [UserRole.VA_TITLE]: 'Complete Title tasks and upload proof before finishing.',
@@ -888,6 +899,98 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
               fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
             />
           </section>
+          {sessionRole === UserRole.MANAGER && managerVaRows && (
+            <>
+              <section>
+                <div className="mb-2">
+                  <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
+                      <FileCheck2 className="h-5 w-5" />
+                    </span>
+                    VA Title Requests
+                  </h2>
+                </div>
+                <TaskBucketsBoard
+                  buckets={managerVaRows.vaTitleBuckets}
+                  activeBucketId={
+                    managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null
+                  }
+                  canDelete={canDelete}
+                  currentRole={sessionRole}
+                  currentUserId={sessionUser.id}
+                  initialFocusedTaskId={focusedTaskId}
+                  bucketScrollMode="fixed"
+                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                />
+              </section>
+              <section>
+                <div className="mb-2">
+                  <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
+                      <Home className="h-5 w-5" />
+                    </span>
+                    VA HOI Requests
+                  </h2>
+                </div>
+                <TaskBucketsBoard
+                  buckets={managerVaRows.vaHoiBuckets}
+                  activeBucketId={
+                    managerVaRows.vaHoiBuckets.find((b) => b.id === bucket)?.id || null
+                  }
+                  canDelete={canDelete}
+                  currentRole={sessionRole}
+                  currentUserId={sessionUser.id}
+                  initialFocusedTaskId={focusedTaskId}
+                  bucketScrollMode="fixed"
+                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                />
+              </section>
+              <section>
+                <div className="mb-2">
+                  <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
+                      <Landmark className="h-5 w-5" />
+                    </span>
+                    VA Payoff Requests
+                  </h2>
+                </div>
+                <TaskBucketsBoard
+                  buckets={managerVaRows.vaPayoffBuckets}
+                  activeBucketId={
+                    managerVaRows.vaPayoffBuckets.find((b) => b.id === bucket)?.id || null
+                  }
+                  canDelete={canDelete}
+                  currentRole={sessionRole}
+                  currentUserId={sessionUser.id}
+                  initialFocusedTaskId={focusedTaskId}
+                  bucketScrollMode="fixed"
+                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                />
+              </section>
+              <section>
+                <div className="mb-2">
+                  <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
+                      <ShieldCheck className="h-5 w-5" />
+                    </span>
+                    VA Appraisal Requests
+                  </h2>
+                </div>
+                <TaskBucketsBoard
+                  buckets={managerVaRows.vaAppraisalBuckets}
+                  activeBucketId={
+                    managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
+                  }
+                  canDelete={canDelete}
+                  currentRole={sessionRole}
+                  currentUserId={sessionUser.id}
+                  initialFocusedTaskId={focusedTaskId}
+                  bucketScrollMode="fixed"
+                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                />
+              </section>
+            </>
+          )}
         </div>
       )}
 

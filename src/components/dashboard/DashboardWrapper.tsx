@@ -188,6 +188,34 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
             </div>
             <QcOverview tasks={adminTasks} />
           </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">VA Desk - Title</h2>
+              <p className="app-page-subtitle">Live VA Title workload and status mix.</p>
+            </div>
+            <VaOverview tasks={adminTasks} role={UserRole.VA_TITLE} />
+          </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">VA Desk - HOI</h2>
+              <p className="app-page-subtitle">Live VA HOI workload and status mix.</p>
+            </div>
+            <VaOverview tasks={adminTasks} role={UserRole.VA_HOI} />
+          </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">VA Desk - Payoff</h2>
+              <p className="app-page-subtitle">Live VA Payoff workload and status mix.</p>
+            </div>
+            <VaOverview tasks={adminTasks} role={UserRole.VA_PAYOFF} />
+          </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">VA Desk - Appraisal</h2>
+              <p className="app-page-subtitle">Live VA Appraisal workload and status mix.</p>
+            </div>
+            <VaOverview tasks={adminTasks} role={UserRole.VA_APPRAISAL} />
+          </section>
         </div>
       )}
 

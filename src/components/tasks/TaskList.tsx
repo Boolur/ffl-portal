@@ -1354,6 +1354,7 @@ export function TaskList({
   const isLoanOfficerRole = currentRole === UserRole.LOAN_OFFICER;
   const isQcRole = currentRole === UserRole.QC;
   const isManagerRole = currentRole === UserRole.MANAGER;
+  const canManageVaDesk = isManagerRole || isVaSubRole;
   const canManageDisclosureDesk = isDisclosureRole || isManagerRole;
   const canManageQcDesk = isQcRole || isManagerRole;
   const isDisclosureSubmissionTask = (task: Task) =>
@@ -1420,7 +1421,7 @@ export function TaskList({
           isVaTaskKind(task.kind) ||
           isDisclosureSubmissionTask(task);
         const isVaAppraisalWaitingOnLoState =
-          currentRole === UserRole.VA_APPRAISAL &&
+          canManageVaDesk &&
           task.kind === TaskKind.VA_APPRAISAL &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.WAITING_ON_LO;
@@ -1464,7 +1465,7 @@ export function TaskList({
         const shouldHideGenericStartForDisclosureSubmission =
           canManageDisclosureDesk && isDisclosureSubmissionTask(task);
         const isVaAppraisalRouteState =
-          currentRole === UserRole.VA_APPRAISAL &&
+          canManageVaDesk &&
           task.kind === TaskKind.VA_APPRAISAL &&
           task.status !== TaskStatus.COMPLETED &&
           (task.workflowState === TaskWorkflowState.NONE ||
@@ -1482,7 +1483,7 @@ export function TaskList({
           selectedReason === DisclosureDecisionReason.MISSING_ITEMS;
         const shouldShowProofUploader =
           task.status !== 'COMPLETED' &&
-          ((isVaSubRole && isVaTaskKind(task.kind)) ||
+          ((canManageVaDesk && isVaTaskKind(task.kind)) ||
             (canDisclosureEditProofAttachments && !isDisclosureMissingItemsRoute) ||
             (canManageQcDesk && isQcSubmissionTask(task)));
         const isQcAttachmentSection = canManageQcDesk && isQcSubmissionTask(task);
