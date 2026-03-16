@@ -240,6 +240,9 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
 
   const rows: LoVaBorrowerProgressItem[] = [];
   for (const value of grouped.values()) {
+    const hasAnyVaTask = VA_KIND_MAP.some((definition) => Boolean(value.vaByKind[definition.key]));
+    if (!hasAnyVaTask) continue;
+
     const chips: Record<VaKindKey, VaChipState> = {
       title: 'not_started',
       hoi: 'not_started',
