@@ -686,6 +686,7 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
         disclosureReason: true,
         workflowState: true,
         loanOfficerApprovedAt: true,
+        submissionData: true,
         loan: { select: { loanOfficerId: true } },
       },
     });
@@ -770,6 +771,17 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
       }
     }
 
+    const isQcSubmissionWorkflowTask = isQcSubmissionTask(existing);
+    const statusHistoryMessage = `Status changed to ${newStatus.replace('_', ' ')}.`;
+    const submissionDataWithStatusHistory = isQcSubmissionWorkflowTask
+      ? appendSubmissionHistoryEntry(existing.submissionData, {
+          author: session?.user?.name || 'Unknown',
+          role,
+          message: statusHistoryMessage,
+          entryType: 'status',
+        })
+      : undefined;
+
     await prisma.task.update({
       where: { id: taskId },
       data: {
@@ -779,6 +791,7 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
             ? TaskWorkflowState.NONE
             : existing.workflowState ?? TaskWorkflowState.NONE,
         completedAt: newStatus === 'COMPLETED' ? new Date() : null,
+        submissionData: submissionDataWithStatusHistory,
       },
     });
 
@@ -1355,6 +1368,31 @@ function parseQcChecklistInput(input: RequestInfoInput['qcChecklist']): ParsedQc
   return { items: parsedItems, summaryMessage };
 }
 
+function appendSubmissionHistoryEntry(
+  submissionData: Prisma.JsonValue | null | undefined,
+  entry: {
+    author: string;
+    role: UserRole;
+    message: string;
+    entryType?: string;
+  }
+) {
+  const dataObj =
+    submissionData && typeof submissionData === 'object' && !Array.isArray(submissionData)
+      ? { ...(submissionData as Record<string, unknown>) }
+      : {};
+  const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
+  notes.push({
+    author: entry.author,
+    role: entry.role,
+    message: entry.message,
+    date: new Date().toISOString(),
+    ...(entry.entryType ? { entryType: entry.entryType } : {}),
+  });
+  dataObj.notesHistory = notes;
+  return dataObj as Prisma.JsonObject;
+}
+
 export async function startDisclosureRequest(taskId: string) {
   try {
     const session = await getServerSession(authOptions);
@@ -1464,6 +1502,7 @@ export async function startQcRequest(taskId: string) {
         workflowState: true,
         assignedUserId: true,
         assignedUser: { select: { name: true } },
+        submissionData: true,
       },
     });
 
@@ -1491,12 +1530,20 @@ export async function startQcRequest(taskId: string) {
       };
     }
 
+    const updatedSubmissionData = appendSubmissionHistoryEntry(task.submissionData, {
+      author: session?.user?.name || 'Unknown',
+      role,
+      message: 'QC request started.',
+      entryType: 'status',
+    });
+
     await prisma.task.update({
       where: { id: taskId },
       data: {
         assignedUserId: userId,
         assignedRole: UserRole.QC,
         status: TaskStatus.IN_PROGRESS,
+        submissionData: updatedSubmissionData,
       },
     });
 
