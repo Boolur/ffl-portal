@@ -551,20 +551,26 @@ type VaCreatedTaskNotification = {
   assignedRole: UserRole;
 };
 
-async function ensureVaTasksForLoanFromQcCompletion(loanId: string) {
+async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: string) {
   const createdKinds = await prisma.$transaction(async (tx) => {
-    const latestQcSubmission = await tx.task.findFirst({
-      where: {
-        loanId,
-        kind: TaskKind.SUBMIT_QC,
-      },
-      select: {
-        submissionData: true,
-      },
-      orderBy: {
-        updatedAt: 'desc',
-      },
-    });
+    const sourceQcSubmission = qcTaskId
+      ? await tx.task.findUnique({
+          where: { id: qcTaskId },
+          select: { submissionData: true, kind: true },
+        })
+      : await tx.task.findFirst({
+          where: {
+            loanId,
+            kind: TaskKind.SUBMIT_QC,
+          },
+          select: {
+            submissionData: true,
+          },
+          orderBy: {
+            updatedAt: 'desc',
+          },
+        });
+    const qcSubmissionData = sourceQcSubmission?.submissionData || Prisma.JsonNull;
 
     const existingKinds = await tx.task.findMany({
       where: { loanId },
@@ -587,9 +593,34 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string) {
           status: TaskStatus.PENDING,
           priority: TaskPriority.NORMAL,
           assignedRole: task.assignedRole,
-          submissionData: latestQcSubmission?.submissionData || Prisma.JsonNull,
+          submissionData: qcSubmissionData,
           dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
         })),
+      });
+    }
+
+    const vaKinds = new Set(VA_TASK_BLUEPRINTS.map((entry) => entry.kind));
+    const existingVaTasks = await tx.task.findMany({
+      where: {
+        loanId,
+        kind: { in: Array.from(vaKinds) },
+      },
+      select: {
+        id: true,
+        submissionData: true,
+      },
+    });
+    for (const vaTask of existingVaTasks) {
+      const data = vaTask.submissionData;
+      const isEmptyData =
+        data === null ||
+        (typeof data === 'object' &&
+          !Array.isArray(data) &&
+          Object.keys(data as Record<string, unknown>).length === 0);
+      if (!isEmptyData) continue;
+      await tx.task.update({
+        where: { id: vaTask.id },
+        data: { submissionData: qcSubmissionData },
       });
     }
 
@@ -1174,7 +1205,10 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
           existing.title.toLowerCase().includes('qc'));
 
       if (isQcSubmission) {
-        const createdVaTasks = await ensureVaTasksForLoanFromQcCompletion(existing.loanId);
+        const createdVaTasks = await ensureVaTasksForLoanFromQcCompletion(
+          existing.loanId,
+          existing.id
+        );
         await sendVaFanoutNotifications({
           loanId: existing.loanId,
           createdTasks: createdVaTasks,
@@ -2137,7 +2171,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     });
 
     if (isQcCompleteAction) {
-      const createdVaTasks = await ensureVaTasksForLoanFromQcCompletion(task.loanId);
+      const createdVaTasks = await ensureVaTasksForLoanFromQcCompletion(task.loanId, task.id);
       await sendVaFanoutNotifications({
         loanId: task.loanId,
         createdTasks: createdVaTasks,
