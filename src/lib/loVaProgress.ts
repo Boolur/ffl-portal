@@ -10,6 +10,7 @@ export type LoVaProgressTaskInput = {
   kind: TaskKind | null;
   status: TaskStatus;
   workflowState: TaskWorkflowState;
+  createdAt?: Date | string | null;
   updatedAt?: Date | string | null;
   loan: LoanRef;
   parentTask?: {
@@ -35,6 +36,7 @@ export type LoVaBorrowerProgressItem = {
   needsLoResponse: boolean;
   actionTaskId: string | null;
   detailTaskId: string | null;
+  earliestCreatedAt: Date | null;
   latestUpdatedAt: Date | null;
   stageDetails: Record<
     VaKindKey,
@@ -91,6 +93,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       appraisalNeedsLoResponse: boolean;
       appraisalActionTaskId: string | null;
       detailTaskId: string | null;
+      earliestCreatedAt: Date | null;
       latestUpdatedAt: Date | null;
     }
   >();
@@ -104,11 +107,20 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       appraisalNeedsLoResponse: false,
       appraisalActionTaskId: null,
       detailTaskId: null,
+      earliestCreatedAt: null,
       latestUpdatedAt: null,
     };
 
     if (!existing.detailTaskId) {
       existing.detailTaskId = task.id;
+    }
+    const createdAt = toDate(task.createdAt);
+    if (
+      createdAt &&
+      (!existing.earliestCreatedAt ||
+        createdAt.getTime() < existing.earliestCreatedAt.getTime())
+    ) {
+      existing.earliestCreatedAt = createdAt;
     }
 
     const updatedAt = toDate(task.updatedAt);
@@ -185,6 +197,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       needsLoResponse: value.appraisalNeedsLoResponse,
       actionTaskId: value.appraisalActionTaskId,
       detailTaskId: value.appraisalActionTaskId || value.detailTaskId,
+      earliestCreatedAt: value.earliestCreatedAt,
       latestUpdatedAt: value.latestUpdatedAt,
       stageDetails,
     });

@@ -3,10 +3,12 @@
 import React from 'react';
 import Link from 'next/link';
 import {
+  Calendar,
   CheckCircle2,
   Circle,
   CircleDot,
   Clock3,
+  FileText,
   FileCheck2,
   Search,
   Loader2,
@@ -60,6 +62,35 @@ function StatusChip({ label, state }: { label: string; state: VaChipState }) {
       {label}: {chipMeta[state].label}
     </span>
   );
+}
+
+function formatCompactDateTime(value: Date) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(value);
+}
+
+function formatElapsedTimerLabel(elapsedMs: number) {
+  const totalMinutes = Math.max(1, Math.floor(elapsedMs / 60000));
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function getTimerClassName(elapsedMs: number) {
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+  if (elapsedMinutes < 45) return 'border-emerald-300 bg-emerald-100 text-emerald-800';
+  if (elapsedMinutes < 90) return 'border-green-300 bg-green-100 text-green-800';
+  if (elapsedMinutes < 135) return 'border-yellow-300 bg-yellow-100 text-yellow-800';
+  if (elapsedMinutes < 175) return 'border-orange-300 bg-orange-100 text-orange-800';
+  return 'border-rose-400 bg-rose-100 text-rose-800';
 }
 
 function BucketPanel({
@@ -147,19 +178,26 @@ export function LoVaBorrowerProgressList({
               {items.map((item) => (
                 <article
                   key={`${item.loanNumber}-${item.borrowerName}`}
-                  className="rounded-xl border border-slate-200 bg-slate-50/40 p-3"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
                 >
+                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      {item.latestUpdatedAt && (
+                        <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                          <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                          {formatCompactDateTime(item.latestUpdatedAt)}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 min-w-0">
                         <button
                           type="button"
                           onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
-                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                          className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm ring-1 ring-black/5 hover:bg-slate-200"
                           title={`Open VA submission details for ${item.borrowerName}`}
                           aria-label={`Open VA submission details for ${item.borrowerName}`}
                         >
-                          <CircleDot className="h-3.5 w-3.5" />
+                          <FileText className="h-4 w-4" />
                         </button>
                         <p className="truncate text-sm font-semibold text-slate-900">
                           {item.borrowerName}
@@ -172,6 +210,20 @@ export function LoVaBorrowerProgressList({
                         <Clock3 className="mr-1 h-3 w-3" />
                         {item.completedCount}/{item.totalCount}
                       </span>
+                      {item.earliestCreatedAt && (
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
+                            Date.now() - item.earliestCreatedAt.getTime()
+                          )}`}
+                          title="Total time from first VA task creation"
+                        >
+                          <Clock3 className="mr-1 h-3 w-3" />
+                          Total{' '}
+                          {formatElapsedTimerLabel(
+                            Date.now() - item.earliestCreatedAt.getTime()
+                          )}
+                        </span>
+                      )}
                       {item.needsLoResponse && item.actionTaskId ? (
                         <Link
                           href={`/tasks?taskId=${encodeURIComponent(item.actionTaskId)}`}
