@@ -676,10 +676,12 @@ function getDisclosureSlaTimerMeta(startValue: Date | string | undefined, nowMs:
 }
 
 function getCompletedStatusColorClassNames(timerClassName: string | null) {
+  const completedIconClassName = 'bg-emerald-100 text-emerald-700';
+
   if (!timerClassName) {
     return {
       badgeClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-      iconClassName: 'bg-emerald-100 text-emerald-600',
+      iconClassName: completedIconClassName,
     };
   }
 
@@ -688,37 +690,37 @@ function getCompletedStatusColorClassNames(timerClassName: string | null) {
   if (normalized.includes('rose')) {
     return {
       badgeClassName: normalized,
-      iconClassName: 'bg-rose-100 text-rose-700',
+      iconClassName: completedIconClassName,
     };
   }
   if (normalized.includes('orange')) {
     return {
       badgeClassName: normalized,
-      iconClassName: 'bg-orange-100 text-orange-700',
+      iconClassName: completedIconClassName,
     };
   }
   if (normalized.includes('yellow')) {
     return {
       badgeClassName: normalized,
-      iconClassName: 'bg-yellow-100 text-yellow-700',
+      iconClassName: completedIconClassName,
     };
   }
   if (normalized.includes('green')) {
     return {
       badgeClassName: normalized,
-      iconClassName: 'bg-green-100 text-green-700',
+      iconClassName: completedIconClassName,
     };
   }
   if (normalized.includes('emerald')) {
     return {
       badgeClassName: normalized,
-      iconClassName: 'bg-emerald-100 text-emerald-700',
+      iconClassName: completedIconClassName,
     };
   }
 
   return {
     badgeClassName: normalized,
-    iconClassName: 'bg-slate-100 text-slate-600',
+    iconClassName: completedIconClassName,
   };
 }
 
