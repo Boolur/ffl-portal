@@ -791,6 +791,9 @@ function getRoleBubbleClass(role: UserRole | null) {
   if (role === UserRole.LOAN_OFFICER) {
     return 'border-amber-200 bg-amber-50 text-amber-700';
   }
+  if (role === UserRole.MANAGER) {
+    return 'border-rose-200 bg-rose-50 text-rose-700';
+  }
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
     return 'border-blue-200 bg-blue-50 text-blue-700';
   }
@@ -865,6 +868,8 @@ function WorkedByTags({
           className={`inline-flex max-w-[130px] items-center truncate rounded-full border font-semibold ${chipSize} ${
             contributor.role === UserRole.LOAN_OFFICER
               ? 'border-amber-200 bg-amber-50 text-amber-700'
+              : contributor.role === UserRole.MANAGER
+              ? 'border-rose-200 bg-rose-50 text-rose-700'
               : contributor.role === UserRole.QC
               ? 'border-violet-200 bg-violet-50 text-violet-700'
               : 'border-blue-200 bg-blue-50 text-blue-700'
