@@ -1,15 +1,21 @@
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
   CheckCircle2,
+  Circle,
   CircleDot,
   Clock3,
+  Loader2,
   SearchCheck,
   ShieldCheck,
   UserCog,
   UserRoundCheck,
+  X,
 } from 'lucide-react';
+import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import type { LoVaBorrowerProgressItem, VaChipState } from '@/lib/loVaProgress';
 
 const chipMeta: Record<
@@ -97,7 +103,25 @@ export function LoVaBorrowerProgressList({
   subtitle?: string;
   className?: string;
 }) {
+  const [focusedItemKey, setFocusedItemKey] = React.useState<string | null>(null);
+  const [openingAttachmentId, setOpeningAttachmentId] = React.useState<string | null>(null);
   const totals = summary(items);
+  const focusedItem =
+    focusedItemKey === null
+      ? null
+      : items.find((item) => `${item.loanNumber}-${item.borrowerName}` === focusedItemKey) || null;
+
+  const openAttachment = async (attachmentId: string) => {
+    setOpeningAttachmentId(attachmentId);
+    const result = await getTaskAttachmentDownloadUrl(attachmentId);
+    if (!result.success || !result.url) {
+      alert(result.error || 'Unable to open attachment.');
+      setOpeningAttachmentId(null);
+      return;
+    }
+    window.open(result.url, '_blank', 'noopener,noreferrer');
+    setOpeningAttachmentId(null);
+  };
 
   return (
     <section
@@ -136,7 +160,18 @@ export function LoVaBorrowerProgressList({
             <article key={`${item.loanNumber}-${item.borrowerName}`} className="px-5 py-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{item.borrowerName}</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      title={`Open VA submission details for ${item.borrowerName}`}
+                      aria-label={`Open VA submission details for ${item.borrowerName}`}
+                    >
+                      <CircleDot className="h-3.5 w-3.5" />
+                    </button>
+                    <p className="truncate text-sm font-semibold text-slate-900">{item.borrowerName}</p>
+                  </div>
                   <p className="text-xs text-slate-500">{item.loanNumber}</p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -151,9 +186,9 @@ export function LoVaBorrowerProgressList({
                     >
                       Action Needed
                     </Link>
-                  ) : item.actionTaskId ? (
+                  ) : item.detailTaskId ? (
                     <Link
-                      href={`/tasks?taskId=${encodeURIComponent(item.actionTaskId)}`}
+                      href={`/tasks?taskId=${encodeURIComponent(item.detailTaskId)}`}
                       className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     >
                       View
@@ -208,6 +243,117 @@ export function LoVaBorrowerProgressList({
           Appraisal shows Action Needed when your response is required.
         </span>
       </div>
+
+      {focusedItem && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
+          onClick={() => setFocusedItemKey(null)}
+        >
+          <div
+            className="w-full max-w-4xl max-h-[88vh] overflow-y-auto rounded-[24px] border border-slate-200/60 bg-slate-50 p-6 sm:p-8 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-5 border-b border-slate-200/60 pb-6">
+              <div>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
+                    {focusedItem.borrowerName}
+                  </h2>
+                  <span className="inline-flex items-center rounded-md bg-white px-2.5 py-1 text-sm font-mono font-bold text-slate-600 ring-1 ring-inset ring-slate-200 shadow-sm">
+                    {focusedItem.loanNumber}
+                  </span>
+                </div>
+                <p className="text-sm font-medium text-slate-500">VA Submission Details</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFocusedItemKey(null)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                aria-label="Close VA submission details"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
+              <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
+                VA Task Completion
+              </h4>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  ['Title', focusedItem.stageDetails.title.completed],
+                  ['HOI', focusedItem.stageDetails.hoi.completed],
+                  ['Payoff', focusedItem.stageDetails.payoff.completed],
+                  ['Appraisal', focusedItem.stageDetails.appraisal.completed],
+                ].map(([label, completed]) => (
+                  <div
+                    key={String(label)}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+                      completed
+                        ? 'border-emerald-200 bg-emerald-50'
+                        : 'border-rose-200 bg-rose-50'
+                    }`}
+                  >
+                    <span className="text-sm font-semibold text-slate-800">{label}</span>
+                    {completed ? (
+                      <span className="inline-flex items-center text-emerald-700">
+                        <CheckCircle2 className="h-4 w-4" />
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center text-rose-700">
+                        <Circle className="h-4 w-4 fill-current" />
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
+              <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
+                Proof Attachments
+              </h4>
+              <div className="space-y-3">
+                {[
+                  { label: 'Title', attachments: focusedItem.stageDetails.title.proofAttachments },
+                  { label: 'HOI', attachments: focusedItem.stageDetails.hoi.proofAttachments },
+                  { label: 'Payoff', attachments: focusedItem.stageDetails.payoff.proofAttachments },
+                  {
+                    label: 'Appraisal',
+                    attachments: focusedItem.stageDetails.appraisal.proofAttachments,
+                  },
+                ].map(({ label, attachments }) => (
+                  <div key={String(label)} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
+                      {label}
+                    </p>
+                    {attachments.length === 0 ? (
+                      <p className="text-xs font-medium text-slate-500">No proof uploaded yet.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {attachments.map((att) => (
+                          <button
+                            key={att.id}
+                            type="button"
+                            onClick={() => void openAttachment(att.id)}
+                            disabled={openingAttachmentId === att.id}
+                            className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {openingAttachmentId === att.id && (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            )}
+                            {att.filename}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

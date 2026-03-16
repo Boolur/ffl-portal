@@ -519,6 +519,20 @@ function getGroupedSubmissionDetails(
   return groups;
 }
 
+function getVaSubmissionDetails(groups: SubmissionDetailGroup[]): SubmissionDetailGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      rows: group.rows.filter((row) => row.key !== 'notes'),
+    }))
+    .filter(
+      (group) =>
+        group.rows.length > 0 &&
+        group.title !== 'Loan Officer & Notes' &&
+        group.title !== 'Additional Details'
+    );
+}
+
 function getWorkflowChip(
   workflowState: TaskWorkflowState,
   reason: DisclosureDecisionReason | null
@@ -1537,12 +1551,14 @@ export function TaskList({
             ? task.parentTask.submissionData
             : null;
         const workflowChip = getWorkflowChip(task.workflowState, task.disclosureReason);
-        const submissionDataRows = getOrderedSubmissionDetails(
-          parsedSubmissionData as Record<string, unknown> | null
-        );
         const submissionDataGroups = getGroupedSubmissionDetails(
           parsedSubmissionData as Record<string, unknown> | null
         );
+        const isVaSubmissionView = isVaSubRole && isVaTaskKind(task.kind);
+        const visibleSubmissionDataGroups = isVaSubmissionView
+          ? getVaSubmissionDetails(submissionDataGroups)
+          : submissionDataGroups;
+        const visibleSubmissionDataRows = visibleSubmissionDataGroups.flatMap((group) => group.rows);
         const noteHistoryEntries = parseNoteHistory(
           parsedSubmissionData as Record<string, unknown> | null
         );
@@ -1814,9 +1830,9 @@ export function TaskList({
                       </div>
                       Submission Details
                     </h4>
-                    {submissionDataRows.length > 0 ? (
+                    {visibleSubmissionDataRows.length > 0 ? (
                       <div className="space-y-5">
-                        {submissionDataGroups.map((group) => {
+                        {visibleSubmissionDataGroups.map((group) => {
                           const Icon = groupIcons[group.title] || FileText;
                           return (
                             <div
@@ -1885,7 +1901,7 @@ export function TaskList({
                     )}
                   </div>
 
-                  {timelineItems.length > 0 && (
+                  {!isVaSubmissionView && timelineItems.length > 0 && (
                     <div className="mt-8">
                       <div className="mb-5 flex items-center justify-between">
                         <h4 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">

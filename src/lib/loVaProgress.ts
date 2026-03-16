@@ -16,6 +16,11 @@ export type LoVaProgressTaskInput = {
     kind: TaskKind | null;
     assignedRole: UserRole | null;
   } | null;
+  attachments?: Array<{
+    id: string;
+    filename: string;
+    purpose: string;
+  }>;
 };
 
 type VaKindKey = 'title' | 'hoi' | 'payoff' | 'appraisal';
@@ -29,7 +34,16 @@ export type LoVaBorrowerProgressItem = {
   chips: Record<VaKindKey, VaChipState>;
   needsLoResponse: boolean;
   actionTaskId: string | null;
+  detailTaskId: string | null;
   latestUpdatedAt: Date | null;
+  stageDetails: Record<
+    VaKindKey,
+    {
+      taskId: string | null;
+      completed: boolean;
+      proofAttachments: Array<{ id: string; filename: string }>;
+    }
+  >;
 };
 
 const VA_KIND_MAP: Array<{ kind: TaskKind; key: VaKindKey }> = [
@@ -54,6 +68,10 @@ function getChipState(task: LoVaProgressTaskInput): VaChipState {
   return 'new';
 }
 
+function isProofAttachment(purpose?: string) {
+  return (purpose || '').toUpperCase() === 'PROOF';
+}
+
 function compareByMostRecentUpdate(
   a: Pick<LoVaBorrowerProgressItem, 'latestUpdatedAt'>,
   b: Pick<LoVaBorrowerProgressItem, 'latestUpdatedAt'>
@@ -72,6 +90,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       vaByKind: Partial<Record<VaKindKey, LoVaProgressTaskInput>>;
       appraisalNeedsLoResponse: boolean;
       appraisalActionTaskId: string | null;
+      detailTaskId: string | null;
       latestUpdatedAt: Date | null;
     }
   >();
@@ -84,8 +103,13 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       vaByKind: {},
       appraisalNeedsLoResponse: false,
       appraisalActionTaskId: null,
+      detailTaskId: null,
       latestUpdatedAt: null,
     };
+
+    if (!existing.detailTaskId) {
+      existing.detailTaskId = task.id;
+    }
 
     const updatedAt = toDate(task.updatedAt);
     if (
@@ -135,6 +159,23 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     }
 
     const completedCount = Object.values(chips).filter((chip) => chip === 'completed').length;
+    const stageDetails: LoVaBorrowerProgressItem['stageDetails'] = {
+      title: { taskId: null, completed: false, proofAttachments: [] },
+      hoi: { taskId: null, completed: false, proofAttachments: [] },
+      payoff: { taskId: null, completed: false, proofAttachments: [] },
+      appraisal: { taskId: null, completed: false, proofAttachments: [] },
+    };
+    for (const definition of VA_KIND_MAP) {
+      const task = value.vaByKind[definition.key];
+      if (!task) continue;
+      stageDetails[definition.key] = {
+        taskId: task.id,
+        completed: task.status === TaskStatus.COMPLETED,
+        proofAttachments: (task.attachments || [])
+          .filter((att) => isProofAttachment(att.purpose))
+          .map((att) => ({ id: att.id, filename: att.filename })),
+      };
+    }
     rows.push({
       loanNumber: value.loanNumber,
       borrowerName: value.borrowerName,
@@ -143,7 +184,9 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       chips,
       needsLoResponse: value.appraisalNeedsLoResponse,
       actionTaskId: value.appraisalActionTaskId,
+      detailTaskId: value.appraisalActionTaskId || value.detailTaskId,
       latestUpdatedAt: value.latestUpdatedAt,
+      stageDetails,
     });
   }
 
