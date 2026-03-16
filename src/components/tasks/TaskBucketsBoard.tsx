@@ -1,6 +1,13 @@
 'use client';
 
-import React, { useDeferredValue, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from 'react';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { TaskList, type Task } from '@/components/tasks/TaskList';
 
@@ -73,16 +80,7 @@ function sortTasks(tasks: Task[], sortBy: SortOption) {
     .map((entry) => entry.task);
 }
 
-export function TaskBucketsBoard({
-  buckets,
-  activeBucketId,
-  canDelete,
-  currentRole,
-  currentUserId,
-  initialFocusedTaskId,
-  bucketScrollMode = 'auto',
-  fixedScrollClassName = 'max-h-[520px] overflow-y-auto pr-1',
-}: {
+type TaskBucketsBoardProps = {
   buckets: BucketConfig[];
   activeBucketId: string | null;
   canDelete: boolean;
@@ -91,7 +89,28 @@ export function TaskBucketsBoard({
   initialFocusedTaskId?: string | null;
   bucketScrollMode?: 'auto' | 'fixed';
   fixedScrollClassName?: string;
-}) {
+  onCollapseSummaryChange?: (summary: { total: number; collapsed: number }) => void;
+};
+
+export type TaskBucketsBoardHandle = {
+  setAllBucketsCollapsed: (collapsed: boolean) => void;
+};
+
+export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBucketsBoardProps>(
+  function TaskBucketsBoard(
+    {
+      buckets,
+      activeBucketId,
+      canDelete,
+      currentRole,
+      currentUserId,
+      initialFocusedTaskId,
+      bucketScrollMode = 'auto',
+      fixedScrollClassName = 'max-h-[520px] overflow-y-auto pr-1',
+      onCollapseSummaryChange,
+    },
+    ref
+  ) {
   const defaultGlobalSort: SortOption =
     currentRole === 'DISCLOSURE_SPECIALIST' ||
     currentRole === 'QC' ||
@@ -137,6 +156,46 @@ export function TaskBucketsBoard({
       };
     });
   }, [buckets, controlsByBucket, deferredGlobalSearch, globalSort]);
+
+  const setAllBucketsCollapsed = useCallback(
+    (collapsed: boolean) => {
+      setControlsByBucket((prev) => {
+        let hasChanges = false;
+        const next: Record<string, BucketControls> = { ...prev };
+        for (const bucket of buckets) {
+          const existing = prev[bucket.id] || defaultControls;
+          if (existing.collapsed === collapsed) continue;
+          hasChanges = true;
+          next[bucket.id] = {
+            ...existing,
+            collapsed,
+          };
+        }
+        return hasChanges ? next : prev;
+      });
+    },
+    [buckets]
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      setAllBucketsCollapsed,
+    }),
+    [setAllBucketsCollapsed]
+  );
+
+  useEffect(() => {
+    if (!onCollapseSummaryChange) return;
+    const collapsed = processedBuckets.reduce(
+      (count, bucket) => count + (bucket.controls.collapsed ? 1 : 0),
+      0
+    );
+    onCollapseSummaryChange({
+      total: processedBuckets.length,
+      collapsed,
+    });
+  }, [onCollapseSummaryChange, processedBuckets]);
   const compactBoardMaxWidth =
     processedBuckets.length <= 1
       ? '520px'
@@ -323,4 +382,7 @@ export function TaskBucketsBoard({
       </div>
     </div>
   );
-}
+  }
+);
+
+TaskBucketsBoard.displayName = 'TaskBucketsBoard';

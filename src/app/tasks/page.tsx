@@ -3,6 +3,7 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { prisma } from '@/lib/prisma';
 import { TaskList } from '@/components/tasks/TaskList';
 import { TaskBucketsBoard } from '@/components/tasks/TaskBucketsBoard';
+import { TaskDeskSection } from '@/components/tasks/TaskDeskSection';
 import {
   DisclosureDecisionReason,
   TaskAttachmentPurpose,
@@ -855,140 +856,92 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
       {isDualDeskMode && dualDeskRows && (
         <div className="space-y-5">
-          <section>
-            <div className="mb-2">
-              <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100">
-                  <ClipboardCheck className="h-5 w-5" />
-                </span>
-                Disclosure Requests
-              </h2>
-            </div>
-            <TaskBucketsBoard
-              buckets={dualDeskRows.disclosureBuckets}
-              activeBucketId={
-                dualDeskRows.disclosureBuckets.find((b) => b.id === bucket)?.id || null
-              }
-              canDelete={canDelete}
-              currentRole={sessionRole}
-              currentUserId={sessionUser.id}
-              initialFocusedTaskId={focusedTaskId}
-              bucketScrollMode="fixed"
-              fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-            />
-          </section>
-          <section>
-            <div className="mb-2">
-              <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
-                  <ShieldCheck className="h-5 w-5" />
-                </span>
-                QC Requests
-              </h2>
-            </div>
-            <TaskBucketsBoard
-              buckets={dualDeskRows.qcBuckets}
-              activeBucketId={
-                dualDeskRows.qcBuckets.find((b) => b.id === bucket)?.id || null
-              }
-              canDelete={canDelete}
-              currentRole={sessionRole}
-              currentUserId={sessionUser.id}
-              initialFocusedTaskId={focusedTaskId}
-              bucketScrollMode="fixed"
-              fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-            />
-          </section>
+          <TaskDeskSection
+            title="Disclosure Requests"
+            icon={<ClipboardCheck className="h-5 w-5" />}
+            iconClassName="bg-blue-50 text-blue-600 ring-blue-100"
+            buckets={dualDeskRows.disclosureBuckets}
+            activeBucketId={
+              dualDeskRows.disclosureBuckets.find((b) => b.id === bucket)?.id || null
+            }
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+          />
+          <TaskDeskSection
+            title="QC Requests"
+            icon={<ShieldCheck className="h-5 w-5" />}
+            iconClassName="bg-violet-50 text-violet-600 ring-violet-100"
+            buckets={dualDeskRows.qcBuckets}
+            activeBucketId={dualDeskRows.qcBuckets.find((b) => b.id === bucket)?.id || null}
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+          />
           {sessionRole === UserRole.MANAGER && managerVaRows && (
             <>
-              <section>
-                <div className="mb-2">
-                  <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
-                      <ShieldCheck className="h-5 w-5" />
-                    </span>
-                    VA Appraisal Requests
-                  </h2>
-                </div>
-                <TaskBucketsBoard
-                  buckets={managerVaRows.vaAppraisalBuckets}
-                  activeBucketId={
-                    managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
-                  }
-                  canDelete={canDelete}
-                  currentRole={sessionRole}
-                  currentUserId={sessionUser.id}
-                  initialFocusedTaskId={focusedTaskId}
-                  bucketScrollMode="fixed"
-                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-                />
-              </section>
-              <section>
-                <div className="mb-2">
-                  <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
-                      <Home className="h-5 w-5" />
-                    </span>
-                    VA HOI Requests
-                  </h2>
-                </div>
-                <TaskBucketsBoard
-                  buckets={managerVaRows.vaHoiBuckets}
-                  activeBucketId={
-                    managerVaRows.vaHoiBuckets.find((b) => b.id === bucket)?.id || null
-                  }
-                  canDelete={canDelete}
-                  currentRole={sessionRole}
-                  currentUserId={sessionUser.id}
-                  initialFocusedTaskId={focusedTaskId}
-                  bucketScrollMode="fixed"
-                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-                />
-              </section>
-              <section>
-                <div className="mb-2">
-                  <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
-                      <Landmark className="h-5 w-5" />
-                    </span>
-                    VA Payoff Requests
-                  </h2>
-                </div>
-                <TaskBucketsBoard
-                  buckets={managerVaRows.vaPayoffBuckets}
-                  activeBucketId={
-                    managerVaRows.vaPayoffBuckets.find((b) => b.id === bucket)?.id || null
-                  }
-                  canDelete={canDelete}
-                  currentRole={sessionRole}
-                  currentUserId={sessionUser.id}
-                  initialFocusedTaskId={focusedTaskId}
-                  bucketScrollMode="fixed"
-                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-                />
-              </section>
-              <section>
-                <div className="mb-2">
-                  <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
-                      <FileCheck2 className="h-5 w-5" />
-                    </span>
-                    VA Title Requests
-                  </h2>
-                </div>
-                <TaskBucketsBoard
-                  buckets={managerVaRows.vaTitleBuckets}
-                  activeBucketId={
-                    managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null
-                  }
-                  canDelete={canDelete}
-                  currentRole={sessionRole}
-                  currentUserId={sessionUser.id}
-                  initialFocusedTaskId={focusedTaskId}
-                  bucketScrollMode="fixed"
-                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-                />
-              </section>
+              <TaskDeskSection
+                title="VA Appraisal Requests"
+                icon={<ShieldCheck className="h-5 w-5" />}
+                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+                buckets={managerVaRows.vaAppraisalBuckets}
+                activeBucketId={
+                  managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
+                }
+                canDelete={canDelete}
+                currentRole={sessionRole}
+                currentUserId={sessionUser.id}
+                initialFocusedTaskId={focusedTaskId}
+                bucketScrollMode="fixed"
+                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+              />
+              <TaskDeskSection
+                title="VA HOI Requests"
+                icon={<Home className="h-5 w-5" />}
+                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+                buckets={managerVaRows.vaHoiBuckets}
+                activeBucketId={managerVaRows.vaHoiBuckets.find((b) => b.id === bucket)?.id || null}
+                canDelete={canDelete}
+                currentRole={sessionRole}
+                currentUserId={sessionUser.id}
+                initialFocusedTaskId={focusedTaskId}
+                bucketScrollMode="fixed"
+                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+              />
+              <TaskDeskSection
+                title="VA Payoff Requests"
+                icon={<Landmark className="h-5 w-5" />}
+                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+                buckets={managerVaRows.vaPayoffBuckets}
+                activeBucketId={
+                  managerVaRows.vaPayoffBuckets.find((b) => b.id === bucket)?.id || null
+                }
+                canDelete={canDelete}
+                currentRole={sessionRole}
+                currentUserId={sessionUser.id}
+                initialFocusedTaskId={focusedTaskId}
+                bucketScrollMode="fixed"
+                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+              />
+              <TaskDeskSection
+                title="VA Title Requests"
+                icon={<FileCheck2 className="h-5 w-5" />}
+                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+                buckets={managerVaRows.vaTitleBuckets}
+                activeBucketId={managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null}
+                canDelete={canDelete}
+                currentRole={sessionRole}
+                currentUserId={sessionUser.id}
+                initialFocusedTaskId={focusedTaskId}
+                bucketScrollMode="fixed"
+                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+              />
             </>
           )}
         </div>
