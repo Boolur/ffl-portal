@@ -141,7 +141,9 @@ export function TaskBucketsBoard({
     processedBuckets.length <= 1
       ? '520px'
       : processedBuckets.length === 2
-      ? '1040px'
+      ? currentRole === 'MANAGER'
+        ? 'calc(50% - 0.4375rem)'
+        : '1040px'
       : null;
 
   return (
