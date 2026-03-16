@@ -181,7 +181,7 @@ export function LoVaBorrowerProgressList({
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
                 >
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       {item.latestUpdatedAt && (
                         <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
@@ -189,7 +189,7 @@ export function LoVaBorrowerProgressList({
                           {formatCompactDateTime(item.latestUpdatedAt)}
                         </p>
                       )}
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex items-start gap-2 min-w-0">
                         <button
                           type="button"
                           onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
@@ -199,57 +199,61 @@ export function LoVaBorrowerProgressList({
                         >
                           <FileText className="h-4 w-4" />
                         </button>
-                        <p className="truncate text-sm font-semibold text-slate-900">
-                          {item.borrowerName}
-                        </p>
-                      </div>
-                      <p className="text-xs text-slate-500">{item.loanNumber}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                        <Clock3 className="mr-1 h-3 w-3" />
-                        {item.completedCount}/{item.totalCount}
-                      </span>
-                      {item.earliestCreatedAt && (
-                        <span
-                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
-                            Date.now() - item.earliestCreatedAt.getTime()
-                          )}`}
-                          title="Total time from first VA task creation"
-                        >
-                          <Clock3 className="mr-1 h-3 w-3" />
-                          Total{' '}
-                          {formatElapsedTimerLabel(
-                            Date.now() - item.earliestCreatedAt.getTime()
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-slate-900">
+                            {item.borrowerName}
+                          </p>
+                          <p className="text-xs text-slate-500">{item.loanNumber}</p>
+                          {item.earliestCreatedAt && (
+                            <span
+                              className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
+                                Date.now() - item.earliestCreatedAt.getTime()
+                              )}`}
+                              title="Total time from first VA task creation"
+                            >
+                              <Clock3 className="mr-1 h-3 w-3" />
+                              Total{' '}
+                              {formatElapsedTimerLabel(
+                                Date.now() - item.earliestCreatedAt.getTime()
+                              )}
+                            </span>
                           )}
-                        </span>
-                      )}
-                      {item.needsLoResponse && item.actionTaskId ? (
-                        <Link
-                          href={`/tasks?taskId=${encodeURIComponent(item.actionTaskId)}`}
-                          className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800 hover:bg-amber-100"
-                        >
-                          Action Needed
-                        </Link>
-                      ) : item.detailTaskId ? (
-                        <Link
-                          href={`/tasks?taskId=${encodeURIComponent(item.detailTaskId)}`}
-                          className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          View
-                        </Link>
-                      ) : null}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
-                      <ShieldCheck className="mr-1 h-3 w-3" />
-                      QC
-                    </span>
-                    <StatusChip label="Title" state={item.chips.title} />
-                    <StatusChip label="HOI" state={item.chips.hoi} />
-                    <StatusChip label="Payoff" state={item.chips.payoff} />
-                    <StatusChip label="Appraisal" state={item.chips.appraisal} />
+                    <div className="flex max-w-[55%] flex-col items-end gap-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                          <Clock3 className="mr-1 h-3 w-3" />
+                          {item.completedCount}/{item.totalCount}
+                        </span>
+                        {item.needsLoResponse && item.actionTaskId ? (
+                          <Link
+                            href={`/tasks?taskId=${encodeURIComponent(item.actionTaskId)}`}
+                            className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800 hover:bg-amber-100"
+                          >
+                            Action Needed
+                          </Link>
+                        ) : item.detailTaskId ? (
+                          <Link
+                            href={`/tasks?taskId=${encodeURIComponent(item.detailTaskId)}`}
+                            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            View
+                          </Link>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap justify-end items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
+                          <ShieldCheck className="mr-1 h-3 w-3" />
+                          QC
+                        </span>
+                        <StatusChip label="Title" state={item.chips.title} />
+                        <StatusChip label="HOI" state={item.chips.hoi} />
+                        <StatusChip label="Payoff" state={item.chips.payoff} />
+                        <StatusChip label="Appraisal" state={item.chips.appraisal} />
+                      </div>
+                    </div>
                   </div>
                 </article>
               ))}
