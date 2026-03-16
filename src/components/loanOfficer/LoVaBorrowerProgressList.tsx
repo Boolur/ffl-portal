@@ -6,13 +6,11 @@ import {
   Calendar,
   CheckCircle2,
   Circle,
-  CircleDot,
   Clock3,
   FileText,
   FileCheck2,
   Search,
   Loader2,
-  ShieldCheck,
   UserCog,
   UserRoundCheck,
   X,
@@ -54,12 +52,22 @@ const chipMeta: Record<
 };
 
 function StatusChip({ label, state }: { label: string; state: VaChipState }) {
+  const completed = state === 'completed';
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${chipMeta[state].className}`}
-      title={`${label}: ${chipMeta[state].label}`}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+        completed
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          : 'border-rose-200 bg-rose-50 text-rose-700'
+      }`}
+      title={`${label}: ${completed ? 'Completed' : 'Incomplete'}`}
     >
-      {label}: {chipMeta[state].label}
+      {completed ? (
+        <CheckCircle2 className="mr-1 h-3 w-3" />
+      ) : (
+        <Circle className="mr-1 h-3 w-3 fill-current" />
+      )}
+      {label}: {completed ? 'Completed' : 'Incomplete'}
     </span>
   );
 }
@@ -244,10 +252,6 @@ export function LoVaBorrowerProgressList({
                         ) : null}
                       </div>
                       <div className="flex flex-wrap justify-end items-center gap-1.5">
-                        <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
-                          <ShieldCheck className="mr-1 h-3 w-3" />
-                          QC
-                        </span>
                         <StatusChip label="Title" state={item.chips.title} />
                         <StatusChip label="HOI" state={item.chips.hoi} />
                         <StatusChip label="Payoff" state={item.chips.payoff} />
@@ -322,6 +326,24 @@ export function LoVaBorrowerProgressList({
                 <X className="h-5 w-5" />
               </button>
             </div>
+
+            {focusedItem.submissionSnapshot.length > 0 && (
+              <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
+                <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
+                  QC Submission Snapshot
+                </h4>
+                <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                  {focusedItem.submissionSnapshot.map((row) => (
+                    <div key={row.key} className="flex flex-col">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                        {row.label}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-900">{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
               <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">

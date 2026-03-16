@@ -12,6 +12,7 @@ export type LoVaProgressTaskInput = {
   workflowState: TaskWorkflowState;
   createdAt?: Date | string | null;
   updatedAt?: Date | string | null;
+  submissionData?: unknown;
   loan: LoanRef;
   parentTask?: {
     kind: TaskKind | null;
@@ -46,6 +47,7 @@ export type LoVaBorrowerProgressItem = {
       proofAttachments: Array<{ id: string; filename: string }>;
     }
   >;
+  submissionSnapshot: Array<{ key: string; label: string; value: string }>;
 };
 
 const VA_KIND_MAP: Array<{ kind: TaskKind; key: VaKindKey }> = [
@@ -74,6 +76,82 @@ function isProofAttachment(purpose?: string) {
   return (purpose || '').toUpperCase() === 'PROOF';
 }
 
+const snapshotPreferredOrder = [
+  'arriveLoanNumber',
+  'borrowerFirstName',
+  'borrowerLastName',
+  'borrowerPhone',
+  'borrowerEmail',
+  'loanAmount',
+  'homeValue',
+  'loanType',
+  'loanProgram',
+  'loanPurpose',
+  'subjectPropertyAddress',
+  'yearBuiltProperty',
+  'originalCost',
+  'yearAquired',
+  'mannerInWhichTitleWillBeHeld',
+  'employerName',
+  'employerAddress',
+  'employerDurationLineOfWork',
+  'channel',
+  'investor',
+  'runId',
+  'pricingOption',
+  'creditReportType',
+  'aus',
+] as const;
+
+function toReadableLabel(key: string) {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function buildSubmissionSnapshot(
+  data: unknown
+): Array<{ key: string; label: string; value: string }> {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+  const entries = Object.entries(data as Record<string, unknown>).filter(([key, value]) => {
+    if (
+      key === 'notes' ||
+      key === 'notesHistory' ||
+      key.toLowerCase().includes('attachment')
+    ) {
+      return false;
+    }
+    return (
+      value !== null &&
+      (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    );
+  });
+  if (entries.length === 0) return [];
+
+  const valueByKey = new Map(entries);
+  const ordered: Array<{ key: string; label: string; value: string }> = [];
+  for (const key of snapshotPreferredOrder) {
+    if (!valueByKey.has(key)) continue;
+    ordered.push({
+      key,
+      label: toReadableLabel(key),
+      value: String(valueByKey.get(key)),
+    });
+    valueByKey.delete(key);
+  }
+
+  for (const [key, value] of valueByKey.entries()) {
+    ordered.push({
+      key,
+      label: toReadableLabel(key),
+      value: String(value),
+    });
+  }
+
+  return ordered;
+}
+
 function compareByMostRecentUpdate(
   a: Pick<LoVaBorrowerProgressItem, 'latestUpdatedAt'>,
   b: Pick<LoVaBorrowerProgressItem, 'latestUpdatedAt'>
@@ -95,6 +173,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       detailTaskId: string | null;
       earliestCreatedAt: Date | null;
       latestUpdatedAt: Date | null;
+      submissionData: unknown;
     }
   >();
 
@@ -109,6 +188,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       detailTaskId: null,
       earliestCreatedAt: null,
       latestUpdatedAt: null,
+      submissionData: null,
     };
 
     if (!existing.detailTaskId) {
@@ -134,6 +214,9 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     const mappedVaKind = VA_KIND_MAP.find((entry) => entry.kind === task.kind);
     if (mappedVaKind) {
       existing.vaByKind[mappedVaKind.key] = task;
+      if (!existing.submissionData && task.submissionData) {
+        existing.submissionData = task.submissionData;
+      }
     }
 
     const isOpenAppraisalParent =
@@ -200,6 +283,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       earliestCreatedAt: value.earliestCreatedAt,
       latestUpdatedAt: value.latestUpdatedAt,
       stageDetails,
+      submissionSnapshot: buildSubmissionSnapshot(value.submissionData),
     });
   }
 
