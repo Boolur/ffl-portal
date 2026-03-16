@@ -518,23 +518,32 @@ export async function requestPasswordReset(email: string) {
 
     const user = await prisma.user.findUnique({
       where: { email: trimmedEmail },
-      select: { id: true, name: true },
+      select: { id: true, name: true, active: true },
     });
 
-    if (!user) {
-      return { success: false, error: 'User not found.' };
+    // Prevent account enumeration and keep UX predictable.
+    if (!user || !user.active) {
+      return { success: true };
     }
 
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + RESET_TTL_HOURS * 60 * 60 * 1000);
 
-    await prisma.passwordResetToken.create({
-      data: {
-        token,
-        userId: user.id,
-        expiresAt,
-      },
-    });
+    await prisma.$transaction([
+      prisma.passwordResetToken.deleteMany({
+        where: {
+          userId: user.id,
+          usedAt: null,
+        },
+      }),
+      prisma.passwordResetToken.create({
+        data: {
+          token,
+          userId: user.id,
+          expiresAt,
+        },
+      }),
+    ]);
 
     const resetUrl = `${getBaseUrl()}/auth/reset/${token}`;
     const resetEmail = buildPasswordResetEmail({
@@ -561,26 +570,49 @@ export async function requestPasswordReset(email: string) {
 }
 
 export async function resetPasswordWithToken(token: string, password: string) {
-  const reset = await prisma.passwordResetToken.findUnique({
-    where: { token },
-  });
+  try {
+    const trimmedToken = token.trim();
+    const trimmedPassword = password.trim();
 
-  if (!reset || reset.usedAt || reset.expiresAt < new Date()) {
-    return { success: false, error: 'Reset link is invalid or expired.' };
+    if (!trimmedToken) {
+      return { success: false, error: 'Reset token is required.' };
+    }
+    if (trimmedPassword.length < 8) {
+      return { success: false, error: 'Password must be at least 8 characters.' };
+    }
+
+    const reset = await prisma.passwordResetToken.findUnique({
+      where: { token: trimmedToken },
+    });
+
+    if (!reset || reset.usedAt || reset.expiresAt < new Date()) {
+      return { success: false, error: 'Reset link is invalid or expired.' };
+    }
+
+    const passwordHash = await hash(trimmedPassword, 10);
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: reset.userId },
+        data: { passwordHash },
+      }),
+      prisma.passwordResetToken.updateMany({
+        where: {
+          userId: reset.userId,
+          usedAt: null,
+        },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to reset password with token', error);
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Unable to reset password right now.';
+    return { success: false, error: message };
   }
-
-  const passwordHash = await hash(password.trim(), 10);
-  await prisma.user.update({
-    where: { id: reset.userId },
-    data: { passwordHash },
-  });
-
-  await prisma.passwordResetToken.update({
-    where: { token },
-    data: { usedAt: new Date() },
-  });
-
-  return { success: true };
 }
 
 export async function updateUserRoles(userId: string, roles: UserRole[]) {
