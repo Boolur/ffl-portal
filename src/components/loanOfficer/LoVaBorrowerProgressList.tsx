@@ -73,21 +73,30 @@ function StageCard({
   title,
   icon,
   subtitle,
+  statusLabel,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
   subtitle?: string;
+  statusLabel: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
-      <div className="mb-2 flex items-center gap-1.5">
-        {icon}
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">{title}</p>
+    <div className="flex h-full min-h-[138px] flex-col rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {icon}
+          <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-700">
+            {title}
+          </p>
+        </div>
+        <span className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
+          {statusLabel}
+        </span>
       </div>
       {subtitle ? <p className="mb-2 text-[11px] text-slate-500">{subtitle}</p> : null}
-      <div className="flex flex-wrap items-center gap-1.5">{children}</div>
+      <div className="mt-auto flex flex-wrap items-center gap-1.5">{children}</div>
     </div>
   );
 }
@@ -197,11 +206,12 @@ export function LoVaBorrowerProgressList({
                 </div>
               </div>
 
-              <div className="mt-3 grid gap-2.5 md:grid-cols-3">
+              <div className="mt-3 grid gap-3.5 md:grid-cols-3">
                 <StageCard
                   title="VA Bucket"
                   icon={<CircleDot className="h-3.5 w-3.5 text-rose-600" />}
                   subtitle="QC gate in progress"
+                  statusLabel="Active"
                 >
                   <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
                     <ShieldCheck className="mr-1 h-3 w-3" />
@@ -217,6 +227,7 @@ export function LoVaBorrowerProgressList({
                   title="JR Processor"
                   icon={<UserCog className="h-3.5 w-3.5 text-slate-600" />}
                   subtitle="Future auto-handoff placeholder"
+                  statusLabel="Queue"
                 >
                   <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                     Not Started
@@ -227,6 +238,7 @@ export function LoVaBorrowerProgressList({
                   title="SR Processor"
                   icon={<UserRoundCheck className="h-3.5 w-3.5 text-slate-600" />}
                   subtitle="Future auto-handoff placeholder"
+                  statusLabel="Queue"
                 >
                   <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                     Not Started
