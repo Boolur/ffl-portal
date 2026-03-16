@@ -1588,9 +1588,14 @@ export function TaskList({
           task.status === TaskStatus.COMPLETED && task.createdAt && completionEndValue
             ? getDisclosureSlaTimerMeta(task.createdAt, new Date(completionEndValue).getTime())
             : null;
-        const completedColorMeta = getCompletedStatusColorClassNames(
-          completedTotalTimeMeta?.className || null
-        );
+        const isCompletedQcRequest =
+          task.status === TaskStatus.COMPLETED && isQcSubmissionTask(task);
+        const completedColorMeta = isCompletedQcRequest
+          ? {
+              badgeClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+              iconClassName: 'bg-emerald-100 text-emerald-600',
+            }
+          : getCompletedStatusColorClassNames(completedTotalTimeMeta?.className || null);
         const compactStatusChipClassName =
           task.status === TaskStatus.COMPLETED
             ? completedColorMeta.badgeClassName

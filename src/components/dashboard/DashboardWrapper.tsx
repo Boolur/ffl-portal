@@ -190,10 +190,10 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
           </section>
           <section className="space-y-4">
             <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - Title</h2>
-              <p className="app-page-subtitle">Live VA Title workload and status mix.</p>
+              <h2 className="app-page-title">VA Desk - Appraisal</h2>
+              <p className="app-page-subtitle">Live VA Appraisal workload and status mix.</p>
             </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_TITLE} />
+            <VaOverview tasks={adminTasks} role={UserRole.VA_APPRAISAL} />
           </section>
           <section className="space-y-4">
             <div className="app-page-header">
@@ -211,10 +211,10 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
           </section>
           <section className="space-y-4">
             <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - Appraisal</h2>
-              <p className="app-page-subtitle">Live VA Appraisal workload and status mix.</p>
+              <h2 className="app-page-title">VA Desk - Title</h2>
+              <p className="app-page-subtitle">Live VA Title workload and status mix.</p>
             </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_APPRAISAL} />
+            <VaOverview tasks={adminTasks} role={UserRole.VA_TITLE} />
           </section>
         </div>
       )}

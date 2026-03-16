@@ -905,15 +905,15 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 <div className="mb-2">
                   <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
-                      <FileCheck2 className="h-5 w-5" />
+                      <ShieldCheck className="h-5 w-5" />
                     </span>
-                    VA Title Requests
+                    VA Appraisal Requests
                   </h2>
                 </div>
                 <TaskBucketsBoard
-                  buckets={managerVaRows.vaTitleBuckets}
+                  buckets={managerVaRows.vaAppraisalBuckets}
                   activeBucketId={
-                    managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null
+                    managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
                   }
                   canDelete={canDelete}
                   currentRole={sessionRole}
@@ -971,15 +971,15 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 <div className="mb-2">
                   <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 ring-1 ring-rose-100">
-                      <ShieldCheck className="h-5 w-5" />
+                      <FileCheck2 className="h-5 w-5" />
                     </span>
-                    VA Appraisal Requests
+                    VA Title Requests
                   </h2>
                 </div>
                 <TaskBucketsBoard
-                  buckets={managerVaRows.vaAppraisalBuckets}
+                  buckets={managerVaRows.vaTitleBuckets}
                   activeBucketId={
-                    managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
+                    managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null
                   }
                   canDelete={canDelete}
                   currentRole={sessionRole}

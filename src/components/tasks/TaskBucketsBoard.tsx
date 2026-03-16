@@ -137,6 +137,12 @@ export function TaskBucketsBoard({
       };
     });
   }, [buckets, controlsByBucket, deferredGlobalSearch, globalSort]);
+  const compactBoardMaxWidth =
+    processedBuckets.length <= 1
+      ? '520px'
+      : processedBuckets.length === 2
+      ? '1040px'
+      : null;
 
   return (
     <div className="space-y-3.5">
@@ -178,7 +184,10 @@ export function TaskBucketsBoard({
 
       <div
         className="grid gap-3.5"
-        style={{ gridTemplateColumns: `repeat(${processedBuckets.length}, minmax(0, 1fr))` }}
+        style={{
+          gridTemplateColumns: `repeat(${processedBuckets.length}, minmax(0, 1fr))`,
+          ...(compactBoardMaxWidth ? { maxWidth: compactBoardMaxWidth } : {}),
+        }}
       >
         {processedBuckets.map((bucket) => {
           const isCollapsed = bucket.controls.collapsed;
