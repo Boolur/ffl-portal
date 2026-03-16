@@ -386,6 +386,7 @@ type RoleBucket = {
   label: string;
   chipLabel: string;
   chipClassName: string;
+  isCompleted?: boolean;
   tasks: TaskRow[];
 };
 
@@ -440,6 +441,7 @@ function getLoPilotRows(allTasks: TaskRow[]) {
       label: 'Disclosures Sent / Completed',
       chipLabel: 'Completed',
       chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      isCompleted: true,
       tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
     },
   ];
@@ -479,6 +481,7 @@ function getLoPilotRows(allTasks: TaskRow[]) {
       label: 'QC Sent / Completed',
       chipLabel: 'Completed',
       chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      isCompleted: true,
       tasks: qcTasks.filter((task) => task.status === TaskStatus.COMPLETED),
     },
   ];
@@ -539,6 +542,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         label: 'Completed Disclosure Requests',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
         tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
       },
     ];
@@ -584,6 +588,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         label: 'Disclosures Sent / Completed',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
         tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
       },
     ];
@@ -631,6 +636,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         label: 'Completed QC Requests',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
         tasks: qcTasks.filter((task) => task.status === TaskStatus.COMPLETED),
       },
     ];

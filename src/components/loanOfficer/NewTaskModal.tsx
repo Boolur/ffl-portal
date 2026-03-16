@@ -18,7 +18,16 @@ type NewTaskModalProps = {
 
 type SubmissionType = 'DISCLOSURES' | 'QC';
 
-const investorOptions = ['UWM', 'Kind', 'EPM', 'Sun West', 'Button'];
+const investorOptions = [
+  'UWM',
+  'Kind',
+  'EPM',
+  'Sun West',
+  'Button',
+  'Freedom',
+  'Loan United',
+  'PennyMac',
+];
 const buttonPricingOptions = [
   'Max Comp',
   'Max Comp 2',

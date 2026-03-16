@@ -12,6 +12,7 @@ type BucketConfig = {
   label: string;
   chipLabel: string;
   chipClassName: string;
+  isCompleted?: boolean;
   tasks: Task[];
 };
 
@@ -91,8 +92,14 @@ export function TaskBucketsBoard({
   bucketScrollMode?: 'auto' | 'fixed';
   fixedScrollClassName?: string;
 }) {
+  const defaultGlobalSort: SortOption =
+    currentRole === 'DISCLOSURE_SPECIALIST' ||
+    currentRole === 'QC' ||
+    currentRole === 'MANAGER'
+      ? 'updated_asc'
+      : 'updated_desc';
   const [globalSearch, setGlobalSearch] = useState('');
-  const [globalSort, setGlobalSort] = useState<SortOption>('updated_desc');
+  const [globalSort, setGlobalSort] = useState<SortOption>(defaultGlobalSort);
   const [controlsByBucket, setControlsByBucket] = useState<Record<string, BucketControls>>({});
   const deferredGlobalSearch = useDeferredValue(globalSearch.trim().toLowerCase());
 
@@ -110,7 +117,12 @@ export function TaskBucketsBoard({
     return buckets.map((bucket) => {
       const bucketControls = controlsByBucket[bucket.id] || defaultControls;
       const deferredLocalSearch = bucketControls.search.trim().toLowerCase();
-      const selectedSort = bucketControls.sort === 'global' ? globalSort : bucketControls.sort;
+      const selectedSort =
+        bucketControls.sort === 'global'
+          ? bucket.isCompleted
+            ? 'updated_desc'
+            : globalSort
+          : bucketControls.sort;
       const filtered = bucket.tasks.filter((task) => {
         const searchable = normalizeSearch(task);
         if (deferredGlobalSearch && !searchable.includes(deferredGlobalSearch)) return false;
@@ -154,7 +166,7 @@ export function TaskBucketsBoard({
             type="button"
             onClick={() => {
               setGlobalSearch('');
-              setGlobalSort('updated_desc');
+              setGlobalSort(defaultGlobalSort);
               setControlsByBucket({});
             }}
             className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"

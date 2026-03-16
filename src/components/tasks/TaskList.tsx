@@ -675,6 +675,53 @@ function getDisclosureSlaTimerMeta(startValue: Date | string | undefined, nowMs:
   };
 }
 
+function getCompletedStatusColorClassNames(timerClassName: string | null) {
+  if (!timerClassName) {
+    return {
+      badgeClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      iconClassName: 'bg-emerald-100 text-emerald-600',
+    };
+  }
+
+  const normalized = timerClassName.replace('animate-pulse', '').trim();
+
+  if (normalized.includes('rose')) {
+    return {
+      badgeClassName: normalized,
+      iconClassName: 'bg-rose-100 text-rose-700',
+    };
+  }
+  if (normalized.includes('orange')) {
+    return {
+      badgeClassName: normalized,
+      iconClassName: 'bg-orange-100 text-orange-700',
+    };
+  }
+  if (normalized.includes('yellow')) {
+    return {
+      badgeClassName: normalized,
+      iconClassName: 'bg-yellow-100 text-yellow-700',
+    };
+  }
+  if (normalized.includes('green')) {
+    return {
+      badgeClassName: normalized,
+      iconClassName: 'bg-green-100 text-green-700',
+    };
+  }
+  if (normalized.includes('emerald')) {
+    return {
+      badgeClassName: normalized,
+      iconClassName: 'bg-emerald-100 text-emerald-700',
+    };
+  }
+
+  return {
+    badgeClassName: normalized,
+    iconClassName: 'bg-slate-100 text-slate-600',
+  };
+}
+
 function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntry[] {
   if (!data || typeof data !== 'object') return [];
   const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
@@ -1504,9 +1551,17 @@ export function TaskList({
         );
         const isFocused = focusedTaskId === task.id;
         const isExpanded = expandedTaskIds.has(task.id);
+        const completionEndValue = task.completedAt || task.updatedAt;
+        const completedTotalTimeMeta =
+          task.status === TaskStatus.COMPLETED && task.createdAt && completionEndValue
+            ? getDisclosureSlaTimerMeta(task.createdAt, new Date(completionEndValue).getTime())
+            : null;
+        const completedColorMeta = getCompletedStatusColorClassNames(
+          completedTotalTimeMeta?.className || null
+        );
         const compactStatusChipClassName =
           task.status === TaskStatus.COMPLETED
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            ? completedColorMeta.badgeClassName
             : task.status === TaskStatus.IN_PROGRESS
             ? 'border-blue-200 bg-blue-50 text-blue-700'
             : task.status === TaskStatus.BLOCKED
@@ -1522,7 +1577,7 @@ export function TaskList({
             : 'bg-amber-100 text-amber-600';
         const defaultIconClassName =
           task.status === TaskStatus.COMPLETED
-            ? 'bg-emerald-100 text-emerald-600'
+            ? completedColorMeta.iconClassName
             : task.status === TaskStatus.IN_PROGRESS
             ? 'bg-blue-100 text-blue-600'
             : 'bg-slate-100 text-slate-500';
@@ -1538,11 +1593,6 @@ export function TaskList({
         const disclosureSlaTimerMeta = shouldShowDisclosureSlaTimer
           ? getDisclosureSlaTimerMeta(task.updatedAt, timerNowMs)
           : null;
-        const completionEndValue = task.completedAt || task.updatedAt;
-        const completedTotalTimeMeta =
-          task.status === TaskStatus.COMPLETED && task.createdAt && completionEndValue
-            ? getDisclosureSlaTimerMeta(task.createdAt, new Date(completionEndValue).getTime())
-            : null;
 
         return (
           <React.Fragment key={task.id}>
@@ -1604,7 +1654,7 @@ export function TaskList({
                           )}
                           {completedTotalTimeMeta && (
                             <span
-                              className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold leading-none text-slate-700"
+                              className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${completedColorMeta.badgeClassName}`}
                               title="Total time from submission to completion"
                             >
                               <Clock3 className="mr-1 h-2.5 w-2.5" />
