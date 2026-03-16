@@ -5,7 +5,6 @@ import Link from 'next/link';
 import {
   Calendar,
   CheckCircle2,
-  Circle,
   Clock3,
   FileText,
   FileCheck2,
@@ -96,6 +95,54 @@ function getTimerClassName(elapsedMs: number) {
   return 'border-rose-400 bg-rose-100 text-rose-800';
 }
 
+const submissionDetailGroups = [
+  {
+    title: 'Borrower Details',
+    keys: ['borrowerFirstName', 'borrowerLastName', 'borrowerPhone', 'borrowerEmail'],
+  },
+  {
+    title: 'Property Details',
+    keys: [
+      'subjectPropertyAddress',
+      'yearBuiltProperty',
+      'originalCost',
+      'yearAquired',
+      'mannerInWhichTitleWillBeHeld',
+    ],
+  },
+  {
+    title: 'Loan Details',
+    keys: [
+      'arriveLoanNumber',
+      'loanAmount',
+      'homeValue',
+      'loanType',
+      'loanProgram',
+      'loanPurpose',
+      'channel',
+      'investor',
+      'runId',
+      'pricingOption',
+      'creditReportType',
+      'aus',
+    ],
+  },
+] as const;
+
+function groupSubmissionSnapshot(
+  rows: Array<{ key: string; label: string; value: string }>
+) {
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  return submissionDetailGroups
+    .map((group) => ({
+      title: group.title,
+      rows: group.keys
+        .map((key) => byKey.get(key))
+        .filter((row): row is { key: string; label: string; value: string } => Boolean(row)),
+    }))
+    .filter((group) => group.rows.length > 0);
+}
+
 function BucketPanel({
   title,
   icon,
@@ -149,6 +196,10 @@ export function LoVaBorrowerProgressList({
     focusedItemKey === null
       ? null
       : items.find((item) => `${item.loanNumber}-${item.borrowerName}` === focusedItemKey) || null;
+  const focusedSubmissionGroups = React.useMemo(
+    () => (focusedItem ? groupSubmissionSnapshot(focusedItem.submissionSnapshot) : []),
+    [focusedItem]
+  );
   const jrQueueCount = 0;
   const srQueueCount = 0;
 
@@ -324,18 +375,27 @@ export function LoVaBorrowerProgressList({
               </button>
             </div>
 
-            {focusedItem.submissionSnapshot.length > 0 && (
+            {focusedSubmissionGroups.length > 0 && (
               <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
                 <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
                   QC Submission Snapshot
                 </h4>
-                <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                  {focusedItem.submissionSnapshot.map((row) => (
-                    <div key={row.key} className="flex flex-col">
-                      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                        {row.label}
-                      </span>
-                      <span className="text-sm font-semibold text-slate-900">{row.value}</span>
+                <div className="space-y-4">
+                  {focusedSubmissionGroups.map((group) => (
+                    <div key={group.title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-700">
+                        {group.title}
+                      </p>
+                      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                        {group.rows.map((row) => (
+                          <div key={row.key} className="flex flex-col">
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                              {row.label}
+                            </span>
+                            <span className="text-sm font-semibold text-slate-900">{row.value}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -344,72 +404,67 @@ export function LoVaBorrowerProgressList({
 
             <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
               <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
-                VA Task Completion
+                VA Task Completion & Proof
               </h4>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="space-y-3">
                 {[
-                  ['Title', focusedItem.stageDetails.title.completed],
-                  ['HOI', focusedItem.stageDetails.hoi.completed],
-                  ['Payoff', focusedItem.stageDetails.payoff.completed],
-                  ['Appraisal', focusedItem.stageDetails.appraisal.completed],
-                ].map(([label, completed]) => (
+                  {
+                    label: 'Title',
+                    detail: focusedItem.stageDetails.title,
+                  },
+                  {
+                    label: 'HOI',
+                    detail: focusedItem.stageDetails.hoi,
+                  },
+                  {
+                    label: 'Payoff',
+                    detail: focusedItem.stageDetails.payoff,
+                  },
+                  {
+                    label: 'Appraisal',
+                    detail: focusedItem.stageDetails.appraisal,
+                  },
+                ].map(({ label, detail }) => (
                   <div
-                    key={String(label)}
-                    className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
-                      completed
+                    key={label}
+                    className={`rounded-lg border p-3 ${
+                      detail.completed
                         ? 'border-emerald-200 bg-emerald-50'
                         : 'border-rose-200 bg-rose-50'
                     }`}
                   >
-                    <span className="text-sm font-semibold text-slate-800">{label}</span>
-                    {completed ? (
-                      <span className="inline-flex items-center text-emerald-700">
-                        <CheckCircle2 className="h-4 w-4" />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-slate-800">{label}</span>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                          detail.completed
+                            ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                            : 'border-rose-300 bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {detail.completed ? 'Completed' : 'Incomplete'}
                       </span>
-                    ) : (
-                      <span className="inline-flex items-center text-rose-700">
-                        <Circle className="h-4 w-4 fill-current" />
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+                    </div>
 
-            <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
-              <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
-                Proof Attachments
-              </h4>
-              <div className="space-y-3">
-                {[
-                  { label: 'Title', attachments: focusedItem.stageDetails.title.proofAttachments },
-                  { label: 'HOI', attachments: focusedItem.stageDetails.hoi.proofAttachments },
-                  { label: 'Payoff', attachments: focusedItem.stageDetails.payoff.proofAttachments },
-                  {
-                    label: 'Appraisal',
-                    attachments: focusedItem.stageDetails.appraisal.proofAttachments,
-                  },
-                ].map(({ label, attachments }) => (
-                  <div key={String(label)} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
-                      {label}
-                    </p>
-                    {attachments.length === 0 ? (
-                      <p className="text-xs font-medium text-slate-500">No proof uploaded yet.</p>
+                    {detail.proofAttachments.length === 0 ? (
+                      <p className="mt-2 text-xs font-medium text-slate-600">No proof uploaded yet.</p>
                     ) : (
-                      <div className="flex flex-col gap-2">
-                        {attachments.map((att) => (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {detail.proofAttachments.map((att) => (
                           <button
                             key={att.id}
                             type="button"
                             onClick={() => void openAttachment(att.id)}
                             disabled={openingAttachmentId === att.id}
-                            className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            title={`Open ${att.filename}`}
                           >
-                            {openingAttachmentId === att.id && (
+                            {openingAttachmentId === att.id ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <FileText className="h-3.5 w-3.5" />
                             )}
-                            {att.filename}
+                            <span className="max-w-[200px] truncate">{att.filename}</span>
                           </button>
                         ))}
                       </div>
