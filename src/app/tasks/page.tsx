@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { TaskList } from '@/components/tasks/TaskList';
 import { TaskBucketsBoard } from '@/components/tasks/TaskBucketsBoard';
 import { TaskDeskSection } from '@/components/tasks/TaskDeskSection';
+import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
+import { buildLoVaBorrowerProgress, isLoVaPilotUser } from '@/lib/loVaProgress';
 import {
   DisclosureDecisionReason,
   TaskAttachmentPurpose,
@@ -795,6 +797,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     name: session?.user?.name || MOCK_USER.name,
     role: sessionRole,
     id: session?.user?.id || '',
+    email: session?.user?.email || '',
   };
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const rawBucket = resolvedSearchParams?.bucket;
@@ -816,6 +819,14 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     : null;
   const managerVaRows =
     sessionRole === UserRole.MANAGER ? getManagerVaDeskRows(allTasks) : null;
+  const showLoVaPilot =
+    sessionRole === UserRole.LOAN_OFFICER &&
+    isLoVaPilotUser({
+      role: sessionRole,
+      email: sessionUser.email,
+      name: sessionUser.name,
+    });
+  const loVaProgressItems = showLoVaPilot ? buildLoVaBorrowerProgress(allTasks) : [];
   const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete = sessionRole === UserRole.ADMIN;
   const roleTaskSubtitle: Record<string, string> = {
@@ -884,6 +895,13 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             bucketScrollMode="fixed"
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
           />
+          {sessionRole === UserRole.LOAN_OFFICER && showLoVaPilot && (
+            <LoVaBorrowerProgressList
+              items={loVaProgressItems}
+              title="VA Borrower Progress (Pilot)"
+              subtitle="One borrower row per loan with 0/4 progress and appraisal action-needed alerts."
+            />
+          )}
           {sessionRole === UserRole.MANAGER && managerVaRows && (
             <>
               <TaskDeskSection

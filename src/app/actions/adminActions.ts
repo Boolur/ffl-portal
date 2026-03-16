@@ -56,6 +56,14 @@ export async function getAllTasks(filter?: TaskFilter) {
           name: true,
         },
       },
+      parentTask: {
+        select: {
+          kind: true,
+          assignedRole: true,
+          title: true,
+          submissionData: true,
+        },
+      },
     },
     orderBy: {
       createdAt: 'desc',

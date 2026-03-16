@@ -3,6 +3,7 @@
 import React from 'react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LoanOfficerDashboard } from '@/components/dashboard/LoanOfficerDashboard';
+import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
 import { DisclosureOverview } from '@/components/dashboard/DisclosureOverview';
 import { QcOverview } from '@/components/dashboard/QcOverview';
 import { VaOverview } from '@/components/dashboard/VaOverview';
@@ -10,6 +11,7 @@ import type { VaRole } from '@/components/dashboard/VaOverview';
 import { DepartmentBoard } from '@/components/admin/DepartmentBoard';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useImpersonation } from '@/lib/impersonation';
+import { buildLoVaBorrowerProgress, isLoVaPilotUser } from '@/lib/loVaProgress';
 import {
   DisclosureDecisionReason,
   Prisma,
@@ -42,6 +44,12 @@ type DashboardTask = {
   workflowState: TaskWorkflowState;
   disclosureReason: DisclosureDecisionReason | null;
   parentTaskId: string | null;
+  parentTask?: {
+    kind: TaskKind | null;
+    assignedRole: UserRole | null;
+    title: string;
+    submissionData?: Prisma.JsonValue | null;
+  } | null;
   loanOfficerApprovedAt: Date | null;
   submissionData?: Prisma.JsonValue | null;
   assignedRole: string | null;
@@ -150,6 +158,14 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
     activeRole === UserRole.VA ||
     activeRole === UserRole.PROCESSOR_JR ||
     activeRole === UserRole.PROCESSOR_SR;
+  const showLoVaPilot =
+    activeRole === UserRole.LOAN_OFFICER &&
+    isLoVaPilotUser({
+      role: activeRole,
+      email: user.email || null,
+      name: user.name || null,
+    });
+  const loVaProgressItems = showLoVaPilot ? buildLoVaBorrowerProgress(adminTasks) : [];
 
   return (
     <>
@@ -159,13 +175,22 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
       </div>
 
       {activeRole === 'LOAN_OFFICER' && (
-        <LoanOfficerDashboard
-          loans={loans}
-          submissions={adminTasks}
-          loanOfficerName={user.name}
-          disclosureEnabled={user.loDisclosureSubmissionEnabled ?? true}
-          qcEnabled={user.loQcSubmissionEnabled ?? true}
-        />
+        <div className="space-y-8">
+          <LoanOfficerDashboard
+            loans={loans}
+            submissions={adminTasks}
+            loanOfficerName={user.name}
+            disclosureEnabled={user.loDisclosureSubmissionEnabled ?? true}
+            qcEnabled={user.loQcSubmissionEnabled ?? true}
+          />
+          {showLoVaPilot && (
+            <LoVaBorrowerProgressList
+              items={loVaProgressItems}
+              title="VA Borrower Progress (Pilot)"
+              subtitle="Borrower-level progress across all 4 VA tasks with appraisal response callouts."
+            />
+          )}
+        </div>
       )}
       
       {activeRole === 'ADMIN' && (
