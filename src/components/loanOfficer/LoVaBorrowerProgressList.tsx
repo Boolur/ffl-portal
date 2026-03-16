@@ -3,11 +3,14 @@
 import React from 'react';
 import Link from 'next/link';
 import {
+  ClipboardCheck,
   Calendar,
   CheckCircle2,
   Clock3,
+  DollarSign,
   FileText,
   FileCheck2,
+  Home,
   Search,
   Loader2,
   UserCog,
@@ -404,30 +407,45 @@ export function LoVaBorrowerProgressList({
                   {
                     label: 'Title',
                     detail: focusedItem.stageDetails.title,
+                    icon: FileText,
                   },
                   {
                     label: 'HOI',
                     detail: focusedItem.stageDetails.hoi,
+                    icon: Home,
                   },
                   {
                     label: 'Payoff',
                     detail: focusedItem.stageDetails.payoff,
+                    icon: DollarSign,
                   },
                   {
                     label: 'Appraisal',
                     detail: focusedItem.stageDetails.appraisal,
+                    icon: ClipboardCheck,
                   },
-                ].map(({ label, detail }) => (
+                ].map(({ label, detail, icon: Icon }) => (
                   <div
                     key={label}
-                    className={`rounded-lg border p-3 ${
+                    className={`rounded-xl border p-3.5 ${
                       detail.completed
                         ? 'border-emerald-200 bg-emerald-50'
                         : 'border-rose-200 bg-rose-50'
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-slate-800">{label}</span>
+                      <span className="inline-flex items-center gap-2 text-sm font-bold tracking-tight text-slate-800">
+                        <span
+                          className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
+                            detail.completed
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-rose-100 text-rose-700'
+                          }`}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                        </span>
+                        {label}
+                      </span>
                       <span
                         className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                           detail.completed
@@ -440,7 +458,9 @@ export function LoVaBorrowerProgressList({
                     </div>
 
                     {detail.proofAttachments.length === 0 ? (
-                      <p className="mt-2 text-xs font-medium text-slate-600">No proof uploaded yet.</p>
+                      <p className="mt-2 text-xs font-medium text-slate-600">
+                        No proof uploaded yet.
+                      </p>
                     ) : (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {detail.proofAttachments.map((att) => (
