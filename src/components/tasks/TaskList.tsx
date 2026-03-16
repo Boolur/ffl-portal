@@ -1150,12 +1150,17 @@ export function TaskList({
         return;
       }
 
+      const uploadAbort = new AbortController();
+      const uploadTimeout = window.setTimeout(() => uploadAbort.abort(), 90_000);
       const put = await fetch(upload.signedUrl, {
         method: 'PUT',
         headers: {
           'Content-Type': file.type || 'application/octet-stream',
         },
         body: file,
+        signal: uploadAbort.signal,
+      }).finally(() => {
+        window.clearTimeout(uploadTimeout);
       });
 
       if (!put.ok) {
@@ -1165,14 +1170,31 @@ export function TaskList({
         return;
       }
 
-      const saved = await finalizeTaskAttachment({
-        taskId,
-        purpose: TaskAttachmentPurpose.PROOF,
-        storagePath: upload.path,
-        filename: file.name,
-        contentType: file.type || 'application/octet-stream',
-        sizeBytes: file.size,
-      });
+      const saveWithTimeout = async () => {
+        let timeoutHandle: number | null = null;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutHandle = window.setTimeout(
+            () => reject(new Error('Saving attachment timed out. Please try again.')),
+            30_000
+          );
+        });
+        try {
+          return (await Promise.race([
+            finalizeTaskAttachment({
+              taskId,
+              purpose: TaskAttachmentPurpose.PROOF,
+              storagePath: upload.path,
+              filename: file.name,
+              contentType: file.type || 'application/octet-stream',
+              sizeBytes: file.size,
+            }),
+            timeoutPromise,
+          ])) as Awaited<ReturnType<typeof finalizeTaskAttachment>>;
+        } finally {
+          if (timeoutHandle) window.clearTimeout(timeoutHandle);
+        }
+      };
+      const saved = await saveWithTimeout();
 
       if (!saved.success) {
         alert(saved.error || 'Failed to save attachment.');
@@ -1183,7 +1205,13 @@ export function TaskList({
       router.refresh();
     } catch (error) {
       console.error(error);
-      alert('Upload failed. Please try again.');
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        alert('Upload timed out. Please check connection and try again.');
+      } else if (error instanceof Error) {
+        alert(error.message || 'Upload failed. Please try again.');
+      } else {
+        alert('Upload failed. Please try again.');
+      }
     } finally {
       setUploadingId(null);
     }
@@ -1598,7 +1626,8 @@ export function TaskList({
         const submissionDataGroups = getGroupedSubmissionDetails(
           parsedSubmissionData as Record<string, unknown> | null
         );
-        const isVaSubmissionView = isVaSubRole && isVaTaskKind(task.kind);
+        const isVaSubmissionView =
+          isVaTaskKind(task.kind) && (isVaSubRole || isManagerRole);
         const visibleSubmissionDataGroups = isVaSubmissionView
           ? getVaSubmissionDetails(submissionDataGroups)
           : submissionDataGroups;
