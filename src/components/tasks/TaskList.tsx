@@ -1019,6 +1019,9 @@ export function TaskList({
     null
   );
   const [startingQcId, setStartingQcId] = React.useState<string | null>(null);
+  const [optimisticProofCountByTask, setOptimisticProofCountByTask] = React.useState<
+    Record<string, number>
+  >({});
   const [uploadStatusByTask, setUploadStatusByTask] = React.useState<
     Record<string, { type: 'success' | 'error'; message: string }>
   >({});
@@ -1118,6 +1121,34 @@ export function TaskList({
         if (!savedRows) continue;
         next[task.id] = savedRows;
         changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  React.useEffect(() => {
+    setOptimisticProofCountByTask((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      const serverProofCountByTask = new Map(
+        tasks.map((task) => [
+          task.id,
+          task.attachments?.filter((att) => att.purpose === TaskAttachmentPurpose.PROOF).length || 0,
+        ])
+      );
+
+      for (const [taskId, count] of Object.entries(prev)) {
+        if (count <= 0 || !serverProofCountByTask.has(taskId)) {
+          delete next[taskId];
+          changed = true;
+          continue;
+        }
+        const serverCount = serverProofCountByTask.get(taskId) || 0;
+        if (serverCount > 0) {
+          delete next[taskId];
+          changed = true;
+        }
       }
 
       return changed ? next : prev;
@@ -1232,6 +1263,10 @@ export function TaskList({
           type: 'success',
           message: 'Proof uploaded successfully.',
         },
+      }));
+      setOptimisticProofCountByTask((prev) => ({
+        ...prev,
+        [taskId]: (prev[taskId] || 0) + 1,
       }));
       router.refresh();
     } catch (error) {
@@ -1536,9 +1571,11 @@ export function TaskList({
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState !== TaskWorkflowState.WAITING_ON_LO &&
           task.workflowState !== TaskWorkflowState.WAITING_ON_LO_APPROVAL;
-        const proofCount =
+        const serverProofCount =
           task.attachments?.filter((att) => att.purpose === TaskAttachmentPurpose.PROOF)
             .length || 0;
+        const optimisticProofCount = optimisticProofCountByTask[task.id] || 0;
+        const proofCount = serverProofCount + optimisticProofCount;
         const proofAttachments =
           task.attachments?.filter((att) => att.purpose === TaskAttachmentPurpose.PROOF) ||
           [];
@@ -1623,6 +1660,7 @@ export function TaskList({
           (canManageDisclosureDesk &&
             isDisclosureSubmissionTask(task) &&
             selectedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES);
+        const isVaMissingItemsNoProofFlow = isVaAppraisalMissingItemsAction;
         const isQcCompleteRouteAction =
           canManageQcDesk &&
           isQcSubmissionTask(task) &&
@@ -2176,18 +2214,22 @@ export function TaskList({
                             <p className="text-xs font-medium text-slate-600">
                               {isQcAttachmentSection
                                 ? 'Add supporting documents if needed before routing or completing this task.'
+                                : isVaMissingItemsNoProofFlow
+                                ? 'Proof is optional when sending back as Missing/Incomplete.'
                                 : 'Upload proof before completing or routing this task.'}
                             </p>
                           </div>
                         </div>
                         <span
                           className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
-                            isQcAttachmentSection
+                            isQcAttachmentSection || isVaMissingItemsNoProofFlow
                               ? 'border-slate-200 bg-white text-slate-600'
                               : 'border-amber-200 bg-white text-amber-700'
                           }`}
                         >
-                          {isQcAttachmentSection ? 'Optional' : 'Required'}
+                          {isQcAttachmentSection || isVaMissingItemsNoProofFlow
+                            ? 'Optional'
+                            : 'Required'}
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
@@ -2212,11 +2254,19 @@ export function TaskList({
                           </div>
                         )}
                       </div>
-                      {canDisclosureEditProofAttachments && proofAttachments.length > 0 && (
+                      {(proofAttachments.length > 0 || optimisticProofCount > 0) && (
                         <div className="mt-4 space-y-2">
                           <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                             Uploaded Proof
                           </p>
+                          {proofAttachments.length === 0 && optimisticProofCount > 0 && (
+                            <div className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
+                              <p className="text-sm font-semibold text-blue-700">
+                                Proof uploaded. Syncing with server...
+                              </p>
+                              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                            </div>
+                          )}
                           {proofAttachments.map((att) => (
                             <div
                               key={att.id}
@@ -2229,17 +2279,23 @@ export function TaskList({
                               >
                                 {att.filename}
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleDeleteProofAttachment(att.id)}
-                                disabled={deletingAttachmentId === att.id}
-                                className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
-                                {deletingAttachmentId === att.id && (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                )}
-                                Delete
-                              </button>
+                              {canDisclosureEditProofAttachments ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteProofAttachment(att.id)}
+                                  disabled={deletingAttachmentId === att.id}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  {deletingAttachmentId === att.id && (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  )}
+                                  Delete
+                                </button>
+                              ) : (
+                                <span className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                                  Saved
+                                </span>
+                              )}
                             </div>
                           ))}
                         </div>
