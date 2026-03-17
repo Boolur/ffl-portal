@@ -1,7 +1,7 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
-import { UserRole } from '@prisma/client';
+import { TaskKind, UserRole } from '@prisma/client';
 
 type TaskFilter = {
   role?: UserRole | null;
@@ -12,6 +12,7 @@ export async function getAllTasks(filter?: TaskFilter) {
   const role = filter?.role ?? null;
   const userId = filter?.userId || null;
   const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isGenericVa = role === UserRole.VA;
 
   const where = isAdminOrManager
     ? undefined
@@ -21,6 +22,22 @@ export async function getAllTasks(filter?: TaskFilter) {
             loanOfficerId: userId || undefined,
           },
         }
+      : isGenericVa
+        ? {
+            OR: [
+              {
+                kind: {
+                  in: [
+                    TaskKind.VA_TITLE,
+                    TaskKind.VA_HOI,
+                    TaskKind.VA_PAYOFF,
+                    TaskKind.VA_APPRAISAL,
+                  ],
+                },
+              },
+              { assignedUserId: userId ?? undefined },
+            ],
+          }
       : {
           OR: [
             { assignedRole: role ?? undefined },

@@ -1333,7 +1333,7 @@ export function TaskList({
       ? disclosureReasonByTask[task.id] || DisclosureDecisionReason.MISSING_ITEMS
       : disclosureReasonByTask[task.id] ||
         DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
-    let message = (disclosureMessageByTask[task.id] || '').trim();
+    const message = (disclosureMessageByTask[task.id] || '').trim();
     const isQcTask = task.kind === TaskKind.SUBMIT_QC;
     let qcChecklistPayload:
       | {
@@ -1497,6 +1497,7 @@ export function TaskList({
   };
 
   const isVaSubRole =
+    currentRole === UserRole.VA ||
     currentRole === UserRole.VA_TITLE ||
     currentRole === UserRole.VA_HOI ||
     currentRole === UserRole.VA_PAYOFF ||

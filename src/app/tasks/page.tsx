@@ -26,6 +26,13 @@ const MOCK_USER = {
   role: UserRole.DISCLOSURE_SPECIALIST,
 };
 
+const VA_TASK_KINDS: TaskKind[] = [
+  TaskKind.VA_TITLE,
+  TaskKind.VA_HOI,
+  TaskKind.VA_PAYOFF,
+  TaskKind.VA_APPRAISAL,
+];
+
 function normalizeRole(role?: string | null): UserRole {
   if (!role) return MOCK_USER.role;
   const normalized = role.trim().toUpperCase();
@@ -153,6 +160,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   // For LOs, we want to see tasks for loans they own OR tasks assigned to them
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isGenericVa = role === UserRole.VA;
   
   const where: Prisma.TaskWhereInput = isAdminOrManager ? {} : {};
 
@@ -170,6 +178,12 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     where.OR = [
       { assignedRole: role as UserRole },
       { kind: TaskKind.SUBMIT_QC },
+    ];
+  } else if (isGenericVa) {
+    where.OR = [
+      { kind: { in: VA_TASK_KINDS } },
+      ...(userId ? [{ assignedUserId: userId }] : []),
+      { assignedRole: UserRole.VA },
     ];
   } else {
     where.OR = [
@@ -819,7 +833,9 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     ? getManagerDeskRows(allTasks)
     : null;
   const managerVaRows =
-    sessionRole === UserRole.MANAGER ? getManagerVaDeskRows(allTasks) : null;
+    sessionRole === UserRole.MANAGER || sessionRole === UserRole.VA
+      ? getManagerVaDeskRows(allTasks)
+      : null;
   const showLoVaPilot =
     sessionRole === UserRole.LOAN_OFFICER &&
     isLoVaPilotUser({
@@ -837,7 +853,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     [UserRole.MANAGER]:
       'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
     [UserRole.DISCLOSURE_SPECIALIST]: 'Work disclosure tasks by due date and status.',
-    [UserRole.VA]: 'Track support tasks and progress them to completion.',
+    [UserRole.VA]:
+      'Work all VA queues (Title, HOI, Payoff, Appraisal) without manager-level disclosure/QC views.',
     [UserRole.VA_TITLE]: 'Complete Title tasks and upload proof before finishing.',
     [UserRole.VA_HOI]: 'Complete HOI tasks and upload proof before finishing.',
     [UserRole.VA_PAYOFF]: 'Complete Payoff tasks and upload proof before finishing.',
@@ -962,7 +979,68 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         </div>
       )}
 
-      {!isDualDeskMode && showBuckets && (
+      {!isDualDeskMode && sessionRole === UserRole.VA && managerVaRows && (
+        <div className="space-y-5">
+          <TaskDeskSection
+            title="VA Appraisal Requests"
+            icon={<ShieldCheck className="h-5 w-5" />}
+            iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+            buckets={managerVaRows.vaAppraisalBuckets}
+            activeBucketId={
+              managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
+            }
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+          />
+          <TaskDeskSection
+            title="VA HOI Requests"
+            icon={<Home className="h-5 w-5" />}
+            iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+            buckets={managerVaRows.vaHoiBuckets}
+            activeBucketId={managerVaRows.vaHoiBuckets.find((b) => b.id === bucket)?.id || null}
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+          />
+          <TaskDeskSection
+            title="VA Payoff Requests"
+            icon={<Landmark className="h-5 w-5" />}
+            iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+            buckets={managerVaRows.vaPayoffBuckets}
+            activeBucketId={
+              managerVaRows.vaPayoffBuckets.find((b) => b.id === bucket)?.id || null
+            }
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+          />
+          <TaskDeskSection
+            title="VA Title Requests"
+            icon={<FileCheck2 className="h-5 w-5" />}
+            iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+            buckets={managerVaRows.vaTitleBuckets}
+            activeBucketId={managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null}
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+          />
+        </div>
+      )}
+
+      {!isDualDeskMode && sessionRole !== UserRole.VA && showBuckets && (
         <TaskBucketsBoard
           buckets={roleBuckets}
           activeBucketId={activeBucket}
@@ -974,7 +1052,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         />
       )}
 
-      {!isDualDeskMode && !showBuckets && (
+      {!isDualDeskMode && sessionRole !== UserRole.VA && !showBuckets && (
         <TaskList
           tasks={allTasks}
           canDelete={canDelete}

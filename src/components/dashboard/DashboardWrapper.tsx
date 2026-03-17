@@ -83,7 +83,15 @@ type DashboardWrapperProps = {
 
 function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
   const { activeRole } = useImpersonation();
+  const isVaTaskKind = (kind: TaskKind | null) =>
+    kind === TaskKind.VA_TITLE ||
+    kind === TaskKind.VA_HOI ||
+    kind === TaskKind.VA_PAYOFF ||
+    kind === TaskKind.VA_APPRAISAL;
   const roleTasks = adminTasks.filter((t) => {
+    if (activeRole === UserRole.VA) {
+      return isVaTaskKind(t.kind);
+    }
     if (t.assignedRole === activeRole) return true;
     if (activeRole === UserRole.DISCLOSURE_SPECIALIST) {
       return t.kind === TaskKind.SUBMIT_DISCLOSURES;
@@ -112,8 +120,8 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
       subtitle: 'Focus on disclosure-related tasks and due dates.',
     },
     [UserRole.VA]: {
-      title: 'VA Queue',
-      subtitle: 'Work assigned support tasks with clear priority.',
+      title: 'VA Desk',
+      subtitle: 'Work all VA queues (Title, HOI, Payoff, Appraisal) in one view.',
     },
     [UserRole.VA_TITLE]: {
       title: 'VA Queue (Title)',
@@ -155,7 +163,6 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
     activeRole === UserRole.VA_PAYOFF ||
     activeRole === UserRole.VA_APPRAISAL;
   const isProcessorOrLegacyVaRole =
-    activeRole === UserRole.VA ||
     activeRole === UserRole.PROCESSOR_JR ||
     activeRole === UserRole.PROCESSOR_SR;
   const showLoVaPilot =
@@ -209,6 +216,39 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
             </div>
             <QcOverview tasks={adminTasks} />
           </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">VA Desk - Appraisal</h2>
+              <p className="app-page-subtitle">Live VA Appraisal workload and status mix.</p>
+            </div>
+            <VaOverview tasks={adminTasks} role={UserRole.VA_APPRAISAL} />
+          </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">VA Desk - HOI</h2>
+              <p className="app-page-subtitle">Live VA HOI workload and status mix.</p>
+            </div>
+            <VaOverview tasks={adminTasks} role={UserRole.VA_HOI} />
+          </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">VA Desk - Payoff</h2>
+              <p className="app-page-subtitle">Live VA Payoff workload and status mix.</p>
+            </div>
+            <VaOverview tasks={adminTasks} role={UserRole.VA_PAYOFF} />
+          </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">VA Desk - Title</h2>
+              <p className="app-page-subtitle">Live VA Title workload and status mix.</p>
+            </div>
+            <VaOverview tasks={adminTasks} role={UserRole.VA_TITLE} />
+          </section>
+        </div>
+      )}
+
+      {activeRole === UserRole.VA && (
+        <div className="space-y-8">
           <section className="space-y-4">
             <div className="app-page-header">
               <h2 className="app-page-title">VA Desk - Appraisal</h2>

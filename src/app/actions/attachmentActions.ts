@@ -40,7 +40,17 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
 
   const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
   const isAssignedToUser = task.assignedUserId === userId;
-  const isAssignedToRole = task.assignedRole === role;
+  const isAssignedToRole =
+    task.assignedRole === role ||
+    (role === UserRole.VA &&
+      (task.assignedRole === UserRole.VA_TITLE ||
+        task.assignedRole === UserRole.VA_HOI ||
+        task.assignedRole === UserRole.VA_PAYOFF ||
+        task.assignedRole === UserRole.VA_APPRAISAL ||
+        task.kind === TaskKind.VA_TITLE ||
+        task.kind === TaskKind.VA_HOI ||
+        task.kind === TaskKind.VA_PAYOFF ||
+        task.kind === TaskKind.VA_APPRAISAL));
   const isLoanOwner = role === UserRole.LOAN_OFFICER && task.loan?.loanOfficerId === userId;
 
   if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
@@ -226,6 +236,7 @@ export async function deleteTaskAttachment(attachmentId: string) {
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const isDisclosureUser = role === UserRole.DISCLOSURE_SPECIALIST;
     const isVaUser =
+      role === UserRole.VA ||
       role === UserRole.VA_TITLE ||
       role === UserRole.VA_HOI ||
       role === UserRole.VA_PAYOFF ||

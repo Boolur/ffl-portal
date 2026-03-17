@@ -1141,7 +1141,14 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
 
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const isAssignedToUser = existing.assignedUserId === userId;
-    const isAssignedToRole = existing.assignedRole === role;
+    const isAssignedToRole =
+      existing.assignedRole === role ||
+      (role === UserRole.VA &&
+        (existing.assignedRole === UserRole.VA_TITLE ||
+          existing.assignedRole === UserRole.VA_HOI ||
+          existing.assignedRole === UserRole.VA_PAYOFF ||
+          existing.assignedRole === UserRole.VA_APPRAISAL ||
+          isVaTaskKind(existing.kind)));
     const isLoanOwner =
       role === UserRole.LOAN_OFFICER && existing.loan?.loanOfficerId === userId;
 
@@ -1156,6 +1163,7 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
       existing.kind === TaskKind.VA_APPRAISAL;
 
     const isVaRole =
+      role === UserRole.VA ||
       role === UserRole.VA_TITLE ||
       role === UserRole.VA_HOI ||
       role === UserRole.VA_PAYOFF ||
