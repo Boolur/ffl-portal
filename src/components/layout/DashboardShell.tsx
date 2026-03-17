@@ -94,7 +94,6 @@ function DashboardContent({ children, user }: DashboardShellProps) {
     <div className="min-h-screen app-shell-bg">
       <Sidebar
         collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed((prev) => !prev)}
       />
       <TopNav
         user={displayUser}

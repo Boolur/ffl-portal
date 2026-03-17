@@ -2,8 +2,6 @@
 
 import React from 'react';
 import {
-  PanelLeftClose,
-  PanelLeftOpen,
   Users,
   CheckSquare,
   BarChart,
@@ -21,10 +19,9 @@ import { usePathname } from 'next/navigation';
 
 type SidebarProps = {
   collapsed: boolean;
-  onToggle: () => void;
 };
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed }: SidebarProps) {
   const { activeRole } = useImpersonation();
   const pathname = usePathname();
 
@@ -141,7 +138,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       }`}
     >
       <div className={`border-b border-slate-200/80 ${collapsed ? 'p-3' : 'p-5'}`}>
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-center">
           <div className={`relative h-12 ${collapsed ? 'w-9' : 'w-full'}`}>
             <Image
               src="/logo.png"
@@ -151,19 +148,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               priority
             />
           </div>
-          <button
-            type="button"
-            onClick={onToggle}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {collapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
-          </button>
         </div>
       </div>
 
