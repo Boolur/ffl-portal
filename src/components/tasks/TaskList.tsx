@@ -7,6 +7,7 @@ import {
   Clock3,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
   FileText,
   Trash2,
   Loader2,
@@ -2270,15 +2271,20 @@ export function TaskList({
                           {proofAttachments.map((att) => (
                             <div
                               key={att.id}
-                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                              className="flex w-full max-w-2xl items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2"
                             >
-                              <button
-                                type="button"
-                                onClick={() => handleViewAttachment(att.id)}
-                                className="min-w-0 truncate text-left text-sm font-semibold text-slate-700 hover:text-blue-700"
-                              >
-                                {att.filename}
-                              </button>
+                              <div className="min-w-0 flex-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleViewAttachment(att.id)}
+                                  className="inline-flex max-w-full items-center gap-2 text-left text-sm font-semibold text-slate-700 hover:text-blue-700"
+                                >
+                                  <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                  </span>
+                                  <span className="truncate">{att.filename}</span>
+                                </button>
+                              </div>
                               {canDisclosureEditProofAttachments ? (
                                 <button
                                   type="button"

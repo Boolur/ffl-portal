@@ -221,7 +221,6 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       value.trim()
     );
-  const looksLikeOpaqueNumericId = (value: string) => /^\d{12,}$/.test(value.trim());
   const extractLoanNumberFromFilename = (filename?: string) => {
     if (!filename) return '';
     const stem = filename.replace(/\.[^/.]+$/, '');
@@ -456,41 +455,29 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
 
   const loanIdentifiers = Array.from(doc.getElementsByTagNameNS('*', 'LOAN_IDENTIFIER'));
   let arriveLoanNumber = '';
-  const identifierCandidates: string[] = [];
+  const losIdentifierCandidates: string[] = [];
   for (const id of loanIdentifiers) {
     const type = getTextFromElement(id, 'LoanIdentifierType');
+    const typeOtherDescription = getTextFromElement(id, 'LoanIdentifierTypeOtherDescription');
     const identifier = getTextFromElement(id, 'LoanIdentifier');
-    if (identifier) identifierCandidates.push(identifier);
-    if (type === 'LenderLoan') {
-      arriveLoanNumber = identifier;
-      break;
+    if (!identifier || isGuidLike(identifier)) continue;
+    const isLosIdentifier =
+      type === 'UniversalLoan' ||
+      (type === 'Other' &&
+        /(lwloan|arrive|loan origination system|los)/i.test(typeOtherDescription || ''));
+    if (isLosIdentifier) {
+      losIdentifierCandidates.push(identifier.trim());
     }
   }
-  if (!arriveLoanNumber) {
-    // Prefer a non-GUID candidate when no explicit LenderLoan identifier exists.
-    arriveLoanNumber =
-      identifierCandidates.find((value) => value && !isGuidLike(value)) || '';
-  }
-  if (!arriveLoanNumber) {
-    arriveLoanNumber = getFirstText(doc, [
-      'LoanNumber',
-      'MortgageLoanNumber',
-      'LenderLoanNumber',
-      'AgencyCaseIdentifier',
-    ]);
-  }
+
   const filenameLoanNumber = extractLoanNumberFromFilename(sourceFilename);
   if (filenameLoanNumber) {
-    const normalizedCurrent = arriveLoanNumber.trim();
-    const shouldPreferFilename =
-      !normalizedCurrent ||
-      isGuidLike(normalizedCurrent) ||
-      looksLikeOpaqueNumericId(normalizedCurrent) ||
-      normalizedCurrent.endsWith(filenameLoanNumber);
-    if (shouldPreferFilename) {
-      // Use filename token for exports that only provide GUID/MIN-style identifiers.
-      arriveLoanNumber = filenameLoanNumber;
-    }
+    arriveLoanNumber = filenameLoanNumber;
+  } else if (losIdentifierCandidates.length > 0) {
+    arriveLoanNumber = losIdentifierCandidates[0];
+  } else {
+    const losFallback = getFirstText(doc, ['LoanOriginationSystemLoanIdentifier']);
+    arriveLoanNumber = !isGuidLike(losFallback) ? losFallback : '';
   }
 
   const loanOriginatorType = getText(doc, 'LoanOriginatorType');

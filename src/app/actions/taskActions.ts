@@ -1392,6 +1392,13 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       notes,
       submissionData,
     } = payload;
+    const normalizedArriveLoanNumber = arriveLoanNumber.trim();
+    if (!normalizedArriveLoanNumber) {
+      return {
+        success: false,
+        error: 'Arrive Loan Number is required. Please enter the exact Arrive loan number.',
+      };
+    }
 
     if (submissionType === 'DISCLOSURES') {
       const submissionObject =
@@ -1590,7 +1597,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 
     // Find or create loan
     let loan = await prisma.loan.findFirst({
-      where: { loanNumber: arriveLoanNumber },
+      where: { loanNumber: normalizedArriveLoanNumber },
     });
 
     const targetStage =
@@ -1599,7 +1606,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     if (!loan) {
       loan = await prisma.loan.create({
         data: {
-          loanNumber: arriveLoanNumber,
+          loanNumber: normalizedArriveLoanNumber,
           borrowerName: `${borrowerFirstName} ${borrowerLastName}`.trim(),
           borrowerPhone: borrowerPhone?.trim() || null,
           borrowerEmail: borrowerEmail?.trim() || null,
