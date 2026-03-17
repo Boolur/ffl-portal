@@ -225,29 +225,57 @@ export async function deleteTaskAttachment(attachmentId: string) {
 
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const isDisclosureUser = role === UserRole.DISCLOSURE_SPECIALIST;
+    const isVaUser =
+      role === UserRole.VA_TITLE ||
+      role === UserRole.VA_HOI ||
+      role === UserRole.VA_PAYOFF ||
+      role === UserRole.VA_APPRAISAL;
 
-    // This delete flow is intended for Disclosure proof attachments before routing.
-    if (!canManageAll && !isDisclosureUser) {
-      return { success: false, error: 'Not authorized.' };
-    }
     if (attachment.purpose !== TaskAttachmentPurpose.PROOF) {
       return { success: false, error: 'Only proof attachments can be deleted here.' };
     }
-    if (attachment.task.kind !== TaskKind.SUBMIT_DISCLOSURES) {
+
+    const isDisclosureTask = attachment.task.kind === TaskKind.SUBMIT_DISCLOSURES;
+    const isVaTask =
+      attachment.task.kind === TaskKind.VA_TITLE ||
+      attachment.task.kind === TaskKind.VA_HOI ||
+      attachment.task.kind === TaskKind.VA_PAYOFF ||
+      attachment.task.kind === TaskKind.VA_APPRAISAL;
+
+    if (!isDisclosureTask && !isVaTask) {
       return {
         success: false,
-        error: 'Attachment deletion is only available on disclosure submission tasks.',
+        error: 'Attachment deletion is only available on disclosure or VA proof tasks.',
       };
     }
-    if (
-      attachment.task.status === TaskStatus.BLOCKED ||
-      attachment.task.status === TaskStatus.COMPLETED ||
-      attachment.task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
-      attachment.task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
-    ) {
+
+    if (!canManageAll) {
+      if (isDisclosureTask && !isDisclosureUser) {
+        return { success: false, error: 'Not authorized.' };
+      }
+      if (isVaTask && !isVaUser) {
+        return { success: false, error: 'Not authorized.' };
+      }
+    }
+
+    if (isDisclosureTask) {
+      if (
+        attachment.task.status === TaskStatus.BLOCKED ||
+        attachment.task.status === TaskStatus.COMPLETED ||
+        attachment.task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
+        attachment.task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
+      ) {
+        return {
+          success: false,
+          error: 'Attachments can only be deleted before sending the task to LO.',
+        };
+      }
+    }
+
+    if (isVaTask && attachment.task.status === TaskStatus.COMPLETED) {
       return {
         success: false,
-        error: 'Attachments can only be deleted before sending the task to LO.',
+        error: 'Attachments cannot be deleted after the VA task is completed.',
       };
     }
 
