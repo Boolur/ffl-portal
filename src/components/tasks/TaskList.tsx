@@ -717,49 +717,10 @@ function getDisclosureSlaTimerMeta(startValue: Date | string | undefined, nowMs:
 
 function getCompletedStatusColorClassNames(timerClassName: string | null) {
   const completedIconClassName = 'bg-emerald-100 text-emerald-700';
-
-  if (!timerClassName) {
-    return {
-      badgeClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-      iconClassName: completedIconClassName,
-    };
-  }
-
-  const normalized = timerClassName.replace('animate-pulse', '').trim();
-
-  if (normalized.includes('rose')) {
-    return {
-      badgeClassName: normalized,
-      iconClassName: completedIconClassName,
-    };
-  }
-  if (normalized.includes('orange')) {
-    return {
-      badgeClassName: normalized,
-      iconClassName: completedIconClassName,
-    };
-  }
-  if (normalized.includes('yellow')) {
-    return {
-      badgeClassName: normalized,
-      iconClassName: completedIconClassName,
-    };
-  }
-  if (normalized.includes('green')) {
-    return {
-      badgeClassName: normalized,
-      iconClassName: completedIconClassName,
-    };
-  }
-  if (normalized.includes('emerald')) {
-    return {
-      badgeClassName: normalized,
-      iconClassName: completedIconClassName,
-    };
-  }
-
+  // Keep completed status visually consistent as green across all queues.
+  // SLA timing is still shown in timer labels where applicable.
   return {
-    badgeClassName: normalized,
+    badgeClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     iconClassName: completedIconClassName,
   };
 }
