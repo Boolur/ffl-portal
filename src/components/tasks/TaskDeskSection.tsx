@@ -29,6 +29,7 @@ export function TaskDeskSection({
   initialFocusedTaskId,
   bucketScrollMode = 'auto',
   fixedScrollClassName = 'max-h-[520px] overflow-y-auto pr-1',
+  enableBatchDelete = false,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -41,6 +42,7 @@ export function TaskDeskSection({
   initialFocusedTaskId?: string | null;
   bucketScrollMode?: 'auto' | 'fixed';
   fixedScrollClassName?: string;
+  enableBatchDelete?: boolean;
 }) {
   const boardRef = useRef<TaskBucketsBoardHandle | null>(null);
   const [collapseSummary, setCollapseSummary] = useState({
@@ -88,6 +90,7 @@ export function TaskDeskSection({
         bucketScrollMode={bucketScrollMode}
         fixedScrollClassName={fixedScrollClassName}
         onCollapseSummaryChange={setCollapseSummary}
+        enableBatchDelete={enableBatchDelete}
       />
     </section>
   );

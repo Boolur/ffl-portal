@@ -938,6 +938,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 initialFocusedTaskId={focusedTaskId}
                 bucketScrollMode="fixed"
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                enableBatchDelete
               />
               <TaskDeskSection
                 title="VA HOI Requests"
@@ -951,6 +952,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 initialFocusedTaskId={focusedTaskId}
                 bucketScrollMode="fixed"
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                enableBatchDelete
               />
               <TaskDeskSection
                 title="VA Payoff Requests"
@@ -966,6 +968,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 initialFocusedTaskId={focusedTaskId}
                 bucketScrollMode="fixed"
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                enableBatchDelete
               />
               <TaskDeskSection
                 title="VA Title Requests"
@@ -979,6 +982,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 initialFocusedTaskId={focusedTaskId}
                 bucketScrollMode="fixed"
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                enableBatchDelete
               />
             </>
           )}

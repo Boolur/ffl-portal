@@ -998,6 +998,9 @@ export function TaskList({
   currentUserId,
   initialFocusedTaskId = null,
   emptyState = 'all_caught_up',
+  enableTaskSelection = false,
+  selectedTaskIds,
+  onToggleTaskSelection,
 }: {
   tasks: Task[];
   canDelete?: boolean;
@@ -1005,6 +1008,9 @@ export function TaskList({
   currentUserId?: string;
   initialFocusedTaskId?: string | null;
   emptyState?: 'all_caught_up' | 'no_results';
+  enableTaskSelection?: boolean;
+  selectedTaskIds?: Set<string>;
+  onToggleTaskSelection?: (taskId: string, selected: boolean) => void;
 }) {
   const router = useRouter();
   const [updatingId, setUpdatingId] = React.useState<string | null>(null);
@@ -1542,6 +1548,7 @@ export function TaskList({
   return (
     <div className="space-y-4">
       {tasks.map((task) => {
+        const isTaskSelected = selectedTaskIds?.has(task.id) ?? false;
         const selectedReason =
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
@@ -1844,6 +1851,17 @@ export function TaskList({
                 aria-controls={`task-expanded-${task.id}`}
                 className="relative flex items-start gap-3 min-w-0"
               >
+                {enableTaskSelection && onToggleTaskSelection && (
+                  <input
+                    type="checkbox"
+                    checked={isTaskSelected}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => onToggleTaskSelection(task.id, event.target.checked)}
+                    className="mt-2 h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    aria-label={`Select ${task.loan.borrowerName}`}
+                    title="Select task"
+                  />
+                )}
                 <button
                   type="button"
                   onClick={(event) => {

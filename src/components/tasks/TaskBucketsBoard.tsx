@@ -8,8 +8,10 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { TaskList, type Task } from '@/components/tasks/TaskList';
+import { deleteTask } from '@/app/actions/taskActions';
 
 type SortOption =
   | 'updated_desc'
@@ -106,6 +108,7 @@ type TaskBucketsBoardProps = {
   bucketScrollMode?: 'auto' | 'fixed';
   fixedScrollClassName?: string;
   onCollapseSummaryChange?: (summary: { total: number; collapsed: number }) => void;
+  enableBatchDelete?: boolean;
 };
 
 export type TaskBucketsBoardHandle = {
@@ -124,9 +127,11 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
       bucketScrollMode = 'auto',
       fixedScrollClassName = 'max-h-[520px] overflow-y-auto pr-1',
       onCollapseSummaryChange,
+      enableBatchDelete = false,
     },
     ref
   ) {
+  const router = useRouter();
   const defaultGlobalSort: SortOption =
     currentRole === 'DISCLOSURE_SPECIALIST' ||
     currentRole === 'QC' ||
@@ -141,6 +146,10 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   const [globalSearch, setGlobalSearch] = useState('');
   const [globalSort, setGlobalSort] = useState<SortOption>(defaultGlobalSort);
   const [controlsByBucket, setControlsByBucket] = useState<Record<string, BucketControls>>({});
+  const [selectedTaskIdsByBucket, setSelectedTaskIdsByBucket] = useState<Record<string, string[]>>(
+    {}
+  );
+  const [batchDeletingBucketId, setBatchDeletingBucketId] = useState<string | null>(null);
   const deferredGlobalSearch = useDeferredValue(globalSearch.trim().toLowerCase());
 
   const updateBucketControls = (bucketId: string, next: Partial<BucketControls>) => {
@@ -273,6 +282,8 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
       >
         {processedBuckets.map((bucket) => {
           const isCollapsed = bucket.controls.collapsed;
+          const selectedIds = selectedTaskIdsByBucket[bucket.id] || [];
+          const selectedCount = selectedIds.length;
           const isLoReturnedBucket =
             currentRole === 'LOAN_OFFICER' && bucket.id === 'returned-to-disclosure';
           return (
@@ -371,6 +382,69 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                       </option>
                     ))}
                   </select>
+                  {enableBatchDelete && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedTaskIdsByBucket((prev) => ({
+                            ...prev,
+                            [bucket.id]: bucket.visibleTasks.map((task) => task.id),
+                          }))
+                        }
+                        className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                      >
+                        Select Visible
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedTaskIdsByBucket((prev) => ({
+                            ...prev,
+                            [bucket.id]: [],
+                          }))
+                        }
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        type="button"
+                        disabled={selectedCount === 0 || batchDeletingBucketId === bucket.id}
+                        onClick={async () => {
+                          if (selectedCount === 0) return;
+                          const confirmed = window.confirm(
+                            `Delete ${selectedCount} selected task(s) from this bucket?`
+                          );
+                          if (!confirmed) return;
+                          setBatchDeletingBucketId(bucket.id);
+                          let failed = 0;
+                          for (const taskId of selectedIds) {
+                            const result = await deleteTask(taskId);
+                            if (!result.success) failed += 1;
+                          }
+                          setBatchDeletingBucketId(null);
+                          setSelectedTaskIdsByBucket((prev) => ({
+                            ...prev,
+                            [bucket.id]: [],
+                          }));
+                          if (failed > 0) {
+                            alert(
+                              `${failed} task(s) failed to delete. The rest were deleted successfully.`
+                            );
+                          }
+                          router.refresh();
+                        }}
+                        className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {batchDeletingBucketId === bucket.id
+                          ? `Deleting...`
+                          : selectedCount > 0
+                          ? `Delete Selected (${selectedCount})`
+                          : 'Delete Selected'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -388,6 +462,24 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                     currentRole={currentRole}
                     currentUserId={currentUserId}
                     initialFocusedTaskId={initialFocusedTaskId}
+                    enableTaskSelection={enableBatchDelete}
+                    selectedTaskIds={new Set(selectedIds)}
+                    onToggleTaskSelection={(taskId, selected) => {
+                      setSelectedTaskIdsByBucket((prev) => {
+                        const existing = prev[bucket.id] || [];
+                        const has = existing.includes(taskId);
+                        if (selected && !has) {
+                          return { ...prev, [bucket.id]: [...existing, taskId] };
+                        }
+                        if (!selected && has) {
+                          return {
+                            ...prev,
+                            [bucket.id]: existing.filter((id) => id !== taskId),
+                          };
+                        }
+                        return prev;
+                      });
+                    }}
                     emptyState={
                       bucket.visibleTasks.length === 0 &&
                       Boolean(deferredGlobalSearch || bucket.controls.search.trim())
