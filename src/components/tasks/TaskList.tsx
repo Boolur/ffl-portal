@@ -1572,6 +1572,12 @@ export function TaskList({
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState !== TaskWorkflowState.WAITING_ON_LO &&
           task.workflowState !== TaskWorkflowState.WAITING_ON_LO_APPROVAL;
+        const canVaOrManagerEditProofAttachments =
+          canManageVaDesk &&
+          isVaTaskKind(task.kind) &&
+          task.status !== TaskStatus.COMPLETED;
+        const canEditProofAttachments =
+          canDisclosureEditProofAttachments || canVaOrManagerEditProofAttachments;
         const serverProofCount =
           task.attachments?.filter((att) => att.purpose === TaskAttachmentPurpose.PROOF)
             .length || 0;
@@ -1654,7 +1660,7 @@ export function TaskList({
         const shouldShowProofUploader =
           task.status !== 'COMPLETED' &&
           ((canManageVaDesk && isVaTaskKind(task.kind)) ||
-            (canDisclosureEditProofAttachments && !isDisclosureMissingItemsRoute) ||
+            (canEditProofAttachments && !isDisclosureMissingItemsRoute) ||
             (canManageQcDesk && isQcSubmissionTask(task)));
         const isQcAttachmentSection = canManageQcDesk && isQcSubmissionTask(task);
         const requiresProofForRouting =
@@ -2285,7 +2291,7 @@ export function TaskList({
                                   <span className="truncate">{att.filename}</span>
                                 </button>
                               </div>
-                              {canDisclosureEditProofAttachments ? (
+                              {canEditProofAttachments ? (
                                 <button
                                   type="button"
                                   onClick={() => void handleDeleteProofAttachment(att.id)}
