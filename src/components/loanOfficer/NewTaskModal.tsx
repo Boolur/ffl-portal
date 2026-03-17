@@ -794,6 +794,11 @@ function DisclosuresForm({
       if (!form.pricingOption.trim()) highlightedMissingFields.add('pricingOption');
     }
   }
+  const missingButtonAvm = showValidationErrors && isButtonInvestor && !buttonFiles.avm;
+  const missingButtonTitleSheet =
+    showValidationErrors && isButtonInvestor && !buttonFiles.titleSheet;
+  const missingButtonPricingSheet =
+    showValidationErrors && isButtonInvestor && !buttonFiles.pricingSheet;
 
   const uploadDisclosureAttachment = async (
     taskId: string,
@@ -1214,11 +1219,13 @@ function DisclosuresForm({
             <AttachmentRequiredCard
               label="Attach AVM"
               file={buttonFiles.avm}
+              invalid={missingButtonAvm}
               onFileSelected={(file) => setButtonFiles((prev) => ({ ...prev, avm: file }))}
             />
             <AttachmentRequiredCard
               label="Attach Title Sheet"
               file={buttonFiles.titleSheet}
+              invalid={missingButtonTitleSheet}
               onFileSelected={(file) =>
                 setButtonFiles((prev) => ({ ...prev, titleSheet: file }))
               }
@@ -1226,6 +1233,7 @@ function DisclosuresForm({
             <AttachmentRequiredCard
               label="Attach Pricing Sheet"
               file={buttonFiles.pricingSheet}
+              invalid={missingButtonPricingSheet}
               onFileSelected={(file) =>
                 setButtonFiles((prev) => ({ ...prev, pricingSheet: file }))
               }
@@ -1659,25 +1667,43 @@ function FileUpload({ onFileSelected }: { onFileSelected: (file: File | null) =>
 function AttachmentRequiredCard({
   label,
   file,
+  invalid = false,
   onFileSelected,
 }: {
   label: string;
   file: File | null;
+  invalid?: boolean;
   onFileSelected: (file: File | null) => void;
 }) {
   return (
-    <label className="block rounded-xl border border-slate-200 bg-white p-3 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow">
+    <label
+      className={`block rounded-xl border bg-white p-3 shadow-sm cursor-pointer hover:shadow ${
+        invalid ? 'border-red-300 bg-red-50/60' : 'border-slate-200 hover:border-blue-300'
+      }`}
+    >
       <div className="mb-2 flex items-center gap-2">
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+        <span
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${
+            invalid ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+          }`}
+        >
           <FileText className="h-4 w-4" />
         </span>
-        <span className="text-sm font-semibold text-slate-900">{label}</span>
+        <span className={`text-sm font-semibold ${invalid ? 'text-red-700' : 'text-slate-900'}`}>
+          {label}
+        </span>
       </div>
-      <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
+      <div
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+          invalid
+            ? 'border-red-300 bg-red-50 text-red-700'
+            : 'border-slate-200 bg-slate-50 text-slate-700'
+        }`}
+      >
         <Upload className="h-3.5 w-3.5" />
         {file ? 'Replace File' : 'Upload File'}
       </div>
-      <p className="mt-2 truncate text-xs text-slate-500">
+      <p className={`mt-2 truncate text-xs ${invalid ? 'text-red-600' : 'text-slate-500'}`}>
         {file ? file.name : 'No file selected'}
       </p>
       <input
