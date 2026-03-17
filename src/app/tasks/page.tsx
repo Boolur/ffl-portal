@@ -866,15 +866,21 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
   const showBuckets = roleBuckets.length > 0;
   const activeBucket = roleBuckets.find((b) => b.id === bucket)?.id || null;
+  const taskPageSubtitle =
+    sessionRole === UserRole.VA
+      ? ''
+      : roleTaskSubtitle[sessionRole] || 'View and manage task status across your workflow.';
 
   return (
     <DashboardShell user={sessionUser}>
       <div className="flex items-center justify-between app-page-header">
         <div>
           <h1 className="app-page-title">Tasks</h1>
-          <p className="app-page-subtitle">
-            {roleTaskSubtitle[sessionRole] || 'View and manage task status across your workflow.'}
-          </p>
+          {taskPageSubtitle && (
+            <p className="app-page-subtitle">
+              {taskPageSubtitle}
+            </p>
+          )}
         </div>
         <div className="flex space-x-3">
           <span className="app-count-badge">
