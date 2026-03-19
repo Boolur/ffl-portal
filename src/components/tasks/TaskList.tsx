@@ -26,6 +26,7 @@ import {
   reviewInitialDisclosureFigures,
   requestInfoFromLoanOfficer,
   respondToDisclosureRequest,
+  saveJrProcessorChecklist,
   startDisclosureRequest,
   startQcRequest,
   updateTaskStatus,
@@ -98,8 +99,9 @@ type NoteHistoryEntry = {
   role: UserRole | null;
   message: string;
   date: string;
-  entryType?: 'note' | 'qcChecklist';
+  entryType?: 'note' | 'qcChecklist' | 'jrChecklist';
   checklist?: QcChecklistItem[];
+  jrChecklist?: JrChecklistItem[];
 };
 
 type TimelineItem = {
@@ -112,8 +114,9 @@ type TimelineItem = {
   attachmentId?: string;
   attachmentFilename?: string;
   attachmentPurpose?: TaskAttachmentPurpose;
-  noteEntryType?: 'note' | 'qcChecklist';
+  noteEntryType?: 'note' | 'qcChecklist' | 'jrChecklist';
   checklist?: QcChecklistItem[];
+  jrChecklist?: JrChecklistItem[];
 };
 
 type ContributorSummary = {
@@ -147,6 +150,16 @@ type QcChecklistDraftItem = {
   isCustom?: boolean;
 };
 
+type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+
+type JrChecklistItem = {
+  id: string;
+  label: string;
+  status: JrChecklistStatus;
+};
+
+type JrChecklistDraftItem = JrChecklistItem;
+
 const qcChecklistTemplate: Array<{ id: string; label: string }> = [
   { id: 'mortgage-documents', label: 'Verify Mortgage Documents' },
   { id: 'homeowners-insurance', label: 'Verify Homeowners Insurance Policy' },
@@ -174,6 +187,28 @@ const qcChecklistGreenOptions = new Set<QcChecklistNoteOption>([
   'PURCHASE_NOT_NEEDED',
   'NOT_APPLICABLE',
 ]);
+
+const jrChecklistTemplate: JrChecklistDraftItem[] = [
+  { id: 'ordered-hoi', label: 'Ordered HOI', status: 'ORDERED' },
+  { id: 'ordered-voe', label: 'Ordered VOE', status: 'ORDERED' },
+  { id: 'submitted-underwriting', label: 'Submitted to Underwriting', status: 'ORDERED' },
+];
+
+const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string }> = [
+  { value: 'ORDERED', label: 'Ordered' },
+  { value: 'MISSING_ITEMS', label: 'Missing Items / Action Required' },
+  { value: 'COMPLETED', label: 'Completed' },
+];
+
+function getJrChecklistStatusBadgeClass(status: JrChecklistStatus) {
+  if (status === 'COMPLETED') return 'border-emerald-300 bg-emerald-100 text-emerald-800';
+  if (status === 'MISSING_ITEMS') return 'border-rose-300 bg-rose-100 text-rose-800';
+  return 'border-blue-300 bg-blue-100 text-blue-800';
+}
+
+function createDefaultJrChecklistRows(): JrChecklistDraftItem[] {
+  return jrChecklistTemplate.map((row) => ({ ...row }));
+}
 
 function getQcChecklistStatusFromOption(
   option: QcChecklistDraftItem['noteOption']
@@ -311,6 +346,35 @@ function getSavedQcChecklistRowsFromSubmissionData(
     return [...templateRows, ...customRows];
   }
   return null;
+}
+
+function getSavedJrChecklistRowsFromSubmissionData(
+  data: Record<string, unknown> | null
+): JrChecklistDraftItem[] | null {
+  if (!data || typeof data !== 'object') return null;
+  const jrChecklistRaw = (data as { jrChecklist?: unknown }).jrChecklist;
+  if (!jrChecklistRaw || typeof jrChecklistRaw !== 'object') return null;
+  const itemsRaw = (jrChecklistRaw as { items?: unknown }).items;
+  if (!Array.isArray(itemsRaw)) return null;
+
+  const savedById = new Map<string, JrChecklistStatus>();
+  for (const item of itemsRaw) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String((item as { id?: unknown }).id ?? '').trim();
+    const status = String((item as { status?: unknown }).status ?? '').trim();
+    if (!id) continue;
+    if (status !== 'ORDERED' && status !== 'MISSING_ITEMS' && status !== 'COMPLETED') continue;
+    savedById.set(id, status as JrChecklistStatus);
+  }
+
+  const hasAllRows = jrChecklistTemplate.every((row) => savedById.has(row.id));
+  if (!hasAllRows) return null;
+
+  return jrChecklistTemplate.map((row) => ({
+    id: row.id,
+    label: row.label,
+    status: savedById.get(row.id) as JrChecklistStatus,
+  }));
 }
 
 function injectLoanOfficerContributor(
@@ -740,6 +804,7 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
     const roleRaw = (item as { role?: unknown }).role;
     const entryTypeRaw = (item as { entryType?: unknown }).entryType;
     const checklistRaw = (item as { checklist?: unknown }).checklist;
+    const jrChecklistRaw = (item as { jrChecklist?: unknown }).jrChecklist;
     const role =
       typeof roleRaw === 'string' &&
       (Object.values(UserRole) as string[]).includes(roleRaw)
@@ -753,7 +818,12 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
       role,
       message: message.trim(),
       date,
-      entryType: entryTypeRaw === 'qcChecklist' ? 'qcChecklist' : 'note',
+      entryType:
+        entryTypeRaw === 'qcChecklist'
+          ? 'qcChecklist'
+          : entryTypeRaw === 'jrChecklist'
+            ? 'jrChecklist'
+            : 'note',
       checklist:
         entryTypeRaw === 'qcChecklist' && Array.isArray(checklistRaw)
           ? checklistRaw
@@ -785,6 +855,30 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
                 };
               })
               .filter((row): row is QcChecklistItem => Boolean(row))
+          : undefined,
+      jrChecklist:
+        entryTypeRaw === 'jrChecklist' && Array.isArray(jrChecklistRaw)
+          ? jrChecklistRaw
+              .map((row): JrChecklistItem | null => {
+                if (!row || typeof row !== 'object') return null;
+                const id = String((row as { id?: unknown }).id ?? '').trim();
+                const label = String((row as { label?: unknown }).label ?? '').trim();
+                const statusRaw = String((row as { status?: unknown }).status ?? '').trim();
+                if (!id || !label) return null;
+                if (
+                  statusRaw !== 'ORDERED' &&
+                  statusRaw !== 'MISSING_ITEMS' &&
+                  statusRaw !== 'COMPLETED'
+                ) {
+                  return null;
+                }
+                return {
+                  id,
+                  label,
+                  status: statusRaw as JrChecklistStatus,
+                };
+              })
+              .filter((row): row is JrChecklistItem => Boolean(row))
           : undefined,
     });
   }
@@ -1006,6 +1100,10 @@ export function TaskList({
   const [qcChecklistByTask, setQcChecklistByTask] = React.useState<
     Record<string, QcChecklistDraftItem[]>
   >({});
+  const [jrChecklistByTask, setJrChecklistByTask] = React.useState<
+    Record<string, JrChecklistDraftItem[]>
+  >({});
+  const [savingJrChecklistId, setSavingJrChecklistId] = React.useState<string | null>(null);
   const [loResponseByTask, setLoResponseByTask] = React.useState<
     Record<string, string>
   >({});
@@ -1047,6 +1145,22 @@ export function TaskList({
       return { ...prev, [taskId]: current.filter((row) => row.id !== rowId) };
     });
   }, []);
+
+  const getJrChecklistRows = React.useCallback(
+    (taskId: string) => jrChecklistByTask[taskId] ?? createDefaultJrChecklistRows(),
+    [jrChecklistByTask]
+  );
+
+  const updateJrChecklistRow = React.useCallback(
+    (taskId: string, rowId: string, status: JrChecklistStatus) => {
+      setJrChecklistByTask((prev) => {
+        const current = prev[taskId] ?? createDefaultJrChecklistRows();
+        const next = current.map((row) => (row.id === rowId ? { ...row, status } : row));
+        return { ...prev, [taskId]: next };
+      });
+    },
+    []
+  );
 
   React.useEffect(() => {
     if (!initialFocusedTaskId || initialFocusConsumed) return;
@@ -1098,6 +1212,33 @@ export function TaskList({
   }, [tasks]);
 
   React.useEffect(() => {
+    setJrChecklistByTask((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const task of tasks) {
+        if (task.kind !== TaskKind.VA_HOI || next[task.id]) continue;
+        const parsedSubmissionData =
+          task.submissionData &&
+          typeof task.submissionData === 'object' &&
+          !Array.isArray(task.submissionData)
+            ? (task.submissionData as Record<string, unknown>)
+            : task.parentTask?.submissionData &&
+                typeof task.parentTask.submissionData === 'object' &&
+                !Array.isArray(task.parentTask.submissionData)
+              ? (task.parentTask.submissionData as Record<string, unknown>)
+              : null;
+        const savedRows = getSavedJrChecklistRowsFromSubmissionData(parsedSubmissionData);
+        if (!savedRows) continue;
+        next[task.id] = savedRows;
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  React.useEffect(() => {
     setOptimisticProofCountByTask((prev) => {
       let changed = false;
       const next = { ...prev };
@@ -1139,6 +1280,27 @@ export function TaskList({
     }
     router.refresh();
     setUpdatingId(null);
+  };
+
+  const handleSaveJrChecklist = async (taskId: string) => {
+    if (savingJrChecklistId) return;
+    const rows = getJrChecklistRows(taskId);
+    setSavingJrChecklistId(taskId);
+    const result = await saveJrProcessorChecklist(
+      taskId,
+      rows.map((row) => ({
+        id: row.id,
+        label: row.label,
+        status: row.status,
+      }))
+    );
+    if (!result.success) {
+      alert(result.error || 'Failed to save JR checklist.');
+      setSavingJrChecklistId(null);
+      return;
+    }
+    router.refresh();
+    setSavingJrChecklistId(null);
   };
 
   const handleUploadProof = async (taskId: string, file: File) => {
@@ -1531,6 +1693,16 @@ export function TaskList({
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const qcChecklistRows = getQcChecklistRows(task.id);
+        const jrChecklistRows = getJrChecklistRows(task.id);
+        const isJrChecklistTask = task.kind === TaskKind.VA_HOI;
+        const canManageJrChecklist =
+          (currentRole === UserRole.PROCESSOR_JR || isManagerRole) && isJrChecklistTask;
+        const jrChecklistHasMissingItems = jrChecklistRows.some(
+          (row) => row.status === 'MISSING_ITEMS'
+        );
+        const jrChecklistAllCompleted =
+          jrChecklistRows.length > 0 && jrChecklistRows.every((row) => row.status === 'COMPLETED');
+        const jrChecklistBlocksCompletion = canManageJrChecklist && !jrChecklistAllCompleted;
         const qcChecklistHasRedXItems = hasQcChecklistRedItem(qcChecklistRows);
         const qcChecklistAllGreen = isQcChecklistGreenOnly(qcChecklistRows);
         const qcChecklistMissingFields = hasQcChecklistMissingSelections(qcChecklistRows);
@@ -1580,7 +1752,8 @@ export function TaskList({
         const canCompleteTask =
           (!requiresProofForCompletion || proofCount > 0) &&
           !requiresStartBeforeVaComplete &&
-          !isVaAppraisalWaitingOnLoState;
+          !isVaAppraisalWaitingOnLoState &&
+          !jrChecklistBlocksCompletion;
         const isLoTaskForCurrentLoanOfficer =
           currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
         const isQcLinkedLoResponseTask =
@@ -1732,6 +1905,7 @@ export function TaskList({
             message: entry.message,
             noteEntryType: entry.entryType || 'note',
             checklist: entry.checklist,
+            jrChecklist: entry.jrChecklist,
           })),
           ...((task.timelineAttachments && task.timelineAttachments.length > 0
             ? task.timelineAttachments
@@ -2155,6 +2329,41 @@ export function TaskList({
                                       })}
                                     </div>
                                   </div>
+                                ) : item.noteEntryType === 'jrChecklist' &&
+                                  Array.isArray(item.jrChecklist) &&
+                                  item.jrChecklist.length > 0 ? (
+                                  <div className="space-y-3">
+                                    {item.message && (
+                                      <p className="text-sm font-semibold leading-relaxed text-slate-700">
+                                        {item.message}
+                                      </p>
+                                    )}
+                                    <div className="space-y-2">
+                                      {item.jrChecklist.map((row) => (
+                                        <div
+                                          key={`${item.id}-${row.id}`}
+                                          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                                        >
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="text-xs font-semibold text-slate-800">
+                                              {row.label}
+                                            </span>
+                                            <span
+                                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusBadgeClass(
+                                                row.status
+                                              )}`}
+                                            >
+                                              {row.status === 'MISSING_ITEMS'
+                                                ? 'Missing Items'
+                                                : row.status === 'COMPLETED'
+                                                  ? 'Completed'
+                                                  : 'Ordered'}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
                                 ) : (
                                   <p className="text-sm font-medium leading-relaxed text-slate-700">
                                     {item.message}
@@ -2511,6 +2720,7 @@ export function TaskList({
 
                   {canManageVaDesk &&
                     isVaTaskKind(task.kind) &&
+                    task.kind !== TaskKind.VA_HOI &&
                     task.status !== TaskStatus.COMPLETED && (
                       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4 shadow-sm space-y-2">
                         <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
@@ -2532,6 +2742,88 @@ export function TaskList({
                         </p>
                       </div>
                     )}
+
+                  {canManageJrChecklist && (
+                    <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50/50 p-5 shadow-sm space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-bold text-sky-900">JR Processor Checklist</h4>
+                          <p className="mt-1 text-xs font-medium text-sky-700/80">
+                            Update each required JR milestone before completing this task.
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center rounded-full border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                          {jrChecklistRows.filter((row) => row.status === 'COMPLETED').length}/
+                          {jrChecklistRows.length} Completed
+                        </span>
+                      </div>
+                      <div className="space-y-2.5">
+                        {jrChecklistRows.map((row) => (
+                          <div
+                            key={row.id}
+                            className="rounded-xl border border-sky-100 bg-white px-3 py-2.5 shadow-sm"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-sm font-semibold text-slate-900">{row.label}</p>
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusBadgeClass(
+                                  row.status
+                                )}`}
+                              >
+                                {row.status === 'MISSING_ITEMS'
+                                  ? 'Missing Items'
+                                  : row.status === 'COMPLETED'
+                                    ? 'Completed'
+                                    : 'Ordered'}
+                              </span>
+                            </div>
+                            <select
+                              value={row.status}
+                              onChange={(event) =>
+                                updateJrChecklistRow(
+                                  task.id,
+                                  row.id,
+                                  event.target.value as JrChecklistStatus
+                                )
+                              }
+                              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                            >
+                              {jrChecklistStatusOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-h-[18px]">
+                          {jrChecklistHasMissingItems && (
+                            <p className="text-xs font-semibold text-amber-700">
+                              Missing items selected: LO action is required for this task.
+                            </p>
+                          )}
+                          {jrChecklistBlocksCompletion && (
+                            <p className="text-xs font-semibold text-slate-600">
+                              Complete is available only when all checklist rows are marked Completed.
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveJrChecklist(task.id)}
+                          disabled={savingJrChecklistId === task.id}
+                          className="inline-flex h-9 items-center rounded-lg border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-700 shadow-sm hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {savingJrChecklistId === task.id && (
+                            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                          )}
+                          Save Checklist
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {canManageQcDesk && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
                     <div className="mt-8 rounded-2xl border border-violet-100 bg-violet-50/50 p-6 shadow-sm space-y-4">
@@ -2851,6 +3143,8 @@ export function TaskList({
                           : !canCompleteTask
                           ? requiresStartBeforeVaComplete
                             ? 'Start First'
+                            : jrChecklistBlocksCompletion
+                            ? 'Complete Checklist First'
                             : 'Upload Proof First'
                           : 'Complete'}
                       </button>

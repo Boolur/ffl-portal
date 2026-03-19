@@ -1819,6 +1819,147 @@ function appendSubmissionHistoryEntry(
   return dataObj as Prisma.JsonObject;
 }
 
+type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+type JrChecklistItemInput = {
+  id: string;
+  label: string;
+  status: JrChecklistStatus;
+};
+
+const JR_CHECKLIST_TEMPLATE: Array<{ id: string; label: string }> = [
+  { id: 'ordered-hoi', label: 'Ordered HOI' },
+  { id: 'ordered-voe', label: 'Ordered VOE' },
+  { id: 'submitted-underwriting', label: 'Submitted to Underwriting' },
+];
+
+const JR_CHECKLIST_STATUS_SET = new Set<JrChecklistStatus>([
+  'ORDERED',
+  'MISSING_ITEMS',
+  'COMPLETED',
+]);
+
+function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemInput[] | null {
+  if (!Array.isArray(input) || input.length !== JR_CHECKLIST_TEMPLATE.length) return null;
+  const expectedById = new Map(JR_CHECKLIST_TEMPLATE.map((item) => [item.id, item.label]));
+  const parsed: JrChecklistItemInput[] = [];
+  for (const row of input) {
+    const id = String(row?.id ?? '').trim();
+    const label = String(row?.label ?? '').trim();
+    const status = String(row?.status ?? '').trim() as JrChecklistStatus;
+    if (!id || !label || !expectedById.has(id)) return null;
+    if (label !== expectedById.get(id)) return null;
+    if (!JR_CHECKLIST_STATUS_SET.has(status)) return null;
+    parsed.push({ id, label, status });
+  }
+  const uniqueIds = new Set(parsed.map((row) => row.id));
+  if (uniqueIds.size !== JR_CHECKLIST_TEMPLATE.length) return null;
+  return JR_CHECKLIST_TEMPLATE.map((template) => parsed.find((row) => row.id === template.id)!) as JrChecklistItemInput[];
+}
+
+function buildJrChecklistSummary(items: JrChecklistItemInput[]) {
+  const ordered = items.filter((item) => item.status === 'ORDERED').length;
+  const missing = items.filter((item) => item.status === 'MISSING_ITEMS').length;
+  const completed = items.filter((item) => item.status === 'COMPLETED').length;
+  return `JR checklist updated: ${completed} completed, ${ordered} ordered, ${missing} missing/action required.`;
+}
+
+export async function saveJrProcessorChecklist(taskId: string, items: JrChecklistItemInput[]) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) {
+      return { success: false, error: 'Not authenticated.' };
+    }
+
+    const parsedItems = parseJrChecklistItems(items);
+    if (!parsedItems) {
+      return { success: false, error: 'Invalid JR checklist payload.' };
+    }
+
+    const existing = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        workflowState: true,
+        assignedRole: true,
+        assignedUserId: true,
+        submissionData: true,
+      },
+    });
+
+    if (!existing) return { success: false, error: 'Task not found.' };
+    if (existing.kind !== TaskKind.VA_HOI) {
+      return { success: false, error: 'Only JR Processor tasks support this checklist.' };
+    }
+
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageJrTask =
+      role === UserRole.PROCESSOR_JR ||
+      existing.assignedRole === UserRole.PROCESSOR_JR ||
+      existing.assignedUserId === userId;
+    if (!canManageAll && !canManageJrTask) {
+      return { success: false, error: 'Not authorized to update this checklist.' };
+    }
+
+    const dataObj =
+      existing.submissionData &&
+      typeof existing.submissionData === 'object' &&
+      !Array.isArray(existing.submissionData)
+        ? { ...(existing.submissionData as Record<string, unknown>) }
+        : {};
+
+    dataObj.jrChecklist = {
+      items: parsedItems,
+      updatedAt: new Date().toISOString(),
+      updatedBy: session?.user?.name || 'Team Member',
+    };
+
+    const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
+    notes.push({
+      author: session?.user?.name || 'Team Member',
+      role,
+      message: buildJrChecklistSummary(parsedItems),
+      date: new Date().toISOString(),
+      entryType: 'jrChecklist',
+      jrChecklist: parsedItems,
+    });
+    dataObj.notesHistory = notes;
+
+    const hasMissingItems = parsedItems.some((item) => item.status === 'MISSING_ITEMS');
+    const allCompleted = parsedItems.every((item) => item.status === 'COMPLETED');
+    const shouldReopen = existing.status === TaskStatus.COMPLETED && !allCompleted;
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        submissionData: dataObj as Prisma.JsonObject,
+        ...(shouldReopen
+          ? {
+              status: TaskStatus.IN_PROGRESS,
+              completedAt: null,
+            }
+          : {}),
+        workflowState: hasMissingItems
+          ? TaskWorkflowState.WAITING_ON_LO
+          : existing.workflowState === TaskWorkflowState.WAITING_ON_LO ||
+              existing.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
+            ? TaskWorkflowState.NONE
+            : existing.workflowState,
+      },
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to save JR checklist:', error);
+    return { success: false, error: 'Failed to save JR checklist.' };
+  }
+}
+
 export async function startDisclosureRequest(taskId: string) {
   try {
     const session = await getServerSession(authOptions);

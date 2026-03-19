@@ -224,7 +224,9 @@ export function LoVaBorrowerProgressList({
   className?: string;
 }) {
   const [focusedItemKey, setFocusedItemKey] = React.useState<string | null>(null);
+  const [focusedQueue, setFocusedQueue] = React.useState<'va' | 'jr' | 'completed'>('va');
   const [openingAttachmentId, setOpeningAttachmentId] = React.useState<string | null>(null);
+  const jrDetailSectionRef = React.useRef<HTMLDivElement | null>(null);
   const [expandedStageNotes, setExpandedStageNotes] = React.useState<Set<string>>(() => new Set());
   const [expandedTimelineNotes, setExpandedTimelineNotes] = React.useState<Set<string>>(
     () => new Set()
@@ -246,6 +248,16 @@ export function LoVaBorrowerProgressList({
     [items]
   );
   const completedItems = React.useMemo(() => items.filter((item) => item.isFullyComplete), [items]);
+  const showVaDetails = focusedQueue !== 'jr';
+  const showJrDetails = focusedQueue !== 'va';
+
+  const openBorrowerDetail = React.useCallback(
+    (item: LoVaBorrowerProgressItem, queue: 'va' | 'jr' | 'completed') => {
+      setFocusedQueue(queue);
+      setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`);
+    },
+    []
+  );
 
   const openAttachment = async (attachmentId: string) => {
     setOpeningAttachmentId(attachmentId);
@@ -263,6 +275,14 @@ export function LoVaBorrowerProgressList({
     setExpandedStageNotes(new Set());
     setExpandedTimelineNotes(new Set());
   }, [focusedItemKey]);
+
+  React.useEffect(() => {
+    if (!focusedItem || focusedQueue !== 'jr') return;
+    const timer = window.setTimeout(() => {
+      jrDetailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusedItem, focusedQueue]);
 
   return (
     <section className={`${className || ''}`}>
@@ -291,7 +311,7 @@ export function LoVaBorrowerProgressList({
                       <div className="flex items-start gap-2 min-w-0">
                         <button
                           type="button"
-                          onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
+                          onClick={() => openBorrowerDetail(item, 'va')}
                           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm ring-1 ring-black/5 hover:bg-slate-200"
                           title={`Open VA submission details for ${item.borrowerName}`}
                           aria-label={`Open VA submission details for ${item.borrowerName}`}
@@ -378,7 +398,7 @@ export function LoVaBorrowerProgressList({
                       <div className="flex items-start gap-2 min-w-0">
                         <button
                           type="button"
-                          onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
+                          onClick={() => openBorrowerDetail(item, 'jr')}
                           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm ring-1 ring-black/5 hover:bg-slate-200"
                           title={`Open JR Processor details for ${item.borrowerName}`}
                           aria-label={`Open JR Processor details for ${item.borrowerName}`}
@@ -465,7 +485,7 @@ export function LoVaBorrowerProgressList({
                       <div className="flex items-start gap-2 min-w-0">
                         <button
                           type="button"
-                          onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
+                          onClick={() => openBorrowerDetail(item, 'completed')}
                           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200 hover:bg-emerald-200"
                           title={`Open completed details for ${item.borrowerName}`}
                           aria-label={`Open completed details for ${item.borrowerName}`}
@@ -568,14 +588,19 @@ export function LoVaBorrowerProgressList({
             <div className="mt-6 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
               <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
                 <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
-                  VA & JR Task Completion & Proof
+                  {focusedQueue === 'jr'
+                    ? 'JR Task Completion & Proof'
+                    : focusedQueue === 'va'
+                    ? 'VA Task Completion & Proof'
+                    : 'VA & JR Task Completion & Proof'}
                 </h4>
                 <div className="space-y-3">
-                  {[
-                    { key: 'title' as const, icon: FileText },
-                    { key: 'payoff' as const, icon: DollarSign },
-                    { key: 'appraisal' as const, icon: ClipboardCheck },
-                  ].map(({ key, icon: Icon }) => {
+                  {showVaDetails &&
+                    [
+                      { key: 'title' as const, icon: FileText },
+                      { key: 'payoff' as const, icon: DollarSign },
+                      { key: 'appraisal' as const, icon: ClipboardCheck },
+                    ].map(({ key, icon: Icon }) => {
                     const label = stageLabelByKey[key];
                     const detail = focusedItem.vaStageDetails[key];
                     const latestNote = detail.latestNote;
@@ -698,9 +723,11 @@ export function LoVaBorrowerProgressList({
                       </div>
                     );
                   })}
-                  {[
-                    { key: 'hoi' as const, icon: Home },
-                  ].map(({ key, icon: Icon }) => {
+                  {showJrDetails && (
+                    <div ref={jrDetailSectionRef}>
+                      {[
+                      { key: 'hoi' as const, icon: Home },
+                      ].map(({ key, icon: Icon }) => {
                     const label = stageLabelByKey[key];
                     const detail = focusedItem.jrStageDetails[key];
                     const latestNote = detail.latestNote;
@@ -823,6 +850,8 @@ export function LoVaBorrowerProgressList({
                       </div>
                     );
                   })}
+                    </div>
+                  )}
                 </div>
               </div>
 
