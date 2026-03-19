@@ -96,7 +96,7 @@ export type LoVaBorrowerProgressItem = {
     author: string;
     role: UserRole | null;
   }>;
-  workedByNames: string[];
+  workedByContributors: Array<{ name: string; role: UserRole | null }>;
   submissionSnapshot: Array<{ key: string; label: string; value: string }>;
 };
 
@@ -299,12 +299,12 @@ function parseNotesHistoryForStage(
 function collectWorkedByFromNotesHistory(
   data: unknown,
   allowedRoles?: ReadonlySet<UserRole>
-): Array<{ author: string; dateMs: number }> {
+): Array<{ author: string; role: UserRole; dateMs: number }> {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
   const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
   if (!Array.isArray(notesHistory)) return [];
 
-  const contributors: Array<{ author: string; dateMs: number }> = [];
+  const contributors: Array<{ author: string; role: UserRole; dateMs: number }> = [];
   for (const item of notesHistory) {
     if (!item || typeof item !== 'object') continue;
     const author = String((item as { author?: unknown }).author ?? '').trim();
@@ -321,7 +321,7 @@ function collectWorkedByFromNotesHistory(
     if (!normalizedRole) continue;
     if (allowedRoles && !allowedRoles.has(normalizedRole)) continue;
 
-    contributors.push({ author, dateMs: dateValue.getTime() });
+    contributors.push({ author, role: normalizedRole, dateMs: dateValue.getTime() });
   }
   return contributors;
 }
@@ -612,7 +612,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         role: UserRole | null;
       }
     >();
-    const workedByLatestByName = new Map<string, number>();
+    const workedByLatestByName = new Map<string, { name: string; role: UserRole | null; dateMs: number }>();
     for (const definition of VA_KIND_MAP) {
       const task = value.vaByKind[definition.key];
       if (!task) continue;
@@ -648,9 +648,14 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       }
       const contributors = collectWorkedByFromNotesHistory(task.submissionData, workedByRoles);
       for (const contributor of contributors) {
-        const previous = workedByLatestByName.get(contributor.author) ?? 0;
-        if (contributor.dateMs >= previous) {
-          workedByLatestByName.set(contributor.author, contributor.dateMs);
+        const contributorKey = contributor.author.toLowerCase();
+        const previous = workedByLatestByName.get(contributorKey);
+        if (!previous || contributor.dateMs >= previous.dateMs) {
+          workedByLatestByName.set(contributorKey, {
+            name: contributor.author,
+            role: contributor.role,
+            dateMs: contributor.dateMs,
+          });
         }
       }
     }
@@ -693,9 +698,14 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       }
       const contributors = collectWorkedByFromNotesHistory(task.submissionData, workedByRoles);
       for (const contributor of contributors) {
-        const previous = workedByLatestByName.get(contributor.author) ?? 0;
-        if (contributor.dateMs >= previous) {
-          workedByLatestByName.set(contributor.author, contributor.dateMs);
+        const contributorKey = contributor.author.toLowerCase();
+        const previous = workedByLatestByName.get(contributorKey);
+        if (!previous || contributor.dateMs >= previous.dateMs) {
+          workedByLatestByName.set(contributorKey, {
+            name: contributor.author,
+            role: contributor.role,
+            dateMs: contributor.dateMs,
+          });
         }
       }
     }
@@ -713,9 +723,9 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         : Object.values(jrChips).some((chip) => chip !== 'completed'));
 
     const notesTimeline = dedupeTimelineEntries(Array.from(timelineById.values()));
-    const workedByNames = Array.from(workedByLatestByName.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([name]) => name);
+    const workedByContributors = Array.from(workedByLatestByName.values())
+      .sort((a, b) => b.dateMs - a.dateMs)
+      .map((entry) => ({ name: entry.name, role: entry.role }));
     rows.push({
       loanNumber: value.loanNumber,
       borrowerName: value.borrowerName,
@@ -736,7 +746,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       vaStageDetails,
       jrStageDetails,
       notesTimeline,
-      workedByNames,
+      workedByContributors,
       submissionSnapshot: buildSubmissionSnapshot(value.submissionData),
     });
   }

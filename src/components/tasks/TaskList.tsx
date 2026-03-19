@@ -47,6 +47,7 @@ import {
   TaskWorkflowState,
   UserRole,
 } from '@prisma/client';
+import { getRoleBubbleClass } from '@/lib/roleColors';
 
 const disclosureReasonOptions: Array<{
   value: DisclosureDecisionReason;
@@ -921,31 +922,6 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
     });
   }
   return entries;
-}
-
-function getRoleBubbleClass(role: UserRole | null) {
-  if (role === UserRole.LOAN_OFFICER) {
-    return 'border-amber-200 bg-amber-50 text-amber-700';
-  }
-  if (role === UserRole.MANAGER) {
-    return 'border-rose-200 bg-rose-50 text-rose-700';
-  }
-  if (
-    role === UserRole.VA ||
-    role === UserRole.VA_TITLE ||
-    role === UserRole.VA_PAYOFF ||
-    role === UserRole.VA_APPRAISAL ||
-    role === UserRole.PROCESSOR_JR
-  ) {
-    return 'border-rose-200 bg-rose-50 text-rose-700';
-  }
-  if (role === UserRole.DISCLOSURE_SPECIALIST) {
-    return 'border-blue-200 bg-blue-50 text-blue-700';
-  }
-  if (role === UserRole.QC) {
-    return 'border-violet-200 bg-violet-50 text-violet-700';
-  }
-  return 'border-slate-200 bg-slate-50 text-slate-500';
 }
 
 function getContributorSummaryFromSubmissionData(

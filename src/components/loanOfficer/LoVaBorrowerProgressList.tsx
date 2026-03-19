@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import type { LoVaBorrowerProgressItem, VaChipState } from '@/lib/loVaProgress';
+import { getRoleBubbleClass } from '@/lib/roleColors';
 
 const chipMeta: Record<
   VaChipState,
@@ -112,6 +113,73 @@ function getStageElapsedMs(
   const endMs = completed && updatedAt ? updatedAt.getTime() : nowMs;
   if (!Number.isFinite(endMs) || endMs < startMs) return null;
   return endMs - startMs;
+}
+
+type SortOption =
+  | 'created_asc'
+  | 'created_desc'
+  | 'updated_desc'
+  | 'updated_asc'
+  | 'borrower_asc'
+  | 'borrower_desc';
+type LocalSortOption = 'global' | SortOption;
+
+const sortOptions: Array<{ value: SortOption; label: string }> = [
+  { value: 'created_asc', label: 'Queue Time (Oldest First)' },
+  { value: 'created_desc', label: 'Queue Time (Newest First)' },
+  { value: 'updated_desc', label: 'Updated (Newest)' },
+  { value: 'updated_asc', label: 'Updated (Oldest)' },
+  { value: 'borrower_asc', label: 'Borrower (A to Z)' },
+  { value: 'borrower_desc', label: 'Borrower (Z to A)' },
+];
+
+const sortLabelByValue: Record<SortOption, string> = {
+  created_asc: 'Queue Time (Oldest First)',
+  created_desc: 'Queue Time (Newest First)',
+  updated_desc: 'Updated (Newest)',
+  updated_asc: 'Updated (Oldest)',
+  borrower_asc: 'Borrower (A to Z)',
+  borrower_desc: 'Borrower (Z to A)',
+};
+
+function normalizeCreatedAt(item: LoVaBorrowerProgressItem) {
+  return item.earliestCreatedAt?.getTime() || 0;
+}
+
+function normalizeUpdatedAt(item: LoVaBorrowerProgressItem) {
+  return item.latestUpdatedAt?.getTime() || 0;
+}
+
+function normalizeBorrower(item: LoVaBorrowerProgressItem) {
+  return item.borrowerName.trim().toLowerCase();
+}
+
+function normalizeSearch(item: LoVaBorrowerProgressItem) {
+  return `${item.borrowerName} ${item.loanNumber}`.toLowerCase();
+}
+
+function sortBorrowerItems(items: LoVaBorrowerProgressItem[], sortBy: SortOption) {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      if (sortBy === 'created_asc') {
+        return normalizeCreatedAt(a.item) - normalizeCreatedAt(b.item) || a.index - b.index;
+      }
+      if (sortBy === 'created_desc') {
+        return normalizeCreatedAt(b.item) - normalizeCreatedAt(a.item) || a.index - b.index;
+      }
+      if (sortBy === 'updated_desc') {
+        return normalizeUpdatedAt(b.item) - normalizeUpdatedAt(a.item) || a.index - b.index;
+      }
+      if (sortBy === 'updated_asc') {
+        return normalizeUpdatedAt(a.item) - normalizeUpdatedAt(b.item) || a.index - b.index;
+      }
+      if (sortBy === 'borrower_asc') {
+        return normalizeBorrower(a.item).localeCompare(normalizeBorrower(b.item)) || a.index - b.index;
+      }
+      return normalizeBorrower(b.item).localeCompare(normalizeBorrower(a.item)) || a.index - b.index;
+    })
+    .map((entry) => entry.item);
 }
 
 const submissionDetailGroups = [
@@ -239,12 +307,22 @@ function BucketPanel({
   icon,
   chipLabel,
   count,
+  searchValue,
+  onSearchChange,
+  sortValue,
+  onSortChange,
+  globalSort,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
   chipLabel: string;
   count: number;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  sortValue: LocalSortOption;
+  onSortChange: (value: LocalSortOption) => void;
+  globalSort: SortOption;
   children: React.ReactNode;
 }) {
   return (
@@ -265,9 +343,28 @@ function BucketPanel({
           {chipLabel}
         </span>
       </div>
-      <div className="mb-2 flex items-center rounded-md border border-slate-200 bg-white py-1.5 pl-2.5 pr-2 text-[11px] text-slate-400">
-        <Search className="mr-1.5 h-3 w-3" />
-        Search bucket
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <label className="relative min-w-[120px] flex-1">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+          <input
+            value={searchValue}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Search bucket"
+            className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-7 pr-2 text-[11px] font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+          />
+        </label>
+        <select
+          value={sortValue}
+          onChange={(event) => onSortChange(event.target.value as LocalSortOption)}
+          className="min-w-[125px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+        >
+          <option value="global">Use Global ({sortLabelByValue[globalSort]})</option>
+          {sortOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="h-[300px] overflow-y-auto pr-1">{children}</div>
     </div>
@@ -290,6 +387,15 @@ export function LoVaBorrowerProgressList({
   const [expandedBorrowerCards, setExpandedBorrowerCards] = React.useState<Set<string>>(
     () => new Set()
   );
+  const [globalSearch, setGlobalSearch] = React.useState('');
+  const [globalSort, setGlobalSort] = React.useState<SortOption>('created_asc');
+  const [bucketControls, setBucketControls] = React.useState<
+    Record<'va' | 'jr' | 'completed', { search: string; sort: LocalSortOption }>
+  >({
+    va: { search: '', sort: 'global' },
+    jr: { search: '', sort: 'global' },
+    completed: { search: '', sort: 'global' },
+  });
   const [timerNowMs, setTimerNowMs] = React.useState(() => Date.now());
   const focusedItem =
     focusedItemKey === null
@@ -308,6 +414,26 @@ export function LoVaBorrowerProgressList({
     [items]
   );
   const completedItems = React.useMemo(() => items.filter((item) => item.isFullyComplete), [items]);
+  const filteredAndSorted = React.useMemo(() => {
+    const normalizedGlobalSearch = globalSearch.trim().toLowerCase();
+    const processBucket = (bucketItems: LoVaBorrowerProgressItem[], bucketKey: 'va' | 'jr' | 'completed') => {
+      const localSearch = bucketControls[bucketKey].search.trim().toLowerCase();
+      const selectedSort =
+        bucketControls[bucketKey].sort === 'global' ? globalSort : bucketControls[bucketKey].sort;
+      const filtered = bucketItems.filter((item) => {
+        const searchable = normalizeSearch(item);
+        if (normalizedGlobalSearch && !searchable.includes(normalizedGlobalSearch)) return false;
+        if (localSearch && !searchable.includes(localSearch)) return false;
+        return true;
+      });
+      return sortBorrowerItems(filtered, selectedSort);
+    };
+    return {
+      va: processBucket(vaItems, 'va'),
+      jr: processBucket(jrItems, 'jr'),
+      completed: processBucket(completedItems, 'completed'),
+    };
+  }, [bucketControls, completedItems, globalSearch, globalSort, jrItems, vaItems]);
   const showVaDetails = focusedQueue !== 'jr';
   const showJrDetails = focusedQueue !== 'va';
 
@@ -353,24 +479,72 @@ export function LoVaBorrowerProgressList({
 
   return (
     <section className={`${className || ''}`}>
+      <div className="mb-3.5 w-full rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative w-full md:w-[420px]">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              value={globalSearch}
+              onChange={(event) => setGlobalSearch(event.target.value)}
+              placeholder="Search all VA/JR buckets..."
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+            />
+          </label>
+          <select
+            value={globalSort}
+            onChange={(event) => setGlobalSort(event.target.value as SortOption)}
+            className="min-w-[170px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+          >
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              setGlobalSearch('');
+              setGlobalSort('created_asc');
+              setBucketControls({
+                va: { search: '', sort: 'global' },
+                jr: { search: '', sort: 'global' },
+                completed: { search: '', sort: 'global' },
+              });
+            }}
+            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            Reset
+          </button>
+        </div>
+      </div>
       <div className="grid gap-3.5 md:grid-cols-3">
         <BucketPanel
           title="VA Bucket"
           icon={<FileCheck2 className="h-5 w-5 text-rose-600" />}
           chipLabel="VA Queue"
-          count={vaItems.length}
+          count={filteredAndSorted.va.length}
+          searchValue={bucketControls.va.search}
+          onSearchChange={(value) =>
+            setBucketControls((prev) => ({ ...prev, va: { ...prev.va, search: value } }))
+          }
+          sortValue={bucketControls.va.sort}
+          onSortChange={(value) =>
+            setBucketControls((prev) => ({ ...prev, va: { ...prev.va, sort: value } }))
+          }
+          globalSort={globalSort}
         >
-          {vaItems.length === 0 ? (
+          {filteredAndSorted.va.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <CheckCircle2 className="h-6 w-6 text-slate-300" />
               <p className="mt-2 text-xs font-medium text-slate-500">No VA requests in queue.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {vaItems.map((item) => {
+              {filteredAndSorted.va.map((item) => {
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-va`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
-                const workedBy = item.workedByNames;
+                const workedBy = item.workedByContributors;
                 const vaStatusPills = [
                   { label: 'Title', done: item.vaStageDetails.title.completed },
                   { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
@@ -467,12 +641,16 @@ export function LoVaBorrowerProgressList({
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                           Worked By
                         </span>
-                        {(workedBy.length > 0 ? workedBy : ['Unassigned']).map((name) => (
+                        {(workedBy.length > 0
+                          ? workedBy
+                          : [{ name: 'Unassigned', role: null as null }]).map((contributor) => (
                           <span
-                            key={name}
-                            className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                            key={contributor.name}
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
+                              contributor.role
+                            )}`}
                           >
-                            {name}
+                            {contributor.name}
                           </span>
                         ))}
                       </div>
@@ -489,19 +667,28 @@ export function LoVaBorrowerProgressList({
           title="JR Processor"
           icon={<UserCog className="h-5 w-5 text-slate-600" />}
           chipLabel="Processor Queue"
-          count={jrItems.length}
+          count={filteredAndSorted.jr.length}
+          searchValue={bucketControls.jr.search}
+          onSearchChange={(value) =>
+            setBucketControls((prev) => ({ ...prev, jr: { ...prev.jr, search: value } }))
+          }
+          sortValue={bucketControls.jr.sort}
+          onSortChange={(value) =>
+            setBucketControls((prev) => ({ ...prev, jr: { ...prev.jr, sort: value } }))
+          }
+          globalSort={globalSort}
         >
-          {jrItems.length === 0 ? (
+          {filteredAndSorted.jr.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <CheckCircle2 className="h-6 w-6 text-slate-300" />
               <p className="mt-2 text-xs font-medium text-slate-500">No JR Processor requests in queue.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {jrItems.map((item) => {
+              {filteredAndSorted.jr.map((item) => {
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-jr`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
-                const workedBy = item.workedByNames;
+                const workedBy = item.workedByContributors;
                 const jrRows =
                   item.jrStageDetails.hoi.checklist.length > 0
                     ? item.jrStageDetails.hoi.checklist.map((row) => ({
@@ -621,12 +808,16 @@ export function LoVaBorrowerProgressList({
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                           Worked By
                         </span>
-                        {(workedBy.length > 0 ? workedBy : ['Unassigned']).map((name) => (
+                        {(workedBy.length > 0
+                          ? workedBy
+                          : [{ name: 'Unassigned', role: null as null }]).map((contributor) => (
                           <span
-                            key={name}
-                            className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                            key={contributor.name}
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
+                              contributor.role
+                            )}`}
                           >
-                            {name}
+                            {contributor.name}
                           </span>
                         ))}
                       </div>
@@ -643,9 +834,21 @@ export function LoVaBorrowerProgressList({
           title="Completed VA & JR Processing"
           icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />}
           chipLabel="Completed Queue"
-          count={completedItems.length}
+          count={filteredAndSorted.completed.length}
+          searchValue={bucketControls.completed.search}
+          onSearchChange={(value) =>
+            setBucketControls((prev) => ({
+              ...prev,
+              completed: { ...prev.completed, search: value },
+            }))
+          }
+          sortValue={bucketControls.completed.sort}
+          onSortChange={(value) =>
+            setBucketControls((prev) => ({ ...prev, completed: { ...prev.completed, sort: value } }))
+          }
+          globalSort={globalSort}
         >
-          {completedItems.length === 0 ? (
+          {filteredAndSorted.completed.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <CheckCircle2 className="h-6 w-6 text-slate-300" />
               <p className="mt-2 text-xs font-medium text-slate-500">
@@ -654,7 +857,7 @@ export function LoVaBorrowerProgressList({
             </div>
           ) : (
             <div className="space-y-3">
-              {completedItems.map((item) => (
+              {filteredAndSorted.completed.map((item) => (
                 <article
                   key={`${item.loanNumber}-${item.borrowerName}`}
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-3 shadow-sm transition-all hover:border-emerald-300 hover:shadow-md"
