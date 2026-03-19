@@ -1002,6 +1002,7 @@ export function TaskList({
   const [disclosureMessageByTask, setDisclosureMessageByTask] = React.useState<
     Record<string, string>
   >({});
+  const [vaNoteByTask, setVaNoteByTask] = React.useState<Record<string, string>>({});
   const [qcChecklistByTask, setQcChecklistByTask] = React.useState<
     Record<string, QcChecklistDraftItem[]>
   >({});
@@ -1124,11 +1125,15 @@ export function TaskList({
     });
   }, [tasks]);
 
-  const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
+  const handleStatusChange = async (
+    taskId: string,
+    newStatus: TaskStatus,
+    options?: { noteMessage?: string }
+  ) => {
     if (updatingId) return;
     setUpdatingId(taskId);
     // In a real app, we'd use optimistic UI here
-    const result = await updateTaskStatus(taskId, newStatus);
+    const result = await updateTaskStatus(taskId, newStatus, options);
     if (!result.success) {
       alert(result.error || 'Failed to update task.');
     }
@@ -1302,6 +1307,11 @@ export function TaskList({
       : disclosureReasonByTask[task.id] ||
         DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
     const message = (disclosureMessageByTask[task.id] || '').trim();
+    const vaOptionalNote = (vaNoteByTask[task.id] || '').trim();
+    const messageWithVaNote =
+      isVaAppraisalTask && vaOptionalNote
+        ? `${message}${message ? '\n\n' : ''}VA Note: ${vaOptionalNote}`
+        : message;
     const isQcTask = task.kind === TaskKind.SUBMIT_QC;
     let qcChecklistPayload:
       | {
@@ -1355,7 +1365,7 @@ export function TaskList({
     setSendingToLoId(task.id);
     const result = await requestInfoFromLoanOfficer(task.id, {
       reason,
-      message,
+      message: messageWithVaNote,
       qcChecklist: qcChecklistPayload,
     });
     if (!result.success) {
@@ -1556,6 +1566,9 @@ export function TaskList({
         const proofAttachments =
           task.attachments?.filter((att) => att.purpose === TaskAttachmentPurpose.PROOF) ||
           [];
+        const vaOptionalNote = (vaNoteByTask[task.id] || '').trim();
+        const requiresStartBeforeVaComplete =
+          isVaTaskKind(task.kind) && task.status === TaskStatus.PENDING;
         const requiresProofForCompletion =
           isVaTaskKind(task.kind) ||
           isDisclosureSubmissionTask(task);
@@ -1566,6 +1579,7 @@ export function TaskList({
           task.workflowState === TaskWorkflowState.WAITING_ON_LO;
         const canCompleteTask =
           (!requiresProofForCompletion || proofCount > 0) &&
+          !requiresStartBeforeVaComplete &&
           !isVaAppraisalWaitingOnLoState;
         const isLoTaskForCurrentLoanOfficer =
           currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
@@ -2495,6 +2509,30 @@ export function TaskList({
                     </div>
                   )}
 
+                  {canManageVaDesk &&
+                    isVaTaskKind(task.kind) &&
+                    task.status !== TaskStatus.COMPLETED && (
+                      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4 shadow-sm space-y-2">
+                        <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                          Optional VA Notes
+                        </label>
+                        <textarea
+                          value={vaNoteByTask[task.id] || ''}
+                          onChange={(event) =>
+                            setVaNoteByTask((prev) => ({
+                              ...prev,
+                              [task.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="Add optional notes for this VA request."
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm min-h-[88px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        />
+                        <p className="text-xs font-medium text-slate-500">
+                          Saved to task history when you complete this request.
+                        </p>
+                      </div>
+                    )}
+
                   {canManageQcDesk && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
                     <div className="mt-8 rounded-2xl border border-violet-100 bg-violet-50/50 p-6 shadow-sm space-y-4">
                       <div className="mb-2 flex items-start justify-between gap-3">
@@ -2796,7 +2834,9 @@ export function TaskList({
                             );
                             if (!confirmed) return;
                           }
-                          handleStatusChange(task.id, 'COMPLETED');
+                          handleStatusChange(task.id, 'COMPLETED', {
+                            noteMessage: vaOptionalNote || undefined,
+                          });
                         }}
                         disabled={!!updatingId || !canCompleteTask}
                         className="inline-flex h-9 items-center px-3 rounded-lg border border-emerald-300 bg-white text-emerald-700 text-sm font-semibold shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2809,7 +2849,9 @@ export function TaskList({
                         {updatingId === task.id
                           ? 'Saving...'
                           : !canCompleteTask
-                          ? 'Upload Proof First'
+                          ? requiresStartBeforeVaComplete
+                            ? 'Start First'
+                            : 'Upload Proof First'
                           : 'Complete'}
                       </button>
                     )}
@@ -2830,15 +2872,23 @@ export function TaskList({
                               qcChecklistBlocksCompleteAction ||
                               qcChecklistBlocksMissingItemsAction ||
                               qcGeneralNotesMissing
+                            : isVaAppraisalTask
+                            ? false
                             : !disclosureFooterMessage);
                         if (isVaAppraisalTask && isVaAppraisalCompleteAction) {
                           const appraisalCompleteLabel = !canCompleteTask
-                            ? 'Upload Proof First'
+                            ? requiresStartBeforeVaComplete
+                              ? 'Start First'
+                              : 'Upload Proof First'
                             : 'Complete';
                           return (
                             <button
                               type="button"
-                              onClick={() => handleStatusChange(task.id, 'COMPLETED')}
+                              onClick={() =>
+                                handleStatusChange(task.id, 'COMPLETED', {
+                                  noteMessage: vaOptionalNote || undefined,
+                                })
+                              }
                               disabled={disableRouteButton || !!updatingId}
                               className="inline-flex h-9 items-center rounded-lg border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                             >

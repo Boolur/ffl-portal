@@ -1110,7 +1110,11 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
   }
 }
 
-export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
+export async function updateTaskStatus(
+  taskId: string,
+  newStatus: TaskStatus,
+  options?: { noteMessage?: string }
+) {
   try {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
@@ -1170,6 +1174,7 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
       role === UserRole.VA_APPRAISAL;
 
     const isSubmissionWorkflowTask = isSubmissionTask(existing);
+    const normalizedNoteMessage = String(options?.noteMessage ?? '').trim();
 
     // Loan Officers should not use generic status transitions for submission tasks.
     // Their workflow is controlled through disclosure/QC response actions instead.
@@ -1228,7 +1233,7 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     const isQcSubmissionWorkflowTask = isQcSubmissionTask(existing);
     const shouldAppendStatusHistory = isQcSubmissionWorkflowTask || isVaKind;
     const statusHistoryMessage = `Status changed to ${newStatus.replace('_', ' ')}.`;
-    const submissionDataWithStatusHistory = shouldAppendStatusHistory
+    let submissionDataWithStatusHistory = shouldAppendStatusHistory
       ? appendSubmissionHistoryEntry(existing.submissionData, {
           author: session?.user?.name || 'Unknown',
           role,
@@ -1236,6 +1241,17 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
           entryType: 'status',
         })
       : undefined;
+    if (isVaKind && normalizedNoteMessage) {
+      submissionDataWithStatusHistory = appendSubmissionHistoryEntry(
+        submissionDataWithStatusHistory ?? existing.submissionData,
+        {
+          author: session?.user?.name || 'Unknown',
+          role,
+          message: normalizedNoteMessage,
+          entryType: 'note',
+        }
+      );
+    }
 
     const shouldClaimVaTask =
       isVaKind && newStatus === TaskStatus.IN_PROGRESS && !existing.assignedUserId;
