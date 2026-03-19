@@ -30,6 +30,13 @@ type JrKindKey = 'hoi';
 type StageKey = VaKindKey | JrKindKey;
 export type VaChipState = 'not_started' | 'new' | 'working' | 'waiting' | 'review' | 'completed';
 type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+type JrChecklistRow = {
+  id: string;
+  label: string;
+  status: JrChecklistStatus;
+  proofAttachmentId: string | null;
+  proofFilename: string | null;
+};
 
 export type LoVaBorrowerProgressItem = {
   loanNumber: string;
@@ -67,7 +74,7 @@ export type LoVaBorrowerProgressItem = {
     {
       taskId: string | null;
       completed: boolean;
-      checklist: Array<{ id: string; label: string; status: JrChecklistStatus }>;
+      checklist: JrChecklistRow[];
       proofAttachments: Array<{ id: string; filename: string }>;
       latestNote: {
         message: string;
@@ -332,15 +339,15 @@ function dedupeTimelineEntries(
 
 function getJrChecklistFromSubmissionData(data: unknown) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return [] as Array<{ id: string; label: string; status: JrChecklistStatus }>;
+    return [] as JrChecklistRow[];
   }
   const checklistRaw = (data as { jrChecklist?: unknown }).jrChecklist;
   if (!checklistRaw || typeof checklistRaw !== 'object' || Array.isArray(checklistRaw)) {
-    return [] as Array<{ id: string; label: string; status: JrChecklistStatus }>;
+    return [] as JrChecklistRow[];
   }
   const itemsRaw = (checklistRaw as { items?: unknown }).items;
   if (!Array.isArray(itemsRaw)) {
-    return [] as Array<{ id: string; label: string; status: JrChecklistStatus }>;
+    return [] as JrChecklistRow[];
   }
   return itemsRaw
     .map((item) => {
@@ -360,9 +367,19 @@ function getJrChecklistFromSubmissionData(data: unknown) {
         id,
         label,
         status: statusRaw as JrChecklistStatus,
+        proofAttachmentId:
+          typeof (item as { proofAttachmentId?: unknown }).proofAttachmentId === 'string' &&
+          String((item as { proofAttachmentId?: unknown }).proofAttachmentId).trim().length > 0
+            ? String((item as { proofAttachmentId?: unknown }).proofAttachmentId).trim()
+            : null,
+        proofFilename:
+          typeof (item as { proofFilename?: unknown }).proofFilename === 'string' &&
+          String((item as { proofFilename?: unknown }).proofFilename).trim().length > 0
+            ? String((item as { proofFilename?: unknown }).proofFilename).trim()
+            : null,
       };
     })
-    .filter((row): row is { id: string; label: string; status: JrChecklistStatus } => Boolean(row));
+    .filter((row): row is JrChecklistRow => Boolean(row));
 }
 
 function getDefaultJrChecklistRows(task: LoVaProgressTaskInput) {
@@ -372,6 +389,8 @@ function getDefaultJrChecklistRows(task: LoVaProgressTaskInput) {
     id: row.id,
     label: row.label,
     status: defaultStatus,
+    proofAttachmentId: null,
+    proofFilename: null,
   }));
 }
 

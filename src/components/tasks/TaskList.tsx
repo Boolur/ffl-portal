@@ -156,6 +156,8 @@ type JrChecklistItem = {
   id: string;
   label: string;
   status: JrChecklistStatus;
+  proofAttachmentId?: string | null;
+  proofFilename?: string | null;
 };
 
 type JrChecklistDraftItem = JrChecklistItem;
@@ -189,9 +191,9 @@ const qcChecklistGreenOptions = new Set<QcChecklistNoteOption>([
 ]);
 
 const jrChecklistTemplate: JrChecklistDraftItem[] = [
-  { id: 'ordered-hoi', label: 'Ordered HOI', status: 'ORDERED' },
-  { id: 'ordered-voe', label: 'Ordered VOE', status: 'ORDERED' },
-  { id: 'submitted-underwriting', label: 'Submitted to Underwriting', status: 'ORDERED' },
+  { id: 'ordered-hoi', label: 'Ordered HOI', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
+  { id: 'ordered-voe', label: 'Ordered VOE', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
+  { id: 'submitted-underwriting', label: 'Submitted to Underwriting', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
 ];
 
 const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string }> = [
@@ -357,14 +359,35 @@ function getSavedJrChecklistRowsFromSubmissionData(
   const itemsRaw = (jrChecklistRaw as { items?: unknown }).items;
   if (!Array.isArray(itemsRaw)) return null;
 
-  const savedById = new Map<string, JrChecklistStatus>();
+  const savedById = new Map<
+    string,
+    {
+      status: JrChecklistStatus;
+      proofAttachmentId: string | null;
+      proofFilename: string | null;
+    }
+  >();
   for (const item of itemsRaw) {
     if (!item || typeof item !== 'object') continue;
     const id = String((item as { id?: unknown }).id ?? '').trim();
     const status = String((item as { status?: unknown }).status ?? '').trim();
     if (!id) continue;
     if (status !== 'ORDERED' && status !== 'MISSING_ITEMS' && status !== 'COMPLETED') continue;
-    savedById.set(id, status as JrChecklistStatus);
+    const proofAttachmentIdRaw = (item as { proofAttachmentId?: unknown }).proofAttachmentId;
+    const proofFilenameRaw = (item as { proofFilename?: unknown }).proofFilename;
+    const proofAttachmentId =
+      typeof proofAttachmentIdRaw === 'string' && proofAttachmentIdRaw.trim().length > 0
+        ? proofAttachmentIdRaw.trim()
+        : null;
+    const proofFilename =
+      typeof proofFilenameRaw === 'string' && proofFilenameRaw.trim().length > 0
+        ? proofFilenameRaw.trim()
+        : null;
+    savedById.set(id, {
+      status: status as JrChecklistStatus,
+      proofAttachmentId,
+      proofFilename,
+    });
   }
 
   const hasAllRows = jrChecklistTemplate.every((row) => savedById.has(row.id));
@@ -373,7 +396,9 @@ function getSavedJrChecklistRowsFromSubmissionData(
   return jrChecklistTemplate.map((row) => ({
     id: row.id,
     label: row.label,
-    status: savedById.get(row.id) as JrChecklistStatus,
+    status: (savedById.get(row.id)?.status ?? 'ORDERED') as JrChecklistStatus,
+    proofAttachmentId: savedById.get(row.id)?.proofAttachmentId ?? null,
+    proofFilename: savedById.get(row.id)?.proofFilename ?? null,
   }));
 }
 
@@ -872,10 +897,22 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
                 ) {
                   return null;
                 }
+                const proofAttachmentIdRaw = (row as { proofAttachmentId?: unknown })
+                  .proofAttachmentId;
+                const proofFilenameRaw = (row as { proofFilename?: unknown }).proofFilename;
                 return {
                   id,
                   label,
                   status: statusRaw as JrChecklistStatus,
+                  proofAttachmentId:
+                    typeof proofAttachmentIdRaw === 'string' &&
+                    proofAttachmentIdRaw.trim().length > 0
+                      ? proofAttachmentIdRaw.trim()
+                      : null,
+                  proofFilename:
+                    typeof proofFilenameRaw === 'string' && proofFilenameRaw.trim().length > 0
+                      ? proofFilenameRaw.trim()
+                      : null,
                 };
               })
               .filter((row): row is JrChecklistItem => Boolean(row))
@@ -1103,7 +1140,12 @@ export function TaskList({
   const [jrChecklistByTask, setJrChecklistByTask] = React.useState<
     Record<string, JrChecklistDraftItem[]>
   >({});
-  const [savingJrChecklistId, setSavingJrChecklistId] = React.useState<string | null>(null);
+  const [jrChecklistSaveStateByTask, setJrChecklistSaveStateByTask] = React.useState<
+    Record<string, { state: 'idle' | 'saving' | 'saved' | 'error'; message?: string }>
+  >({});
+  const jrChecklistAutosaveTimersRef = React.useRef<Record<string, number>>({});
+  const jrChecklistSaveVersionRef = React.useRef<Record<string, number>>({});
+  const jrChecklistSavedBadgeTimersRef = React.useRef<Record<string, number>>({});
   const [loResponseByTask, setLoResponseByTask] = React.useState<
     Record<string, string>
   >({});
@@ -1151,15 +1193,99 @@ export function TaskList({
     [jrChecklistByTask]
   );
 
-  const updateJrChecklistRow = React.useCallback(
-    (taskId: string, rowId: string, status: JrChecklistStatus) => {
+  const persistJrChecklist = React.useCallback(
+    async (taskId: string, rows: JrChecklistDraftItem[], version: number) => {
+      setJrChecklistSaveStateByTask((prev) => ({
+        ...prev,
+        [taskId]: { state: 'saving' },
+      }));
+      const result = await saveJrProcessorChecklist(
+        taskId,
+        rows.map((row) => ({
+          id: row.id,
+          label: row.label,
+          status: row.status,
+          proofAttachmentId: row.proofAttachmentId ?? null,
+          proofFilename: row.proofFilename ?? null,
+        }))
+      );
+      if (jrChecklistSaveVersionRef.current[taskId] !== version) {
+        return;
+      }
+      if (!result.success) {
+        setJrChecklistSaveStateByTask((prev) => ({
+          ...prev,
+          [taskId]: {
+            state: 'error',
+            message: result.error || 'Failed to autosave JR checklist.',
+          },
+        }));
+        return;
+      }
+      setJrChecklistSaveStateByTask((prev) => ({
+        ...prev,
+        [taskId]: { state: 'saved' },
+      }));
+      const existingSavedBadgeTimer = jrChecklistSavedBadgeTimersRef.current[taskId];
+      if (existingSavedBadgeTimer) {
+        window.clearTimeout(existingSavedBadgeTimer);
+      }
+      jrChecklistSavedBadgeTimersRef.current[taskId] = window.setTimeout(() => {
+        setJrChecklistSaveStateByTask((prev) => {
+          const current = prev[taskId];
+          if (!current || current.state !== 'saved') return prev;
+          return {
+            ...prev,
+            [taskId]: { state: 'idle' },
+          };
+        });
+      }, 1800);
+      router.refresh();
+    },
+    [router]
+  );
+
+  const queueJrChecklistAutosave = React.useCallback(
+    (taskId: string, rows: JrChecklistDraftItem[]) => {
+      const pendingTimer = jrChecklistAutosaveTimersRef.current[taskId];
+      if (pendingTimer) {
+        window.clearTimeout(pendingTimer);
+      }
+      const nextVersion = (jrChecklistSaveVersionRef.current[taskId] ?? 0) + 1;
+      jrChecklistSaveVersionRef.current[taskId] = nextVersion;
+      setJrChecklistSaveStateByTask((prev) => ({
+        ...prev,
+        [taskId]: { state: 'saving' },
+      }));
+      jrChecklistAutosaveTimersRef.current[taskId] = window.setTimeout(() => {
+        void persistJrChecklist(taskId, rows, nextVersion);
+      }, 650);
+    },
+    [persistJrChecklist]
+  );
+
+  const updateJrChecklistRows = React.useCallback(
+    (taskId: string, updater: (rows: JrChecklistDraftItem[]) => JrChecklistDraftItem[]) => {
+      let nextRows: JrChecklistDraftItem[] = [];
       setJrChecklistByTask((prev) => {
         const current = prev[taskId] ?? createDefaultJrChecklistRows();
-        const next = current.map((row) => (row.id === rowId ? { ...row, status } : row));
-        return { ...prev, [taskId]: next };
+        nextRows = updater(current);
+        return { ...prev, [taskId]: nextRows };
       });
+      if (nextRows.length > 0) {
+        queueJrChecklistAutosave(taskId, nextRows);
+      }
     },
-    []
+    [queueJrChecklistAutosave]
+  );
+
+  const updateJrChecklistRow = React.useCallback(
+    (taskId: string, rowId: string, status: JrChecklistStatus) => {
+      updateJrChecklistRows(taskId, (current) =>
+        current.map((row) => (row.id === rowId ? { ...row, status } : row))
+      );
+    },
+    [updateJrChecklistRows]
   );
 
   React.useEffect(() => {
@@ -1266,6 +1392,17 @@ export function TaskList({
     });
   }, [tasks]);
 
+  React.useEffect(() => {
+    return () => {
+      Object.values(jrChecklistAutosaveTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      Object.values(jrChecklistSavedBadgeTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+    };
+  }, []);
+
   const handleStatusChange = async (
     taskId: string,
     newStatus: TaskStatus,
@@ -1282,25 +1419,63 @@ export function TaskList({
     setUpdatingId(null);
   };
 
-  const handleSaveJrChecklist = async (taskId: string) => {
-    if (savingJrChecklistId) return;
-    const rows = getJrChecklistRows(taskId);
-    setSavingJrChecklistId(taskId);
-    const result = await saveJrProcessorChecklist(
+  const uploadProofAttachment = async (taskId: string, file: File) => {
+    const upload = await createTaskAttachmentUploadUrl({
       taskId,
-      rows.map((row) => ({
-        id: row.id,
-        label: row.label,
-        status: row.status,
-      }))
-    );
-    if (!result.success) {
-      alert(result.error || 'Failed to save JR checklist.');
-      setSavingJrChecklistId(null);
-      return;
+      purpose: TaskAttachmentPurpose.PROOF,
+      filename: file.name,
+    });
+
+    if (!upload.success || !upload.signedUrl || !upload.path) {
+      return { success: false as const, error: upload.error || 'Failed to create upload URL.' };
     }
-    router.refresh();
-    setSavingJrChecklistId(null);
+
+    const uploadAbort = new AbortController();
+    const uploadTimeout = window.setTimeout(() => uploadAbort.abort(), 20_000);
+    const put = await fetch(upload.signedUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,
+      signal: uploadAbort.signal,
+    }).finally(() => {
+      window.clearTimeout(uploadTimeout);
+    });
+
+    if (!put.ok) {
+      console.error('Upload failed', await put.text());
+      return { success: false as const, error: 'Upload failed. Please try again.' };
+    }
+
+    let timeoutHandle: number | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = window.setTimeout(
+        () => reject(new Error('Saving attachment timed out. Please try again.')),
+        15_000
+      );
+    });
+
+    try {
+      const saved = (await Promise.race([
+        finalizeTaskAttachment({
+          taskId,
+          purpose: TaskAttachmentPurpose.PROOF,
+          storagePath: upload.path,
+          filename: file.name,
+          contentType: file.type || 'application/octet-stream',
+          sizeBytes: file.size,
+        }),
+        timeoutPromise,
+      ])) as Awaited<ReturnType<typeof finalizeTaskAttachment>>;
+
+      if (!saved.success || !saved.attachmentId) {
+        return { success: false as const, error: saved.error || 'Failed to save attachment.' };
+      }
+      return { success: true as const, attachmentId: saved.attachmentId, filename: file.name };
+    } finally {
+      if (timeoutHandle) window.clearTimeout(timeoutHandle);
+    }
   };
 
   const handleUploadProof = async (taskId: string, file: File) => {
@@ -1314,80 +1489,13 @@ export function TaskList({
     });
 
     try {
-      const upload = await createTaskAttachmentUploadUrl({
-        taskId,
-        purpose: TaskAttachmentPurpose.PROOF,
-        filename: file.name,
-      });
-
-      if (!upload.success || !upload.signedUrl || !upload.path) {
+      const uploaded = await uploadProofAttachment(taskId, file);
+      if (!uploaded.success) {
         setUploadStatusByTask((prev) => ({
           ...prev,
           [taskId]: {
             type: 'error',
-            message: upload.error || 'Failed to create upload URL.',
-          },
-        }));
-        return;
-      }
-
-      const uploadAbort = new AbortController();
-      const uploadTimeout = window.setTimeout(() => uploadAbort.abort(), 20_000);
-      const put = await fetch(upload.signedUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': file.type || 'application/octet-stream',
-        },
-        body: file,
-        signal: uploadAbort.signal,
-      }).finally(() => {
-        window.clearTimeout(uploadTimeout);
-      });
-
-      if (!put.ok) {
-        console.error('Upload failed', await put.text());
-        setUploadStatusByTask((prev) => ({
-          ...prev,
-          [taskId]: {
-            type: 'error',
-            message: 'Upload failed. Please try again.',
-          },
-        }));
-        return;
-      }
-
-      const saveWithTimeout = async () => {
-        let timeoutHandle: number | null = null;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutHandle = window.setTimeout(
-            () => reject(new Error('Saving attachment timed out. Please try again.')),
-            15_000
-          );
-        });
-        try {
-          return (await Promise.race([
-            finalizeTaskAttachment({
-              taskId,
-              purpose: TaskAttachmentPurpose.PROOF,
-              storagePath: upload.path,
-              filename: file.name,
-              contentType: file.type || 'application/octet-stream',
-              sizeBytes: file.size,
-            }),
-            timeoutPromise,
-          ])) as Awaited<ReturnType<typeof finalizeTaskAttachment>>;
-        } finally {
-          if (timeoutHandle) window.clearTimeout(timeoutHandle);
-        }
-      };
-      const saved = await saveWithTimeout();
-
-      if (!saved.success) {
-        setUploadStatusByTask((prev) => ({
-          ...prev,
-          [taskId]: {
-            type: 'error',
-            message: saved.error || 'Failed to save attachment.',
+            message: uploaded.error || 'Failed to upload proof.',
           },
         }));
         return;
@@ -1435,6 +1543,93 @@ export function TaskList({
     } finally {
       setUploadingId(null);
     }
+  };
+
+  const handleUploadJrChecklistProof = async (taskId: string, rowId: string, file: File) => {
+    if (uploadingId) return;
+    setUploadingId(taskId);
+    setUploadStatusByTask((prev) => {
+      if (!prev[taskId]) return prev;
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+
+    try {
+      const uploaded = await uploadProofAttachment(taskId, file);
+      if (!uploaded.success) {
+        setUploadStatusByTask((prev) => ({
+          ...prev,
+          [taskId]: {
+            type: 'error',
+            message: uploaded.error || 'Failed to upload proof.',
+          },
+        }));
+        return;
+      }
+
+      updateJrChecklistRows(taskId, (current) =>
+        current.map((row) =>
+          row.id === rowId
+            ? {
+                ...row,
+                proofAttachmentId: uploaded.attachmentId,
+                proofFilename: uploaded.filename,
+              }
+            : row
+        )
+      );
+
+      setUploadStatusByTask((prev) => ({
+        ...prev,
+        [taskId]: {
+          type: 'success',
+          message: 'JR proof uploaded successfully.',
+        },
+      }));
+      setOptimisticProofCountByTask((prev) => ({
+        ...prev,
+        [taskId]: (prev[taskId] || 0) + 1,
+      }));
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+      setUploadStatusByTask((prev) => ({
+        ...prev,
+        [taskId]: {
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Upload failed. Please try again.',
+        },
+      }));
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  const handleDeleteJrChecklistProof = async (taskId: string, rowId: string, attachmentId: string) => {
+    if (deletingAttachmentId) return;
+    const confirmed = window.confirm('Delete this proof attachment?');
+    if (!confirmed) return;
+    setDeletingAttachmentId(attachmentId);
+    const result = await deleteTaskAttachment(attachmentId);
+    if (!result.success) {
+      alert(result.error || 'Failed to delete attachment.');
+      setDeletingAttachmentId(null);
+      return;
+    }
+    updateJrChecklistRows(taskId, (current) =>
+      current.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              proofAttachmentId: null,
+              proofFilename: null,
+            }
+          : row
+      )
+    );
+    router.refresh();
+    setDeletingAttachmentId(null);
   };
 
   const handleViewAttachment = async (attachmentId: string) => {
@@ -1702,7 +1897,11 @@ export function TaskList({
         );
         const jrChecklistAllCompleted =
           jrChecklistRows.length > 0 && jrChecklistRows.every((row) => row.status === 'COMPLETED');
-        const jrChecklistBlocksCompletion = canManageJrChecklist && !jrChecklistAllCompleted;
+        const jrChecklistAllProofAttached =
+          jrChecklistRows.length > 0 &&
+          jrChecklistRows.every((row) => Boolean(row.proofAttachmentId));
+        const jrChecklistBlocksCompletion =
+          canManageJrChecklist && (!jrChecklistAllCompleted || !jrChecklistAllProofAttached);
         const qcChecklistHasRedXItems = hasQcChecklistRedItem(qcChecklistRows);
         const qcChecklistAllGreen = isQcChecklistGreenOnly(qcChecklistRows);
         const qcChecklistMissingFields = hasQcChecklistMissingSelections(qcChecklistRows);
@@ -1816,6 +2015,7 @@ export function TaskList({
           selectedReason === DisclosureDecisionReason.MISSING_ITEMS;
         const shouldShowProofUploader =
           task.status !== 'COMPLETED' &&
+          !canManageJrChecklist &&
           ((canManageVaDesk && isVaTaskKind(task.kind)) ||
             (canEditProofAttachments && !isDisclosureMissingItemsRoute) ||
             (canManageQcDesk && isQcSubmissionTask(task)));
@@ -2745,6 +2945,17 @@ export function TaskList({
 
                   {canManageJrChecklist && (
                     <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50/50 p-5 shadow-sm space-y-4">
+                      {uploadStatusByTask[task.id] && (
+                        <div
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
+                            uploadStatusByTask[task.id].type === 'success'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-rose-200 bg-rose-50 text-rose-700'
+                          }`}
+                        >
+                          {uploadStatusByTask[task.id].message}
+                        </div>
+                      )}
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <h4 className="text-sm font-bold text-sky-900">JR Processor Checklist</h4>
@@ -2758,7 +2969,9 @@ export function TaskList({
                         </span>
                       </div>
                       <div className="space-y-2.5">
-                        {jrChecklistRows.map((row) => (
+                        {jrChecklistRows.map((row) => {
+                          const proofAttachmentId = row.proofAttachmentId;
+                          return (
                           <div
                             key={row.id}
                             className="rounded-xl border border-sky-100 bg-white px-3 py-2.5 shadow-sm"
@@ -2794,8 +3007,77 @@ export function TaskList({
                                 </option>
                               ))}
                             </select>
+                            <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                                  Attach Proof (Required)
+                                </span>
+                                {proofAttachmentId ? (
+                                  <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                    Attached
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                                    Missing
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <label className="inline-flex cursor-pointer items-center rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50">
+                                  {uploadingId === task.id ? 'Uploading...' : 'Upload Proof'}
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    onChange={(event) => {
+                                      const file = event.target.files?.[0];
+                                      if (!file) return;
+                                      void handleUploadJrChecklistProof(task.id, row.id, file);
+                                      event.target.value = '';
+                                    }}
+                                    disabled={uploadingId === task.id}
+                                  />
+                                </label>
+                                {proofAttachmentId && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleViewAttachment(proofAttachmentId)}
+                                      className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                    >
+                                      <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                                      Open
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void handleDeleteJrChecklistProof(
+                                          task.id,
+                                          row.id,
+                                          proofAttachmentId
+                                        )
+                                      }
+                                      disabled={deletingAttachmentId === proofAttachmentId}
+                                      className="inline-flex h-7 items-center rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                                    >
+                                      {deletingAttachmentId === proofAttachmentId ? (
+                                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                      )}
+                                      Remove
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                              {row.proofFilename && (
+                                <p className="mt-2 truncate text-[11px] font-medium text-slate-600">
+                                  {row.proofFilename}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="min-h-[18px]">
@@ -2806,21 +3088,24 @@ export function TaskList({
                           )}
                           {jrChecklistBlocksCompletion && (
                             <p className="text-xs font-semibold text-slate-600">
-                              Complete is available only when all checklist rows are marked Completed.
+                              Complete is available only when all checklist rows are Completed and have proof attached.
+                            </p>
+                          )}
+                          {jrChecklistSaveStateByTask[task.id]?.state === 'saving' && (
+                            <p className="text-xs font-semibold text-sky-700">Saving checklist...</p>
+                          )}
+                          {jrChecklistSaveStateByTask[task.id]?.state === 'saved' && (
+                            <p className="text-xs font-semibold text-emerald-700">Checklist saved.</p>
+                          )}
+                          {jrChecklistSaveStateByTask[task.id]?.state === 'error' && (
+                            <p className="text-xs font-semibold text-rose-700">
+                              {jrChecklistSaveStateByTask[task.id]?.message || 'Autosave failed.'}
                             </p>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleSaveJrChecklist(task.id)}
-                          disabled={savingJrChecklistId === task.id}
-                          className="inline-flex h-9 items-center rounded-lg border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-700 shadow-sm hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {savingJrChecklistId === task.id && (
-                            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                          )}
-                          Save Checklist
-                        </button>
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Autosaves on every change
+                        </span>
                       </div>
                     </div>
                   )}

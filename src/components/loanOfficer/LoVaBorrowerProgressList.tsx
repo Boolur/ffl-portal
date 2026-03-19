@@ -14,9 +14,11 @@ import {
   FileCheck2,
   Home,
   MessageSquare,
+  Paperclip,
   Search,
   Loader2,
   UserCog,
+  User,
   X,
 } from 'lucide-react';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
@@ -205,7 +207,7 @@ function SummaryRows({
                 : 'border-rose-300 bg-rose-100 text-rose-800'
             }`}
           >
-            {row.done ? 'Done' : 'Not Done'}
+            {row.done ? 'Completed' : 'Incomplete'}
           </span>
         </div>
       ))}
@@ -268,6 +270,7 @@ export function LoVaBorrowerProgressList({
   const [expandedTimelineNotes, setExpandedTimelineNotes] = React.useState<Set<string>>(
     () => new Set()
   );
+  const [expandedTaskDetails, setExpandedTaskDetails] = React.useState<Set<string>>(() => new Set());
   const focusedItem =
     focusedItemKey === null
       ? null
@@ -311,6 +314,7 @@ export function LoVaBorrowerProgressList({
   React.useEffect(() => {
     setExpandedStageNotes(new Set());
     setExpandedTimelineNotes(new Set());
+    setExpandedTaskDetails(new Set());
   }, [focusedItemKey]);
 
   React.useEffect(() => {
@@ -352,9 +356,20 @@ export function LoVaBorrowerProgressList({
                             {formatCompactDateTime(item.latestUpdatedAt)}
                           </p>
                         )}
-                        <p className="truncate text-sm font-bold text-slate-900">
-                          {item.borrowerName}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openBorrowerDetail(item, 'va')}
+                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                            title="Open borrower submission details"
+                            aria-label="Open borrower submission details"
+                          >
+                            <User className="h-3.5 w-3.5" />
+                          </button>
+                          <p className="truncate text-sm font-bold text-slate-900">
+                            {item.borrowerName}
+                          </p>
+                        </div>
                         <p className="text-xs text-slate-500">{item.loanNumber}</p>
                         {item.earliestCreatedAt && (
                           <span
@@ -386,14 +401,6 @@ export function LoVaBorrowerProgressList({
                             Action Needed
                           </Link>
                         ) : null}
-                        <button
-                          type="button"
-                          onClick={() => openBorrowerDetail(item, 'va')}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          Show Details
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -438,9 +445,20 @@ export function LoVaBorrowerProgressList({
                             {formatCompactDateTime(item.latestUpdatedAt)}
                           </p>
                         )}
-                        <p className="truncate text-sm font-bold text-slate-900">
-                          {item.borrowerName}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openBorrowerDetail(item, 'jr')}
+                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                            title="Open borrower submission details"
+                            aria-label="Open borrower submission details"
+                          >
+                            <User className="h-3.5 w-3.5" />
+                          </button>
+                          <p className="truncate text-sm font-bold text-slate-900">
+                            {item.borrowerName}
+                          </p>
+                        </div>
                         <p className="text-xs text-slate-500">{item.loanNumber}</p>
                         {item.earliestCreatedAt && (
                           <span
@@ -472,14 +490,6 @@ export function LoVaBorrowerProgressList({
                             Action Needed
                           </Link>
                         ) : null}
-                        <button
-                          type="button"
-                          onClick={() => openBorrowerDetail(item, 'jr')}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          Show Details
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -529,9 +539,20 @@ export function LoVaBorrowerProgressList({
                             {formatCompactDateTime(item.latestUpdatedAt)}
                           </p>
                         )}
-                        <p className="truncate text-sm font-bold text-slate-900">
-                          {item.borrowerName}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openBorrowerDetail(item, 'completed')}
+                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                            title="Open borrower submission details"
+                            aria-label="Open borrower submission details"
+                          >
+                            <User className="h-3.5 w-3.5" />
+                          </button>
+                          <p className="truncate text-sm font-bold text-slate-900">
+                            {item.borrowerName}
+                          </p>
+                        </div>
                         <p className="text-xs text-slate-500">{item.loanNumber}</p>
                       </div>
                     </div>
@@ -546,14 +567,6 @@ export function LoVaBorrowerProgressList({
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           JR {item.jrCompletedCount}/{item.jrTotalCount}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => openBorrowerDetail(item, 'completed')}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          Show Details
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -655,6 +668,8 @@ export function LoVaBorrowerProgressList({
                     const detail = focusedItem.vaStageDetails[key];
                     const latestNote = detail.latestNote;
                     const stageNoteKey = `${focusedItem.loanNumber}-${key}`;
+                    const stageDetailKey = `${focusedItem.loanNumber}-${key}-detail`;
+                    const stageDetailsExpanded = expandedTaskDetails.has(stageDetailKey);
                     const stageNoteExpanded = expandedStageNotes.has(stageNoteKey);
                     const notePreview = latestNote?.message || '';
                     const canToggleStageNote = notePreview.length > 180;
@@ -693,83 +708,103 @@ export function LoVaBorrowerProgressList({
                             {detail.completed ? 'Completed' : 'Incomplete'}
                           </span>
                         </div>
-
-                        {detail.proofAttachments.length === 0 ? (
-                          <p className="mt-2 text-xs font-medium text-slate-600">
-                            No proof uploaded yet.
-                          </p>
-                        ) : (
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            {detail.proofAttachments.map((att) => (
-                              <button
-                                key={att.id}
-                                type="button"
-                                onClick={() => void openAttachment(att.id)}
-                                disabled={openingAttachmentId === att.id}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                title={`Open ${att.filename}`}
-                              >
-                                {openingAttachmentId === att.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <FileText className="h-3.5 w-3.5" />
-                                )}
-                                <span className="max-w-[200px] truncate">{att.filename}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                              Latest VA Note
-                            </p>
-                            {latestNote && (
-                              <span className="text-[11px] font-medium text-slate-500">
-                                {formatNoteDateTime(latestNote.date)}
-                              </span>
-                            )}
-                          </div>
-                          {!latestNote ? (
-                            <p className="mt-1 text-xs font-medium text-slate-500">
-                              No stage note yet.
-                            </p>
-                          ) : (
-                            <>
-                              <p className="mt-1 text-xs font-semibold text-slate-700">
-                                {visibleNote}
-                              </p>
-                              <p className="mt-1 text-[11px] text-slate-500">
-                                {latestNote.author} • {formatRoleLabel(latestNote.role)}
-                              </p>
-                              {canToggleStageNote && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setExpandedStageNotes((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(stageNoteKey)) next.delete(stageNoteKey);
-                                      else next.add(stageNoteKey);
-                                      return next;
-                                    })
-                                  }
-                                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
-                                >
-                                  {stageNoteExpanded ? (
-                                    <>
-                                      Show Less <ChevronUp className="h-3 w-3" />
-                                    </>
-                                  ) : (
-                                    <>
-                                      Show More <ChevronDown className="h-3 w-3" />
-                                    </>
-                                  )}
-                                </button>
-                              )}
-                            </>
-                          )}
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedTaskDetails((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(stageDetailKey)) next.delete(stageDetailKey);
+                                else next.add(stageDetailKey);
+                                return next;
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
+                          </button>
                         </div>
+                        {stageDetailsExpanded && (
+                          <>
+                            {detail.proofAttachments.length === 0 ? (
+                              <p className="mt-2 text-xs font-medium text-slate-600">
+                                No proof uploaded yet.
+                              </p>
+                            ) : (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                {detail.proofAttachments.map((att) => (
+                                  <button
+                                    key={att.id}
+                                    type="button"
+                                    onClick={() => void openAttachment(att.id)}
+                                    disabled={openingAttachmentId === att.id}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                    title={`Open ${att.filename}`}
+                                  >
+                                    {openingAttachmentId === att.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <FileText className="h-3.5 w-3.5" />
+                                    )}
+                                    <span className="max-w-[200px] truncate">{att.filename}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                  Latest VA Note
+                                </p>
+                                {latestNote && (
+                                  <span className="text-[11px] font-medium text-slate-500">
+                                    {formatNoteDateTime(latestNote.date)}
+                                  </span>
+                                )}
+                              </div>
+                              {!latestNote ? (
+                                <p className="mt-1 text-xs font-medium text-slate-500">
+                                  No stage note yet.
+                                </p>
+                              ) : (
+                                <>
+                                  <p className="mt-1 text-xs font-semibold text-slate-700">
+                                    {visibleNote}
+                                  </p>
+                                  <p className="mt-1 text-[11px] text-slate-500">
+                                    {latestNote.author} • {formatRoleLabel(latestNote.role)}
+                                  </p>
+                                  {canToggleStageNote && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExpandedStageNotes((prev) => {
+                                          const next = new Set(prev);
+                                          if (next.has(stageNoteKey)) next.delete(stageNoteKey);
+                                          else next.add(stageNoteKey);
+                                          return next;
+                                        })
+                                      }
+                                      className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                                    >
+                                      {stageNoteExpanded ? (
+                                        <>
+                                          Show Less <ChevronUp className="h-3 w-3" />
+                                        </>
+                                      ) : (
+                                        <>
+                                          Show More <ChevronDown className="h-3 w-3" />
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })}
@@ -782,6 +817,8 @@ export function LoVaBorrowerProgressList({
                     const detail = focusedItem.jrStageDetails[key];
                     const latestNote = detail.latestNote;
                     const stageNoteKey = `${focusedItem.loanNumber}-${key}`;
+                    const stageDetailKey = `${focusedItem.loanNumber}-${key}-detail`;
+                    const stageDetailsExpanded = expandedTaskDetails.has(stageDetailKey);
                     const stageNoteExpanded = expandedStageNotes.has(stageNoteKey);
                     const notePreview = latestNote?.message || '';
                     const canToggleStageNote = notePreview.length > 180;
@@ -820,106 +857,162 @@ export function LoVaBorrowerProgressList({
                             {detail.completed ? 'Completed' : 'Incomplete'}
                           </span>
                         </div>
-
-                        {detail.proofAttachments.length === 0 ? (
-                          <p className="mt-2 text-xs font-medium text-slate-600">
-                            No proof uploaded yet.
-                          </p>
-                        ) : (
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            {detail.proofAttachments.map((att) => (
-                              <button
-                                key={att.id}
-                                type="button"
-                                onClick={() => void openAttachment(att.id)}
-                                disabled={openingAttachmentId === att.id}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                title={`Open ${att.filename}`}
-                              >
-                                {openingAttachmentId === att.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <FileText className="h-3.5 w-3.5" />
-                                )}
-                                <span className="max-w-[200px] truncate">{att.filename}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                              Latest JR Note
-                            </p>
-                            {latestNote && (
-                              <span className="text-[11px] font-medium text-slate-500">
-                                {formatNoteDateTime(latestNote.date)}
-                              </span>
-                            )}
-                          </div>
-                          {!latestNote ? (
-                            <p className="mt-1 text-xs font-medium text-slate-500">
-                              No stage note yet.
-                            </p>
-                          ) : (
-                            <>
-                              <p className="mt-1 text-xs font-semibold text-slate-700">
-                                {visibleNote}
-                              </p>
-                              <p className="mt-1 text-[11px] text-slate-500">
-                                {latestNote.author} • {formatRoleLabel(latestNote.role)}
-                              </p>
-                              {canToggleStageNote && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setExpandedStageNotes((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(stageNoteKey)) next.delete(stageNoteKey);
-                                      else next.add(stageNoteKey);
-                                      return next;
-                                    })
-                                  }
-                                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
-                                >
-                                  {stageNoteExpanded ? (
-                                    <>
-                                      Show Less <ChevronUp className="h-3 w-3" />
-                                    </>
-                                  ) : (
-                                    <>
-                                      Show More <ChevronDown className="h-3 w-3" />
-                                    </>
-                                  )}
-                                </button>
-                              )}
-                            </>
-                          )}
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedTaskDetails((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(stageDetailKey)) next.delete(stageDetailKey);
+                                else next.add(stageDetailKey);
+                                return next;
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
+                          </button>
                         </div>
-                        {detail.checklist.length > 0 && (
-                          <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                              JR Milestones
-                            </p>
-                            <div className="mt-2 space-y-1.5">
-                              {detail.checklist.map((row) => (
-                                <div
-                                  key={row.id}
-                                  className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5"
-                                >
-                                  <span className="text-xs font-semibold text-slate-700">{row.label}</span>
-                                  <span
-                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
-                                      row.status
-                                    )}`}
+                        {stageDetailsExpanded && (
+                          <>
+                            {detail.proofAttachments.length === 0 ? (
+                              <p className="mt-2 text-xs font-medium text-slate-600">
+                                No proof uploaded yet.
+                              </p>
+                            ) : (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                {detail.proofAttachments.map((att) => (
+                                  <button
+                                    key={att.id}
+                                    type="button"
+                                    onClick={() => void openAttachment(att.id)}
+                                    disabled={openingAttachmentId === att.id}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                    title={`Open ${att.filename}`}
                                   >
-                                    {formatJrChecklistStatus(row.status)}
+                                    {openingAttachmentId === att.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <FileText className="h-3.5 w-3.5" />
+                                    )}
+                                    <span className="max-w-[200px] truncate">{att.filename}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                  Latest JR Note
+                                </p>
+                                {latestNote && (
+                                  <span className="text-[11px] font-medium text-slate-500">
+                                    {formatNoteDateTime(latestNote.date)}
                                   </span>
-                                </div>
-                              ))}
+                                )}
+                              </div>
+                              {!latestNote ? (
+                                <p className="mt-1 text-xs font-medium text-slate-500">
+                                  No stage note yet.
+                                </p>
+                              ) : (
+                                <>
+                                  <p className="mt-1 text-xs font-semibold text-slate-700">
+                                    {visibleNote}
+                                  </p>
+                                  <p className="mt-1 text-[11px] text-slate-500">
+                                    {latestNote.author} • {formatRoleLabel(latestNote.role)}
+                                  </p>
+                                  {canToggleStageNote && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExpandedStageNotes((prev) => {
+                                          const next = new Set(prev);
+                                          if (next.has(stageNoteKey)) next.delete(stageNoteKey);
+                                          else next.add(stageNoteKey);
+                                          return next;
+                                        })
+                                      }
+                                      className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                                    >
+                                      {stageNoteExpanded ? (
+                                        <>
+                                          Show Less <ChevronUp className="h-3 w-3" />
+                                        </>
+                                      ) : (
+                                        <>
+                                          Show More <ChevronDown className="h-3 w-3" />
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </>
+                              )}
                             </div>
-                          </div>
+                            {detail.checklist.length > 0 && (
+                              <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                  JR Milestones
+                                </p>
+                                <div className="mt-2 space-y-1.5">
+                                  {detail.checklist.map((row) => {
+                                    const proofAttachmentId = row.proofAttachmentId;
+                                    return (
+                                      <div
+                                        key={row.id}
+                                        className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5"
+                                      >
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="text-xs font-semibold text-slate-700">
+                                            {row.label}
+                                          </span>
+                                          <span
+                                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
+                                              row.status
+                                            )}`}
+                                          >
+                                            {formatJrChecklistStatus(row.status)}
+                                          </span>
+                                        </div>
+                                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                                          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                            Proof
+                                          </span>
+                                          {proofAttachmentId ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => void openAttachment(proofAttachmentId)}
+                                              disabled={openingAttachmentId === proofAttachmentId}
+                                              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                                            >
+                                              {openingAttachmentId === proofAttachmentId ? (
+                                                <>
+                                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                                  Opening
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <Paperclip className="h-3 w-3" />
+                                                  {row.proofFilename || 'Open Proof'}
+                                                </>
+                                              )}
+                                            </button>
+                                          ) : (
+                                            <span className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700">
+                                              Missing
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     );

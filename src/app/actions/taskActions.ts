@@ -1824,6 +1824,8 @@ type JrChecklistItemInput = {
   id: string;
   label: string;
   status: JrChecklistStatus;
+  proofAttachmentId?: string | null;
+  proofFilename?: string | null;
 };
 
 const JR_CHECKLIST_TEMPLATE: Array<{ id: string; label: string }> = [
@@ -1846,10 +1848,18 @@ function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemIn
     const id = String(row?.id ?? '').trim();
     const label = String(row?.label ?? '').trim();
     const status = String(row?.status ?? '').trim() as JrChecklistStatus;
+    const proofAttachmentId = String(row?.proofAttachmentId ?? '').trim();
+    const proofFilename = String(row?.proofFilename ?? '').trim();
     if (!id || !label || !expectedById.has(id)) return null;
     if (label !== expectedById.get(id)) return null;
     if (!JR_CHECKLIST_STATUS_SET.has(status)) return null;
-    parsed.push({ id, label, status });
+    parsed.push({
+      id,
+      label,
+      status,
+      proofAttachmentId: proofAttachmentId || null,
+      proofFilename: proofFilename || null,
+    });
   }
   const uniqueIds = new Set(parsed.map((row) => row.id));
   if (uniqueIds.size !== JR_CHECKLIST_TEMPLATE.length) return null;
@@ -1904,6 +1914,21 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
       return { success: false, error: 'Not authorized to update this checklist.' };
     }
 
+    const proofAttachmentIds = parsedItems
+      .map((item) => item.proofAttachmentId || null)
+      .filter((id): id is string => Boolean(id));
+    if (proofAttachmentIds.length > 0) {
+      const attachmentCount = await prisma.taskAttachment.count({
+        where: {
+          id: { in: proofAttachmentIds },
+          taskId,
+        },
+      });
+      if (attachmentCount !== proofAttachmentIds.length) {
+        return { success: false, error: 'One or more checklist proof attachments are invalid.' };
+      }
+    }
+
     const dataObj =
       existing.submissionData &&
       typeof existing.submissionData === 'object' &&
@@ -1930,7 +1955,9 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
 
     const hasMissingItems = parsedItems.some((item) => item.status === 'MISSING_ITEMS');
     const allCompleted = parsedItems.every((item) => item.status === 'COMPLETED');
-    const shouldReopen = existing.status === TaskStatus.COMPLETED && !allCompleted;
+    const allProofAttached = parsedItems.every((item) => Boolean(item.proofAttachmentId));
+    const shouldReopen =
+      existing.status === TaskStatus.COMPLETED && (!allCompleted || !allProofAttached);
 
     await prisma.task.update({
       where: { id: taskId },
@@ -1944,6 +1971,8 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
           : {}),
         workflowState: hasMissingItems
           ? TaskWorkflowState.WAITING_ON_LO
+          : allCompleted && allProofAttached
+            ? TaskWorkflowState.READY_TO_COMPLETE
           : existing.workflowState === TaskWorkflowState.WAITING_ON_LO ||
               existing.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
             ? TaskWorkflowState.NONE
