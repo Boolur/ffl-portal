@@ -21,23 +21,15 @@ export async function getMyThemePreference() {
     return { success: false as const, error: 'Not authenticated.' };
   }
 
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { themePreference: true },
-    });
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { themePreference: true },
+  });
 
-    return {
-      success: true as const,
-      themePreference: user?.themePreference || ThemePreference.LIGHT,
-    };
-  } catch (error) {
-    console.warn("[themeActions] getMyThemePreference fallback to LIGHT", error);
-    return {
-      success: true as const,
-      themePreference: ThemePreference.LIGHT,
-    };
-  }
+  return {
+    success: true as const,
+    themePreference: user?.themePreference || ThemePreference.LIGHT,
+  };
 }
 
 export async function setMyThemePreference(input: string | ThemePreference) {
@@ -49,25 +41,16 @@ export async function setMyThemePreference(input: string | ThemePreference) {
 
   const nextPreference = normalizeThemePreference(input);
 
-  try {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { themePreference: nextPreference },
-    });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { themePreference: nextPreference },
+  });
 
-    revalidatePath('/');
-    revalidatePath('/tasks');
-    revalidatePath('/pipeline');
-    revalidatePath('/resources');
-    revalidatePath('/reports');
+  revalidatePath('/');
+  revalidatePath('/tasks');
+  revalidatePath('/pipeline');
+  revalidatePath('/resources');
+  revalidatePath('/reports');
 
-    return { success: true as const, themePreference: nextPreference };
-  } catch (error) {
-    console.warn("[themeActions] setMyThemePreference failed", error);
-    return {
-      success: false as const,
-      error: "Theme setting is temporarily unavailable.",
-      themePreference: ThemePreference.LIGHT,
-    };
-  }
+  return { success: true as const, themePreference: nextPreference };
 }
