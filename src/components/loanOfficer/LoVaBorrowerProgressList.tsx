@@ -370,17 +370,7 @@ export function LoVaBorrowerProgressList({
               {vaItems.map((item) => {
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-va`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
-                const workedBy = Array.from(
-                  new Set(
-                    [
-                      item.vaStageDetails.title.latestNote?.author,
-                      item.vaStageDetails.payoff.latestNote?.author,
-                      item.vaStageDetails.appraisal.latestNote?.author,
-                    ]
-                      .map((v) => (v || '').trim())
-                      .filter((v) => v.length > 0)
-                  )
-                );
+                const workedBy = item.workedByNames;
                 const vaStatusPills = [
                   { label: 'Title', done: item.vaStageDetails.title.completed },
                   { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
@@ -474,24 +464,6 @@ export function LoVaBorrowerProgressList({
                   {cardExpanded && (
                     <div className="mt-2 border-t border-slate-200 pt-2">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {[
-                          { label: 'Title', done: item.vaStageDetails.title.completed },
-                          { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
-                          { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
-                        ].map((row) => (
-                          <span
-                            key={row.label}
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                              row.done
-                                ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                : 'border-rose-300 bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {row.label} - {row.done ? 'Completed' : 'Incomplete'}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                           Worked By
                         </span>
@@ -529,13 +501,7 @@ export function LoVaBorrowerProgressList({
               {jrItems.map((item) => {
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-jr`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
-                const workedBy = Array.from(
-                  new Set(
-                    [(item.jrStageDetails.hoi.latestNote?.author || '').trim()].filter(
-                      (v) => v.length > 0
-                    )
-                  )
-                );
+                const workedBy = item.workedByNames;
                 const jrRows =
                   item.jrStageDetails.hoi.checklist.length > 0
                     ? item.jrStageDetails.hoi.checklist.map((row) => ({
@@ -652,20 +618,6 @@ export function LoVaBorrowerProgressList({
                   {cardExpanded && (
                     <div className="mt-2 border-t border-slate-200 pt-2">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {jrRows.map((row) => (
-                          <span
-                            key={row.label}
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                              row.done
-                                ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                : 'border-rose-300 bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {row.label} - {row.done ? 'Completed' : 'Incomplete'}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                           Worked By
                         </span>

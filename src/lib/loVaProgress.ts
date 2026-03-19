@@ -96,6 +96,7 @@ export type LoVaBorrowerProgressItem = {
     author: string;
     role: UserRole | null;
   }>;
+  workedByNames: string[];
   submissionSnapshot: Array<{ key: string; label: string; value: string }>;
 };
 
@@ -295,6 +296,36 @@ function parseNotesHistoryForStage(
   return parsed;
 }
 
+function collectWorkedByFromNotesHistory(
+  data: unknown,
+  allowedRoles?: ReadonlySet<UserRole>
+): Array<{ author: string; dateMs: number }> {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+  const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
+  if (!Array.isArray(notesHistory)) return [];
+
+  const contributors: Array<{ author: string; dateMs: number }> = [];
+  for (const item of notesHistory) {
+    if (!item || typeof item !== 'object') continue;
+    const author = String((item as { author?: unknown }).author ?? '').trim();
+    const dateRaw = String((item as { date?: unknown }).date ?? '').trim();
+    if (!author || !dateRaw) continue;
+    const dateValue = new Date(dateRaw);
+    if (Number.isNaN(dateValue.getTime())) continue;
+
+    const roleRaw = (item as { role?: unknown }).role;
+    const normalizedRole =
+      typeof roleRaw === 'string' && (Object.values(UserRole) as string[]).includes(roleRaw)
+        ? (roleRaw as UserRole)
+        : null;
+    if (!normalizedRole) continue;
+    if (allowedRoles && !allowedRoles.has(normalizedRole)) continue;
+
+    contributors.push({ author, dateMs: dateValue.getTime() });
+  }
+  return contributors;
+}
+
 function dedupeTimelineEntries(
   notes: Array<{
     id: string;
@@ -409,6 +440,15 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     UserRole.VA_APPRAISAL,
   ]);
   const jrNoteRoles = new Set<UserRole>([UserRole.PROCESSOR_JR]);
+  const workedByRoles = new Set<UserRole>([
+    UserRole.QC,
+    UserRole.MANAGER,
+    UserRole.VA,
+    UserRole.VA_TITLE,
+    UserRole.VA_PAYOFF,
+    UserRole.VA_APPRAISAL,
+    UserRole.PROCESSOR_JR,
+  ]);
 
   const grouped = new Map<
     string,
@@ -572,6 +612,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         role: UserRole | null;
       }
     >();
+    const workedByLatestByName = new Map<string, number>();
     for (const definition of VA_KIND_MAP) {
       const task = value.vaByKind[definition.key];
       if (!task) continue;
@@ -604,6 +645,13 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       };
       for (const note of stageNotes) {
         timelineById.set(note.id, note);
+      }
+      const contributors = collectWorkedByFromNotesHistory(task.submissionData, workedByRoles);
+      for (const contributor of contributors) {
+        const previous = workedByLatestByName.get(contributor.author) ?? 0;
+        if (contributor.dateMs >= previous) {
+          workedByLatestByName.set(contributor.author, contributor.dateMs);
+        }
       }
     }
     for (const definition of JR_KIND_MAP) {
@@ -643,6 +691,13 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       for (const note of stageNotes) {
         timelineById.set(note.id, note);
       }
+      const contributors = collectWorkedByFromNotesHistory(task.submissionData, workedByRoles);
+      for (const contributor of contributors) {
+        const previous = workedByLatestByName.get(contributor.author) ?? 0;
+        if (contributor.dateMs >= previous) {
+          workedByLatestByName.set(contributor.author, contributor.dateMs);
+        }
+      }
     }
 
     const jrChecklistRows = jrStageDetails.hoi.checklist;
@@ -658,6 +713,9 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         : Object.values(jrChips).some((chip) => chip !== 'completed'));
 
     const notesTimeline = dedupeTimelineEntries(Array.from(timelineById.values()));
+    const workedByNames = Array.from(workedByLatestByName.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name]) => name);
     rows.push({
       loanNumber: value.loanNumber,
       borrowerName: value.borrowerName,
@@ -678,6 +736,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       vaStageDetails,
       jrStageDetails,
       notesTimeline,
+      workedByNames,
       submissionSnapshot: buildSubmissionSnapshot(value.submissionData),
     });
   }
