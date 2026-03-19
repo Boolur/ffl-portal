@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { ImpersonationProvider } from "@/lib/impersonation";
 import { UserRole } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,6 +29,22 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await getServerSession(authOptions);
+  const sessionUserId = session?.user?.id as string | undefined;
+  let initialTheme: "light" | "dark" = "light";
+  if (sessionUserId) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: sessionUserId },
+        select: { themePreference: true },
+      });
+      if (user?.themePreference === "DARK") {
+        initialTheme = "dark";
+      }
+    } catch (error) {
+      // Keep the app render-safe if DB migration is not applied yet.
+      console.warn("[layout] theme preference unavailable; falling back to light mode", error);
+    }
+  }
   const initialRole =
     (session?.user?.activeRole as UserRole | undefined) ||
     (session?.user?.role as UserRole | undefined) ||
@@ -38,7 +55,7 @@ export default async function RootLayout({
       : [initialRole];
 
   return (
-    <html lang="en" data-theme="light" suppressHydrationWarning>
+    <html lang="en" data-theme={initialTheme} suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

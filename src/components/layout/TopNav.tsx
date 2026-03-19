@@ -10,8 +10,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/app/actions/notificationActions';
-
-const THEME_STORAGE_KEY = 'ffl-theme-preference';
+import { setMyThemePreference } from '@/app/actions/themeActions';
 
 const formatRole = (role: string) => role.replace(/_/g, ' ');
 const getRoleChipClass = (role: UserRole) => {
@@ -74,6 +73,7 @@ export function TopNav({
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [isThemeSaving, setIsThemeSaving] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const notificationRef = useRef<HTMLDivElement | null>(null);
   const sessionEmail = session?.user?.email?.toLowerCase().trim() || '';
@@ -128,17 +128,10 @@ export function TopNav({
   }, [loadNotifications]);
 
   useEffect(() => {
-    if (!canToggleTheme) {
-      document.documentElement.setAttribute('data-theme', 'light');
-      setTheme('light');
-      return;
-    }
-
-    const storedTheme =
-      window.localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', storedTheme);
-    setTheme(storedTheme);
-  }, [canToggleTheme]);
+    const nextTheme =
+      document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    setTheme(nextTheme);
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -206,12 +199,22 @@ export function TopNav({
     router.push(item.href || '/tasks');
   };
 
-  const handleThemeToggle = () => {
-    if (!canToggleTheme) return;
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+  const handleThemeToggle = async () => {
+    if (!canToggleTheme || isThemeSaving) return;
+    const previousTheme = theme;
+    const nextTheme = previousTheme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
     document.documentElement.setAttribute('data-theme', nextTheme);
-    window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    setIsThemeSaving(true);
+    try {
+      const result = await setMyThemePreference(nextTheme === 'dark' ? 'DARK' : 'LIGHT');
+      if (!result.success) {
+        setTheme(previousTheme);
+        document.documentElement.setAttribute('data-theme', previousTheme);
+      }
+    } finally {
+      setIsThemeSaving(false);
+    }
   };
 
   return (
@@ -245,8 +248,9 @@ export function TopNav({
         {canToggleTheme && (
           <button
             type="button"
-            onClick={handleThemeToggle}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            onClick={() => void handleThemeToggle()}
+            disabled={isThemeSaving}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
