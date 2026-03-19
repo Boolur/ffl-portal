@@ -29,6 +29,7 @@ type VaKindKey = 'title' | 'payoff' | 'appraisal';
 type JrKindKey = 'hoi';
 type StageKey = VaKindKey | JrKindKey;
 export type VaChipState = 'not_started' | 'new' | 'working' | 'waiting' | 'review' | 'completed';
+type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
 
 export type LoVaBorrowerProgressItem = {
   loanNumber: string;
@@ -36,7 +37,7 @@ export type LoVaBorrowerProgressItem = {
   vaCompletedCount: number;
   vaTotalCount: 3;
   jrCompletedCount: number;
-  jrTotalCount: 1;
+  jrTotalCount: number;
   hasIncompleteVa: boolean;
   hasIncompleteJr: boolean;
   isFullyComplete: boolean;
@@ -66,6 +67,7 @@ export type LoVaBorrowerProgressItem = {
     {
       taskId: string | null;
       completed: boolean;
+      checklist: Array<{ id: string; label: string; status: JrChecklistStatus }>;
       proofAttachments: Array<{ id: string; filename: string }>;
       latestNote: {
         message: string;
@@ -322,6 +324,41 @@ function dedupeTimelineEntries(
   );
 }
 
+function getJrChecklistFromSubmissionData(data: unknown) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return [] as Array<{ id: string; label: string; status: JrChecklistStatus }>;
+  }
+  const checklistRaw = (data as { jrChecklist?: unknown }).jrChecklist;
+  if (!checklistRaw || typeof checklistRaw !== 'object' || Array.isArray(checklistRaw)) {
+    return [] as Array<{ id: string; label: string; status: JrChecklistStatus }>;
+  }
+  const itemsRaw = (checklistRaw as { items?: unknown }).items;
+  if (!Array.isArray(itemsRaw)) {
+    return [] as Array<{ id: string; label: string; status: JrChecklistStatus }>;
+  }
+  return itemsRaw
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const id = String((item as { id?: unknown }).id ?? '').trim();
+      const label = String((item as { label?: unknown }).label ?? '').trim();
+      const statusRaw = String((item as { status?: unknown }).status ?? '').trim();
+      if (!id || !label) return null;
+      if (
+        statusRaw !== 'ORDERED' &&
+        statusRaw !== 'MISSING_ITEMS' &&
+        statusRaw !== 'COMPLETED'
+      ) {
+        return null;
+      }
+      return {
+        id,
+        label,
+        status: statusRaw as JrChecklistStatus,
+      };
+    })
+    .filter((row): row is { id: string; label: string; status: JrChecklistStatus } => Boolean(row));
+}
+
 export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaBorrowerProgressItem[] {
   const grouped = new Map<
     string,
@@ -435,16 +472,15 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     }
 
     const vaCompletedCount = Object.values(vaChips).filter((chip) => chip === 'completed').length;
-    const jrCompletedCount = Object.values(jrChips).filter((chip) => chip === 'completed').length;
-    const hasIncompleteVa = Object.values(vaChips).some((chip) => chip !== 'completed');
-    const hasIncompleteJr = Object.values(jrChips).some((chip) => chip !== 'completed');
+    const hasIncompleteVa =
+      hasAnyVaTask && Object.values(vaChips).some((chip) => chip !== 'completed');
     const vaStageDetails: LoVaBorrowerProgressItem['vaStageDetails'] = {
       title: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
       payoff: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
       appraisal: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
     };
     const jrStageDetails: LoVaBorrowerProgressItem['jrStageDetails'] = {
-      hoi: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
+      hoi: { taskId: null, completed: false, checklist: [], proofAttachments: [], latestNote: null },
     };
     const timelineById = new Map<
       string,
@@ -488,6 +524,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       const task = value.jrByKind[definition.key];
       if (!task) continue;
       const stageNotes = parseNotesHistoryForStage(task.submissionData, definition.key, task.id);
+      const jrChecklist = getJrChecklistFromSubmissionData(task.submissionData);
       const latestNote =
         stageNotes.length > 0
           ? stageNotes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
@@ -495,6 +532,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       jrStageDetails[definition.key] = {
         taskId: task.id,
         completed: task.status === TaskStatus.COMPLETED,
+        checklist: jrChecklist,
         proofAttachments: (task.attachments || [])
           .filter((att) => isProofAttachment(att.purpose))
           .map((att) => ({ id: att.id, filename: att.filename })),
@@ -512,6 +550,18 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       }
     }
 
+    const jrChecklistRows = jrStageDetails.hoi.checklist;
+    const jrTotalCount = jrChecklistRows.length > 0 ? jrChecklistRows.length : 1;
+    const jrCompletedCount =
+      jrChecklistRows.length > 0
+        ? jrChecklistRows.filter((row) => row.status === 'COMPLETED').length
+        : Object.values(jrChips).filter((chip) => chip === 'completed').length;
+    const hasIncompleteJr =
+      hasAnyJrTask &&
+      (jrChecklistRows.length > 0
+        ? jrChecklistRows.some((row) => row.status !== 'COMPLETED')
+        : Object.values(jrChips).some((chip) => chip !== 'completed'));
+
     const notesTimeline = dedupeTimelineEntries(Array.from(timelineById.values()));
     rows.push({
       loanNumber: value.loanNumber,
@@ -519,7 +569,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       vaCompletedCount,
       vaTotalCount: 3,
       jrCompletedCount,
-      jrTotalCount: 1,
+      jrTotalCount,
       hasIncompleteVa,
       hasIncompleteJr,
       isFullyComplete: !hasIncompleteVa && !hasIncompleteJr,

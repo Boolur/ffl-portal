@@ -176,6 +176,18 @@ function formatNoteDateTime(value: string) {
   }).format(dt);
 }
 
+function formatJrChecklistStatus(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED') {
+  if (status === 'MISSING_ITEMS') return 'Missing Items / Action Required';
+  if (status === 'COMPLETED') return 'Completed';
+  return 'Ordered';
+}
+
+function getJrChecklistStatusClass(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED') {
+  if (status === 'MISSING_ITEMS') return 'border-rose-300 bg-rose-100 text-rose-800';
+  if (status === 'COMPLETED') return 'border-emerald-300 bg-emerald-100 text-emerald-800';
+  return 'border-blue-300 bg-blue-100 text-blue-800';
+}
+
 function BucketPanel({
   title,
   icon,
@@ -847,6 +859,30 @@ export function LoVaBorrowerProgressList({
                             </>
                           )}
                         </div>
+                        {detail.checklist.length > 0 && (
+                          <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                              JR Milestones
+                            </p>
+                            <div className="mt-2 space-y-1.5">
+                              {detail.checklist.map((row) => (
+                                <div
+                                  key={row.id}
+                                  className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5"
+                                >
+                                  <span className="text-xs font-semibold text-slate-700">{row.label}</span>
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
+                                      row.status
+                                    )}`}
+                                  >
+                                    {formatJrChecklistStatus(row.status)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
