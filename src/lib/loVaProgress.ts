@@ -98,6 +98,12 @@ const JR_KIND_MAP: Array<{ kind: TaskKind; key: JrKindKey }> = [
   { kind: TaskKind.VA_HOI, key: 'hoi' },
 ];
 
+const JR_CHECKLIST_TEMPLATE: Array<{ id: string; label: string }> = [
+  { id: 'ordered-hoi', label: 'Ordered HOI' },
+  { id: 'ordered-voe', label: 'Ordered VOE' },
+  { id: 'submitted-underwriting', label: 'Submitted to Underwriting' },
+];
+
 function toDate(value?: Date | string | null) {
   if (!value) return null;
   const dateValue = value instanceof Date ? value : new Date(value);
@@ -359,6 +365,16 @@ function getJrChecklistFromSubmissionData(data: unknown) {
     .filter((row): row is { id: string; label: string; status: JrChecklistStatus } => Boolean(row));
 }
 
+function getDefaultJrChecklistRows(task: LoVaProgressTaskInput) {
+  const defaultStatus: JrChecklistStatus =
+    task.status === TaskStatus.COMPLETED ? 'COMPLETED' : 'ORDERED';
+  return JR_CHECKLIST_TEMPLATE.map((row) => ({
+    id: row.id,
+    label: row.label,
+    status: defaultStatus,
+  }));
+}
+
 export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaBorrowerProgressItem[] {
   const grouped = new Map<
     string,
@@ -524,7 +540,9 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       const task = value.jrByKind[definition.key];
       if (!task) continue;
       const stageNotes = parseNotesHistoryForStage(task.submissionData, definition.key, task.id);
-      const jrChecklist = getJrChecklistFromSubmissionData(task.submissionData);
+      const savedJrChecklist = getJrChecklistFromSubmissionData(task.submissionData);
+      const jrChecklist =
+        savedJrChecklist.length > 0 ? savedJrChecklist : getDefaultJrChecklistRows(task);
       const latestNote =
         stageNotes.length > 0
           ? stageNotes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]

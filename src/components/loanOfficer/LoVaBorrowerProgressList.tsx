@@ -188,6 +188,31 @@ function getJrChecklistStatusClass(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLE
   return 'border-blue-300 bg-blue-100 text-blue-800';
 }
 
+function SummaryRows({
+  rows,
+}: {
+  rows: Array<{ label: string; done: boolean }>;
+}) {
+  return (
+    <div className="mt-2 space-y-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 py-2">
+      {rows.map((row) => (
+        <div key={row.label} className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-slate-700">{row.label}</span>
+          <span
+            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+              row.done
+                ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                : 'border-rose-300 bg-rose-100 text-rose-800'
+            }`}
+          >
+            {row.done ? 'Done' : 'Not Done'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function BucketPanel({
   title,
   icon,
@@ -320,45 +345,34 @@ export function LoVaBorrowerProgressList({
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => openBorrowerDetail(item, 'va')}
-                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm ring-1 ring-black/5 hover:bg-slate-200"
-                          title={`Open VA submission details for ${item.borrowerName}`}
-                          aria-label={`Open VA submission details for ${item.borrowerName}`}
-                        >
-                          <FileText className="h-4 w-4" />
-                        </button>
-                        <div className="min-w-0">
-                          {item.latestUpdatedAt && (
-                            <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                              <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                              {formatCompactDateTime(item.latestUpdatedAt)}
-                            </p>
-                          )}
-                          <p className="truncate text-sm font-bold text-slate-900">
-                            {item.borrowerName}
+                      <div className="min-w-0">
+                        {item.latestUpdatedAt && (
+                          <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                            <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                            {formatCompactDateTime(item.latestUpdatedAt)}
                           </p>
-                          <p className="text-xs text-slate-500">{item.loanNumber}</p>
-                          {item.earliestCreatedAt && (
-                            <span
-                              className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
-                                Date.now() - item.earliestCreatedAt.getTime()
-                              )}`}
-                              title="Total time from first VA task creation"
-                            >
-                              <Clock3 className="mr-1 h-3 w-3" />
-                              Total{' '}
-                              {formatElapsedTimerLabel(
-                                Date.now() - item.earliestCreatedAt.getTime()
-                              )}
-                            </span>
-                          )}
-                        </div>
+                        )}
+                        <p className="truncate text-sm font-bold text-slate-900">
+                          {item.borrowerName}
+                        </p>
+                        <p className="text-xs text-slate-500">{item.loanNumber}</p>
+                        {item.earliestCreatedAt && (
+                          <span
+                            className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
+                              Date.now() - item.earliestCreatedAt.getTime()
+                            )}`}
+                            title="Total time from first VA task creation"
+                          >
+                            <Clock3 className="mr-1 h-3 w-3" />
+                            Total{' '}
+                            {formatElapsedTimerLabel(
+                              Date.now() - item.earliestCreatedAt.getTime()
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="flex max-w-[55%] flex-col items-end gap-1.5">
+                    <div className="flex max-w-[60%] flex-col items-end gap-1.5">
                       <div className="flex items-center gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           <Clock3 className="mr-1 h-3 w-3" />
@@ -372,14 +386,24 @@ export function LoVaBorrowerProgressList({
                             Action Needed
                           </Link>
                         ) : null}
-                      </div>
-                      <div className="flex flex-wrap justify-end items-center gap-1.5">
-                        <StatusChip label="Title" state={item.vaChips.title} />
-                        <StatusChip label="Payoff" state={item.vaChips.payoff} />
-                        <StatusChip label="Appraisal" state={item.vaChips.appraisal} />
+                        <button
+                          type="button"
+                          onClick={() => openBorrowerDetail(item, 'va')}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          Show Details
+                        </button>
                       </div>
                     </div>
                   </div>
+                  <SummaryRows
+                    rows={[
+                      { label: 'Title', done: item.vaStageDetails.title.completed },
+                      { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
+                      { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
+                    ]}
+                  />
                 </article>
               ))}
             </div>
@@ -407,45 +431,34 @@ export function LoVaBorrowerProgressList({
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => openBorrowerDetail(item, 'jr')}
-                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm ring-1 ring-black/5 hover:bg-slate-200"
-                          title={`Open JR Processor details for ${item.borrowerName}`}
-                          aria-label={`Open JR Processor details for ${item.borrowerName}`}
-                        >
-                          <FileText className="h-4 w-4" />
-                        </button>
-                        <div className="min-w-0">
-                          {item.latestUpdatedAt && (
-                            <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                              <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                              {formatCompactDateTime(item.latestUpdatedAt)}
-                            </p>
-                          )}
-                          <p className="truncate text-sm font-bold text-slate-900">
-                            {item.borrowerName}
+                      <div className="min-w-0">
+                        {item.latestUpdatedAt && (
+                          <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                            <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                            {formatCompactDateTime(item.latestUpdatedAt)}
                           </p>
-                          <p className="text-xs text-slate-500">{item.loanNumber}</p>
-                          {item.earliestCreatedAt && (
-                            <span
-                              className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
-                                Date.now() - item.earliestCreatedAt.getTime()
-                              )}`}
-                              title="Total time from first VA/JR task creation"
-                            >
-                              <Clock3 className="mr-1 h-3 w-3" />
-                              Total{' '}
-                              {formatElapsedTimerLabel(
-                                Date.now() - item.earliestCreatedAt.getTime()
-                              )}
-                            </span>
-                          )}
-                        </div>
+                        )}
+                        <p className="truncate text-sm font-bold text-slate-900">
+                          {item.borrowerName}
+                        </p>
+                        <p className="text-xs text-slate-500">{item.loanNumber}</p>
+                        {item.earliestCreatedAt && (
+                          <span
+                            className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
+                              Date.now() - item.earliestCreatedAt.getTime()
+                            )}`}
+                            title="Total time from first VA/JR task creation"
+                          >
+                            <Clock3 className="mr-1 h-3 w-3" />
+                            Total{' '}
+                            {formatElapsedTimerLabel(
+                              Date.now() - item.earliestCreatedAt.getTime()
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="flex max-w-[55%] flex-col items-end gap-1.5">
+                    <div className="flex max-w-[60%] flex-col items-end gap-1.5">
                       <div className="flex items-center gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           <Clock3 className="mr-1 h-3 w-3" />
@@ -459,12 +472,27 @@ export function LoVaBorrowerProgressList({
                             Action Needed
                           </Link>
                         ) : null}
-                      </div>
-                      <div className="flex flex-wrap justify-end items-center gap-1.5">
-                        <StatusChip label="HOI" state={item.jrChips.hoi} />
+                        <button
+                          type="button"
+                          onClick={() => openBorrowerDetail(item, 'jr')}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          Show Details
+                        </button>
                       </div>
                     </div>
                   </div>
+                  <SummaryRows
+                    rows={
+                      item.jrStageDetails.hoi.checklist.length > 0
+                        ? item.jrStageDetails.hoi.checklist.map((row) => ({
+                            label: row.label,
+                            done: row.status === 'COMPLETED',
+                          }))
+                        : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]
+                    }
+                  />
                 </article>
               ))}
             </div>
@@ -494,31 +522,20 @@ export function LoVaBorrowerProgressList({
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-emerald-100/70 opacity-60 blur-2xl"></div>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => openBorrowerDetail(item, 'completed')}
-                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200 hover:bg-emerald-200"
-                          title={`Open completed details for ${item.borrowerName}`}
-                          aria-label={`Open completed details for ${item.borrowerName}`}
-                        >
-                          <FileText className="h-4 w-4" />
-                        </button>
-                        <div className="min-w-0">
-                          {item.latestUpdatedAt && (
-                            <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                              <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                              {formatCompactDateTime(item.latestUpdatedAt)}
-                            </p>
-                          )}
-                          <p className="truncate text-sm font-bold text-slate-900">
-                            {item.borrowerName}
+                      <div className="min-w-0">
+                        {item.latestUpdatedAt && (
+                          <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                            <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                            {formatCompactDateTime(item.latestUpdatedAt)}
                           </p>
-                          <p className="text-xs text-slate-500">{item.loanNumber}</p>
-                        </div>
+                        )}
+                        <p className="truncate text-sm font-bold text-slate-900">
+                          {item.borrowerName}
+                        </p>
+                        <p className="text-xs text-slate-500">{item.loanNumber}</p>
                       </div>
                     </div>
-                    <div className="flex max-w-[55%] flex-col items-end gap-1.5">
+                    <div className="flex max-w-[60%] flex-col items-end gap-1.5">
                       <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
                         Completed
                       </span>
@@ -529,9 +546,30 @@ export function LoVaBorrowerProgressList({
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           JR {item.jrCompletedCount}/{item.jrTotalCount}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => openBorrowerDetail(item, 'completed')}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          Show Details
+                        </button>
                       </div>
                     </div>
                   </div>
+                  <SummaryRows
+                    rows={[
+                      { label: 'Title', done: item.vaStageDetails.title.completed },
+                      { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
+                      { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
+                      ...(item.jrStageDetails.hoi.checklist.length > 0
+                        ? item.jrStageDetails.hoi.checklist.map((row) => ({
+                            label: row.label,
+                            done: row.status === 'COMPLETED',
+                          }))
+                        : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]),
+                    ]}
+                  />
                 </article>
               ))}
             </div>
@@ -597,7 +635,7 @@ export function LoVaBorrowerProgressList({
               </div>
             )}
 
-            <div className="mt-6 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+            <div className="mt-6 space-y-4">
               <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
                 <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
                   {focusedQueue === 'jr'
