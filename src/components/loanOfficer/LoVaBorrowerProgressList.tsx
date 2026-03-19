@@ -391,69 +391,73 @@ export function LoVaBorrowerProgressList({
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
                 >
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
-                  <div className="mb-0.5 flex items-center justify-between gap-2">
-                    {item.latestUpdatedAt ? (
-                      <p className="inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                        <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                        {formatCompactDateTime(item.latestUpdatedAt)}
-                      </p>
-                    ) : (
-                      <span />
-                    )}
-                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                      <Clock3 className="mr-1 h-3 w-3" />
-                      {item.vaCompletedCount}/{item.vaTotalCount}
-                    </span>
-                  </div>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openBorrowerDetail(item, 'va')}
-                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200/60 hover:bg-emerald-200/80"
-                          title="Open submission details"
-                          aria-label="Open submission details"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                        </button>
-                        <p className="truncate text-sm font-bold text-slate-900">
-                          {item.borrowerName}
-                        </p>
-                      </div>
-                      <p className="ml-11 text-xs text-slate-500">{item.loanNumber}</p>
-                      {item.earliestCreatedAt && (
-                        <span
-                          className={`ml-11 mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
-                            Date.now() - item.earliestCreatedAt.getTime()
-                          )}`}
-                          title="Total time from first VA task creation"
-                        >
-                          <Clock3 className="mr-1 h-3 w-3" />
-                          Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
-                        </span>
-                      )}
-                    </div>
+                  <div className="relative flex items-start gap-3 min-w-0">
                     <button
                       type="button"
-                      onClick={() =>
-                        setExpandedBorrowerCards((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(cardKey)) next.delete(cardKey);
-                          else next.add(cardKey);
-                          return next;
-                        })
-                      }
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                      title={cardExpanded ? 'Collapse card' : 'Expand card'}
-                      aria-label={cardExpanded ? 'Collapse card' : 'Expand card'}
+                      onClick={() => openBorrowerDetail(item, 'va')}
+                      className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-black/5 hover:bg-emerald-200/80"
+                      title="Open submission details"
+                      aria-label="Open submission details"
                     >
-                      {cardExpanded ? (
-                        <ChevronUp className="h-4 w-4" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4" />
-                      )}
+                      <FileText className="h-4 w-4" />
                     </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          {item.latestUpdatedAt && (
+                            <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
+                              <p className="inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                                <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                                {formatCompactDateTime(item.latestUpdatedAt)}
+                              </p>
+                            </div>
+                          )}
+                          <p className="text-sm font-bold leading-snug text-slate-900 line-clamp-1">
+                            {item.borrowerName}
+                          </p>
+                          <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
+                          {item.earliestCreatedAt && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${getTimerClassName(
+                                  Date.now() - item.earliestCreatedAt.getTime()
+                                )}`}
+                                title="Total time from first VA task creation"
+                              >
+                                <Clock3 className="mr-1 h-2.5 w-2.5" />
+                                Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="inline-flex items-start gap-1.5 shrink-0">
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                            <Clock3 className="mr-1 h-3 w-3" />
+                            {item.vaCompletedCount}/{item.vaTotalCount}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedBorrowerCards((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(cardKey)) next.delete(cardKey);
+                                else next.add(cardKey);
+                                return next;
+                              })
+                            }
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                            title={cardExpanded ? 'Collapse card' : 'Expand card'}
+                            aria-label={cardExpanded ? 'Collapse card' : 'Expand card'}
+                          >
+                            {cardExpanded ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   {cardExpanded && (
                     <div className="mt-2 border-t border-slate-200 pt-2">
@@ -533,69 +537,73 @@ export function LoVaBorrowerProgressList({
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
                 >
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
-                  <div className="mb-0.5 flex items-center justify-between gap-2">
-                    {item.latestUpdatedAt ? (
-                      <p className="inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                        <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                        {formatCompactDateTime(item.latestUpdatedAt)}
-                      </p>
-                    ) : (
-                      <span />
-                    )}
-                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                      <Clock3 className="mr-1 h-3 w-3" />
-                      {item.jrCompletedCount}/{item.jrTotalCount}
-                    </span>
-                  </div>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openBorrowerDetail(item, 'jr')}
-                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200/60 hover:bg-emerald-200/80"
-                          title="Open submission details"
-                          aria-label="Open submission details"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                        </button>
-                        <p className="truncate text-sm font-bold text-slate-900">
-                          {item.borrowerName}
-                        </p>
-                      </div>
-                      <p className="ml-11 text-xs text-slate-500">{item.loanNumber}</p>
-                      {item.earliestCreatedAt && (
-                        <span
-                          className={`ml-11 mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
-                            Date.now() - item.earliestCreatedAt.getTime()
-                          )}`}
-                          title="Total time from first VA/JR task creation"
-                        >
-                          <Clock3 className="mr-1 h-3 w-3" />
-                          Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
-                        </span>
-                      )}
-                    </div>
+                  <div className="relative flex items-start gap-3 min-w-0">
                     <button
                       type="button"
-                      onClick={() =>
-                        setExpandedBorrowerCards((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(cardKey)) next.delete(cardKey);
-                          else next.add(cardKey);
-                          return next;
-                        })
-                      }
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                      title={cardExpanded ? 'Collapse card' : 'Expand card'}
-                      aria-label={cardExpanded ? 'Collapse card' : 'Expand card'}
+                      onClick={() => openBorrowerDetail(item, 'jr')}
+                      className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-black/5 hover:bg-emerald-200/80"
+                      title="Open submission details"
+                      aria-label="Open submission details"
                     >
-                      {cardExpanded ? (
-                        <ChevronUp className="h-4 w-4" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4" />
-                      )}
+                      <FileText className="h-4 w-4" />
                     </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          {item.latestUpdatedAt && (
+                            <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
+                              <p className="inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                                <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                                {formatCompactDateTime(item.latestUpdatedAt)}
+                              </p>
+                            </div>
+                          )}
+                          <p className="text-sm font-bold leading-snug text-slate-900 line-clamp-1">
+                            {item.borrowerName}
+                          </p>
+                          <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
+                          {item.earliestCreatedAt && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${getTimerClassName(
+                                  Date.now() - item.earliestCreatedAt.getTime()
+                                )}`}
+                                title="Total time from first VA/JR task creation"
+                              >
+                                <Clock3 className="mr-1 h-2.5 w-2.5" />
+                                Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="inline-flex items-start gap-1.5 shrink-0">
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                            <Clock3 className="mr-1 h-3 w-3" />
+                            {item.jrCompletedCount}/{item.jrTotalCount}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedBorrowerCards((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(cardKey)) next.delete(cardKey);
+                                else next.add(cardKey);
+                                return next;
+                              })
+                            }
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                            title={cardExpanded ? 'Collapse card' : 'Expand card'}
+                            aria-label={cardExpanded ? 'Collapse card' : 'Expand card'}
+                          >
+                            {cardExpanded ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   {cardExpanded && (
                     <div className="mt-2 border-t border-slate-200 pt-2">
