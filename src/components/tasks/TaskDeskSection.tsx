@@ -57,7 +57,7 @@ export function TaskDeskSection({
   return (
     <section>
       <div className="mb-2">
-        <h2 className="inline-flex items-center gap-3 text-xl font-bold text-foreground">
+        <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
           <span
             className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ring-1 ${iconClassName}`}
           >
@@ -67,7 +67,7 @@ export function TaskDeskSection({
           <button
             type="button"
             onClick={() => boardRef.current?.setAllBucketsCollapsed(!allCollapsed)}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-secondary"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
             aria-label={allCollapsed ? `Expand ${title}` : `Collapse ${title}`}
             title={allCollapsed ? `Expand ${title}` : `Collapse ${title}`}
           >

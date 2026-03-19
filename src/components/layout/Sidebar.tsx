@@ -127,16 +127,16 @@ export function Sidebar({ collapsed }: SidebarProps) {
     `group flex items-center ${collapsed ? 'justify-center px-2.5' : 'px-3.5'} py-2.5 rounded-xl transition-all ${
       isActive
         ? 'bg-gradient-to-r from-blue-600/15 to-indigo-600/10 text-blue-700 shadow-sm ring-1 ring-blue-100'
-        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+        : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900'
     }`;
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-50 flex h-screen flex-col overflow-y-auto border-r border-border bg-gradient-to-b from-card to-secondary/50 shadow-sm transition-all duration-300 ${
+      className={`fixed left-0 top-0 z-50 flex h-screen flex-col overflow-y-auto border-r border-slate-200/80 bg-gradient-to-b from-white to-slate-50 shadow-sm transition-all duration-300 ${
         collapsed ? 'w-20' : 'w-64'
       }`}
     >
-      <div className={`border-b border-border ${collapsed ? 'p-3' : 'p-5'}`}>
+      <div className={`border-b border-slate-200/80 ${collapsed ? 'p-3' : 'p-5'}`}>
         <div className="flex items-center justify-center">
           <div className={`relative h-12 ${collapsed ? 'w-9' : 'w-full'}`}>
             <Image
@@ -162,7 +162,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
             >
               <item.icon
                 className={`h-5 w-5 ${collapsed ? '' : 'mr-3'} transition-colors ${
-                  isActive ? 'text-blue-600' : 'text-muted-foreground group-hover:text-foreground'
+                  isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'
                 }`}
               />
               {!collapsed && <span className="text-sm font-medium">{item.name}</span>}
@@ -174,7 +174,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
           <>
             {!collapsed && (
               <div className="px-3.5 pt-5 pb-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
                   Management
                 </p>
               </div>
@@ -190,7 +190,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 >
                   <item.icon
                     className={`h-5 w-5 ${collapsed ? '' : 'mr-3'} transition-colors ${
-                      isActive ? 'text-blue-600' : 'text-muted-foreground group-hover:text-foreground'
+                      isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'
                     }`}
                   />
                   {!collapsed && <span className="text-sm font-medium">{item.name}</span>}

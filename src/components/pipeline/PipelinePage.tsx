@@ -582,7 +582,7 @@ export function PipelinePage() {
           </div>
 
           {error && (
-            <div className="bg-red-500/10 border border-red-400/40 text-red-400 text-sm rounded-lg p-3">
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3">
               {error}
             </div>
           )}
@@ -616,7 +616,7 @@ export function PipelinePage() {
                   }}
                   className={`${columnClass} flex flex-col h-full rounded-xl transition-all ${
                     dragOverStageId === stage.id
-                      ? 'bg-blue-500/10 ring-2 ring-blue-400/40'
+                      ? 'bg-blue-50 ring-2 ring-blue-200'
                       : 'bg-secondary/40'
                   }`}
                 >
@@ -631,7 +631,7 @@ export function PipelinePage() {
                         />
                         <button
                           onClick={() => handleRenameStage(stage.id)}
-                          className="p-1 text-green-500 hover:bg-green-500/10 rounded"
+                          className="p-1 text-green-600 hover:bg-green-50 rounded"
                         >
                           <ChevronRight className="w-4 h-4" />
                         </button>
@@ -669,7 +669,7 @@ export function PipelinePage() {
                         </button>
                         <button
                           onClick={() => handleDeleteStage(stage.id)}
-                          className="p-1 text-muted-foreground hover:text-red-500 rounded"
+                          className="p-1 text-slate-400 hover:text-red-500 rounded"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -719,22 +719,22 @@ export function PipelinePage() {
         {showDetailsPanel && (
           <div className="bg-card rounded-xl border border-border shadow-sm p-0 flex flex-col 2xl:h-[calc(100vh-140px)] 2xl:sticky 2xl:top-24 max-h-[70vh]">
             {!loanDetails ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-6 text-center">
                 <Loader2 className="w-6 h-6 animate-spin mb-2 text-blue-600" />
                 <p className="text-sm">Loading lead details...</p>
               </div>
             ) : (
             <>
-              <div className="p-4 border-b border-border flex items-start justify-between bg-secondary/50">
+              <div className="p-4 border-b border-slate-100 flex items-start justify-between bg-slate-50/50">
                 <div>
-                  <h3 className="text-lg font-bold text-foreground leading-tight">
+                  <h3 className="text-lg font-bold text-slate-900 leading-tight">
                     {loanDetails.borrowerName}
                   </h3>
-                  <p className="text-xs text-muted-foreground font-mono mt-1">#{loanDetails.loanNumber}</p>
+                  <p className="text-xs text-slate-500 font-mono mt-1">#{loanDetails.loanNumber}</p>
                 </div>
                 <button
                   onClick={() => setSelectedLoanId(null)}
-                  className="text-muted-foreground hover:text-foreground p-1 hover:bg-secondary rounded"
+                  className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-200 rounded"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -742,13 +742,13 @@ export function PipelinePage() {
 
               <div className="flex-1 overflow-y-auto p-4 space-y-6">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3 bg-secondary rounded-lg border border-border">
-                    <p className="text-[10px] text-muted-foreground uppercase font-bold mb-1">Amount</p>
-                    <p className="text-sm font-semibold text-foreground">${loanDetails.amount.toLocaleString()}</p>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Amount</p>
+                    <p className="text-sm font-semibold text-slate-900">${loanDetails.amount.toLocaleString()}</p>
                   </div>
-                  <div className="p-3 bg-secondary rounded-lg border border-border">
-                    <p className="text-[10px] text-muted-foreground uppercase font-bold mb-1">Program</p>
-                    <p className="text-sm font-semibold text-foreground truncate" title={loanDetails.program || '-'}>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Program</p>
+                    <p className="text-sm font-semibold text-slate-900 truncate" title={loanDetails.program || '-'}>
                       {loanDetails.program || '-'}
                     </p>
                   </div>
@@ -756,22 +756,22 @@ export function PipelinePage() {
 
                 {loanDetails.propertyAddress && (
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Property</p>
-                    <p className="text-sm text-foreground">{loanDetails.propertyAddress}</p>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Property</p>
+                    <p className="text-sm text-slate-700">{loanDetails.propertyAddress}</p>
                   </div>
                 )}
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase">Notes</p>
-                    <span className="text-[10px] bg-secondary px-1.5 py-0.5 rounded text-muted-foreground">
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Notes</p>
+                    <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">
                       {loanDetails.pipelineNotes.length}
                     </span>
                   </div>
                   <div className="space-y-2 mb-3 max-h-40 overflow-y-auto pr-1">
                     {loanDetails.pipelineNotes.map((note) => (
-                      <div key={note.id} className="p-2.5 bg-yellow-500/10 border border-yellow-400/30 rounded-lg text-xs">
-                        <p className="text-foreground leading-relaxed">{note.body}</p>
+                      <div key={note.id} className="p-2.5 bg-yellow-50/50 border border-yellow-100 rounded-lg text-xs">
+                        <p className="text-slate-700 leading-relaxed">{note.body}</p>
                         <div className="flex items-center justify-between mt-2 pt-2 border-t border-yellow-100/50">
                           <span className="font-semibold text-yellow-700">{note.user.name}</span>
                           <span className="text-yellow-600/70 text-[10px]">
@@ -781,7 +781,7 @@ export function PipelinePage() {
                       </div>
                     ))}
                     {loanDetails.pipelineNotes.length === 0 && (
-                      <p className="text-xs text-muted-foreground italic">No notes added.</p>
+                      <p className="text-xs text-slate-400 italic">No notes added.</p>
                     )}
                   </div>
                   <div className="flex gap-2">
@@ -789,7 +789,7 @@ export function PipelinePage() {
                       value={noteText}
                       onChange={(e) => setNoteText(e.target.value)}
                       placeholder="Add a quick note..."
-                      className="flex-1 px-3 py-2 border border-border bg-card rounded-lg text-xs text-foreground focus:outline-none focus:border-blue-500"
+                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-blue-500"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
@@ -800,7 +800,7 @@ export function PipelinePage() {
                     <button
                       onClick={handleAddNote}
                       disabled={!noteText.trim() || isSubmitting}
-                      className="px-3 py-2 bg-foreground text-background rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
+                      className="px-3 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors"
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
@@ -809,13 +809,13 @@ export function PipelinePage() {
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase">Client Folder</p>
-                    <span className="text-[10px] bg-secondary px-1.5 py-0.5 rounded text-muted-foreground">
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Client Folder</p>
+                    <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">
                       {clientDocuments.length}
                     </span>
                   </div>
 
-                  <div className="rounded-lg border border-border bg-secondary/60 p-3">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
                     <input
                       type="file"
                       accept="application/pdf,image/*,.doc,.docx"
@@ -826,11 +826,11 @@ export function PipelinePage() {
                         if (!file) return;
                         void handleUploadClientDocument(file);
                       }}
-                      className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-card file:px-3 file:py-2 file:text-xs file:font-semibold file:text-foreground hover:file:bg-secondary disabled:opacity-60"
+                      className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-100 disabled:opacity-60"
                     />
 
                     {clientFolderLoading && (
-                      <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                      <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading documents...
                       </div>
@@ -841,7 +841,7 @@ export function PipelinePage() {
                     )}
 
                     {!clientFolderLoading && !clientFolderError && clientDocuments.length === 0 && (
-                      <p className="mt-3 text-xs text-muted-foreground italic">
+                      <p className="mt-3 text-xs text-slate-400 italic">
                         No documents uploaded yet.
                       </p>
                     )}
@@ -853,21 +853,21 @@ export function PipelinePage() {
                             key={doc.id}
                             type="button"
                             onClick={() => void handleOpenClientDocument(doc.id)}
-                            className="w-full flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:bg-secondary"
+                            className="w-full flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left hover:bg-slate-50"
                           >
                             <div className="flex items-center gap-2 min-w-0">
-                              <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                              <span className="text-xs font-semibold text-foreground truncate">
+                              <FileText className="h-4 w-4 text-slate-400 shrink-0" />
+                              <span className="text-xs font-semibold text-slate-700 truncate">
                                 {doc.filename}
                               </span>
                             </div>
-                            <span className="text-[10px] font-semibold text-muted-foreground">
+                            <span className="text-[10px] font-semibold text-slate-400">
                               {new Date(doc.createdAt).toLocaleDateString()}
                             </span>
                           </button>
                         ))}
                         {clientDocuments.length > 8 && (
-                          <p className="text-[10px] text-muted-foreground">
+                          <p className="text-[10px] text-slate-400">
                             Showing 8 of {clientDocuments.length}. (Full view coming next.)
                           </p>
                         )}
@@ -878,25 +878,25 @@ export function PipelinePage() {
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase">Pending Tasks</p>
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Pending Tasks</p>
                   </div>
                   <div className="space-y-2">
                     {loanDetails.tasks.map((task) => (
-                      <div key={task.id} className="p-3 border border-border rounded-lg flex items-start gap-3 bg-card">
+                      <div key={task.id} className="p-3 border border-slate-200 rounded-lg flex items-start gap-3 bg-white">
                         <div className={`mt-0.5 w-2 h-2 rounded-full ${
                           task.status === 'COMPLETED' ? 'bg-green-500' : 
-                          task.status === 'IN_PROGRESS' ? 'bg-blue-500' : 'bg-muted-foreground/50'
+                          task.status === 'IN_PROGRESS' ? 'bg-blue-500' : 'bg-slate-300'
                         }`} />
                         <div>
-                          <p className="text-sm font-medium text-foreground">{task.title}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
+                          <p className="text-sm font-medium text-slate-900">{task.title}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">
                             Due: {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'None'}
                           </p>
                         </div>
                       </div>
                     ))}
                     {loanDetails.tasks.length === 0 && (
-                      <p className="text-xs text-muted-foreground italic">No pending tasks.</p>
+                      <p className="text-xs text-slate-400 italic">No pending tasks.</p>
                     )}
                   </div>
                 </div>
@@ -912,10 +912,10 @@ export function PipelinePage() {
           <div
             role="dialog"
             aria-modal="true"
-            className="bg-card rounded-xl border border-border shadow-2xl w-full max-w-lg p-6 space-y-4"
+            className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg p-6 space-y-4"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">Import Leads (CSV)</h3>
+              <h3 className="text-lg font-bold text-slate-900">Import Leads (CSV)</h3>
               <button
                 ref={importCloseButtonRef}
                 onClick={() => setShowImport(false)}
@@ -935,7 +935,7 @@ export function PipelinePage() {
               </ul>
             </div>
 
-            <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-secondary transition-colors">
+            <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:bg-slate-50 transition-colors">
               <input
                 type="file"
                 accept=".csv"
@@ -947,9 +947,9 @@ export function PipelinePage() {
                 id="csv-upload"
               />
               <label htmlFor="csv-upload" className="cursor-pointer flex flex-col items-center">
-                <Upload className="w-8 h-8 text-muted-foreground mb-2" />
-                <span className="text-sm font-medium text-foreground">Click to upload CSV</span>
-                <span className="text-xs text-muted-foreground mt-1">or drag and drop</span>
+                <Upload className="w-8 h-8 text-slate-400 mb-2" />
+                <span className="text-sm font-medium text-slate-700">Click to upload CSV</span>
+                <span className="text-xs text-slate-400 mt-1">or drag and drop</span>
               </label>
             </div>
 
@@ -961,7 +961,7 @@ export function PipelinePage() {
             )}
             
             {importRows.length > 0 && (
-              <div className="text-xs text-muted-foreground bg-secondary p-3 rounded-lg">
+              <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg">
                 Parsed <strong>{importRows.length}</strong> rows.{' '}
                 <strong>{importRows.filter((row) => row.loanNumber?.trim()).length}</strong> valid loans found.
               </div>

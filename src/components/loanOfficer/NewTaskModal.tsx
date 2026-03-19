@@ -58,18 +58,29 @@ export function NewTaskModal({
     },
     [disclosureEnabled, qcEnabled]
   );
-  const type = resolveAvailableType(initialType);
+  const [type, setType] = useState<SubmissionType>(
+    resolveAvailableType(initialType)
+  );
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const router = useRouter();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const handleClose = useCallback(() => {
+    setType(resolveAvailableType('DISCLOSURES'));
     setCurrentStep(1);
     onClose();
-  }, [onClose]);
+  }, [onClose, resolveAvailableType]);
 
   useEffect(() => {
     if (!open) return;
+
+    setType(resolveAvailableType(initialType));
+    setCurrentStep(1);
+
     closeButtonRef.current?.focus();
+  }, [open, initialType, resolveAvailableType]);
+
+  useEffect(() => {
+    if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         handleClose();
@@ -83,7 +94,7 @@ export function NewTaskModal({
   if (!open) return null;
 
   return (
-    <div className="new-task-modal-theme fixed inset-0 z-[60] flex items-center justify-center">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center">
       <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={handleClose} />
       <div
         role="dialog"
@@ -1632,6 +1643,24 @@ function DisclosureMismoStep({
         <p className="text-xs text-red-600">{importError}</p>
       )}
     </div>
+  );
+}
+
+function FileUpload({ onFileSelected }: { onFileSelected: (file: File | null) => void }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
+        Upload MISMO 3.4 (.xml) to auto-fill
+      </span>
+      <div className="mt-2 flex items-center gap-3">
+        <input
+          type="file"
+          accept=".xml"
+          onChange={(e) => onFileSelected(e.target.files?.[0] || null)}
+          className="text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+        />
+      </div>
+    </label>
   );
 }
 
