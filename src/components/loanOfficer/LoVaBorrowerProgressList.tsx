@@ -204,11 +204,15 @@ function getJrChecklistStatusClass(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLE
 
 function SummaryRows({
   rows,
+  className,
 }: {
   rows: Array<{ label: string; done: boolean }>;
+  className?: string;
 }) {
   return (
-    <div className="mt-2 space-y-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 py-2">
+    <div
+      className={`${className || 'mt-2'} space-y-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 py-2`}
+    >
       {rows.map((row) => (
         <div key={row.label} className="flex items-center justify-between gap-2">
           <span className="text-xs font-semibold text-slate-700">{row.label}</span>
@@ -363,7 +367,7 @@ export function LoVaBorrowerProgressList({
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
                 >
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="min-w-0">
                         {item.latestUpdatedAt && (
@@ -373,15 +377,9 @@ export function LoVaBorrowerProgressList({
                           </p>
                         )}
                         <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openBorrowerDetail(item, 'va')}
-                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-blue-300 hover:bg-slate-50 hover:text-blue-700"
-                            title="Open borrower submission details"
-                            aria-label="Open borrower submission details"
-                          >
+                          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200/60">
                             <FileText className="h-3.5 w-3.5" />
-                          </button>
+                          </span>
                           <p className="truncate text-sm font-bold text-slate-900">
                             {item.borrowerName}
                           </p>
@@ -403,8 +401,8 @@ export function LoVaBorrowerProgressList({
                         )}
                       </div>
                     </div>
-                    <div className="flex max-w-[60%] flex-col items-end gap-1.5">
-                      <div className="flex items-center gap-1.5">
+                    <div className="flex w-[220px] shrink-0 flex-col items-end gap-1.5">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           <Clock3 className="mr-1 h-3 w-3" />
                           {item.vaCompletedCount}/{item.vaTotalCount}
@@ -418,15 +416,25 @@ export function LoVaBorrowerProgressList({
                           </Link>
                         ) : null}
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => openBorrowerDetail(item, 'va')}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                        title="Show details"
+                        aria-label="Show details"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                      <SummaryRows
+                        className="mt-0 w-full"
+                        rows={[
+                          { label: 'Title', done: item.vaStageDetails.title.completed },
+                          { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
+                          { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
+                        ]}
+                      />
                     </div>
                   </div>
-                  <SummaryRows
-                    rows={[
-                      { label: 'Title', done: item.vaStageDetails.title.completed },
-                      { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
-                      { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
-                    ]}
-                  />
                 </article>
               ))}
             </div>
@@ -452,7 +460,7 @@ export function LoVaBorrowerProgressList({
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
                 >
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="min-w-0">
                         {item.latestUpdatedAt && (
@@ -462,15 +470,9 @@ export function LoVaBorrowerProgressList({
                           </p>
                         )}
                         <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openBorrowerDetail(item, 'jr')}
-                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-blue-300 hover:bg-slate-50 hover:text-blue-700"
-                            title="Open borrower submission details"
-                            aria-label="Open borrower submission details"
-                          >
+                          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200/60">
                             <FileText className="h-3.5 w-3.5" />
-                          </button>
+                          </span>
                           <p className="truncate text-sm font-bold text-slate-900">
                             {item.borrowerName}
                           </p>
@@ -492,8 +494,8 @@ export function LoVaBorrowerProgressList({
                         )}
                       </div>
                     </div>
-                    <div className="flex max-w-[60%] flex-col items-end gap-1.5">
-                      <div className="flex items-center gap-1.5">
+                    <div className="flex w-[220px] shrink-0 flex-col items-end gap-1.5">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           <Clock3 className="mr-1 h-3 w-3" />
                           {item.jrCompletedCount}/{item.jrTotalCount}
@@ -507,18 +509,28 @@ export function LoVaBorrowerProgressList({
                           </Link>
                         ) : null}
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => openBorrowerDetail(item, 'jr')}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                        title="Show details"
+                        aria-label="Show details"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                      <SummaryRows
+                        className="mt-0 w-full"
+                        rows={
+                          item.jrStageDetails.hoi.checklist.length > 0
+                            ? item.jrStageDetails.hoi.checklist.map((row) => ({
+                                label: row.label,
+                                done: row.status === 'COMPLETED',
+                              }))
+                            : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]
+                        }
+                      />
                     </div>
                   </div>
-                  <SummaryRows
-                    rows={
-                      item.jrStageDetails.hoi.checklist.length > 0
-                        ? item.jrStageDetails.hoi.checklist.map((row) => ({
-                            label: row.label,
-                            done: row.status === 'COMPLETED',
-                          }))
-                        : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]
-                    }
-                  />
                 </article>
               ))}
             </div>
@@ -846,278 +858,214 @@ export function LoVaBorrowerProgressList({
                     );
                   })}
                   {showJrDetails && (
-                    <div ref={jrDetailSectionRef}>
+                    <div ref={jrDetailSectionRef} className="space-y-3">
                       {[
-                      { key: 'hoi' as const, icon: Home },
-                      ].map(({ key, icon: Icon }) => {
-                    const label = stageLabelByKey[key];
-                    const detail = focusedItem.jrStageDetails[key];
-                    const latestNote = detail.latestNote;
-                    const stageNoteKey = `${focusedItem.loanNumber}-${key}`;
-                    const stageDetailKey = `${focusedItem.loanNumber}-${key}-detail`;
-                    const stageDetailsExpanded = expandedTaskDetails.has(stageDetailKey);
-                    const stageNoteExpanded = expandedStageNotes.has(stageNoteKey);
-                    const notePreview = latestNote?.message || '';
-                    const canToggleStageNote = notePreview.length > 180;
-                    const visibleNote = canToggleStageNote && !stageNoteExpanded
-                      ? `${notePreview.slice(0, 180)}...`
-                      : notePreview;
-                    const stageElapsedMs = getStageElapsedMs(
-                      detail.createdAt,
-                      detail.updatedAt,
-                      detail.completed,
-                      timerNowMs
-                    );
-                    return (
-                      <div
-                        key={label}
-                        className={`rounded-xl border p-3.5 ${
-                          detail.completed
-                            ? 'border-emerald-200 bg-emerald-50'
-                            : 'border-rose-200 bg-rose-50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight text-slate-900">
-                            <span
-                              className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
-                                detail.completed
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-rose-100 text-rose-700'
-                              }`}
-                            >
-                              <Icon className="h-3.5 w-3.5" />
-                            </span>
-                            {label} (JR)
-                          </span>
-                          <div className="inline-flex items-center gap-2.5 shrink-0">
-                            {stageElapsedMs !== null && (
-                              <span
-                                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold ${getTimerClassName(
-                                  stageElapsedMs
-                                )}`}
-                                title={
-                                  detail.completed
-                                    ? 'Total elapsed time for this completed JR task'
-                                    : 'Elapsed time for this active JR task'
-                                }
-                              >
-                                <Clock3 className="mr-1 h-3 w-3" />
-                                Total {formatElapsedTimerLabel(stageElapsedMs)}
-                              </span>
-                            )}
-                            <span
-                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
-                                detail.completed
-                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                  : 'border-rose-300 bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {detail.completed ? 'Completed' : 'Incomplete'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedTaskDetails((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(stageDetailKey)) next.delete(stageDetailKey);
-                                  else next.add(stageDetailKey);
-                                  return next;
-                                })
-                              }
-                              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
-                            >
-                              <FileText className="h-4 w-4" />
-                              {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
-                            </button>
-                          </div>
-                        </div>
-                        <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                            JR Tasks
-                          </p>
-                          <div className="mt-2 space-y-1.5">
-                            {(detail.checklist.length > 0
-                              ? detail.checklist
-                              : [
-                                  {
-                                    id: 'ordered-hoi',
-                                    label: 'HOI',
-                                    status: detail.completed ? 'COMPLETED' : 'ORDERED',
-                                  },
-                                  {
-                                    id: 'ordered-voe',
-                                    label: 'VOE',
-                                    status: detail.completed ? 'COMPLETED' : 'ORDERED',
-                                  },
-                                  {
-                                    id: 'submitted-underwriting',
-                                    label: 'Submitted to Underwriting',
-                                    status: detail.completed ? 'COMPLETED' : 'ORDERED',
-                                  },
-                                ]
-                            ).map((row) => (
-                              <div
-                                key={row.id}
-                                className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5"
-                              >
-                                <span className="text-xs font-semibold text-slate-700">{row.label}</span>
-                                <span
-                                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
-                                    row.status as 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED'
-                                  )}`}
-                                >
-                                  {formatJrChecklistStatus(
-                                    row.status as 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED'
-                                  )}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        {stageDetailsExpanded && (
-                          <>
-                            {detail.proofAttachments.length === 0 ? (
-                              <p className="mt-2 text-xs font-medium text-slate-600">
-                                No proof uploaded yet.
-                              </p>
-                            ) : (
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                {detail.proofAttachments.map((att) => (
-                                  <button
-                                    key={att.id}
-                                    type="button"
-                                    onClick={() => void openAttachment(att.id)}
-                                    disabled={openingAttachmentId === att.id}
-                                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                    title={`Open ${att.filename}`}
-                                  >
-                                    {openingAttachmentId === att.id ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <FileText className="h-3.5 w-3.5" />
-                                    )}
-                                    <span className="max-w-[200px] truncate">{att.filename}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
+                        { key: 'hoi' as const, icon: Home },
+                      ].map(({ key }) => {
+                        const detail = focusedItem.jrStageDetails[key];
+                        const jrRows =
+                          detail.checklist.length > 0
+                            ? detail.checklist
+                            : [
+                                {
+                                  id: 'ordered-hoi',
+                                  label: 'HOI',
+                                  status: detail.completed ? 'COMPLETED' : 'ORDERED',
+                                  proofAttachmentId: null,
+                                  proofFilename: null,
+                                },
+                                {
+                                  id: 'ordered-voe',
+                                  label: 'VOE',
+                                  status: detail.completed ? 'COMPLETED' : 'ORDERED',
+                                  proofAttachmentId: null,
+                                  proofFilename: null,
+                                },
+                                {
+                                  id: 'submitted-underwriting',
+                                  label: 'Submitted to Underwriting',
+                                  status: detail.completed ? 'COMPLETED' : 'ORDERED',
+                                  proofAttachmentId: null,
+                                  proofFilename: null,
+                                },
+                              ];
+                        const stageElapsedMs = getStageElapsedMs(
+                          detail.createdAt,
+                          detail.updatedAt,
+                          detail.completed,
+                          timerNowMs
+                        );
 
-                            <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                                  Latest JR Note
-                                </p>
-                                {latestNote && (
-                                  <span className="text-[11px] font-medium text-slate-500">
-                                    {formatNoteDateTime(latestNote.date)}
+                        return jrRows.map((row) => {
+                          const rowComplete = row.status === 'COMPLETED';
+                          const stageNoteKey = `${focusedItem.loanNumber}-${key}-${row.id}`;
+                          const stageDetailKey = `${focusedItem.loanNumber}-${key}-${row.id}-detail`;
+                          const stageDetailsExpanded = expandedTaskDetails.has(stageDetailKey);
+                          const stageNoteExpanded = expandedStageNotes.has(stageNoteKey);
+                          const latestNote = detail.latestNote;
+                          const notePreview = latestNote?.message || '';
+                          const canToggleStageNote = notePreview.length > 180;
+                          const visibleNote =
+                            canToggleStageNote && !stageNoteExpanded
+                              ? `${notePreview.slice(0, 180)}...`
+                              : notePreview;
+                          const proofAttachmentId = row.proofAttachmentId;
+
+                          return (
+                            <div
+                              key={row.id}
+                              className={`rounded-xl border p-3.5 ${
+                                rowComplete
+                                  ? 'border-emerald-200 bg-emerald-50'
+                                  : 'border-rose-200 bg-rose-50'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight text-slate-900">
+                                  <span
+                                    className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
+                                      rowComplete
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : 'bg-rose-100 text-rose-700'
+                                    }`}
+                                  >
+                                    <FileText className="h-3.5 w-3.5" />
                                   </span>
-                                )}
-                              </div>
-                              {!latestNote ? (
-                                <p className="mt-1 text-xs font-medium text-slate-500">
-                                  No stage note yet.
-                                </p>
-                              ) : (
-                                <>
-                                  <p className="mt-1 text-xs font-semibold text-slate-700">
-                                    {visibleNote}
-                                  </p>
-                                  <p className="mt-1 text-[11px] text-slate-500">
-                                    {latestNote.author} • {formatRoleLabel(latestNote.role)}
-                                  </p>
-                                  {canToggleStageNote && (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setExpandedStageNotes((prev) => {
-                                          const next = new Set(prev);
-                                          if (next.has(stageNoteKey)) next.delete(stageNoteKey);
-                                          else next.add(stageNoteKey);
-                                          return next;
-                                        })
+                                  {row.label}
+                                </span>
+                                <div className="inline-flex items-center gap-2.5 shrink-0">
+                                  {stageElapsedMs !== null && (
+                                    <span
+                                      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold ${getTimerClassName(
+                                        stageElapsedMs
+                                      )}`}
+                                      title={
+                                        rowComplete
+                                          ? 'Total elapsed time for this completed JR task'
+                                          : 'Elapsed time for this active JR task'
                                       }
-                                      className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
                                     >
-                                      {stageNoteExpanded ? (
-                                        <>
-                                          Show Less <ChevronUp className="h-3 w-3" />
-                                        </>
-                                      ) : (
-                                        <>
-                                          Show More <ChevronDown className="h-3 w-3" />
-                                        </>
-                                      )}
-                                    </button>
+                                      <Clock3 className="mr-1 h-3 w-3" />
+                                      Total {formatElapsedTimerLabel(stageElapsedMs)}
+                                    </span>
                                   )}
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
+                                      rowComplete
+                                        ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                        : 'border-rose-300 bg-rose-100 text-rose-800'
+                                    }`}
+                                  >
+                                    {rowComplete ? 'Completed' : 'Incomplete'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedTaskDetails((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(stageDetailKey)) next.delete(stageDetailKey);
+                                        else next.add(stageDetailKey);
+                                        return next;
+                                      })
+                                    }
+                                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+                                  >
+                                    <FileText className="h-4 w-4" />
+                                    {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {stageDetailsExpanded && (
+                                <>
+                                  <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                        Proof
+                                      </p>
+                                      {proofAttachmentId ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => void openAttachment(proofAttachmentId)}
+                                          disabled={openingAttachmentId === proofAttachmentId}
+                                          className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                                        >
+                                          {openingAttachmentId === proofAttachmentId ? (
+                                            <>
+                                              <Loader2 className="h-3 w-3 animate-spin" />
+                                              Opening
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Paperclip className="h-3 w-3" />
+                                              {row.proofFilename || 'Open Proof'}
+                                            </>
+                                          )}
+                                        </button>
+                                      ) : (
+                                        <span className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700">
+                                          Missing
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                        Latest JR Note
+                                      </p>
+                                      {latestNote && (
+                                        <span className="text-[11px] font-medium text-slate-500">
+                                          {formatNoteDateTime(latestNote.date)}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {!latestNote ? (
+                                      <p className="mt-1 text-xs font-medium text-slate-500">
+                                        No stage note yet.
+                                      </p>
+                                    ) : (
+                                      <>
+                                        <p className="mt-1 text-xs font-semibold text-slate-700">
+                                          {visibleNote}
+                                        </p>
+                                        <p className="mt-1 text-[11px] text-slate-500">
+                                          {latestNote.author} • {formatRoleLabel(latestNote.role)}
+                                        </p>
+                                        {canToggleStageNote && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setExpandedStageNotes((prev) => {
+                                                const next = new Set(prev);
+                                                if (next.has(stageNoteKey)) next.delete(stageNoteKey);
+                                                else next.add(stageNoteKey);
+                                                return next;
+                                              })
+                                            }
+                                            className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                                          >
+                                            {stageNoteExpanded ? (
+                                              <>
+                                                Show Less <ChevronUp className="h-3 w-3" />
+                                              </>
+                                            ) : (
+                                              <>
+                                                Show More <ChevronDown className="h-3 w-3" />
+                                              </>
+                                            )}
+                                          </button>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
                                 </>
                               )}
                             </div>
-                            {detail.checklist.length > 0 && (
-                              <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                                  JR Milestones
-                                </p>
-                                <div className="mt-2 space-y-1.5">
-                                  {detail.checklist.map((row) => {
-                                    const proofAttachmentId = row.proofAttachmentId;
-                                    return (
-                                      <div
-                                        key={row.id}
-                                        className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5"
-                                      >
-                                        <div className="flex items-center justify-between gap-2">
-                                          <span className="text-xs font-semibold text-slate-700">
-                                            {row.label}
-                                          </span>
-                                          <span
-                                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
-                                              row.status
-                                            )}`}
-                                          >
-                                            {formatJrChecklistStatus(row.status)}
-                                          </span>
-                                        </div>
-                                        <div className="mt-1.5 flex items-center justify-between gap-2">
-                                          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                                            Proof
-                                          </span>
-                                          {proofAttachmentId ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => void openAttachment(proofAttachmentId)}
-                                              disabled={openingAttachmentId === proofAttachmentId}
-                                              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700 hover:bg-blue-100 disabled:opacity-60"
-                                            >
-                                              {openingAttachmentId === proofAttachmentId ? (
-                                                <>
-                                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                                  Opening
-                                                </>
-                                              ) : (
-                                                <>
-                                                  <Paperclip className="h-3 w-3" />
-                                                  {row.proofFilename || 'Open Proof'}
-                                                </>
-                                              )}
-                                            </button>
-                                          ) : (
-                                            <span className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700">
-                                              Missing
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
+                          );
+                        });
+                      })}
                     </div>
                   )}
                 </div>
