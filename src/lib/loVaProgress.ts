@@ -1,4 +1,4 @@
-import { TaskKind, TaskStatus, TaskWorkflowState, type UserRole } from '@prisma/client';
+import { TaskKind, TaskStatus, TaskWorkflowState, UserRole } from '@prisma/client';
 
 type LoanRef = {
   loanNumber: string;
@@ -45,8 +45,22 @@ export type LoVaBorrowerProgressItem = {
       taskId: string | null;
       completed: boolean;
       proofAttachments: Array<{ id: string; filename: string }>;
+      latestNote: {
+        message: string;
+        date: string;
+        author: string;
+        role: UserRole | null;
+      } | null;
     }
   >;
+  notesTimeline: Array<{
+    id: string;
+    stage: VaKindKey;
+    message: string;
+    date: string;
+    author: string;
+    role: UserRole | null;
+  }>;
   submissionSnapshot: Array<{ key: string; label: string; value: string }>;
 };
 
@@ -161,6 +175,55 @@ function compareByMostRecentUpdate(
   return right - left;
 }
 
+function parseNotesHistoryForStage(
+  data: unknown,
+  stage: VaKindKey,
+  taskId: string
+): Array<{
+  id: string;
+  stage: VaKindKey;
+  message: string;
+  date: string;
+  author: string;
+  role: UserRole | null;
+}> {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+  const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
+  if (!Array.isArray(notesHistory)) return [];
+  const parsed: Array<{
+    id: string;
+    stage: VaKindKey;
+    message: string;
+    date: string;
+    author: string;
+    role: UserRole | null;
+  }> = [];
+  for (let index = 0; index < notesHistory.length; index += 1) {
+    const item = notesHistory[index];
+    if (!item || typeof item !== 'object') continue;
+    const message = String((item as { message?: unknown }).message ?? '').trim();
+    const dateRaw = String((item as { date?: unknown }).date ?? '').trim();
+    if (!message || !dateRaw) continue;
+    const dateValue = new Date(dateRaw);
+    if (Number.isNaN(dateValue.getTime())) continue;
+    const author = String((item as { author?: unknown }).author ?? '').trim() || 'Team Member';
+    const roleRaw = (item as { role?: unknown }).role;
+    const normalizedRole =
+      typeof roleRaw === 'string' && (Object.values(UserRole) as string[]).includes(roleRaw)
+        ? (roleRaw as UserRole)
+        : null;
+    parsed.push({
+      id: `${taskId}-${stage}-${dateRaw}-${index}`,
+      stage,
+      message,
+      date: dateValue.toISOString(),
+      author,
+      role: normalizedRole,
+    });
+  }
+  return parsed;
+}
+
 export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaBorrowerProgressItem[] {
   const grouped = new Map<
     string,
@@ -258,22 +321,52 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
 
     const completedCount = Object.values(chips).filter((chip) => chip === 'completed').length;
     const stageDetails: LoVaBorrowerProgressItem['stageDetails'] = {
-      title: { taskId: null, completed: false, proofAttachments: [] },
-      hoi: { taskId: null, completed: false, proofAttachments: [] },
-      payoff: { taskId: null, completed: false, proofAttachments: [] },
-      appraisal: { taskId: null, completed: false, proofAttachments: [] },
+      title: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
+      hoi: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
+      payoff: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
+      appraisal: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
     };
+    const timelineById = new Map<
+      string,
+      {
+        id: string;
+        stage: VaKindKey;
+        message: string;
+        date: string;
+        author: string;
+        role: UserRole | null;
+      }
+    >();
     for (const definition of VA_KIND_MAP) {
       const task = value.vaByKind[definition.key];
       if (!task) continue;
+      const stageNotes = parseNotesHistoryForStage(task.submissionData, definition.key, task.id);
+      const latestNote =
+        stageNotes.length > 0
+          ? stageNotes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+          : null;
       stageDetails[definition.key] = {
         taskId: task.id,
         completed: task.status === TaskStatus.COMPLETED,
         proofAttachments: (task.attachments || [])
           .filter((att) => isProofAttachment(att.purpose))
           .map((att) => ({ id: att.id, filename: att.filename })),
+        latestNote: latestNote
+          ? {
+              message: latestNote.message,
+              date: latestNote.date,
+              author: latestNote.author,
+              role: latestNote.role,
+            }
+          : null,
       };
+      for (const note of stageNotes) {
+        timelineById.set(note.id, note);
+      }
     }
+    const notesTimeline = Array.from(timelineById.values()).sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
     rows.push({
       loanNumber: value.loanNumber,
       borrowerName: value.borrowerName,
@@ -286,6 +379,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       earliestCreatedAt: value.earliestCreatedAt,
       latestUpdatedAt: value.latestUpdatedAt,
       stageDetails,
+      notesTimeline,
       submissionSnapshot: buildSubmissionSnapshot(value.submissionData),
     });
   }

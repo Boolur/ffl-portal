@@ -6,11 +6,14 @@ import {
   ClipboardCheck,
   Calendar,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   DollarSign,
   FileText,
   FileCheck2,
   Home,
+  MessageSquare,
   Search,
   Loader2,
   UserCog,
@@ -146,6 +149,34 @@ function groupSubmissionSnapshot(
     .filter((group) => group.rows.length > 0);
 }
 
+const stageLabelByKey: Record<'title' | 'hoi' | 'payoff' | 'appraisal', string> = {
+  title: 'Title',
+  hoi: 'HOI',
+  payoff: 'Payoff',
+  appraisal: 'Appraisal',
+};
+
+function formatRoleLabel(role: string | null) {
+  if (!role) return 'Team Member';
+  return role
+    .toLowerCase()
+    .split('_')
+    .map((part) => (part.length ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(' ');
+}
+
+function formatNoteDateTime(value: string) {
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(dt);
+}
+
 function BucketPanel({
   title,
   icon,
@@ -195,6 +226,10 @@ export function LoVaBorrowerProgressList({
 }) {
   const [focusedItemKey, setFocusedItemKey] = React.useState<string | null>(null);
   const [openingAttachmentId, setOpeningAttachmentId] = React.useState<string | null>(null);
+  const [expandedStageNotes, setExpandedStageNotes] = React.useState<Set<string>>(() => new Set());
+  const [expandedTimelineNotes, setExpandedTimelineNotes] = React.useState<Set<string>>(
+    () => new Set()
+  );
   const focusedItem =
     focusedItemKey === null
       ? null
@@ -217,6 +252,11 @@ export function LoVaBorrowerProgressList({
     window.open(result.url, '_blank', 'noopener,noreferrer');
     setOpeningAttachmentId(null);
   };
+
+  React.useEffect(() => {
+    setExpandedStageNotes(new Set());
+    setExpandedTimelineNotes(new Set());
+  }, [focusedItemKey]);
 
   return (
     <section className={`${className || ''}`}>
@@ -398,92 +438,212 @@ export function LoVaBorrowerProgressList({
               </div>
             )}
 
-            <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
-              <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
-                VA Task Completion & Proof
-              </h4>
-              <div className="space-y-3">
-                {[
-                  {
-                    label: 'Title',
-                    detail: focusedItem.stageDetails.title,
-                    icon: FileText,
-                  },
-                  {
-                    label: 'HOI',
-                    detail: focusedItem.stageDetails.hoi,
-                    icon: Home,
-                  },
-                  {
-                    label: 'Payoff',
-                    detail: focusedItem.stageDetails.payoff,
-                    icon: DollarSign,
-                  },
-                  {
-                    label: 'Appraisal',
-                    detail: focusedItem.stageDetails.appraisal,
-                    icon: ClipboardCheck,
-                  },
-                ].map(({ label, detail, icon: Icon }) => (
-                  <div
-                    key={label}
-                    className={`rounded-xl border p-3.5 ${
-                      detail.completed
-                        ? 'border-emerald-200 bg-emerald-50'
-                        : 'border-rose-200 bg-rose-50'
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-2 text-sm font-bold tracking-tight text-slate-800">
-                        <span
-                          className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
-                            detail.completed
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-rose-100 text-rose-700'
-                          }`}
-                        >
-                          <Icon className="h-3.5 w-3.5" />
-                        </span>
-                        {label}
-                      </span>
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+            <div className="mt-6 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+              <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
+                <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
+                  VA Task Completion & Proof
+                </h4>
+                <div className="space-y-3">
+                  {[
+                    { key: 'title' as const, icon: FileText },
+                    { key: 'hoi' as const, icon: Home },
+                    { key: 'payoff' as const, icon: DollarSign },
+                    { key: 'appraisal' as const, icon: ClipboardCheck },
+                  ].map(({ key, icon: Icon }) => {
+                    const label = stageLabelByKey[key];
+                    const detail = focusedItem.stageDetails[key];
+                    const latestNote = detail.latestNote;
+                    const stageNoteKey = `${focusedItem.loanNumber}-${key}`;
+                    const stageNoteExpanded = expandedStageNotes.has(stageNoteKey);
+                    const notePreview = latestNote?.message || '';
+                    const canToggleStageNote = notePreview.length > 180;
+                    const visibleNote = canToggleStageNote && !stageNoteExpanded
+                      ? `${notePreview.slice(0, 180)}...`
+                      : notePreview;
+                    return (
+                      <div
+                        key={label}
+                        className={`rounded-xl border p-3.5 ${
                           detail.completed
-                            ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                            : 'border-rose-300 bg-rose-100 text-rose-800'
+                            ? 'border-emerald-200 bg-emerald-50'
+                            : 'border-rose-200 bg-rose-50'
                         }`}
                       >
-                        {detail.completed ? 'Completed' : 'Incomplete'}
-                      </span>
-                    </div>
-
-                    {detail.proofAttachments.length === 0 ? (
-                      <p className="mt-2 text-xs font-medium text-slate-600">
-                        No proof uploaded yet.
-                      </p>
-                    ) : (
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {detail.proofAttachments.map((att) => (
-                          <button
-                            key={att.id}
-                            type="button"
-                            onClick={() => void openAttachment(att.id)}
-                            disabled={openingAttachmentId === att.id}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            title={`Open ${att.filename}`}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-2 text-sm font-bold tracking-tight text-slate-800">
+                            <span
+                              className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
+                                detail.completed
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-rose-100 text-rose-700'
+                              }`}
+                            >
+                              <Icon className="h-3.5 w-3.5" />
+                            </span>
+                            {label}
+                          </span>
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              detail.completed
+                                ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                : 'border-rose-300 bg-rose-100 text-rose-800'
+                            }`}
                           >
-                            {openingAttachmentId === att.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <FileText className="h-3.5 w-3.5" />
+                            {detail.completed ? 'Completed' : 'Incomplete'}
+                          </span>
+                        </div>
+
+                        {detail.proofAttachments.length === 0 ? (
+                          <p className="mt-2 text-xs font-medium text-slate-600">
+                            No proof uploaded yet.
+                          </p>
+                        ) : (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {detail.proofAttachments.map((att) => (
+                              <button
+                                key={att.id}
+                                type="button"
+                                onClick={() => void openAttachment(att.id)}
+                                disabled={openingAttachmentId === att.id}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                title={`Open ${att.filename}`}
+                              >
+                                {openingAttachmentId === att.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <FileText className="h-3.5 w-3.5" />
+                                )}
+                                <span className="max-w-[200px] truncate">{att.filename}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                              Latest VA Note
+                            </p>
+                            {latestNote && (
+                              <span className="text-[11px] font-medium text-slate-500">
+                                {formatNoteDateTime(latestNote.date)}
+                              </span>
                             )}
-                            <span className="max-w-[200px] truncate">{att.filename}</span>
-                          </button>
-                        ))}
+                          </div>
+                          {!latestNote ? (
+                            <p className="mt-1 text-xs font-medium text-slate-500">
+                              No stage note yet.
+                            </p>
+                          ) : (
+                            <>
+                              <p className="mt-1 text-xs font-semibold text-slate-700">
+                                {visibleNote}
+                              </p>
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                {latestNote.author} • {formatRoleLabel(latestNote.role)}
+                              </p>
+                              {canToggleStageNote && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedStageNotes((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(stageNoteKey)) next.delete(stageNoteKey);
+                                      else next.add(stageNoteKey);
+                                      return next;
+                                    })
+                                  }
+                                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                                >
+                                  {stageNoteExpanded ? (
+                                    <>
+                                      Show Less <ChevronUp className="h-3 w-3" />
+                                    </>
+                                  ) : (
+                                    <>
+                                      Show More <ChevronDown className="h-3 w-3" />
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
-                    )}
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+                    VA Notes Timeline
+                  </h4>
+                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                    {focusedItem.notesTimeline.length} Notes
+                  </span>
+                </div>
+                {focusedItem.notesTimeline.length === 0 ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-medium text-slate-500">
+                    No notes yet.
                   </div>
-                ))}
+                ) : (
+                  <div className="space-y-2.5">
+                    {focusedItem.notesTimeline.map((note) => {
+                      const isExpanded = expandedTimelineNotes.has(note.id);
+                      const canToggle = note.message.length > 180;
+                      const visibleMessage =
+                        canToggle && !isExpanded
+                          ? `${note.message.slice(0, 180)}...`
+                          : note.message;
+                      return (
+                        <article
+                          key={note.id}
+                          className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                        >
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                              <MessageSquare className="h-3 w-3" />
+                              {stageLabelByKey[note.stage]}
+                            </span>
+                            <span className="text-[11px] font-medium text-slate-500">
+                              {formatNoteDateTime(note.date)}
+                            </span>
+                          </div>
+                          <p className="text-xs font-semibold text-slate-700">{visibleMessage}</p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            {note.author} • {formatRoleLabel(note.role)}
+                          </p>
+                          {canToggle && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedTimelineNotes((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(note.id)) next.delete(note.id);
+                                  else next.add(note.id);
+                                  return next;
+                                })
+                              }
+                              className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                            >
+                              {isExpanded ? (
+                                <>
+                                  Show Less <ChevronUp className="h-3 w-3" />
+                                </>
+                              ) : (
+                                <>
+                                  Show More <ChevronDown className="h-3 w-3" />
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
