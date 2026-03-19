@@ -205,14 +205,17 @@ function getJrChecklistStatusClass(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLE
 function SummaryRows({
   rows,
   className,
+  boxed = true,
 }: {
   rows: Array<{ label: string; done: boolean }>;
   className?: string;
+  boxed?: boolean;
 }) {
+  const containerClassName = boxed
+    ? 'space-y-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 py-2'
+    : 'space-y-1.5';
   return (
-    <div
-      className={`${className || 'mt-2'} space-y-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 py-2`}
-    >
+    <div className={`${className || 'mt-2'} ${containerClassName}`}>
       {rows.map((row) => (
         <div key={row.label} className="flex items-center justify-between gap-2">
           <span className="text-xs font-semibold text-slate-700">{row.label}</span>
@@ -401,7 +404,7 @@ export function LoVaBorrowerProgressList({
                         )}
                       </div>
                     </div>
-                    <div className="flex w-[220px] shrink-0 flex-col items-end gap-1.5">
+                    <div className="flex w-[240px] shrink-0 flex-col items-end gap-1.5">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           <Clock3 className="mr-1 h-3 w-3" />
@@ -416,23 +419,26 @@ export function LoVaBorrowerProgressList({
                           </Link>
                         ) : null}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => openBorrowerDetail(item, 'va')}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                        title="Show details"
-                        aria-label="Show details"
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </button>
-                      <SummaryRows
-                        className="mt-0 w-full"
-                        rows={[
-                          { label: 'Title', done: item.vaStageDetails.title.completed },
-                          { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
-                          { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
-                        ]}
-                      />
+                      <div className="flex w-full items-start justify-end gap-2">
+                        <SummaryRows
+                          boxed={false}
+                          className="mt-0 flex-1"
+                          rows={[
+                            { label: 'Title', done: item.vaStageDetails.title.completed },
+                            { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
+                            { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
+                          ]}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => openBorrowerDetail(item, 'va')}
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                          title="Show details"
+                          aria-label="Show details"
+                        >
+                          <ChevronDown className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>
@@ -494,7 +500,7 @@ export function LoVaBorrowerProgressList({
                         )}
                       </div>
                     </div>
-                    <div className="flex w-[220px] shrink-0 flex-col items-end gap-1.5">
+                    <div className="flex w-[240px] shrink-0 flex-col items-end gap-1.5">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           <Clock3 className="mr-1 h-3 w-3" />
@@ -509,26 +515,29 @@ export function LoVaBorrowerProgressList({
                           </Link>
                         ) : null}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => openBorrowerDetail(item, 'jr')}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                        title="Show details"
-                        aria-label="Show details"
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </button>
-                      <SummaryRows
-                        className="mt-0 w-full"
-                        rows={
-                          item.jrStageDetails.hoi.checklist.length > 0
-                            ? item.jrStageDetails.hoi.checklist.map((row) => ({
-                                label: row.label,
-                                done: row.status === 'COMPLETED',
-                              }))
-                            : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]
-                        }
-                      />
+                      <div className="flex w-full items-start justify-end gap-2">
+                        <SummaryRows
+                          boxed={false}
+                          className="mt-0 flex-1"
+                          rows={
+                            item.jrStageDetails.hoi.checklist.length > 0
+                              ? item.jrStageDetails.hoi.checklist.map((row) => ({
+                                  label: row.label,
+                                  done: row.status === 'COMPLETED',
+                                }))
+                              : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => openBorrowerDetail(item, 'jr')}
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                          title="Show details"
+                          aria-label="Show details"
+                        >
+                          <ChevronDown className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>

@@ -246,7 +246,8 @@ function compareByMostRecentUpdate(
 function parseNotesHistoryForStage(
   data: unknown,
   stage: StageKey,
-  taskId: string
+  taskId: string,
+  allowedRoles?: ReadonlySet<UserRole>
 ): Array<{
   id: string;
   stage: StageKey;
@@ -280,6 +281,8 @@ function parseNotesHistoryForStage(
       typeof roleRaw === 'string' && (Object.values(UserRole) as string[]).includes(roleRaw)
         ? (roleRaw as UserRole)
         : null;
+    if (!normalizedRole) continue;
+    if (allowedRoles && !allowedRoles.has(normalizedRole)) continue;
     parsed.push({
       id: `${taskId}-${stage}-${dateRaw}-${index}`,
       stage,
@@ -399,6 +402,14 @@ function getDefaultJrChecklistRows(task: LoVaProgressTaskInput) {
 }
 
 export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaBorrowerProgressItem[] {
+  const vaNoteRoles = new Set<UserRole>([
+    UserRole.VA,
+    UserRole.VA_TITLE,
+    UserRole.VA_PAYOFF,
+    UserRole.VA_APPRAISAL,
+  ]);
+  const jrNoteRoles = new Set<UserRole>([UserRole.PROCESSOR_JR]);
+
   const grouped = new Map<
     string,
     {
@@ -564,7 +575,12 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     for (const definition of VA_KIND_MAP) {
       const task = value.vaByKind[definition.key];
       if (!task) continue;
-      const stageNotes = parseNotesHistoryForStage(task.submissionData, definition.key, task.id);
+      const stageNotes = parseNotesHistoryForStage(
+        task.submissionData,
+        definition.key,
+        task.id,
+        vaNoteRoles
+      );
       const latestNote =
         stageNotes.length > 0
           ? stageNotes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
@@ -593,7 +609,12 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     for (const definition of JR_KIND_MAP) {
       const task = value.jrByKind[definition.key];
       if (!task) continue;
-      const stageNotes = parseNotesHistoryForStage(task.submissionData, definition.key, task.id);
+      const stageNotes = parseNotesHistoryForStage(
+        task.submissionData,
+        definition.key,
+        task.id,
+        jrNoteRoles
+      );
       const savedJrChecklist = getJrChecklistFromSubmissionData(task.submissionData);
       const jrChecklist =
         savedJrChecklist.length > 0 ? savedJrChecklist : getDefaultJrChecklistRows(task);
