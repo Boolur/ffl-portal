@@ -388,7 +388,7 @@ function getJrChecklistFromSubmissionData(data: unknown) {
 
 function getDefaultJrChecklistRows(task: LoVaProgressTaskInput) {
   const defaultStatus: JrChecklistStatus =
-    task.status === TaskStatus.COMPLETED ? 'COMPLETED' : 'ORDERED';
+    task.status === TaskStatus.COMPLETED ? 'COMPLETED' : 'MISSING_ITEMS';
   return JR_CHECKLIST_TEMPLATE.map((row) => ({
     id: row.id,
     label: row.label,

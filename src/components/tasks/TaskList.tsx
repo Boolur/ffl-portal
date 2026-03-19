@@ -192,9 +192,9 @@ const qcChecklistGreenOptions = new Set<QcChecklistNoteOption>([
 ]);
 
 const jrChecklistTemplate: JrChecklistDraftItem[] = [
-  { id: 'ordered-hoi', label: 'HOI', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
-  { id: 'ordered-voe', label: 'VOE', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
-  { id: 'submitted-underwriting', label: 'Submitted to Underwriting', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
+  { id: 'ordered-hoi', label: 'HOI', status: 'MISSING_ITEMS', proofAttachmentId: null, proofFilename: null },
+  { id: 'ordered-voe', label: 'VOE', status: 'MISSING_ITEMS', proofAttachmentId: null, proofFilename: null },
+  { id: 'submitted-underwriting', label: 'Submitted to Underwriting', status: 'MISSING_ITEMS', proofAttachmentId: null, proofFilename: null },
 ];
 
 const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string }> = [
@@ -397,7 +397,7 @@ function getSavedJrChecklistRowsFromSubmissionData(
   return jrChecklistTemplate.map((row) => ({
     id: row.id,
     label: row.label,
-    status: (savedById.get(row.id)?.status ?? 'ORDERED') as JrChecklistStatus,
+    status: (savedById.get(row.id)?.status ?? 'MISSING_ITEMS') as JrChecklistStatus,
     proofAttachmentId: savedById.get(row.id)?.proofAttachmentId ?? null,
     proofFilename: savedById.get(row.id)?.proofFilename ?? null,
   }));
@@ -2042,11 +2042,15 @@ export function TaskList({
             (canEditProofAttachments && !isDisclosureMissingItemsRoute) ||
             (canManageQcDesk && isQcSubmissionTask(task)));
         const isQcAttachmentSection = canManageQcDesk && isQcSubmissionTask(task);
+        const isVaMissingItemsNoProofFlow = isVaAppraisalMissingItemsAction;
+        const isVaAttachmentSection = canManageVaDesk && isVaTaskKind(task.kind);
+        const isVaRequiredProofBadge =
+          isVaAttachmentSection && !isVaMissingItemsNoProofFlow && !isQcAttachmentSection;
+        const hasVaProofUploaded = proofCount > 0;
         const requiresProofForRouting =
           (canManageDisclosureDesk &&
             isDisclosureSubmissionTask(task) &&
             selectedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES);
-        const isVaMissingItemsNoProofFlow = isVaAppraisalMissingItemsAction;
         const isQcCompleteRouteAction =
           canManageQcDesk &&
           isQcSubmissionTask(task) &&
@@ -2660,7 +2664,11 @@ export function TaskList({
                           className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
                             isQcAttachmentSection || isVaMissingItemsNoProofFlow
                               ? 'border-slate-200 bg-white text-slate-600'
-                              : 'border-amber-200 bg-white text-amber-700'
+                              : isVaRequiredProofBadge
+                                ? hasVaProofUploaded
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                  : 'border-rose-300 bg-rose-50 text-rose-700'
+                                : 'border-amber-200 bg-white text-amber-700'
                           }`}
                         >
                           {isQcAttachmentSection || isVaMissingItemsNoProofFlow
