@@ -5,7 +5,7 @@ import { Providers } from "./providers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { ImpersonationProvider } from "@/lib/impersonation";
-import { ThemePreference, UserRole } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 const geistSans = Geist({
@@ -30,15 +30,21 @@ export default async function RootLayout({
 }>) {
   const session = await getServerSession(authOptions);
   const sessionUserId = session?.user?.id as string | undefined;
-  const themePreference = sessionUserId
-    ? (
-        await prisma.user.findUnique({
-          where: { id: sessionUserId },
-          select: { themePreference: true },
-        })
-      )?.themePreference || ThemePreference.LIGHT
-    : ThemePreference.LIGHT;
-  const initialTheme = themePreference === ThemePreference.DARK ? "dark" : "light";
+  let initialTheme: "light" | "dark" = "light";
+  if (sessionUserId) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: sessionUserId },
+        select: { themePreference: true },
+      });
+      if (user?.themePreference === "DARK") {
+        initialTheme = "dark";
+      }
+    } catch (error) {
+      // Keep the app render-safe if DB migration is not applied yet.
+      console.warn("[layout] theme preference unavailable; falling back to light mode", error);
+    }
+  }
   const initialRole =
     (session?.user?.activeRole as UserRole | undefined) ||
     (session?.user?.role as UserRole | undefined) ||
