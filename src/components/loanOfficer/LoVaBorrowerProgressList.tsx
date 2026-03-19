@@ -287,6 +287,9 @@ export function LoVaBorrowerProgressList({
   const jrDetailSectionRef = React.useRef<HTMLDivElement | null>(null);
   const [expandedStageNotes, setExpandedStageNotes] = React.useState<Set<string>>(() => new Set());
   const [expandedTaskDetails, setExpandedTaskDetails] = React.useState<Set<string>>(() => new Set());
+  const [expandedBorrowerCards, setExpandedBorrowerCards] = React.useState<Set<string>>(
+    () => new Set()
+  );
   const [timerNowMs, setTimerNowMs] = React.useState(() => Date.now());
   const focusedItem =
     focusedItemKey === null
@@ -334,6 +337,10 @@ export function LoVaBorrowerProgressList({
   }, [focusedItemKey]);
 
   React.useEffect(() => {
+    setExpandedBorrowerCards(new Set());
+  }, [items]);
+
+  React.useEffect(() => {
     if (!focusedItem || focusedQueue !== 'jr') return;
     const timer = window.setTimeout(() => {
       jrDetailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -364,7 +371,21 @@ export function LoVaBorrowerProgressList({
             </div>
           ) : (
             <div className="space-y-3">
-              {vaItems.map((item) => (
+              {vaItems.map((item) => {
+                const cardKey = `${item.loanNumber}-${item.borrowerName}-va`;
+                const cardExpanded = expandedBorrowerCards.has(cardKey);
+                const workedBy = Array.from(
+                  new Set(
+                    [
+                      item.vaStageDetails.title.latestNote?.author,
+                      item.vaStageDetails.payoff.latestNote?.author,
+                      item.vaStageDetails.appraisal.latestNote?.author,
+                    ]
+                      .map((v) => (v || '').trim())
+                      .filter((v) => v.length > 0)
+                  )
+                );
+                return (
                 <article
                   key={`${item.loanNumber}-${item.borrowerName}`}
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
@@ -380,9 +401,15 @@ export function LoVaBorrowerProgressList({
                           </p>
                         )}
                         <div className="flex items-center gap-1.5">
-                          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200/60">
+                          <button
+                            type="button"
+                            onClick={() => openBorrowerDetail(item, 'va')}
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200/60 hover:bg-emerald-200/80"
+                            title="Open submission details"
+                            aria-label="Open submission details"
+                          >
                             <FileText className="h-3.5 w-3.5" />
-                          </span>
+                          </button>
                           <p className="truncate text-sm font-bold text-slate-900">
                             {item.borrowerName}
                           </p>
@@ -404,7 +431,7 @@ export function LoVaBorrowerProgressList({
                         )}
                       </div>
                     </div>
-                    <div className="flex w-[240px] shrink-0 flex-col items-end gap-1.5">
+                    <div className="flex w-[250px] shrink-0 flex-col items-end gap-1.5">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           <Clock3 className="mr-1 h-3 w-3" />
@@ -420,29 +447,65 @@ export function LoVaBorrowerProgressList({
                         ) : null}
                       </div>
                       <div className="flex w-full items-start justify-end gap-2">
-                        <SummaryRows
-                          boxed={false}
-                          className="mt-0 flex-1"
-                          rows={[
+                        <div className="flex flex-1 flex-wrap justify-end gap-1.5">
+                          {[
                             { label: 'Title', done: item.vaStageDetails.title.completed },
                             { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
                             { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
-                          ]}
-                        />
+                          ].map((row) => (
+                            <span
+                              key={row.label}
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                row.done
+                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                  : 'border-rose-300 bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {row.label} - {row.done ? 'Completed' : 'Incomplete'}
+                            </span>
+                          ))}
+                        </div>
                         <button
                           type="button"
-                          onClick={() => openBorrowerDetail(item, 'va')}
+                          onClick={() =>
+                            setExpandedBorrowerCards((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(cardKey)) next.delete(cardKey);
+                              else next.add(cardKey);
+                              return next;
+                            })
+                          }
                           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                          title="Show details"
-                          aria-label="Show details"
+                          title={cardExpanded ? 'Collapse card' : 'Expand card'}
+                          aria-label={cardExpanded ? 'Collapse card' : 'Expand card'}
                         >
-                          <ChevronDown className="h-4 w-4" />
+                          {cardExpanded ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
                         </button>
                       </div>
                     </div>
                   </div>
+                  {cardExpanded && (
+                    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 font-semibold text-slate-600">
+                          Request: VA Queue
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 font-semibold text-slate-600">
+                          Loan: {item.loanNumber}
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 font-semibold text-slate-600">
+                          Worked By: {workedBy.length > 0 ? workedBy.join(', ') : 'Unassigned'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </article>
-              ))}
+              );
+            })}
             </div>
           )}
         </BucketPanel>
@@ -460,7 +523,24 @@ export function LoVaBorrowerProgressList({
             </div>
           ) : (
             <div className="space-y-3">
-              {jrItems.map((item) => (
+              {jrItems.map((item) => {
+                const cardKey = `${item.loanNumber}-${item.borrowerName}-jr`;
+                const cardExpanded = expandedBorrowerCards.has(cardKey);
+                const workedBy = Array.from(
+                  new Set(
+                    [(item.jrStageDetails.hoi.latestNote?.author || '').trim()].filter(
+                      (v) => v.length > 0
+                    )
+                  )
+                );
+                const jrRows =
+                  item.jrStageDetails.hoi.checklist.length > 0
+                    ? item.jrStageDetails.hoi.checklist.map((row) => ({
+                        label: row.label,
+                        done: row.status === 'COMPLETED',
+                      }))
+                    : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }];
+                return (
                 <article
                   key={`${item.loanNumber}-${item.borrowerName}`}
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
@@ -476,9 +556,15 @@ export function LoVaBorrowerProgressList({
                           </p>
                         )}
                         <div className="flex items-center gap-1.5">
-                          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200/60">
+                          <button
+                            type="button"
+                            onClick={() => openBorrowerDetail(item, 'jr')}
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200/60 hover:bg-emerald-200/80"
+                            title="Open submission details"
+                            aria-label="Open submission details"
+                          >
                             <FileText className="h-3.5 w-3.5" />
-                          </span>
+                          </button>
                           <p className="truncate text-sm font-bold text-slate-900">
                             {item.borrowerName}
                           </p>
@@ -500,7 +586,7 @@ export function LoVaBorrowerProgressList({
                         )}
                       </div>
                     </div>
-                    <div className="flex w-[240px] shrink-0 flex-col items-end gap-1.5">
+                    <div className="flex w-[250px] shrink-0 flex-col items-end gap-1.5">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           <Clock3 className="mr-1 h-3 w-3" />
@@ -516,32 +602,61 @@ export function LoVaBorrowerProgressList({
                         ) : null}
                       </div>
                       <div className="flex w-full items-start justify-end gap-2">
-                        <SummaryRows
-                          boxed={false}
-                          className="mt-0 flex-1"
-                          rows={
-                            item.jrStageDetails.hoi.checklist.length > 0
-                              ? item.jrStageDetails.hoi.checklist.map((row) => ({
-                                  label: row.label,
-                                  done: row.status === 'COMPLETED',
-                                }))
-                              : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]
-                          }
-                        />
+                        <div className="flex flex-1 flex-wrap justify-end gap-1.5">
+                          {jrRows.map((row) => (
+                            <span
+                              key={row.label}
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                row.done
+                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                  : 'border-rose-300 bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {row.label} - {row.done ? 'Completed' : 'Incomplete'}
+                            </span>
+                          ))}
+                        </div>
                         <button
                           type="button"
-                          onClick={() => openBorrowerDetail(item, 'jr')}
+                          onClick={() =>
+                            setExpandedBorrowerCards((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(cardKey)) next.delete(cardKey);
+                              else next.add(cardKey);
+                              return next;
+                            })
+                          }
                           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                          title="Show details"
-                          aria-label="Show details"
+                          title={cardExpanded ? 'Collapse card' : 'Expand card'}
+                          aria-label={cardExpanded ? 'Collapse card' : 'Expand card'}
                         >
-                          <ChevronDown className="h-4 w-4" />
+                          {cardExpanded ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
                         </button>
                       </div>
                     </div>
                   </div>
+                  {cardExpanded && (
+                    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 font-semibold text-slate-600">
+                          Request: JR Processor Queue
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 font-semibold text-slate-600">
+                          Loan: {item.loanNumber}
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 font-semibold text-slate-600">
+                          Worked By: {workedBy.length > 0 ? workedBy.join(', ') : 'Unassigned'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </article>
-              ))}
+              );
+            })}
             </div>
           )}
         </BucketPanel>
