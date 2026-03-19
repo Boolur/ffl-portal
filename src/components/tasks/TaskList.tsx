@@ -22,7 +22,6 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
-  addJrProcessorNote,
   deleteTask,
   reviewInitialDisclosureFigures,
   requestInfoFromLoanOfficer,
@@ -160,6 +159,10 @@ type JrChecklistItem = {
   status: JrChecklistStatus;
   proofAttachmentId?: string | null;
   proofFilename?: string | null;
+  note?: string | null;
+  noteUpdatedAt?: string | null;
+  noteAuthor?: string | null;
+  noteRole?: UserRole | null;
 };
 
 type JrChecklistDraftItem = JrChecklistItem;
@@ -367,6 +370,10 @@ function getSavedJrChecklistRowsFromSubmissionData(
       status: JrChecklistStatus;
       proofAttachmentId: string | null;
       proofFilename: string | null;
+      note: string | null;
+      noteUpdatedAt: string | null;
+      noteAuthor: string | null;
+      noteRole: UserRole | null;
     }
   >();
   for (const item of itemsRaw) {
@@ -377,6 +384,10 @@ function getSavedJrChecklistRowsFromSubmissionData(
     if (status !== 'ORDERED' && status !== 'MISSING_ITEMS' && status !== 'COMPLETED') continue;
     const proofAttachmentIdRaw = (item as { proofAttachmentId?: unknown }).proofAttachmentId;
     const proofFilenameRaw = (item as { proofFilename?: unknown }).proofFilename;
+    const noteRaw = (item as { note?: unknown }).note;
+    const noteUpdatedAtRaw = (item as { noteUpdatedAt?: unknown }).noteUpdatedAt;
+    const noteAuthorRaw = (item as { noteAuthor?: unknown }).noteAuthor;
+    const noteRoleRaw = (item as { noteRole?: unknown }).noteRole;
     const proofAttachmentId =
       typeof proofAttachmentIdRaw === 'string' && proofAttachmentIdRaw.trim().length > 0
         ? proofAttachmentIdRaw.trim()
@@ -385,10 +396,28 @@ function getSavedJrChecklistRowsFromSubmissionData(
       typeof proofFilenameRaw === 'string' && proofFilenameRaw.trim().length > 0
         ? proofFilenameRaw.trim()
         : null;
+    const note =
+      typeof noteRaw === 'string' && noteRaw.trim().length > 0 ? noteRaw.trim() : null;
+    const noteUpdatedAt =
+      typeof noteUpdatedAtRaw === 'string' && noteUpdatedAtRaw.trim().length > 0
+        ? noteUpdatedAtRaw.trim()
+        : null;
+    const noteAuthor =
+      typeof noteAuthorRaw === 'string' && noteAuthorRaw.trim().length > 0
+        ? noteAuthorRaw.trim()
+        : null;
+    const noteRole =
+      typeof noteRoleRaw === 'string' && (Object.values(UserRole) as string[]).includes(noteRoleRaw)
+        ? (noteRoleRaw as UserRole)
+        : null;
     savedById.set(id, {
       status: status as JrChecklistStatus,
       proofAttachmentId,
       proofFilename,
+      note,
+      noteUpdatedAt,
+      noteAuthor,
+      noteRole,
     });
   }
 
@@ -401,6 +430,10 @@ function getSavedJrChecklistRowsFromSubmissionData(
     status: (savedById.get(row.id)?.status ?? 'MISSING_ITEMS') as JrChecklistStatus,
     proofAttachmentId: savedById.get(row.id)?.proofAttachmentId ?? null,
     proofFilename: savedById.get(row.id)?.proofFilename ?? null,
+    note: savedById.get(row.id)?.note ?? null,
+    noteUpdatedAt: savedById.get(row.id)?.noteUpdatedAt ?? null,
+    noteAuthor: savedById.get(row.id)?.noteAuthor ?? null,
+    noteRole: savedById.get(row.id)?.noteRole ?? null,
   }));
 }
 
@@ -1126,8 +1159,6 @@ export function TaskList({
   const [loResponseByTask, setLoResponseByTask] = React.useState<
     Record<string, string>
   >({});
-  const [jrNoteByTask, setJrNoteByTask] = React.useState<Record<string, string>>({});
-  const [addingJrNoteId, setAddingJrNoteId] = React.useState<string | null>(null);
   const [timerNowMs, setTimerNowMs] = React.useState(() => Date.now());
 
   const getQcChecklistRows = React.useCallback(
@@ -1186,6 +1217,10 @@ export function TaskList({
           status: row.status,
           proofAttachmentId: row.proofAttachmentId ?? null,
           proofFilename: row.proofFilename ?? null,
+          note: row.note ?? null,
+          noteUpdatedAt: row.noteUpdatedAt ?? null,
+          noteAuthor: row.noteAuthor ?? null,
+          noteRole: row.noteRole ?? null,
         }))
       );
       if (jrChecklistSaveVersionRef.current[taskId] !== version) {
@@ -1609,25 +1644,6 @@ export function TaskList({
     );
     router.refresh();
     setDeletingAttachmentId(null);
-  };
-
-  const handleAddJrNote = async (taskId: string) => {
-    if (addingJrNoteId) return;
-    const note = (jrNoteByTask[taskId] || '').trim();
-    if (!note) {
-      alert('Please enter a note before adding it.');
-      return;
-    }
-    setAddingJrNoteId(taskId);
-    const result = await addJrProcessorNote(taskId, note);
-    if (!result.success) {
-      alert(result.error || 'Failed to add JR note.');
-      setAddingJrNoteId(null);
-      return;
-    }
-    setJrNoteByTask((prev) => ({ ...prev, [taskId]: '' }));
-    router.refresh();
-    setAddingJrNoteId(null);
   };
 
   const handleViewAttachment = async (attachmentId: string) => {
@@ -3094,6 +3110,40 @@ export function TaskList({
                                 </p>
                               )}
                             </div>
+                            <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                                  Notes
+                                </span>
+                                {row.noteUpdatedAt && (
+                                  <span className="text-[10px] font-medium text-slate-500">
+                                    {formatCompactDateTime(new Date(row.noteUpdatedAt))}
+                                  </span>
+                                )}
+                              </div>
+                              <textarea
+                                value={row.note || ''}
+                                onChange={(event) =>
+                                  updateJrChecklistRows(task.id, (current) =>
+                                    current.map((item) =>
+                                      item.id === row.id
+                                        ? {
+                                            ...item,
+                                            note: event.target.value,
+                                          }
+                                        : item
+                                    )
+                                  )
+                                }
+                                placeholder={`Add ${row.label} note for LO visibility...`}
+                                className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[76px] focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                              />
+                              {row.noteAuthor && (
+                                <p className="mt-1 text-[11px] font-medium text-slate-500">
+                                  Last updated by {row.noteAuthor}
+                                </p>
+                              )}
+                            </div>
                           </div>
                           );
                         })}
@@ -3125,40 +3175,6 @@ export function TaskList({
                         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           Autosaves on every change
                         </span>
-                      </div>
-                      <div className="rounded-xl border border-sky-200 bg-white p-3 shadow-sm">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[11px] font-bold uppercase tracking-wide text-sky-700">
-                            JR Notes
-                          </p>
-                          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                            Add as needed
-                          </span>
-                        </div>
-                        <textarea
-                          value={jrNoteByTask[task.id] || ''}
-                          onChange={(event) =>
-                            setJrNoteByTask((prev) => ({
-                              ...prev,
-                              [task.id]: event.target.value,
-                            }))
-                          }
-                          placeholder="Add a note update for this JR request..."
-                          className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[84px] focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                        />
-                        <div className="mt-2 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => void handleAddJrNote(task.id)}
-                            disabled={addingJrNoteId === task.id}
-                            className="inline-flex h-8 items-center rounded-lg border border-sky-300 bg-sky-50 px-3 text-xs font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {addingJrNoteId === task.id && (
-                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                            )}
-                            Add Note
-                          </button>
-                        </div>
                       </div>
                     </div>
                   )}

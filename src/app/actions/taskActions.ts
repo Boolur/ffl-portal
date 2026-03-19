@@ -1826,6 +1826,10 @@ type JrChecklistItemInput = {
   status: JrChecklistStatus;
   proofAttachmentId?: string | null;
   proofFilename?: string | null;
+  note?: string | null;
+  noteUpdatedAt?: string | null;
+  noteAuthor?: string | null;
+  noteRole?: UserRole | null;
 };
 
 const JR_CHECKLIST_TEMPLATE: Array<{ id: string; label: string }> = [
@@ -1850,6 +1854,14 @@ function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemIn
     const status = String(row?.status ?? '').trim() as JrChecklistStatus;
     const proofAttachmentId = String(row?.proofAttachmentId ?? '').trim();
     const proofFilename = String(row?.proofFilename ?? '').trim();
+    const note = String(row?.note ?? '').trim();
+    const noteUpdatedAt = String(row?.noteUpdatedAt ?? '').trim();
+    const noteAuthor = String(row?.noteAuthor ?? '').trim();
+    const noteRoleRaw = String(row?.noteRole ?? '').trim();
+    const noteRole =
+      noteRoleRaw.length > 0 && (Object.values(UserRole) as string[]).includes(noteRoleRaw)
+        ? (noteRoleRaw as UserRole)
+        : null;
     if (!id || !label || !expectedById.has(id)) return null;
     if (label !== expectedById.get(id)) return null;
     if (!JR_CHECKLIST_STATUS_SET.has(status)) return null;
@@ -1859,6 +1871,10 @@ function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemIn
       status,
       proofAttachmentId: proofAttachmentId || null,
       proofFilename: proofFilename || null,
+      note: note || null,
+      noteUpdatedAt: noteUpdatedAt || null,
+      noteAuthor: noteAuthor || null,
+      noteRole,
     });
   }
   const uniqueIds = new Set(parsed.map((row) => row.id));
@@ -1936,8 +1952,49 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
         ? { ...(existing.submissionData as Record<string, unknown>) }
         : {};
 
+    const existingChecklistRaw =
+      dataObj.jrChecklist &&
+      typeof dataObj.jrChecklist === 'object' &&
+      !Array.isArray(dataObj.jrChecklist)
+        ? (dataObj.jrChecklist as Record<string, unknown>)
+        : null;
+    const existingItemsRaw = existingChecklistRaw?.items;
+    const existingNotesByRowId = new Map<string, string>();
+    if (Array.isArray(existingItemsRaw)) {
+      for (const item of existingItemsRaw) {
+        if (!item || typeof item !== 'object') continue;
+        const id = String((item as { id?: unknown }).id ?? '').trim();
+        const note = String((item as { note?: unknown }).note ?? '').trim();
+        if (!id) continue;
+        existingNotesByRowId.set(id, note);
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const normalizedItems = parsedItems.map((item) => {
+      const nextNote = (item.note || '').trim();
+      if (!nextNote) {
+        return {
+          ...item,
+          note: null,
+          noteUpdatedAt: null,
+          noteAuthor: null,
+          noteRole: null,
+        };
+      }
+      const previousNote = (existingNotesByRowId.get(item.id) || '').trim();
+      const noteChanged = previousNote !== nextNote;
+      return {
+        ...item,
+        note: nextNote,
+        noteUpdatedAt: noteChanged ? nowIso : item.noteUpdatedAt || nowIso,
+        noteAuthor: noteChanged ? session?.user?.name || 'Team Member' : item.noteAuthor || null,
+        noteRole: noteChanged ? role : item.noteRole || role,
+      };
+    });
+
     dataObj.jrChecklist = {
-      items: parsedItems,
+      items: normalizedItems,
       updatedAt: new Date().toISOString(),
       updatedBy: session?.user?.name || 'Team Member',
     };
@@ -1946,15 +2003,15 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
     notes.push({
       author: session?.user?.name || 'Team Member',
       role,
-      message: buildJrChecklistSummary(parsedItems),
+      message: buildJrChecklistSummary(normalizedItems),
       date: new Date().toISOString(),
       entryType: 'jrChecklist',
-      jrChecklist: parsedItems,
+      jrChecklist: normalizedItems,
     });
     dataObj.notesHistory = notes;
 
-    const allCompleted = parsedItems.every((item) => item.status === 'COMPLETED');
-    const allProofAttached = parsedItems.every((item) => Boolean(item.proofAttachmentId));
+    const allCompleted = normalizedItems.every((item) => item.status === 'COMPLETED');
+    const allProofAttached = normalizedItems.every((item) => Boolean(item.proofAttachmentId));
     const shouldReopen =
       existing.status === TaskStatus.COMPLETED && (!allCompleted || !allProofAttached);
 

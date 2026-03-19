@@ -36,6 +36,10 @@ type JrChecklistRow = {
   status: JrChecklistStatus;
   proofAttachmentId: string | null;
   proofFilename: string | null;
+  note: string | null;
+  noteUpdatedAt: string | null;
+  noteAuthor: string | null;
+  noteRole: UserRole | null;
 };
 
 export type LoVaBorrowerProgressItem = {
@@ -415,6 +419,28 @@ function getJrChecklistFromSubmissionData(data: unknown) {
           String((item as { proofFilename?: unknown }).proofFilename).trim().length > 0
             ? String((item as { proofFilename?: unknown }).proofFilename).trim()
             : null,
+        note:
+          typeof (item as { note?: unknown }).note === 'string' &&
+          String((item as { note?: unknown }).note).trim().length > 0
+            ? String((item as { note?: unknown }).note).trim()
+            : null,
+        noteUpdatedAt:
+          typeof (item as { noteUpdatedAt?: unknown }).noteUpdatedAt === 'string' &&
+          String((item as { noteUpdatedAt?: unknown }).noteUpdatedAt).trim().length > 0
+            ? String((item as { noteUpdatedAt?: unknown }).noteUpdatedAt).trim()
+            : null,
+        noteAuthor:
+          typeof (item as { noteAuthor?: unknown }).noteAuthor === 'string' &&
+          String((item as { noteAuthor?: unknown }).noteAuthor).trim().length > 0
+            ? String((item as { noteAuthor?: unknown }).noteAuthor).trim()
+            : null,
+        noteRole:
+          typeof (item as { noteRole?: unknown }).noteRole === 'string' &&
+          (Object.values(UserRole) as string[]).includes(
+            String((item as { noteRole?: unknown }).noteRole)
+          )
+            ? (String((item as { noteRole?: unknown }).noteRole) as UserRole)
+            : null,
       };
     })
     .filter((row): row is JrChecklistRow => Boolean(row));
@@ -429,6 +455,10 @@ function getDefaultJrChecklistRows(task: LoVaProgressTaskInput) {
     status: defaultStatus,
     proofAttachmentId: null,
     proofFilename: null,
+    note: null,
+    noteUpdatedAt: null,
+    noteAuthor: null,
+    noteRole: null,
   }));
 }
 

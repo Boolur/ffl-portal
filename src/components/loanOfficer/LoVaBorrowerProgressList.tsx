@@ -1178,6 +1178,10 @@ export function LoVaBorrowerProgressList({
                                   status: detail.completed ? 'COMPLETED' : 'MISSING_ITEMS',
                                   proofAttachmentId: null,
                                   proofFilename: null,
+                                  note: null,
+                                  noteUpdatedAt: null,
+                                  noteAuthor: null,
+                                  noteRole: null,
                                 },
                                 {
                                   id: 'ordered-voe',
@@ -1185,6 +1189,10 @@ export function LoVaBorrowerProgressList({
                                   status: detail.completed ? 'COMPLETED' : 'MISSING_ITEMS',
                                   proofAttachmentId: null,
                                   proofFilename: null,
+                                  note: null,
+                                  noteUpdatedAt: null,
+                                  noteAuthor: null,
+                                  noteRole: null,
                                 },
                                 {
                                   id: 'submitted-underwriting',
@@ -1192,6 +1200,10 @@ export function LoVaBorrowerProgressList({
                                   status: detail.completed ? 'COMPLETED' : 'MISSING_ITEMS',
                                   proofAttachmentId: null,
                                   proofFilename: null,
+                                  note: null,
+                                  noteUpdatedAt: null,
+                                  noteAuthor: null,
+                                  noteRole: null,
                                 },
                               ];
                         const stageElapsedMs = getStageElapsedMs(
@@ -1207,8 +1219,12 @@ export function LoVaBorrowerProgressList({
                           const stageDetailKey = `${focusedItem.loanNumber}-${key}-${row.id}-detail`;
                           const stageDetailsExpanded = expandedTaskDetails.has(stageDetailKey);
                           const stageNoteExpanded = expandedStageNotes.has(stageNoteKey);
-                          const latestNote = detail.latestNote;
-                          const notePreview = latestNote?.message || '';
+                          const fallbackLatestNote = detail.latestNote;
+                          const noteMessage = (row.note || '').trim() || fallbackLatestNote?.message || '';
+                          const noteDate = row.noteUpdatedAt || fallbackLatestNote?.date || null;
+                          const noteAuthor = row.noteAuthor || fallbackLatestNote?.author || null;
+                          const noteRole = row.noteRole || fallbackLatestNote?.role || null;
+                          const notePreview = noteMessage;
                           const canToggleStageNote = notePreview.length > 180;
                           const visibleNote =
                             canToggleStageNote && !stageNoteExpanded
@@ -1318,26 +1334,29 @@ export function LoVaBorrowerProgressList({
                                   <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
                                     <div className="flex items-center justify-between gap-2">
                                       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                                        Latest JR Note
+                                        {row.label} Note
                                       </p>
-                                      {latestNote && (
+                                      {noteDate && (
                                         <span className="text-[11px] font-medium text-slate-500">
-                                          {formatNoteDateTime(latestNote.date)}
+                                          {formatNoteDateTime(noteDate)}
                                         </span>
                                       )}
                                     </div>
-                                    {!latestNote ? (
+                                    {!noteMessage ? (
                                       <p className="mt-1 text-xs font-medium text-slate-500">
-                                        No stage note yet.
+                                        No note yet for this checklist item.
                                       </p>
                                     ) : (
                                       <>
                                         <p className="mt-1 text-xs font-semibold text-slate-700">
                                           {visibleNote}
                                         </p>
-                                        <p className="mt-1 text-[11px] text-slate-500">
-                                          {latestNote.author} • {formatRoleLabel(latestNote.role)}
-                                        </p>
+                                        {noteAuthor && (
+                                          <p className="mt-1 text-[11px] text-slate-500">
+                                            {noteAuthor}
+                                            {noteRole ? ` • ${formatRoleLabel(noteRole)}` : ''}
+                                          </p>
+                                        )}
                                         {canToggleStageNote && (
                                           <button
                                             type="button"
