@@ -34,32 +34,32 @@
 }
 
 [data-theme='dark'] {
-  --background: #0d1830;
-  --foreground: #e8eefc;
+  --background: #070b14;
+  --foreground: #e5e7eb;
 
-  --card: #132443;
-  --card-foreground: #e8eefc;
+  --card: #0f172a;
+  --card-foreground: #e5e7eb;
 
-  --popover: #132443;
-  --popover-foreground: #e8eefc;
+  --popover: #0f172a;
+  --popover-foreground: #e5e7eb;
 
   --primary: #3b82f6;
   --primary-foreground: #f8fafc;
 
-  --secondary: #1a2d4d;
-  --secondary-foreground: #dbe7ff;
+  --secondary: #172033;
+  --secondary-foreground: #e2e8f0;
 
-  --muted: #1f3254;
-  --muted-foreground: #afbddb;
+  --muted: #111b2e;
+  --muted-foreground: #94a3b8;
 
-  --accent: #24385c;
-  --accent-foreground: #e1eaff;
+  --accent: #1e293b;
+  --accent-foreground: #e2e8f0;
 
   --destructive: #f87171;
   --destructive-foreground: #0f172a;
 
-  --border: #31486f;
-  --input: #3a537d;
+  --border: #243247;
+  --input: #243247;
   --ring: #60a5fa;
 }
 
@@ -118,10 +118,6 @@ textarea:disabled,
 
 .app-shell-bg {
   background: color-mix(in oklab, var(--background) 90%, var(--secondary) 10%);
-}
-
-[data-theme='dark'] .app-shell-bg {
-  background: color-mix(in oklab, var(--background) 84%, #0a1223 16%);
 }
 
 .app-surface-soft {
@@ -321,7 +317,7 @@ textarea:disabled,
 [data-theme='dark'] .new-task-modal-theme .bg-slate-50,
 [data-theme='dark'] .new-task-modal-theme .bg-slate-100,
 [data-theme='dark'] .new-task-modal-theme .bg-slate-200 {
-  background-color: color-mix(in oklab, var(--secondary) 86%, var(--card) 14%) !important;
+  background-color: var(--secondary) !important;
 }
 
 [data-theme='dark'] .task-list-theme [class*='bg-slate-50/'],
@@ -341,76 +337,4 @@ textarea:disabled,
 [data-theme='dark'] .task-list-theme [class*='to-white'],
 [data-theme='dark'] .new-task-modal-theme [class*='to-white'] {
   --tw-gradient-to: color-mix(in oklab, var(--card) 75%, transparent) var(--tw-gradient-to-position) !important;
-}
-
-[data-theme='dark'] .new-task-modal-theme input,
-[data-theme='dark'] .new-task-modal-theme select,
-[data-theme='dark'] .new-task-modal-theme textarea {
-  background-color: color-mix(in oklab, var(--card) 82%, var(--secondary) 18%) !important;
-  border-color: var(--input) !important;
-  color: var(--foreground) !important;
-}
-
-[data-theme='dark'] .new-task-modal-theme input::placeholder,
-[data-theme='dark'] .new-task-modal-theme textarea::placeholder {
-  color: var(--muted-foreground) !important;
-}
-
-[data-theme='dark'] .new-task-modal-theme .bg-blue-50,
-[data-theme='dark'] .new-task-modal-theme [class*='bg-blue-50/'] {
-  background-color: color-mix(in oklab, #1d4ed8 22%, transparent) !important;
-}
-
-[data-theme='dark'] .new-task-modal-theme .bg-violet-50,
-[data-theme='dark'] .new-task-modal-theme [class*='bg-violet-50/'] {
-  background-color: color-mix(in oklab, #7c3aed 20%, transparent) !important;
-}
-
-[data-theme='dark'] .new-task-modal-theme .bg-red-50,
-[data-theme='dark'] .new-task-modal-theme [class*='bg-red-50/'] {
-  background-color: color-mix(in oklab, #dc2626 18%, transparent) !important;
-}
-
-[data-theme='dark'] .new-task-modal-theme .bg-amber-50,
-[data-theme='dark'] .new-task-modal-theme [class*='bg-amber-50/'] {
-  background-color: color-mix(in oklab, #d97706 18%, transparent) !important;
-}
-
-[data-theme='dark'] .task-list-theme .bg-blue-50,
-[data-theme='dark'] .task-list-theme [class*='bg-blue-50/'] {
-  background-color: color-mix(in oklab, #1d4ed8 20%, transparent) !important;
-}
-
-[data-theme='dark'] .task-list-theme .bg-violet-50,
-[data-theme='dark'] .task-list-theme [class*='bg-violet-50/'] {
-  background-color: color-mix(in oklab, #7c3aed 18%, transparent) !important;
-}
-
-[data-theme='dark'] .task-list-theme .bg-amber-50,
-[data-theme='dark'] .task-list-theme [class*='bg-amber-50/'] {
-  background-color: color-mix(in oklab, #d97706 18%, transparent) !important;
-}
-
-[data-theme='dark'] .task-list-theme .bg-emerald-50,
-[data-theme='dark'] .task-list-theme [class*='bg-emerald-50/'] {
-  background-color: color-mix(in oklab, #059669 18%, transparent) !important;
-}
-
-[data-theme='dark'] .task-list-theme .bg-green-50,
-[data-theme='dark'] .task-list-theme [class*='bg-green-50/'] {
-  background-color: color-mix(in oklab, #16a34a 18%, transparent) !important;
-}
-
-[data-theme='dark'] .task-list-theme .bg-red-50,
-[data-theme='dark'] .task-list-theme [class*='bg-red-50/'] {
-  background-color: color-mix(in oklab, #dc2626 18%, transparent) !important;
-}
-
-[data-theme='dark'] .task-list-theme .bg-white,
-[data-theme='dark'] .task-list-theme [class*='bg-white/'] {
-  background-color: hsl(var(--card)) !important;
-}
-
-[data-theme='dark'] .task-list-theme [class*='to-white'] {
-  --tw-gradient-to: hsl(var(--card)) var(--tw-gradient-to-position) !important;
 }

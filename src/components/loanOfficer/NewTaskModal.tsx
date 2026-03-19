@@ -84,16 +84,16 @@ export function NewTaskModal({
 
   return (
     <div className="new-task-modal-theme fixed inset-0 z-[60] flex items-center justify-center">
-      <div className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" onClick={handleClose} />
+      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={handleClose} />
       <div
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-3xl bg-card rounded-2xl shadow-xl border border-border p-6 max-h-[85vh] overflow-hidden flex flex-col"
+        className="relative w-full max-w-3xl bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-h-[85vh] overflow-hidden flex flex-col"
       >
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-xl font-bold text-foreground">New Task Submission</h2>
-            <p className="text-sm text-muted-foreground mt-1">
+            <h2 className="text-xl font-bold text-slate-900">New Task Submission</h2>
+            <p className="text-sm text-slate-500 mt-1">
               Complete each step to submit your {type === 'QC' ? 'QC' : 'Disclosure'} request.
             </p>
           </div>
@@ -590,22 +590,22 @@ function SubmissionProgress({
     isQcTone ? ['Upload MISMO', 'QC Details'] : ['Upload MISMO', 'Disclosure Details'];
 
   const containerClass = isQcTone
-    ? 'border-violet-200 bg-violet-50/40 dark:border-violet-400/40 dark:bg-violet-950/25'
-    : 'border-blue-200 bg-blue-50/40 dark:border-blue-400/40 dark:bg-blue-950/25';
-  const stepMetaClass = isQcTone ? 'text-violet-700 dark:text-violet-300' : 'text-blue-700 dark:text-blue-300';
-  const trackClass = isQcTone ? 'bg-violet-100 dark:bg-violet-900/50' : 'bg-blue-100 dark:bg-blue-900/50';
+    ? 'border-violet-200 bg-violet-50/40'
+    : 'border-blue-200 bg-blue-50/40';
+  const stepMetaClass = isQcTone ? 'text-violet-700' : 'text-blue-700';
+  const trackClass = isQcTone ? 'bg-violet-100' : 'bg-blue-100';
   const fillClass = isQcTone ? 'bg-violet-500' : 'bg-blue-500';
   const completedStepClass = isQcTone
-    ? 'border-violet-300 bg-violet-100 text-violet-800 dark:border-violet-400/40 dark:bg-violet-900/45 dark:text-violet-100'
-    : 'border-blue-300 bg-blue-100 text-blue-800 dark:border-blue-400/40 dark:bg-blue-900/45 dark:text-blue-100';
+    ? 'border-violet-300 bg-violet-100 text-violet-800'
+    : 'border-blue-300 bg-blue-100 text-blue-800';
   const activeStepClass = isQcTone
-    ? 'border-violet-300 bg-white text-violet-700 dark:border-violet-300 dark:bg-violet-700 dark:text-white'
-    : 'border-blue-300 bg-white text-blue-700 dark:border-blue-300 dark:bg-blue-700 dark:text-white';
+    ? 'border-violet-300 bg-white text-violet-700'
+    : 'border-blue-300 bg-white text-blue-700';
 
   return (
     <div className={`rounded-xl border p-4 ${containerClass}`}>
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-sm font-semibold text-foreground">
+        <p className="text-sm font-semibold text-slate-900">
           {type === 'QC' ? 'Submit for QC' : 'Submit for Disclosures'}
         </p>
         <p className={`text-xs font-semibold uppercase tracking-wide ${stepMetaClass}`}>
@@ -633,7 +633,7 @@ function SubmissionProgress({
                   ? completedStepClass
                   : isActive
                   ? activeStepClass
-                  : 'border-slate-200 bg-white text-slate-500 dark:border-border dark:bg-card dark:text-muted-foreground'
+                  : 'border-slate-200 bg-white text-slate-500'
               }`}
             >
               {stepNumber}. {label}
@@ -1593,20 +1593,20 @@ function DisclosureMismoStep({
         className={`rounded-2xl border-2 border-dashed p-8 transition ${
           dragActive
             ? accentBorderClass
-            : 'border-slate-300 bg-gradient-to-br from-slate-50 to-white dark:border-border dark:from-secondary dark:to-card'
+            : 'border-slate-300 bg-gradient-to-br from-slate-50 to-white'
         }`}
       >
         <div className="mx-auto max-w-xl text-center">
           <span className={`mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl ${accentIconClass}`}>
             <Upload className="h-6 w-6" />
           </span>
-          <p className="mt-3 text-base font-semibold text-slate-900 dark:text-foreground">
+          <p className="mt-3 text-base font-semibold text-slate-900">
             Drag and drop MISMO 3.4 XML here
           </p>
-          <p className="mt-1 text-sm text-slate-500 dark:text-muted-foreground">
+          <p className="mt-1 text-sm text-slate-500">
             or choose a file to auto-fill submission details
           </p>
-          <label className="mt-5 inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-border dark:bg-card dark:text-foreground dark:hover:bg-secondary">
+          <label className="mt-5 inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
             Choose File
             <input
               type="file"
@@ -1618,11 +1618,11 @@ function DisclosureMismoStep({
               }}
             />
           </label>
-          <p className="mt-3 text-xs font-medium text-slate-500 dark:text-muted-foreground">
+          <p className="mt-3 text-xs font-medium text-slate-500">
             Accepted format: .xml (MISMO 3.4)
           </p>
           {(selectedName || isParsing) && (
-            <p className="mt-2 text-xs font-semibold text-slate-700 dark:text-foreground">
+            <p className="mt-2 text-xs font-semibold text-slate-700">
               {isParsing ? 'Importing MISMO file...' : `Selected: ${selectedName}`}
             </p>
           )}
