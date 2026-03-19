@@ -60,9 +60,9 @@ const DEPARTMENTS = [
     color: 'bg-purple-50 border-purple-100 text-purple-700'
   },
   { 
-    id: 'VA_HOI', 
-    label: 'VA - HOI', 
-    roles: [UserRole.VA_HOI],
+    id: 'HOI_PROCESSOR', 
+    label: 'HOI - Junior Processor', 
+    roles: [UserRole.PROCESSOR_JR],
     color: 'bg-purple-50 border-purple-100 text-purple-700'
   },
   { 

@@ -85,7 +85,6 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
   const { activeRole } = useImpersonation();
   const isVaTaskKind = (kind: TaskKind | null) =>
     kind === TaskKind.VA_TITLE ||
-    kind === TaskKind.VA_HOI ||
     kind === TaskKind.VA_PAYOFF ||
     kind === TaskKind.VA_APPRAISAL;
   const roleTasks = adminTasks.filter((t) => {
@@ -121,15 +120,11 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
     },
     [UserRole.VA]: {
       title: 'VA Desk',
-      subtitle: 'Work all VA queues (Title, HOI, Payoff, Appraisal) in one view.',
+      subtitle: 'Work all VA queues (Title, Payoff, Appraisal) in one view.',
     },
     [UserRole.VA_TITLE]: {
       title: 'VA Queue (Title)',
       subtitle: 'Complete Title tasks and upload proof before finishing.',
-    },
-    [UserRole.VA_HOI]: {
-      title: 'VA Queue (HOI)',
-      subtitle: 'Complete HOI tasks and upload proof before finishing.',
     },
     [UserRole.VA_PAYOFF]: {
       title: 'VA Queue (Payoff)',
@@ -159,7 +154,6 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
   };
   const isVaDeskRole =
     activeRole === UserRole.VA_TITLE ||
-    activeRole === UserRole.VA_HOI ||
     activeRole === UserRole.VA_PAYOFF ||
     activeRole === UserRole.VA_APPRAISAL;
   const isProcessorOrLegacyVaRole =
@@ -225,13 +219,6 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
           </section>
           <section className="space-y-4">
             <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - HOI</h2>
-              <p className="app-page-subtitle">Live VA HOI workload and status mix.</p>
-            </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_HOI} />
-          </section>
-          <section className="space-y-4">
-            <div className="app-page-header">
               <h2 className="app-page-title">VA Desk - Payoff</h2>
               <p className="app-page-subtitle">Live VA Payoff workload and status mix.</p>
             </div>
@@ -244,6 +231,13 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
             </div>
             <VaOverview tasks={adminTasks} role={UserRole.VA_TITLE} />
           </section>
+          <section className="space-y-4">
+            <div className="app-page-header">
+              <h2 className="app-page-title">HOI Desk - Junior Processor</h2>
+              <p className="app-page-subtitle">Live HOI workload and status mix.</p>
+            </div>
+            <VaOverview tasks={adminTasks} role={UserRole.PROCESSOR_JR} />
+          </section>
         </div>
       )}
 
@@ -255,13 +249,6 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
               <p className="app-page-subtitle">Live VA Appraisal workload and status mix.</p>
             </div>
             <VaOverview tasks={adminTasks} role={UserRole.VA_APPRAISAL} />
-          </section>
-          <section className="space-y-4">
-            <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - HOI</h2>
-              <p className="app-page-subtitle">Live VA HOI workload and status mix.</p>
-            </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_HOI} />
           </section>
           <section className="space-y-4">
             <div className="app-page-header">

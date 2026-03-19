@@ -18,18 +18,18 @@ type VaTask = {
   workflowState: TaskWorkflowState;
 };
 
-export type VaRole = 'VA_TITLE' | 'VA_HOI' | 'VA_PAYOFF' | 'VA_APPRAISAL';
+export type VaRole = 'VA_TITLE' | 'PROCESSOR_JR' | 'VA_PAYOFF' | 'VA_APPRAISAL';
 
 const vaRoleLabel: Record<VaRole, string> = {
   [UserRole.VA_TITLE]: 'Title',
-  [UserRole.VA_HOI]: 'HOI',
+  [UserRole.PROCESSOR_JR]: 'HOI',
   [UserRole.VA_PAYOFF]: 'Payoff',
   [UserRole.VA_APPRAISAL]: 'Appraisal',
 };
 
 const vaRoleTaskKind: Record<VaRole, TaskKind> = {
   [UserRole.VA_TITLE]: TaskKind.VA_TITLE,
-  [UserRole.VA_HOI]: TaskKind.VA_HOI,
+  [UserRole.PROCESSOR_JR]: TaskKind.VA_HOI,
   [UserRole.VA_PAYOFF]: TaskKind.VA_PAYOFF,
   [UserRole.VA_APPRAISAL]: TaskKind.VA_APPRAISAL,
 };
@@ -43,6 +43,7 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
   const scopedTasks = tasks.filter((task) => task.kind === vaRoleTaskKind[role]);
   const roleLabel = vaRoleLabel[role];
   const isAppraisal = role === UserRole.VA_APPRAISAL;
+  const isHoiProcessor = role === UserRole.PROCESSOR_JR;
 
   const newCount = scopedTasks.filter(
     (task) =>
@@ -69,7 +70,7 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
   const commonCards = [
     {
       id: 'va-new-request',
-      title: `New VA ${roleLabel} Requests`,
+      title: `New ${isHoiProcessor ? '' : 'VA '}${roleLabel} Requests`,
       chipLabel: 'New',
       chipClassName: 'border-rose-200 bg-rose-50 text-rose-700 shadow-sm',
       icon: Inbox,
@@ -80,7 +81,7 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
     },
     {
       id: 'va-completed-requests',
-      title: `Completed VA ${roleLabel} Requests`,
+      title: `Completed ${isHoiProcessor ? '' : 'VA '}${roleLabel} Requests`,
       chipLabel: 'Completed',
       chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm',
       icon: CheckCircle2,
@@ -139,7 +140,7 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
           </div>
           <div>
             <p className="text-lg font-extrabold tracking-tight text-rose-950">
-              New VA {roleLabel} Requests
+              New {isHoiProcessor ? '' : 'VA '}{roleLabel} Requests
             </p>
             <p className="text-sm font-medium text-rose-800/80">
               {newCount > 0

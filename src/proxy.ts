@@ -8,7 +8,6 @@ const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.DISCLOSURE_SPECIALIST]: ['/', '/tasks', '/resources'],
   [UserRole.VA]: ['/', '/tasks', '/resources'],
   [UserRole.VA_TITLE]: ['/', '/tasks', '/resources'],
-  [UserRole.VA_HOI]: ['/', '/tasks', '/resources'],
   [UserRole.VA_PAYOFF]: ['/', '/tasks', '/resources'],
   [UserRole.VA_APPRAISAL]: ['/', '/tasks', '/resources'],
   [UserRole.QC]: ['/', '/tasks', '/resources'],

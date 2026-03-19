@@ -41,7 +41,6 @@ export function Sidebar({ collapsed }: SidebarProps) {
         UserRole.DISCLOSURE_SPECIALIST,
         UserRole.VA,
         UserRole.VA_TITLE,
-        UserRole.VA_HOI,
         UserRole.VA_PAYOFF,
         UserRole.VA_APPRAISAL,
         UserRole.QC,

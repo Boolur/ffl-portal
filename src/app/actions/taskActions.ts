@@ -58,7 +58,7 @@ const VA_TASK_BLUEPRINTS: Array<{
   title: string;
 }> = [
   { kind: TaskKind.VA_TITLE, assignedRole: UserRole.VA_TITLE, title: 'VA: Title' },
-  { kind: TaskKind.VA_HOI, assignedRole: UserRole.VA_HOI, title: 'VA: HOI' },
+  { kind: TaskKind.VA_HOI, assignedRole: UserRole.PROCESSOR_JR, title: 'HOI: Order Request' },
   { kind: TaskKind.VA_PAYOFF, assignedRole: UserRole.VA_PAYOFF, title: 'VA: Payoff' },
   { kind: TaskKind.VA_APPRAISAL, assignedRole: UserRole.VA_APPRAISAL, title: 'VA: Appraisal' },
 ];
@@ -78,9 +78,9 @@ function getVaAssignedRoleForTask(task: {
 }) {
   if (
     task.assignedRole === UserRole.VA_TITLE ||
-    task.assignedRole === UserRole.VA_HOI ||
     task.assignedRole === UserRole.VA_PAYOFF ||
-    task.assignedRole === UserRole.VA_APPRAISAL
+    task.assignedRole === UserRole.VA_APPRAISAL ||
+    task.assignedRole === UserRole.PROCESSOR_JR
   ) {
     return task.assignedRole;
   }
@@ -1145,10 +1145,9 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
       existing.assignedRole === role ||
       (role === UserRole.VA &&
         (existing.assignedRole === UserRole.VA_TITLE ||
-          existing.assignedRole === UserRole.VA_HOI ||
           existing.assignedRole === UserRole.VA_PAYOFF ||
           existing.assignedRole === UserRole.VA_APPRAISAL ||
-          isVaTaskKind(existing.kind)));
+          (existing.kind !== TaskKind.VA_HOI && isVaTaskKind(existing.kind))));
     const isLoanOwner =
       role === UserRole.LOAN_OFFICER && existing.loan?.loanOfficerId === userId;
 
@@ -1165,7 +1164,6 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     const isVaRole =
       role === UserRole.VA ||
       role === UserRole.VA_TITLE ||
-      role === UserRole.VA_HOI ||
       role === UserRole.VA_PAYOFF ||
       role === UserRole.VA_APPRAISAL;
 

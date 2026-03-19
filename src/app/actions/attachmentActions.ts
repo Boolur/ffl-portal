@@ -44,11 +44,9 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
     task.assignedRole === role ||
     (role === UserRole.VA &&
       (task.assignedRole === UserRole.VA_TITLE ||
-        task.assignedRole === UserRole.VA_HOI ||
         task.assignedRole === UserRole.VA_PAYOFF ||
         task.assignedRole === UserRole.VA_APPRAISAL ||
         task.kind === TaskKind.VA_TITLE ||
-        task.kind === TaskKind.VA_HOI ||
         task.kind === TaskKind.VA_PAYOFF ||
         task.kind === TaskKind.VA_APPRAISAL));
   const isLoanOwner = role === UserRole.LOAN_OFFICER && task.loan?.loanOfficerId === userId;
@@ -238,9 +236,9 @@ export async function deleteTaskAttachment(attachmentId: string) {
     const isVaUser =
       role === UserRole.VA ||
       role === UserRole.VA_TITLE ||
-      role === UserRole.VA_HOI ||
       role === UserRole.VA_PAYOFF ||
-      role === UserRole.VA_APPRAISAL;
+      role === UserRole.VA_APPRAISAL ||
+      role === UserRole.PROCESSOR_JR;
 
     if (attachment.purpose !== TaskAttachmentPurpose.PROOF) {
       return { success: false, error: 'Only proof attachments can be deleted here.' };

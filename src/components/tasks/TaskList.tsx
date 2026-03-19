@@ -716,6 +716,7 @@ function getDisclosureSlaTimerMeta(startValue: Date | string | undefined, nowMs:
 }
 
 function getCompletedStatusColorClassNames(timerClassName: string | null) {
+  void timerClassName;
   const completedIconClassName = 'bg-emerald-100 text-emerald-700';
   // Keep completed status visually consistent as green across all queues.
   // SLA timing is still shown in timer labels where applicable.
@@ -800,9 +801,9 @@ function getRoleBubbleClass(role: UserRole | null) {
   if (
     role === UserRole.VA ||
     role === UserRole.VA_TITLE ||
-    role === UserRole.VA_HOI ||
     role === UserRole.VA_PAYOFF ||
-    role === UserRole.VA_APPRAISAL
+    role === UserRole.VA_APPRAISAL ||
+    role === UserRole.PROCESSOR_JR
   ) {
     return 'border-rose-200 bg-rose-50 text-rose-700';
   }
@@ -1466,9 +1467,9 @@ export function TaskList({
   const isVaSubRole =
     currentRole === UserRole.VA ||
     currentRole === UserRole.VA_TITLE ||
-    currentRole === UserRole.VA_HOI ||
     currentRole === UserRole.VA_PAYOFF ||
-    currentRole === UserRole.VA_APPRAISAL;
+    currentRole === UserRole.VA_APPRAISAL ||
+    currentRole === UserRole.PROCESSOR_JR;
 
   const isVaTaskKind = (kind: TaskKind | null) =>
     kind === TaskKind.VA_TITLE ||

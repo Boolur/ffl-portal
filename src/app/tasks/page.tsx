@@ -28,7 +28,6 @@ const MOCK_USER = {
 
 const VA_TASK_KINDS: TaskKind[] = [
   TaskKind.VA_TITLE,
-  TaskKind.VA_HOI,
   TaskKind.VA_PAYOFF,
   TaskKind.VA_APPRAISAL,
 ];
@@ -693,19 +692,19 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
     ];
   }
 
-  if (role === UserRole.VA_HOI) {
+  if (role === UserRole.PROCESSOR_JR) {
     const vaHoiTasks = allTasks.filter((task) => task.kind === TaskKind.VA_HOI);
     return [
       {
         id: 'va-new-request',
-        label: 'New VA HOI Requests',
+        label: 'New HOI Requests',
         chipLabel: 'New',
         chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
         tasks: vaHoiTasks.filter((task) => task.status !== TaskStatus.COMPLETED),
       },
       {
         id: 'va-completed-requests',
-        label: 'Completed VA HOI Requests',
+        label: 'Completed HOI Requests',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
         isCompleted: true,
@@ -795,7 +794,7 @@ function getManagerDeskRows(allTasks: TaskRow[]) {
 function getManagerVaDeskRows(allTasks: TaskRow[]) {
   return {
     vaTitleBuckets: getRoleBuckets(UserRole.VA_TITLE, allTasks),
-    vaHoiBuckets: getRoleBuckets(UserRole.VA_HOI, allTasks),
+    vaHoiBuckets: getRoleBuckets(UserRole.PROCESSOR_JR, allTasks),
     vaPayoffBuckets: getRoleBuckets(UserRole.VA_PAYOFF, allTasks),
     vaAppraisalBuckets: getRoleBuckets(UserRole.VA_APPRAISAL, allTasks),
   };
@@ -854,9 +853,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
     [UserRole.DISCLOSURE_SPECIALIST]: 'Work disclosure tasks by due date and status.',
     [UserRole.VA]:
-      'Work all VA queues (Title, HOI, Payoff, Appraisal) without manager-level disclosure/QC views.',
+      'Work all VA queues (Title, Payoff, Appraisal) without manager-level disclosure/QC views.',
     [UserRole.VA_TITLE]: 'Complete Title tasks and upload proof before finishing.',
-    [UserRole.VA_HOI]: 'Complete HOI tasks and upload proof before finishing.',
     [UserRole.VA_PAYOFF]: 'Complete Payoff tasks and upload proof before finishing.',
     [UserRole.VA_APPRAISAL]: 'Complete Appraisal tasks and upload proof before finishing.',
     [UserRole.QC]: 'Review and complete quality control tasks.',
@@ -941,20 +939,6 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 enableBatchDelete
               />
               <TaskDeskSection
-                title="VA HOI Requests"
-                icon={<Home className="h-5 w-5" />}
-                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
-                buckets={managerVaRows.vaHoiBuckets}
-                activeBucketId={managerVaRows.vaHoiBuckets.find((b) => b.id === bucket)?.id || null}
-                canDelete={canDelete}
-                currentRole={sessionRole}
-                currentUserId={sessionUser.id}
-                initialFocusedTaskId={focusedTaskId}
-                bucketScrollMode="fixed"
-                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-                enableBatchDelete
-              />
-              <TaskDeskSection
                 title="VA Payoff Requests"
                 icon={<Landmark className="h-5 w-5" />}
                 iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
@@ -984,6 +968,20 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
                 enableBatchDelete
               />
+              <TaskDeskSection
+                title="HOI Requests (Junior Processor)"
+                icon={<Home className="h-5 w-5" />}
+                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+                buckets={managerVaRows.vaHoiBuckets}
+                activeBucketId={managerVaRows.vaHoiBuckets.find((b) => b.id === bucket)?.id || null}
+                canDelete={canDelete}
+                currentRole={sessionRole}
+                currentUserId={sessionUser.id}
+                initialFocusedTaskId={focusedTaskId}
+                bucketScrollMode="fixed"
+                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                enableBatchDelete
+              />
             </>
           )}
         </div>
@@ -999,19 +997,6 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             activeBucketId={
               managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
             }
-            canDelete={canDelete}
-            currentRole={sessionRole}
-            currentUserId={sessionUser.id}
-            initialFocusedTaskId={focusedTaskId}
-            bucketScrollMode="fixed"
-            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-          />
-          <TaskDeskSection
-            title="VA HOI Requests"
-            icon={<Home className="h-5 w-5" />}
-            iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
-            buckets={managerVaRows.vaHoiBuckets}
-            activeBucketId={managerVaRows.vaHoiBuckets.find((b) => b.id === bucket)?.id || null}
             canDelete={canDelete}
             currentRole={sessionRole}
             currentUserId={sessionUser.id}

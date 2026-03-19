@@ -138,9 +138,9 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
     currentRole === 'MANAGER' ||
     currentRole === 'VA' ||
     currentRole === 'VA_TITLE' ||
-    currentRole === 'VA_HOI' ||
     currentRole === 'VA_PAYOFF' ||
-    currentRole === 'VA_APPRAISAL'
+    currentRole === 'VA_APPRAISAL' ||
+    currentRole === 'PROCESSOR_JR'
       ? 'created_asc'
       : 'updated_desc';
   const [globalSearch, setGlobalSearch] = useState('');

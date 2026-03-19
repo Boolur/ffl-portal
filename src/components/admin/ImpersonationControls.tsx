@@ -19,7 +19,6 @@ export function ImpersonationControls({ currentUserRole }: { currentUserRole: Us
     'DISCLOSURE_SPECIALIST',
     'VA',
     'VA_TITLE',
-    'VA_HOI',
     'VA_PAYOFF',
     'VA_APPRAISAL',
     'QC',
