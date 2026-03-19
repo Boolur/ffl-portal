@@ -22,7 +22,7 @@ export type VaRole = 'VA_TITLE' | 'PROCESSOR_JR' | 'VA_PAYOFF' | 'VA_APPRAISAL';
 
 const vaRoleLabel: Record<VaRole, string> = {
   [UserRole.VA_TITLE]: 'Title',
-  [UserRole.PROCESSOR_JR]: 'HOI',
+  [UserRole.PROCESSOR_JR]: 'JR Processor',
   [UserRole.VA_PAYOFF]: 'Payoff',
   [UserRole.VA_APPRAISAL]: 'Appraisal',
 };

@@ -700,14 +700,14 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
     return [
       {
         id: 'va-new-request',
-        label: 'New HOI Requests',
+        label: 'New JR Processor Requests',
         chipLabel: 'New',
         chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
         tasks: vaHoiTasks.filter((task) => task.status !== TaskStatus.COMPLETED),
       },
       {
         id: 'va-completed-requests',
-        label: 'Completed HOI Requests',
+        label: 'Completed JR Processor Requests',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
         isCompleted: true,
@@ -861,7 +861,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     [UserRole.VA_PAYOFF]: 'Complete Payoff tasks and upload proof before finishing.',
     [UserRole.VA_APPRAISAL]: 'Complete Appraisal tasks and upload proof before finishing.',
     [UserRole.QC]: 'Review and complete quality control tasks.',
-    [UserRole.PROCESSOR_JR]: 'Handle processing tasks and keep files moving.',
+    [UserRole.PROCESSOR_JR]: 'Complete JR Processor requests and upload proof before finishing.',
     [UserRole.PROCESSOR_SR]: 'Handle advanced processing tasks and escalations.',
   };
 
@@ -972,7 +972,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 enableBatchDelete
               />
               <TaskDeskSection
-                title="HOI Requests (Junior Processor)"
+                title="JR Processor Requests"
                 icon={<Home className="h-5 w-5" />}
                 iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
                 buckets={managerVaRows.vaHoiBuckets}

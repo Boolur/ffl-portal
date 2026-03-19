@@ -91,6 +91,9 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
     if (activeRole === UserRole.VA) {
       return isVaTaskKind(t.kind);
     }
+    if (activeRole === UserRole.PROCESSOR_JR) {
+      return t.kind === TaskKind.VA_HOI || t.assignedRole === UserRole.PROCESSOR_JR;
+    }
     if (t.assignedRole === activeRole) return true;
     if (activeRole === UserRole.DISCLOSURE_SPECIALIST) {
       return t.kind === TaskKind.SUBMIT_DISCLOSURES;
@@ -139,8 +142,8 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
       subtitle: 'Review and complete quality control tasks.',
     },
     [UserRole.PROCESSOR_JR]: {
-      title: 'Processor Queue',
-      subtitle: 'Manage active processing tasks and handoffs.',
+      title: 'JR Processor Queue',
+      subtitle: 'Complete JR Processor requests and upload proof before finishing.',
     },
     [UserRole.PROCESSOR_SR]: {
       title: 'Processor Queue',
@@ -156,9 +159,7 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
     activeRole === UserRole.VA_TITLE ||
     activeRole === UserRole.VA_PAYOFF ||
     activeRole === UserRole.VA_APPRAISAL;
-  const isProcessorOrLegacyVaRole =
-    activeRole === UserRole.PROCESSOR_JR ||
-    activeRole === UserRole.PROCESSOR_SR;
+  const isProcessorTaskListRole = activeRole === UserRole.PROCESSOR_SR;
   const showLoVaPilot =
     activeRole === UserRole.LOAN_OFFICER &&
     isLoVaPilotUser({
@@ -233,8 +234,8 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
           </section>
           <section className="space-y-4">
             <div className="app-page-header">
-              <h2 className="app-page-title">HOI Desk - Junior Processor</h2>
-              <p className="app-page-subtitle">Live HOI workload and status mix.</p>
+              <h2 className="app-page-title">JR Processor Desk</h2>
+              <p className="app-page-subtitle">Live JR Processor workload and status mix.</p>
             </div>
             <VaOverview tasks={adminTasks} role={UserRole.PROCESSOR_JR} />
           </section>
@@ -274,8 +275,12 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
         />
       )}
 
-      {/* For processor/legacy VA role, keep task list view */}
-      {isProcessorOrLegacyVaRole && (
+      {activeRole === UserRole.PROCESSOR_JR && (
+        <VaOverview tasks={roleTasks} role={UserRole.PROCESSOR_JR} />
+      )}
+
+      {/* Processor SR keeps the standard task list view */}
+      {isProcessorTaskListRole && (
         <div className="bg-card rounded-xl border border-border shadow-sm">
           <div className="px-6 py-4 border-b border-border flex items-center justify-between">
             <h2 className="text-lg font-semibold text-foreground">Active Tasks</h2>
