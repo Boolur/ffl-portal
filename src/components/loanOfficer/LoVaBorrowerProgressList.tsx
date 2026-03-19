@@ -17,7 +17,6 @@ import {
   Search,
   Loader2,
   UserCog,
-  UserRoundCheck,
   X,
 } from 'lucide-react';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
@@ -238,8 +237,15 @@ export function LoVaBorrowerProgressList({
     () => (focusedItem ? groupSubmissionSnapshot(focusedItem.submissionSnapshot) : []),
     [focusedItem]
   );
-  const jrQueueCount = 0;
-  const srQueueCount = 0;
+  const vaItems = React.useMemo(
+    () => items.filter((item) => !item.isFullyComplete && item.hasIncompleteVa),
+    [items]
+  );
+  const jrItems = React.useMemo(
+    () => items.filter((item) => !item.isFullyComplete && item.hasIncompleteJr),
+    [items]
+  );
+  const completedItems = React.useMemo(() => items.filter((item) => item.isFullyComplete), [items]);
 
   const openAttachment = async (attachmentId: string) => {
     setOpeningAttachmentId(attachmentId);
@@ -265,16 +271,16 @@ export function LoVaBorrowerProgressList({
           title="VA Bucket"
           icon={<FileCheck2 className="h-5 w-5 text-rose-600" />}
           chipLabel="VA Queue"
-          count={items.length}
+          count={vaItems.length}
         >
-          {items.length === 0 ? (
+          {vaItems.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <CheckCircle2 className="h-6 w-6 text-slate-300" />
               <p className="mt-2 text-xs font-medium text-slate-500">No VA requests in queue.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {items.map((item) => (
+              {vaItems.map((item) => (
                 <article
                   key={`${item.loanNumber}-${item.borrowerName}`}
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
@@ -324,7 +330,7 @@ export function LoVaBorrowerProgressList({
                       <div className="flex items-center gap-1.5">
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                           <Clock3 className="mr-1 h-3 w-3" />
-                          {item.completedCount}/{item.totalCount}
+                          {item.vaCompletedCount}/{item.vaTotalCount}
                         </span>
                         {item.needsLoResponse && item.actionTaskId ? (
                           <Link
@@ -336,10 +342,9 @@ export function LoVaBorrowerProgressList({
                         ) : null}
                       </div>
                       <div className="flex flex-wrap justify-end items-center gap-1.5">
-                        <StatusChip label="Title" state={item.chips.title} />
-                        <StatusChip label="HOI" state={item.chips.hoi} />
-                        <StatusChip label="Payoff" state={item.chips.payoff} />
-                        <StatusChip label="Appraisal" state={item.chips.appraisal} />
+                        <StatusChip label="Title" state={item.vaChips.title} />
+                        <StatusChip label="Payoff" state={item.vaChips.payoff} />
+                        <StatusChip label="Appraisal" state={item.vaChips.appraisal} />
                       </div>
                     </div>
                   </div>
@@ -353,30 +358,152 @@ export function LoVaBorrowerProgressList({
           title="JR Processor"
           icon={<UserCog className="h-5 w-5 text-slate-600" />}
           chipLabel="Processor Queue"
-          count={jrQueueCount}
+          count={jrItems.length}
         >
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <UserCog className="h-6 w-6 text-slate-300" />
-            <p className="mt-2 text-xs font-medium text-slate-600">Queue not active yet.</p>
-            <p className="mt-1 max-w-[220px] text-[11px] text-slate-500">
-              Borrowers move here after VA stage is complete.
-            </p>
-          </div>
+          {jrItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <CheckCircle2 className="h-6 w-6 text-slate-300" />
+              <p className="mt-2 text-xs font-medium text-slate-500">No JR Processor requests in queue.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {jrItems.map((item) => (
+                <article
+                  key={`${item.loanNumber}-${item.borrowerName}`}
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
+                >
+                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm ring-1 ring-black/5 hover:bg-slate-200"
+                          title={`Open JR Processor details for ${item.borrowerName}`}
+                          aria-label={`Open JR Processor details for ${item.borrowerName}`}
+                        >
+                          <FileText className="h-4 w-4" />
+                        </button>
+                        <div className="min-w-0">
+                          {item.latestUpdatedAt && (
+                            <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                              <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                              {formatCompactDateTime(item.latestUpdatedAt)}
+                            </p>
+                          )}
+                          <p className="truncate text-sm font-bold text-slate-900">
+                            {item.borrowerName}
+                          </p>
+                          <p className="text-xs text-slate-500">{item.loanNumber}</p>
+                          {item.earliestCreatedAt && (
+                            <span
+                              className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
+                                Date.now() - item.earliestCreatedAt.getTime()
+                              )}`}
+                              title="Total time from first VA/JR task creation"
+                            >
+                              <Clock3 className="mr-1 h-3 w-3" />
+                              Total{' '}
+                              {formatElapsedTimerLabel(
+                                Date.now() - item.earliestCreatedAt.getTime()
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex max-w-[55%] flex-col items-end gap-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                          <Clock3 className="mr-1 h-3 w-3" />
+                          {item.jrCompletedCount}/{item.jrTotalCount}
+                        </span>
+                        {item.needsLoResponse && item.actionTaskId ? (
+                          <Link
+                            href={`/tasks?taskId=${encodeURIComponent(item.actionTaskId)}`}
+                            className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800 hover:bg-amber-100"
+                          >
+                            Action Needed
+                          </Link>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap justify-end items-center gap-1.5">
+                        <StatusChip label="HOI" state={item.jrChips.hoi} />
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </BucketPanel>
 
         <BucketPanel
-          title="SR Processor"
-          icon={<UserRoundCheck className="h-5 w-5 text-slate-600" />}
-          chipLabel="Processor Queue"
-          count={srQueueCount}
+          title="Completed VA & JR Processing"
+          icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+          chipLabel="Completed Queue"
+          count={completedItems.length}
         >
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <UserRoundCheck className="h-6 w-6 text-slate-300" />
-            <p className="mt-2 text-xs font-medium text-slate-600">Queue not active yet.</p>
-            <p className="mt-1 max-w-[220px] text-[11px] text-slate-500">
-              Borrowers move here after JR Processor completion.
-            </p>
-          </div>
+          {completedItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <CheckCircle2 className="h-6 w-6 text-slate-300" />
+              <p className="mt-2 text-xs font-medium text-slate-500">
+                No fully completed VA/JR requests yet.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {completedItems.map((item) => (
+                <article
+                  key={`${item.loanNumber}-${item.borrowerName}`}
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-3 shadow-sm transition-all hover:border-emerald-300 hover:shadow-md"
+                >
+                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-emerald-100/70 opacity-60 blur-2xl"></div>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-emerald-200 hover:bg-emerald-200"
+                          title={`Open completed details for ${item.borrowerName}`}
+                          aria-label={`Open completed details for ${item.borrowerName}`}
+                        >
+                          <FileText className="h-4 w-4" />
+                        </button>
+                        <div className="min-w-0">
+                          {item.latestUpdatedAt && (
+                            <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                              <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                              {formatCompactDateTime(item.latestUpdatedAt)}
+                            </p>
+                          )}
+                          <p className="truncate text-sm font-bold text-slate-900">
+                            {item.borrowerName}
+                          </p>
+                          <p className="text-xs text-slate-500">{item.loanNumber}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex max-w-[55%] flex-col items-end gap-1.5">
+                      <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                        Completed
+                      </span>
+                      <div className="flex flex-wrap justify-end items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                          VA {item.vaCompletedCount}/{item.vaTotalCount}
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                          JR {item.jrCompletedCount}/{item.jrTotalCount}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </BucketPanel>
       </div>
 
@@ -399,7 +526,7 @@ export function LoVaBorrowerProgressList({
                     {focusedItem.loanNumber}
                   </span>
                 </div>
-                <p className="text-sm font-medium text-slate-500">VA Submission Details</p>
+                <p className="text-sm font-medium text-slate-500">VA & JR Processing Details</p>
               </div>
               <button
                 type="button"
@@ -441,17 +568,16 @@ export function LoVaBorrowerProgressList({
             <div className="mt-6 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
               <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
                 <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
-                  VA Task Completion & Proof
+                  VA & JR Task Completion & Proof
                 </h4>
                 <div className="space-y-3">
                   {[
                     { key: 'title' as const, icon: FileText },
-                    { key: 'hoi' as const, icon: Home },
                     { key: 'payoff' as const, icon: DollarSign },
                     { key: 'appraisal' as const, icon: ClipboardCheck },
                   ].map(({ key, icon: Icon }) => {
                     const label = stageLabelByKey[key];
-                    const detail = focusedItem.stageDetails[key];
+                    const detail = focusedItem.vaStageDetails[key];
                     const latestNote = detail.latestNote;
                     const stageNoteKey = `${focusedItem.loanNumber}-${key}`;
                     const stageNoteExpanded = expandedStageNotes.has(stageNoteKey);
@@ -572,13 +698,138 @@ export function LoVaBorrowerProgressList({
                       </div>
                     );
                   })}
+                  {[
+                    { key: 'hoi' as const, icon: Home },
+                  ].map(({ key, icon: Icon }) => {
+                    const label = stageLabelByKey[key];
+                    const detail = focusedItem.jrStageDetails[key];
+                    const latestNote = detail.latestNote;
+                    const stageNoteKey = `${focusedItem.loanNumber}-${key}`;
+                    const stageNoteExpanded = expandedStageNotes.has(stageNoteKey);
+                    const notePreview = latestNote?.message || '';
+                    const canToggleStageNote = notePreview.length > 180;
+                    const visibleNote = canToggleStageNote && !stageNoteExpanded
+                      ? `${notePreview.slice(0, 180)}...`
+                      : notePreview;
+                    return (
+                      <div
+                        key={label}
+                        className={`rounded-xl border p-3.5 ${
+                          detail.completed
+                            ? 'border-emerald-200 bg-emerald-50'
+                            : 'border-rose-200 bg-rose-50'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-2 text-sm font-bold tracking-tight text-slate-800">
+                            <span
+                              className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
+                                detail.completed
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-rose-100 text-rose-700'
+                              }`}
+                            >
+                              <Icon className="h-3.5 w-3.5" />
+                            </span>
+                            {label} (JR)
+                          </span>
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              detail.completed
+                                ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                : 'border-rose-300 bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {detail.completed ? 'Completed' : 'Incomplete'}
+                          </span>
+                        </div>
+
+                        {detail.proofAttachments.length === 0 ? (
+                          <p className="mt-2 text-xs font-medium text-slate-600">
+                            No proof uploaded yet.
+                          </p>
+                        ) : (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {detail.proofAttachments.map((att) => (
+                              <button
+                                key={att.id}
+                                type="button"
+                                onClick={() => void openAttachment(att.id)}
+                                disabled={openingAttachmentId === att.id}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                title={`Open ${att.filename}`}
+                              >
+                                {openingAttachmentId === att.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <FileText className="h-3.5 w-3.5" />
+                                )}
+                                <span className="max-w-[200px] truncate">{att.filename}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                              Latest JR Note
+                            </p>
+                            {latestNote && (
+                              <span className="text-[11px] font-medium text-slate-500">
+                                {formatNoteDateTime(latestNote.date)}
+                              </span>
+                            )}
+                          </div>
+                          {!latestNote ? (
+                            <p className="mt-1 text-xs font-medium text-slate-500">
+                              No stage note yet.
+                            </p>
+                          ) : (
+                            <>
+                              <p className="mt-1 text-xs font-semibold text-slate-700">
+                                {visibleNote}
+                              </p>
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                {latestNote.author} • {formatRoleLabel(latestNote.role)}
+                              </p>
+                              {canToggleStageNote && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedStageNotes((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(stageNoteKey)) next.delete(stageNoteKey);
+                                      else next.add(stageNoteKey);
+                                      return next;
+                                    })
+                                  }
+                                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                                >
+                                  {stageNoteExpanded ? (
+                                    <>
+                                      Show Less <ChevronUp className="h-3 w-3" />
+                                    </>
+                                  ) : (
+                                    <>
+                                      Show More <ChevronDown className="h-3 w-3" />
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
               <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
                 <div className="mb-4 flex items-center justify-between gap-2">
                   <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">
-                    VA Notes Timeline
+                    VA & JR Notes Timeline
                   </h4>
                   <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                     {focusedItem.notesTimeline.length} Notes

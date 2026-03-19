@@ -25,22 +25,44 @@ export type LoVaProgressTaskInput = {
   }>;
 };
 
-type VaKindKey = 'title' | 'hoi' | 'payoff' | 'appraisal';
+type VaKindKey = 'title' | 'payoff' | 'appraisal';
+type JrKindKey = 'hoi';
+type StageKey = VaKindKey | JrKindKey;
 export type VaChipState = 'not_started' | 'new' | 'working' | 'waiting' | 'review' | 'completed';
 
 export type LoVaBorrowerProgressItem = {
   loanNumber: string;
   borrowerName: string;
-  completedCount: number;
-  totalCount: 4;
-  chips: Record<VaKindKey, VaChipState>;
+  vaCompletedCount: number;
+  vaTotalCount: 3;
+  jrCompletedCount: number;
+  jrTotalCount: 1;
+  hasIncompleteVa: boolean;
+  hasIncompleteJr: boolean;
+  isFullyComplete: boolean;
+  vaChips: Record<VaKindKey, VaChipState>;
+  jrChips: Record<JrKindKey, VaChipState>;
   needsLoResponse: boolean;
   actionTaskId: string | null;
   detailTaskId: string | null;
   earliestCreatedAt: Date | null;
   latestUpdatedAt: Date | null;
-  stageDetails: Record<
+  vaStageDetails: Record<
     VaKindKey,
+    {
+      taskId: string | null;
+      completed: boolean;
+      proofAttachments: Array<{ id: string; filename: string }>;
+      latestNote: {
+        message: string;
+        date: string;
+        author: string;
+        role: UserRole | null;
+      } | null;
+    }
+  >;
+  jrStageDetails: Record<
+    JrKindKey,
     {
       taskId: string | null;
       completed: boolean;
@@ -55,7 +77,7 @@ export type LoVaBorrowerProgressItem = {
   >;
   notesTimeline: Array<{
     id: string;
-    stage: VaKindKey;
+    stage: StageKey;
     message: string;
     date: string;
     author: string;
@@ -66,9 +88,12 @@ export type LoVaBorrowerProgressItem = {
 
 const VA_KIND_MAP: Array<{ kind: TaskKind; key: VaKindKey }> = [
   { kind: TaskKind.VA_TITLE, key: 'title' },
-  { kind: TaskKind.VA_HOI, key: 'hoi' },
   { kind: TaskKind.VA_PAYOFF, key: 'payoff' },
   { kind: TaskKind.VA_APPRAISAL, key: 'appraisal' },
+];
+
+const JR_KIND_MAP: Array<{ kind: TaskKind; key: JrKindKey }> = [
+  { kind: TaskKind.VA_HOI, key: 'hoi' },
 ];
 
 function toDate(value?: Date | string | null) {
@@ -88,6 +113,30 @@ function getChipState(task: LoVaProgressTaskInput): VaChipState {
 
 function isProofAttachment(purpose?: string) {
   return (purpose || '').toUpperCase() === 'PROOF';
+}
+
+function normalizeTimelineCategory(message: string) {
+  const normalized = message.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) return '';
+  if (normalized === 'done' || normalized.includes('status changed to completed')) {
+    return 'status_completed';
+  }
+  if (normalized.includes('status changed to in progress')) {
+    return 'status_in_progress';
+  }
+  if (normalized.includes('status changed to pending')) {
+    return 'status_pending';
+  }
+  if (normalized.includes('status changed to blocked')) {
+    return 'status_blocked';
+  }
+  return `note:${normalized}`;
+}
+
+function toMinuteBucket(date: Date) {
+  const minute = new Date(date);
+  minute.setSeconds(0, 0);
+  return minute.toISOString();
 }
 
 const snapshotPreferredOrder = [
@@ -177,11 +226,11 @@ function compareByMostRecentUpdate(
 
 function parseNotesHistoryForStage(
   data: unknown,
-  stage: VaKindKey,
+  stage: StageKey,
   taskId: string
 ): Array<{
   id: string;
-  stage: VaKindKey;
+  stage: StageKey;
   message: string;
   date: string;
   author: string;
@@ -192,7 +241,7 @@ function parseNotesHistoryForStage(
   if (!Array.isArray(notesHistory)) return [];
   const parsed: Array<{
     id: string;
-    stage: VaKindKey;
+    stage: StageKey;
     message: string;
     date: string;
     author: string;
@@ -224,6 +273,55 @@ function parseNotesHistoryForStage(
   return parsed;
 }
 
+function dedupeTimelineEntries(
+  notes: Array<{
+    id: string;
+    stage: StageKey;
+    message: string;
+    date: string;
+    author: string;
+    role: UserRole | null;
+  }>
+) {
+  const deduped = new Map<
+    string,
+    {
+      id: string;
+      stage: StageKey;
+      message: string;
+      date: string;
+      author: string;
+      role: UserRole | null;
+    }
+  >();
+
+  for (const note of notes) {
+    const noteDate = new Date(note.date);
+    if (Number.isNaN(noteDate.getTime())) continue;
+    const category = normalizeTimelineCategory(note.message);
+    if (!category) continue;
+    const key = [
+      note.stage,
+      (note.author || '').trim().toLowerCase(),
+      note.role || 'NONE',
+      toMinuteBucket(noteDate),
+      category,
+    ].join('::');
+    const existing = deduped.get(key);
+    if (!existing) {
+      deduped.set(key, note);
+      continue;
+    }
+    if (new Date(note.date).getTime() >= new Date(existing.date).getTime()) {
+      deduped.set(key, note);
+    }
+  }
+
+  return Array.from(deduped.values()).sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+}
+
 export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaBorrowerProgressItem[] {
   const grouped = new Map<
     string,
@@ -231,6 +329,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       loanNumber: string;
       borrowerName: string;
       vaByKind: Partial<Record<VaKindKey, LoVaProgressTaskInput>>;
+      jrByKind: Partial<Record<JrKindKey, LoVaProgressTaskInput>>;
       appraisalNeedsLoResponse: boolean;
       appraisalActionTaskId: string | null;
       detailTaskId: string | null;
@@ -246,6 +345,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       loanNumber: task.loan.loanNumber,
       borrowerName: task.loan.borrowerName,
       vaByKind: {},
+      jrByKind: {},
       appraisalNeedsLoResponse: false,
       appraisalActionTaskId: null,
       detailTaskId: null,
@@ -281,15 +381,22 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         existing.submissionData = task.submissionData;
       }
     }
+    const mappedJrKind = JR_KIND_MAP.find((entry) => entry.kind === task.kind);
+    if (mappedJrKind) {
+      existing.jrByKind[mappedJrKind.key] = task;
+      if (!existing.submissionData && task.submissionData) {
+        existing.submissionData = task.submissionData;
+      }
+    }
 
     const isOpenAppraisalParent =
-      task.kind === TaskKind.VA_APPRAISAL &&
+      (task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_HOI) &&
       task.status !== TaskStatus.COMPLETED &&
       task.workflowState === TaskWorkflowState.WAITING_ON_LO;
     const isOpenAppraisalChildResponse =
       task.kind === TaskKind.LO_NEEDS_INFO &&
       task.status !== TaskStatus.COMPLETED &&
-      task.parentTask?.kind === TaskKind.VA_APPRAISAL;
+      (task.parentTask?.kind === TaskKind.VA_APPRAISAL || task.parentTask?.kind === TaskKind.VA_HOI);
 
     if (isOpenAppraisalParent || isOpenAppraisalChildResponse) {
       existing.appraisalNeedsLoResponse = true;
@@ -304,33 +411,46 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
   const rows: LoVaBorrowerProgressItem[] = [];
   for (const value of grouped.values()) {
     const hasAnyVaTask = VA_KIND_MAP.some((definition) => Boolean(value.vaByKind[definition.key]));
-    if (!hasAnyVaTask) continue;
+    const hasAnyJrTask = JR_KIND_MAP.some((definition) => Boolean(value.jrByKind[definition.key]));
+    if (!hasAnyVaTask && !hasAnyJrTask) continue;
 
-    const chips: Record<VaKindKey, VaChipState> = {
+    const vaChips: Record<VaKindKey, VaChipState> = {
       title: 'not_started',
-      hoi: 'not_started',
       payoff: 'not_started',
       appraisal: 'not_started',
+    };
+    const jrChips: Record<JrKindKey, VaChipState> = {
+      hoi: 'not_started',
     };
 
     for (const definition of VA_KIND_MAP) {
       const task = value.vaByKind[definition.key];
       if (!task) continue;
-      chips[definition.key] = getChipState(task);
+      vaChips[definition.key] = getChipState(task);
+    }
+    for (const definition of JR_KIND_MAP) {
+      const task = value.jrByKind[definition.key];
+      if (!task) continue;
+      jrChips[definition.key] = getChipState(task);
     }
 
-    const completedCount = Object.values(chips).filter((chip) => chip === 'completed').length;
-    const stageDetails: LoVaBorrowerProgressItem['stageDetails'] = {
+    const vaCompletedCount = Object.values(vaChips).filter((chip) => chip === 'completed').length;
+    const jrCompletedCount = Object.values(jrChips).filter((chip) => chip === 'completed').length;
+    const hasIncompleteVa = Object.values(vaChips).some((chip) => chip !== 'completed');
+    const hasIncompleteJr = Object.values(jrChips).some((chip) => chip !== 'completed');
+    const vaStageDetails: LoVaBorrowerProgressItem['vaStageDetails'] = {
       title: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
-      hoi: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
       payoff: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
       appraisal: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
+    };
+    const jrStageDetails: LoVaBorrowerProgressItem['jrStageDetails'] = {
+      hoi: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
     };
     const timelineById = new Map<
       string,
       {
         id: string;
-        stage: VaKindKey;
+        stage: StageKey;
         message: string;
         date: string;
         author: string;
@@ -345,7 +465,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         stageNotes.length > 0
           ? stageNotes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
           : null;
-      stageDetails[definition.key] = {
+      vaStageDetails[definition.key] = {
         taskId: task.id,
         completed: task.status === TaskStatus.COMPLETED,
         proofAttachments: (task.attachments || [])
@@ -364,21 +484,54 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         timelineById.set(note.id, note);
       }
     }
-    const notesTimeline = Array.from(timelineById.values()).sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
+    for (const definition of JR_KIND_MAP) {
+      const task = value.jrByKind[definition.key];
+      if (!task) continue;
+      const stageNotes = parseNotesHistoryForStage(task.submissionData, definition.key, task.id);
+      const latestNote =
+        stageNotes.length > 0
+          ? stageNotes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+          : null;
+      jrStageDetails[definition.key] = {
+        taskId: task.id,
+        completed: task.status === TaskStatus.COMPLETED,
+        proofAttachments: (task.attachments || [])
+          .filter((att) => isProofAttachment(att.purpose))
+          .map((att) => ({ id: att.id, filename: att.filename })),
+        latestNote: latestNote
+          ? {
+              message: latestNote.message,
+              date: latestNote.date,
+              author: latestNote.author,
+              role: latestNote.role,
+            }
+          : null,
+      };
+      for (const note of stageNotes) {
+        timelineById.set(note.id, note);
+      }
+    }
+
+    const notesTimeline = dedupeTimelineEntries(Array.from(timelineById.values()));
     rows.push({
       loanNumber: value.loanNumber,
       borrowerName: value.borrowerName,
-      completedCount,
-      totalCount: 4,
-      chips,
+      vaCompletedCount,
+      vaTotalCount: 3,
+      jrCompletedCount,
+      jrTotalCount: 1,
+      hasIncompleteVa,
+      hasIncompleteJr,
+      isFullyComplete: !hasIncompleteVa && !hasIncompleteJr,
+      vaChips,
+      jrChips,
       needsLoResponse: value.appraisalNeedsLoResponse,
       actionTaskId: value.appraisalActionTaskId,
       detailTaskId: value.appraisalActionTaskId || value.detailTaskId,
       earliestCreatedAt: value.earliestCreatedAt,
       latestUpdatedAt: value.latestUpdatedAt,
-      stageDetails,
+      vaStageDetails,
+      jrStageDetails,
       notesTimeline,
       submissionSnapshot: buildSubmissionSnapshot(value.submissionData),
     });
