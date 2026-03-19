@@ -77,8 +77,8 @@ export function LoanOfficerDashboard({
               : 'border-border bg-secondary/70 cursor-not-allowed'
           }`}
         >
-          <div className={`absolute top-0 right-0 p-8 ${disclosureEnabled ? 'opacity-5 group-hover:opacity-10 transition-opacity' : 'opacity-5'}`}>
-            <ClipboardCheck className={`w-32 h-32 ${disclosureEnabled ? 'text-blue-600' : 'text-slate-500'}`} />
+          <div className={`absolute top-0 right-0 p-8 ${disclosureEnabled ? 'opacity-20 group-hover:opacity-35 transition-opacity' : 'opacity-10'}`}>
+            <ClipboardCheck className={`w-32 h-32 ${disclosureEnabled ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500'}`} />
           </div>
           <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-6 shadow-sm ${
             disclosureEnabled ? 'bg-blue-600 text-white group-hover:scale-105 transition-transform' : 'bg-secondary text-muted-foreground'
@@ -98,7 +98,7 @@ export function LoanOfficerDashboard({
           </p>
           <div className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold ${
             disclosureEnabled
-              ? 'bg-blue-50 text-blue-700 group-hover:bg-blue-600 group-hover:text-white transition-colors'
+              ? 'bg-blue-50 text-blue-700 group-hover:bg-blue-600 group-hover:text-white dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600 transition-colors'
               : 'bg-secondary text-muted-foreground'
           }`}>
             {disclosureEnabled ? 'Start Request' : 'Disabled by Admin'}
@@ -119,8 +119,8 @@ export function LoanOfficerDashboard({
               : 'border-border bg-secondary/70 cursor-not-allowed'
           }`}
         >
-          <div className={`absolute top-0 right-0 p-8 ${qcEnabled ? 'opacity-10' : 'opacity-5'}`}>
-            <ShieldCheck className={`w-32 h-32 ${qcEnabled ? 'text-violet-600' : 'text-slate-500'}`} />
+          <div className={`absolute top-0 right-0 p-8 ${qcEnabled ? 'opacity-22 group-hover:opacity-35 transition-opacity' : 'opacity-10'}`}>
+            <ShieldCheck className={`w-32 h-32 ${qcEnabled ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500'}`} />
           </div>
           <div
             className={`w-14 h-14 rounded-xl flex items-center justify-center mb-6 shadow-sm ${
@@ -143,7 +143,7 @@ export function LoanOfficerDashboard({
           <div
             className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold ${
               qcEnabled
-                ? 'bg-violet-50 text-violet-700 group-hover:bg-violet-600 group-hover:text-white transition-colors'
+                ? 'bg-violet-50 text-violet-700 group-hover:bg-violet-600 group-hover:text-white dark:bg-violet-700 dark:text-white dark:hover:bg-violet-600 transition-colors'
                 : 'bg-secondary text-muted-foreground'
             }`}
           >

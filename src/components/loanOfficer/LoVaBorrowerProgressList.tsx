@@ -236,7 +236,7 @@ export function LoVaBorrowerProgressList({
         >
           {items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
-              <CheckCircle2 className="h-6 w-6 text-slate-300" />
+              <CheckCircle2 className="h-6 w-6 text-muted-foreground" />
             <p className="mt-2 text-xs font-medium text-muted-foreground">No VA requests in queue.</p>
             </div>
           ) : (
@@ -246,7 +246,7 @@ export function LoVaBorrowerProgressList({
                   key={`${item.loanNumber}-${item.borrowerName}`}
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
                 >
-                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
+                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-secondary opacity-65 blur-2xl group-hover:bg-blue-900/40 transition-colors"></div>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start gap-2 min-w-0">
@@ -478,7 +478,7 @@ export function LoVaBorrowerProgressList({
                                 type="button"
                                 onClick={() => void openAttachment(att.id)}
                                 disabled={openingAttachmentId === att.id}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-border dark:bg-card dark:text-foreground dark:hover:bg-secondary"
                                 title={`Open ${att.filename}`}
                               >
                                 {openingAttachmentId === att.id ? (

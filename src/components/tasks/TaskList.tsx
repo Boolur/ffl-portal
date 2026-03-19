@@ -1965,7 +1965,7 @@ export function TaskList({
                 >
                   <div className="flex items-start justify-between gap-6 border-b border-border pb-8">
                     <div className="flex items-center gap-5">
-                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-xl font-bold text-white shadow-lg shadow-blue-600/20 ring-4 ring-white">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-xl font-bold text-white shadow-lg shadow-blue-600/20 ring-4 ring-border">
                         {getInitials(task.loan.borrowerName)}
                       </div>
                       <div>

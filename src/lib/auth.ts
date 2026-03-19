@@ -46,44 +46,60 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        const email = credentials?.email?.toLowerCase().trim();
-        const password = credentials?.password;
+        try {
+          const email = credentials?.email?.toLowerCase().trim();
+          const password = credentials?.password;
 
-        if (!email || !password) return null;
+          if (!email || !password) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email },
-        });
+          // Keep auth resilient to unrelated schema drift (e.g. optional profile/theme fields)
+          // by selecting only the columns required for credential checks + role session state.
+          const user = await prisma.user.findUnique({
+            where: { email },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              passwordHash: true,
+              active: true,
+              role: true,
+              roles: true,
+            },
+          });
 
-        if (!user) {
-          console.warn('[auth] user not found', { email });
+          if (!user) {
+            console.warn('[auth] user not found', { email });
+            return null;
+          }
+
+          if (!user.active) {
+            console.warn('[auth] user inactive', { email });
+            return null;
+          }
+
+          if (!user.passwordHash) {
+            console.warn('[auth] missing password hash', { email });
+            return null;
+          }
+
+          const isValid = await compare(password, user.passwordHash);
+          if (!isValid) {
+            console.warn('[auth] password mismatch', { email });
+            return null;
+          }
+
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            roles: user.roles?.length ? user.roles : [user.role],
+            activeRole: user.role,
+          };
+        } catch (error) {
+          console.error('[auth] authorize failed', error);
           return null;
         }
-
-        if (!user.active) {
-          console.warn('[auth] user inactive', { email });
-          return null;
-        }
-
-        if (!user.passwordHash) {
-          console.warn('[auth] missing password hash', { email });
-          return null;
-        }
-
-        const isValid = await compare(password, user.passwordHash);
-        if (!isValid) {
-          console.warn('[auth] password mismatch', { email });
-          return null;
-        }
-
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          roles: user.roles?.length ? user.roles : [user.role],
-          activeRole: user.role,
-        };
       },
     }),
   ],
