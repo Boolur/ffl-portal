@@ -337,10 +337,6 @@ export function LoVaBorrowerProgressList({
   }, [focusedItemKey]);
 
   React.useEffect(() => {
-    setExpandedBorrowerCards(new Set());
-  }, [items]);
-
-  React.useEffect(() => {
     if (!focusedItem || focusedQueue !== 'jr') return;
     const timer = window.setTimeout(() => {
       jrDetailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -385,6 +381,11 @@ export function LoVaBorrowerProgressList({
                       .filter((v) => v.length > 0)
                   )
                 );
+                const vaStatusPills = [
+                  { label: 'Title', done: item.vaStageDetails.title.completed },
+                  { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
+                  { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
+                ];
                 return (
                 <article
                   key={`${item.loanNumber}-${item.borrowerName}`}
@@ -431,10 +432,21 @@ export function LoVaBorrowerProgressList({
                           )}
                         </div>
                         <div className="inline-flex items-start gap-1.5 shrink-0">
-                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                            <Clock3 className="mr-1 h-3 w-3" />
-                            {item.vaCompletedCount}/{item.vaTotalCount}
-                          </span>
+                          <div className="flex max-w-[230px] flex-wrap justify-end gap-1">
+                            {vaStatusPills.map((row) => (
+                              <span
+                                key={row.label}
+                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                  row.done
+                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                    : 'border-rose-300 bg-rose-100 text-rose-800'
+                                }`}
+                                title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
+                              >
+                                {row.label}
+                              </span>
+                            ))}
+                          </div>
                           <button
                             type="button"
                             onClick={() =>
@@ -531,6 +543,27 @@ export function LoVaBorrowerProgressList({
                         done: row.status === 'COMPLETED',
                       }))
                     : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }];
+                const jrStatusPills = [
+                  {
+                    label: 'HOI',
+                    done:
+                      (jrRows.find((row) => row.label.toLowerCase().includes('hoi'))?.done ?? false) ||
+                      false,
+                  },
+                  {
+                    label: 'VOE',
+                    done:
+                      (jrRows.find((row) => row.label.toLowerCase().includes('voe'))?.done ?? false) ||
+                      false,
+                  },
+                  {
+                    label: 'Underwriting',
+                    done:
+                      (jrRows.find((row) =>
+                        row.label.toLowerCase().includes('underwriting')
+                      )?.done ?? false) || false,
+                  },
+                ];
                 return (
                 <article
                   key={`${item.loanNumber}-${item.borrowerName}`}
@@ -577,10 +610,21 @@ export function LoVaBorrowerProgressList({
                           )}
                         </div>
                         <div className="inline-flex items-start gap-1.5 shrink-0">
-                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                            <Clock3 className="mr-1 h-3 w-3" />
-                            {item.jrCompletedCount}/{item.jrTotalCount}
-                          </span>
+                          <div className="flex max-w-[240px] flex-wrap justify-end gap-1">
+                            {jrStatusPills.map((row) => (
+                              <span
+                                key={row.label}
+                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                  row.done
+                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                    : 'border-rose-300 bg-rose-100 text-rose-800'
+                                }`}
+                                title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
+                              >
+                                {row.label}
+                              </span>
+                            ))}
+                          </div>
                           <button
                             type="button"
                             onClick={() =>
