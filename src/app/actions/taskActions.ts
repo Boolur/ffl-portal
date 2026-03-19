@@ -1829,8 +1829,8 @@ type JrChecklistItemInput = {
 };
 
 const JR_CHECKLIST_TEMPLATE: Array<{ id: string; label: string }> = [
-  { id: 'ordered-hoi', label: 'Ordered HOI' },
-  { id: 'ordered-voe', label: 'Ordered VOE' },
+  { id: 'ordered-hoi', label: 'HOI' },
+  { id: 'ordered-voe', label: 'VOE' },
   { id: 'submitted-underwriting', label: 'Submitted to Underwriting' },
 ];
 
@@ -1953,7 +1953,6 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
     });
     dataObj.notesHistory = notes;
 
-    const hasMissingItems = parsedItems.some((item) => item.status === 'MISSING_ITEMS');
     const allCompleted = parsedItems.every((item) => item.status === 'COMPLETED');
     const allProofAttached = parsedItems.every((item) => Boolean(item.proofAttachmentId));
     const shouldReopen =
@@ -1969,14 +1968,10 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
               completedAt: null,
             }
           : {}),
-        workflowState: hasMissingItems
-          ? TaskWorkflowState.WAITING_ON_LO
-          : allCompleted && allProofAttached
+        workflowState:
+          allCompleted && allProofAttached
             ? TaskWorkflowState.READY_TO_COMPLETE
-          : existing.workflowState === TaskWorkflowState.WAITING_ON_LO ||
-              existing.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
-            ? TaskWorkflowState.NONE
-            : existing.workflowState,
+            : TaskWorkflowState.NONE,
       },
     });
 
@@ -1986,6 +1981,68 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
   } catch (error) {
     console.error('Failed to save JR checklist:', error);
     return { success: false, error: 'Failed to save JR checklist.' };
+  }
+}
+
+export async function addJrProcessorNote(taskId: string, note: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) {
+      return { success: false, error: 'Not authenticated.' };
+    }
+
+    const message = String(note ?? '').trim();
+    if (!message) {
+      return { success: false, error: 'Note cannot be empty.' };
+    }
+
+    const existing = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        assignedRole: true,
+        assignedUserId: true,
+        submissionData: true,
+      },
+    });
+
+    if (!existing) return { success: false, error: 'Task not found.' };
+    if (existing.kind !== TaskKind.VA_HOI) {
+      return { success: false, error: 'Only JR Processor tasks support JR notes.' };
+    }
+
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageJrTask =
+      role === UserRole.PROCESSOR_JR ||
+      existing.assignedRole === UserRole.PROCESSOR_JR ||
+      existing.assignedUserId === userId;
+    if (!canManageAll && !canManageJrTask) {
+      return { success: false, error: 'Not authorized to add a JR note.' };
+    }
+
+    const dataObj = appendSubmissionHistoryEntry(existing.submissionData, {
+      author: session?.user?.name || 'Team Member',
+      role,
+      message,
+      entryType: 'note',
+    });
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        submissionData: dataObj,
+      },
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to add JR note:', error);
+    return { success: false, error: 'Failed to add JR note.' };
   }
 }
 

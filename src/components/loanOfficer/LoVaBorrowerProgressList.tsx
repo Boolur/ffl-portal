@@ -13,12 +13,10 @@ import {
   FileText,
   FileCheck2,
   Home,
-  MessageSquare,
   Paperclip,
   Search,
   Loader2,
   UserCog,
-  User,
   X,
 } from 'lucide-react';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
@@ -100,6 +98,20 @@ function getTimerClassName(elapsedMs: number) {
   if (elapsedMinutes < 135) return 'border-yellow-300 bg-yellow-100 text-yellow-800';
   if (elapsedMinutes < 175) return 'border-orange-300 bg-orange-100 text-orange-800';
   return 'border-rose-400 bg-rose-100 text-rose-800';
+}
+
+function getStageElapsedMs(
+  createdAt: Date | null,
+  updatedAt: Date | null,
+  completed: boolean,
+  nowMs: number
+) {
+  if (!createdAt) return null;
+  const startMs = createdAt.getTime();
+  if (!Number.isFinite(startMs)) return null;
+  const endMs = completed && updatedAt ? updatedAt.getTime() : nowMs;
+  if (!Number.isFinite(endMs) || endMs < startMs) return null;
+  return endMs - startMs;
 }
 
 const submissionDetailGroups = [
@@ -267,10 +279,8 @@ export function LoVaBorrowerProgressList({
   const [openingAttachmentId, setOpeningAttachmentId] = React.useState<string | null>(null);
   const jrDetailSectionRef = React.useRef<HTMLDivElement | null>(null);
   const [expandedStageNotes, setExpandedStageNotes] = React.useState<Set<string>>(() => new Set());
-  const [expandedTimelineNotes, setExpandedTimelineNotes] = React.useState<Set<string>>(
-    () => new Set()
-  );
   const [expandedTaskDetails, setExpandedTaskDetails] = React.useState<Set<string>>(() => new Set());
+  const [timerNowMs, setTimerNowMs] = React.useState(() => Date.now());
   const focusedItem =
     focusedItemKey === null
       ? null
@@ -313,7 +323,6 @@ export function LoVaBorrowerProgressList({
 
   React.useEffect(() => {
     setExpandedStageNotes(new Set());
-    setExpandedTimelineNotes(new Set());
     setExpandedTaskDetails(new Set());
   }, [focusedItemKey]);
 
@@ -324,6 +333,13 @@ export function LoVaBorrowerProgressList({
     }, 80);
     return () => window.clearTimeout(timer);
   }, [focusedItem, focusedQueue]);
+
+  React.useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setTimerNowMs(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   return (
     <section className={`${className || ''}`}>
@@ -360,11 +376,11 @@ export function LoVaBorrowerProgressList({
                           <button
                             type="button"
                             onClick={() => openBorrowerDetail(item, 'va')}
-                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-blue-300 hover:bg-slate-50 hover:text-blue-700"
                             title="Open borrower submission details"
                             aria-label="Open borrower submission details"
                           >
-                            <User className="h-3.5 w-3.5" />
+                            <FileText className="h-3.5 w-3.5" />
                           </button>
                           <p className="truncate text-sm font-bold text-slate-900">
                             {item.borrowerName}
@@ -449,11 +465,11 @@ export function LoVaBorrowerProgressList({
                           <button
                             type="button"
                             onClick={() => openBorrowerDetail(item, 'jr')}
-                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-blue-300 hover:bg-slate-50 hover:text-blue-700"
                             title="Open borrower submission details"
                             aria-label="Open borrower submission details"
                           >
-                            <User className="h-3.5 w-3.5" />
+                            <FileText className="h-3.5 w-3.5" />
                           </button>
                           <p className="truncate text-sm font-bold text-slate-900">
                             {item.borrowerName}
@@ -543,11 +559,11 @@ export function LoVaBorrowerProgressList({
                           <button
                             type="button"
                             onClick={() => openBorrowerDetail(item, 'completed')}
-                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-blue-300 hover:bg-slate-50 hover:text-blue-700"
                             title="Open borrower submission details"
                             aria-label="Open borrower submission details"
                           >
-                            <User className="h-3.5 w-3.5" />
+                            <FileText className="h-3.5 w-3.5" />
                           </button>
                           <p className="truncate text-sm font-bold text-slate-900">
                             {item.borrowerName}
@@ -676,6 +692,12 @@ export function LoVaBorrowerProgressList({
                     const visibleNote = canToggleStageNote && !stageNoteExpanded
                       ? `${notePreview.slice(0, 180)}...`
                       : notePreview;
+                    const stageElapsedMs = getStageElapsedMs(
+                      detail.createdAt,
+                      detail.updatedAt,
+                      detail.completed,
+                      timerNowMs
+                    );
                     return (
                       <div
                         key={label}
@@ -685,8 +707,8 @@ export function LoVaBorrowerProgressList({
                             : 'border-rose-200 bg-rose-50'
                         }`}
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-2 text-sm font-bold tracking-tight text-slate-800">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight text-slate-900">
                             <span
                               className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
                                 detail.completed
@@ -698,32 +720,47 @@ export function LoVaBorrowerProgressList({
                             </span>
                             {label}
                           </span>
-                          <span
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                              detail.completed
-                                ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                : 'border-rose-300 bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {detail.completed ? 'Completed' : 'Incomplete'}
-                          </span>
-                        </div>
-                        <div className="mt-2 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedTaskDetails((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(stageDetailKey)) next.delete(stageDetailKey);
-                                else next.add(stageDetailKey);
-                                return next;
-                              })
-                            }
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                            {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
-                          </button>
+                          <div className="inline-flex items-center gap-2.5 shrink-0">
+                            {stageElapsedMs !== null && (
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold ${getTimerClassName(
+                                  stageElapsedMs
+                                )}`}
+                                title={
+                                  detail.completed
+                                    ? 'Total elapsed time for this completed VA task'
+                                    : 'Elapsed time for this active VA task'
+                                }
+                              >
+                                <Clock3 className="mr-1 h-3 w-3" />
+                                Total {formatElapsedTimerLabel(stageElapsedMs)}
+                              </span>
+                            )}
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
+                                detail.completed
+                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                  : 'border-rose-300 bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {detail.completed ? 'Completed' : 'Incomplete'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedTaskDetails((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(stageDetailKey)) next.delete(stageDetailKey);
+                                  else next.add(stageDetailKey);
+                                  return next;
+                                })
+                              }
+                              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+                            >
+                              <FileText className="h-4 w-4" />
+                              {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
+                            </button>
+                          </div>
                         </div>
                         {stageDetailsExpanded && (
                           <>
@@ -825,6 +862,12 @@ export function LoVaBorrowerProgressList({
                     const visibleNote = canToggleStageNote && !stageNoteExpanded
                       ? `${notePreview.slice(0, 180)}...`
                       : notePreview;
+                    const stageElapsedMs = getStageElapsedMs(
+                      detail.createdAt,
+                      detail.updatedAt,
+                      detail.completed,
+                      timerNowMs
+                    );
                     return (
                       <div
                         key={label}
@@ -834,8 +877,8 @@ export function LoVaBorrowerProgressList({
                             : 'border-rose-200 bg-rose-50'
                         }`}
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-2 text-sm font-bold tracking-tight text-slate-800">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight text-slate-900">
                             <span
                               className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
                                 detail.completed
@@ -847,32 +890,90 @@ export function LoVaBorrowerProgressList({
                             </span>
                             {label} (JR)
                           </span>
-                          <span
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                              detail.completed
-                                ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                : 'border-rose-300 bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {detail.completed ? 'Completed' : 'Incomplete'}
-                          </span>
+                          <div className="inline-flex items-center gap-2.5 shrink-0">
+                            {stageElapsedMs !== null && (
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold ${getTimerClassName(
+                                  stageElapsedMs
+                                )}`}
+                                title={
+                                  detail.completed
+                                    ? 'Total elapsed time for this completed JR task'
+                                    : 'Elapsed time for this active JR task'
+                                }
+                              >
+                                <Clock3 className="mr-1 h-3 w-3" />
+                                Total {formatElapsedTimerLabel(stageElapsedMs)}
+                              </span>
+                            )}
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
+                                detail.completed
+                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                  : 'border-rose-300 bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {detail.completed ? 'Completed' : 'Incomplete'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedTaskDetails((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(stageDetailKey)) next.delete(stageDetailKey);
+                                  else next.add(stageDetailKey);
+                                  return next;
+                                })
+                              }
+                              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+                            >
+                              <FileText className="h-4 w-4" />
+                              {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
+                            </button>
+                          </div>
                         </div>
-                        <div className="mt-2 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedTaskDetails((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(stageDetailKey)) next.delete(stageDetailKey);
-                                else next.add(stageDetailKey);
-                                return next;
-                              })
-                            }
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                            {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
-                          </button>
+                        <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                            JR Tasks
+                          </p>
+                          <div className="mt-2 space-y-1.5">
+                            {(detail.checklist.length > 0
+                              ? detail.checklist
+                              : [
+                                  {
+                                    id: 'ordered-hoi',
+                                    label: 'HOI',
+                                    status: detail.completed ? 'COMPLETED' : 'ORDERED',
+                                  },
+                                  {
+                                    id: 'ordered-voe',
+                                    label: 'VOE',
+                                    status: detail.completed ? 'COMPLETED' : 'ORDERED',
+                                  },
+                                  {
+                                    id: 'submitted-underwriting',
+                                    label: 'Submitted to Underwriting',
+                                    status: detail.completed ? 'COMPLETED' : 'ORDERED',
+                                  },
+                                ]
+                            ).map((row) => (
+                              <div
+                                key={row.id}
+                                className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5"
+                              >
+                                <span className="text-xs font-semibold text-slate-700">{row.label}</span>
+                                <span
+                                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
+                                    row.status as 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED'
+                                  )}`}
+                                >
+                                  {formatJrChecklistStatus(
+                                    row.status as 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED'
+                                  )}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                         {stageDetailsExpanded && (
                           <>
@@ -1022,76 +1123,6 @@ export function LoVaBorrowerProgressList({
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
-                <div className="mb-4 flex items-center justify-between gap-2">
-                  <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">
-                    VA & JR Notes Timeline
-                  </h4>
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                    {focusedItem.notesTimeline.length} Notes
-                  </span>
-                </div>
-                {focusedItem.notesTimeline.length === 0 ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-medium text-slate-500">
-                    No notes yet.
-                  </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    {focusedItem.notesTimeline.map((note) => {
-                      const isExpanded = expandedTimelineNotes.has(note.id);
-                      const canToggle = note.message.length > 180;
-                      const visibleMessage =
-                        canToggle && !isExpanded
-                          ? `${note.message.slice(0, 180)}...`
-                          : note.message;
-                      return (
-                        <article
-                          key={note.id}
-                          className="rounded-xl border border-slate-200 bg-slate-50 p-3"
-                        >
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
-                              <MessageSquare className="h-3 w-3" />
-                              {stageLabelByKey[note.stage]}
-                            </span>
-                            <span className="text-[11px] font-medium text-slate-500">
-                              {formatNoteDateTime(note.date)}
-                            </span>
-                          </div>
-                          <p className="text-xs font-semibold text-slate-700">{visibleMessage}</p>
-                          <p className="mt-1 text-[11px] text-slate-500">
-                            {note.author} • {formatRoleLabel(note.role)}
-                          </p>
-                          {canToggle && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedTimelineNotes((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(note.id)) next.delete(note.id);
-                                  else next.add(note.id);
-                                  return next;
-                                })
-                              }
-                              className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
-                            >
-                              {isExpanded ? (
-                                <>
-                                  Show Less <ChevronUp className="h-3 w-3" />
-                                </>
-                              ) : (
-                                <>
-                                  Show More <ChevronDown className="h-3 w-3" />
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </div>

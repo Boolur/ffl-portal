@@ -60,6 +60,8 @@ export type LoVaBorrowerProgressItem = {
     {
       taskId: string | null;
       completed: boolean;
+      createdAt: Date | null;
+      updatedAt: Date | null;
       proofAttachments: Array<{ id: string; filename: string }>;
       latestNote: {
         message: string;
@@ -74,6 +76,8 @@ export type LoVaBorrowerProgressItem = {
     {
       taskId: string | null;
       completed: boolean;
+      createdAt: Date | null;
+      updatedAt: Date | null;
       checklist: JrChecklistRow[];
       proofAttachments: Array<{ id: string; filename: string }>;
       latestNote: {
@@ -510,12 +514,41 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     const hasIncompleteVa =
       hasAnyVaTask && Object.values(vaChips).some((chip) => chip !== 'completed');
     const vaStageDetails: LoVaBorrowerProgressItem['vaStageDetails'] = {
-      title: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
-      payoff: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
-      appraisal: { taskId: null, completed: false, proofAttachments: [], latestNote: null },
+      title: {
+        taskId: null,
+        completed: false,
+        createdAt: null,
+        updatedAt: null,
+        proofAttachments: [],
+        latestNote: null,
+      },
+      payoff: {
+        taskId: null,
+        completed: false,
+        createdAt: null,
+        updatedAt: null,
+        proofAttachments: [],
+        latestNote: null,
+      },
+      appraisal: {
+        taskId: null,
+        completed: false,
+        createdAt: null,
+        updatedAt: null,
+        proofAttachments: [],
+        latestNote: null,
+      },
     };
     const jrStageDetails: LoVaBorrowerProgressItem['jrStageDetails'] = {
-      hoi: { taskId: null, completed: false, checklist: [], proofAttachments: [], latestNote: null },
+      hoi: {
+        taskId: null,
+        completed: false,
+        createdAt: null,
+        updatedAt: null,
+        checklist: [],
+        proofAttachments: [],
+        latestNote: null,
+      },
     };
     const timelineById = new Map<
       string,
@@ -539,6 +572,8 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       vaStageDetails[definition.key] = {
         taskId: task.id,
         completed: task.status === TaskStatus.COMPLETED,
+        createdAt: toDate(task.createdAt),
+        updatedAt: toDate(task.updatedAt),
         proofAttachments: (task.attachments || [])
           .filter((att) => isProofAttachment(att.purpose))
           .map((att) => ({ id: att.id, filename: att.filename })),
@@ -569,6 +604,8 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       jrStageDetails[definition.key] = {
         taskId: task.id,
         completed: task.status === TaskStatus.COMPLETED,
+        createdAt: toDate(task.createdAt),
+        updatedAt: toDate(task.updatedAt),
         checklist: jrChecklist,
         proofAttachments: (task.attachments || [])
           .filter((att) => isProofAttachment(att.purpose))

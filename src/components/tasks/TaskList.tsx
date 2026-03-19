@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
+  addJrProcessorNote,
   deleteTask,
   reviewInitialDisclosureFigures,
   requestInfoFromLoanOfficer,
@@ -191,8 +192,8 @@ const qcChecklistGreenOptions = new Set<QcChecklistNoteOption>([
 ]);
 
 const jrChecklistTemplate: JrChecklistDraftItem[] = [
-  { id: 'ordered-hoi', label: 'Ordered HOI', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
-  { id: 'ordered-voe', label: 'Ordered VOE', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
+  { id: 'ordered-hoi', label: 'HOI', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
+  { id: 'ordered-voe', label: 'VOE', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
   { id: 'submitted-underwriting', label: 'Submitted to Underwriting', status: 'ORDERED', proofAttachmentId: null, proofFilename: null },
 ];
 
@@ -1149,6 +1150,8 @@ export function TaskList({
   const [loResponseByTask, setLoResponseByTask] = React.useState<
     Record<string, string>
   >({});
+  const [jrNoteByTask, setJrNoteByTask] = React.useState<Record<string, string>>({});
+  const [addingJrNoteId, setAddingJrNoteId] = React.useState<string | null>(null);
   const [timerNowMs, setTimerNowMs] = React.useState(() => Date.now());
 
   const getQcChecklistRows = React.useCallback(
@@ -1632,6 +1635,25 @@ export function TaskList({
     setDeletingAttachmentId(null);
   };
 
+  const handleAddJrNote = async (taskId: string) => {
+    if (addingJrNoteId) return;
+    const note = (jrNoteByTask[taskId] || '').trim();
+    if (!note) {
+      alert('Please enter a note before adding it.');
+      return;
+    }
+    setAddingJrNoteId(taskId);
+    const result = await addJrProcessorNote(taskId, note);
+    if (!result.success) {
+      alert(result.error || 'Failed to add JR note.');
+      setAddingJrNoteId(null);
+      return;
+    }
+    setJrNoteByTask((prev) => ({ ...prev, [taskId]: '' }));
+    router.refresh();
+    setAddingJrNoteId(null);
+  };
+
   const handleViewAttachment = async (attachmentId: string) => {
     const result = await getTaskAttachmentDownloadUrl(attachmentId);
     if (!result.success) {
@@ -2074,6 +2096,9 @@ export function TaskList({
             ? task.parentTask.submissionData
             : null;
         const workflowChip = getWorkflowChip(task.workflowState, task.disclosureReason);
+        const showWorkflowChip =
+          !canManageJrChecklist &&
+          (Boolean(workflowChip) || task.workflowState !== TaskWorkflowState.NONE);
         const submissionDataGroups = getGroupedSubmissionDetails(
           parsedSubmissionData as Record<string, unknown> | null
         );
@@ -2430,11 +2455,11 @@ export function TaskList({
                         Reason: {disclosureReasonLabel[task.disclosureReason]}
                       </p>
                     )}
-                    {workflowChip ? (
+                    {showWorkflowChip && workflowChip ? (
                       <p className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm ${workflowChip.className}`}>
                         {workflowChip.label}
                       </p>
-                    ) : task.workflowState !== TaskWorkflowState.NONE ? (
+                    ) : showWorkflowChip && task.workflowState !== TaskWorkflowState.NONE ? (
                       <p className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 shadow-sm">
                         {workflowStateLabel[task.workflowState]}
                       </p>
@@ -3007,9 +3032,19 @@ export function TaskList({
                                 </option>
                               ))}
                             </select>
-                            <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
+                            <div
+                              className={`mt-2.5 rounded-lg border p-2.5 ${
+                                row.proofAttachmentId
+                                  ? 'border-emerald-200 bg-emerald-50/60'
+                                  : 'border-rose-200 bg-rose-50/60'
+                              }`}
+                            >
                               <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                                <span
+                                  className={`text-[11px] font-bold uppercase tracking-wide ${
+                                    row.proofAttachmentId ? 'text-emerald-700' : 'text-rose-700'
+                                  }`}
+                                >
                                   Attach Proof (Required)
                                 </span>
                                 {proofAttachmentId ? (
@@ -3106,6 +3141,40 @@ export function TaskList({
                         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           Autosaves on every change
                         </span>
+                      </div>
+                      <div className="rounded-xl border border-sky-200 bg-white p-3 shadow-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-sky-700">
+                            JR Notes
+                          </p>
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                            Add as needed
+                          </span>
+                        </div>
+                        <textarea
+                          value={jrNoteByTask[task.id] || ''}
+                          onChange={(event) =>
+                            setJrNoteByTask((prev) => ({
+                              ...prev,
+                              [task.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="Add a note update for this JR request..."
+                          className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[84px] focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                        />
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => void handleAddJrNote(task.id)}
+                            disabled={addingJrNoteId === task.id}
+                            className="inline-flex h-8 items-center rounded-lg border border-sky-300 bg-sky-50 px-3 text-xs font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {addingJrNoteId === task.id && (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            )}
+                            Add Note
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
