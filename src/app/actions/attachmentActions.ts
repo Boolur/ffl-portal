@@ -42,6 +42,8 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
   const isAssignedToUser = task.assignedUserId === userId;
   const isAssignedToRole =
     task.assignedRole === role ||
+    (role === UserRole.PROCESSOR_JR &&
+      (task.assignedRole === UserRole.VA_HOI || task.kind === TaskKind.VA_HOI)) ||
     (role === UserRole.VA &&
       (task.assignedRole === UserRole.VA_TITLE ||
         task.assignedRole === UserRole.VA_PAYOFF ||

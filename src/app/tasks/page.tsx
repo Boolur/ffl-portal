@@ -184,6 +184,9 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
       ...(userId ? [{ assignedUserId: userId }] : []),
       { assignedRole: UserRole.VA },
     ];
+  } else if (role === UserRole.PROCESSOR_JR) {
+    // Backward compatibility: preserve HOI visibility regardless of assignment role drift.
+    where.OR = [{ assignedRole: UserRole.PROCESSOR_JR }, { kind: TaskKind.VA_HOI }];
   } else {
     where.OR = [
       { assignedRole: role as UserRole },

@@ -18,6 +18,7 @@ enum UserRole {
   DISCLOSURE_SPECIALIST
   VA
   VA_TITLE
+  VA_HOI // Legacy role retained for compatibility; HOI routes to PROCESSOR_JR.
   VA_PAYOFF
   VA_APPRAISAL
   QC

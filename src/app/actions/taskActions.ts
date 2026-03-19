@@ -1143,6 +1143,8 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     const isAssignedToUser = existing.assignedUserId === userId;
     const isAssignedToRole =
       existing.assignedRole === role ||
+      (role === UserRole.PROCESSOR_JR &&
+        (existing.assignedRole === UserRole.VA_HOI || existing.kind === TaskKind.VA_HOI)) ||
       (role === UserRole.VA &&
         (existing.assignedRole === UserRole.VA_TITLE ||
           existing.assignedRole === UserRole.VA_PAYOFF ||
