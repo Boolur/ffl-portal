@@ -23,39 +23,6 @@ import {
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import type { LoVaBorrowerProgressItem, VaChipState } from '@/lib/loVaProgress';
 
-const chipMeta: Record<
-  VaChipState,
-  {
-    label: string;
-    className: string;
-  }
-> = {
-  not_started: {
-    label: 'Not Started',
-    className: 'border-slate-200 bg-slate-50 text-slate-600',
-  },
-  new: {
-    label: 'New',
-    className: 'border-blue-200 bg-blue-50 text-blue-700',
-  },
-  working: {
-    label: 'Working',
-    className: 'border-indigo-200 bg-indigo-50 text-indigo-700',
-  },
-  waiting: {
-    label: 'Waiting',
-    className: 'border-amber-200 bg-amber-50 text-amber-700',
-  },
-  review: {
-    label: 'Review',
-    className: 'border-sky-200 bg-sky-50 text-sky-700',
-  },
-  completed: {
-    label: 'Completed',
-    className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  },
-};
-
 function StatusChip({ label, state }: { label: string; state: VaChipState }) {
   const completed = state === 'completed';
   return (
@@ -191,24 +158,24 @@ function BucketPanel({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-full min-h-[420px] flex-col rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all hover:shadow-md">
+    <div className="flex h-full min-h-[420px] flex-col rounded-2xl border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md">
       <div className="mb-1.5 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5">
           {icon}
-          <p className="truncate text-lg font-extrabold leading-snug tracking-tight text-slate-900">
+          <p className="truncate text-lg font-extrabold leading-snug tracking-tight text-foreground">
             {title}
           </p>
         </div>
-        <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+        <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full app-pill px-2 text-xs font-bold shadow-sm ring-1 ring-border/60">
           {count}
         </span>
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-1.5 border-b border-border/50 pb-1.5">
-        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 shadow-sm">
+        <span className="inline-flex items-center rounded-full border border-border bg-secondary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground shadow-sm">
           {chipLabel}
         </span>
       </div>
-      <div className="mb-2 flex items-center rounded-md border border-slate-200 bg-white py-1.5 pl-2.5 pr-2 text-[11px] text-slate-400">
+      <div className="mb-2 flex items-center rounded-md border border-border bg-card py-1.5 pl-2.5 pr-2 text-[11px] text-muted-foreground">
         <Search className="mr-1.5 h-3 w-3" />
         Search bucket
       </div>
@@ -268,16 +235,16 @@ export function LoVaBorrowerProgressList({
           count={items.length}
         >
           {items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
+          <div className="flex flex-col items-center justify-center py-10 text-center">
               <CheckCircle2 className="h-6 w-6 text-slate-300" />
-              <p className="mt-2 text-xs font-medium text-slate-500">No VA requests in queue.</p>
+            <p className="mt-2 text-xs font-medium text-muted-foreground">No VA requests in queue.</p>
             </div>
           ) : (
             <div className="space-y-3">
               {items.map((item) => (
                 <article
                   key={`${item.loanNumber}-${item.borrowerName}`}
-                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
                 >
                   <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -286,7 +253,7 @@ export function LoVaBorrowerProgressList({
                         <button
                           type="button"
                           onClick={() => setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`)}
-                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm ring-1 ring-black/5 hover:bg-slate-200"
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground shadow-sm ring-1 ring-black/5 hover:bg-muted"
                           title={`Open VA submission details for ${item.borrowerName}`}
                           aria-label={`Open VA submission details for ${item.borrowerName}`}
                         >
@@ -294,35 +261,41 @@ export function LoVaBorrowerProgressList({
                         </button>
                         <div className="min-w-0">
                           {item.latestUpdatedAt && (
-                            <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                              <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                          <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-muted-foreground leading-none">
+                              <Calendar className="mr-1 h-3 w-3 text-muted-foreground" />
                               {formatCompactDateTime(item.latestUpdatedAt)}
                             </p>
                           )}
-                          <p className="truncate text-sm font-bold text-slate-900">
+                          <p className="truncate text-sm font-bold text-foreground">
                             {item.borrowerName}
                           </p>
-                          <p className="text-xs text-slate-500">{item.loanNumber}</p>
+                          <p className="text-xs text-muted-foreground">{item.loanNumber}</p>
                           {item.earliestCreatedAt && (
-                            <span
-                              className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
-                                Date.now() - item.earliestCreatedAt.getTime()
-                              )}`}
-                              title="Total time from first VA task creation"
-                            >
-                              <Clock3 className="mr-1 h-3 w-3" />
-                              Total{' '}
-                              {formatElapsedTimerLabel(
-                                Date.now() - item.earliestCreatedAt.getTime()
-                              )}
-                            </span>
+                            (() => {
+                              const elapsedMs = Math.max(
+                                0,
+                                (item.latestUpdatedAt || item.earliestCreatedAt).getTime() -
+                                  item.earliestCreatedAt.getTime()
+                              );
+                              return (
+                                <span
+                                  className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTimerClassName(
+                                    elapsedMs
+                                  )}`}
+                                  title="Elapsed time between first creation and latest update"
+                                >
+                                  <Clock3 className="mr-1 h-3 w-3" />
+                                  Elapsed {formatElapsedTimerLabel(elapsedMs)}
+                                </span>
+                              );
+                            })()
                           )}
                         </div>
                       </div>
                     </div>
                     <div className="flex max-w-[55%] flex-col items-end gap-1.5">
                       <div className="flex items-center gap-1.5">
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                        <span className="inline-flex items-center rounded-full border border-border bg-card px-2 py-0.5 text-[10px] font-semibold text-foreground">
                           <Clock3 className="mr-1 h-3 w-3" />
                           {item.completedCount}/{item.totalCount}
                         </span>
@@ -357,8 +330,8 @@ export function LoVaBorrowerProgressList({
         >
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <UserCog className="h-6 w-6 text-slate-300" />
-            <p className="mt-2 text-xs font-medium text-slate-600">Queue not active yet.</p>
-            <p className="mt-1 max-w-[220px] text-[11px] text-slate-500">
+            <p className="mt-2 text-xs font-medium text-muted-foreground">Queue not active yet.</p>
+            <p className="mt-1 max-w-[220px] text-[11px] text-muted-foreground">
               Borrowers move here after VA stage is complete.
             </p>
           </div>
@@ -372,8 +345,8 @@ export function LoVaBorrowerProgressList({
         >
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <UserRoundCheck className="h-6 w-6 text-slate-300" />
-            <p className="mt-2 text-xs font-medium text-slate-600">Queue not active yet.</p>
-            <p className="mt-1 max-w-[220px] text-[11px] text-slate-500">
+            <p className="mt-2 text-xs font-medium text-muted-foreground">Queue not active yet.</p>
+            <p className="mt-1 max-w-[220px] text-[11px] text-muted-foreground">
               Borrowers move here after JR Processor completion.
             </p>
           </div>
@@ -382,29 +355,29 @@ export function LoVaBorrowerProgressList({
 
       {focusedItem && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4"
           onClick={() => setFocusedItemKey(null)}
         >
           <div
-            className="w-full max-w-4xl max-h-[88vh] overflow-y-auto rounded-[24px] border border-slate-200/60 bg-slate-50 p-6 sm:p-8 shadow-2xl"
+            className="w-full max-w-4xl max-h-[88vh] overflow-y-auto rounded-[24px] border border-border bg-background p-6 sm:p-8 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-5 border-b border-slate-200/60 pb-6">
+            <div className="flex items-start justify-between gap-5 border-b border-border pb-6">
               <div>
                 <div className="mb-1.5 flex items-center gap-2">
-                  <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
+                  <h2 className="text-2xl font-extrabold tracking-tight text-foreground">
                     {focusedItem.borrowerName}
                   </h2>
-                  <span className="inline-flex items-center rounded-md bg-white px-2.5 py-1 text-sm font-mono font-bold text-slate-600 ring-1 ring-inset ring-slate-200 shadow-sm">
+                  <span className="inline-flex items-center rounded-md bg-card px-2.5 py-1 text-sm font-mono font-bold text-muted-foreground ring-1 ring-inset ring-border shadow-sm">
                     {focusedItem.loanNumber}
                   </span>
                 </div>
-                <p className="text-sm font-medium text-slate-500">VA Submission Details</p>
+                <p className="text-sm font-medium text-muted-foreground">VA Submission Details</p>
               </div>
               <button
                 type="button"
                 onClick={() => setFocusedItemKey(null)}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-secondary"
                 aria-label="Close VA submission details"
               >
                 <X className="h-5 w-5" />
@@ -412,23 +385,23 @@ export function LoVaBorrowerProgressList({
             </div>
 
             {focusedSubmissionGroups.length > 0 && (
-              <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
-                <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
+              <div className="mt-6 rounded-2xl bg-card p-5 shadow-sm ring-1 ring-border">
+                <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-foreground">
                   QC Submission Snapshot
                 </h4>
                 <div className="space-y-4">
                   {focusedSubmissionGroups.map((group) => (
-                    <div key={group.title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-700">
+                    <div key={group.title} className="rounded-xl border border-border bg-secondary p-4">
+                      <p className="mb-3 text-xs font-bold uppercase tracking-wide text-foreground">
                         {group.title}
                       </p>
                       <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
                         {group.rows.map((row) => (
                           <div key={row.key} className="flex flex-col">
-                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                               {row.label}
                             </span>
-                            <span className="text-sm font-semibold text-slate-900">{row.value}</span>
+                            <span className="text-sm font-semibold text-foreground">{row.value}</span>
                           </div>
                         ))}
                       </div>
@@ -439,8 +412,8 @@ export function LoVaBorrowerProgressList({
             )}
 
             <div className="mt-6 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
-              <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
-                <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
+              <div className="rounded-2xl bg-card p-5 shadow-sm ring-1 ring-border">
+                <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-foreground">
                   VA Task Completion & Proof
                 </h4>
                 <div className="space-y-3">
@@ -519,27 +492,27 @@ export function LoVaBorrowerProgressList({
                           </div>
                         )}
 
-                        <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                <div className="mt-2 rounded-lg border border-border bg-card/80 px-3 py-2">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                               Latest VA Note
                             </p>
                             {latestNote && (
-                              <span className="text-[11px] font-medium text-slate-500">
+                              <span className="text-[11px] font-medium text-muted-foreground">
                                 {formatNoteDateTime(latestNote.date)}
                               </span>
                             )}
                           </div>
                           {!latestNote ? (
-                            <p className="mt-1 text-xs font-medium text-slate-500">
+                            <p className="mt-1 text-xs font-medium text-muted-foreground">
                               No stage note yet.
                             </p>
                           ) : (
                             <>
-                              <p className="mt-1 text-xs font-semibold text-slate-700">
+                              <p className="mt-1 text-xs font-semibold text-foreground">
                                 {visibleNote}
                               </p>
-                              <p className="mt-1 text-[11px] text-slate-500">
+                              <p className="mt-1 text-[11px] text-muted-foreground">
                                 {latestNote.author} • {formatRoleLabel(latestNote.role)}
                               </p>
                               {canToggleStageNote && (
@@ -575,17 +548,17 @@ export function LoVaBorrowerProgressList({
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
+              <div className="rounded-2xl bg-card p-5 shadow-sm ring-1 ring-border">
                 <div className="mb-4 flex items-center justify-between gap-2">
-                  <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+                  <h4 className="text-sm font-bold uppercase tracking-wide text-foreground">
                     VA Notes Timeline
                   </h4>
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  <span className="inline-flex items-center rounded-full border border-border bg-secondary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                     {focusedItem.notesTimeline.length} Notes
                   </span>
                 </div>
                 {focusedItem.notesTimeline.length === 0 ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-medium text-slate-500">
+                  <div className="rounded-xl border border-border bg-secondary p-3 text-xs font-medium text-muted-foreground">
                     No notes yet.
                   </div>
                 ) : (
@@ -600,19 +573,19 @@ export function LoVaBorrowerProgressList({
                       return (
                         <article
                           key={note.id}
-                          className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                          className="rounded-xl border border-border bg-secondary p-3"
                         >
                           <div className="mb-1 flex items-center justify-between gap-2">
                             <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
                               <MessageSquare className="h-3 w-3" />
                               {stageLabelByKey[note.stage]}
                             </span>
-                            <span className="text-[11px] font-medium text-slate-500">
+                            <span className="text-[11px] font-medium text-muted-foreground">
                               {formatNoteDateTime(note.date)}
                             </span>
                           </div>
-                          <p className="text-xs font-semibold text-slate-700">{visibleMessage}</p>
-                          <p className="mt-1 text-[11px] text-slate-500">
+                          <p className="text-xs font-semibold text-foreground">{visibleMessage}</p>
+                          <p className="mt-1 text-[11px] text-muted-foreground">
                             {note.author} • {formatRoleLabel(note.role)}
                           </p>
                           {canToggle && (

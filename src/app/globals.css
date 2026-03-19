@@ -33,6 +33,36 @@
   --radius: 0.75rem;
 }
 
+[data-theme='dark'] {
+  --background: #070b14;
+  --foreground: #e5e7eb;
+
+  --card: #0f172a;
+  --card-foreground: #e5e7eb;
+
+  --popover: #0f172a;
+  --popover-foreground: #e5e7eb;
+
+  --primary: #3b82f6;
+  --primary-foreground: #f8fafc;
+
+  --secondary: #172033;
+  --secondary-foreground: #e2e8f0;
+
+  --muted: #111b2e;
+  --muted-foreground: #94a3b8;
+
+  --accent: #1e293b;
+  --accent-foreground: #e2e8f0;
+
+  --destructive: #f87171;
+  --destructive-foreground: #0f172a;
+
+  --border: #243247;
+  --input: #243247;
+  --ring: #60a5fa;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -88,6 +118,21 @@ textarea:disabled,
 
 .app-shell-bg {
   background: color-mix(in oklab, var(--background) 90%, var(--secondary) 10%);
+}
+
+.app-surface-soft {
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--card) 92%, var(--background) 8%);
+}
+
+.app-pill {
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--muted) 84%, var(--card) 16%);
+  color: var(--muted-foreground);
+}
+
+.app-text-muted {
+  color: var(--muted-foreground);
 }
 
 .app-glass {
@@ -231,4 +276,65 @@ textarea:disabled,
 .app-icon-btn-danger:hover {
   background: #fef2f2;
   color: #dc2626;
+}
+
+/* Scoped dark-mode normalization for legacy utility-heavy LO modals. */
+[data-theme='dark'] .task-list-theme .bg-white,
+[data-theme='dark'] .new-task-modal-theme .bg-white {
+  background-color: var(--card) !important;
+}
+
+[data-theme='dark'] .task-list-theme .text-slate-900,
+[data-theme='dark'] .task-list-theme .text-slate-800,
+[data-theme='dark'] .task-list-theme .text-slate-700,
+[data-theme='dark'] .new-task-modal-theme .text-slate-900,
+[data-theme='dark'] .new-task-modal-theme .text-slate-800,
+[data-theme='dark'] .new-task-modal-theme .text-slate-700 {
+  color: var(--foreground) !important;
+}
+
+[data-theme='dark'] .task-list-theme .text-slate-600,
+[data-theme='dark'] .task-list-theme .text-slate-500,
+[data-theme='dark'] .task-list-theme .text-slate-400,
+[data-theme='dark'] .new-task-modal-theme .text-slate-600,
+[data-theme='dark'] .new-task-modal-theme .text-slate-500,
+[data-theme='dark'] .new-task-modal-theme .text-slate-400 {
+  color: var(--muted-foreground) !important;
+}
+
+[data-theme='dark'] .task-list-theme .border-slate-100,
+[data-theme='dark'] .task-list-theme .border-slate-200,
+[data-theme='dark'] .task-list-theme .border-slate-300,
+[data-theme='dark'] .new-task-modal-theme .border-slate-100,
+[data-theme='dark'] .new-task-modal-theme .border-slate-200,
+[data-theme='dark'] .new-task-modal-theme .border-slate-300 {
+  border-color: var(--border) !important;
+}
+
+[data-theme='dark'] .task-list-theme .bg-slate-50,
+[data-theme='dark'] .task-list-theme .bg-slate-100,
+[data-theme='dark'] .task-list-theme .bg-slate-200,
+[data-theme='dark'] .new-task-modal-theme .bg-slate-50,
+[data-theme='dark'] .new-task-modal-theme .bg-slate-100,
+[data-theme='dark'] .new-task-modal-theme .bg-slate-200 {
+  background-color: var(--secondary) !important;
+}
+
+[data-theme='dark'] .task-list-theme [class*='bg-slate-50/'],
+[data-theme='dark'] .task-list-theme [class*='bg-slate-100/'],
+[data-theme='dark'] .new-task-modal-theme [class*='bg-slate-50/'],
+[data-theme='dark'] .new-task-modal-theme [class*='bg-slate-100/'] {
+  background-color: color-mix(in oklab, var(--secondary) 75%, transparent) !important;
+}
+
+[data-theme='dark'] .task-list-theme [class*='border-slate-200/'],
+[data-theme='dark'] .task-list-theme [class*='border-slate-100/'],
+[data-theme='dark'] .new-task-modal-theme [class*='border-slate-200/'],
+[data-theme='dark'] .new-task-modal-theme [class*='border-slate-100/'] {
+  border-color: color-mix(in oklab, var(--border) 75%, transparent) !important;
+}
+
+[data-theme='dark'] .task-list-theme [class*='to-white'],
+[data-theme='dark'] .new-task-modal-theme [class*='to-white'] {
+  --tw-gradient-to: color-mix(in oklab, var(--card) 75%, transparent) var(--tw-gradient-to-position) !important;
 }

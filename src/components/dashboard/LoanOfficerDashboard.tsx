@@ -73,33 +73,33 @@ export function LoanOfficerDashboard({
           }
           className={`group relative flex flex-col items-start p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
             disclosureEnabled
-              ? 'border-blue-200 bg-white hover:shadow-md hover:border-blue-300 transition-all'
-              : 'border-slate-200 bg-slate-50/70 cursor-not-allowed'
+              ? 'border-blue-200/70 bg-card hover:shadow-md hover:border-blue-300 transition-all'
+              : 'border-border bg-secondary/70 cursor-not-allowed'
           }`}
         >
           <div className={`absolute top-0 right-0 p-8 ${disclosureEnabled ? 'opacity-5 group-hover:opacity-10 transition-opacity' : 'opacity-5'}`}>
             <ClipboardCheck className={`w-32 h-32 ${disclosureEnabled ? 'text-blue-600' : 'text-slate-500'}`} />
           </div>
           <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-6 shadow-sm ${
-            disclosureEnabled ? 'bg-blue-600 text-white group-hover:scale-105 transition-transform' : 'bg-slate-200 text-slate-500'
+            disclosureEnabled ? 'bg-blue-600 text-white group-hover:scale-105 transition-transform' : 'bg-secondary text-muted-foreground'
           }`}>
             <ClipboardCheck className="w-7 h-7" />
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h3 className={`text-2xl font-bold ${disclosureEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
+            <h3 className={`text-2xl font-bold ${disclosureEnabled ? 'text-foreground' : 'text-muted-foreground'}`}>
               Submit for Disclosures
             </h3>
-            <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <span className="inline-flex items-center rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
               {disclosureEnabled ? 'Active' : 'Disabled'}
             </span>
           </div>
-          <p className="text-slate-500 mb-8 max-w-sm">
+          <p className="text-muted-foreground mb-8 max-w-sm">
             Send loan information and initial documents to the Disclosure Team for processing.
           </p>
           <div className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold ${
             disclosureEnabled
               ? 'bg-blue-50 text-blue-700 group-hover:bg-blue-600 group-hover:text-white transition-colors'
-              : 'bg-slate-200 text-slate-500'
+              : 'bg-secondary text-muted-foreground'
           }`}>
             {disclosureEnabled ? 'Start Request' : 'Disabled by Admin'}
           </div>
@@ -115,8 +115,8 @@ export function LoanOfficerDashboard({
           title={qcEnabled ? 'Submit for QC' : 'Submit for QC is disabled for this user by Admin.'}
           className={`group relative flex flex-col items-start p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
             qcEnabled
-              ? 'border-violet-200 bg-white hover:shadow-md hover:border-violet-300 transition-all'
-              : 'border-slate-200 bg-slate-50/70 cursor-not-allowed'
+              ? 'border-violet-200/70 bg-card hover:shadow-md hover:border-violet-300 transition-all'
+              : 'border-border bg-secondary/70 cursor-not-allowed'
           }`}
         >
           <div className={`absolute top-0 right-0 p-8 ${qcEnabled ? 'opacity-10' : 'opacity-5'}`}>
@@ -124,27 +124,27 @@ export function LoanOfficerDashboard({
           </div>
           <div
             className={`w-14 h-14 rounded-xl flex items-center justify-center mb-6 shadow-sm ${
-              qcEnabled ? 'bg-violet-600 text-white' : 'bg-slate-200 text-slate-500'
+              qcEnabled ? 'bg-violet-600 text-white' : 'bg-secondary text-muted-foreground'
             }`}
           >
             <ShieldCheck className="w-7 h-7" />
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h3 className={`text-2xl font-bold ${qcEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
+            <h3 className={`text-2xl font-bold ${qcEnabled ? 'text-foreground' : 'text-muted-foreground'}`}>
               Submit for QC
             </h3>
-            <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <span className="inline-flex items-center rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
               {qcEnabled ? 'Active' : 'Disabled'}
             </span>
           </div>
-          <p className="text-slate-500 mb-8 max-w-sm">
+          <p className="text-muted-foreground mb-8 max-w-sm">
             Send a completed loan file to the Quality Control team for final review and approval.
           </p>
           <div
             className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold ${
               qcEnabled
                 ? 'bg-violet-50 text-violet-700 group-hover:bg-violet-600 group-hover:text-white transition-colors'
-                : 'bg-slate-200 text-slate-500'
+                : 'bg-secondary text-muted-foreground'
             }`}
           >
             {qcEnabled ? 'Start Request' : 'Disabled by Admin'}
@@ -153,53 +153,53 @@ export function LoanOfficerDashboard({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-card p-6 rounded-xl border border-border shadow-sm">
           <div className="flex items-center justify-between">
-            <h3 className="text-slate-500 text-sm font-medium">Pending Requests</h3>
+            <h3 className="text-muted-foreground text-sm font-medium">Pending Requests</h3>
             <span className="bg-amber-50 text-amber-700 text-xs px-2 py-1 rounded-full font-medium border border-amber-100">Open</span>
           </div>
-          <p className="text-3xl font-bold text-slate-900 mt-2">{pendingCount}</p>
-          <p className="text-xs text-slate-500 mt-1">Awaiting action</p>
+          <p className="text-3xl font-bold text-foreground mt-2">{pendingCount}</p>
+          <p className="text-xs text-muted-foreground mt-1">Awaiting action</p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-card p-6 rounded-xl border border-border shadow-sm">
           <div className="flex items-center justify-between">
-            <h3 className="text-slate-500 text-sm font-medium">In Progress</h3>
+            <h3 className="text-muted-foreground text-sm font-medium">In Progress</h3>
             <span className="bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded-full font-medium border border-blue-100">Working</span>
           </div>
-          <p className="text-3xl font-bold text-slate-900 mt-2">{inProgressCount}</p>
-          <p className="text-xs text-slate-500 mt-1">Currently being processed</p>
+          <p className="text-3xl font-bold text-foreground mt-2">{inProgressCount}</p>
+          <p className="text-xs text-muted-foreground mt-1">Currently being processed</p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-card p-6 rounded-xl border border-border shadow-sm">
           <div className="flex items-center justify-between">
-            <h3 className="text-slate-500 text-sm font-medium">Completed</h3>
+            <h3 className="text-muted-foreground text-sm font-medium">Completed</h3>
             <span className="bg-green-50 text-green-700 text-xs px-2 py-1 rounded-full font-medium border border-green-100">Done</span>
           </div>
-          <p className="text-3xl font-bold text-slate-900 mt-2">{completedCount}</p>
-          <p className="text-xs text-slate-500 mt-1">Finished requests</p>
+          <p className="text-3xl font-bold text-foreground mt-2">{completedCount}</p>
+          <p className="text-xs text-muted-foreground mt-1">Finished requests</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Recent Task Requests</h2>
-          <span className="text-xs text-slate-500">{requestSubmissions.length} total</span>
+      <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Recent Task Requests</h2>
+          <span className="text-xs text-muted-foreground">{requestSubmissions.length} total</span>
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-border">
           {requestSubmissions.map((task) => (
             <div key={task.id} className="p-6 flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-900">{task.title}</p>
-                <p className="text-xs text-slate-500">
+                <p className="text-sm font-medium text-foreground">{task.title}</p>
+                <p className="text-xs text-muted-foreground">
                   {task.loan.borrowerName} • {task.loan.loanNumber}
                 </p>
               </div>
-              <span className="text-xs text-slate-500">{new Date(task.createdAt).toLocaleString()}</span>
+              <span className="text-xs text-muted-foreground">{new Date(task.createdAt).toLocaleString()}</span>
             </div>
           ))}
           {requestSubmissions.length === 0 && (
-            <div className="p-6 text-sm text-slate-500">No task requests yet.</div>
+            <div className="p-6 text-sm text-muted-foreground">No task requests yet.</div>
           )}
         </div>
       </div>

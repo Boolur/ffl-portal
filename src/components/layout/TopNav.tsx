@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, ChevronDown, LogOut, PanelLeft, Search, Shield } from 'lucide-react';
-import { signOut } from 'next-auth/react';
+import { Bell, ChevronDown, LogOut, Moon, PanelLeft, Search, Shield, Sun } from 'lucide-react';
+import { signOut, useSession } from 'next-auth/react';
 import { UserRole } from '@prisma/client';
 import { useRouter } from 'next/navigation';
 import {
@@ -10,6 +10,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/app/actions/notificationActions';
+import { setMyThemePreference } from '@/app/actions/themeActions';
 
 const formatRole = (role: string) => role.replace(/_/g, ' ');
 const getRoleChipClass = (role: UserRole) => {
@@ -22,7 +23,7 @@ const getRoleChipClass = (role: UserRole) => {
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
     return 'border-blue-200 bg-blue-50 text-blue-700';
   }
-  return 'border-slate-200 bg-white text-slate-600';
+  return 'border-border bg-card text-muted-foreground';
 };
 const formatRelativeTime = (iso: string) => {
   const created = new Date(iso);
@@ -62,6 +63,7 @@ export function TopNav({
   onToggleSidebar: () => void;
 }) {
   const router = useRouter();
+  const { data: session } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isSwitchingRole, setIsSwitchingRole] = useState(false);
@@ -70,8 +72,13 @@ export function TopNav({
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [isThemeSaving, setIsThemeSaving] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const notificationRef = useRef<HTMLDivElement | null>(null);
+  const sessionEmail = session?.user?.email?.toLowerCase().trim() || '';
+  const canToggleTheme =
+    sessionEmail === 'mmahjoub@federalfirstlending.com' && user.role === UserRole.LOAN_OFFICER;
 
   const loadNotifications = React.useCallback(async (showLoader = false) => {
     if (showLoader) setIsLoadingNotifications(true);
@@ -119,6 +126,12 @@ export function TopNav({
   useEffect(() => {
     void loadNotifications(true);
   }, [loadNotifications]);
+
+  useEffect(() => {
+    const nextTheme =
+      document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    setTheme(nextTheme);
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -186,6 +199,24 @@ export function TopNav({
     router.push(item.href || '/tasks');
   };
 
+  const handleThemeToggle = async () => {
+    if (!canToggleTheme || isThemeSaving) return;
+    const previousTheme = theme;
+    const nextTheme = previousTheme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    document.documentElement.setAttribute('data-theme', nextTheme);
+    setIsThemeSaving(true);
+    try {
+      const result = await setMyThemePreference(nextTheme === 'dark' ? 'DARK' : 'LIGHT');
+      if (!result.success) {
+        setTheme(previousTheme);
+        document.documentElement.setAttribute('data-theme', previousTheme);
+      }
+    } finally {
+      setIsThemeSaving(false);
+    }
+  };
+
   return (
     <header
       className={`h-16 border-b border-border app-glass flex items-center justify-between px-4 sm:px-6 fixed top-0 right-0 z-10 transition-all duration-300 ${
@@ -214,6 +245,18 @@ export function TopNav({
       </div>
 
       <div className="flex items-center space-x-4">
+        {canToggleTheme && (
+          <button
+            type="button"
+            onClick={() => void handleThemeToggle()}
+            disabled={isThemeSaving}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+        )}
         <div ref={notificationRef} className="relative">
           <button
             type="button"
@@ -230,11 +273,11 @@ export function TopNav({
           </button>
 
           {notificationOpen && (
-            <div className="absolute right-0 top-[2.8rem] z-20 w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-              <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-3 py-2.5">
+            <div className="absolute right-0 top-[2.8rem] z-20 w-[360px] overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+              <div className="flex items-center justify-between border-b border-border bg-secondary/70 px-3 py-2.5">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">Notifications</p>
-                  <p className="text-[11px] font-medium text-slate-500">
+                  <p className="text-sm font-semibold text-foreground">Notifications</p>
+                  <p className="text-[11px] font-medium text-muted-foreground">
                     {unreadCount} unread
                   </p>
                 </div>
@@ -242,7 +285,7 @@ export function TopNav({
                   type="button"
                   onClick={() => void handleMarkAllRead()}
                   disabled={isMarkingAllRead || unreadCount === 0}
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isMarkingAllRead ? 'Marking...' : 'Mark all read'}
                 </button>
@@ -250,11 +293,11 @@ export function TopNav({
 
               <div className="max-h-[420px] overflow-y-auto">
                 {isLoadingNotifications && notifications.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-sm font-medium text-slate-500">
+                  <div className="px-4 py-6 text-center text-sm font-medium text-muted-foreground">
                     Loading notifications...
                   </div>
                 ) : notifications.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-sm font-medium text-slate-500">
+                  <div className="px-4 py-6 text-center text-sm font-medium text-muted-foreground">
                     No notifications yet.
                   </div>
                 ) : (
@@ -263,17 +306,17 @@ export function TopNav({
                       key={item.id}
                       type="button"
                       onClick={() => void handleNotificationClick(item)}
-                      className={`w-full border-b border-slate-100 px-3 py-2.5 text-left transition-colors last:border-b-0 ${
-                        item.readAt ? 'bg-white hover:bg-slate-50' : 'bg-blue-50/40 hover:bg-blue-50/60'
+                      className={`w-full border-b border-border px-3 py-2.5 text-left transition-colors last:border-b-0 ${
+                        item.readAt ? 'bg-card hover:bg-secondary' : 'bg-primary/10 hover:bg-primary/15'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <p className="line-clamp-1 text-xs font-bold text-slate-800">{item.title}</p>
-                        <span className="shrink-0 text-[10px] font-semibold text-slate-500">
+                        <p className="line-clamp-1 text-xs font-bold text-foreground">{item.title}</p>
+                        <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">
                           {formatRelativeTime(item.createdAt)}
                         </span>
                       </div>
-                      <p className="mt-0.5 line-clamp-2 text-[11px] font-medium text-slate-600">
+                      <p className="mt-0.5 line-clamp-2 text-[11px] font-medium text-muted-foreground">
                         {item.message}
                       </p>
                     </button>
@@ -293,33 +336,33 @@ export function TopNav({
           </div>
           <button
             onClick={() => setMenuOpen((prev) => !prev)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white pr-1.5 pl-0.5 shadow-sm transition-all hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card pr-1.5 pl-0.5 shadow-sm transition-all hover:bg-secondary"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label="Open user menu"
           >
-            <div className="h-9 w-9 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-700 font-bold border border-slate-200">
+            <div className="h-9 w-9 rounded-full bg-gradient-to-br from-secondary to-muted flex items-center justify-center text-foreground font-bold border border-border">
               {user.name.charAt(0)}
             </div>
             <ChevronDown
-              className={`h-4 w-4 text-slate-500 transition-transform ${
+              className={`h-4 w-4 text-muted-foreground transition-transform ${
                 menuOpen ? 'rotate-180' : ''
               }`}
             />
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-[3.25rem] w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl py-1 z-20">
-              <div className="px-3 py-3 border-b border-slate-100 bg-slate-50/70">
-                <p className="text-sm font-semibold text-slate-900 truncate">{user.name}</p>
-                <p className="mt-0.5 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="absolute right-0 top-[3.25rem] w-56 overflow-hidden rounded-2xl border border-border bg-card shadow-xl py-1 z-20">
+              <div className="px-3 py-3 border-b border-border bg-secondary/70">
+                <p className="text-sm font-semibold text-foreground truncate">{user.name}</p>
+                <p className="mt-0.5 inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                   <Shield className="h-3 w-3" />
                   {formatRole(user.role)}
                 </p>
               </div>
               {availableRoles.length > 1 && (
                 <div className="px-3 pt-2 pb-1">
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     Switch Role
                   </p>
                   <div className="space-y-1">
@@ -331,7 +374,7 @@ export function TopNav({
                         className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs font-semibold transition-colors ${
                           user.role === role
                             ? getRoleChipClass(role)
-                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            : 'border-border bg-card text-muted-foreground hover:bg-secondary'
                         } disabled:opacity-60 disabled:cursor-not-allowed`}
                       >
                         {formatRole(role)}

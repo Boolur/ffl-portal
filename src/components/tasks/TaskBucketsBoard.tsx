@@ -237,21 +237,21 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
 
   return (
     <div className="space-y-3.5">
-      <div className="w-full md:w-fit rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+      <div className="w-full md:w-fit rounded-2xl border border-border bg-card p-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <label className="relative w-full md:w-[420px]">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               value={globalSearch}
               onChange={(event) => setGlobalSearch(event.target.value)}
               placeholder="Search all buckets..."
-              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+              className="w-full rounded-lg border border-border bg-card py-2 pl-8 pr-3 text-xs font-medium text-foreground focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
             />
           </label>
           <select
             value={globalSort}
             onChange={(event) => setGlobalSort(event.target.value as SortOption)}
-            className="min-w-[170px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+            className="min-w-[170px] rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
           >
             {sortOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -266,7 +266,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
               setGlobalSort(defaultGlobalSort);
               setControlsByBucket({});
             }}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+            className="rounded-lg border border-border bg-secondary px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"
           >
             Reset
           </button>
@@ -289,10 +289,10 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
           return (
             <div
               key={bucket.id}
-              className={`flex flex-col rounded-2xl border bg-white p-4 shadow-sm transition-all hover:shadow-md ${
+              className={`flex flex-col rounded-2xl border bg-card p-4 shadow-sm transition-all hover:shadow-md ${
                 activeBucketId === bucket.id
                   ? 'border-blue-300 ring-1 ring-blue-200'
-                  : 'border-slate-200/80'
+                  : 'border-border'
               } ${isCollapsed ? 'self-start' : ''}`}
             >
               <div
@@ -305,7 +305,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <h2
-                      className="min-h-[2.5rem] text-base font-bold leading-snug text-slate-900 line-clamp-2"
+                      className="min-h-[2.5rem] text-base font-bold leading-snug text-foreground line-clamp-2"
                       title={bucket.label}
                     >
                       {bucket.label}
@@ -334,7 +334,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                     )}
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+                    <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full app-pill px-2 text-xs font-bold shadow-sm ring-1 ring-border/60">
                       {bucket.visibleTasks.length}
                     </span>
                     <button
@@ -342,7 +342,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                       onClick={() =>
                         updateBucketControls(bucket.id, { collapsed: !bucket.controls.collapsed })
                       }
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-secondary"
                       aria-label={isCollapsed ? 'Expand bucket' : 'Collapse bucket'}
                     >
                       {isCollapsed ? (
@@ -356,14 +356,14 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
 
                 <div className="flex flex-wrap items-center gap-1.5">
                   <label className="relative min-w-[120px] flex-1">
-                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
                     <input
                       value={bucket.controls.search}
                       onChange={(event) =>
                         updateBucketControls(bucket.id, { search: event.target.value })
                       }
                       placeholder="Search bucket"
-                      className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-7 pr-2 text-[11px] font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                      className="w-full rounded-md border border-border bg-card py-1.5 pl-7 pr-2 text-[11px] font-medium text-foreground focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
                     />
                   </label>
                   <select
@@ -373,7 +373,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                         sort: event.target.value as LocalSortOption,
                       })
                     }
-                    className="min-w-[125px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    className="min-w-[125px] rounded-md border border-border bg-card px-2 py-1.5 text-[11px] font-medium text-foreground focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
                   >
                     <option value="global">Use Global ({sortLabelByValue[globalSort]})</option>
                     {sortOptions.map((option) => (
@@ -392,7 +392,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                             [bucket.id]: bucket.visibleTasks.map((task) => task.id),
                           }))
                         }
-                        className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                        className="rounded-md border border-border bg-secondary px-2 py-1.5 text-[11px] font-semibold text-foreground hover:bg-muted"
                       >
                         Select Visible
                       </button>
@@ -404,7 +404,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                             [bucket.id]: [],
                           }))
                         }
-                        className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                        className="rounded-md border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-secondary"
                       >
                         Clear
                       </button>

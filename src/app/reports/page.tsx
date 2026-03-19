@@ -19,7 +19,7 @@ export default async function ReportsPage() {
         </p>
       </div>
       <div className="app-surface-card">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-muted-foreground">
           Reporting dashboards are coming soon. This page will include role-level and organization-level metrics.
         </p>
       </div>

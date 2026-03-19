@@ -19,7 +19,7 @@ export default async function ResourcesPage() {
         </p>
       </div>
       <div className="app-surface-card">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-muted-foreground">
           This section is coming soon. You will be able to manage SOPs, training links, and team references here.
         </p>
       </div>

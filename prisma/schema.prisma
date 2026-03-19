@@ -82,6 +82,11 @@ enum TaskWorkflowState {
   READY_TO_COMPLETE
 }
 
+enum ThemePreference {
+  LIGHT
+  DARK
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
@@ -92,6 +97,7 @@ model User {
   loQcTwoRowPilot Boolean @default(false)
   loDisclosureSubmissionEnabled Boolean @default(false)
   loQcSubmissionEnabled Boolean @default(true)
+  themePreference ThemePreference @default(LIGHT)
   active        Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
