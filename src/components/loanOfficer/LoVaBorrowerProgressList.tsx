@@ -267,7 +267,7 @@ function formatJrChecklistStatus(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETE
 function getJrChecklistStatusClass(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED') {
   if (status === 'MISSING_ITEMS') return 'border-rose-300 bg-rose-100 text-rose-800';
   if (status === 'COMPLETED') return 'border-emerald-300 bg-emerald-100 text-emerald-800';
-  return 'border-blue-300 bg-blue-100 text-blue-800';
+  return 'border-yellow-300 bg-yellow-100 text-yellow-800';
 }
 
 function SummaryRows({
@@ -560,7 +560,7 @@ export function LoVaBorrowerProgressList({
                     <button
                       type="button"
                       onClick={() => openBorrowerDetail(item, 'va')}
-                      className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-black/5 hover:bg-emerald-200/80"
+                      className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm ring-1 ring-black/5 transition-all duration-150 hover:scale-[1.03] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:ring-blue-200"
                       title="Open submission details"
                       aria-label="Open submission details"
                     >
@@ -689,32 +689,37 @@ export function LoVaBorrowerProgressList({
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-jr`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
                 const workedBy = item.workedByContributors;
-                const jrRows =
+                type JrStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+                const jrRows: Array<{ label: string; status: JrStatus }> =
                   item.jrStageDetails.hoi.checklist.length > 0
                     ? item.jrStageDetails.hoi.checklist.map((row) => ({
                         label: row.label,
-                        done: row.status === 'COMPLETED',
+                        status: row.status as JrStatus,
                       }))
-                    : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }];
-                const jrStatusPills = [
+                    : [
+                        {
+                          label: 'HOI',
+                          status: item.jrStageDetails.hoi.completed ? 'COMPLETED' : 'MISSING_ITEMS',
+                        },
+                      ];
+                const jrStatusPills: Array<{ label: string; status: JrStatus }> = [
                   {
                     label: 'HOI',
-                    done:
-                      (jrRows.find((row) => row.label.toLowerCase().includes('hoi'))?.done ?? false) ||
-                      false,
+                    status:
+                      jrRows.find((row) => row.label.toLowerCase().includes('hoi'))?.status ||
+                      'MISSING_ITEMS',
                   },
                   {
                     label: 'VOE',
-                    done:
-                      (jrRows.find((row) => row.label.toLowerCase().includes('voe'))?.done ?? false) ||
-                      false,
+                    status:
+                      jrRows.find((row) => row.label.toLowerCase().includes('voe'))?.status ||
+                      'MISSING_ITEMS',
                   },
                   {
                     label: 'Underwriting',
-                    done:
-                      (jrRows.find((row) =>
-                        row.label.toLowerCase().includes('underwriting')
-                      )?.done ?? false) || false,
+                    status:
+                      jrRows.find((row) => row.label.toLowerCase().includes('underwriting'))?.status ||
+                      'MISSING_ITEMS',
                   },
                 ];
                 return (
@@ -727,7 +732,7 @@ export function LoVaBorrowerProgressList({
                     <button
                       type="button"
                       onClick={() => openBorrowerDetail(item, 'jr')}
-                      className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shadow-sm ring-1 ring-black/5 hover:bg-emerald-200/80"
+                      className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm ring-1 ring-black/5 transition-all duration-150 hover:scale-[1.03] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:ring-blue-200"
                       title="Open submission details"
                       aria-label="Open submission details"
                     >
@@ -767,12 +772,10 @@ export function LoVaBorrowerProgressList({
                             {jrStatusPills.map((row) => (
                               <span
                                 key={row.label}
-                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                                  row.done
-                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                    : 'border-rose-300 bg-rose-100 text-rose-800'
-                                }`}
-                                title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
+                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
+                                  row.status
+                                )}`}
+                                title={`${row.label}: ${formatJrChecklistStatus(row.status)}`}
                               >
                                 {row.label}
                               </span>
@@ -1168,9 +1171,29 @@ export function LoVaBorrowerProgressList({
                         { key: 'hoi' as const, icon: Home },
                       ].map(({ key }) => {
                         const detail = focusedItem.jrStageDetails[key];
-                        const jrRows =
+                        const jrRows: Array<{
+                          id: string;
+                          label: string;
+                          status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+                          proofAttachmentId: string | null;
+                          proofFilename: string | null;
+                          note: string | null;
+                          noteUpdatedAt: string | null;
+                          noteAuthor: string | null;
+                          noteRole: string | null;
+                        }> =
                           detail.checklist.length > 0
-                            ? detail.checklist
+                            ? (detail.checklist as Array<{
+                                id: string;
+                                label: string;
+                                status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+                                proofAttachmentId: string | null;
+                                proofFilename: string | null;
+                                note: string | null;
+                                noteUpdatedAt: string | null;
+                                noteAuthor: string | null;
+                                noteRole: string | null;
+                              }>)
                             : [
                                 {
                                   id: 'ordered-hoi',
@@ -1215,6 +1238,17 @@ export function LoVaBorrowerProgressList({
 
                         return jrRows.map((row) => {
                           const rowComplete = row.status === 'COMPLETED';
+                          const rowIsOrdered = row.status === 'ORDERED';
+                          const rowPanelClass = rowComplete
+                            ? 'border-emerald-200 bg-emerald-50'
+                            : rowIsOrdered
+                              ? 'border-yellow-200 bg-yellow-50'
+                              : 'border-rose-200 bg-rose-50';
+                          const rowIconClass = rowComplete
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : rowIsOrdered
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-rose-100 text-rose-700';
                           const stageNoteKey = `${focusedItem.loanNumber}-${key}-${row.id}`;
                           const stageDetailKey = `${focusedItem.loanNumber}-${key}-${row.id}-detail`;
                           const stageDetailsExpanded = expandedTaskDetails.has(stageDetailKey);
@@ -1235,21 +1269,11 @@ export function LoVaBorrowerProgressList({
                           return (
                             <div
                               key={row.id}
-                              className={`rounded-xl border p-3.5 ${
-                                rowComplete
-                                  ? 'border-emerald-200 bg-emerald-50'
-                                  : 'border-rose-200 bg-rose-50'
-                              }`}
+                              className={`rounded-xl border p-3.5 ${rowPanelClass}`}
                             >
                               <div className="flex items-center justify-between gap-3">
                                 <span className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight text-slate-900">
-                                  <span
-                                    className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
-                                      rowComplete
-                                        ? 'bg-emerald-100 text-emerald-700'
-                                        : 'bg-rose-100 text-rose-700'
-                                    }`}
-                                  >
+                                  <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${rowIconClass}`}>
                                     <FileText className="h-3.5 w-3.5" />
                                   </span>
                                   {row.label}
@@ -1271,13 +1295,11 @@ export function LoVaBorrowerProgressList({
                                     </span>
                                   )}
                                   <span
-                                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
-                                      rowComplete
-                                        ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                        : 'border-rose-300 bg-rose-100 text-rose-800'
-                                    }`}
+                                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
+                                      row.status
+                                    )}`}
                                   >
-                                    {rowComplete ? 'Completed' : 'Incomplete'}
+                                    {formatJrChecklistStatus(row.status)}
                                   </span>
                                   <button
                                     type="button"

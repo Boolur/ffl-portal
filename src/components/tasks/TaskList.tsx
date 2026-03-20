@@ -9,6 +9,7 @@ import {
   ChevronUp,
   ExternalLink,
   FileText,
+  Home,
   Trash2,
   Loader2,
   Plus,
@@ -202,15 +203,21 @@ const jrChecklistTemplate: JrChecklistDraftItem[] = [
 ];
 
 const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string }> = [
-  { value: 'ORDERED', label: 'Ordered' },
   { value: 'MISSING_ITEMS', label: 'Missing Items / Action Required' },
+  { value: 'ORDERED', label: 'Ordered' },
   { value: 'COMPLETED', label: 'Completed' },
 ];
 
 function getJrChecklistStatusBadgeClass(status: JrChecklistStatus) {
   if (status === 'COMPLETED') return 'border-emerald-300 bg-emerald-100 text-emerald-800';
   if (status === 'MISSING_ITEMS') return 'border-rose-300 bg-rose-100 text-rose-800';
-  return 'border-blue-300 bg-blue-100 text-blue-800';
+  return 'border-yellow-300 bg-yellow-100 text-yellow-800';
+}
+
+function getJrChecklistHeadingIcon(id: string) {
+  if (id === 'ordered-hoi') return Home;
+  if (id === 'ordered-voe') return Briefcase;
+  return FileText;
 }
 
 function createDefaultJrChecklistRows(): JrChecklistDraftItem[] {
@@ -2239,7 +2246,7 @@ export function TaskList({
                     event.stopPropagation();
                     setFocusedTaskId(task.id);
                   }}
-                  className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/5 ${iconClassName}`}
+                  className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/5 transition-all duration-150 hover:scale-[1.03] hover:ring-blue-200 ${iconClassName}`}
                   title="Open task details"
                   aria-label={`Open details for ${task.loan.borrowerName}`}
                 >
@@ -2996,13 +3003,19 @@ export function TaskList({
                       <div className="space-y-2.5">
                         {jrChecklistRows.map((row) => {
                           const proofAttachmentId = row.proofAttachmentId;
+                          const RowIcon = getJrChecklistHeadingIcon(row.id);
                           return (
                           <div
                             key={row.id}
                             className="rounded-xl border border-sky-100 bg-white px-3 py-2.5 shadow-sm"
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="text-sm font-semibold text-slate-900">{row.label}</p>
+                              <p className="inline-flex items-center gap-2 text-base font-extrabold tracking-tight text-slate-900">
+                                <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-slate-700">
+                                  <RowIcon className="h-4 w-4" />
+                                </span>
+                                {row.label}
+                              </p>
                               <span
                                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusBadgeClass(
                                   row.status
@@ -3024,7 +3037,9 @@ export function TaskList({
                                   event.target.value as JrChecklistStatus
                                 )
                               }
-                              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                              className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-xs font-semibold focus:border-sky-500 focus:ring-1 focus:ring-sky-500 ${getJrChecklistStatusBadgeClass(
+                                row.status
+                              )}`}
                             >
                               {jrChecklistStatusOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
