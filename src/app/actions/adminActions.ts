@@ -13,6 +13,7 @@ export async function getAllTasks(filter?: TaskFilter) {
   const userId = filter?.userId || null;
   const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
   const isGenericVa = role === UserRole.VA;
+  const needsRichTaskPayload = role === UserRole.LOAN_OFFICER;
 
   const where = isAdminOrManager
     ? undefined
@@ -45,47 +46,85 @@ export async function getAllTasks(filter?: TaskFilter) {
           ],
         };
 
-  const tasks = await prisma.task.findMany({
-    where,
-    include: {
-      loan: {
-        select: {
-          loanNumber: true,
-          borrowerName: true,
-          loanOfficer: {
+  const tasks = needsRichTaskPayload
+    ? await prisma.task.findMany({
+        where,
+        include: {
+          loan: {
+            select: {
+              loanNumber: true,
+              borrowerName: true,
+              loanOfficer: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+          attachments: {
+            select: {
+              id: true,
+              filename: true,
+              purpose: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          },
+          assignedUser: {
             select: {
               name: true,
             },
           },
+          parentTask: {
+            select: {
+              kind: true,
+              assignedRole: true,
+              title: true,
+              submissionData: true,
+            },
+          },
         },
-      },
-      attachments: {
+        orderBy: {
+          createdAt: 'desc',
+        },
+      })
+    : await prisma.task.findMany({
+        where,
         select: {
           id: true,
-          filename: true,
-          purpose: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      },
-      assignedUser: {
-        select: {
-          name: true,
-        },
-      },
-      parentTask: {
-        select: {
-          kind: true,
-          assignedRole: true,
           title: true,
-          submissionData: true,
+          description: true,
+          status: true,
+          priority: true,
+          createdAt: true,
+          dueDate: true,
+          kind: true,
+          workflowState: true,
+          disclosureReason: true,
+          parentTaskId: true,
+          loanOfficerApprovedAt: true,
+          assignedRole: true,
+          assignedUser: {
+            select: {
+              name: true,
+            },
+          },
+          loan: {
+            select: {
+              loanNumber: true,
+              borrowerName: true,
+              loanOfficer: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
         },
-      },
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-  });
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
 
   return tasks;
 }

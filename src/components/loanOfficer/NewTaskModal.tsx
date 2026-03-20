@@ -946,6 +946,7 @@ function DisclosuresForm({
             `Attach Pricing Sheet - ${buttonFiles.pricingSheet.name}`
           );
         }
+        setIsSubmitting(false);
         onSubmitted();
       } else {
         const failureMessage = res.error || 'Could not submit this disclosure request.';
@@ -1389,6 +1390,7 @@ function QcForm({
         return;
       }
 
+      setIsSubmitting(false);
       onSubmitted();
     } catch (error) {
       console.error(error);

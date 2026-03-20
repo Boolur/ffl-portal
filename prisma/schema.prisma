@@ -198,6 +198,11 @@ model Task {
 
   @@index([parentTaskId])
   @@index([workflowState])
+  @@index([assignedRole, dueDate])
+  @@index([assignedUserId, dueDate])
+  @@index([kind, dueDate])
+  @@index([status, dueDate])
+  @@index([loanId, updatedAt])
 }
 
 model Notification {

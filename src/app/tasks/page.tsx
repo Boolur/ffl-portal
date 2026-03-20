@@ -245,6 +245,9 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     },
   });
 
+  const includeCrossTaskTimelineAttachments =
+    isLoanOfficer || isAdminOrManager;
+
   const taskIds = tasks.map((task) => task.id);
   const parentTaskIds = Array.from(
     new Set(
@@ -255,7 +258,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   );
 
   const relatedTasks =
-    taskIds.length > 0
+    includeCrossTaskTimelineAttachments && taskIds.length > 0
       ? await prisma.task.findMany({
           where: {
             OR: [
@@ -286,7 +289,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
 
   const allRelatedIds = Array.from(new Set(relatedTasks.map((task) => task.id)));
   const timelineAttachmentsRows =
-    allRelatedIds.length > 0
+    includeCrossTaskTimelineAttachments && allRelatedIds.length > 0
       ? await prisma.taskAttachment.findMany({
           where: {
             taskId: { in: allRelatedIds },

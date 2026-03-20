@@ -1229,7 +1229,18 @@ async function dispatchTaskWorkflowNotification(input: TaskWorkflowNotificationP
     await sendTaskWorkflowNotificationsByTaskId(input);
     return;
   }
-  await enqueue();
+  try {
+    await enqueue();
+  } catch (error) {
+    // Fail open for core workflows: if outbox is unavailable, preserve user action
+    // and send via the legacy synchronous path.
+    console.error(
+      '[notifications.outbox] enqueue failed for task workflow; falling back to synchronous send',
+      error
+    );
+    await sendTaskWorkflowNotificationsByTaskId(input);
+    return;
+  }
   if (mode === 'dual') {
     await sendTaskWorkflowNotificationsByTaskId(input);
   }
@@ -1254,7 +1265,17 @@ async function dispatchVaFanoutNotifications(input: VaFanoutNotificationPayload)
     await sendVaFanoutNotifications(input);
     return;
   }
-  await enqueue();
+  try {
+    await enqueue();
+  } catch (error) {
+    // Fail open for QC completion fanout: if outbox write fails, keep workflow intact.
+    console.error(
+      '[notifications.outbox] enqueue failed for VA fanout; falling back to synchronous send',
+      error
+    );
+    await sendVaFanoutNotifications(input);
+    return;
+  }
   if (mode === 'dual') {
     await sendVaFanoutNotifications(input);
   }
@@ -2118,6 +2139,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       changedBy: session?.user?.name || loanOfficerName || null,
     });
 
+    revalidatePath('/tasks');
     revalidatePath('/');
     return { success: true, taskId: createdTask.id, loanId: loan.id };
   } catch (error) {
