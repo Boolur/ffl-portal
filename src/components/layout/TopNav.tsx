@@ -10,6 +10,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/app/actions/notificationActions';
+import { searchPortal } from '@/app/actions/searchActions';
 
 const formatRole = (role: string) => role.replace(/_/g, ' ');
 const getRoleChipClass = (role: UserRole) => {
@@ -22,7 +23,40 @@ const getRoleChipClass = (role: UserRole) => {
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
     return 'border-blue-200 bg-blue-50 text-blue-700';
   }
+  if (role === UserRole.VA || role === UserRole.VA_TITLE || role === UserRole.VA_PAYOFF || role === UserRole.VA_APPRAISAL) {
+    return 'border-rose-200 bg-rose-50 text-rose-700';
+  }
+  if (role === UserRole.PROCESSOR_JR) {
+    return 'border-cyan-200 bg-cyan-50 text-cyan-700';
+  }
+  if (role === UserRole.MANAGER) {
+    return 'border-slate-900 bg-slate-900 text-white';
+  }
   return 'border-slate-200 bg-white text-slate-600';
+};
+
+const getRoleAvatarClass = (role: UserRole) => {
+  if (role === UserRole.LOAN_OFFICER) return 'from-amber-100 to-amber-200 text-amber-800 border-amber-200';
+  if (role === UserRole.DISCLOSURE_SPECIALIST) return 'from-blue-100 to-blue-200 text-blue-800 border-blue-200';
+  if (role === UserRole.QC) return 'from-violet-100 to-violet-200 text-violet-800 border-violet-200';
+  if (role === UserRole.VA || role === UserRole.VA_TITLE || role === UserRole.VA_PAYOFF || role === UserRole.VA_APPRAISAL) {
+    return 'from-rose-100 to-rose-200 text-rose-800 border-rose-200';
+  }
+  if (role === UserRole.PROCESSOR_JR) return 'from-cyan-100 to-cyan-200 text-cyan-800 border-cyan-200';
+  if (role === UserRole.MANAGER) return 'from-slate-800 to-slate-900 text-white border-slate-700';
+  return 'from-slate-100 to-slate-200 text-slate-700 border-slate-200';
+};
+
+type SearchResultItem = {
+  id: string;
+  kind: 'task';
+  title: string;
+  borrowerName: string;
+  loanNumber: string;
+  stage: string;
+  status: string;
+  assignedRole: UserRole | null;
+  href: string;
 };
 const formatRelativeTime = (iso: string) => {
   const created = new Date(iso);
@@ -70,8 +104,13 @@ export function TopNav({
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const notificationRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLDivElement | null>(null);
 
   const loadNotifications = React.useCallback(async (showLoader = false) => {
     if (showLoader) setIsLoadingNotifications(true);
@@ -98,6 +137,12 @@ export function TopNav({
         !notificationRef.current.contains(event.target as Node)
       ) {
         setNotificationOpen(false);
+      }
+      if (
+        searchRef.current &&
+        !searchRef.current.contains(event.target as Node)
+      ) {
+        setSearchOpen(false);
       }
     };
 
@@ -127,6 +172,30 @@ export function TopNav({
     }, 30000);
     return () => window.clearInterval(interval);
   }, [loadNotifications]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setIsSearching(true);
+      const response = await searchPortal(q);
+      if (cancelled) return;
+      setSearchResults(response.success ? (response.results as SearchResultItem[]) : []);
+      setIsSearching(false);
+      setSearchOpen(true);
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery]);
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
@@ -186,6 +255,24 @@ export function TopNav({
     router.push(item.href || '/tasks');
   };
 
+  const handleSearchSelect = (item: SearchResultItem) => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    router.push(item.href);
+  };
+
+  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (searchResults[0]) {
+      handleSearchSelect(searchResults[0]);
+      return;
+    }
+    if (searchQuery.trim().length >= 2) {
+      router.push('/tasks');
+    }
+  };
+
   return (
     <header
       className={`h-16 border-b border-border app-glass flex items-center justify-between px-4 sm:px-6 fixed top-0 right-0 z-10 transition-all duration-300 ${
@@ -201,15 +288,54 @@ export function TopNav({
         >
           <PanelLeft className="h-4 w-4" />
         </button>
-        <div className="relative w-full">
-          <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-4 w-4 text-muted-foreground" />
-          </span>
-          <input
-            type="text"
-            className="block w-full pl-10 pr-3 py-2 border border-input rounded-lg leading-5 bg-card placeholder:text-muted-foreground text-foreground focus:outline-none focus:bg-card focus:ring-2 focus:ring-primary/20 focus:border-primary sm:text-sm transition-all"
-            placeholder="Search loans, borrowers, or tasks..."
-          />
+        <div ref={searchRef} className="relative w-full">
+          <form onSubmit={handleSearchSubmit}>
+            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-4 w-4 text-muted-foreground" />
+            </span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onFocus={() => {
+                if (searchResults.length > 0 || isSearching) setSearchOpen(true);
+              }}
+              className="block w-full pl-10 pr-3 py-2 border border-input rounded-lg leading-5 bg-card placeholder:text-muted-foreground text-foreground focus:outline-none focus:bg-card focus:ring-2 focus:ring-primary/20 focus:border-primary sm:text-sm transition-all"
+              placeholder="Search loans, borrowers, or tasks..."
+            />
+          </form>
+          {searchOpen && (
+            <div className="absolute left-0 right-0 top-[2.8rem] z-30 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+              <div className="max-h-[420px] overflow-y-auto p-1.5">
+                {isSearching ? (
+                  <div className="px-3 py-3 text-sm font-medium text-slate-500">Searching...</div>
+                ) : searchResults.length === 0 ? (
+                  <div className="px-3 py-3 text-sm font-medium text-slate-500">
+                    No matches found.
+                  </div>
+                ) : (
+                  searchResults.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleSearchSelect(item)}
+                      className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="line-clamp-1 text-sm font-semibold text-slate-900">
+                          {item.borrowerName} ({item.loanNumber})
+                        </p>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                          {item.stage}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 line-clamp-1 text-xs font-medium text-slate-600">{item.title}</p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -285,21 +411,21 @@ export function TopNav({
         </div>
 
         <div ref={menuRef} className="relative flex items-center space-x-3 pl-4 border-l border-border">
-          <div className="text-right hidden sm:block">
-            <p className="text-sm font-semibold text-foreground">{user.name}</p>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-              {formatRole(user.role)}
-            </p>
-          </div>
           <button
             onClick={() => setMenuOpen((prev) => !prev)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white pr-1.5 pl-0.5 shadow-sm transition-all hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-2 py-1.5 shadow-sm transition-all hover:shadow-md hover:bg-slate-50"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label="Open user menu"
           >
-            <div className="h-9 w-9 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-700 font-bold border border-slate-200">
-              {user.name.charAt(0)}
+            <div className={`h-10 w-10 rounded-xl bg-gradient-to-br flex items-center justify-center font-extrabold border ${getRoleAvatarClass(user.role)}`}>
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="hidden sm:block text-left pr-0.5">
+              <p className="text-sm font-bold text-slate-900 leading-tight">{user.name}</p>
+              <p className={`mt-0.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getRoleChipClass(user.role)}`}>
+                {formatRole(user.role)}
+              </p>
             </div>
             <ChevronDown
               className={`h-4 w-4 text-slate-500 transition-transform ${

@@ -3,7 +3,6 @@
 import React from 'react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LoanOfficerDashboard } from '@/components/dashboard/LoanOfficerDashboard';
-import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
 import { DisclosureOverview } from '@/components/dashboard/DisclosureOverview';
 import { QcOverview } from '@/components/dashboard/QcOverview';
 import { VaOverview } from '@/components/dashboard/VaOverview';
@@ -11,7 +10,6 @@ import type { VaRole } from '@/components/dashboard/VaOverview';
 import { DepartmentBoard } from '@/components/admin/DepartmentBoard';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useImpersonation } from '@/lib/impersonation';
-import { buildLoVaBorrowerProgress, isLoVaPilotUser } from '@/lib/loVaProgress';
 import {
   DisclosureDecisionReason,
   Prisma,
@@ -160,14 +158,6 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
     activeRole === UserRole.VA_PAYOFF ||
     activeRole === UserRole.VA_APPRAISAL;
   const isProcessorTaskListRole = activeRole === UserRole.PROCESSOR_SR;
-  const showLoVaPilot =
-    activeRole === UserRole.LOAN_OFFICER &&
-    isLoVaPilotUser({
-      role: activeRole,
-      email: user.email || null,
-      name: user.name || null,
-    });
-  const loVaProgressItems = showLoVaPilot ? buildLoVaBorrowerProgress(adminTasks) : [];
 
   return (
     <>
@@ -177,18 +167,13 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
       </div>
 
       {activeRole === 'LOAN_OFFICER' && (
-        <div className="space-y-8">
-          <LoanOfficerDashboard
-            loans={loans}
-            submissions={adminTasks}
-            loanOfficerName={user.name}
-            disclosureEnabled={user.loDisclosureSubmissionEnabled ?? true}
-            qcEnabled={user.loQcSubmissionEnabled ?? true}
-          />
-          {showLoVaPilot && (
-            <LoVaBorrowerProgressList items={loVaProgressItems} />
-          )}
-        </div>
+        <LoanOfficerDashboard
+          loans={loans}
+          submissions={adminTasks}
+          loanOfficerName={user.name}
+          disclosureEnabled={user.loDisclosureSubmissionEnabled ?? true}
+          qcEnabled={user.loQcSubmissionEnabled ?? true}
+        />
       )}
       
       {activeRole === 'ADMIN' && (

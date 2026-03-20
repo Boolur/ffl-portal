@@ -42,13 +42,25 @@ export function LoanOfficerDashboard({
   const scopedSubmissions = loanOfficerName
     ? submissions.filter((t) => t.loan.loanOfficer?.name === loanOfficerName)
     : submissions;
-  // Keep dashboard counts aligned with LO request queues (not child workflow tasks).
+  const isLoDashboardCountKind = (kind: TaskKind | null) =>
+    kind === TaskKind.SUBMIT_DISCLOSURES ||
+    kind === TaskKind.SUBMIT_QC ||
+    kind === TaskKind.VA_TITLE ||
+    kind === TaskKind.VA_PAYOFF ||
+    kind === TaskKind.VA_APPRAISAL ||
+    kind === TaskKind.VA_HOI;
+
+  // Include Disclosure/QC request tasks plus downstream VA/JR workflow tasks.
+  // This keeps LO counters aligned after removing the separate VA/JR dashboard buckets.
+  const countSubmissions = scopedSubmissions.filter((t) => isLoDashboardCountKind(t.kind));
+
+  // Keep recent list aligned to top-level LO request queues only.
   const requestSubmissions = scopedSubmissions.filter(
     (t) => t.kind === TaskKind.SUBMIT_DISCLOSURES || t.kind === TaskKind.SUBMIT_QC
   );
-  const pendingCount = requestSubmissions.filter((t) => t.status === TaskStatus.PENDING).length;
-  const inProgressCount = requestSubmissions.filter((t) => t.status === TaskStatus.IN_PROGRESS).length;
-  const completedCount = requestSubmissions.filter((t) => t.status === TaskStatus.COMPLETED).length;
+  const pendingCount = countSubmissions.filter((t) => t.status === TaskStatus.PENDING).length;
+  const inProgressCount = countSubmissions.filter((t) => t.status === TaskStatus.IN_PROGRESS).length;
+  const completedCount = countSubmissions.filter((t) => t.status === TaskStatus.COMPLETED).length;
 
   const openTaskModal = (type: 'DISCLOSURES' | 'QC') => {
     setInitialTaskType(type);
