@@ -2095,19 +2095,11 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
 
     const allCompleted = normalizedItems.every((item) => item.status === 'COMPLETED');
     const allProofAttached = normalizedItems.every((item) => Boolean(item.proofAttachmentId));
-    const shouldReopen =
-      existing.status === TaskStatus.COMPLETED && (!allCompleted || !allProofAttached);
 
     await prisma.task.update({
       where: { id: taskId },
       data: {
         submissionData: dataObj as Prisma.JsonObject,
-        ...(shouldReopen
-          ? {
-              status: TaskStatus.IN_PROGRESS,
-              completedAt: null,
-            }
-          : {}),
         workflowState:
           allCompleted && allProofAttached
             ? TaskWorkflowState.READY_TO_COMPLETE
@@ -2143,6 +2135,7 @@ export async function addJrProcessorNote(taskId: string, note: string) {
       select: {
         id: true,
         kind: true,
+        status: true,
         assignedRole: true,
         assignedUserId: true,
         submissionData: true,
