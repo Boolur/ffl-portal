@@ -9,15 +9,27 @@ type TasksRouteSyncGateProps = {
 export function TasksRouteSyncGate({ children }: TasksRouteSyncGateProps) {
   const [showOverlay, setShowOverlay] = React.useState(false);
   const tasksSyncUiEnabled = process.env.NEXT_PUBLIC_TASKS_SYNC_UI_ENABLED !== 'false';
+  const minLatencyForOverlayMs = 220;
 
   React.useEffect(() => {
     if (!tasksSyncUiEnabled) return;
     const pending = window.sessionStorage.getItem('ffl:tasks-sync-pending') === '1';
     if (!pending) return;
+    const pendingAtRaw = window.sessionStorage.getItem('ffl:tasks-sync-pending-at');
+    const pendingAt = pendingAtRaw ? Number(pendingAtRaw) : NaN;
+    const elapsedMs = Number.isFinite(pendingAt) ? Date.now() - pendingAt : minLatencyForOverlayMs + 1;
+
+    window.sessionStorage.removeItem('ffl:tasks-sync-pending');
+    window.sessionStorage.removeItem('ffl:tasks-sync-pending-at');
+    window.sessionStorage.setItem('ffl:tasks-sync-seen', '1');
+
+    // Prevent first-load modal flash for already-fast navigations.
+    if (elapsedMs < minLatencyForOverlayMs) {
+      setShowOverlay(false);
+      return;
+    }
 
     setShowOverlay(true);
-    window.sessionStorage.removeItem('ffl:tasks-sync-pending');
-    window.sessionStorage.setItem('ffl:tasks-sync-seen', '1');
 
     const timeoutId = window.setTimeout(() => {
       setShowOverlay(false);

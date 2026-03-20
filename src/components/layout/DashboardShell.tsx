@@ -25,6 +25,7 @@ function DashboardContent({ children, user }: DashboardShellProps) {
     mode: 'basic' | 'tasks-sync';
     startedAt: number;
   } | null>(null);
+  const overlayShowTimerRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     if (!tasksSyncUiEnabled) return;
@@ -41,21 +42,33 @@ function DashboardContent({ children, user }: DashboardShellProps) {
         if (!seenTasksSync) {
           mode = 'tasks-sync';
           window.sessionStorage.setItem('ffl:tasks-sync-pending', '1');
+          window.sessionStorage.setItem('ffl:tasks-sync-pending-at', String(Date.now()));
         } else {
           window.sessionStorage.removeItem('ffl:tasks-sync-pending');
+          window.sessionStorage.removeItem('ffl:tasks-sync-pending-at');
         }
       }
 
-      setRouteOverlay({
-        targetHref: href,
-        mode,
-        startedAt: Date.now(),
-      });
+      if (overlayShowTimerRef.current) {
+        window.clearTimeout(overlayShowTimerRef.current);
+      }
+      const startedAt = Date.now();
+      // Prevent flash: only show overlay if navigation takes perceptibly long.
+      overlayShowTimerRef.current = window.setTimeout(() => {
+        setRouteOverlay({
+          targetHref: href,
+          mode,
+          startedAt,
+        });
+      }, 180);
     };
 
     window.addEventListener('ffl:navigation-intent', onNavigationIntent as EventListener);
     return () => {
       window.removeEventListener('ffl:navigation-intent', onNavigationIntent as EventListener);
+      if (overlayShowTimerRef.current) {
+        window.clearTimeout(overlayShowTimerRef.current);
+      }
     };
   }, [pathname, tasksSyncUiEnabled]);
 
@@ -70,6 +83,11 @@ function DashboardContent({ children, user }: DashboardShellProps) {
   React.useEffect(() => {
     if (!routeOverlay) return;
     if (pathname !== routeOverlay.targetHref) return;
+
+    if (overlayShowTimerRef.current) {
+      window.clearTimeout(overlayShowTimerRef.current);
+      overlayShowTimerRef.current = null;
+    }
 
     const elapsed = Date.now() - routeOverlay.startedAt;
     const minVisibleMs = routeOverlay.mode === 'tasks-sync' ? 650 : 220;
