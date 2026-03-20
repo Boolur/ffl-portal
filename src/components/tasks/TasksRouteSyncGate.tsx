@@ -32,7 +32,7 @@ export function TasksRouteSyncGate({ children }: TasksRouteSyncGateProps) {
     <div className="relative">
       {children}
       {showOverlay && (
-        <div className="pointer-events-none absolute inset-0 z-40 flex items-start justify-center rounded-2xl bg-slate-100/20 pt-6 backdrop-blur-[2px]">
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-start justify-center rounded-2xl bg-slate-100/20 pt-[14vh] backdrop-blur-[2px]">
           <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 px-6 py-6 shadow-2xl">
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.16),transparent_46%),radial-gradient(circle_at_top_right,rgba(147,51,234,0.16),transparent_46%)]" />
             <div className="relative flex flex-col items-center justify-center gap-4 text-center">
