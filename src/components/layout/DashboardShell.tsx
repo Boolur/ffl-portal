@@ -19,6 +19,66 @@ function DashboardContent({ children, user }: DashboardShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { update } = useSession();
+  const tasksSyncUiEnabled = process.env.NEXT_PUBLIC_TASKS_SYNC_UI_ENABLED !== 'false';
+  const [routeOverlay, setRouteOverlay] = React.useState<{
+    targetHref: string;
+    mode: 'basic' | 'tasks-sync';
+    startedAt: number;
+  } | null>(null);
+
+  React.useEffect(() => {
+    if (!tasksSyncUiEnabled) return;
+
+    const onNavigationIntent = (event: Event) => {
+      const customEvent = event as CustomEvent<{ href?: string }>;
+      const href = customEvent.detail?.href;
+      if (!href || href === pathname) return;
+
+      const isTasksRoute = href === '/tasks';
+      let mode: 'basic' | 'tasks-sync' = 'basic';
+      if (isTasksRoute) {
+        const seenTasksSync = window.sessionStorage.getItem('ffl:tasks-sync-seen') === '1';
+        if (!seenTasksSync) {
+          mode = 'tasks-sync';
+          window.sessionStorage.setItem('ffl:tasks-sync-pending', '1');
+        } else {
+          window.sessionStorage.removeItem('ffl:tasks-sync-pending');
+        }
+      }
+
+      setRouteOverlay({
+        targetHref: href,
+        mode,
+        startedAt: Date.now(),
+      });
+    };
+
+    window.addEventListener('ffl:navigation-intent', onNavigationIntent as EventListener);
+    return () => {
+      window.removeEventListener('ffl:navigation-intent', onNavigationIntent as EventListener);
+    };
+  }, [pathname, tasksSyncUiEnabled]);
+
+  React.useEffect(() => {
+    if (!routeOverlay) return;
+    const timeoutId = window.setTimeout(() => {
+      setRouteOverlay(null);
+    }, 12000);
+    return () => window.clearTimeout(timeoutId);
+  }, [routeOverlay]);
+
+  React.useEffect(() => {
+    if (!routeOverlay) return;
+    if (pathname !== routeOverlay.targetHref) return;
+
+    const elapsed = Date.now() - routeOverlay.startedAt;
+    const minVisibleMs = routeOverlay.mode === 'tasks-sync' ? 650 : 220;
+    const remainingMs = Math.max(0, minVisibleMs - elapsed);
+    const timeoutId = window.setTimeout(() => {
+      setRouteOverlay(null);
+    }, remainingMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [pathname, routeOverlay]);
 
   React.useEffect(() => {
     const shouldAutoRefresh =
@@ -107,7 +167,41 @@ function DashboardContent({ children, user }: DashboardShellProps) {
           sidebarCollapsed ? 'ml-20' : 'ml-64'
         }`}
       >
-        <div className="w-full p-6">
+        <div className="relative w-full p-6">
+          {routeOverlay && (
+            <div className="pointer-events-none absolute inset-6 z-30 overflow-hidden rounded-3xl border border-slate-200/80 bg-white/92 backdrop-blur-sm">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.14),transparent_45%),radial-gradient(circle_at_top_right,rgba(147,51,234,0.14),transparent_45%)]" />
+              <div className="relative flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+                <div className="flex items-center gap-3">
+                  <span className="h-2.5 w-2.5 animate-ping rounded-full bg-blue-600" />
+                  <span className="h-2.5 w-2.5 animate-ping rounded-full bg-violet-600 [animation-delay:140ms]" />
+                  <span className="h-2.5 w-2.5 animate-ping rounded-full bg-rose-500 [animation-delay:280ms]" />
+                </div>
+                <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
+                  {routeOverlay.mode === 'tasks-sync' ? 'Syncing Tasks' : 'Loading'}
+                </h2>
+                <p className="max-w-xl text-sm font-medium text-slate-600">
+                  {routeOverlay.mode === 'tasks-sync'
+                    ? 'Refreshing borrower queues, ownership updates, and latest task activity...'
+                    : 'Loading the selected workspace...'}
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700">
+                    Disclosure
+                  </span>
+                  <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700">
+                    QC
+                  </span>
+                  <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700">
+                    VA
+                  </span>
+                  <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-bold text-cyan-700">
+                    JR Processor
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
           {children}
         </div>
       </main>

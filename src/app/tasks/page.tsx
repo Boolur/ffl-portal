@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { TaskList } from '@/components/tasks/TaskList';
 import { TaskBucketsBoard } from '@/components/tasks/TaskBucketsBoard';
 import { TaskDeskSection } from '@/components/tasks/TaskDeskSection';
+import { TasksRouteSyncGate } from '@/components/tasks/TasksRouteSyncGate';
 import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
 import { buildLoVaBorrowerProgress, isLoVaPilotUser } from '@/lib/loVaProgress';
 import {
@@ -257,8 +258,18 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     }
   );
 
+  const hasTimelineRelevantTasks = tasks.some(
+    (task) =>
+      task.kind === TaskKind.VA_TITLE ||
+      task.kind === TaskKind.VA_PAYOFF ||
+      task.kind === TaskKind.VA_APPRAISAL ||
+      task.kind === TaskKind.VA_HOI ||
+      task.parentTaskId
+  );
   const includeCrossTaskTimelineAttachments =
-    isLoanOfficer || isAdminOrManager;
+    (isLoanOfficer || isAdminOrManager) &&
+    hasTimelineRelevantTasks &&
+    process.env.TASK_TIMELINE_EAGER !== 'false';
 
   const taskIds = tasks.map((task) => task.id);
   const parentTaskIds = Array.from(
@@ -911,7 +922,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
   const pageOutput = (
     <DashboardShell user={sessionUser}>
-      <div className="flex items-center justify-between app-page-header">
+      <TasksRouteSyncGate>
+        <div className="flex items-center justify-between app-page-header">
         <div>
           <h1 className="app-page-title">Tasks</h1>
           {taskPageSubtitle && (
@@ -1087,15 +1099,16 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         />
       )}
 
-      {!isDualDeskMode && sessionRole !== UserRole.VA && !showBuckets && (
-        <TaskList
-          tasks={allTasks}
-          canDelete={canDelete}
-          currentRole={sessionRole}
-          currentUserId={sessionUser.id}
-          initialFocusedTaskId={focusedTaskId}
-        />
-      )}
+        {!isDualDeskMode && sessionRole !== UserRole.VA && !showBuckets && (
+          <TaskList
+            tasks={allTasks}
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            initialFocusedTaskId={focusedTaskId}
+          />
+        )}
+      </TasksRouteSyncGate>
     </DashboardShell>
   );
   endPerf({

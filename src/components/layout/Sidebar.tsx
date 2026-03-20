@@ -15,7 +15,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 type SidebarProps = {
   collapsed: boolean;
@@ -24,6 +24,24 @@ type SidebarProps = {
 export function Sidebar({ collapsed }: SidebarProps) {
   const { activeRole } = useImpersonation();
   const pathname = usePathname();
+  const router = useRouter();
+
+  const emitNavigationIntent = React.useCallback((href: string, name: string) => {
+    window.dispatchEvent(
+      new CustomEvent('ffl:navigation-intent', {
+        detail: { href, name, at: Date.now() },
+      })
+    );
+  }, []);
+
+  const warmRoute = React.useCallback(
+    (href: string) => {
+      if (href === '/' || href === '/tasks') {
+        router.prefetch(href);
+      }
+    },
+    [router]
+  );
 
   const navItems = [
     {
@@ -157,6 +175,9 @@ export function Sidebar({ collapsed }: SidebarProps) {
             <Link
               key={item.name}
               href={item.href}
+              prefetch
+              onClick={() => emitNavigationIntent(item.href, item.name)}
+              onMouseEnter={() => warmRoute(item.href)}
               className={linkClasses(isActive)}
               title={collapsed ? item.name : undefined}
             >
@@ -185,6 +206,9 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 <Link
                   key={item.name}
                   href={item.href}
+                  prefetch
+                  onClick={() => emitNavigationIntent(item.href, item.name)}
+                  onMouseEnter={() => warmRoute(item.href)}
                   className={linkClasses(isActive)}
                   title={collapsed ? item.name : undefined}
                 >

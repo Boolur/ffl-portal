@@ -14,6 +14,8 @@ This runbook is for progressively enabling performance changes in production wit
   - `CRON_SECRET` set
   - `PERF_LOG_ENABLED=true`
   - `NEXT_PUBLIC_TASK_OPTIMISTIC_UI=true` (set `false` for emergency rollback of optimistic UI only)
+  - `NEXT_PUBLIC_TASKS_SYNC_UI_ENABLED=true` (set `false` to disable Tasks sync transition UI instantly)
+  - `TASK_TIMELINE_EAGER=true` (set `false` to skip eager timeline enrichment on initial Tasks load)
 
 ## Production Verification
 
@@ -58,5 +60,7 @@ Before rollout waves, verify critical DB support and queue health:
 
 - Set `NOTIFICATION_DELIVERY_MODE=sync` to bypass async queue path.
 - If optimistic behavior needs rollback, disable optimistic mode in `TaskList`.
+- If Tasks transition UX causes issues, set `NEXT_PUBLIC_TASKS_SYNC_UI_ENABLED=false`.
+- If Tasks first-load payload is too heavy, set `TASK_TIMELINE_EAGER=false`.
 - Re-deploy previous known-good commit if action failures are detected.
 
