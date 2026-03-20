@@ -208,16 +208,35 @@ const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string 
   { value: 'COMPLETED', label: 'Completed' },
 ];
 
-function getJrChecklistStatusBadgeClass(status: JrChecklistStatus) {
-  if (status === 'COMPLETED') return 'border-emerald-300 bg-emerald-100 text-emerald-800';
-  if (status === 'MISSING_ITEMS') return 'border-rose-300 bg-rose-100 text-rose-800';
-  return 'border-yellow-300 bg-yellow-100 text-yellow-800';
-}
-
 function getJrChecklistHeadingIcon(id: string) {
   if (id === 'ordered-hoi') return Home;
   if (id === 'ordered-voe') return Briefcase;
   return FileText;
+}
+
+function getJrChecklistStatusPresentation(status: JrChecklistStatus) {
+  if (status === 'COMPLETED') {
+    return {
+      label: 'Completed',
+      className: 'border-emerald-300 bg-emerald-100 text-emerald-800',
+    };
+  }
+  if (status === 'MISSING_ITEMS') {
+    return {
+      label: 'Missing Items',
+      className: 'border-rose-300 bg-rose-100 text-rose-800',
+    };
+  }
+  return {
+    label: 'Ordered',
+    className: 'border-yellow-300 bg-yellow-100 text-yellow-800',
+  };
+}
+
+function getJrChecklistStatusIcon(status: JrChecklistStatus) {
+  if (status === 'COMPLETED') return CheckCircle;
+  if (status === 'MISSING_ITEMS') return X;
+  return Clock3;
 }
 
 function createDefaultJrChecklistRows(): JrChecklistDraftItem[] {
@@ -2567,29 +2586,28 @@ export function TaskList({
                                       </p>
                                     )}
                                     <div className="space-y-2">
-                                      {item.jrChecklist.map((row) => (
-                                        <div
-                                          key={`${item.id}-${row.id}`}
-                                          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-                                        >
-                                          <div className="flex items-center justify-between gap-2">
-                                            <span className="text-xs font-semibold text-slate-800">
-                                              {row.label}
-                                            </span>
-                                            <span
-                                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusBadgeClass(
-                                                row.status
-                                              )}`}
-                                            >
-                                              {row.status === 'MISSING_ITEMS'
-                                                ? 'Missing Items'
-                                                : row.status === 'COMPLETED'
-                                                  ? 'Completed'
-                                                  : 'Ordered'}
-                                            </span>
+                                      {item.jrChecklist.map((row) => {
+                                        const statusMeta = getJrChecklistStatusPresentation(row.status);
+                                        const StatusIcon = getJrChecklistStatusIcon(row.status);
+                                        return (
+                                          <div
+                                            key={`${item.id}-${row.id}`}
+                                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                                          >
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="text-xs font-semibold text-slate-800">
+                                                {row.label}
+                                              </span>
+                                              <span
+                                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusMeta.className}`}
+                                              >
+                                                <StatusIcon className="h-3 w-3" />
+                                                {statusMeta.label}
+                                              </span>
+                                            </div>
                                           </div>
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 ) : (
@@ -3004,6 +3022,8 @@ export function TaskList({
                         {jrChecklistRows.map((row) => {
                           const proofAttachmentId = row.proofAttachmentId;
                           const RowIcon = getJrChecklistHeadingIcon(row.id);
+                          const statusMeta = getJrChecklistStatusPresentation(row.status);
+                          const StatusIcon = getJrChecklistStatusIcon(row.status);
                           return (
                           <div
                             key={row.id}
@@ -3017,15 +3037,10 @@ export function TaskList({
                                 {row.label}
                               </p>
                               <span
-                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusBadgeClass(
-                                  row.status
-                                )}`}
+                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusMeta.className}`}
                               >
-                                {row.status === 'MISSING_ITEMS'
-                                  ? 'Missing Items'
-                                  : row.status === 'COMPLETED'
-                                    ? 'Completed'
-                                    : 'Ordered'}
+                                <StatusIcon className="h-3 w-3" />
+                                {statusMeta.label}
                               </span>
                             </div>
                             <select
@@ -3037,9 +3052,7 @@ export function TaskList({
                                   event.target.value as JrChecklistStatus
                                 )
                               }
-                              className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-xs font-semibold focus:border-sky-500 focus:ring-1 focus:ring-sky-500 ${getJrChecklistStatusBadgeClass(
-                                row.status
-                              )}`}
+                              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                             >
                               {jrChecklistStatusOptions.map((option) => (
                                 <option key={option.value} value={option.value}>

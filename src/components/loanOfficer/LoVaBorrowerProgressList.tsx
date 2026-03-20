@@ -182,6 +182,16 @@ function sortBorrowerItems(items: LoVaBorrowerProgressItem[], sortBy: SortOption
     .map((entry) => entry.item);
 }
 
+function getIconButtonClassByState(state: 'not_started' | 'working' | 'completed') {
+  if (state === 'completed') {
+    return 'border-emerald-200 bg-emerald-100 text-emerald-700';
+  }
+  if (state === 'working') {
+    return 'border-blue-200 bg-blue-100 text-blue-700';
+  }
+  return 'border-slate-200 bg-white text-slate-600';
+}
+
 const submissionDetailGroups = [
   {
     title: 'Borrower Details',
@@ -545,6 +555,23 @@ export function LoVaBorrowerProgressList({
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-va`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
                 const workedBy = item.workedByContributors;
+                const vaAllComplete = item.vaCompletedCount >= item.vaTotalCount;
+                const vaAnyWorking =
+                  !vaAllComplete &&
+                  (item.vaStageDetails.title.completed ||
+                    item.vaStageDetails.payoff.completed ||
+                    item.vaStageDetails.appraisal.completed ||
+                    item.vaStageDetails.title.proofAttachments.length > 0 ||
+                    item.vaStageDetails.payoff.proofAttachments.length > 0 ||
+                    item.vaStageDetails.appraisal.proofAttachments.length > 0 ||
+                    Boolean(item.vaStageDetails.title.latestNote) ||
+                    Boolean(item.vaStageDetails.payoff.latestNote) ||
+                    Boolean(item.vaStageDetails.appraisal.latestNote));
+                const vaIconState: 'not_started' | 'working' | 'completed' = vaAllComplete
+                  ? 'completed'
+                  : vaAnyWorking
+                    ? 'working'
+                    : 'not_started';
                 const vaStatusPills = [
                   { label: 'Title', done: item.vaStageDetails.title.completed },
                   { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
@@ -560,7 +587,9 @@ export function LoVaBorrowerProgressList({
                     <button
                       type="button"
                       onClick={() => openBorrowerDetail(item, 'va')}
-                      className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm ring-1 ring-black/5 transition-all duration-150 hover:scale-[1.03] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:ring-blue-200"
+                      className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/5 transition-all duration-150 hover:scale-[1.03] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:ring-blue-200 ${getIconButtonClassByState(
+                        vaIconState
+                      )}`}
                       title="Open submission details"
                       aria-label="Open submission details"
                     >
@@ -689,6 +718,59 @@ export function LoVaBorrowerProgressList({
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-jr`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
                 const workedBy = item.workedByContributors;
+                const jrRowsForState =
+                  item.jrStageDetails.hoi.checklist.length > 0
+                    ? item.jrStageDetails.hoi.checklist
+                    : [
+                        {
+                          id: 'ordered-hoi',
+                          label: 'HOI',
+                          status: item.jrStageDetails.hoi.completed ? 'COMPLETED' : 'MISSING_ITEMS',
+                          proofAttachmentId: null,
+                          proofFilename: null,
+                          note: null,
+                          noteUpdatedAt: null,
+                          noteAuthor: null,
+                          noteRole: null,
+                        },
+                        {
+                          id: 'ordered-voe',
+                          label: 'VOE',
+                          status: item.jrStageDetails.hoi.completed ? 'COMPLETED' : 'MISSING_ITEMS',
+                          proofAttachmentId: null,
+                          proofFilename: null,
+                          note: null,
+                          noteUpdatedAt: null,
+                          noteAuthor: null,
+                          noteRole: null,
+                        },
+                        {
+                          id: 'submitted-underwriting',
+                          label: 'Submitted to Underwriting',
+                          status: item.jrStageDetails.hoi.completed ? 'COMPLETED' : 'MISSING_ITEMS',
+                          proofAttachmentId: null,
+                          proofFilename: null,
+                          note: null,
+                          noteUpdatedAt: null,
+                          noteAuthor: null,
+                          noteRole: null,
+                        },
+                      ];
+                const jrAllComplete = jrRowsForState.every((row) => row.status === 'COMPLETED');
+                const jrAnyWorking =
+                  !jrAllComplete &&
+                  jrRowsForState.some(
+                    (row) =>
+                      row.status === 'ORDERED' ||
+                      row.status === 'COMPLETED' ||
+                      Boolean(row.proofAttachmentId) ||
+                      Boolean((row.note || '').trim())
+                  );
+                const jrIconState: 'not_started' | 'working' | 'completed' = jrAllComplete
+                  ? 'completed'
+                  : jrAnyWorking
+                    ? 'working'
+                    : 'not_started';
                 type JrStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
                 const jrRows: Array<{ label: string; status: JrStatus }> =
                   item.jrStageDetails.hoi.checklist.length > 0
@@ -732,7 +814,9 @@ export function LoVaBorrowerProgressList({
                     <button
                       type="button"
                       onClick={() => openBorrowerDetail(item, 'jr')}
-                      className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm ring-1 ring-black/5 transition-all duration-150 hover:scale-[1.03] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:ring-blue-200"
+                      className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/5 transition-all duration-150 hover:scale-[1.03] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:ring-blue-200 ${getIconButtonClassByState(
+                        jrIconState
+                      )}`}
                       title="Open submission details"
                       aria-label="Open submission details"
                     >
