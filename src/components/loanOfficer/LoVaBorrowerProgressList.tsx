@@ -948,20 +948,24 @@ export function LoVaBorrowerProgressList({
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-completed`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
                 const workedBy = item.workedByContributors;
+                const jrChecklistRows = item.jrStageDetails.hoi.checklist;
+                const getJrDone = (keyword: 'hoi' | 'voe' | 'underwriting') => {
+                  if (jrChecklistRows.length === 0) {
+                    if (keyword === 'hoi') return item.jrStageDetails.hoi.completed;
+                    return false;
+                  }
+                  const match = jrChecklistRows.find((row) =>
+                    row.label.toLowerCase().includes(keyword)
+                  );
+                  return Boolean(match && match.status === 'COMPLETED');
+                };
                 const combinedRows = [
                   { label: 'Title', done: item.vaStageDetails.title.completed },
                   { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
                   { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
-                  ...(item.jrStageDetails.hoi.checklist.length > 0
-                    ? item.jrStageDetails.hoi.checklist.map((row) => ({
-                        label: row.label.toLowerCase().includes('underwriting')
-                          ? 'Underwriting'
-                          : row.label.toLowerCase().includes('voe')
-                            ? 'VOE'
-                            : 'HOI',
-                        done: row.status === 'COMPLETED',
-                      }))
-                    : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]),
+                  { label: 'HOI', done: getJrDone('hoi') },
+                  { label: 'VOE', done: getJrDone('voe') },
+                  { label: 'Underwriting', done: getJrDone('underwriting') },
                 ];
                 const allComplete = combinedRows.every((row) => row.done);
                 const iconState: 'not_started' | 'working' | 'completed' = allComplete
