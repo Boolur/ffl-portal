@@ -944,67 +944,140 @@ export function LoVaBorrowerProgressList({
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredAndSorted.completed.map((item) => (
-                <article
-                  key={`${item.loanNumber}-${item.borrowerName}`}
-                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-3 shadow-sm transition-all hover:border-emerald-300 hover:shadow-md"
-                >
-                  <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-emerald-100/70 opacity-60 blur-2xl"></div>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="min-w-0">
-                        {item.latestUpdatedAt && (
-                          <p className="mb-0.5 inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
-                            <Calendar className="mr-1 h-3 w-3 text-slate-400" />
-                            {formatCompactDateTime(item.latestUpdatedAt)}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openBorrowerDetail(item, 'completed')}
-                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:border-blue-300 hover:bg-slate-50 hover:text-blue-700"
-                            title="Open borrower submission details"
-                            aria-label="Open borrower submission details"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                          </button>
-                          <p className="truncate text-sm font-bold text-slate-900">
-                            {item.borrowerName}
-                          </p>
+              {filteredAndSorted.completed.map((item) => {
+                const cardKey = `${item.loanNumber}-${item.borrowerName}-completed`;
+                const cardExpanded = expandedBorrowerCards.has(cardKey);
+                const workedBy = item.workedByContributors;
+                const combinedRows = [
+                  { label: 'Title', done: item.vaStageDetails.title.completed },
+                  { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
+                  { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
+                  ...(item.jrStageDetails.hoi.checklist.length > 0
+                    ? item.jrStageDetails.hoi.checklist.map((row) => ({
+                        label: row.label.toLowerCase().includes('underwriting')
+                          ? 'Underwriting'
+                          : row.label.toLowerCase().includes('voe')
+                            ? 'VOE'
+                            : 'HOI',
+                        done: row.status === 'COMPLETED',
+                      }))
+                    : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]),
+                ];
+                const allComplete = combinedRows.every((row) => row.done);
+                const iconState: 'not_started' | 'working' | 'completed' = allComplete
+                  ? 'completed'
+                  : 'working';
+                return (
+                  <article
+                    key={`${item.loanNumber}-${item.borrowerName}`}
+                    className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:ring-1 hover:ring-blue-100 hover:shadow-md"
+                  >
+                    <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl group-hover:bg-blue-50 transition-colors"></div>
+                    <div className="relative flex items-start gap-3 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => openBorrowerDetail(item, 'completed')}
+                        className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/5 transition-all duration-150 hover:scale-[1.03] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:ring-blue-200 ${getIconButtonClassByState(
+                          iconState
+                        )}`}
+                        title="Open submission details"
+                        aria-label="Open submission details"
+                      >
+                        <FileText className="h-4 w-4" />
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            {item.latestUpdatedAt && (
+                              <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
+                                <p className="inline-flex items-center text-[11px] font-medium text-slate-500 leading-none">
+                                  <Calendar className="mr-1 h-3 w-3 text-slate-400" />
+                                  {formatCompactDateTime(item.latestUpdatedAt)}
+                                </p>
+                              </div>
+                            )}
+                            <p className="text-sm font-bold leading-snug text-slate-900 line-clamp-1">
+                              {item.borrowerName}
+                            </p>
+                            <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
+                            {item.earliestCreatedAt && (
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                <span
+                                  className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${getTimerClassName(
+                                    Date.now() - item.earliestCreatedAt.getTime()
+                                  )}`}
+                                  title="Total time from first VA/JR task creation"
+                                >
+                                  <Clock3 className="mr-1 h-2.5 w-2.5" />
+                                  Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="inline-flex items-start gap-1.5 shrink-0">
+                            <div className="flex max-w-[260px] flex-wrap justify-end gap-1">
+                              {combinedRows.map((row) => (
+                                <span
+                                  key={row.label}
+                                  className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                    row.done
+                                      ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                      : 'border-rose-300 bg-rose-100 text-rose-800'
+                                  }`}
+                                  title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
+                                >
+                                  {row.label}
+                                </span>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedBorrowerCards((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(cardKey)) next.delete(cardKey);
+                                  else next.add(cardKey);
+                                  return next;
+                                })
+                              }
+                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                              title={cardExpanded ? 'Collapse card' : 'Expand card'}
+                              aria-label={cardExpanded ? 'Collapse card' : 'Expand card'}
+                            >
+                              {cardExpanded ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
                         </div>
-                        <p className="text-xs text-slate-500">{item.loanNumber}</p>
                       </div>
                     </div>
-                    <div className="flex max-w-[60%] flex-col items-end gap-1.5">
-                      <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
-                        Completed
-                      </span>
-                      <div className="flex flex-wrap justify-end items-center gap-1.5">
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                          VA {item.vaCompletedCount}/{item.vaTotalCount}
-                        </span>
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                          JR {item.jrCompletedCount}/{item.jrTotalCount}
-                        </span>
+                    {cardExpanded && (
+                      <div className="mt-2 border-t border-slate-200 pt-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                            Worked By
+                          </span>
+                          {(workedBy.length > 0
+                            ? workedBy
+                            : [{ name: 'Unassigned', role: null as null }]).map((contributor) => (
+                            <span
+                              key={contributor.name}
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
+                                contributor.role
+                              )}`}
+                            >
+                              {contributor.name}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  <SummaryRows
-                    rows={[
-                      { label: 'Title', done: item.vaStageDetails.title.completed },
-                      { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
-                      { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
-                      ...(item.jrStageDetails.hoi.checklist.length > 0
-                        ? item.jrStageDetails.hoi.checklist.map((row) => ({
-                            label: row.label,
-                            done: row.status === 'COMPLETED',
-                          }))
-                        : [{ label: 'HOI', done: item.jrStageDetails.hoi.completed }]),
-                    ]}
-                  />
-                </article>
-              ))}
+                    )}
+                  </article>
+                );
+              })}
             </div>
           )}
         </BucketPanel>
