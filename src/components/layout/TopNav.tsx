@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, ChevronDown, LogOut, PanelLeft, Search, Shield } from 'lucide-react';
+import { Bell, LogOut, PanelLeft, Search, Shield } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { UserRole } from '@prisma/client';
 import { useRouter } from 'next/navigation';
@@ -413,32 +413,21 @@ export function TopNav({
         <div ref={menuRef} className="relative flex items-center space-x-3 pl-4 border-l border-border">
           <button
             onClick={() => setMenuOpen((prev) => !prev)}
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-2 py-1.5 shadow-sm transition-all hover:shadow-md hover:bg-slate-50"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/90 bg-white shadow-sm transition-all hover:shadow-md hover:bg-slate-50"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label="Open user menu"
           >
-            <div className={`h-10 w-10 rounded-xl bg-gradient-to-br flex items-center justify-center font-extrabold border ${getRoleAvatarClass(user.role)}`}>
+            <div className={`h-9 w-9 rounded-lg bg-gradient-to-br flex items-center justify-center font-extrabold border ${getRoleAvatarClass(user.role)}`}>
               {user.name.charAt(0).toUpperCase()}
             </div>
-            <div className="hidden sm:block text-left pr-0.5">
-              <p className="text-sm font-bold text-slate-900 leading-tight">{user.name}</p>
-              <p className={`mt-0.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getRoleChipClass(user.role)}`}>
-                {formatRole(user.role)}
-              </p>
-            </div>
-            <ChevronDown
-              className={`h-4 w-4 text-slate-500 transition-transform ${
-                menuOpen ? 'rotate-180' : ''
-              }`}
-            />
           </button>
 
           {menuOpen && (
             <div className="absolute right-0 top-[3.25rem] w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl py-1 z-20">
               <div className="px-3 py-3 border-b border-slate-100 bg-slate-50/70">
                 <p className="text-sm font-semibold text-slate-900 truncate">{user.name}</p>
-                <p className="mt-0.5 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <p className={`mt-0.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${getRoleChipClass(user.role)}`}>
                   <Shield className="h-3 w-3" />
                   {formatRole(user.role)}
                 </p>
