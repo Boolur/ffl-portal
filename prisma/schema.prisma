@@ -82,6 +82,19 @@ enum TaskWorkflowState {
   READY_TO_COMPLETE
 }
 
+enum NotificationOutboxStatus {
+  PENDING
+  PROCESSING
+  RETRY
+  SENT
+  FAILED
+}
+
+enum NotificationOutboxEventType {
+  TASK_WORKFLOW
+  VA_FANOUT
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
@@ -202,6 +215,25 @@ model Notification {
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+model NotificationOutbox {
+  id                String                     @id @default(uuid())
+  eventType         NotificationOutboxEventType
+  status            NotificationOutboxStatus   @default(PENDING)
+  payload           Json
+  idempotencyKey    String                     @unique
+  attempts          Int                        @default(0)
+  maxAttempts       Int                        @default(8)
+  nextAttemptAt     DateTime                   @default(now())
+  processingStartedAt DateTime?
+  sentAt            DateTime?
+  lastError         String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([eventType, status])
 }
 
 model TaskAttachment {

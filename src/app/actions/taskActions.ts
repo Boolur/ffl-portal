@@ -3,6 +3,8 @@
 import { prisma } from '@/lib/prisma';
 import {
   DisclosureDecisionReason,
+  NotificationOutboxEventType,
+  NotificationOutboxStatus,
   Prisma,
   TaskKind,
   TaskPriority,
@@ -14,6 +16,7 @@ import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { sendEmail } from '@/lib/email';
+import { randomUUID } from 'crypto';
 
 function isSubmissionTask(task: {
   kind: TaskKind | null;
@@ -273,6 +276,15 @@ function buildTaskNotificationHtml(input: {
 
 type EmailAudience = 'LO' | 'DISCLOSURE' | 'QC' | 'VA';
 type DeskType = 'DISCLOSURE' | 'QC' | 'VA' | 'JR';
+type NotificationDeliveryMode = 'sync' | 'dual' | 'async';
+
+function getNotificationDeliveryMode(): NotificationDeliveryMode {
+  const value = String(process.env.NOTIFICATION_DELIVERY_MODE || 'async')
+    .trim()
+    .toLowerCase();
+  if (value === 'sync' || value === 'dual' || value === 'async') return value;
+  return 'async';
+}
 
 function getEffectiveReasonLabel(task: {
   workflowState: TaskWorkflowState;
@@ -581,6 +593,47 @@ type VaCreatedTaskNotification = {
   title: string;
   assignedRole: UserRole;
 };
+
+type TaskWorkflowNotificationPayload = {
+  taskId: string;
+  eventLabel: string;
+  changedBy?: string | null;
+};
+
+type VaFanoutNotificationPayload = {
+  loanId: string;
+  createdTasks: VaCreatedTaskNotification[];
+  changedBy?: string | null;
+};
+
+function getExponentialBackoffMs(attempt: number) {
+  const clampedAttempt = Math.max(1, Math.min(6, attempt));
+  const baseMs = 15_000 * 2 ** (clampedAttempt - 1);
+  return Math.min(baseMs, 20 * 60 * 1000);
+}
+
+async function enqueueNotificationOutboxEvent(input: {
+  eventType: NotificationOutboxEventType;
+  payload: Prisma.JsonObject;
+  maxAttempts?: number;
+  idempotencyKey?: string;
+}) {
+  try {
+    await prisma.notificationOutbox.create({
+      data: {
+        eventType: input.eventType,
+        payload: input.payload,
+        idempotencyKey:
+          input.idempotencyKey ||
+          `${input.eventType}:${randomUUID()}`,
+        maxAttempts: Math.max(1, Math.min(20, input.maxAttempts ?? 8)),
+      },
+    });
+  } catch (error) {
+    console.error('Failed to enqueue notification outbox event:', error);
+    throw error;
+  }
+}
 
 function asSubmissionObject(
   value: Prisma.JsonValue | null | undefined
@@ -977,7 +1030,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         loanId: true,
       },
     });
-    if (!task) return;
+    if (!task) return false;
 
     const vaRole = getVaAssignedRoleForTask(task);
     const isJrDeskTask = task.kind === TaskKind.VA_HOI || vaRole === UserRole.PROCESSOR_JR;
@@ -1003,7 +1056,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         : deskType === 'VA'
         ? vaRole
         : UserRole.DISCLOSURE_SPECIALIST;
-    if (deskType === 'VA' && !teamRole) return;
+    if (deskType === 'VA' && !teamRole) return false;
     const teamAudience: EmailAudience =
       deskType === 'QC' ? 'QC' : deskType === 'VA' ? 'VA' : 'DISCLOSURE';
 
@@ -1034,7 +1087,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       }),
     ]);
 
-    if (!loan) return;
+    if (!loan) return false;
 
     const teamRecipientSet = new Set<string>();
     for (const user of teamUsers) {
@@ -1053,7 +1106,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         : null;
     const shouldSendLoanOfficerAudience =
       Boolean(loanOfficerEmail) && !teamRecipientSet.has(loanOfficerEmail as string);
-    if (teamRecipientSet.size === 0 && !shouldSendLoanOfficerAudience) return;
+    if (teamRecipientSet.size === 0 && !shouldSendLoanOfficerAudience) return false;
 
     const portalBaseUrl = getPortalBaseUrl();
     const taskUrl = `${portalBaseUrl}/tasks?taskId=${encodeURIComponent(task.id)}`;
@@ -1151,9 +1204,310 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     if (loanOfficerEmail && shouldSendLoanOfficerAudience) {
       await sendByAudience('LO', [loanOfficerEmail]);
     }
+    return true;
   } catch (error) {
     console.error('Failed to send task workflow notifications:', error);
+    return false;
   }
+}
+
+async function dispatchTaskWorkflowNotification(input: TaskWorkflowNotificationPayload) {
+  const mode = getNotificationDeliveryMode();
+  const payload: Prisma.JsonObject = {
+    taskId: input.taskId,
+    eventLabel: input.eventLabel,
+    changedBy: input.changedBy ?? null,
+  };
+  const enqueue = async () =>
+    enqueueNotificationOutboxEvent({
+      eventType: NotificationOutboxEventType.TASK_WORKFLOW,
+      payload,
+      idempotencyKey: `task-workflow:${input.taskId}:${input.eventLabel}:${Date.now()}:${randomUUID()}`,
+    });
+
+  if (mode === 'sync') {
+    await sendTaskWorkflowNotificationsByTaskId(input);
+    return;
+  }
+  await enqueue();
+  if (mode === 'dual') {
+    await sendTaskWorkflowNotificationsByTaskId(input);
+  }
+}
+
+async function dispatchVaFanoutNotifications(input: VaFanoutNotificationPayload) {
+  if (!input.createdTasks.length) return;
+  const mode = getNotificationDeliveryMode();
+  const payload: Prisma.JsonObject = {
+    loanId: input.loanId,
+    changedBy: input.changedBy ?? null,
+    createdTasks: input.createdTasks as unknown as Prisma.JsonArray,
+  };
+  const enqueue = async () =>
+    enqueueNotificationOutboxEvent({
+      eventType: NotificationOutboxEventType.VA_FANOUT,
+      payload,
+      idempotencyKey: `va-fanout:${input.loanId}:${Date.now()}:${randomUUID()}`,
+    });
+
+  if (mode === 'sync') {
+    await sendVaFanoutNotifications(input);
+    return;
+  }
+  await enqueue();
+  if (mode === 'dual') {
+    await sendVaFanoutNotifications(input);
+  }
+}
+
+type DrainNotificationOutboxResult = {
+  processed: number;
+  sent: number;
+  retried: number;
+  failed: number;
+  skipped: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseTaskWorkflowPayload(payload: Prisma.JsonValue): TaskWorkflowNotificationPayload | null {
+  if (!isRecord(payload)) return null;
+  const taskId = String(payload.taskId ?? '').trim();
+  const eventLabel = String(payload.eventLabel ?? '').trim();
+  const changedByRaw = payload.changedBy;
+  const changedBy =
+    typeof changedByRaw === 'string' && changedByRaw.trim().length > 0
+      ? changedByRaw.trim()
+      : null;
+  if (!taskId || !eventLabel) return null;
+  return { taskId, eventLabel, changedBy };
+}
+
+function parseVaFanoutPayload(payload: Prisma.JsonValue): VaFanoutNotificationPayload | null {
+  if (!isRecord(payload)) return null;
+  const loanId = String(payload.loanId ?? '').trim();
+  const changedByRaw = payload.changedBy;
+  const changedBy =
+    typeof changedByRaw === 'string' && changedByRaw.trim().length > 0
+      ? changedByRaw.trim()
+      : null;
+  if (!loanId) return null;
+  const rawCreatedTasks = Array.isArray(payload.createdTasks) ? payload.createdTasks : [];
+  const createdTasks: VaCreatedTaskNotification[] = [];
+  for (const row of rawCreatedTasks) {
+    if (!isRecord(row)) continue;
+    const id = String(row.id ?? '').trim();
+    const kindRaw = String(row.kind ?? '').trim();
+    const title = String(row.title ?? '').trim();
+    const assignedRoleRaw = String(row.assignedRole ?? '').trim();
+    if (!id || !kindRaw || !title || !assignedRoleRaw) continue;
+    const kind = (Object.values(TaskKind) as string[]).includes(kindRaw)
+      ? (kindRaw as TaskKind)
+      : null;
+    const assignedRole = (Object.values(UserRole) as string[]).includes(assignedRoleRaw)
+      ? (assignedRoleRaw as UserRole)
+      : null;
+    if (!kind || !assignedRole) continue;
+    createdTasks.push({ id, kind, title, assignedRole });
+  }
+  if (!createdTasks.length) return null;
+  return { loanId, changedBy, createdTasks };
+}
+
+async function processNotificationOutboxJob(job: {
+  id: string;
+  eventType: NotificationOutboxEventType;
+  payload: Prisma.JsonValue;
+  attempts: number;
+  maxAttempts: number;
+}) {
+  let delivered = false;
+  if (job.eventType === NotificationOutboxEventType.TASK_WORKFLOW) {
+    const parsed = parseTaskWorkflowPayload(job.payload);
+    if (!parsed) {
+      throw new Error('Invalid TASK_WORKFLOW payload.');
+    }
+    delivered = await sendTaskWorkflowNotificationsByTaskId(parsed);
+  } else if (job.eventType === NotificationOutboxEventType.VA_FANOUT) {
+    const parsed = parseVaFanoutPayload(job.payload);
+    if (!parsed) {
+      throw new Error('Invalid VA_FANOUT payload.');
+    }
+    await sendVaFanoutNotifications(parsed);
+    delivered = true;
+  }
+
+  if (!delivered) {
+    throw new Error('Notification delivery returned unsuccessful result.');
+  }
+}
+
+export async function drainNotificationOutboxBatch(input?: { batchSize?: number }) {
+  const startedAt = Date.now();
+  const batchSize = Math.max(1, Math.min(50, Math.floor(input?.batchSize ?? 20)));
+  const now = new Date();
+  const result: DrainNotificationOutboxResult = {
+    processed: 0,
+    sent: 0,
+    retried: 0,
+    failed: 0,
+    skipped: 0,
+  };
+
+  const candidates = await prisma.notificationOutbox.findMany({
+    where: {
+      status: { in: [NotificationOutboxStatus.PENDING, NotificationOutboxStatus.RETRY] },
+      nextAttemptAt: { lte: now },
+    },
+    orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
+    take: batchSize,
+    select: {
+      id: true,
+    },
+  });
+
+  for (const candidate of candidates) {
+    const claim = await prisma.notificationOutbox.updateMany({
+      where: {
+        id: candidate.id,
+        status: { in: [NotificationOutboxStatus.PENDING, NotificationOutboxStatus.RETRY] },
+      },
+      data: {
+        status: NotificationOutboxStatus.PROCESSING,
+        processingStartedAt: new Date(),
+      },
+    });
+    if (claim.count === 0) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const job = await prisma.notificationOutbox.findUnique({
+      where: { id: candidate.id },
+      select: {
+        id: true,
+        eventType: true,
+        payload: true,
+        attempts: true,
+        maxAttempts: true,
+      },
+    });
+    if (!job) {
+      result.skipped += 1;
+      continue;
+    }
+
+    result.processed += 1;
+    try {
+      await processNotificationOutboxJob(job);
+      await prisma.notificationOutbox.update({
+        where: { id: job.id },
+        data: {
+          status: NotificationOutboxStatus.SENT,
+          sentAt: new Date(),
+          lastError: null,
+          processingStartedAt: null,
+          attempts: { increment: 1 },
+        },
+      });
+      result.sent += 1;
+    } catch (error) {
+      const nextAttemptCount = job.attempts + 1;
+      const exhausted = nextAttemptCount >= job.maxAttempts;
+      await prisma.notificationOutbox.update({
+        where: { id: job.id },
+        data: {
+          status: exhausted ? NotificationOutboxStatus.FAILED : NotificationOutboxStatus.RETRY,
+          attempts: nextAttemptCount,
+          nextAttemptAt: exhausted
+            ? now
+            : new Date(Date.now() + getExponentialBackoffMs(nextAttemptCount)),
+          processingStartedAt: null,
+          lastError: error instanceof Error ? error.message.slice(0, 2000) : 'Unknown error',
+        },
+      });
+      if (exhausted) {
+        result.failed += 1;
+      } else {
+        result.retried += 1;
+      }
+    }
+  }
+
+  console.info('[notifications.outbox] Drain batch complete', {
+    batchSize,
+    elapsedMs: Date.now() - startedAt,
+    ...result,
+  });
+  return result;
+}
+
+export async function getNotificationOutboxStats() {
+  const [pending, processing, retry, sent24h, failed] = await Promise.all([
+    prisma.notificationOutbox.count({
+      where: {
+        status: NotificationOutboxStatus.PENDING,
+      },
+    }),
+    prisma.notificationOutbox.count({
+      where: {
+        status: NotificationOutboxStatus.PROCESSING,
+      },
+    }),
+    prisma.notificationOutbox.count({
+      where: {
+        status: NotificationOutboxStatus.RETRY,
+      },
+    }),
+    prisma.notificationOutbox.count({
+      where: {
+        status: NotificationOutboxStatus.SENT,
+        sentAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+    }),
+    prisma.notificationOutbox.count({
+      where: {
+        status: NotificationOutboxStatus.FAILED,
+      },
+    }),
+  ]);
+  return {
+    mode: getNotificationDeliveryMode(),
+    pending,
+    processing,
+    retry,
+    sent24h,
+    failed,
+  };
+}
+
+export async function requeueFailedNotificationOutbox(limit = 100) {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role as UserRole | undefined;
+  if (!role || (role !== UserRole.ADMIN && role !== UserRole.MANAGER)) {
+    return { success: false, error: 'Not authorized.' };
+  }
+  const take = Math.max(1, Math.min(500, Math.floor(limit)));
+  const failedIds = await prisma.notificationOutbox.findMany({
+    where: { status: NotificationOutboxStatus.FAILED },
+    orderBy: { createdAt: 'asc' },
+    take,
+    select: { id: true },
+  });
+  if (!failedIds.length) return { success: true, updated: 0 };
+
+  const { count } = await prisma.notificationOutbox.updateMany({
+    where: { id: { in: failedIds.map((row) => row.id) } },
+    data: {
+      status: NotificationOutboxStatus.RETRY,
+      nextAttemptAt: new Date(),
+      lastError: null,
+      processingStartedAt: null,
+    },
+  });
+  return { success: true, updated: count };
 }
 
 export async function updateTaskStatus(
@@ -1370,7 +1724,7 @@ export async function updateTaskStatus(
           existing.loanId,
           existing.id
         );
-        await sendVaFanoutNotifications({
+        await dispatchVaFanoutNotifications({
           loanId: existing.loanId,
           createdTasks: createdVaTasks,
           changedBy: session?.user?.name || null,
@@ -1383,19 +1737,19 @@ export async function updateTaskStatus(
       existing.kind === TaskKind.LO_NEEDS_INFO &&
       existing.parentTaskId
     ) {
-      await sendTaskWorkflowNotificationsByTaskId({
+      await dispatchTaskWorkflowNotification({
         taskId: existing.parentTaskId,
         eventLabel: 'Task Returned to Disclosure',
         changedBy: session?.user?.name,
       });
     } else if (newStatus === TaskStatus.COMPLETED) {
-      await sendTaskWorkflowNotificationsByTaskId({
+      await dispatchTaskWorkflowNotification({
         taskId,
         eventLabel: 'Task Completed',
         changedBy: session?.user?.name,
       });
     } else {
-      await sendTaskWorkflowNotificationsByTaskId({
+      await dispatchTaskWorkflowNotification({
         taskId,
         eventLabel: 'Task Status Updated',
         changedBy: session?.user?.name,
@@ -1758,7 +2112,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       },
     });
 
-    await sendTaskWorkflowNotificationsByTaskId({
+    await dispatchTaskWorkflowNotification({
       taskId: createdTask.id,
       eventLabel: 'New Request Submitted',
       changedBy: session?.user?.name || loanOfficerName || null,
@@ -2250,7 +2604,7 @@ export async function startDisclosureRequest(taskId: string) {
       },
     });
 
-    await sendTaskWorkflowNotificationsByTaskId({
+    await dispatchTaskWorkflowNotification({
       taskId,
       eventLabel: 'Disclosure Request Started',
       changedBy: session?.user?.name,
@@ -2339,7 +2693,7 @@ export async function startQcRequest(taskId: string) {
       },
     });
 
-    await sendTaskWorkflowNotificationsByTaskId({
+    await dispatchTaskWorkflowNotification({
       taskId,
       eventLabel: 'QC Request Started',
       changedBy: session?.user?.name,
@@ -2645,14 +2999,14 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
 
     if (isQcCompleteAction) {
       const createdVaTasks = await ensureVaTasksForLoanFromQcCompletion(task.loanId, task.id);
-      await sendVaFanoutNotifications({
+      await dispatchVaFanoutNotifications({
         loanId: task.loanId,
         createdTasks: createdVaTasks,
         changedBy: session?.user?.name || null,
       });
     }
 
-    await sendTaskWorkflowNotificationsByTaskId({
+    await dispatchTaskWorkflowNotification({
       taskId,
       eventLabel: isQcCompleteAction ? 'Task Completed' : 'Sent to Loan Officer',
       changedBy: session?.user?.name,
@@ -2757,7 +3111,7 @@ export async function respondToDisclosureRequest(
       });
     });
 
-    await sendTaskWorkflowNotificationsByTaskId({
+    await dispatchTaskWorkflowNotification({
       taskId: task.parentTaskId,
       eventLabel: 'Loan Officer Responded',
       changedBy: session?.user?.name,
@@ -2892,7 +3246,7 @@ export async function reviewInitialDisclosureFigures(input: {
       }
     });
 
-    await sendTaskWorkflowNotificationsByTaskId({
+    await dispatchTaskWorkflowNotification({
       taskId: task.parentTaskId,
       eventLabel:
         input.decision === 'APPROVE'
@@ -2934,7 +3288,7 @@ export async function deleteTask(taskId: string) {
     const shouldSendDeleteNotification =
       isDisclosureSubmissionTask(existing) || isQcSubmissionTask(existing);
     if (shouldSendDeleteNotification) {
-      await sendTaskWorkflowNotificationsByTaskId({
+      await dispatchTaskWorkflowNotification({
         taskId: existing.id,
         eventLabel: 'Request Deleted',
         changedBy: session?.user?.name || null,
