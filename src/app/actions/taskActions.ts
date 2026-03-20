@@ -121,7 +121,7 @@ function buildTaskNotificationHtml(input: {
   subject: string;
   eventLabel: string;
   deskLabel: string;
-  deskTone: 'blue' | 'violet' | 'rose';
+  deskTone: 'blue' | 'violet' | 'rose' | 'cyan';
   eventTone?: 'default' | 'danger';
   intro: string;
   ctaLabel: string;
@@ -154,6 +154,16 @@ function buildTaskNotificationHtml(input: {
           buttonBorder: '#be123c',
           buttonGradient: 'linear-gradient(135deg,#f43f5e,#e11d48)',
           linkColor: '#e11d48',
+        }
+      : input.deskTone === 'cyan'
+      ? {
+          headerGradient: 'linear-gradient(135deg,#ecfeff,#e0f2fe)',
+          tagBg: '#cffafe',
+          tagText: '#0e7490',
+          buttonBg: '#0891b2',
+          buttonBorder: '#0e7490',
+          buttonGradient: 'linear-gradient(135deg,#06b6d4,#0891b2)',
+          linkColor: '#0891b2',
         }
       : {
           headerGradient: 'linear-gradient(135deg,#eff6ff,#eef2ff)',
@@ -262,7 +272,7 @@ function buildTaskNotificationHtml(input: {
 }
 
 type EmailAudience = 'LO' | 'DISCLOSURE' | 'QC' | 'VA';
-type DeskType = 'DISCLOSURE' | 'QC' | 'VA';
+type DeskType = 'DISCLOSURE' | 'QC' | 'VA' | 'JR';
 
 function getEffectiveReasonLabel(task: {
   workflowState: TaskWorkflowState;
@@ -294,11 +304,14 @@ function getRoleSpecificEmailContent(input: {
   const deskLabel =
     input.deskType === 'QC'
       ? 'QC Desk'
+      : input.deskType === 'JR'
+      ? 'JR Processor'
       : input.deskType === 'VA'
       ? 'VA Desk'
       : 'Disclosure Desk';
   const isQcTask = input.deskType === 'QC';
   const isVaTask = input.deskType === 'VA';
+  const isJrTask = input.deskType === 'JR';
   const base = {
     eventLabel: input.eventLabel,
     intro:
@@ -356,13 +369,19 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] Returned to ${isQcTask ? 'QC' : isVaTask ? 'Appraisal VA' : 'Disclosure'}: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[FFL Portal] Returned to ${isQcTask ? 'QC' : isJrTask ? 'JR Processor' : isVaTask ? 'Appraisal VA' : 'Disclosure'}: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'LO Responded - Review Needed',
       intro:
-        `Loan Officer response has been received. Review details and complete the next ${isQcTask ? 'QC' : isVaTask ? 'appraisal VA' : 'disclosure'} action.`,
+        `Loan Officer response has been received. Review details and complete the next ${isQcTask ? 'QC' : isJrTask ? 'JR Processor' : isVaTask ? 'appraisal VA' : 'disclosure'} action.`,
       ctaLabel: 'Review Response in Portal',
       statusLabel: 'REVIEW NEEDED',
-      workflowLabel: isQcTask ? 'Returned to QC' : isVaTask ? 'LO Responded (Review)' : 'Returned to Disclosure',
+      workflowLabel: isQcTask
+        ? 'Returned to QC'
+        : isJrTask
+        ? 'LO Responded (Review)'
+        : isVaTask
+        ? 'LO Responded (Review)'
+        : 'Returned to Disclosure',
     };
   }
 
@@ -426,13 +445,19 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] New ${isQcTask ? 'QC' : isVaTask ? 'VA' : 'Disclosure'} Request: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[FFL Portal] New ${isQcTask ? 'QC' : isJrTask ? 'JR Processor' : isVaTask ? 'VA' : 'Disclosure'} Request: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'New Request Submitted',
       intro:
-        `A new ${isQcTask ? 'QC' : isVaTask ? 'VA' : 'disclosure'} request is in your queue. Review details and take action.`,
+        `A new ${isQcTask ? 'QC' : isJrTask ? 'JR Processor' : isVaTask ? 'VA' : 'disclosure'} request is in your queue. Review details and take action.`,
       ctaLabel: 'Open New Request',
       statusLabel: 'NEW',
-      workflowLabel: isQcTask ? 'New QC Request' : isVaTask ? 'New VA Request' : 'New Disclosure Request',
+      workflowLabel: isQcTask
+        ? 'New QC Request'
+        : isJrTask
+        ? 'New JR Processor Request'
+        : isVaTask
+        ? 'New VA Request'
+        : 'New Disclosure Request',
     };
   }
 
@@ -502,7 +527,13 @@ function getRoleSpecificEmailContent(input: {
       intro: 'This request was deleted from the workflow queue.',
       ctaLabel: 'View Task Queue',
       statusLabel: 'DELETED',
-      workflowLabel: isQcTask ? 'QC Queue' : isVaTask ? 'VA Queue' : 'Disclosure Queue',
+      workflowLabel: isQcTask
+        ? 'QC Queue'
+        : isJrTask
+        ? 'JR Processor Queue'
+        : isVaTask
+        ? 'VA Queue'
+        : 'Disclosure Queue',
     };
   }
 
@@ -793,6 +824,11 @@ async function sendVaFanoutNotifications(input: {
     const taskUrl = `${portalBaseUrl}/tasks?taskId=${encodeURIComponent(task.id)}`;
     const subject = `[FFL Portal] New ${task.title} Request: ${loan.borrowerName} (${loan.loanNumber})`;
     const intro = `${input.changedBy?.trim() || 'QC Desk'} completed QC and created this ${task.title} request for your queue.`;
+    const isJrTask = task.assignedRole === UserRole.PROCESSOR_JR;
+    const deskLabel = isJrTask ? 'JR Processor' : 'VA Desk';
+    const deskTone = isJrTask ? 'cyan' : 'rose';
+    const openLabel = isJrTask ? 'Open JR Processor Request' : 'Open VA Request';
+    const workflowLabel = isJrTask ? 'New JR Processor Request' : 'New VA Request';
 
     await createInAppNotificationsForAudience({
       recipientEmails: recipients,
@@ -807,27 +843,27 @@ async function sendVaFanoutNotifications(input: {
       logoUrl,
       subject,
       eventLabel: 'New VA Request Submitted',
-      deskLabel: 'VA Desk',
-      deskTone: 'rose',
+      deskLabel,
+      deskTone,
       intro,
-      ctaLabel: 'Open VA Request',
+      ctaLabel: openLabel,
       borrowerName: loan.borrowerName,
       loanNumber: loan.loanNumber,
       taskTitle: task.title,
       status: 'NEW',
-      workflow: 'New VA Request',
+      workflow: workflowLabel,
       reason: null,
       changedBy: input.changedBy || null,
       taskUrl,
     });
     const text = [
-      'Desk: VA Desk',
+      `Desk: ${deskLabel}`,
       'Event: New VA Request Submitted',
       `Borrower: ${loan.borrowerName}`,
       `Loan Number: ${loan.loanNumber}`,
       `Task: ${task.title}`,
       'Status: NEW',
-      'Workflow: New VA Request',
+      `Workflow: ${workflowLabel}`,
       input.changedBy ? `Changed By: ${input.changedBy}` : null,
       `Open Task: ${taskUrl}`,
     ]
@@ -943,14 +979,24 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     });
     if (!task) return;
 
+    const vaRole = getVaAssignedRoleForTask(task);
+    const isJrDeskTask = task.kind === TaskKind.VA_HOI || vaRole === UserRole.PROCESSOR_JR;
     const deskType: DeskType = isVaTaskKind(task.kind)
-      ? 'VA'
+      ? isJrDeskTask
+        ? 'JR'
+        : 'VA'
       : isQcSubmissionTask(task)
       ? 'QC'
       : 'DISCLOSURE';
     const isQcTask = deskType === 'QC';
-    const deskLabel = isQcTask ? 'QC Desk' : deskType === 'VA' ? 'VA Desk' : 'Disclosure Desk';
-    const vaRole = getVaAssignedRoleForTask(task);
+    const deskLabel =
+      isQcTask
+        ? 'QC Desk'
+        : deskType === 'JR'
+        ? 'JR Processor'
+        : deskType === 'VA'
+        ? 'VA Desk'
+        : 'Disclosure Desk';
     const teamRole =
       deskType === 'QC'
         ? UserRole.QC
@@ -1072,7 +1118,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         subject: copy.subject,
         eventLabel: copy.eventLabel,
         deskLabel,
-        deskTone: isQcTask ? 'violet' : deskType === 'VA' ? 'rose' : 'blue',
+        deskTone: isQcTask ? 'violet' : deskType === 'JR' ? 'cyan' : deskType === 'VA' ? 'rose' : 'blue',
         eventTone: input.eventLabel === 'Request Deleted' ? 'danger' : 'default',
         intro: copy.intro,
         ctaLabel: copy.ctaLabel,
@@ -1199,6 +1245,21 @@ export async function updateTaskStatus(
         return {
           success: false,
           error: 'Upload proof (PDF/Image) before completing this task.',
+        };
+      }
+    }
+
+    if (newStatus === TaskStatus.COMPLETED && existing.kind === TaskKind.VA_HOI) {
+      const checklistItems = getSavedJrChecklistItemsFromSubmissionData(existing.submissionData);
+      const allCompleted =
+        checklistItems !== null && checklistItems.every((item) => item.status === 'COMPLETED');
+      const allProofAttached =
+        checklistItems !== null && checklistItems.every((item) => Boolean(item.proofAttachmentId));
+      if (!allCompleted || !allProofAttached) {
+        return {
+          success: false,
+          error:
+            'JR Processor task can only be completed when HOI, VOE, and Submitted to Underwriting are all marked Completed with proof attached.',
         };
       }
     }
@@ -1889,6 +1950,22 @@ function buildJrChecklistSummary(items: JrChecklistItemInput[]) {
   return `JR checklist updated: ${completed} completed, ${ordered} ordered, ${missing} missing/action required.`;
 }
 
+function getSavedJrChecklistItemsFromSubmissionData(
+  submissionData: Prisma.JsonValue | null | undefined
+): JrChecklistItemInput[] | null {
+  if (!submissionData || typeof submissionData !== 'object' || Array.isArray(submissionData)) {
+    return null;
+  }
+  const dataObj = submissionData as Record<string, unknown>;
+  const jrChecklistRaw =
+    dataObj.jrChecklist && typeof dataObj.jrChecklist === 'object' && !Array.isArray(dataObj.jrChecklist)
+      ? (dataObj.jrChecklist as Record<string, unknown>)
+      : null;
+  const itemsRaw = Array.isArray(jrChecklistRaw?.items) ? jrChecklistRaw.items : null;
+  if (!itemsRaw) return null;
+  return parseJrChecklistItems(itemsRaw as JrChecklistItemInput[]);
+}
+
 export async function saveJrProcessorChecklist(taskId: string, items: JrChecklistItemInput[]) {
   try {
     const session = await getServerSession(authOptions);
@@ -1919,6 +1996,12 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
     if (!existing) return { success: false, error: 'Task not found.' };
     if (existing.kind !== TaskKind.VA_HOI) {
       return { success: false, error: 'Only JR Processor tasks support this checklist.' };
+    }
+    if (existing.status === TaskStatus.COMPLETED) {
+      return {
+        success: false,
+        error: 'JR checklist is locked after task completion. Ask a manager to reopen the task.',
+      };
     }
 
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
@@ -2069,6 +2152,12 @@ export async function addJrProcessorNote(taskId: string, note: string) {
     if (!existing) return { success: false, error: 'Task not found.' };
     if (existing.kind !== TaskKind.VA_HOI) {
       return { success: false, error: 'Only JR Processor tasks support JR notes.' };
+    }
+    if (existing.status === TaskStatus.COMPLETED) {
+      return {
+        success: false,
+        error: 'JR notes are locked after task completion. Ask a manager to reopen the task.',
+      };
     }
 
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;

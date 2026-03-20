@@ -30,6 +30,7 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
     select: {
       id: true,
       kind: true,
+      status: true,
       assignedRole: true,
       assignedUserId: true,
       loan: { select: { loanOfficerId: true } },
@@ -84,6 +85,12 @@ export async function createTaskAttachmentUploadUrl(input: {
     if (isVaKind && input.purpose !== TaskAttachmentPurpose.PROOF) {
       return { success: false, error: 'VA tasks only accept proof uploads.' };
     }
+    if (access.task.kind === TaskKind.VA_HOI && access.task.status === TaskStatus.COMPLETED) {
+      return {
+        success: false,
+        error: 'JR proof uploads are locked after task completion.',
+      };
+    }
 
     const safeName = sanitizeFilename(input.filename);
     const storagePath = `tasks/${input.taskId}/${randomUUID()}-${safeName}`;
@@ -128,6 +135,12 @@ export async function finalizeTaskAttachment(input: {
 
     const access = await canAccessTaskForAttachment(input.taskId, role, userId);
     if (!access.ok) return { success: false, error: access.error };
+    if (access.task.kind === TaskKind.VA_HOI && access.task.status === TaskStatus.COMPLETED) {
+      return {
+        success: false,
+        error: 'JR proof uploads are locked after task completion.',
+      };
+    }
 
     const attachment = await prisma.taskAttachment.create({
       data: {

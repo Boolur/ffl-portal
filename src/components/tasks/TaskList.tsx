@@ -1930,6 +1930,7 @@ export function TaskList({
         const qcChecklistRows = getQcChecklistRows(task.id);
         const jrChecklistRows = getJrChecklistRows(task.id);
         const isJrChecklistTask = task.kind === TaskKind.VA_HOI;
+        const isJrChecklistLocked = isJrChecklistTask && task.status === TaskStatus.COMPLETED;
         const canManageJrChecklist =
           (currentRole === UserRole.PROCESSOR_JR || isManagerRole) && isJrChecklistTask;
         const jrChecklistHasMissingItems = jrChecklistRows.some(
@@ -1941,7 +1942,7 @@ export function TaskList({
           jrChecklistRows.length > 0 &&
           jrChecklistRows.every((row) => Boolean(row.proofAttachmentId));
         const jrChecklistBlocksCompletion =
-          canManageJrChecklist && (!jrChecklistAllCompleted || !jrChecklistAllProofAttached);
+          isJrChecklistTask && (!jrChecklistAllCompleted || !jrChecklistAllProofAttached);
         const qcChecklistHasRedXItems = hasQcChecklistRedItem(qcChecklistRows);
         const qcChecklistAllGreen = isQcChecklistGreenOnly(qcChecklistRows);
         const qcChecklistMissingFields = hasQcChecklistMissingSelections(qcChecklistRows);
@@ -3052,6 +3053,7 @@ export function TaskList({
                                   event.target.value as JrChecklistStatus
                                 )
                               }
+                              disabled={isJrChecklistLocked}
                               className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                             >
                               {jrChecklistStatusOptions.map((option) => (
@@ -3097,7 +3099,7 @@ export function TaskList({
                                       void handleUploadJrChecklistProof(task.id, row.id, file);
                                       event.target.value = '';
                                     }}
-                                    disabled={uploadingId === task.id}
+                                    disabled={uploadingId === task.id || isJrChecklistLocked}
                                   />
                                 </label>
                                 {proofAttachmentId && (
@@ -3119,7 +3121,9 @@ export function TaskList({
                                           proofAttachmentId
                                         )
                                       }
-                                      disabled={deletingAttachmentId === proofAttachmentId}
+                                      disabled={
+                                        deletingAttachmentId === proofAttachmentId || isJrChecklistLocked
+                                      }
                                       className="inline-flex h-7 items-center rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
                                     >
                                       {deletingAttachmentId === proofAttachmentId ? (
@@ -3163,6 +3167,7 @@ export function TaskList({
                                     )
                                   )
                                 }
+                                disabled={isJrChecklistLocked}
                                 placeholder={`Add ${row.label} note for LO visibility...`}
                                 className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[76px] focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                               />
@@ -3199,9 +3204,14 @@ export function TaskList({
                               {jrChecklistSaveStateByTask[task.id]?.message || 'Autosave failed.'}
                             </p>
                           )}
+                          {isJrChecklistLocked && (
+                            <p className="text-xs font-semibold text-slate-600">
+                              Checklist is locked after completion. Ask a manager to reopen if changes are needed.
+                            </p>
+                          )}
                         </div>
                         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Autosaves on every change
+                          {isJrChecklistLocked ? 'Locked after completion' : 'Autosaves on every change'}
                         </span>
                       </div>
                     </div>
