@@ -967,6 +967,8 @@ export function LoVaBorrowerProgressList({
                   { label: 'VOE', done: getJrDone('voe') },
                   { label: 'Underwriting', done: getJrDone('underwriting') },
                 ];
+                const vaRows = combinedRows.slice(0, 3);
+                const jrRows = combinedRows.slice(3, 6);
                 const allComplete = combinedRows.every((row) => row.done);
                 const iconState: 'not_started' | 'working' | 'completed' = allComplete
                   ? 'completed'
@@ -1019,20 +1021,37 @@ export function LoVaBorrowerProgressList({
                             )}
                           </div>
                           <div className="inline-flex items-start gap-1.5 shrink-0">
-                            <div className="flex max-w-[260px] flex-wrap justify-end gap-1">
-                              {combinedRows.map((row) => (
-                                <span
-                                  key={row.label}
-                                  className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                                    row.done
-                                      ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                      : 'border-rose-300 bg-rose-100 text-rose-800'
-                                  }`}
-                                  title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
-                                >
-                                  {row.label}
-                                </span>
-                              ))}
+                            <div className="flex w-[255px] flex-col gap-1">
+                              <div className="grid grid-cols-3 gap-1">
+                                {vaRows.map((row) => (
+                                  <span
+                                    key={row.label}
+                                    className={`inline-flex w-full items-center justify-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                      row.done
+                                        ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                        : 'border-rose-300 bg-rose-100 text-rose-800'
+                                    }`}
+                                    title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
+                                  >
+                                    {row.label}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="grid grid-cols-3 gap-1">
+                                {jrRows.map((row) => (
+                                  <span
+                                    key={row.label}
+                                    className={`inline-flex w-full items-center justify-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                      row.done
+                                        ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                        : 'border-rose-300 bg-rose-100 text-rose-800'
+                                    }`}
+                                    title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
+                                  >
+                                    {row.label}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
                             <button
                               type="button"
