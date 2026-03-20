@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { TaskKind, UserRole } from '@prisma/client';
+import { withPerfMetric } from '@/lib/perf';
 
 type TaskFilter = {
   role?: UserRole | null;
@@ -47,7 +48,10 @@ export async function getAllTasks(filter?: TaskFilter) {
         };
 
   const tasks = needsRichTaskPayload
-    ? await prisma.task.findMany({
+    ? await withPerfMetric(
+        'query.dashboard.getAllTasks.rich',
+        () =>
+          prisma.task.findMany({
         where,
         include: {
           loan: {
@@ -87,8 +91,15 @@ export async function getAllTasks(filter?: TaskFilter) {
         orderBy: {
           createdAt: 'desc',
         },
-      })
-    : await prisma.task.findMany({
+          }),
+        {
+          role: role || 'UNKNOWN',
+        }
+      )
+    : await withPerfMetric(
+        'query.dashboard.getAllTasks.lean',
+        () =>
+          prisma.task.findMany({
         where,
         select: {
           id: true,
@@ -124,7 +135,11 @@ export async function getAllTasks(filter?: TaskFilter) {
         orderBy: {
           createdAt: 'desc',
         },
-      });
+          }),
+        {
+          role: role || 'UNKNOWN',
+        }
+      );
 
   return tasks;
 }

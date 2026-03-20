@@ -5,8 +5,12 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { UserRole } from '@prisma/client';
+import { startPerfTimer, withPerfMetric } from '@/lib/perf';
 
 async function getLoans(role?: string | null, userId?: string | null) {
+  const endPerf = startPerfTimer('page.dashboard.getLoans.total', {
+    role: role || 'UNKNOWN',
+  });
   const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const where = isAdminOrManager
@@ -15,20 +19,33 @@ async function getLoans(role?: string | null, userId?: string | null) {
       ? { loanOfficerId: userId }
       : { id: '__none__' };
 
-  const loans = await prisma.loan.findMany({
-    where,
-    orderBy: { updatedAt: 'desc' },
-  });
+  const loans = await withPerfMetric(
+    'query.dashboard.getLoans',
+    () =>
+      prisma.loan.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+      }),
+    {
+      role: role || 'UNKNOWN',
+      hasUserId: Boolean(userId),
+    }
+  );
 
-  return loans.map((l) => ({
+  const mapped = loans.map((l) => ({
     ...l,
     amount: Number(l.amount),
     createdAt: l.createdAt,
     updatedAt: l.updatedAt,
   }));
+  endPerf({
+    count: mapped.length,
+  });
+  return mapped;
 }
 
 export default async function Home() {
+  const endPerf = startPerfTimer('page.dashboard.render.total');
   const session = await getServerSession(authOptions);
   const sessionUserId = session?.user?.id || '';
   const sessionRole = (session?.user?.activeRole || session?.user?.role || 'LOAN_OFFICER') as UserRole;
@@ -57,8 +74,20 @@ export default async function Home() {
   };
   const [loans, adminTasks] = await Promise.all([
     getLoans(user.role, user.id),
-    getAllTasks({ role: user.role as UserRole, userId: user.id }),
+    withPerfMetric(
+      'query.dashboard.getAllTasks.entry',
+      () => getAllTasks({ role: user.role as UserRole, userId: user.id }),
+      {
+        role: user.role,
+      }
+    ),
   ]);
 
-  return <DashboardWrapper loans={loans} adminTasks={adminTasks} user={user} />;
+  const pageOutput = <DashboardWrapper loans={loans} adminTasks={adminTasks} user={user} />;
+  endPerf({
+    role: user.role,
+    loanCount: loans.length,
+    taskCount: adminTasks.length,
+  });
+  return pageOutput;
 }

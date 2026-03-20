@@ -17,6 +17,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { sendEmail } from '@/lib/email';
 import { randomUUID } from 'crypto';
+import { recordPerfMetric } from '@/lib/perf';
 
 function isSubmissionTask(task: {
   kind: TaskKind | null;
@@ -1536,6 +1537,7 @@ export async function updateTaskStatus(
   newStatus: TaskStatus,
   options?: { noteMessage?: string }
 ) {
+  const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
@@ -1549,6 +1551,7 @@ export async function updateTaskStatus(
       select: {
         id: true,
         title: true,
+        status: true,
         kind: true,
         assignedRole: true,
         assignedUserId: true,
@@ -1580,6 +1583,10 @@ export async function updateTaskStatus(
 
     if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
       return { success: false, error: 'Not authorized to update this task.' };
+    }
+
+    if (existing.status === newStatus) {
+      return { success: true };
     }
 
     const isVaKind =
@@ -1782,6 +1789,11 @@ export async function updateTaskStatus(
   } catch (error) {
     console.error('Failed to update task:', error);
     return { success: false, error: 'Failed to update task' };
+  } finally {
+    recordPerfMetric('action.updateTaskStatus', Date.now() - perfStartedAt, {
+      taskId,
+      newStatus,
+    });
   }
 }
 
@@ -1839,6 +1851,7 @@ const disclosureYearAquiredReadonlyField: {
 } = { key: 'yearAquired', label: 'Year Aquired' };
 
 export async function createSubmissionTask(payload: SubmissionPayload) {
+  const perfStartedAt = Date.now();
   try {
     const {
       submissionType,
@@ -2145,6 +2158,11 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
   } catch (error) {
     console.error('Failed to create submission task:', error);
     return { success: false, error: 'Failed to submit task' };
+  } finally {
+    recordPerfMetric('action.createSubmissionTask', Date.now() - perfStartedAt, {
+      submissionType: payload.submissionType,
+      loanNumber: payload.arriveLoanNumber,
+    });
   }
 }
 
@@ -2562,6 +2580,7 @@ export async function addJrProcessorNote(taskId: string, note: string) {
 }
 
 export async function startDisclosureRequest(taskId: string) {
+  const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
@@ -2638,10 +2657,15 @@ export async function startDisclosureRequest(taskId: string) {
   } catch (error) {
     console.error('Failed to start disclosure request:', error);
     return { success: false, error: 'Failed to start disclosure request.' };
+  } finally {
+    recordPerfMetric('action.startDisclosureRequest', Date.now() - perfStartedAt, {
+      taskId,
+    });
   }
 }
 
 export async function startQcRequest(taskId: string) {
+  const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
@@ -2727,10 +2751,15 @@ export async function startQcRequest(taskId: string) {
   } catch (error) {
     console.error('Failed to start QC request:', error);
     return { success: false, error: 'Failed to start QC request.' };
+  } finally {
+    recordPerfMetric('action.startQcRequest', Date.now() - perfStartedAt, {
+      taskId,
+    });
   }
 }
 
 export async function requestInfoFromLoanOfficer(taskId: string, input: RequestInfoInput) {
+  const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
@@ -3040,6 +3069,11 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
   } catch (error) {
     console.error('Failed to request info:', error);
     return { success: false, error: 'Failed to request info.' };
+  } finally {
+    recordPerfMetric('action.requestInfoFromLoanOfficer', Date.now() - perfStartedAt, {
+      taskId,
+      reason: input.reason,
+    });
   }
 }
 
@@ -3287,6 +3321,7 @@ export async function reviewInitialDisclosureFigures(input: {
 }
 
 export async function deleteTask(taskId: string) {
+  const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
@@ -3332,6 +3367,10 @@ export async function deleteTask(taskId: string) {
   } catch (error) {
     console.error('Failed to delete task:', error);
     return { success: false, error: 'Failed to delete task.' };
+  } finally {
+    recordPerfMetric('action.deleteTask', Date.now() - perfStartedAt, {
+      taskId,
+    });
   }
 }
 

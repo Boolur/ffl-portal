@@ -18,6 +18,7 @@ import {
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { ClipboardCheck, FileCheck2, Home, Landmark, ShieldCheck } from 'lucide-react';
+import { startPerfTimer, withPerfMetric } from '@/lib/perf';
 
 // In a real app, we'd get the current user from the session
 const MOCK_USER = {
@@ -155,6 +156,9 @@ type TaskRow = {
 };
 
 async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
+  const endPerf = startPerfTimer('page.tasks.getTasks.total', {
+    role,
+  });
   // Fetch tasks assigned to this role OR specifically to this user
   // For LOs, we want to see tasks for loans they own OR tasks assigned to them
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
@@ -194,7 +198,10 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     ];
   }
 
-  const tasks = await prisma.task.findMany({
+  const tasks = await withPerfMetric(
+    'query.tasks.findMany.primary',
+    () =>
+      prisma.task.findMany({
     where,
     include: {
       loan: {
@@ -243,7 +250,12 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     orderBy: {
       dueDate: 'asc', // Urgent first
     },
-  });
+      }),
+    {
+      role,
+      hasUserId: Boolean(userId),
+    }
+  );
 
   const includeCrossTaskTimelineAttachments =
     isLoanOfficer || isAdminOrManager;
@@ -259,7 +271,10 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
 
   const relatedTasks =
     includeCrossTaskTimelineAttachments && taskIds.length > 0
-      ? await prisma.task.findMany({
+      ? await withPerfMetric(
+          'query.tasks.findMany.related',
+          () =>
+            prisma.task.findMany({
           where: {
             OR: [
               { id: { in: taskIds } },
@@ -276,7 +291,12 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
             id: true,
             parentTaskId: true,
           },
-        })
+            }),
+          {
+            role,
+            taskCount: taskIds.length,
+          }
+        )
       : [];
 
   const childrenByParent = new Map<string, string[]>();
@@ -290,7 +310,10 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   const allRelatedIds = Array.from(new Set(relatedTasks.map((task) => task.id)));
   const timelineAttachmentsRows =
     includeCrossTaskTimelineAttachments && allRelatedIds.length > 0
-      ? await prisma.taskAttachment.findMany({
+      ? await withPerfMetric(
+          'query.taskAttachments.findMany.timeline',
+          () =>
+            prisma.taskAttachment.findMany({
           where: {
             taskId: { in: allRelatedIds },
           },
@@ -311,7 +334,12 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
           orderBy: {
             createdAt: 'desc',
           },
-        })
+            }),
+          {
+            role,
+            relatedIds: allRelatedIds.length,
+          }
+        )
       : [];
 
   const attachmentsByTaskId = new Map<string, typeof timelineAttachmentsRows>();
@@ -321,7 +349,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     attachmentsByTaskId.set(att.taskId, existing);
   }
 
-  return tasks.map((task) => {
+  const hydratedTasks = tasks.map((task) => {
     const parentId = task.parentTaskId || task.id;
     const chainIds = [parentId, ...(childrenByParent.get(parentId) || [])];
 
@@ -372,6 +400,11 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
       timelineAttachments,
     };
   }) as TaskRow[];
+
+  endPerf({
+    taskCount: hydratedTasks.length,
+  });
+  return hydratedTasks;
 }
 
 function isDisclosureSubmissionTask(task: TaskRow) {
@@ -811,6 +844,7 @@ type TasksPageProps = {
 };
 
 export default async function TasksPage({ searchParams }: TasksPageProps) {
+  const endPerf = startPerfTimer('page.tasks.render.total');
   const session = await getServerSession(authOptions);
   const sessionRole = normalizeRole(session?.user?.activeRole || session?.user?.role);
   const sessionUser = {
@@ -875,7 +909,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       ? ''
       : roleTaskSubtitle[sessionRole] || 'View and manage task status across your workflow.';
 
-  return (
+  const pageOutput = (
     <DashboardShell user={sessionUser}>
       <div className="flex items-center justify-between app-page-header">
         <div>
@@ -1064,5 +1098,10 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       )}
     </DashboardShell>
   );
+  endPerf({
+    role: sessionRole,
+    taskCount: allTasks.length,
+  });
+  return pageOutput;
 }
 

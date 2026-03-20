@@ -1163,6 +1163,18 @@ export function TaskList({
   >({});
   const [sendingToLoId, setSendingToLoId] = React.useState<string | null>(null);
   const [respondingId, setRespondingId] = React.useState<string | null>(null);
+  const [lockedTaskActionIds, setLockedTaskActionIds] = React.useState<Set<string>>(
+    () => new Set()
+  );
+  const lockedTaskActionTimeoutsRef = React.useRef<Record<string, number>>({});
+  const [optimisticTaskStatusById, setOptimisticTaskStatusById] = React.useState<
+    Record<string, TaskStatus>
+  >({});
+  const [optimisticallyHiddenTaskIds, setOptimisticallyHiddenTaskIds] = React.useState<Set<string>>(
+    () => new Set()
+  );
+  const optimisticTaskResetTimeoutsRef = React.useRef<Record<string, number>>({});
+  const optimisticTaskUiEnabled = process.env.NEXT_PUBLIC_TASK_OPTIMISTIC_UI !== 'false';
   const [disclosureReasonByTask, setDisclosureReasonByTask] = React.useState<
     Record<string, DisclosureDecisionReason>
   >({});
@@ -1433,15 +1445,103 @@ export function TaskList({
   }, [tasks]);
 
   React.useEffect(() => {
+    const autosaveTimers = jrChecklistAutosaveTimersRef.current;
+    const savedBadgeTimers = jrChecklistSavedBadgeTimersRef.current;
+    const lockedTaskTimers = lockedTaskActionTimeoutsRef.current;
+    const optimisticTimers = optimisticTaskResetTimeoutsRef.current;
     return () => {
-      Object.values(jrChecklistAutosaveTimersRef.current).forEach((timerId) => {
+      Object.values(autosaveTimers).forEach((timerId) => {
         window.clearTimeout(timerId);
       });
-      Object.values(jrChecklistSavedBadgeTimersRef.current).forEach((timerId) => {
+      Object.values(savedBadgeTimers).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      Object.values(lockedTaskTimers).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      Object.values(optimisticTimers).forEach((timerId) => {
         window.clearTimeout(timerId);
       });
     };
   }, []);
+
+  React.useEffect(() => {
+    setLockedTaskActionIds(new Set());
+    Object.values(lockedTaskActionTimeoutsRef.current).forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    lockedTaskActionTimeoutsRef.current = {};
+    setOptimisticTaskStatusById({});
+    setOptimisticallyHiddenTaskIds(new Set());
+    Object.values(optimisticTaskResetTimeoutsRef.current).forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    optimisticTaskResetTimeoutsRef.current = {};
+  }, [tasks]);
+
+  const lockTaskActionUntilRefresh = React.useCallback((taskId: string) => {
+    setLockedTaskActionIds((prev) => {
+      if (prev.has(taskId)) return prev;
+      const next = new Set(prev);
+      next.add(taskId);
+      return next;
+    });
+    const existingTimeout = lockedTaskActionTimeoutsRef.current[taskId];
+    if (existingTimeout) {
+      window.clearTimeout(existingTimeout);
+    }
+    // Safety fallback in case router refresh does not produce new props.
+    lockedTaskActionTimeoutsRef.current[taskId] = window.setTimeout(() => {
+      setLockedTaskActionIds((prev) => {
+        if (!prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+      delete lockedTaskActionTimeoutsRef.current[taskId];
+    }, 20_000);
+  }, []);
+
+  const applyOptimisticTaskUpdate = React.useCallback(
+    (taskId: string, options: { nextStatus?: TaskStatus; hide?: boolean }) => {
+      if (!optimisticTaskUiEnabled) return;
+      if (options.nextStatus) {
+        setOptimisticTaskStatusById((prev) => ({
+          ...prev,
+          [taskId]: options.nextStatus as TaskStatus,
+        }));
+      }
+      if (options.hide) {
+        setOptimisticallyHiddenTaskIds((prev) => {
+          if (prev.has(taskId)) return prev;
+          const next = new Set(prev);
+          next.add(taskId);
+          return next;
+        });
+      }
+      const existingTimeout = optimisticTaskResetTimeoutsRef.current[taskId];
+      if (existingTimeout) {
+        window.clearTimeout(existingTimeout);
+      }
+      // Safety fallback: if a refresh doesn't land, rollback optimistic rendering.
+      optimisticTaskResetTimeoutsRef.current[taskId] = window.setTimeout(() => {
+        setOptimisticTaskStatusById((prev) => {
+          if (!(taskId in prev)) return prev;
+          const next = { ...prev };
+          delete next[taskId];
+          return next;
+        });
+        setOptimisticallyHiddenTaskIds((prev) => {
+          if (!prev.has(taskId)) return prev;
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+        delete optimisticTaskResetTimeoutsRef.current[taskId];
+      }, 20_000);
+    },
+    [optimisticTaskUiEnabled]
+  );
 
   const handleStatusChange = async (
     taskId: string,
@@ -1454,7 +1554,14 @@ export function TaskList({
     const result = await updateTaskStatus(taskId, newStatus, options);
     if (!result.success) {
       alert(result.error || 'Failed to update task.');
+      setUpdatingId(null);
+      return;
     }
+    lockTaskActionUntilRefresh(taskId);
+    applyOptimisticTaskUpdate(taskId, {
+      nextStatus: newStatus,
+      hide: newStatus === TaskStatus.COMPLETED,
+    });
     router.refresh();
     setUpdatingId(null);
   };
@@ -1770,6 +1877,10 @@ export function TaskList({
       setSendingToLoId(null);
       return;
     }
+    lockTaskActionUntilRefresh(task.id);
+    applyOptimisticTaskUpdate(task.id, {
+      hide: true,
+    });
     router.refresh();
     setSendingToLoId(null);
   };
@@ -1783,6 +1894,10 @@ export function TaskList({
       setStartingDisclosureId(null);
       return;
     }
+    lockTaskActionUntilRefresh(taskId);
+    applyOptimisticTaskUpdate(taskId, {
+      nextStatus: TaskStatus.IN_PROGRESS,
+    });
     router.refresh();
     setStartingDisclosureId(null);
   };
@@ -1796,6 +1911,10 @@ export function TaskList({
       setStartingQcId(null);
       return;
     }
+    lockTaskActionUntilRefresh(taskId);
+    applyOptimisticTaskUpdate(taskId, {
+      nextStatus: TaskStatus.IN_PROGRESS,
+    });
     router.refresh();
     setStartingQcId(null);
   };
@@ -1814,6 +1933,10 @@ export function TaskList({
       setRespondingId(null);
       return;
     }
+    lockTaskActionUntilRefresh(task.id);
+    applyOptimisticTaskUpdate(task.id, {
+      hide: true,
+    });
     router.refresh();
     setRespondingId(null);
   };
@@ -1839,6 +1962,10 @@ export function TaskList({
       setRespondingId(null);
       return;
     }
+    lockTaskActionUntilRefresh(task.id);
+    applyOptimisticTaskUpdate(task.id, {
+      hide: true,
+    });
     router.refresh();
     setRespondingId(null);
   };
@@ -1855,6 +1982,10 @@ export function TaskList({
       setDeletingId(null);
       return;
     }
+    lockTaskActionUntilRefresh(taskId);
+    applyOptimisticTaskUpdate(taskId, {
+      hide: true,
+    });
     router.refresh();
     setDeletingId(null);
   };
@@ -1916,8 +2047,14 @@ export function TaskList({
 
   return (
     <div className="space-y-4">
-      {tasks.map((task) => {
+      {tasks
+        .filter((task) => !optimisticTaskUiEnabled || !optimisticallyHiddenTaskIds.has(task.id))
+        .map((rawTask) => {
+        const task = optimisticTaskUiEnabled && optimisticTaskStatusById[rawTask.id]
+          ? { ...rawTask, status: optimisticTaskStatusById[rawTask.id] }
+          : rawTask;
         const isTaskSelected = selectedTaskIds?.has(task.id) ?? false;
+        const isTaskActionLocked = lockedTaskActionIds.has(task.id);
         const selectedReason =
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
@@ -3431,7 +3568,11 @@ export function TaskList({
                       <button
                         type="button"
                         onClick={() => void handleStartDisclosureRequest(task.id)}
-                        disabled={startingDisclosureId === task.id || disableDisclosureStartButton}
+                        disabled={
+                          startingDisclosureId === task.id ||
+                          disableDisclosureStartButton ||
+                          isTaskActionLocked
+                        }
                         className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
                         title={
                           disableDisclosureStartButton
@@ -3451,7 +3592,7 @@ export function TaskList({
                       <button
                         type="button"
                         onClick={() => void handleStartQcRequest(task.id)}
-                        disabled={startingQcId === task.id || disableQcStartButton}
+                        disabled={startingQcId === task.id || disableQcStartButton || isTaskActionLocked}
                         className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
                         title={
                           disableQcStartButton
@@ -3471,7 +3612,7 @@ export function TaskList({
                       <button
                         type="button"
                         onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
-                        disabled={!!updatingId}
+                        disabled={!!updatingId || isTaskActionLocked}
                         className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
                         title="Start this VA request"
                       >
@@ -3490,7 +3631,7 @@ export function TaskList({
                       !isLoanOfficerSubmissionTask && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
-                        disabled={!!updatingId}
+                        disabled={!!updatingId || isTaskActionLocked}
                         className="inline-flex h-9 items-center px-3 text-slate-600 text-sm font-semibold hover:text-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed gap-2"
                       >
                         {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin" />}
@@ -3522,7 +3663,7 @@ export function TaskList({
                             noteMessage: vaOptionalNote || undefined,
                           });
                         }}
-                        disabled={!!updatingId || !canCompleteTask}
+                        disabled={!!updatingId || !canCompleteTask || isTaskActionLocked}
                         className="inline-flex h-9 items-center px-3 rounded-lg border border-emerald-300 bg-white text-emerald-700 text-sm font-semibold shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {updatingId === task.id ? (
@@ -3546,6 +3687,7 @@ export function TaskList({
                         const isQcRouteTask = isQcSubmissionTask(task);
                         const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
                         const disableRouteButton =
+                          isTaskActionLocked ||
                           sendingToLoId === task.id ||
                           (requiresProofForRouting && proofCount < 1) ||
                           (isVaAppraisalTask
@@ -3626,7 +3768,7 @@ export function TaskList({
                             onClick={() =>
                               void handleLoanOfficerDisclosureReview(task, 'APPROVE')
                             }
-                            disabled={respondingId === task.id || !loFooterResponse}
+                            disabled={respondingId === task.id || !loFooterResponse || isTaskActionLocked}
                             className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {respondingId === task.id && (
@@ -3642,7 +3784,7 @@ export function TaskList({
                                 'REVISION_REQUIRED'
                               )
                             }
-                            disabled={respondingId === task.id || !loFooterResponse}
+                            disabled={respondingId === task.id || !loFooterResponse || isTaskActionLocked}
                             className="inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {respondingId === task.id && (
@@ -3655,7 +3797,7 @@ export function TaskList({
                         <button
                           type="button"
                           onClick={() => void handleLoanOfficerResponse(task)}
-                          disabled={respondingId === task.id || !loFooterResponse}
+                          disabled={respondingId === task.id || !loFooterResponse || isTaskActionLocked}
                           className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           {respondingId === task.id && (
@@ -3667,7 +3809,7 @@ export function TaskList({
                     {canDelete && (
                       <button
                         onClick={() => handleDelete(task.id)}
-                        disabled={!!deletingId}
+                        disabled={!!deletingId || isTaskActionLocked}
                         className="inline-flex h-9 w-9 items-center justify-center text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         aria-label="Delete task"
                       >
