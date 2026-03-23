@@ -466,7 +466,8 @@ export function buildTaskLifecycleBreakdown(input: BuildTaskLifecycleInput): Tas
   const createdAt = toDate(input.createdAt);
   const updatedAt = toDate(input.updatedAt);
   const completedAt = toDate(input.completedAt);
-  const endAt = completedAt || updatedAt || now;
+  const isCompletedTask = input.status === TaskStatus.COMPLETED;
+  const endAt = isCompletedTask ? completedAt || updatedAt || now : now;
 
   if (!createdAt || !endAt || endAt.getTime() <= createdAt.getTime()) {
     return {

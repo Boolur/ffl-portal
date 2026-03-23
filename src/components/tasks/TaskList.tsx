@@ -1586,17 +1586,11 @@ export function TaskList({
   }, [initialFocusedTaskId, initialFocusConsumed, tasks]);
 
   React.useEffect(() => {
-    const canViewDisclosureSlaTimer =
-      currentRole === UserRole.DISCLOSURE_SPECIALIST ||
-      currentRole === UserRole.LOAN_OFFICER ||
-      currentRole === UserRole.QC ||
-      currentRole === UserRole.MANAGER;
-    if (!canViewDisclosureSlaTimer) return;
     const intervalId = window.setInterval(() => {
       setTimerNowMs(Date.now());
     }, 30_000);
     return () => window.clearInterval(intervalId);
-  }, [currentRole]);
+  }, []);
 
   React.useEffect(() => {
     setQcChecklistByTask((prev) => {
