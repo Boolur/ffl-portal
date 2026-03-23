@@ -2523,9 +2523,20 @@ export function TaskList({
           isDisclosureSubmissionTask(task) &&
           (isDisclosureInitialRoutingState || isDisclosureReturnedRoutingState) &&
           selectedReason === DisclosureDecisionReason.MISSING_ITEMS;
+        const allowProofUploaderWhilePending =
+          task.status === TaskStatus.PENDING &&
+          ((canManageDisclosureDesk &&
+            isDisclosureSubmissionTask(task) &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE) ||
+            (canManageQcDesk &&
+              isQcSubmissionTask(task) &&
+              task.workflowState === TaskWorkflowState.READY_TO_COMPLETE) ||
+            (canManageVaDesk &&
+              task.kind === TaskKind.VA_APPRAISAL &&
+              task.workflowState === TaskWorkflowState.READY_TO_COMPLETE));
         const shouldShowProofUploader =
           task.status !== 'COMPLETED' &&
-          task.status !== TaskStatus.PENDING &&
+          (task.status !== TaskStatus.PENDING || allowProofUploaderWhilePending) &&
           !canManageJrChecklist &&
           ((canManageVaDesk && isVaTaskKind(task.kind)) ||
             (canEditProofAttachments && !isDisclosureMissingItemsRoute) ||
