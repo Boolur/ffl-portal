@@ -22,7 +22,10 @@ import {
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import type { LoVaBorrowerProgressItem, VaChipState } from '@/lib/loVaProgress';
 import { getRoleBubbleClass } from '@/lib/roleColors';
-import { formatLifecycleDuration } from '@/lib/taskLifecycleTimeline';
+import {
+  formatLifecycleDuration,
+  type TaskLifecycleBreakdown,
+} from '@/lib/taskLifecycleTimeline';
 
 const chipMeta: Record<
   VaChipState,
@@ -192,19 +195,6 @@ function getIconButtonClassByState(state: 'not_started' | 'working' | 'completed
   }
   return 'border-slate-200 bg-white text-slate-600';
 }
-
-const lifecycleEventLabel: Record<string, string> = {
-  CREATED: 'Created',
-  STARTED: 'Started',
-  STATUS_CHANGED: 'Status Changed',
-  ROUTED_TO_LO: 'Routed to LO',
-  LO_RESPONDED: 'LO Responded',
-  LO_REVIEWED: 'LO Reviewed',
-  ASSIGNMENT_CHANGED: 'Assignment Changed',
-  COMPLETED: 'Completed',
-  REOPENED: 'Reopened',
-  SYSTEM: 'System Update',
-};
 
 const submissionDetailGroups = [
   {
@@ -421,6 +411,10 @@ export function LoVaBorrowerProgressList({
     completed: { search: '', sort: 'global' },
   });
   const [timerNowMs, setTimerNowMs] = React.useState(() => Date.now());
+  const [lifecyclePopup, setLifecyclePopup] = React.useState<{
+    title: string;
+    stages: Array<{ label: string; breakdown: TaskLifecycleBreakdown }>;
+  } | null>(null);
   const focusedItem =
     focusedItemKey === null
       ? null
@@ -465,6 +459,35 @@ export function LoVaBorrowerProgressList({
     (item: LoVaBorrowerProgressItem, queue: 'va' | 'jr' | 'completed') => {
       setFocusedQueue(queue);
       setFocusedItemKey(`${item.loanNumber}-${item.borrowerName}`);
+    },
+    []
+  );
+  const openLifecycleFromCard = React.useCallback(
+    (item: LoVaBorrowerProgressItem, queue: 'va' | 'jr' | 'completed') => {
+      const stages: Array<{ label: string; breakdown: TaskLifecycleBreakdown }> = [];
+      const maybePush = (label: string, breakdown: TaskLifecycleBreakdown | null) => {
+        if (!breakdown || breakdown.totalDurationMs < 1) return;
+        stages.push({ label, breakdown });
+      };
+
+      if (queue !== 'jr') {
+        maybePush('VA Title', item.vaStageDetails.title.lifecycleBreakdown);
+        maybePush('VA Payoff', item.vaStageDetails.payoff.lifecycleBreakdown);
+        maybePush('VA Appraisal', item.vaStageDetails.appraisal.lifecycleBreakdown);
+      }
+      maybePush('JR Processor (HOI/VOE/Underwriting)', item.jrStageDetails.hoi.lifecycleBreakdown);
+
+      if (queue === 'jr' && stages.length === 0) {
+        maybePush('VA Title', item.vaStageDetails.title.lifecycleBreakdown);
+        maybePush('VA Payoff', item.vaStageDetails.payoff.lifecycleBreakdown);
+        maybePush('VA Appraisal', item.vaStageDetails.appraisal.lifecycleBreakdown);
+      }
+
+      if (stages.length === 0) return;
+      setLifecyclePopup({
+        title: `${item.borrowerName} • ${item.loanNumber}`,
+        stages,
+      });
     },
     []
   );
@@ -626,15 +649,17 @@ export function LoVaBorrowerProgressList({
                           <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
                           {item.earliestCreatedAt && (
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              <span
-                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${getTimerClassName(
+                              <button
+                                type="button"
+                                onClick={() => openLifecycleFromCard(item, 'va')}
+                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${getTimerClassName(
                                   Date.now() - item.earliestCreatedAt.getTime()
                                 )}`}
-                                title="Total time from first VA task creation"
+                                title="Total time from first VA task creation (click for lifecycle timeline)"
                               >
                                 <Clock3 className="mr-1 h-2.5 w-2.5" />
                                 Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
-                              </span>
+                              </button>
                             </div>
                           )}
                         </div>
@@ -853,15 +878,17 @@ export function LoVaBorrowerProgressList({
                           <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
                           {item.earliestCreatedAt && (
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              <span
-                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${getTimerClassName(
+                              <button
+                                type="button"
+                                onClick={() => openLifecycleFromCard(item, 'jr')}
+                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${getTimerClassName(
                                   Date.now() - item.earliestCreatedAt.getTime()
                                 )}`}
-                                title="Total time from first VA/JR task creation"
+                                title="Total time from first VA/JR task creation (click for lifecycle timeline)"
                               >
                                 <Clock3 className="mr-1 h-2.5 w-2.5" />
                                 Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
-                              </span>
+                              </button>
                             </div>
                           )}
                         </div>
@@ -1022,15 +1049,17 @@ export function LoVaBorrowerProgressList({
                             <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
                             {item.earliestCreatedAt && (
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                <span
-                                  className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${getTimerClassName(
+                                <button
+                                  type="button"
+                                  onClick={() => openLifecycleFromCard(item, 'completed')}
+                                  className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${getTimerClassName(
                                     Date.now() - item.earliestCreatedAt.getTime()
                                   )}`}
-                                  title="Total time from first VA/JR task creation"
+                                  title="Total time from first VA/JR task creation (click for lifecycle timeline)"
                                 >
                                   <Clock3 className="mr-1 h-2.5 w-2.5" />
                                   Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
-                                </span>
+                                </button>
                               </div>
                             )}
                           </div>
@@ -1354,58 +1383,6 @@ export function LoVaBorrowerProgressList({
                                 </>
                               )}
                             </div>
-                            {detail.lifecycleBreakdown &&
-                              detail.lifecycleBreakdown.totalDurationMs > 0 && (
-                                <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2">
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-700">
-                                      Lifecycle Breakdown
-                                    </p>
-                                    <span className="inline-flex items-center rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-bold text-indigo-700">
-                                      Total{' '}
-                                      {formatLifecycleDuration(
-                                        detail.lifecycleBreakdown.totalDurationMs
-                                      )}
-                                    </span>
-                                  </div>
-                                  <div className="mt-1.5 space-y-1">
-                                    {detail.lifecycleBreakdown.assigneeDurations
-                                      .slice(0, 2)
-                                      .map((row) => (
-                                        <div
-                                          key={row.key}
-                                          className="flex items-center justify-between gap-2 text-[11px]"
-                                        >
-                                          <span className="font-semibold text-indigo-900">
-                                            {row.label}
-                                          </span>
-                                          <span className="font-bold text-indigo-800">
-                                            {formatLifecycleDuration(row.durationMs)} ({row.percent}%)
-                                          </span>
-                                        </div>
-                                      ))}
-                                  </div>
-                                  <div className="mt-2 space-y-1">
-                                    {detail.lifecycleBreakdown.events
-                                      .slice()
-                                      .sort(
-                                        (a, b) =>
-                                          new Date(b.at).getTime() - new Date(a.at).getTime()
-                                      )
-                                      .slice(0, 4)
-                                      .map((event) => (
-                                        <div key={event.id} className="text-[11px] text-indigo-900">
-                                          <span className="font-semibold">
-                                            {lifecycleEventLabel[event.eventType] || 'Update'}
-                                          </span>{' '}
-                                          <span className="text-indigo-700">
-                                            by {event.actorName} at {formatNoteDateTime(event.at)}
-                                          </span>
-                                        </div>
-                                      ))}
-                                  </div>
-                                </div>
-                              )}
                           </>
                         )}
                       </div>
@@ -1652,63 +1629,6 @@ export function LoVaBorrowerProgressList({
                                       </>
                                     )}
                                   </div>
-                                  {detail.lifecycleBreakdown &&
-                                    detail.lifecycleBreakdown.totalDurationMs > 0 && (
-                                      <div className="mt-2 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2">
-                                        <div className="flex flex-wrap items-center justify-between gap-2">
-                                          <p className="text-[11px] font-bold uppercase tracking-wide text-sky-700">
-                                            Lifecycle Breakdown
-                                          </p>
-                                          <span className="inline-flex items-center rounded-full border border-sky-200 bg-white px-2 py-0.5 text-[10px] font-bold text-sky-700">
-                                            Total{' '}
-                                            {formatLifecycleDuration(
-                                              detail.lifecycleBreakdown.totalDurationMs
-                                            )}
-                                          </span>
-                                        </div>
-                                        <div className="mt-1.5 space-y-1">
-                                          {detail.lifecycleBreakdown.assigneeDurations
-                                            .slice(0, 2)
-                                            .map((rowDuration) => (
-                                              <div
-                                                key={`${row.id}-${rowDuration.key}`}
-                                                className="flex items-center justify-between gap-2 text-[11px]"
-                                              >
-                                                <span className="font-semibold text-sky-900">
-                                                  {rowDuration.label}
-                                                </span>
-                                                <span className="font-bold text-sky-800">
-                                                  {formatLifecycleDuration(rowDuration.durationMs)} (
-                                                  {rowDuration.percent}%)
-                                                </span>
-                                              </div>
-                                            ))}
-                                        </div>
-                                        <div className="mt-2 space-y-1">
-                                          {detail.lifecycleBreakdown.events
-                                            .slice()
-                                            .sort(
-                                              (a, b) =>
-                                                new Date(b.at).getTime() -
-                                                new Date(a.at).getTime()
-                                            )
-                                            .slice(0, 4)
-                                            .map((event) => (
-                                              <div
-                                                key={`${row.id}-${event.id}`}
-                                                className="text-[11px] text-sky-900"
-                                              >
-                                                <span className="font-semibold">
-                                                  {lifecycleEventLabel[event.eventType] || 'Update'}
-                                                </span>{' '}
-                                                <span className="text-sky-700">
-                                                  by {event.actorName} at {formatNoteDateTime(event.at)}
-                                                </span>
-                                              </div>
-                                            ))}
-                                        </div>
-                                      </div>
-                                    )}
                                 </>
                               )}
                             </div>
@@ -1720,6 +1640,75 @@ export function LoVaBorrowerProgressList({
                 </div>
               </div>
 
+            </div>
+          </div>
+        </div>
+      )}
+      {lifecyclePopup && (
+        <div
+          className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/45 p-4"
+          onClick={() => setLifecyclePopup(null)}
+        >
+          <div
+            className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
+              <div>
+                <p className="text-sm font-bold text-slate-900">Lifecycle Timeline</p>
+                <p className="text-xs font-medium text-slate-600">{lifecyclePopup.title}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLifecyclePopup(null)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 hover:text-slate-700"
+                aria-label="Close lifecycle modal"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              {lifecyclePopup.stages.map((stage) => (
+                <div key={stage.label} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-slate-900">{stage.label}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
+                        Completed Total {formatLifecycleDuration(stage.breakdown.totalDurationMs)}
+                      </span>
+                      {stage.breakdown.hasEstimatedData && (
+                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                          Estimated legacy segments
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                      Bucket Time Breakdown
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {stage.breakdown.workflowDurations.length > 0 ? (
+                        stage.breakdown.workflowDurations.map((row) => (
+                          <span
+                            key={row.key}
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getTimerClassName(
+                              row.durationMs
+                            )}`}
+                            title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
+                          >
+                            {row.label}: {formatLifecycleDuration(row.durationMs)}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-[11px] font-medium text-slate-500">
+                          No bucket duration data captured for this stage.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
