@@ -110,7 +110,7 @@ function getLifecycleBucketBubbleClass(key: string, label: string) {
   const normalizedKey = key.trim().toUpperCase();
   const normalizedLabel = label.trim().toLowerCase();
 
-  if (normalizedKey === 'COMPLETED' || normalizedLabel.includes('completed')) {
+  if (normalizedKey === 'COMPLETED' || normalizedKey === '__COMPLETED__' || normalizedLabel.includes('completed')) {
     return 'border-emerald-300 bg-emerald-100 text-emerald-800';
   }
   if (
@@ -149,7 +149,11 @@ function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
   const rowKeyFromEventFrom = (event: TaskLifecycleBreakdown['events'][number]) =>
     useStatus ? event.fromStatus || null : event.fromWorkflow || null;
   const rowKeyFromEventTo = (event: TaskLifecycleBreakdown['events'][number]) =>
-    useStatus ? event.toStatus || null : event.toWorkflow || null;
+    useStatus
+      ? event.toStatus || null
+      : event.toStatus === 'COMPLETED'
+        ? '__COMPLETED__'
+        : event.toWorkflow || null;
 
   const collectActors = (rowKey: string) => {
     const actors = new Map<string, { name: string; role: UserRole | null }>();
@@ -247,7 +251,7 @@ function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
     return fallbackRows;
   }
 
-  const completedKey = useStatus ? 'COMPLETED' : 'NONE';
+  const completedKey = useStatus ? 'COMPLETED' : '__COMPLETED__';
   const hasCompletedTransition = breakdown.events.some((event) => rowKeyFromEventTo(event) === completedKey);
   if (hasCompletedTransition && !rows.some((row) => row.key === completedKey)) {
     rows.push({

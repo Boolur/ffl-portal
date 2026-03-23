@@ -894,7 +894,7 @@ function getLifecycleBucketBubbleClass(key: string, label: string) {
   const normalizedKey = key.trim().toUpperCase();
   const normalizedLabel = label.trim().toLowerCase();
 
-  if (normalizedKey === 'COMPLETED' || normalizedLabel.includes('completed')) {
+  if (normalizedKey === 'COMPLETED' || normalizedKey === '__COMPLETED__' || normalizedLabel.includes('completed')) {
     return 'border-emerald-300 bg-emerald-100 text-emerald-800';
   }
   if (
@@ -1029,7 +1029,7 @@ function mapLifecycleRowToBucketLabel(
   if (!profile) return fallbackLabel;
 
   const normalizedKey = rowKey.toUpperCase();
-  if (normalizedKey === 'COMPLETED') return profile.completedLabel;
+  if (normalizedKey === 'COMPLETED' || normalizedKey === '__COMPLETED__') return profile.completedLabel;
 
   if (isWorkflowRows) {
     if (normalizedKey === 'READY_TO_COMPLETE') return profile.reviewLabel;
@@ -1060,10 +1060,22 @@ function collectLifecycleActorsForRow(
     }
   };
 
+  const normalizeComparableKey = (raw: string | null) => {
+    if (!raw) return null;
+    const upper = raw.toUpperCase();
+    if (upper === '__COMPLETED__') return TaskWorkflowState.NONE;
+    return raw;
+  };
+
   for (const event of breakdown.events) {
     const toKey = isWorkflowRows ? event.toWorkflow || null : event.toStatus || null;
     const fromKey = isWorkflowRows ? event.fromWorkflow || null : event.fromStatus || null;
-    if (toKey !== rowKey && fromKey !== rowKey) continue;
+    if (
+      normalizeComparableKey(toKey) !== normalizeComparableKey(rowKey) &&
+      normalizeComparableKey(fromKey) !== normalizeComparableKey(rowKey)
+    ) {
+      continue;
+    }
     addActor(event.actorName, event.actorRole || null);
   }
 
@@ -1102,7 +1114,11 @@ function getOrderedLifecycleRows(
   const rowKeyFromEventFrom = (event: TaskLifecycleBreakdown['events'][number]) =>
     isWorkflowRows ? event.fromWorkflow || null : event.fromStatus || null;
   const rowKeyFromEventTo = (event: TaskLifecycleBreakdown['events'][number]) =>
-    isWorkflowRows ? event.toWorkflow || null : event.toStatus || null;
+    isWorkflowRows
+      ? event.toStatus === TaskStatus.COMPLETED
+        ? '__COMPLETED__'
+        : event.toWorkflow || null
+      : event.toStatus || null;
 
   const rowsFromSegments: LifecycleDisplayRow[] = [];
   for (const segment of breakdown.segments) {
@@ -1187,7 +1203,7 @@ function getOrderedLifecycleRows(
     return fallbackRows;
   }
 
-  const completedKey = isWorkflowRows ? TaskWorkflowState.NONE : TaskStatus.COMPLETED;
+  const completedKey = isWorkflowRows ? '__COMPLETED__' : TaskStatus.COMPLETED;
   const hasCompletedTransition = breakdown.events.some((event) => rowKeyFromEventTo(event) === completedKey);
   if (hasCompletedTransition && !rows.some((row) => row.key === completedKey)) {
     rows.push({

@@ -265,33 +265,14 @@ function inferBackfillEvents(input: BuildTaskLifecycleInput): TaskLifecycleEvent
     if (!isLoanOfficer && !firstDeskActivityAt) {
       firstDeskActivityAt = note.date;
     }
-    const inferredStatus = normalizeStatusFromMessage(note.message);
-    if (!inferredStatus) continue;
-    if (inferredStatus === TaskStatus.IN_PROGRESS) hasExplicitStarted = true;
-    if (inferredStatus === TaskStatus.BLOCKED) hasExplicitRouted = true;
-    events.push({
-      id: `estimated-note-${index}`,
-      at: note.date,
-      actorName: note.author || 'Team Member',
-      actorRole: note.role || null,
-      eventType:
-        inferredStatus === TaskStatus.IN_PROGRESS
-          ? 'STARTED'
-          : inferredStatus === TaskStatus.COMPLETED
-          ? 'COMPLETED'
-          : 'STATUS_CHANGED',
-      toStatus: inferredStatus,
-      estimated: true,
-      note: `Estimated from notesHistory: ${note.message}`,
-    });
-    index += 1;
 
     if (
       !hasExplicitRouted &&
       !isLoanOfficer &&
       (normalizedMessage.includes('missing') ||
         normalizedMessage.includes('send back') ||
-        normalizedMessage.includes('needs info'))
+        normalizedMessage.includes('needs info') ||
+        normalizedMessage.includes('returned'))
     ) {
       events.push({
         id: `estimated-route-${index}`,
@@ -314,7 +295,8 @@ function inferBackfillEvents(input: BuildTaskLifecycleInput): TaskLifecycleEvent
       (normalizedMessage.includes('response') ||
         normalizedMessage.includes('review') ||
         normalizedMessage.includes('approved') ||
-        normalizedMessage.includes('revision'))
+        normalizedMessage.includes('revision') ||
+        normalizedMessage.includes('good to go'))
     ) {
       events.push({
         id: `estimated-lo-${index}`,
@@ -330,6 +312,27 @@ function inferBackfillEvents(input: BuildTaskLifecycleInput): TaskLifecycleEvent
       hasExplicitLoResponse = true;
       index += 1;
     }
+
+    const inferredStatus = normalizeStatusFromMessage(note.message);
+    if (!inferredStatus) continue;
+    if (inferredStatus === TaskStatus.IN_PROGRESS) hasExplicitStarted = true;
+    if (inferredStatus === TaskStatus.BLOCKED) hasExplicitRouted = true;
+    events.push({
+      id: `estimated-note-${index}`,
+      at: note.date,
+      actorName: note.author || 'Team Member',
+      actorRole: note.role || null,
+      eventType:
+        inferredStatus === TaskStatus.IN_PROGRESS
+          ? 'STARTED'
+          : inferredStatus === TaskStatus.COMPLETED
+          ? 'COMPLETED'
+          : 'STATUS_CHANGED',
+      toStatus: inferredStatus,
+      estimated: true,
+      note: `Estimated from notesHistory: ${note.message}`,
+    });
+    index += 1;
   }
 
   if (!hasExplicitStarted && firstDeskActivityAt) {
@@ -347,11 +350,13 @@ function inferBackfillEvents(input: BuildTaskLifecycleInput): TaskLifecycleEvent
 
   const completedAt = toDate(input.completedAt);
   if (completedAt) {
+    const completionNote =
+      [...notes].reverse().find((note) => toDate(note.date)?.getTime()! <= completedAt.getTime()) || null;
     events.push({
       id: 'estimated-completed',
       at: toIso(completedAt),
-      actorName: 'System',
-      actorRole: null,
+      actorName: completionNote?.author || 'System',
+      actorRole: completionNote?.role || null,
       eventType: 'COMPLETED',
       toStatus: TaskStatus.COMPLETED,
       toWorkflow: TaskWorkflowState.NONE,
