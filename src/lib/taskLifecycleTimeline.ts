@@ -255,9 +255,20 @@ function inferBackfillEvents(input: BuildTaskLifecycleInput): TaskLifecycleEvent
 
   const notes = parseNotesHistoryEntries(input.submissionData);
   let index = 0;
+  let hasExplicitStarted = false;
+  let hasExplicitRouted = false;
+  let hasExplicitLoResponse = false;
+  let firstDeskActivityAt: string | null = null;
   for (const note of notes) {
+    const normalizedMessage = note.message.trim().toLowerCase();
+    const isLoanOfficer = note.role === UserRole.LOAN_OFFICER;
+    if (!isLoanOfficer && !firstDeskActivityAt) {
+      firstDeskActivityAt = note.date;
+    }
     const inferredStatus = normalizeStatusFromMessage(note.message);
     if (!inferredStatus) continue;
+    if (inferredStatus === TaskStatus.IN_PROGRESS) hasExplicitStarted = true;
+    if (inferredStatus === TaskStatus.BLOCKED) hasExplicitRouted = true;
     events.push({
       id: `estimated-note-${index}`,
       at: note.date,
@@ -274,6 +285,64 @@ function inferBackfillEvents(input: BuildTaskLifecycleInput): TaskLifecycleEvent
       note: `Estimated from notesHistory: ${note.message}`,
     });
     index += 1;
+
+    if (
+      !hasExplicitRouted &&
+      !isLoanOfficer &&
+      (normalizedMessage.includes('missing') ||
+        normalizedMessage.includes('send back') ||
+        normalizedMessage.includes('needs info'))
+    ) {
+      events.push({
+        id: `estimated-route-${index}`,
+        at: note.date,
+        actorName: note.author || 'Team Member',
+        actorRole: note.role || null,
+        eventType: 'ROUTED_TO_LO',
+        toStatus: TaskStatus.BLOCKED,
+        toWorkflow: TaskWorkflowState.WAITING_ON_LO,
+        estimated: true,
+        note: `Estimated LO-route from notesHistory: ${note.message}`,
+      });
+      hasExplicitRouted = true;
+      index += 1;
+    }
+
+    if (
+      !hasExplicitLoResponse &&
+      isLoanOfficer &&
+      (normalizedMessage.includes('response') ||
+        normalizedMessage.includes('review') ||
+        normalizedMessage.includes('approved') ||
+        normalizedMessage.includes('revision'))
+    ) {
+      events.push({
+        id: `estimated-lo-${index}`,
+        at: note.date,
+        actorName: note.author || 'Loan Officer',
+        actorRole: note.role || UserRole.LOAN_OFFICER,
+        eventType: 'LO_RESPONDED',
+        toStatus: TaskStatus.PENDING,
+        toWorkflow: TaskWorkflowState.READY_TO_COMPLETE,
+        estimated: true,
+        note: `Estimated LO response from notesHistory: ${note.message}`,
+      });
+      hasExplicitLoResponse = true;
+      index += 1;
+    }
+  }
+
+  if (!hasExplicitStarted && firstDeskActivityAt) {
+    events.push({
+      id: 'estimated-started-from-first-note',
+      at: firstDeskActivityAt,
+      actorName: 'Team Member',
+      actorRole: null,
+      eventType: 'STARTED',
+      toStatus: TaskStatus.IN_PROGRESS,
+      estimated: true,
+      note: 'Estimated start time from first desk activity in notesHistory.',
+    });
   }
 
   const completedAt = toDate(input.completedAt);
