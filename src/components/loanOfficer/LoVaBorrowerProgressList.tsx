@@ -26,6 +26,7 @@ import {
   formatLifecycleDuration,
   type TaskLifecycleBreakdown,
 } from '@/lib/taskLifecycleTimeline';
+import { UserRole } from '@prisma/client';
 
 const chipMeta: Record<
   VaChipState,
@@ -144,9 +145,18 @@ function getLifecycleBucketBubbleClass(key: string, label: string) {
 function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
   const useStatus = breakdown.statusDurations.length > 0;
   const rows = useStatus ? breakdown.statusDurations : breakdown.workflowDurations;
-  if (rows.length <= 1) return rows;
+  if (rows.length === 0) return [];
 
   const firstSeenOrder = new Map<string, number>();
+  const mergedByLabel = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      durationMs: number;
+      actors: Array<{ name: string; role: UserRole | null }>;
+    }
+  >();
   let orderIndex = 0;
   for (const segment of breakdown.segments) {
     const key = useStatus ? segment.status || 'UNKNOWN' : segment.workflowState || 'NONE';
@@ -156,12 +166,66 @@ function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
     }
   }
 
-  return [...rows].sort((a, b) => {
-    const aOrder = firstSeenOrder.get(a.key) ?? Number.MAX_SAFE_INTEGER;
-    const bOrder = firstSeenOrder.get(b.key) ?? Number.MAX_SAFE_INTEGER;
-    if (aOrder !== bOrder) return aOrder - bOrder;
-    return 0;
-  });
+  const collectActors = (rowKey: string) => {
+    const actors = new Map<string, { name: string; role: UserRole | null }>();
+    const addActor = (name: string | null | undefined, role: UserRole | null | undefined) => {
+      const normalizedName = (name || '').trim();
+      if (!normalizedName) return;
+      const actorKey = `${normalizedName}::${role || 'NONE'}`;
+      if (!actors.has(actorKey)) {
+        actors.set(actorKey, { name: normalizedName, role: role || null });
+      }
+    };
+
+    for (const event of breakdown.events) {
+      const targetKey = useStatus ? event.toStatus || null : event.toWorkflow || null;
+      if (!targetKey || targetKey !== rowKey) continue;
+      addActor(event.actorName, event.actorRole || null);
+    }
+
+    if (actors.size === 0) {
+      for (const segment of breakdown.segments) {
+        const targetKey = useStatus ? segment.status || 'UNKNOWN' : segment.workflowState || 'NONE';
+        if (targetKey !== rowKey) continue;
+        addActor(segment.assignedUserName, segment.assignedRole || null);
+      }
+    }
+
+    return Array.from(actors.values()).slice(0, 4);
+  };
+
+  for (const row of rows) {
+    const existing = mergedByLabel.get(row.label);
+    const rowActors = collectActors(row.key);
+    if (existing) {
+      existing.durationMs += row.durationMs;
+      for (const actor of rowActors) {
+        if (!existing.actors.some((entry) => entry.name === actor.name && entry.role === actor.role)) {
+          existing.actors.push(actor);
+        }
+      }
+      continue;
+    }
+    mergedByLabel.set(row.label, {
+      key: row.key,
+      label: row.label,
+      durationMs: row.durationMs,
+      actors: rowActors,
+    });
+  }
+
+  const totalDuration = Math.max(1, breakdown.totalDurationMs);
+  return Array.from(mergedByLabel.values())
+    .map((row) => ({
+      ...row,
+      percent: Math.round((row.durationMs / totalDuration) * 100),
+    }))
+    .sort((a, b) => {
+      const aOrder = firstSeenOrder.get(a.key) ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = firstSeenOrder.get(b.key) ?? Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return 0;
+    });
 }
 
 function getStageElapsedMs(
@@ -1744,24 +1808,41 @@ export function LoVaBorrowerProgressList({
                     <div className="flex flex-col items-start gap-2">
                       {getOrderedLifecycleRows(stage.breakdown).length > 0 ? (
                         getOrderedLifecycleRows(stage.breakdown).map((row) => (
-                          <div key={row.key} className="flex items-center gap-1.5">
-                            <span
-                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getLifecycleBucketBubbleClass(
-                                row.key,
-                                row.label
-                              )}`}
-                              title={`Bucket: ${row.label}`}
-                            >
-                              {row.label}
-                            </span>
-                            <span
-                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getTimerClassName(
-                                row.durationMs
-                              )}`}
-                              title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
-                            >
-                              {formatLifecycleDuration(row.durationMs)}
-                            </span>
+                          <div key={row.key} className="flex flex-col items-start gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getLifecycleBucketBubbleClass(
+                                  row.key,
+                                  row.label
+                                )}`}
+                                title={`Bucket: ${row.label}`}
+                              >
+                                {row.label}
+                              </span>
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getTimerClassName(
+                                  row.durationMs
+                                )}`}
+                                title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
+                              >
+                                {formatLifecycleDuration(row.durationMs)}
+                              </span>
+                            </div>
+                            {row.actors.length > 0 && (
+                              <div className="ml-1 flex flex-wrap items-center gap-1">
+                                {row.actors.map((actor) => (
+                                  <span
+                                    key={`${row.key}-${actor.name}-${actor.role || 'none'}`}
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
+                                      actor.role
+                                    )}`}
+                                    title={`${row.label} updated by ${actor.name}`}
+                                  >
+                                    {actor.name}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))
                       ) : (

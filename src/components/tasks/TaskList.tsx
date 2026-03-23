@@ -1044,19 +1044,65 @@ function mapLifecycleRowToBucketLabel(
   return fallbackLabel;
 }
 
+function collectLifecycleActorsForRow(
+  breakdown: TaskLifecycleBreakdown,
+  rowKey: string,
+  isWorkflowRows: boolean
+) {
+  const actors = new Map<string, { name: string; role: UserRole | null }>();
+  const addActor = (name: string | null | undefined, role: UserRole | null | undefined) => {
+    const normalizedName = (name || '').trim();
+    if (!normalizedName) return;
+    const actorKey = `${normalizedName}::${role || 'NONE'}`;
+    if (!actors.has(actorKey)) {
+      actors.set(actorKey, { name: normalizedName, role: role || null });
+    }
+  };
+
+  for (const event of breakdown.events) {
+    const targetKey = isWorkflowRows ? event.toWorkflow || null : event.toStatus || null;
+    if (!targetKey || targetKey !== rowKey) continue;
+    addActor(event.actorName, event.actorRole || null);
+  }
+
+  if (actors.size === 0) {
+    for (const segment of breakdown.segments) {
+      const targetKey = isWorkflowRows ? segment.workflowState || 'NONE' : segment.status || 'UNKNOWN';
+      if (targetKey !== rowKey) continue;
+      addActor(segment.assignedUserName, segment.assignedRole || null);
+    }
+  }
+
+  return Array.from(actors.values()).slice(0, 4);
+}
+
 function getOrderedLifecycleRows(
   breakdown: TaskLifecycleBreakdown,
   currentRole: string,
   taskKind: TaskKind | null
 ) {
+  const prefersWorkflowBuckets =
+    taskKind === TaskKind.SUBMIT_DISCLOSURES ||
+    taskKind === TaskKind.SUBMIT_QC ||
+    taskKind === TaskKind.VA_APPRAISAL ||
+    taskKind === TaskKind.LO_NEEDS_INFO;
   const hasWorkflowBuckets = breakdown.workflowDurations.some((row) => row.key !== TaskWorkflowState.NONE);
-  const isWorkflowRows = hasWorkflowBuckets || breakdown.statusDurations.length === 0;
+  const isWorkflowRows =
+    prefersWorkflowBuckets || hasWorkflowBuckets || breakdown.statusDurations.length === 0;
   const rows = isWorkflowRows ? breakdown.workflowDurations : breakdown.statusDurations;
   if (rows.length === 0) return [];
 
   const totalDuration = Math.max(1, breakdown.totalDurationMs);
   const firstSeenOrder = new Map<string, number>();
-  const mergedByLabel = new Map<string, { key: string; label: string; durationMs: number }>();
+  const mergedByLabel = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      durationMs: number;
+      actors: Array<{ name: string; role: UserRole | null }>;
+    }
+  >();
   let orderIndex = 0;
 
   for (const segment of breakdown.segments) {
@@ -1083,14 +1129,21 @@ function getOrderedLifecycleRows(
       row.label
     );
     const existing = mergedByLabel.get(mappedLabel);
+    const rowActors = collectLifecycleActorsForRow(breakdown, row.key, isWorkflowRows);
     if (existing) {
       existing.durationMs += row.durationMs;
+      for (const actor of rowActors) {
+        if (!existing.actors.some((entry) => entry.name === actor.name && entry.role === actor.role)) {
+          existing.actors.push(actor);
+        }
+      }
       continue;
     }
     mergedByLabel.set(mappedLabel, {
       key: row.key,
       label: mappedLabel,
       durationMs: row.durationMs,
+      actors: rowActors,
     });
   }
 
@@ -4258,24 +4311,41 @@ export function TaskList({
                     currentRole,
                     lifecyclePopup.taskKind
                   ).map((row) => (
-                    <div key={row.key} className="flex items-center gap-1.5">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleBucketBubbleClass(
-                          row.key,
-                          row.label
-                        )}`}
-                        title={`Bucket: ${row.label}`}
-                      >
-                        {row.label}
-                      </span>
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleDurationBubbleClass(
-                          row.durationMs
-                        )}`}
-                        title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
-                      >
-                        {formatLifecycleDuration(row.durationMs)}
-                      </span>
+                    <div key={row.key} className="flex flex-col items-start gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleBucketBubbleClass(
+                            row.key,
+                            row.label
+                          )}`}
+                          title={`Bucket: ${row.label}`}
+                        >
+                          {row.label}
+                        </span>
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleDurationBubbleClass(
+                            row.durationMs
+                          )}`}
+                          title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
+                        >
+                          {formatLifecycleDuration(row.durationMs)}
+                        </span>
+                      </div>
+                      {row.actors.length > 0 && (
+                        <div className="ml-1 flex flex-wrap items-center gap-1">
+                          {row.actors.map((actor) => (
+                            <span
+                              key={`${row.key}-${actor.name}-${actor.role || 'none'}`}
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
+                                actor.role
+                              )}`}
+                              title={`${row.label} updated by ${actor.name}`}
+                            >
+                              {actor.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (

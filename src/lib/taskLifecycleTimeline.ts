@@ -511,17 +511,56 @@ export function buildTaskLifecycleBreakdown(input: BuildTaskLifecycleInput): Tas
     applyEventToState(state, event);
   }
 
+  const normalizedInputAssignedRole = input.assignedRole || null;
+  const needsReconcileForOpenTask =
+    !isCompletedTask &&
+    (state.status !== input.status ||
+      state.workflowState !== input.workflowState ||
+      (state.assignedUserId || null) !== (input.assignedUserId || null) ||
+      (state.assignedUserName || null) !== (input.assignedUserName || null) ||
+      (state.assignedRole || null) !== normalizedInputAssignedRole);
+
+  if (needsReconcileForOpenTask) {
+    const reconcileAtMs = Math.max(
+      cursor,
+      Math.min(endAt.getTime(), updatedAt ? updatedAt.getTime() : endAt.getTime())
+    );
+
+    if (reconcileAtMs > cursor) {
+      segments.push({
+        startAt: new Date(cursor).toISOString(),
+        endAt: new Date(reconcileAtMs).toISOString(),
+        durationMs: reconcileAtMs - cursor,
+        status: state.status,
+        workflowState: state.workflowState,
+        assignedUserId: state.assignedUserId,
+        assignedUserName: state.assignedUserName,
+        assignedRole: state.assignedRole,
+        estimated: explicitEvents.length === 0,
+      });
+      cursor = reconcileAtMs;
+    }
+
+    state.status = input.status;
+    state.workflowState = input.workflowState;
+    state.assignedUserId = input.assignedUserId || null;
+    state.assignedUserName = input.assignedUserName || null;
+    state.assignedRole = normalizedInputAssignedRole;
+  }
+
   const endMs = endAt.getTime();
   if (endMs > cursor) {
     segments.push({
       startAt: new Date(cursor).toISOString(),
       endAt: new Date(endMs).toISOString(),
       durationMs: endMs - cursor,
-      status: state.status || input.status,
-      workflowState: state.workflowState || input.workflowState,
-      assignedUserId: state.assignedUserId,
-      assignedUserName: state.assignedUserName,
-      assignedRole: state.assignedRole || input.assignedRole || null,
+      status: isCompletedTask ? state.status || input.status : input.status,
+      workflowState: isCompletedTask
+        ? state.workflowState || input.workflowState
+        : input.workflowState,
+      assignedUserId: isCompletedTask ? state.assignedUserId : input.assignedUserId || null,
+      assignedUserName: isCompletedTask ? state.assignedUserName : input.assignedUserName || null,
+      assignedRole: isCompletedTask ? state.assignedRole || normalizedInputAssignedRole : normalizedInputAssignedRole,
       estimated: explicitEvents.length === 0,
     });
   }
