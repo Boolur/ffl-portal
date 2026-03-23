@@ -24,6 +24,26 @@ function sanitizeFilename(filename: string) {
   return replaced.length ? replaced : 'file';
 }
 
+function canBypassDeskStartLock(role: UserRole) {
+  return role === UserRole.ADMIN || role === UserRole.MANAGER;
+}
+
+function isStartLockedDeskAttachmentTask(task: {
+  kind: TaskKind | null;
+  status: TaskStatus;
+  workflowState: TaskWorkflowState | null;
+}) {
+  if (!task.kind) return false;
+  const isDeskKind =
+    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+    task.kind === TaskKind.SUBMIT_QC ||
+    task.kind === TaskKind.VA_TITLE ||
+    task.kind === TaskKind.VA_PAYOFF ||
+    task.kind === TaskKind.VA_APPRAISAL ||
+    task.kind === TaskKind.VA_HOI;
+  return isDeskKind && task.status === TaskStatus.PENDING && task.workflowState === TaskWorkflowState.NONE;
+}
+
 async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId: string) {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
@@ -31,6 +51,7 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
       id: true,
       kind: true,
       status: true,
+      workflowState: true,
       assignedRole: true,
       assignedUserId: true,
       loan: { select: { loanOfficerId: true } },
@@ -74,6 +95,9 @@ export async function createTaskAttachmentUploadUrl(input: {
 
     const access = await canAccessTaskForAttachment(input.taskId, role, userId);
     if (!access.ok) return { success: false, error: access.error };
+    if (!canBypassDeskStartLock(role) && isStartLockedDeskAttachmentTask(access.task)) {
+      return { success: false, error: 'Start this task before uploading proof attachments.' };
+    }
 
     // Enforce: VA kinds can only upload PROOF (keeps workflow clean)
     const isVaKind =
@@ -135,6 +159,9 @@ export async function finalizeTaskAttachment(input: {
 
     const access = await canAccessTaskForAttachment(input.taskId, role, userId);
     if (!access.ok) return { success: false, error: access.error };
+    if (!canBypassDeskStartLock(role) && isStartLockedDeskAttachmentTask(access.task)) {
+      return { success: false, error: 'Start this task before uploading proof attachments.' };
+    }
     if (access.task.kind === TaskKind.VA_HOI && access.task.status === TaskStatus.COMPLETED) {
       return {
         success: false,

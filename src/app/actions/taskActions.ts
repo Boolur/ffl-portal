@@ -2360,6 +2360,27 @@ function getSavedJrChecklistItemsFromSubmissionData(
   return parseJrChecklistItems(itemsRaw as JrChecklistItemInput[]);
 }
 
+function canBypassDeskStartLock(role: UserRole) {
+  return role === UserRole.ADMIN || role === UserRole.MANAGER;
+}
+
+function isStartLockedDeskTask(task: {
+  kind: TaskKind | null;
+  status: TaskStatus;
+  workflowState: TaskWorkflowState;
+}) {
+  if (!task.kind) return false;
+  const isDeskKind =
+    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+    task.kind === TaskKind.SUBMIT_QC ||
+    task.kind === TaskKind.VA_TITLE ||
+    task.kind === TaskKind.VA_PAYOFF ||
+    task.kind === TaskKind.VA_APPRAISAL ||
+    task.kind === TaskKind.VA_HOI;
+
+  return isDeskKind && task.status === TaskStatus.PENDING && task.workflowState === TaskWorkflowState.NONE;
+}
+
 export async function saveJrProcessorChecklist(taskId: string, items: JrChecklistItemInput[]) {
   try {
     const session = await getServerSession(authOptions);
@@ -2405,6 +2426,9 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
       existing.assignedUserId === userId;
     if (!canManageAll && !canManageJrTask) {
       return { success: false, error: 'Not authorized to update this checklist.' };
+    }
+    if (!canBypassDeskStartLock(role) && isStartLockedDeskTask(existing)) {
+      return { success: false, error: 'Start this task before editing the JR checklist.' };
     }
 
     const proofAttachmentIds = parsedItems
@@ -2530,6 +2554,7 @@ export async function addJrProcessorNote(taskId: string, note: string) {
         id: true,
         kind: true,
         status: true,
+        workflowState: true,
         assignedRole: true,
         assignedUserId: true,
         submissionData: true,
@@ -2554,6 +2579,9 @@ export async function addJrProcessorNote(taskId: string, note: string) {
       existing.assignedUserId === userId;
     if (!canManageAll && !canManageJrTask) {
       return { success: false, error: 'Not authorized to add a JR note.' };
+    }
+    if (!canBypassDeskStartLock(role) && isStartLockedDeskTask(existing)) {
+      return { success: false, error: 'Start this task before adding JR notes.' };
     }
 
     const dataObj = appendSubmissionHistoryEntry(existing.submissionData, {
@@ -2801,6 +2829,12 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       return {
         success: false,
         error: 'This action is only supported for disclosure/QC submissions and VA Appraisal tasks.',
+      };
+    }
+    if (!canBypassDeskStartLock(role) && isStartLockedDeskTask(task)) {
+      return {
+        success: false,
+        error: 'Start this task before sending updates back to the Loan Officer.',
       };
     }
     const qcSubmissionTask = isQcSubmissionTask(task);

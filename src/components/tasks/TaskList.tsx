@@ -1919,6 +1919,22 @@ export function TaskList({
     setStartingQcId(null);
   };
 
+  const handleStartDeskTask = async (task: Task) => {
+    const confirmed = window.confirm('Are you sure you want to Start this task?');
+    if (!confirmed) return;
+
+    if (isDisclosureSubmissionTask(task)) {
+      await handleStartDisclosureRequest(task.id);
+      return;
+    }
+    if (isQcSubmissionTask(task)) {
+      await handleStartQcRequest(task.id);
+      return;
+    }
+
+    await handleStatusChange(task.id, 'IN_PROGRESS');
+  };
+
   const handleLoanOfficerResponse = async (task: Task) => {
     if (respondingId) return;
     const response = (loResponseByTask[task.id] || '').trim();
@@ -2193,6 +2209,7 @@ export function TaskList({
           selectedReason === DisclosureDecisionReason.MISSING_ITEMS;
         const shouldShowProofUploader =
           task.status !== 'COMPLETED' &&
+          task.status !== TaskStatus.PENDING &&
           !canManageJrChecklist &&
           ((canManageVaDesk && isVaTaskKind(task.kind)) ||
             (canEditProofAttachments && !isDisclosureMissingItemsRoute) ||
@@ -2225,24 +2242,69 @@ export function TaskList({
         const hasAssignedSpecialist = Boolean(task.assignedUser?.id);
         const isAssignedToCurrentUser =
           Boolean(currentUserId) && task.assignedUser?.id === currentUserId;
-        const showDisclosureStartButton =
-          isDisclosureInitialRoutingState && task.status === TaskStatus.PENDING;
-        const disableDisclosureStartButton =
-          hasAssignedSpecialist && !isAssignedToCurrentUser;
         const isQcInitialRoutingState =
           canManageQcDesk &&
           isQcSubmissionTask(task) &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.NONE;
-        const showQcStartButton =
-          isQcInitialRoutingState && task.status === TaskStatus.PENDING;
-        const disableQcStartButton =
-          hasAssignedSpecialist && !isAssignedToCurrentUser;
-        const showVaStartButton =
+        const canBypassStartLock = isManagerRole || currentRole === UserRole.ADMIN;
+        const isPendingDeskTask = task.status === TaskStatus.PENDING;
+        const isDisclosureDeskStartLockTask =
+          isPendingDeskTask &&
+          canManageDisclosureDesk &&
+          isDisclosureSubmissionTask(task) &&
+          (isDisclosureInitialRoutingState || isDisclosureReturnedRoutingState);
+        const isQcDeskStartLockTask = isPendingDeskTask && isQcInitialRoutingState;
+        const isVaDeskStartLockTask =
+          isPendingDeskTask &&
           canManageVaDesk &&
           isVaTaskKind(task.kind) &&
-          task.status === TaskStatus.PENDING &&
           task.workflowState === TaskWorkflowState.NONE;
+        const isJrDeskStartLockTask = isPendingDeskTask && canManageJrChecklist;
+        const showDeskStartOverlay =
+          !canBypassStartLock &&
+          (isDisclosureDeskStartLockTask ||
+            isQcDeskStartLockTask ||
+            isVaDeskStartLockTask ||
+            isJrDeskStartLockTask);
+        const deskStartLockedByAnother =
+          showDeskStartOverlay &&
+          hasAssignedSpecialist &&
+          !isAssignedToCurrentUser &&
+          (isDisclosureDeskStartLockTask || isQcDeskStartLockTask);
+        const isDeskTaskActionStarting =
+          startingDisclosureId === task.id || startingQcId === task.id || updatingId === task.id;
+        const deskStartLabel = isDisclosureDeskStartLockTask
+          ? 'Start Disclosure Request'
+          : isQcDeskStartLockTask
+          ? 'Start QC Request'
+          : isJrDeskStartLockTask
+          ? 'Start JR Task'
+          : 'Start VA Task';
+        const deskStartButtonToneClass = isDisclosureDeskStartLockTask
+          ? 'border-blue-300 text-blue-700 hover:bg-blue-50'
+          : isQcDeskStartLockTask
+          ? 'border-violet-300 text-violet-700 hover:bg-violet-50'
+          : isJrDeskStartLockTask
+          ? 'border-sky-300 text-sky-700 hover:bg-sky-50'
+          : 'border-rose-300 text-rose-700 hover:bg-rose-50';
+        const deskStartOverlayToneClass = isDisclosureDeskStartLockTask
+          ? 'border-blue-200/80'
+          : isQcDeskStartLockTask
+          ? 'border-violet-200/80'
+          : isJrDeskStartLockTask
+          ? 'border-sky-200/80'
+          : 'border-rose-200/80';
+        const deskStartHeadingToneClass = isDisclosureDeskStartLockTask
+          ? 'text-blue-900'
+          : isQcDeskStartLockTask
+          ? 'text-violet-900'
+          : isJrDeskStartLockTask
+          ? 'text-sky-900'
+          : 'text-rose-900';
+        const deskStartOverlayMessage = deskStartLockedByAnother
+          ? `This task was already started by ${assignedSpecialistName || 'another specialist'}.`
+          : 'Click Start to claim this task before editing this form.';
         const disclosureFooterMessage = (disclosureMessageByTask[task.id] || '').trim();
         const loFooterResponse = (loResponseByTask[task.id] || '').trim();
         const parsedSubmissionData =
@@ -2925,9 +2987,9 @@ export function TaskList({
                     </div>
                   )}
 
-                  {(isDisclosureInitialRoutingState ||
-                    isDisclosureReturnedRoutingState) && (
-                      <div className="mt-8 rounded-2xl border border-blue-200 bg-gradient-to-b from-blue-50/80 to-white p-6 shadow-sm space-y-4">
+                  {(isDisclosureInitialRoutingState || isDisclosureReturnedRoutingState) && (
+                    <div className="relative mt-8">
+                      <div className="rounded-2xl border border-blue-200 bg-gradient-to-b from-blue-50/80 to-white p-6 shadow-sm space-y-4">
                         <div className="mb-2 flex items-start justify-between gap-3">
                           <div className="flex items-center gap-3">
                             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
@@ -2987,11 +3049,38 @@ export function TaskList({
                           </p>
                         </div>
                       </div>
-                    )}
+                      {showDeskStartOverlay && (
+                        <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
+                          <div className="flex h-full items-center justify-center">
+                            <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                              <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                              <p className="mt-1 text-xs font-medium text-slate-600">
+                                {deskStartOverlayMessage}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => void handleStartDeskTask(task)}
+                                disabled={deskStartLockedByAnother || isDeskTaskActionStarting}
+                                className={`mt-4 inline-flex h-9 items-center rounded-lg border bg-white px-4 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${deskStartButtonToneClass}`}
+                              >
+                                {isDeskTaskActionStarting && (
+                                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                                )}
+                                {deskStartLockedByAnother
+                                  ? `Started by ${assignedSpecialistName || 'another specialist'}`
+                                  : deskStartLabel}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {isVaAppraisalRouteState && (
-                    <div
-                      className={`mt-8 rounded-2xl border p-6 shadow-sm space-y-4 ${
+                    <div className="relative mt-8">
+                      <div
+                      className={`rounded-2xl border p-6 shadow-sm space-y-4 ${
                         isVaAppraisalCompleteAction
                           ? 'border-emerald-200 bg-gradient-to-b from-emerald-50/80 to-white'
                           : 'border-amber-200 bg-gradient-to-b from-amber-50/80 to-white'
@@ -3103,6 +3192,32 @@ export function TaskList({
                             : 'Use the bottom action bar to send this request back to LO.'}
                         </p>
                       </div>
+                      </div>
+                      {showDeskStartOverlay && (
+                        <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
+                          <div className="flex h-full items-center justify-center">
+                            <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                              <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                              <p className="mt-1 text-xs font-medium text-slate-600">
+                                {deskStartOverlayMessage}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => void handleStartDeskTask(task)}
+                                disabled={deskStartLockedByAnother || isDeskTaskActionStarting}
+                                className={`mt-4 inline-flex h-9 items-center rounded-lg border bg-white px-4 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${deskStartButtonToneClass}`}
+                              >
+                                {isDeskTaskActionStarting && (
+                                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                                )}
+                                {deskStartLockedByAnother
+                                  ? `Started by ${assignedSpecialistName || 'another specialist'}`
+                                  : deskStartLabel}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -3132,7 +3247,8 @@ export function TaskList({
                     )}
 
                   {canManageJrChecklist && (
-                    <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50/50 p-5 shadow-sm space-y-4">
+                    <div className="relative mt-6">
+                      <div className="rounded-2xl border border-sky-200 bg-sky-50/50 p-5 shadow-sm space-y-4">
                       {uploadStatusByTask[task.id] && (
                         <div
                           className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
@@ -3351,11 +3467,38 @@ export function TaskList({
                           {isJrChecklistLocked ? 'Locked after completion' : 'Autosaves on every change'}
                         </span>
                       </div>
+                      </div>
+                      {showDeskStartOverlay && (
+                        <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
+                          <div className="flex h-full items-center justify-center">
+                            <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                              <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                              <p className="mt-1 text-xs font-medium text-slate-600">
+                                {deskStartOverlayMessage}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => void handleStartDeskTask(task)}
+                                disabled={deskStartLockedByAnother || isDeskTaskActionStarting}
+                                className={`mt-4 inline-flex h-9 items-center rounded-lg border bg-white px-4 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${deskStartButtonToneClass}`}
+                              >
+                                {isDeskTaskActionStarting && (
+                                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                                )}
+                                {deskStartLockedByAnother
+                                  ? `Started by ${assignedSpecialistName || 'another specialist'}`
+                                  : deskStartLabel}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {canManageQcDesk && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
-                    <div className="mt-8 rounded-2xl border border-violet-100 bg-violet-50/50 p-6 shadow-sm space-y-4">
+                    <div className="relative mt-8">
+                      <div className="rounded-2xl border border-violet-100 bg-violet-50/50 p-6 shadow-sm space-y-4">
                       <div className="mb-2 flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
                           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
@@ -3534,6 +3677,32 @@ export function TaskList({
                           )}
                         </div>
                       </div>
+                      </div>
+                      {showDeskStartOverlay && (
+                        <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
+                          <div className="flex h-full items-center justify-center">
+                            <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                              <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                              <p className="mt-1 text-xs font-medium text-slate-600">
+                                {deskStartOverlayMessage}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => void handleStartDeskTask(task)}
+                                disabled={deskStartLockedByAnother || isDeskTaskActionStarting}
+                                className={`mt-4 inline-flex h-9 items-center rounded-lg border bg-white px-4 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${deskStartButtonToneClass}`}
+                              >
+                                {isDeskTaskActionStarting && (
+                                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                                )}
+                                {deskStartLockedByAnother
+                                  ? `Started by ${assignedSpecialistName || 'another specialist'}`
+                                  : deskStartLabel}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -3564,68 +3733,12 @@ export function TaskList({
 
                   <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200/60 pt-6">
                     <WorkedByTags summary={workedBySummary} className="mr-auto" />
-                    {showDisclosureStartButton && (
-                      <button
-                        type="button"
-                        onClick={() => void handleStartDisclosureRequest(task.id)}
-                        disabled={
-                          startingDisclosureId === task.id ||
-                          disableDisclosureStartButton ||
-                          isTaskActionLocked
-                        }
-                        className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
-                        title={
-                          disableDisclosureStartButton
-                            ? `Already started by ${assignedSpecialistName || 'another specialist'}`
-                            : 'Claim and start this disclosure request'
-                        }
-                      >
-                        {startingDisclosureId === task.id && (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        )}
-                        {disableDisclosureStartButton
-                          ? `Started by ${assignedSpecialistName || 'another specialist'}`
-                          : 'Start'}
-                      </button>
-                    )}
-                    {showQcStartButton && (
-                      <button
-                        type="button"
-                        onClick={() => void handleStartQcRequest(task.id)}
-                        disabled={startingQcId === task.id || disableQcStartButton || isTaskActionLocked}
-                        className="app-btn-secondary disabled:opacity-60 disabled:cursor-not-allowed"
-                        title={
-                          disableQcStartButton
-                            ? `Already started by ${assignedSpecialistName || 'another specialist'}`
-                            : 'Claim and start this QC request'
-                        }
-                      >
-                        {startingQcId === task.id && (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        )}
-                        {disableQcStartButton
-                          ? `Started by ${assignedSpecialistName || 'another specialist'}`
-                          : 'Start'}
-                      </button>
-                    )}
-                    {showVaStartButton && (
-                      <button
-                        type="button"
-                        onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
-                        disabled={!!updatingId || isTaskActionLocked}
-                        className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
-                        title="Start this VA request"
-                      >
-                        {updatingId === task.id && (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        )}
-                        Start
-                      </button>
-                    )}
                     {task.status === 'PENDING' &&
                       !shouldHideGenericStartForDisclosureSubmission &&
                       !isDisclosureInitialRoutingState &&
-                      !showVaStartButton &&
+                      !isVaDeskStartLockTask &&
+                      !isJrDeskStartLockTask &&
+                      !isQcDeskStartLockTask &&
                       !shouldRouteFromFooter &&
                       !shouldLoRespondFromFooter &&
                       !isLoanOfficerSubmissionTask && (
@@ -3688,6 +3801,7 @@ export function TaskList({
                         const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
                         const disableRouteButton =
                           isTaskActionLocked ||
+                          showDeskStartOverlay ||
                           sendingToLoId === task.id ||
                           (requiresProofForRouting && proofCount < 1) ||
                           (isVaAppraisalTask
