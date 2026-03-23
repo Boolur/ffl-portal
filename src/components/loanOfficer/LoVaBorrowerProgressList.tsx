@@ -22,6 +22,7 @@ import {
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import type { LoVaBorrowerProgressItem, VaChipState } from '@/lib/loVaProgress';
 import { getRoleBubbleClass } from '@/lib/roleColors';
+import { formatLifecycleDuration } from '@/lib/taskLifecycleTimeline';
 
 const chipMeta: Record<
   VaChipState,
@@ -191,6 +192,19 @@ function getIconButtonClassByState(state: 'not_started' | 'working' | 'completed
   }
   return 'border-slate-200 bg-white text-slate-600';
 }
+
+const lifecycleEventLabel: Record<string, string> = {
+  CREATED: 'Created',
+  STARTED: 'Started',
+  STATUS_CHANGED: 'Status Changed',
+  ROUTED_TO_LO: 'Routed to LO',
+  LO_RESPONDED: 'LO Responded',
+  LO_REVIEWED: 'LO Reviewed',
+  ASSIGNMENT_CHANGED: 'Assignment Changed',
+  COMPLETED: 'Completed',
+  REOPENED: 'Reopened',
+  SYSTEM: 'System Update',
+};
 
 const submissionDetailGroups = [
   {
@@ -1340,6 +1354,58 @@ export function LoVaBorrowerProgressList({
                                 </>
                               )}
                             </div>
+                            {detail.lifecycleBreakdown &&
+                              detail.lifecycleBreakdown.totalDurationMs > 0 && (
+                                <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-700">
+                                      Lifecycle Breakdown
+                                    </p>
+                                    <span className="inline-flex items-center rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                                      Total{' '}
+                                      {formatLifecycleDuration(
+                                        detail.lifecycleBreakdown.totalDurationMs
+                                      )}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1.5 space-y-1">
+                                    {detail.lifecycleBreakdown.assigneeDurations
+                                      .slice(0, 2)
+                                      .map((row) => (
+                                        <div
+                                          key={row.key}
+                                          className="flex items-center justify-between gap-2 text-[11px]"
+                                        >
+                                          <span className="font-semibold text-indigo-900">
+                                            {row.label}
+                                          </span>
+                                          <span className="font-bold text-indigo-800">
+                                            {formatLifecycleDuration(row.durationMs)} ({row.percent}%)
+                                          </span>
+                                        </div>
+                                      ))}
+                                  </div>
+                                  <div className="mt-2 space-y-1">
+                                    {detail.lifecycleBreakdown.events
+                                      .slice()
+                                      .sort(
+                                        (a, b) =>
+                                          new Date(b.at).getTime() - new Date(a.at).getTime()
+                                      )
+                                      .slice(0, 4)
+                                      .map((event) => (
+                                        <div key={event.id} className="text-[11px] text-indigo-900">
+                                          <span className="font-semibold">
+                                            {lifecycleEventLabel[event.eventType] || 'Update'}
+                                          </span>{' '}
+                                          <span className="text-indigo-700">
+                                            by {event.actorName} at {formatNoteDateTime(event.at)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
                           </>
                         )}
                       </div>
@@ -1586,6 +1652,63 @@ export function LoVaBorrowerProgressList({
                                       </>
                                     )}
                                   </div>
+                                  {detail.lifecycleBreakdown &&
+                                    detail.lifecycleBreakdown.totalDurationMs > 0 && (
+                                      <div className="mt-2 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                          <p className="text-[11px] font-bold uppercase tracking-wide text-sky-700">
+                                            Lifecycle Breakdown
+                                          </p>
+                                          <span className="inline-flex items-center rounded-full border border-sky-200 bg-white px-2 py-0.5 text-[10px] font-bold text-sky-700">
+                                            Total{' '}
+                                            {formatLifecycleDuration(
+                                              detail.lifecycleBreakdown.totalDurationMs
+                                            )}
+                                          </span>
+                                        </div>
+                                        <div className="mt-1.5 space-y-1">
+                                          {detail.lifecycleBreakdown.assigneeDurations
+                                            .slice(0, 2)
+                                            .map((rowDuration) => (
+                                              <div
+                                                key={`${row.id}-${rowDuration.key}`}
+                                                className="flex items-center justify-between gap-2 text-[11px]"
+                                              >
+                                                <span className="font-semibold text-sky-900">
+                                                  {rowDuration.label}
+                                                </span>
+                                                <span className="font-bold text-sky-800">
+                                                  {formatLifecycleDuration(rowDuration.durationMs)} (
+                                                  {rowDuration.percent}%)
+                                                </span>
+                                              </div>
+                                            ))}
+                                        </div>
+                                        <div className="mt-2 space-y-1">
+                                          {detail.lifecycleBreakdown.events
+                                            .slice()
+                                            .sort(
+                                              (a, b) =>
+                                                new Date(b.at).getTime() -
+                                                new Date(a.at).getTime()
+                                            )
+                                            .slice(0, 4)
+                                            .map((event) => (
+                                              <div
+                                                key={`${row.id}-${event.id}`}
+                                                className="text-[11px] text-sky-900"
+                                              >
+                                                <span className="font-semibold">
+                                                  {lifecycleEventLabel[event.eventType] || 'Update'}
+                                                </span>{' '}
+                                                <span className="text-sky-700">
+                                                  by {event.actorName} at {formatNoteDateTime(event.at)}
+                                                </span>
+                                              </div>
+                                            ))}
+                                        </div>
+                                      </div>
+                                    )}
                                 </>
                               )}
                             </div>

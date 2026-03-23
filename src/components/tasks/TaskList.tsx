@@ -48,6 +48,11 @@ import {
   UserRole,
 } from '@prisma/client';
 import { getRoleBubbleClass } from '@/lib/roleColors';
+import {
+  buildTaskLifecycleBreakdown,
+  formatLifecycleDuration,
+  type TaskLifecycleEvent,
+} from '@/lib/taskLifecycleTimeline';
 
 const disclosureReasonOptions: Array<{
   value: DisclosureDecisionReason;
@@ -83,6 +88,19 @@ const workflowStateLabel: Record<TaskWorkflowState, string> = {
   [TaskWorkflowState.WAITING_ON_LO]: 'Waiting on LO',
   [TaskWorkflowState.WAITING_ON_LO_APPROVAL]: 'Waiting on LO Approval',
   [TaskWorkflowState.READY_TO_COMPLETE]: 'Ready to Complete',
+};
+
+const lifecycleEventLabel: Record<TaskLifecycleEvent['eventType'], string> = {
+  CREATED: 'Created',
+  STARTED: 'Started',
+  STATUS_CHANGED: 'Status Changed',
+  ROUTED_TO_LO: 'Routed to LO',
+  LO_RESPONDED: 'LO Responded',
+  LO_REVIEWED: 'LO Reviewed',
+  ASSIGNMENT_CHANGED: 'Assignment Changed',
+  COMPLETED: 'Completed',
+  REOPENED: 'Reopened',
+  SYSTEM: 'System Update',
 };
 
 type SubmissionDetailRow = {
@@ -2374,6 +2392,22 @@ export function TaskList({
           (a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
+        const normalizedAssignedRole =
+          typeof task.assignedRole === 'string' &&
+          (Object.values(UserRole) as string[]).includes(task.assignedRole)
+            ? (task.assignedRole as UserRole)
+            : null;
+        const lifecycleBreakdown = buildTaskLifecycleBreakdown({
+          createdAt: task.createdAt || null,
+          updatedAt: task.updatedAt || null,
+          completedAt: task.completedAt || null,
+          status: task.status,
+          workflowState: task.workflowState,
+          assignedUserId: task.assignedUser?.id || null,
+          assignedUserName: task.assignedUser?.name || null,
+          assignedRole: normalizedAssignedRole,
+          submissionData: parsedSubmissionData,
+        });
         const isFocused = focusedTaskId === task.id;
         const isExpanded = expandedTaskIds.has(task.id);
         const completionEndValue = task.completedAt || task.updatedAt;
@@ -2692,6 +2726,124 @@ export function TaskList({
                       </p>
                     )}
                   </div>
+
+                  {lifecycleBreakdown.totalDurationMs > 0 && (
+                    <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                        <h4 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                            <Clock3 className="h-4 w-4" />
+                          </div>
+                          Lifecycle Breakdown
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700">
+                            Total {formatLifecycleDuration(lifecycleBreakdown.totalDurationMs)}
+                          </span>
+                          {lifecycleBreakdown.hasEstimatedData && (
+                            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">
+                              Includes estimated legacy segments
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
+                            Time By Status
+                          </p>
+                          <div className="space-y-1.5">
+                            {lifecycleBreakdown.statusDurations.slice(0, 5).map((row) => (
+                              <div key={row.key} className="flex items-center justify-between gap-2 text-xs">
+                                <span className="font-semibold text-slate-700">{row.label}</span>
+                                <span className="font-bold text-slate-900">
+                                  {formatLifecycleDuration(row.durationMs)} ({row.percent}%)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
+                            Time By Bucket
+                          </p>
+                          <div className="space-y-1.5">
+                            {lifecycleBreakdown.workflowDurations.slice(0, 5).map((row) => (
+                              <div key={row.key} className="flex items-center justify-between gap-2 text-xs">
+                                <span className="font-semibold text-slate-700">{row.label}</span>
+                                <span className="font-bold text-slate-900">
+                                  {formatLifecycleDuration(row.durationMs)} ({row.percent}%)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
+                            Time By Assignee
+                          </p>
+                          <div className="space-y-1.5">
+                            {lifecycleBreakdown.assigneeDurations.slice(0, 5).map((row) => (
+                              <div key={row.key} className="flex items-center justify-between gap-2 text-xs">
+                                <span className="font-semibold text-slate-700">{row.label}</span>
+                                <span className="font-bold text-slate-900">
+                                  {formatLifecycleDuration(row.durationMs)} ({row.percent}%)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        {lifecycleBreakdown.events
+                          .slice()
+                          .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+                          .map((event) => (
+                            <div
+                              key={event.id}
+                              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                            >
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="font-bold text-slate-800">
+                                  {lifecycleEventLabel[event.eventType]}
+                                </span>
+                                <span className="text-slate-400">•</span>
+                                <span className="font-semibold text-slate-700">{event.actorName}</span>
+                                {event.actorRole && (
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold uppercase tracking-wide ${getRoleBubbleClass(event.actorRole)}`}
+                                  >
+                                    {event.actorRole.replace(/_/g, ' ')}
+                                  </span>
+                                )}
+                                <span className="text-slate-400">•</span>
+                                <span className="font-medium text-slate-500">
+                                  {formatPacificTimestamp(event.at)}
+                                </span>
+                              </div>
+                              {(event.fromStatus || event.toStatus) && (
+                                <p className="mt-1 text-xs font-medium text-slate-600">
+                                  Status: {event.fromStatus ? event.fromStatus.replace('_', ' ') : 'Unknown'} {'->'}{' '}
+                                  {event.toStatus ? event.toStatus.replace('_', ' ') : 'Unknown'}
+                                </p>
+                              )}
+                              {(event.fromWorkflow || event.toWorkflow) && (
+                                <p className="mt-0.5 text-xs font-medium text-slate-600">
+                                  Bucket:{' '}
+                                  {event.fromWorkflow ? workflowStateLabel[event.fromWorkflow] : 'None'} {'->'}{' '}
+                                  {event.toWorkflow ? workflowStateLabel[event.toWorkflow] : 'None'}
+                                </p>
+                              )}
+                              {event.note && (
+                                <p className="mt-0.5 text-xs font-medium text-slate-700">{event.note}</p>
+                              )}
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
 
                   {!isVaSubmissionView && timelineItems.length > 0 && (
                     <div className="mt-8">

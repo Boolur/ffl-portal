@@ -1,4 +1,8 @@
 import { TaskKind, TaskStatus, TaskWorkflowState, UserRole } from '@prisma/client';
+import {
+  buildTaskLifecycleBreakdown,
+  type TaskLifecycleBreakdown,
+} from '@/lib/taskLifecycleTimeline';
 
 type LoanRef = {
   loanNumber: string;
@@ -10,8 +14,11 @@ export type LoVaProgressTaskInput = {
   kind: TaskKind | null;
   status: TaskStatus;
   workflowState: TaskWorkflowState;
+  assignedRole?: UserRole | null;
+  assignedUser?: { id?: string | null; name?: string | null; role?: UserRole | null } | null;
   createdAt?: Date | string | null;
   updatedAt?: Date | string | null;
+  completedAt?: Date | string | null;
   submissionData?: unknown;
   loan: LoanRef;
   parentTask?: {
@@ -73,6 +80,7 @@ export type LoVaBorrowerProgressItem = {
         author: string;
         role: UserRole | null;
       } | null;
+      lifecycleBreakdown: TaskLifecycleBreakdown | null;
     }
   >;
   jrStageDetails: Record<
@@ -90,6 +98,7 @@ export type LoVaBorrowerProgressItem = {
         author: string;
         role: UserRole | null;
       } | null;
+      lifecycleBreakdown: TaskLifecycleBreakdown | null;
     }
   >;
   notesTimeline: Array<{
@@ -602,6 +611,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         updatedAt: null,
         proofAttachments: [],
         latestNote: null,
+        lifecycleBreakdown: null,
       },
       payoff: {
         taskId: null,
@@ -610,6 +620,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         updatedAt: null,
         proofAttachments: [],
         latestNote: null,
+        lifecycleBreakdown: null,
       },
       appraisal: {
         taskId: null,
@@ -618,6 +629,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         updatedAt: null,
         proofAttachments: [],
         latestNote: null,
+        lifecycleBreakdown: null,
       },
     };
     const jrStageDetails: LoVaBorrowerProgressItem['jrStageDetails'] = {
@@ -629,6 +641,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         checklist: [],
         proofAttachments: [],
         latestNote: null,
+        lifecycleBreakdown: null,
       },
     };
     const timelineById = new Map<
@@ -672,6 +685,17 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
               role: latestNote.role,
             }
           : null,
+        lifecycleBreakdown: buildTaskLifecycleBreakdown({
+          createdAt: task.createdAt || null,
+          updatedAt: task.updatedAt || null,
+          completedAt: task.completedAt || null,
+          status: task.status,
+          workflowState: task.workflowState,
+          assignedUserId: task.assignedUser?.id || null,
+          assignedUserName: task.assignedUser?.name || null,
+          assignedRole: task.assignedRole || null,
+          submissionData: task.submissionData,
+        }),
       };
       for (const note of stageNotes) {
         timelineById.set(note.id, note);
@@ -722,6 +746,17 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
               role: latestNote.role,
             }
           : null,
+        lifecycleBreakdown: buildTaskLifecycleBreakdown({
+          createdAt: task.createdAt || null,
+          updatedAt: task.updatedAt || null,
+          completedAt: task.completedAt || null,
+          status: task.status,
+          workflowState: task.workflowState,
+          assignedUserId: task.assignedUser?.id || null,
+          assignedUserName: task.assignedUser?.name || null,
+          assignedRole: task.assignedRole || null,
+          submissionData: task.submissionData,
+        }),
       };
       for (const note of stageNotes) {
         timelineById.set(note.id, note);

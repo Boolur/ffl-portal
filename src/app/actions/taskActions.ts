@@ -18,6 +18,7 @@ import { authOptions } from '@/lib/auth';
 import { sendEmail } from '@/lib/email';
 import { randomUUID } from 'crypto';
 import { recordPerfMetric } from '@/lib/perf';
+import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
 
 function isSubmissionTask(task: {
   kind: TaskKind | null;
@@ -1555,6 +1556,11 @@ export async function updateTaskStatus(
         kind: true,
         assignedRole: true,
         assignedUserId: true,
+        assignedUser: {
+          select: {
+            name: true,
+          },
+        },
         loanId: true,
         parentTaskId: true,
         disclosureReason: true,
@@ -1673,22 +1679,23 @@ export async function updateTaskStatus(
       }
     }
 
+    const actorName = session?.user?.name || 'Unknown';
     const isQcSubmissionWorkflowTask = isQcSubmissionTask(existing);
     const shouldAppendStatusHistory = isQcSubmissionWorkflowTask || isVaKind;
     const statusHistoryMessage = `Status changed to ${newStatus.replace('_', ' ')}.`;
-    let submissionDataWithStatusHistory = shouldAppendStatusHistory
+    let submissionDataWithTimeline = shouldAppendStatusHistory
       ? appendSubmissionHistoryEntry(existing.submissionData, {
-          author: session?.user?.name || 'Unknown',
+          author: actorName,
           role,
           message: statusHistoryMessage,
           entryType: 'status',
         })
-      : undefined;
+      : existing.submissionData;
     if (isVaKind && normalizedNoteMessage) {
-      submissionDataWithStatusHistory = appendSubmissionHistoryEntry(
-        submissionDataWithStatusHistory ?? existing.submissionData,
+      submissionDataWithTimeline = appendSubmissionHistoryEntry(
+        submissionDataWithTimeline ?? existing.submissionData,
         {
-          author: session?.user?.name || 'Unknown',
+          author: actorName,
           role,
           message: normalizedNoteMessage,
           entryType: 'note',
@@ -1698,18 +1705,42 @@ export async function updateTaskStatus(
 
     const shouldClaimVaTask =
       isVaKind && newStatus === TaskStatus.IN_PROGRESS && !existing.assignedUserId;
+    const nextWorkflowState =
+      newStatus === TaskStatus.COMPLETED
+        ? TaskWorkflowState.NONE
+        : existing.workflowState ?? TaskWorkflowState.NONE;
+    const lifecycleEventType =
+      newStatus === TaskStatus.COMPLETED
+        ? 'COMPLETED'
+        : newStatus === TaskStatus.IN_PROGRESS
+        ? 'STARTED'
+        : 'STATUS_CHANGED';
+    submissionDataWithTimeline = appendLifecycleHistoryEvent(submissionDataWithTimeline, {
+      actorName,
+      actorRole: role,
+      eventType: lifecycleEventType,
+      fromStatus: existing.status,
+      toStatus: newStatus,
+      fromWorkflow: existing.workflowState,
+      toWorkflow: nextWorkflowState,
+      fromAssignedUserId: existing.assignedUserId,
+      toAssignedUserId: shouldClaimVaTask ? userId : existing.assignedUserId,
+      fromAssignedUserName: existing.assignedUser?.name || null,
+      toAssignedUserName: shouldClaimVaTask ? actorName : existing.assignedUser?.name || null,
+      fromAssignedRole: existing.assignedRole,
+      toAssignedRole: existing.assignedRole,
+      note: normalizedNoteMessage || null,
+    }) as Prisma.JsonObject;
+
     await prisma.task.update({
       where: { id: taskId },
       data: {
         status: newStatus,
         ...(shouldClaimVaTask ? { assignedUserId: userId } : {}),
-        workflowState:
-          newStatus === TaskStatus.COMPLETED
-            ? TaskWorkflowState.NONE
-            : existing.workflowState ?? TaskWorkflowState.NONE,
+        workflowState: nextWorkflowState,
         completedAt: newStatus === 'COMPLETED' ? new Date() : null,
-        ...(submissionDataWithStatusHistory
-          ? { submissionData: submissionDataWithStatusHistory }
+        ...(submissionDataWithTimeline
+          ? { submissionData: submissionDataWithTimeline }
           : {}),
       },
     });
@@ -2637,6 +2668,7 @@ export async function startDisclosureRequest(taskId: string) {
         assignedRole: true,
         assignedUserId: true,
         assignedUser: { select: { name: true } },
+        submissionData: true,
       },
     });
 
@@ -2664,12 +2696,31 @@ export async function startDisclosureRequest(taskId: string) {
       };
     }
 
+    const actorName = session?.user?.name || 'Team Member';
+    const updatedSubmissionData = appendLifecycleHistoryEvent(task.submissionData, {
+      actorName,
+      actorRole: role,
+      eventType: 'STARTED',
+      fromStatus: task.status,
+      toStatus: TaskStatus.IN_PROGRESS,
+      fromWorkflow: task.workflowState,
+      toWorkflow: task.workflowState,
+      fromAssignedUserId: task.assignedUserId,
+      toAssignedUserId: userId,
+      fromAssignedUserName: task.assignedUser?.name || null,
+      toAssignedUserName: actorName,
+      fromAssignedRole: task.assignedRole,
+      toAssignedRole: UserRole.DISCLOSURE_SPECIALIST,
+      note: 'Disclosure request started.',
+    }) as Prisma.JsonObject;
+
     await prisma.task.update({
       where: { id: taskId },
       data: {
         assignedUserId: userId,
         assignedRole: UserRole.DISCLOSURE_SPECIALIST,
         status: TaskStatus.IN_PROGRESS,
+        submissionData: updatedSubmissionData,
       },
     });
 
@@ -2750,12 +2801,29 @@ export async function startQcRequest(taskId: string) {
       };
     }
 
-    const updatedSubmissionData = appendSubmissionHistoryEntry(task.submissionData, {
+    const actorName = session?.user?.name || 'Unknown';
+    let updatedSubmissionData = appendSubmissionHistoryEntry(task.submissionData, {
       author: session?.user?.name || 'Unknown',
       role,
       message: 'QC request started.',
       entryType: 'status',
     });
+    updatedSubmissionData = appendLifecycleHistoryEvent(updatedSubmissionData, {
+      actorName,
+      actorRole: role,
+      eventType: 'STARTED',
+      fromStatus: task.status,
+      toStatus: TaskStatus.IN_PROGRESS,
+      fromWorkflow: task.workflowState,
+      toWorkflow: task.workflowState,
+      fromAssignedUserId: task.assignedUserId,
+      toAssignedUserId: userId,
+      fromAssignedUserName: task.assignedUser?.name || null,
+      toAssignedUserName: actorName,
+      fromAssignedRole: task.assignedRole,
+      toAssignedRole: UserRole.QC,
+      note: 'QC request started.',
+    }) as Prisma.JsonObject;
 
     await prisma.task.update({
       where: { id: taskId },
@@ -2935,6 +3003,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       qcSubmissionTask &&
       normalizedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
 
+    const actorName = session?.user?.name || 'Unknown';
     await prisma.$transaction(async (tx) => {
       const noteEntry = effectiveMessage
         ? {
@@ -2972,6 +3041,27 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         updatedSubmissionData = dataObj as Prisma.JsonObject;
       }
 
+      const routedWorkflowState =
+        qcSubmissionTask
+          ? TaskWorkflowState.WAITING_ON_LO
+          : normalizedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+          ? TaskWorkflowState.WAITING_ON_LO_APPROVAL
+          : TaskWorkflowState.WAITING_ON_LO;
+      updatedSubmissionData = appendLifecycleHistoryEvent(updatedSubmissionData, {
+        actorName,
+        actorRole: role,
+        eventType: isQcCompleteAction ? 'COMPLETED' : 'ROUTED_TO_LO',
+        fromStatus: task.status,
+        toStatus: isQcCompleteAction ? TaskStatus.COMPLETED : TaskStatus.BLOCKED,
+        fromWorkflow: task.workflowState,
+        toWorkflow: isQcCompleteAction ? TaskWorkflowState.NONE : routedWorkflowState,
+        fromAssignedUserId: task.assignedUserId,
+        toAssignedUserId: task.assignedUserId,
+        fromAssignedRole: task.assignedRole,
+        toAssignedRole: task.assignedRole,
+        note: effectiveMessage || null,
+      }) as Prisma.JsonObject;
+
       if (isQcCompleteAction) {
         await tx.task.update({
           where: { id: taskId },
@@ -3002,13 +3092,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           data: {
             status: TaskStatus.BLOCKED,
             disclosureReason: normalizedReason,
-            workflowState:
-              qcSubmissionTask
-                ? TaskWorkflowState.WAITING_ON_LO
-                : normalizedReason ===
-                  DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-                ? TaskWorkflowState.WAITING_ON_LO_APPROVAL
-                : TaskWorkflowState.WAITING_ON_LO,
+            workflowState: routedWorkflowState,
             loanOfficerApprovedAt: null,
             submissionData: updatedSubmissionData ?? undefined,
           },
@@ -3145,7 +3229,13 @@ export async function respondToDisclosureRequest(
 
     const parentTask = await prisma.task.findUnique({
       where: { id: task.parentTaskId },
-      select: { submissionData: true },
+      select: {
+        submissionData: true,
+        status: true,
+        workflowState: true,
+        assignedUserId: true,
+        assignedRole: true,
+      },
     });
     if (!parentTask) return { success: false, error: 'Parent task not found.' };
 
@@ -3175,6 +3265,21 @@ export async function respondToDisclosureRequest(
         dataObj.notesHistory = notes;
         updatedSubmissionData = dataObj as Prisma.JsonObject;
       }
+      const actorName = session?.user?.name || 'Unknown';
+      updatedSubmissionData = appendLifecycleHistoryEvent(updatedSubmissionData, {
+        actorName,
+        actorRole: role,
+        eventType: 'LO_RESPONDED',
+        fromStatus: parentTask.status,
+        toStatus: TaskStatus.PENDING,
+        fromWorkflow: parentTask.workflowState,
+        toWorkflow: TaskWorkflowState.READY_TO_COMPLETE,
+        fromAssignedUserId: parentTask.assignedUserId,
+        toAssignedUserId: parentTask.assignedUserId,
+        fromAssignedRole: parentTask.assignedRole,
+        toAssignedRole: parentTask.assignedRole,
+        note: responseMessage.trim() || null,
+      }) as Prisma.JsonObject;
 
       await tx.task.update({
         where: { id: taskId },
@@ -3261,7 +3366,13 @@ export async function reviewInitialDisclosureFigures(input: {
 
     const parentTask = await prisma.task.findUnique({
       where: { id: task.parentTaskId },
-      select: { submissionData: true },
+      select: {
+        submissionData: true,
+        status: true,
+        workflowState: true,
+        assignedUserId: true,
+        assignedRole: true,
+      },
     });
     if (!parentTask) return { success: false, error: 'Parent task not found.' };
 
@@ -3298,6 +3409,25 @@ export async function reviewInitialDisclosureFigures(input: {
       notes.push(noteEntry);
       dataObj.notesHistory = notes;
       updatedSubmissionData = dataObj as Prisma.JsonObject;
+      const actorName = session?.user?.name || 'Unknown';
+      updatedSubmissionData = appendLifecycleHistoryEvent(updatedSubmissionData, {
+        actorName,
+        actorRole: role,
+        eventType: 'LO_REVIEWED',
+        fromStatus: parentTask.status,
+        toStatus: TaskStatus.PENDING,
+        fromWorkflow: parentTask.workflowState,
+        toWorkflow: TaskWorkflowState.READY_TO_COMPLETE,
+        fromAssignedUserId: parentTask.assignedUserId,
+        toAssignedUserId: parentTask.assignedUserId,
+        fromAssignedRole: parentTask.assignedRole,
+        toAssignedRole: parentTask.assignedRole,
+        note:
+          note?.trim() ||
+          (input.decision === 'APPROVE'
+            ? 'Loan Officer approved initial disclosure figures.'
+            : 'Loan Officer requested revision.'),
+      }) as Prisma.JsonObject;
 
       await tx.task.update({
         where: { id: input.taskId },
