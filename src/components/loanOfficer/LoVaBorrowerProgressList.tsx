@@ -105,6 +105,65 @@ function getTimerClassName(elapsedMs: number) {
   return 'border-rose-400 bg-rose-100 text-rose-800';
 }
 
+function getLifecycleBucketBubbleClass(key: string, label: string) {
+  const normalizedKey = key.trim().toUpperCase();
+  const normalizedLabel = label.trim().toLowerCase();
+
+  if (normalizedKey === 'COMPLETED' || normalizedLabel.includes('completed')) {
+    return 'border-emerald-300 bg-emerald-100 text-emerald-800';
+  }
+  if (
+    normalizedKey === 'WAITING_ON_LO_APPROVAL' ||
+    normalizedLabel.includes('approval') ||
+    normalizedLabel.includes('review')
+  ) {
+    return 'border-purple-300 bg-purple-100 text-purple-800';
+  }
+  if (
+    normalizedKey === 'WAITING_ON_LO' ||
+    normalizedKey === 'BLOCKED' ||
+    normalizedLabel.includes('waiting on lo') ||
+    normalizedLabel.includes('blocked')
+  ) {
+    return 'border-amber-300 bg-amber-100 text-amber-800';
+  }
+  if (normalizedKey === 'IN_PROGRESS' || normalizedLabel.includes('in progress')) {
+    return 'border-sky-300 bg-sky-100 text-sky-800';
+  }
+  if (
+    normalizedKey === 'PENDING' ||
+    normalizedKey === 'NONE' ||
+    normalizedLabel.includes('pending') ||
+    normalizedLabel === 'none'
+  ) {
+    return 'border-blue-300 bg-blue-100 text-blue-800';
+  }
+  return 'border-slate-300 bg-slate-100 text-slate-800';
+}
+
+function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
+  const useStatus = breakdown.statusDurations.length > 0;
+  const rows = useStatus ? breakdown.statusDurations : breakdown.workflowDurations;
+  if (rows.length <= 1) return rows;
+
+  const firstSeenOrder = new Map<string, number>();
+  let orderIndex = 0;
+  for (const segment of breakdown.segments) {
+    const key = useStatus ? segment.status || 'UNKNOWN' : segment.workflowState || 'NONE';
+    if (!firstSeenOrder.has(key)) {
+      firstSeenOrder.set(key, orderIndex);
+      orderIndex += 1;
+    }
+  }
+
+  return [...rows].sort((a, b) => {
+    const aOrder = firstSeenOrder.get(a.key) ?? Number.MAX_SAFE_INTEGER;
+    const bOrder = firstSeenOrder.get(b.key) ?? Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return 0;
+  });
+}
+
 function getStageElapsedMs(
   createdAt: Date | null,
   updatedAt: Date | null,
@@ -1676,11 +1735,6 @@ export function LoVaBorrowerProgressList({
                       <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
                         Completed Total {formatLifecycleDuration(stage.breakdown.totalDurationMs)}
                       </span>
-                      {stage.breakdown.hasEstimatedData && (
-                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                          Estimated legacy segments
-                        </span>
-                      )}
                     </div>
                   </div>
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
@@ -1688,23 +1742,27 @@ export function LoVaBorrowerProgressList({
                       Bucket Time Breakdown
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
-                      {(stage.breakdown.statusDurations.length > 0
-                        ? stage.breakdown.statusDurations
-                        : stage.breakdown.workflowDurations
-                      ).length > 0 ? (
-                        (stage.breakdown.statusDurations.length > 0
-                          ? stage.breakdown.statusDurations
-                          : stage.breakdown.workflowDurations
-                        ).map((row) => (
-                          <span
-                            key={row.key}
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getTimerClassName(
-                              row.durationMs
-                            )}`}
-                            title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
-                          >
-                            {row.label}: {formatLifecycleDuration(row.durationMs)}
-                          </span>
+                      {getOrderedLifecycleRows(stage.breakdown).length > 0 ? (
+                        getOrderedLifecycleRows(stage.breakdown).map((row) => (
+                          <div key={row.key} className="inline-flex items-center gap-1.5">
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getLifecycleBucketBubbleClass(
+                                row.key,
+                                row.label
+                              )}`}
+                              title={`Bucket: ${row.label}`}
+                            >
+                              {row.label}
+                            </span>
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getTimerClassName(
+                                row.durationMs
+                              )}`}
+                              title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
+                            >
+                              {formatLifecycleDuration(row.durationMs)}
+                            </span>
+                          </div>
                         ))
                       ) : (
                         <span className="text-[11px] font-medium text-slate-500">

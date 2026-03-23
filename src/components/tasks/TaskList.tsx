@@ -890,6 +890,223 @@ function getLifecycleDurationBubbleClass(durationMs: number) {
   return 'border-rose-300 bg-rose-100 text-rose-800';
 }
 
+function getLifecycleBucketBubbleClass(key: string, label: string) {
+  const normalizedKey = key.trim().toUpperCase();
+  const normalizedLabel = label.trim().toLowerCase();
+
+  if (normalizedKey === 'COMPLETED' || normalizedLabel.includes('completed')) {
+    return 'border-emerald-300 bg-emerald-100 text-emerald-800';
+  }
+  if (
+    normalizedKey === 'WAITING_ON_LO_APPROVAL' ||
+    normalizedLabel.includes('approval') ||
+    normalizedLabel.includes('review')
+  ) {
+    return 'border-purple-300 bg-purple-100 text-purple-800';
+  }
+  if (
+    normalizedKey === 'WAITING_ON_LO' ||
+    normalizedKey === 'BLOCKED' ||
+    normalizedLabel.includes('waiting on lo') ||
+    normalizedLabel.includes('blocked')
+  ) {
+    return 'border-amber-300 bg-amber-100 text-amber-800';
+  }
+  if (normalizedKey === 'IN_PROGRESS' || normalizedLabel.includes('in progress')) {
+    return 'border-sky-300 bg-sky-100 text-sky-800';
+  }
+  if (
+    normalizedKey === 'PENDING' ||
+    normalizedKey === 'NONE' ||
+    normalizedLabel.includes('pending') ||
+    normalizedLabel === 'none'
+  ) {
+    return 'border-blue-300 bg-blue-100 text-blue-800';
+  }
+  return 'border-slate-300 bg-slate-100 text-slate-800';
+}
+
+function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind | null) {
+  const role = currentRole as UserRole;
+  const isDisclosure = taskKind === TaskKind.SUBMIT_DISCLOSURES;
+  const isQc = taskKind === TaskKind.SUBMIT_QC;
+  const isVaAppraisal = taskKind === TaskKind.VA_APPRAISAL;
+  const isVaTitle = taskKind === TaskKind.VA_TITLE;
+  const isVaPayoff = taskKind === TaskKind.VA_PAYOFF;
+  const isJr = taskKind === TaskKind.VA_HOI;
+  const isLoResponse = taskKind === TaskKind.LO_NEEDS_INFO;
+
+  if (role === UserRole.LOAN_OFFICER && isLoResponse) {
+    return {
+      newLabel: 'Action Required (Approve Figures / Missing Info)',
+      waitingLabel: 'Action Required (Approve Figures / Missing Info)',
+      reviewLabel: 'Action Required (Approve Figures / Missing Info)',
+      approvalLabel: 'Action Required (Approve Figures / Missing Info)',
+      completedLabel: 'Disclosures Sent / Completed',
+    };
+  }
+
+  if (isDisclosure) {
+    if (role === UserRole.LOAN_OFFICER) {
+      return {
+        newLabel: 'Submitted for Disclosures',
+        waitingLabel: 'Submitted for Disclosures',
+        reviewLabel: 'Returned to Disclosure',
+        approvalLabel: 'Submitted for Disclosures',
+        completedLabel: 'Disclosures Sent / Completed',
+      };
+    }
+    return {
+      newLabel: 'New Disclosure Requests',
+      waitingLabel: 'Waiting Missing/Incomplete',
+      reviewLabel: 'LO Responded (Review)',
+      approvalLabel: 'Waiting for Approval',
+      completedLabel: 'Completed Disclosure Requests',
+    };
+  }
+
+  if (isQc) {
+    return {
+      newLabel: 'New QC Requests',
+      waitingLabel: 'Waiting Missing/Incomplete',
+      reviewLabel: 'LO Responded (Review)',
+      approvalLabel: 'Waiting Missing/Incomplete',
+      completedLabel: 'Completed QC Requests',
+    };
+  }
+
+  if (isVaAppraisal) {
+    return {
+      newLabel: 'New VA Appraisal Requests',
+      waitingLabel: 'Waiting Missing/Incomplete',
+      reviewLabel: 'LO Responded (Review)',
+      approvalLabel: 'Waiting Missing/Incomplete',
+      completedLabel: 'Completed VA Appraisal Requests',
+    };
+  }
+
+  if (isVaTitle) {
+    return {
+      newLabel: 'New VA Title Requests',
+      waitingLabel: 'New VA Title Requests',
+      reviewLabel: 'New VA Title Requests',
+      approvalLabel: 'New VA Title Requests',
+      completedLabel: 'Completed VA Title Requests',
+    };
+  }
+
+  if (isVaPayoff) {
+    return {
+      newLabel: 'New VA Payoff Requests',
+      waitingLabel: 'New VA Payoff Requests',
+      reviewLabel: 'New VA Payoff Requests',
+      approvalLabel: 'New VA Payoff Requests',
+      completedLabel: 'Completed VA Payoff Requests',
+    };
+  }
+
+  if (isJr) {
+    return {
+      newLabel: 'New JR Processor Requests',
+      waitingLabel: 'New JR Processor Requests',
+      reviewLabel: 'New JR Processor Requests',
+      approvalLabel: 'New JR Processor Requests',
+      completedLabel: 'Completed JR Processor Requests',
+    };
+  }
+
+  return null;
+}
+
+function mapLifecycleRowToBucketLabel(
+  rowKey: string,
+  isWorkflowRows: boolean,
+  currentRole: string,
+  taskKind: TaskKind | null,
+  fallbackLabel: string
+) {
+  const profile = getLifecycleBucketLabelProfile(currentRole, taskKind);
+  if (!profile) return fallbackLabel;
+
+  const normalizedKey = rowKey.toUpperCase();
+  if (normalizedKey === 'COMPLETED') return profile.completedLabel;
+
+  if (isWorkflowRows) {
+    if (normalizedKey === 'READY_TO_COMPLETE') return profile.reviewLabel;
+    if (normalizedKey === 'WAITING_ON_LO_APPROVAL') return profile.approvalLabel;
+    if (normalizedKey === 'WAITING_ON_LO') return profile.waitingLabel;
+    return profile.newLabel;
+  }
+
+  if (normalizedKey === 'BLOCKED') return profile.waitingLabel;
+  if (normalizedKey === 'IN_PROGRESS') return profile.reviewLabel;
+  if (normalizedKey === 'PENDING') return profile.newLabel;
+  return fallbackLabel;
+}
+
+function getOrderedLifecycleRows(
+  breakdown: TaskLifecycleBreakdown,
+  currentRole: string,
+  taskKind: TaskKind | null
+) {
+  const hasWorkflowBuckets = breakdown.workflowDurations.some((row) => row.key !== TaskWorkflowState.NONE);
+  const isWorkflowRows = hasWorkflowBuckets || breakdown.statusDurations.length === 0;
+  const rows = isWorkflowRows ? breakdown.workflowDurations : breakdown.statusDurations;
+  if (rows.length === 0) return [];
+
+  const totalDuration = Math.max(1, breakdown.totalDurationMs);
+  const firstSeenOrder = new Map<string, number>();
+  const mergedByLabel = new Map<string, { key: string; label: string; durationMs: number }>();
+  let orderIndex = 0;
+
+  for (const segment of breakdown.segments) {
+    const rawKey = isWorkflowRows ? segment.workflowState || 'NONE' : segment.status || 'UNKNOWN';
+    const mappedLabel = mapLifecycleRowToBucketLabel(
+      rawKey,
+      isWorkflowRows,
+      currentRole,
+      taskKind,
+      rawKey
+    );
+    if (!firstSeenOrder.has(mappedLabel)) {
+      firstSeenOrder.set(mappedLabel, orderIndex);
+      orderIndex += 1;
+    }
+  }
+
+  for (const row of rows) {
+    const mappedLabel = mapLifecycleRowToBucketLabel(
+      row.key,
+      isWorkflowRows,
+      currentRole,
+      taskKind,
+      row.label
+    );
+    const existing = mergedByLabel.get(mappedLabel);
+    if (existing) {
+      existing.durationMs += row.durationMs;
+      continue;
+    }
+    mergedByLabel.set(mappedLabel, {
+      key: row.key,
+      label: mappedLabel,
+      durationMs: row.durationMs,
+    });
+  }
+
+  return Array.from(mergedByLabel.values())
+    .map((row) => ({
+      ...row,
+      percent: Math.round((row.durationMs / totalDuration) * 100),
+    }))
+    .sort((a, b) => {
+      const aOrder = firstSeenOrder.get(a.label) ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = firstSeenOrder.get(b.label) ?? Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return 0;
+    });
+}
+
 function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntry[] {
   if (!data || typeof data !== 'object') return [];
   const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
@@ -1215,6 +1432,7 @@ export function TaskList({
   const [lifecyclePopup, setLifecyclePopup] = React.useState<{
     title: string;
     breakdown: TaskLifecycleBreakdown;
+    taskKind: TaskKind | null;
   } | null>(null);
 
   const getQcChecklistRows = React.useCallback(
@@ -2533,6 +2751,7 @@ export function TaskList({
                                 setLifecyclePopup({
                                   title: `${task.loan.borrowerName} - ${task.title}`,
                                   breakdown: lifecycleBreakdown,
+                                  taskKind: task.kind,
                                 });
                               }}
                               className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${queueTimerMeta.className}`}
@@ -2551,6 +2770,7 @@ export function TaskList({
                                 setLifecyclePopup({
                                   title: `${task.loan.borrowerName} - ${task.title}`,
                                   breakdown: lifecycleBreakdown,
+                                  taskKind: task.kind,
                                 });
                               }}
                               className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${completedColorMeta.badgeClassName}`}
@@ -4028,32 +4248,41 @@ export function TaskList({
               <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">
                 Completed Total {formatLifecycleDuration(lifecyclePopup.breakdown.totalDurationMs)}
               </span>
-              {lifecyclePopup.breakdown.hasEstimatedData && (
-                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">
-                  Includes estimated legacy segments
-                </span>
-              )}
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4">
               <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">
                 Bucket Time Breakdown
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                {(lifecyclePopup.breakdown.statusDurations.length > 0
-                  ? lifecyclePopup.breakdown.statusDurations
-                  : lifecyclePopup.breakdown.workflowDurations
+                {getOrderedLifecycleRows(
+                  lifecyclePopup.breakdown,
+                  currentRole,
+                  lifecyclePopup.taskKind
                 ).length > 0 ? (
-                  (lifecyclePopup.breakdown.statusDurations.length > 0
-                    ? lifecyclePopup.breakdown.statusDurations
-                    : lifecyclePopup.breakdown.workflowDurations
+                  getOrderedLifecycleRows(
+                    lifecyclePopup.breakdown,
+                    currentRole,
+                    lifecyclePopup.taskKind
                   ).map((row) => (
-                    <span
-                      key={row.key}
-                      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleDurationBubbleClass(row.durationMs)}`}
-                      title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
-                    >
-                      {row.label}: {formatLifecycleDuration(row.durationMs)}
-                    </span>
+                    <div key={row.key} className="inline-flex items-center gap-1.5">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleBucketBubbleClass(
+                          row.key,
+                          row.label
+                        )}`}
+                        title={`Bucket: ${row.label}`}
+                      >
+                        {row.label}
+                      </span>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleDurationBubbleClass(
+                          row.durationMs
+                        )}`}
+                        title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
+                      >
+                        {formatLifecycleDuration(row.durationMs)}
+                      </span>
+                    </div>
                   ))
                 ) : (
                   <span className="text-xs font-medium text-slate-500">
