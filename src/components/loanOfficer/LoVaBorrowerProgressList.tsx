@@ -1688,8 +1688,14 @@ export function LoVaBorrowerProgressList({
                       Bucket Time Breakdown
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
-                      {stage.breakdown.workflowDurations.length > 0 ? (
-                        stage.breakdown.workflowDurations.map((row) => (
+                      {(stage.breakdown.statusDurations.length > 0
+                        ? stage.breakdown.statusDurations
+                        : stage.breakdown.workflowDurations
+                      ).length > 0 ? (
+                        (stage.breakdown.statusDurations.length > 0
+                          ? stage.breakdown.statusDurations
+                          : stage.breakdown.workflowDurations
+                        ).map((row) => (
                           <span
                             key={row.key}
                             className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getTimerClassName(

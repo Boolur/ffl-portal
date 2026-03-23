@@ -4039,8 +4039,14 @@ export function TaskList({
                 Bucket Time Breakdown
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                {lifecyclePopup.breakdown.workflowDurations.length > 0 ? (
-                  lifecyclePopup.breakdown.workflowDurations.map((row) => (
+                {(lifecyclePopup.breakdown.statusDurations.length > 0
+                  ? lifecyclePopup.breakdown.statusDurations
+                  : lifecyclePopup.breakdown.workflowDurations
+                ).length > 0 ? (
+                  (lifecyclePopup.breakdown.statusDurations.length > 0
+                    ? lifecyclePopup.breakdown.statusDurations
+                    : lifecyclePopup.breakdown.workflowDurations
+                  ).map((row) => (
                     <span
                       key={row.key}
                       className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleDurationBubbleClass(row.durationMs)}`}
