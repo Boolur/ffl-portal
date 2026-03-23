@@ -1741,10 +1741,10 @@ export function LoVaBorrowerProgressList({
                     <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                       Bucket Time Breakdown
                     </p>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-col items-start gap-2">
                       {getOrderedLifecycleRows(stage.breakdown).length > 0 ? (
                         getOrderedLifecycleRows(stage.breakdown).map((row) => (
-                          <div key={row.key} className="inline-flex items-center gap-1.5">
+                          <div key={row.key} className="flex items-center gap-1.5">
                             <span
                               className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getLifecycleBucketBubbleClass(
                                 row.key,

@@ -4253,7 +4253,7 @@ export function TaskList({
               <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">
                 Bucket Time Breakdown
               </p>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col items-start gap-2">
                 {getOrderedLifecycleRows(
                   lifecyclePopup.breakdown,
                   currentRole,
@@ -4264,7 +4264,7 @@ export function TaskList({
                     currentRole,
                     lifecyclePopup.taskKind
                   ).map((row) => (
-                    <div key={row.key} className="inline-flex items-center gap-1.5">
+                    <div key={row.key} className="flex items-center gap-1.5">
                       <span
                         className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleBucketBubbleClass(
                           row.key,
