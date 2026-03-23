@@ -1076,6 +1076,14 @@ function collectLifecycleActorsForRow(
   return Array.from(actors.values()).slice(0, 4);
 }
 
+type LifecycleDisplayRow = {
+  id: string;
+  key: string;
+  label: string;
+  durationMs: number;
+  actors: Array<{ name: string; role: UserRole | null }>;
+};
+
 function getOrderedLifecycleRows(
   breakdown: TaskLifecycleBreakdown,
   currentRole: string,
@@ -1089,108 +1097,115 @@ function getOrderedLifecycleRows(
   const hasWorkflowBuckets = breakdown.workflowDurations.some((row) => row.key !== TaskWorkflowState.NONE);
   const isWorkflowRows =
     prefersWorkflowBuckets || hasWorkflowBuckets || breakdown.statusDurations.length === 0;
-  const rows = isWorkflowRows ? breakdown.workflowDurations : breakdown.statusDurations;
-  if (rows.length === 0 && breakdown.events.length === 0) return [];
+  const rowKeyFromSegment = (segment: TaskLifecycleBreakdown['segments'][number]) =>
+    isWorkflowRows ? segment.workflowState || TaskWorkflowState.NONE : segment.status || TaskStatus.PENDING;
+  const rowKeyFromEventFrom = (event: TaskLifecycleBreakdown['events'][number]) =>
+    isWorkflowRows ? event.fromWorkflow || null : event.fromStatus || null;
+  const rowKeyFromEventTo = (event: TaskLifecycleBreakdown['events'][number]) =>
+    isWorkflowRows ? event.toWorkflow || null : event.toStatus || null;
 
-  const totalDuration = Math.max(1, breakdown.totalDurationMs);
-  const firstSeenOrder = new Map<string, number>();
-  const orderedKeys: string[] = [];
-  const seenKeys = new Set<string>();
-  const pushOrderedKey = (key: string | null | undefined) => {
-    if (!key) return;
-    if (seenKeys.has(key)) return;
-    seenKeys.add(key);
-    orderedKeys.push(key);
-  };
-
-  const durationByKey = new Map<string, number>();
-  for (const row of rows) {
-    durationByKey.set(row.key, (durationByKey.get(row.key) || 0) + row.durationMs);
-  }
-
-  if (breakdown.events.length > 0) {
-    const firstEvent = breakdown.events[0];
-    pushOrderedKey(
-      isWorkflowRows ? firstEvent.fromWorkflow || TaskWorkflowState.NONE : firstEvent.fromStatus || TaskStatus.PENDING
-    );
-    for (const event of breakdown.events) {
-      pushOrderedKey(
-        isWorkflowRows ? event.fromWorkflow || null : event.fromStatus || null
-      );
-      pushOrderedKey(isWorkflowRows ? event.toWorkflow || null : event.toStatus || null);
-    }
-  }
-
+  const rowsFromSegments: LifecycleDisplayRow[] = [];
   for (const segment of breakdown.segments) {
-    pushOrderedKey(
-      isWorkflowRows ? segment.workflowState || TaskWorkflowState.NONE : segment.status || TaskStatus.PENDING
-    );
-  }
-  for (const row of rows) pushOrderedKey(row.key);
-
-  const mergedByLabel = new Map<
-    string,
-    {
-      key: string;
-      label: string;
-      durationMs: number;
-      actors: Array<{ name: string; role: UserRole | null }>;
+    const rawKey = rowKeyFromSegment(segment);
+    const mappedLabel = mapLifecycleRowToBucketLabel(rawKey, isWorkflowRows, currentRole, taskKind, rawKey);
+    const segmentActors: Array<{ name: string; role: UserRole | null }> = [];
+    if (segment.assignedUserName && segment.assignedUserName.trim().toLowerCase() !== 'system') {
+      segmentActors.push({ name: segment.assignedUserName.trim(), role: segment.assignedRole || null });
     }
-  >();
-  let orderIndex = 0;
-  for (const rawKey of orderedKeys) {
-    const mappedLabel = mapLifecycleRowToBucketLabel(
-      rawKey,
-      isWorkflowRows,
-      currentRole,
-      taskKind,
-      rawKey
-    );
-    if (!firstSeenOrder.has(mappedLabel)) {
-      firstSeenOrder.set(mappedLabel, orderIndex);
-      orderIndex += 1;
+    const rowActors = collectLifecycleActorsForRow(breakdown, rawKey, isWorkflowRows);
+    const actors = [...segmentActors];
+    for (const actor of rowActors) {
+      if (!actors.some((entry) => entry.name === actor.name && entry.role === actor.role)) {
+        actors.push(actor);
+      }
     }
-  }
 
-  for (const rowKey of orderedKeys) {
-    const mappedLabel = mapLifecycleRowToBucketLabel(
-      rowKey,
-      isWorkflowRows,
-      currentRole,
-      taskKind,
-      rowKey
-    );
-    const existing = mergedByLabel.get(mappedLabel);
-    const rowActors = collectLifecycleActorsForRow(breakdown, rowKey, isWorkflowRows);
-    const rowDurationMs = durationByKey.get(rowKey) || 0;
-    if (existing) {
-      existing.durationMs += rowDurationMs;
-      for (const actor of rowActors) {
-        if (!existing.actors.some((entry) => entry.name === actor.name && entry.role === actor.role)) {
-          existing.actors.push(actor);
+    const previous = rowsFromSegments[rowsFromSegments.length - 1];
+    if (previous && previous.key === rawKey) {
+      previous.durationMs += segment.durationMs;
+      for (const actor of actors) {
+        if (!previous.actors.some((entry) => entry.name === actor.name && entry.role === actor.role)) {
+          previous.actors.push(actor);
         }
       }
       continue;
     }
-    mergedByLabel.set(mappedLabel, {
-      key: rowKey,
+
+    rowsFromSegments.push({
+      id: `${rawKey}-${rowsFromSegments.length}`,
+      key: rawKey,
       label: mappedLabel,
-      durationMs: rowDurationMs,
-      actors: rowActors,
+      durationMs: segment.durationMs,
+      actors,
     });
   }
 
-  return Array.from(mergedByLabel.values())
-    .map((row) => ({
-      ...row,
-      percent: Math.round((row.durationMs / totalDuration) * 100),
-    }))
-    .sort((a, b) => {
-      const aOrder = firstSeenOrder.get(a.label) ?? Number.MAX_SAFE_INTEGER;
-      const bOrder = firstSeenOrder.get(b.label) ?? Number.MAX_SAFE_INTEGER;
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return 0;
+  let initialRawKey: string | null = null;
+  if (prefersWorkflowBuckets && isWorkflowRows) {
+    initialRawKey = TaskWorkflowState.NONE;
+  } else if (breakdown.events.length > 0) {
+    initialRawKey = rowKeyFromEventFrom(breakdown.events[0]) || null;
+  } else if (rowsFromSegments.length > 0) {
+    initialRawKey = rowsFromSegments[0].key;
+  }
+
+  const rows: LifecycleDisplayRow[] = [...rowsFromSegments];
+  if (initialRawKey && (rows.length === 0 || rows[0].key !== initialRawKey)) {
+    rows.unshift({
+      id: `${initialRawKey}-initial`,
+      key: initialRawKey,
+      label: mapLifecycleRowToBucketLabel(
+        initialRawKey,
+        isWorkflowRows,
+        currentRole,
+        taskKind,
+        initialRawKey
+      ),
+      durationMs: 0,
+      actors: collectLifecycleActorsForRow(breakdown, initialRawKey, isWorkflowRows),
     });
+  }
+
+  if (rows.length === 0 && breakdown.events.length > 0) {
+    const fallbackRows: LifecycleDisplayRow[] = [];
+    const pushRow = (key: string | null) => {
+      if (!key) return;
+      const previous = fallbackRows[fallbackRows.length - 1];
+      if (previous && previous.key === key) return;
+      fallbackRows.push({
+        id: `${key}-${fallbackRows.length}`,
+        key,
+        label: mapLifecycleRowToBucketLabel(key, isWorkflowRows, currentRole, taskKind, key),
+        durationMs: 0,
+        actors: collectLifecycleActorsForRow(breakdown, key, isWorkflowRows),
+      });
+    };
+    pushRow(initialRawKey);
+    for (const event of breakdown.events) {
+      pushRow(rowKeyFromEventTo(event));
+    }
+    return fallbackRows;
+  }
+
+  const completedKey = isWorkflowRows ? TaskWorkflowState.NONE : TaskStatus.COMPLETED;
+  const hasCompletedTransition = breakdown.events.some((event) => rowKeyFromEventTo(event) === completedKey);
+  if (hasCompletedTransition && !rows.some((row) => row.key === completedKey)) {
+    rows.push({
+      id: `${completedKey}-completion`,
+      key: completedKey,
+      label: mapLifecycleRowToBucketLabel(
+        completedKey,
+        isWorkflowRows,
+        currentRole,
+        taskKind,
+        completedKey
+      ),
+      durationMs: 0,
+      actors: collectLifecycleActorsForRow(breakdown, completedKey, isWorkflowRows),
+    });
+  }
+
+  return rows;
 }
 
 function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntry[] {
@@ -4319,7 +4334,7 @@ export function TaskList({
           onClick={() => setLifecyclePopup(null)}
         >
           <div
-            className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-2xl"
+            className="h-[92vh] w-[96vw] max-w-[1400px] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
@@ -4342,7 +4357,14 @@ export function TaskList({
               </span>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">
+              <div className="mb-3 grid grid-cols-12 items-center gap-2 border-b border-slate-200 pb-2">
+                <p className="col-span-5 text-xs font-bold uppercase tracking-wide text-slate-600">
+                  Bucket
+                </p>
+                <p className="col-span-2 text-xs font-bold uppercase tracking-wide text-slate-600">Time</p>
+                <p className="col-span-5 text-xs font-bold uppercase tracking-wide text-slate-600">Worked By</p>
+              </div>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Bucket Time Breakdown
               </p>
               <div className="flex flex-col items-start gap-2">
@@ -4356,8 +4378,11 @@ export function TaskList({
                     currentRole,
                     lifecyclePopup.taskKind
                   ).map((row) => (
-                    <div key={row.key} className="flex flex-col items-start gap-1">
-                      <div className="flex items-center gap-1.5">
+                    <div
+                      key={row.id}
+                      className="grid w-full grid-cols-12 items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-2 py-2"
+                    >
+                      <div className="col-span-5 flex items-center">
                         <span
                           className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleBucketBubbleClass(
                             row.key,
@@ -4367,18 +4392,20 @@ export function TaskList({
                         >
                           {row.label}
                         </span>
+                      </div>
+                      <div className="col-span-2 flex items-center">
                         <span
                           className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleDurationBubbleClass(
                             row.durationMs
                           )}`}
-                          title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
+                          title={`${row.label}: ${formatLifecycleDuration(row.durationMs)}`}
                         >
                           {formatLifecycleDuration(row.durationMs)}
                         </span>
                       </div>
-                      {row.actors.length > 0 && (
-                        <div className="ml-1 flex flex-wrap items-center gap-1">
-                          {row.actors.map((actor) => (
+                      <div className="col-span-5 flex flex-wrap items-center gap-1">
+                        {row.actors.length > 0 ? (
+                          row.actors.map((actor) => (
                             <span
                               key={`${row.key}-${actor.name}-${actor.role || 'none'}`}
                               className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
@@ -4388,9 +4415,11 @@ export function TaskList({
                             >
                               {actor.name}
                             </span>
-                          ))}
-                        </div>
-                      )}
+                          ))
+                        ) : (
+                          <span className="text-[11px] font-medium text-slate-500">No user captured</span>
+                        )}
+                      </div>
                     </div>
                   ))
                 ) : (

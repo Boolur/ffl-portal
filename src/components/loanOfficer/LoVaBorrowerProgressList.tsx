@@ -144,54 +144,12 @@ function getLifecycleBucketBubbleClass(key: string, label: string) {
 
 function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
   const useStatus = breakdown.statusDurations.length > 0;
-  const rows = useStatus ? breakdown.statusDurations : breakdown.workflowDurations;
-  if (rows.length === 0 && breakdown.events.length === 0) return [];
-
-  const firstSeenOrder = new Map<string, number>();
-  const orderedKeys: string[] = [];
-  const seenKeys = new Set<string>();
-  const pushOrderedKey = (key: string | null | undefined) => {
-    if (!key) return;
-    if (seenKeys.has(key)) return;
-    seenKeys.add(key);
-    orderedKeys.push(key);
-  };
-
-  const durationByKey = new Map<string, number>();
-  for (const row of rows) {
-    durationByKey.set(row.key, (durationByKey.get(row.key) || 0) + row.durationMs);
-  }
-
-  if (breakdown.events.length > 0) {
-    const firstEvent = breakdown.events[0];
-    pushOrderedKey(useStatus ? firstEvent.fromStatus || 'PENDING' : firstEvent.fromWorkflow || 'NONE');
-    for (const event of breakdown.events) {
-      pushOrderedKey(useStatus ? event.fromStatus || null : event.fromWorkflow || null);
-      pushOrderedKey(useStatus ? event.toStatus || null : event.toWorkflow || null);
-    }
-  }
-
-  for (const segment of breakdown.segments) {
-    pushOrderedKey(useStatus ? segment.status || 'UNKNOWN' : segment.workflowState || 'NONE');
-  }
-  for (const row of rows) pushOrderedKey(row.key);
-
-  const mergedByLabel = new Map<
-    string,
-    {
-      key: string;
-      label: string;
-      durationMs: number;
-      actors: Array<{ name: string; role: UserRole | null }>;
-    }
-  >();
-  let orderIndex = 0;
-  for (const key of orderedKeys) {
-    if (!firstSeenOrder.has(key)) {
-      firstSeenOrder.set(key, orderIndex);
-      orderIndex += 1;
-    }
-  }
+  const rowKeyFromSegment = (segment: TaskLifecycleBreakdown['segments'][number]) =>
+    useStatus ? segment.status || 'PENDING' : segment.workflowState || 'NONE';
+  const rowKeyFromEventFrom = (event: TaskLifecycleBreakdown['events'][number]) =>
+    useStatus ? event.fromStatus || null : event.fromWorkflow || null;
+  const rowKeyFromEventTo = (event: TaskLifecycleBreakdown['events'][number]) =>
+    useStatus ? event.toStatus || null : event.toWorkflow || null;
 
   const collectActors = (rowKey: string) => {
     const actors = new Map<string, { name: string; role: UserRole | null }>();
@@ -204,57 +162,107 @@ function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
         actors.set(actorKey, { name: normalizedName, role: role || null });
       }
     };
-
     for (const event of breakdown.events) {
-      const toKey = useStatus ? event.toStatus || null : event.toWorkflow || null;
-      const fromKey = useStatus ? event.fromStatus || null : event.fromWorkflow || null;
+      const toKey = rowKeyFromEventTo(event);
+      const fromKey = rowKeyFromEventFrom(event);
       if (toKey !== rowKey && fromKey !== rowKey) continue;
       addActor(event.actorName, event.actorRole || null);
     }
-
     for (const segment of breakdown.segments) {
-      const targetKey = useStatus ? segment.status || 'UNKNOWN' : segment.workflowState || 'NONE';
+      const targetKey = rowKeyFromSegment(segment);
       if (targetKey !== rowKey) continue;
       addActor(segment.assignedUserName, segment.assignedRole || null);
     }
-
     return Array.from(actors.values()).slice(0, 4);
   };
 
-  for (const rowKey of orderedKeys) {
-    const label = rows.find((row) => row.key === rowKey)?.label || rowKey;
-    const existing = mergedByLabel.get(label);
-    const rowActors = collectActors(rowKey);
-    const rowDurationMs = durationByKey.get(rowKey) || 0;
-    if (existing) {
-      existing.durationMs += rowDurationMs;
+  const rowsFromSegments: Array<{
+    id: string;
+    key: string;
+    label: string;
+    durationMs: number;
+    actors: Array<{ name: string; role: UserRole | null }>;
+  }> = [];
+  for (const segment of breakdown.segments) {
+    const rawKey = rowKeyFromSegment(segment);
+    const label =
+      (useStatus
+        ? breakdown.statusDurations.find((row) => row.key === rawKey)?.label
+        : breakdown.workflowDurations.find((row) => row.key === rawKey)?.label) || rawKey;
+    const rowActors = collectActors(rawKey);
+    const previous = rowsFromSegments[rowsFromSegments.length - 1];
+    if (previous && previous.key === rawKey) {
+      previous.durationMs += segment.durationMs;
       for (const actor of rowActors) {
-        if (!existing.actors.some((entry) => entry.name === actor.name && entry.role === actor.role)) {
-          existing.actors.push(actor);
+        if (!previous.actors.some((entry) => entry.name === actor.name && entry.role === actor.role)) {
+          previous.actors.push(actor);
         }
       }
       continue;
     }
-    mergedByLabel.set(label, {
-      key: rowKey,
+    rowsFromSegments.push({
+      id: `${rawKey}-${rowsFromSegments.length}`,
+      key: rawKey,
       label,
-      durationMs: rowDurationMs,
+      durationMs: segment.durationMs,
       actors: rowActors,
     });
   }
 
-  const totalDuration = Math.max(1, breakdown.totalDurationMs);
-  return Array.from(mergedByLabel.values())
-    .map((row) => ({
-      ...row,
-      percent: Math.round((row.durationMs / totalDuration) * 100),
-    }))
-    .sort((a, b) => {
-      const aOrder = firstSeenOrder.get(a.key) ?? Number.MAX_SAFE_INTEGER;
-      const bOrder = firstSeenOrder.get(b.key) ?? Number.MAX_SAFE_INTEGER;
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return 0;
+  const rows = [...rowsFromSegments];
+  const initialRawKey =
+    breakdown.events.length > 0 ? rowKeyFromEventFrom(breakdown.events[0]) || 'NONE' : rows[0]?.key || null;
+  if (initialRawKey && (rows.length === 0 || rows[0].key !== initialRawKey)) {
+    rows.unshift({
+      id: `${initialRawKey}-initial`,
+      key: initialRawKey,
+      label:
+        (useStatus
+          ? breakdown.statusDurations.find((row) => row.key === initialRawKey)?.label
+          : breakdown.workflowDurations.find((row) => row.key === initialRawKey)?.label) || initialRawKey,
+      durationMs: 0,
+      actors: collectActors(initialRawKey),
     });
+  }
+
+  if (rows.length === 0 && breakdown.events.length > 0) {
+    const fallbackRows: typeof rows = [];
+    const pushRow = (key: string | null) => {
+      if (!key) return;
+      const previous = fallbackRows[fallbackRows.length - 1];
+      if (previous && previous.key === key) return;
+      fallbackRows.push({
+        id: `${key}-${fallbackRows.length}`,
+        key,
+        label:
+          (useStatus
+            ? breakdown.statusDurations.find((row) => row.key === key)?.label
+            : breakdown.workflowDurations.find((row) => row.key === key)?.label) || key,
+        durationMs: 0,
+        actors: collectActors(key),
+      });
+    };
+    pushRow(initialRawKey);
+    for (const event of breakdown.events) pushRow(rowKeyFromEventTo(event));
+    return fallbackRows;
+  }
+
+  const completedKey = useStatus ? 'COMPLETED' : 'NONE';
+  const hasCompletedTransition = breakdown.events.some((event) => rowKeyFromEventTo(event) === completedKey);
+  if (hasCompletedTransition && !rows.some((row) => row.key === completedKey)) {
+    rows.push({
+      id: `${completedKey}-completion`,
+      key: completedKey,
+      label:
+        (useStatus
+          ? breakdown.statusDurations.find((row) => row.key === completedKey)?.label
+          : breakdown.workflowDurations.find((row) => row.key === completedKey)?.label) || completedKey,
+      durationMs: 0,
+      actors: collectActors(completedKey),
+    });
+  }
+
+  return rows;
 }
 
 function getStageElapsedMs(
@@ -1802,7 +1810,7 @@ export function LoVaBorrowerProgressList({
           onClick={() => setLifecyclePopup(null)}
         >
           <div
-            className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-2xl"
+            className="h-[92vh] w-[96vw] max-w-[1400px] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
@@ -1831,14 +1839,28 @@ export function LoVaBorrowerProgressList({
                     </div>
                   </div>
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
-                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                    <div className="mb-3 grid grid-cols-12 items-center gap-2 border-b border-slate-200 pb-2">
+                      <p className="col-span-5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                        Bucket
+                      </p>
+                      <p className="col-span-2 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                        Time
+                      </p>
+                      <p className="col-span-5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                        Worked By
+                      </p>
+                    </div>
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                       Bucket Time Breakdown
                     </p>
                     <div className="flex flex-col items-start gap-2">
                       {getOrderedLifecycleRows(stage.breakdown).length > 0 ? (
                         getOrderedLifecycleRows(stage.breakdown).map((row) => (
-                          <div key={row.key} className="flex flex-col items-start gap-1">
-                            <div className="flex items-center gap-1.5">
+                          <div
+                            key={row.id}
+                            className="grid w-full grid-cols-12 items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-2 py-2"
+                          >
+                            <div className="col-span-5 flex items-center">
                               <span
                                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getLifecycleBucketBubbleClass(
                                   row.key,
@@ -1848,18 +1870,20 @@ export function LoVaBorrowerProgressList({
                               >
                                 {row.label}
                               </span>
+                            </div>
+                            <div className="col-span-2 flex items-center">
                               <span
                                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getTimerClassName(
                                   row.durationMs
                                 )}`}
-                                title={`${row.label}: ${formatLifecycleDuration(row.durationMs)} (${row.percent}%)`}
+                                title={`${row.label}: ${formatLifecycleDuration(row.durationMs)}`}
                               >
                                 {formatLifecycleDuration(row.durationMs)}
                               </span>
                             </div>
-                            {row.actors.length > 0 && (
-                              <div className="ml-1 flex flex-wrap items-center gap-1">
-                                {row.actors.map((actor) => (
+                            <div className="col-span-5 flex flex-wrap items-center gap-1">
+                              {row.actors.length > 0 ? (
+                                row.actors.map((actor) => (
                                   <span
                                     key={`${row.key}-${actor.name}-${actor.role || 'none'}`}
                                     className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
@@ -1869,9 +1893,11 @@ export function LoVaBorrowerProgressList({
                                   >
                                     {actor.name}
                                   </span>
-                                ))}
-                              </div>
-                            )}
+                                ))
+                              ) : (
+                                <span className="text-[11px] font-medium text-slate-500">No user captured</span>
+                              )}
+                            </div>
                           </div>
                         ))
                       ) : (
