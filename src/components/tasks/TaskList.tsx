@@ -1550,6 +1550,7 @@ export function TaskList({
     title: string;
     breakdown: TaskLifecycleBreakdown;
     taskKind: TaskKind | null;
+    loanOfficerName: string | null;
   } | null>(null);
 
   const getQcChecklistRows = React.useCallback(
@@ -2875,6 +2876,7 @@ export function TaskList({
                                   title: `${task.loan.borrowerName} - ${task.title}`,
                                   breakdown: lifecycleBreakdown,
                                   taskKind: task.kind,
+                                  loanOfficerName: task.loan.loanOfficer?.name?.trim() || null,
                                 });
                               }}
                               className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${queueTimerMeta.className}`}
@@ -2894,6 +2896,7 @@ export function TaskList({
                                   title: `${task.loan.borrowerName} - ${task.title}`,
                                   breakdown: lifecycleBreakdown,
                                   taskKind: task.kind,
+                                  loanOfficerName: task.loan.loanOfficer?.name?.trim() || null,
                                 });
                               }}
                               className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${completedColorMeta.badgeClassName}`}
@@ -4420,8 +4423,26 @@ export function TaskList({
                         </span>
                       </div>
                       <div className="col-span-5 flex flex-wrap items-center gap-1">
-                        {row.actors.length > 0 ? (
-                          row.actors.map((actor) => (
+                        {(() => {
+                          const isNewBucketRow =
+                            row.key === TaskWorkflowState.NONE || row.key === TaskStatus.PENDING;
+                          const mergedActors = [...row.actors];
+                          if (
+                            isNewBucketRow &&
+                            lifecyclePopup.loanOfficerName &&
+                            !mergedActors.some(
+                              (actor) =>
+                                actor.name === lifecyclePopup.loanOfficerName &&
+                                actor.role === UserRole.LOAN_OFFICER
+                            )
+                          ) {
+                            mergedActors.unshift({
+                              name: lifecyclePopup.loanOfficerName,
+                              role: UserRole.LOAN_OFFICER,
+                            });
+                          }
+                          return mergedActors.length > 0 ? (
+                            mergedActors.map((actor) => (
                             <span
                               key={`${row.key}-${actor.name}-${actor.role || 'none'}`}
                               className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
@@ -4431,10 +4452,11 @@ export function TaskList({
                             >
                               {actor.name}
                             </span>
-                          ))
-                        ) : (
-                          <span className="text-[11px] font-medium text-slate-500">No user captured</span>
-                        )}
+                            ))
+                          ) : (
+                            <span className="text-[11px] font-medium text-slate-500">No user captured</span>
+                          );
+                        })()}
                       </div>
                     </div>
                   ))

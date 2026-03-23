@@ -577,7 +577,11 @@ export function LoVaBorrowerProgressList({
   const [timerNowMs, setTimerNowMs] = React.useState(() => Date.now());
   const [lifecyclePopup, setLifecyclePopup] = React.useState<{
     title: string;
-    stages: Array<{ label: string; breakdown: TaskLifecycleBreakdown }>;
+    stages: Array<{
+      label: string;
+      breakdown: TaskLifecycleBreakdown;
+      fallbackActors: Array<{ name: string; role: UserRole | null }>;
+    }>;
   } | null>(null);
   const focusedItem =
     focusedItemKey === null
@@ -628,10 +632,18 @@ export function LoVaBorrowerProgressList({
   );
   const openLifecycleFromCard = React.useCallback(
     (item: LoVaBorrowerProgressItem, queue: 'va' | 'jr' | 'completed') => {
-      const stages: Array<{ label: string; breakdown: TaskLifecycleBreakdown }> = [];
+      const stages: Array<{
+        label: string;
+        breakdown: TaskLifecycleBreakdown;
+        fallbackActors: Array<{ name: string; role: UserRole | null }>;
+      }> = [];
       const maybePush = (label: string, breakdown: TaskLifecycleBreakdown | null) => {
         if (!breakdown || breakdown.totalDurationMs < 1) return;
-        stages.push({ label, breakdown });
+        stages.push({
+          label,
+          breakdown,
+          fallbackActors: item.workedByContributors,
+        });
       };
 
       if (queue !== 'jr') {
@@ -1886,8 +1898,24 @@ export function LoVaBorrowerProgressList({
                               </span>
                             </div>
                             <div className="col-span-5 flex flex-wrap items-center gap-1">
-                              {row.actors.length > 0 ? (
-                                row.actors.map((actor) => (
+                              {(() => {
+                                const isNewBucketRow = row.key === 'NONE' || row.key === 'PENDING';
+                                const mergedActors = [...row.actors];
+                                if (isNewBucketRow) {
+                                  for (const actor of stage.fallbackActors) {
+                                    if (
+                                      !mergedActors.some(
+                                        (entry) =>
+                                          entry.name === actor.name && entry.role === actor.role
+                                      )
+                                    ) {
+                                      mergedActors.push(actor);
+                                    }
+                                  }
+                                }
+
+                                return mergedActors.length > 0 ? (
+                                  mergedActors.map((actor) => (
                                   <span
                                     key={`${row.key}-${actor.name}-${actor.role || 'none'}`}
                                     className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
@@ -1897,10 +1925,13 @@ export function LoVaBorrowerProgressList({
                                   >
                                     {actor.name}
                                   </span>
-                                ))
-                              ) : (
-                                <span className="text-[11px] font-medium text-slate-500">No user captured</span>
-                              )}
+                                  ))
+                                ) : (
+                                  <span className="text-[11px] font-medium text-slate-500">
+                                    No user captured
+                                  </span>
+                                );
+                              })()}
                             </div>
                           </div>
                         ))
