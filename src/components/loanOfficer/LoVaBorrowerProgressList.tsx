@@ -145,9 +145,37 @@ function getLifecycleBucketBubbleClass(key: string, label: string) {
 function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
   const useStatus = breakdown.statusDurations.length > 0;
   const rows = useStatus ? breakdown.statusDurations : breakdown.workflowDurations;
-  if (rows.length === 0) return [];
+  if (rows.length === 0 && breakdown.events.length === 0) return [];
 
   const firstSeenOrder = new Map<string, number>();
+  const orderedKeys: string[] = [];
+  const seenKeys = new Set<string>();
+  const pushOrderedKey = (key: string | null | undefined) => {
+    if (!key) return;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    orderedKeys.push(key);
+  };
+
+  const durationByKey = new Map<string, number>();
+  for (const row of rows) {
+    durationByKey.set(row.key, (durationByKey.get(row.key) || 0) + row.durationMs);
+  }
+
+  if (breakdown.events.length > 0) {
+    const firstEvent = breakdown.events[0];
+    pushOrderedKey(useStatus ? firstEvent.fromStatus || 'PENDING' : firstEvent.fromWorkflow || 'NONE');
+    for (const event of breakdown.events) {
+      pushOrderedKey(useStatus ? event.fromStatus || null : event.fromWorkflow || null);
+      pushOrderedKey(useStatus ? event.toStatus || null : event.toWorkflow || null);
+    }
+  }
+
+  for (const segment of breakdown.segments) {
+    pushOrderedKey(useStatus ? segment.status || 'UNKNOWN' : segment.workflowState || 'NONE');
+  }
+  for (const row of rows) pushOrderedKey(row.key);
+
   const mergedByLabel = new Map<
     string,
     {
@@ -158,8 +186,7 @@ function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
     }
   >();
   let orderIndex = 0;
-  for (const segment of breakdown.segments) {
-    const key = useStatus ? segment.status || 'UNKNOWN' : segment.workflowState || 'NONE';
+  for (const key of orderedKeys) {
     if (!firstSeenOrder.has(key)) {
       firstSeenOrder.set(key, orderIndex);
       orderIndex += 1;
@@ -171,6 +198,7 @@ function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
     const addActor = (name: string | null | undefined, role: UserRole | null | undefined) => {
       const normalizedName = (name || '').trim();
       if (!normalizedName) return;
+      if (normalizedName.toLowerCase() === 'system') return;
       const actorKey = `${normalizedName}::${role || 'NONE'}`;
       if (!actors.has(actorKey)) {
         actors.set(actorKey, { name: normalizedName, role: role || null });
@@ -178,27 +206,28 @@ function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
     };
 
     for (const event of breakdown.events) {
-      const targetKey = useStatus ? event.toStatus || null : event.toWorkflow || null;
-      if (!targetKey || targetKey !== rowKey) continue;
+      const toKey = useStatus ? event.toStatus || null : event.toWorkflow || null;
+      const fromKey = useStatus ? event.fromStatus || null : event.fromWorkflow || null;
+      if (toKey !== rowKey && fromKey !== rowKey) continue;
       addActor(event.actorName, event.actorRole || null);
     }
 
-    if (actors.size === 0) {
-      for (const segment of breakdown.segments) {
-        const targetKey = useStatus ? segment.status || 'UNKNOWN' : segment.workflowState || 'NONE';
-        if (targetKey !== rowKey) continue;
-        addActor(segment.assignedUserName, segment.assignedRole || null);
-      }
+    for (const segment of breakdown.segments) {
+      const targetKey = useStatus ? segment.status || 'UNKNOWN' : segment.workflowState || 'NONE';
+      if (targetKey !== rowKey) continue;
+      addActor(segment.assignedUserName, segment.assignedRole || null);
     }
 
     return Array.from(actors.values()).slice(0, 4);
   };
 
-  for (const row of rows) {
-    const existing = mergedByLabel.get(row.label);
-    const rowActors = collectActors(row.key);
+  for (const rowKey of orderedKeys) {
+    const label = rows.find((row) => row.key === rowKey)?.label || rowKey;
+    const existing = mergedByLabel.get(label);
+    const rowActors = collectActors(rowKey);
+    const rowDurationMs = durationByKey.get(rowKey) || 0;
     if (existing) {
-      existing.durationMs += row.durationMs;
+      existing.durationMs += rowDurationMs;
       for (const actor of rowActors) {
         if (!existing.actors.some((entry) => entry.name === actor.name && entry.role === actor.role)) {
           existing.actors.push(actor);
@@ -206,10 +235,10 @@ function getOrderedLifecycleRows(breakdown: TaskLifecycleBreakdown) {
       }
       continue;
     }
-    mergedByLabel.set(row.label, {
-      key: row.key,
-      label: row.label,
-      durationMs: row.durationMs,
+    mergedByLabel.set(label, {
+      key: rowKey,
+      label,
+      durationMs: rowDurationMs,
       actors: rowActors,
     });
   }

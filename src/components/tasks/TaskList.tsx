@@ -1053,6 +1053,7 @@ function collectLifecycleActorsForRow(
   const addActor = (name: string | null | undefined, role: UserRole | null | undefined) => {
     const normalizedName = (name || '').trim();
     if (!normalizedName) return;
+    if (normalizedName.toLowerCase() === 'system') return;
     const actorKey = `${normalizedName}::${role || 'NONE'}`;
     if (!actors.has(actorKey)) {
       actors.set(actorKey, { name: normalizedName, role: role || null });
@@ -1060,17 +1061,16 @@ function collectLifecycleActorsForRow(
   };
 
   for (const event of breakdown.events) {
-    const targetKey = isWorkflowRows ? event.toWorkflow || null : event.toStatus || null;
-    if (!targetKey || targetKey !== rowKey) continue;
+    const toKey = isWorkflowRows ? event.toWorkflow || null : event.toStatus || null;
+    const fromKey = isWorkflowRows ? event.fromWorkflow || null : event.fromStatus || null;
+    if (toKey !== rowKey && fromKey !== rowKey) continue;
     addActor(event.actorName, event.actorRole || null);
   }
 
-  if (actors.size === 0) {
-    for (const segment of breakdown.segments) {
-      const targetKey = isWorkflowRows ? segment.workflowState || 'NONE' : segment.status || 'UNKNOWN';
-      if (targetKey !== rowKey) continue;
-      addActor(segment.assignedUserName, segment.assignedRole || null);
-    }
+  for (const segment of breakdown.segments) {
+    const targetKey = isWorkflowRows ? segment.workflowState || 'NONE' : segment.status || 'UNKNOWN';
+    if (targetKey !== rowKey) continue;
+    addActor(segment.assignedUserName, segment.assignedRole || null);
   }
 
   return Array.from(actors.values()).slice(0, 4);
@@ -1090,10 +1090,44 @@ function getOrderedLifecycleRows(
   const isWorkflowRows =
     prefersWorkflowBuckets || hasWorkflowBuckets || breakdown.statusDurations.length === 0;
   const rows = isWorkflowRows ? breakdown.workflowDurations : breakdown.statusDurations;
-  if (rows.length === 0) return [];
+  if (rows.length === 0 && breakdown.events.length === 0) return [];
 
   const totalDuration = Math.max(1, breakdown.totalDurationMs);
   const firstSeenOrder = new Map<string, number>();
+  const orderedKeys: string[] = [];
+  const seenKeys = new Set<string>();
+  const pushOrderedKey = (key: string | null | undefined) => {
+    if (!key) return;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    orderedKeys.push(key);
+  };
+
+  const durationByKey = new Map<string, number>();
+  for (const row of rows) {
+    durationByKey.set(row.key, (durationByKey.get(row.key) || 0) + row.durationMs);
+  }
+
+  if (breakdown.events.length > 0) {
+    const firstEvent = breakdown.events[0];
+    pushOrderedKey(
+      isWorkflowRows ? firstEvent.fromWorkflow || TaskWorkflowState.NONE : firstEvent.fromStatus || TaskStatus.PENDING
+    );
+    for (const event of breakdown.events) {
+      pushOrderedKey(
+        isWorkflowRows ? event.fromWorkflow || null : event.fromStatus || null
+      );
+      pushOrderedKey(isWorkflowRows ? event.toWorkflow || null : event.toStatus || null);
+    }
+  }
+
+  for (const segment of breakdown.segments) {
+    pushOrderedKey(
+      isWorkflowRows ? segment.workflowState || TaskWorkflowState.NONE : segment.status || TaskStatus.PENDING
+    );
+  }
+  for (const row of rows) pushOrderedKey(row.key);
+
   const mergedByLabel = new Map<
     string,
     {
@@ -1104,9 +1138,7 @@ function getOrderedLifecycleRows(
     }
   >();
   let orderIndex = 0;
-
-  for (const segment of breakdown.segments) {
-    const rawKey = isWorkflowRows ? segment.workflowState || 'NONE' : segment.status || 'UNKNOWN';
+  for (const rawKey of orderedKeys) {
     const mappedLabel = mapLifecycleRowToBucketLabel(
       rawKey,
       isWorkflowRows,
@@ -1120,18 +1152,19 @@ function getOrderedLifecycleRows(
     }
   }
 
-  for (const row of rows) {
+  for (const rowKey of orderedKeys) {
     const mappedLabel = mapLifecycleRowToBucketLabel(
-      row.key,
+      rowKey,
       isWorkflowRows,
       currentRole,
       taskKind,
-      row.label
+      rowKey
     );
     const existing = mergedByLabel.get(mappedLabel);
-    const rowActors = collectLifecycleActorsForRow(breakdown, row.key, isWorkflowRows);
+    const rowActors = collectLifecycleActorsForRow(breakdown, rowKey, isWorkflowRows);
+    const rowDurationMs = durationByKey.get(rowKey) || 0;
     if (existing) {
-      existing.durationMs += row.durationMs;
+      existing.durationMs += rowDurationMs;
       for (const actor of rowActors) {
         if (!existing.actors.some((entry) => entry.name === actor.name && entry.role === actor.role)) {
           existing.actors.push(actor);
@@ -1140,9 +1173,9 @@ function getOrderedLifecycleRows(
       continue;
     }
     mergedByLabel.set(mappedLabel, {
-      key: row.key,
+      key: rowKey,
       label: mappedLabel,
-      durationMs: row.durationMs,
+      durationMs: rowDurationMs,
       actors: rowActors,
     });
   }
@@ -2536,14 +2569,15 @@ export function TaskList({
           isPendingDeskTask &&
           canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
-          (isDisclosureInitialRoutingState || isDisclosureReturnedRoutingState);
+          isDisclosureInitialRoutingState;
         const isQcDeskStartLockTask = isPendingDeskTask && isQcInitialRoutingState;
         const isVaDeskStartLockTask =
           isPendingDeskTask &&
           canManageVaDesk &&
           isVaTaskKind(task.kind) &&
           task.workflowState === TaskWorkflowState.NONE;
-        const isJrDeskStartLockTask = isPendingDeskTask && canManageJrChecklist;
+        const isJrDeskStartLockTask =
+          isPendingDeskTask && canManageJrChecklist && task.workflowState === TaskWorkflowState.NONE;
         const showDeskStartOverlay =
           !canBypassStartLock &&
           (isDisclosureDeskStartLockTask ||
