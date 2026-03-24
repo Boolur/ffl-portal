@@ -4168,6 +4168,21 @@ export function TaskList({
 
                   <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200/60 pt-6">
                     <WorkedByTags summary={workedBySummary} className="mr-auto" />
+                    {showDeskStartOverlay && (
+                      <button
+                        type="button"
+                        onClick={() => void handleStartDeskTask(task)}
+                        disabled={deskStartLockedByAnother || isDeskTaskActionStarting}
+                        className={`inline-flex h-9 items-center rounded-lg border bg-white px-4 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${deskStartButtonToneClass}`}
+                      >
+                        {isDeskTaskActionStarting && (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        )}
+                        {deskStartLockedByAnother
+                          ? `Started by ${assignedSpecialistName || 'another specialist'}`
+                          : deskStartLabel}
+                      </button>
+                    )}
                     {task.status === 'PENDING' &&
                       !shouldHideGenericStartForDisclosureSubmission &&
                       !isDisclosureInitialRoutingState &&

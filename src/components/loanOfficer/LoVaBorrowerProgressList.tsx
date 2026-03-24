@@ -761,7 +761,7 @@ export function LoVaBorrowerProgressList({
           </button>
         </div>
       </div>
-      <div className={`grid gap-3.5 ${completedOnlyMode ? 'md:grid-cols-1' : 'md:grid-cols-3'}`}>
+      <div className="grid gap-3.5 md:grid-cols-3">
         {!completedOnlyMode && (
           <BucketPanel
             title="VA Bucket"
