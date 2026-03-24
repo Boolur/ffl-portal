@@ -569,10 +569,13 @@ function BucketPanel({
 export function LoVaBorrowerProgressList({
   items,
   className,
+  mode = 'all',
 }: {
   items: LoVaBorrowerProgressItem[];
   className?: string;
+  mode?: 'all' | 'completed_only';
 }) {
+  const completedOnlyMode = mode === 'completed_only';
   const [focusedItemKey, setFocusedItemKey] = React.useState<string | null>(null);
   const [focusedQueue, setFocusedQueue] = React.useState<'va' | 'jr' | 'completed'>('va');
   const [openingAttachmentId, setOpeningAttachmentId] = React.useState<string | null>(null);
@@ -758,29 +761,30 @@ export function LoVaBorrowerProgressList({
           </button>
         </div>
       </div>
-      <div className="grid gap-3.5 md:grid-cols-3">
-        <BucketPanel
-          title="VA Bucket"
-          icon={<FileCheck2 className="h-5 w-5 text-rose-600" />}
-          chipLabel="VA Queue"
-          count={filteredAndSorted.va.length}
-          searchValue={bucketControls.va.search}
-          onSearchChange={(value) =>
-            setBucketControls((prev) => ({ ...prev, va: { ...prev.va, search: value } }))
-          }
-          sortValue={bucketControls.va.sort}
-          onSortChange={(value) =>
-            setBucketControls((prev) => ({ ...prev, va: { ...prev.va, sort: value } }))
-          }
-          globalSort={globalSort}
-        >
-          {filteredAndSorted.va.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <CheckCircle2 className="h-6 w-6 text-slate-300" />
-              <p className="mt-2 text-xs font-medium text-slate-500">No VA requests in queue.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
+      <div className={`grid gap-3.5 ${completedOnlyMode ? 'md:grid-cols-1' : 'md:grid-cols-3'}`}>
+        {!completedOnlyMode && (
+          <BucketPanel
+            title="VA Bucket"
+            icon={<FileCheck2 className="h-5 w-5 text-rose-600" />}
+            chipLabel="VA Queue"
+            count={filteredAndSorted.va.length}
+            searchValue={bucketControls.va.search}
+            onSearchChange={(value) =>
+              setBucketControls((prev) => ({ ...prev, va: { ...prev.va, search: value } }))
+            }
+            sortValue={bucketControls.va.sort}
+            onSortChange={(value) =>
+              setBucketControls((prev) => ({ ...prev, va: { ...prev.va, sort: value } }))
+            }
+            globalSort={globalSort}
+          >
+            {filteredAndSorted.va.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 text-center">
+                <CheckCircle2 className="h-6 w-6 text-slate-300" />
+                <p className="mt-2 text-xs font-medium text-slate-500">No VA requests in queue.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
               {filteredAndSorted.va.map((item) => {
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-va`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
@@ -920,32 +924,34 @@ export function LoVaBorrowerProgressList({
                 </article>
               );
             })}
-            </div>
-          )}
-        </BucketPanel>
+              </div>
+            )}
+          </BucketPanel>
+        )}
 
-        <BucketPanel
-          title="JR Processor"
-          icon={<UserCog className="h-5 w-5 text-slate-600" />}
-          chipLabel="Processor Queue"
-          count={filteredAndSorted.jr.length}
-          searchValue={bucketControls.jr.search}
-          onSearchChange={(value) =>
-            setBucketControls((prev) => ({ ...prev, jr: { ...prev.jr, search: value } }))
-          }
-          sortValue={bucketControls.jr.sort}
-          onSortChange={(value) =>
-            setBucketControls((prev) => ({ ...prev, jr: { ...prev.jr, sort: value } }))
-          }
-          globalSort={globalSort}
-        >
-          {filteredAndSorted.jr.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <CheckCircle2 className="h-6 w-6 text-slate-300" />
-              <p className="mt-2 text-xs font-medium text-slate-500">No JR Processor requests in queue.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
+        {!completedOnlyMode && (
+          <BucketPanel
+            title="JR Processor"
+            icon={<UserCog className="h-5 w-5 text-slate-600" />}
+            chipLabel="Processor Queue"
+            count={filteredAndSorted.jr.length}
+            searchValue={bucketControls.jr.search}
+            onSearchChange={(value) =>
+              setBucketControls((prev) => ({ ...prev, jr: { ...prev.jr, search: value } }))
+            }
+            sortValue={bucketControls.jr.sort}
+            onSortChange={(value) =>
+              setBucketControls((prev) => ({ ...prev, jr: { ...prev.jr, sort: value } }))
+            }
+            globalSort={globalSort}
+          >
+            {filteredAndSorted.jr.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 text-center">
+                <CheckCircle2 className="h-6 w-6 text-slate-300" />
+                <p className="mt-2 text-xs font-medium text-slate-500">No JR Processor requests in queue.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
               {filteredAndSorted.jr.map((item) => {
                 const cardKey = `${item.loanNumber}-${item.borrowerName}-jr`;
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
@@ -1147,9 +1153,10 @@ export function LoVaBorrowerProgressList({
                 </article>
               );
             })}
-            </div>
-          )}
-        </BucketPanel>
+              </div>
+            )}
+          </BucketPanel>
+        )}
 
         <BucketPanel
           title="Completed VA & JR Processing"

@@ -894,6 +894,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       name: sessionUser.name,
     });
   const loVaProgressItems = showLoVaPilot ? buildLoVaBorrowerProgress(allTasks) : [];
+  const managerLoVaProgressItems =
+    sessionRole === UserRole.MANAGER ? buildLoVaBorrowerProgress(allTasks) : [];
   const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete = sessionRole === UserRole.ADMIN;
   const roleTaskSubtitle: Record<string, string> = {
@@ -1033,6 +1035,11 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 bucketScrollMode="fixed"
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
                 enableBatchDelete
+              />
+              <LoVaBorrowerProgressList
+                items={managerLoVaProgressItems}
+                mode="completed_only"
+                className="pt-1"
               />
             </>
           )}
