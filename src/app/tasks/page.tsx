@@ -975,7 +975,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           {sessionRole === UserRole.MANAGER && managerVaRows && (
             <>
               <TaskDeskSection
-                title="VA Appraisal Requests"
+                title="Appraisal Requests"
                 icon={<ShieldCheck className="h-5 w-5" />}
                 iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
                 buckets={managerVaRows.vaAppraisalBuckets}
@@ -991,7 +991,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 enableBatchDelete
               />
               <TaskDeskSection
-                title="VA Payoff Requests"
+                title="Payoff Requests"
                 icon={<Landmark className="h-5 w-5" />}
                 iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
                 buckets={managerVaRows.vaPayoffBuckets}
@@ -1007,7 +1007,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 enableBatchDelete
               />
               <TaskDeskSection
-                title="VA Title Requests"
+                title="Title Requests"
                 icon={<FileCheck2 className="h-5 w-5" />}
                 iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
                 buckets={managerVaRows.vaTitleBuckets}
