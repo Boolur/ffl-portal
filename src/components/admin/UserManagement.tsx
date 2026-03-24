@@ -203,7 +203,15 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
       setDirectoryStatus({ type: 'error', message: 'Each user must have at least one role.' });
       return;
     }
-    await updateUserRoles(userId, nextRoles);
+    const result = await updateUserRoles(userId, nextRoles);
+    if (!result.success) {
+      setDirectoryStatus({
+        type: 'error',
+        message: result.error || 'Failed to update roles.',
+      });
+      return;
+    }
+    setDirectoryStatus({ type: 'success', message: 'Roles updated.' });
     router.refresh();
   };
 

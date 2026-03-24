@@ -620,17 +620,31 @@ export async function updateUserRoles(userId: string, roles: UserRole[]) {
   if (normalizedRoles.length === 0) {
     return { success: false, error: 'Select at least one valid role.' };
   }
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        role: normalizedRoles[0],
+        roles: normalizedRoles,
+      },
+    });
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      role: normalizedRoles[0],
-      roles: normalizedRoles,
-    },
-  });
-
-  revalidatePath('/admin/users');
-  return { success: true };
+    revalidatePath('/admin/users');
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update user roles.';
+    const migrationHint =
+      message.toLowerCase().includes('invalid input value for enum') &&
+      message.toLowerCase().includes('loa');
+    if (migrationHint) {
+      return {
+        success: false,
+        error:
+          "LOA role is not available in the database yet. Please run the latest Prisma migration, then try again.",
+      };
+    }
+    return { success: false, error: 'Failed to update user roles.' };
+  }
 }
 
 export async function updateUserStatus(userId: string, active: boolean) {
