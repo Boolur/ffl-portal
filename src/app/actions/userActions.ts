@@ -620,14 +620,20 @@ export async function updateUserRoles(userId: string, roles: UserRole[]) {
   if (normalizedRoles.length === 0) {
     return { success: false, error: 'Select at least one valid role.' };
   }
-  try {
-    await prisma.user.update({
+
+  const includesLoaRole = normalizedRoles.includes(UserRole.LOA);
+
+  const applyRoleUpdate = async () =>
+    prisma.user.update({
       where: { id: userId },
       data: {
         role: normalizedRoles[0],
         roles: normalizedRoles,
       },
     });
+
+  try {
+    await applyRoleUpdate();
 
     revalidatePath('/admin/users');
     return { success: true };
@@ -637,13 +643,29 @@ export async function updateUserRoles(userId: string, roles: UserRole[]) {
       message.toLowerCase().includes('invalid input value for enum') &&
       message.toLowerCase().includes('loa');
     if (migrationHint) {
-      return {
-        success: false,
-        error:
-          "LOA role is not available in the database yet. Please run the latest Prisma migration, then try again.",
-      };
+      if (!includesLoaRole) {
+        return {
+          success: false,
+          error:
+            "LOA role is not available in the database yet. Please run the latest Prisma migration, then try again.",
+        };
+      }
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'LOA'`);
+        await applyRoleUpdate();
+        revalidatePath('/admin/users');
+        return { success: true };
+      } catch (retryError) {
+        const retryMessage =
+          retryError instanceof Error ? retryError.message : 'Failed to add LOA role in database.';
+        return {
+          success: false,
+          error:
+            `LOA exists in app code but not in the database this app is connected to, and auto-fix failed. ${retryMessage}`,
+        };
+      }
     }
-    return { success: false, error: 'Failed to update user roles.' };
+    return { success: false, error: `Failed to update user roles. ${message}` };
   }
 }
 
