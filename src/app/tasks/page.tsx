@@ -1042,7 +1042,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       {!isDualDeskMode && sessionRole === UserRole.VA && managerVaRows && (
         <div className="space-y-5">
           <TaskDeskSection
-            title="VA Appraisal Requests"
+            title="Appraisals"
             icon={<ShieldCheck className="h-5 w-5" />}
             iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
             buckets={managerVaRows.vaAppraisalBuckets}
@@ -1057,7 +1057,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
           />
           <TaskDeskSection
-            title="VA Payoff Requests"
+            title="Payoffs"
             icon={<Landmark className="h-5 w-5" />}
             iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
             buckets={managerVaRows.vaPayoffBuckets}
@@ -1072,7 +1072,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
           />
           <TaskDeskSection
-            title="VA Title Requests"
+            title="Title"
             icon={<FileCheck2 className="h-5 w-5" />}
             iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
             buckets={managerVaRows.vaTitleBuckets}
