@@ -1854,9 +1854,18 @@ export function LoVaBorrowerProgressList({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
-              <div>
-                <p className="text-sm font-bold text-slate-900">Lifecycle Timeline</p>
-                <p className="text-xs font-medium text-slate-600">{lifecyclePopup.title}</p>
+              <div className="flex items-start gap-3">
+                <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-blue-700 shadow-sm">
+                  <Clock3 className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-2xl font-extrabold tracking-tight text-slate-900">
+                    Lifecycle Timeline
+                  </p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-700">
+                    {lifecyclePopup.title}
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -1890,9 +1899,6 @@ export function LoVaBorrowerProgressList({
                         Worked By
                       </p>
                     </div>
-                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      Bucket Time Breakdown
-                    </p>
                     <div className="flex flex-col items-start gap-2">
                       {getOrderedLifecycleRows(stage.breakdown).length > 0 ? (
                         getOrderedLifecycleRows(stage.breakdown).map((row) => (
