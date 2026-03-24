@@ -2177,12 +2177,17 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         },
       });
     } else {
-      // Update stage if it's currently INTAKE (Lead)
-      if (loan.stage === 'INTAKE') {
-        await prisma.loan.update({
+      // If LOA selected a Loan Officer, ensure ownership follows that selection
+      // so the chosen LO immediately sees the request in their portal.
+      const shouldReassignLoanOfficer =
+        role === UserRole.LOA && loanOfficerUser?.id && loan.loanOfficerId !== loanOfficerUser.id;
+      const shouldPromoteIntakeStage = loan.stage === 'INTAKE';
+      if (shouldReassignLoanOfficer || shouldPromoteIntakeStage) {
+        loan = await prisma.loan.update({
           where: { id: loan.id },
           data: {
-            stage: targetStage,
+            ...(shouldPromoteIntakeStage ? { stage: targetStage } : {}),
+            ...(shouldReassignLoanOfficer ? { loanOfficerId: loanOfficerUser.id } : {}),
             borrowerPhone: borrowerPhone?.trim() || loan.borrowerPhone || null,
             borrowerEmail: borrowerEmail?.trim() || loan.borrowerEmail || null,
           },

@@ -207,7 +207,7 @@ export function LoanOfficerDashboard({
           <h2 className="text-lg font-semibold text-slate-900">Recent Task Requests</h2>
           <span className="text-xs text-slate-500">{requestSubmissions.length} total</span>
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
           {requestSubmissions.map((task) => (
             <div key={task.id} className="p-6 flex items-center justify-between">
               <div>
