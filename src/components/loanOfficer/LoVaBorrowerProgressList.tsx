@@ -1850,7 +1850,7 @@ export function LoVaBorrowerProgressList({
           onClick={() => setLifecyclePopup(null)}
         >
           <div
-            className="h-[92vh] w-[96vw] max-w-[1400px] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-2xl"
+            className="w-[96vw] max-w-[1400px] max-h-[calc(100vh-3.5rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
