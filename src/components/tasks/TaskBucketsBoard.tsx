@@ -136,6 +136,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
     currentRole === 'DISCLOSURE_SPECIALIST' ||
     currentRole === 'QC' ||
     currentRole === 'MANAGER' ||
+    currentRole === 'LOA' ||
     currentRole === 'VA' ||
     currentRole === 'VA_TITLE' ||
     currentRole === 'VA_PAYOFF' ||

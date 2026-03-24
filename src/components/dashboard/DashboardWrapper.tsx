@@ -69,6 +69,10 @@ type DashboardTask = {
 type DashboardWrapperProps = {
   loans: DashboardLoan[];
   adminTasks: DashboardTask[];
+  loanOfficerOptions?: Array<{
+    id: string;
+    name: string;
+  }>;
   user: {
     name: string;
     role: string;
@@ -79,7 +83,7 @@ type DashboardWrapperProps = {
   };
 };
 
-function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
+function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: DashboardWrapperProps) {
   const { activeRole } = useImpersonation();
   const isVaTaskKind = (kind: TaskKind | null) =>
     kind === TaskKind.VA_TITLE ||
@@ -106,6 +110,10 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
     [UserRole.LOAN_OFFICER]: {
       title: 'Overview',
       subtitle: 'Quick snapshot of your active requests and task workload.',
+    },
+    [UserRole.LOA]: {
+      title: 'LO Assistant Overview',
+      subtitle: 'Submit requests and monitor pipeline activity across all loan officers.',
     },
     [UserRole.ADMIN]: {
       title: 'Operations Overview',
@@ -166,11 +174,13 @@ function DashboardContent({ loans, adminTasks, user }: DashboardWrapperProps) {
         <p className="app-page-subtitle">{currentRoleContent.subtitle}</p>
       </div>
 
-      {activeRole === 'LOAN_OFFICER' && (
+      {(activeRole === UserRole.LOAN_OFFICER || activeRole === UserRole.LOA) && (
         <LoanOfficerDashboard
           loans={loans}
           submissions={adminTasks}
           loanOfficerName={user.name}
+          isLoanOfficerAssistant={activeRole === UserRole.LOA}
+          loanOfficerOptions={loanOfficerOptions}
           disclosureEnabled={user.loDisclosureSubmissionEnabled ?? true}
           qcEnabled={user.loQcSubmissionEnabled ?? true}
         />

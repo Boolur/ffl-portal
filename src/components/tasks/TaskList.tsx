@@ -2436,11 +2436,12 @@ export function TaskList({
 
   const isDisclosureRole = currentRole === UserRole.DISCLOSURE_SPECIALIST;
   const isLoanOfficerRole = currentRole === UserRole.LOAN_OFFICER;
+  const isLoanOfficerAssistantRole = currentRole === UserRole.LOA;
   const isQcRole = currentRole === UserRole.QC;
   const isManagerRole = currentRole === UserRole.MANAGER;
-  const canManageVaDesk = isManagerRole || isVaSubRole;
-  const canManageDisclosureDesk = isDisclosureRole || isManagerRole;
-  const canManageQcDesk = isQcRole || isManagerRole;
+  const canManageVaDesk = !isLoanOfficerAssistantRole && (isManagerRole || isVaSubRole);
+  const canManageDisclosureDesk = !isLoanOfficerAssistantRole && (isDisclosureRole || isManagerRole);
+  const canManageQcDesk = !isLoanOfficerAssistantRole && (isQcRole || isManagerRole);
   const isDisclosureSubmissionTask = (task: Task) =>
     task.kind === TaskKind.SUBMIT_DISCLOSURES;
   const isQcSubmissionTask = (task: Task) => task.kind === TaskKind.SUBMIT_QC;
@@ -2677,6 +2678,7 @@ export function TaskList({
         const isJrDeskStartLockTask =
           isPendingDeskTask && canManageJrChecklist && task.workflowState === TaskWorkflowState.NONE;
         const showDeskStartOverlay =
+          !isLoanOfficerAssistantRole &&
           !canBypassStartLock &&
           (isDisclosureDeskStartLockTask ||
             isQcDeskStartLockTask ||
@@ -4186,7 +4188,7 @@ export function TaskList({
 
                   <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200/60 pt-6">
                     <WorkedByTags summary={workedBySummary} className="mr-auto" />
-                    {showDeskStartOverlay && (
+                    {!isLoanOfficerAssistantRole && showDeskStartOverlay && (
                       <button
                         type="button"
                         onClick={() => void handleStartDeskTask(task)}
@@ -4201,7 +4203,8 @@ export function TaskList({
                           : deskStartLabel}
                       </button>
                     )}
-                    {task.status === 'PENDING' &&
+                    {!isLoanOfficerAssistantRole &&
+                      task.status === 'PENDING' &&
                       !shouldHideGenericStartForDisclosureSubmission &&
                       !isDisclosureInitialRoutingState &&
                       !isVaDeskStartLockTask &&
@@ -4219,7 +4222,8 @@ export function TaskList({
                         Start
                       </button>
                     )}
-                    {!isLoTaskForCurrentLoanOfficer &&
+                    {!isLoanOfficerAssistantRole &&
+                      !isLoTaskForCurrentLoanOfficer &&
                       task.status !== 'COMPLETED' &&
                       !isDisclosureInitialRoutingState &&
                       !isVaAppraisalRouteState &&
@@ -4263,7 +4267,7 @@ export function TaskList({
                           : 'Complete'}
                       </button>
                     )}
-                    {shouldRouteFromFooter && (
+                    {!isLoanOfficerAssistantRole && shouldRouteFromFooter && (
                       (() => {
                         const isQcRouteTask = isQcSubmissionTask(task);
                         const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
@@ -4342,7 +4346,8 @@ export function TaskList({
                         );
                       })()
                     )}
-                    {shouldLoRespondFromFooter &&
+                    {!isLoanOfficerAssistantRole &&
+                      shouldLoRespondFromFooter &&
                       (isApprovalReviewTask ? (
                         <>
                           <button

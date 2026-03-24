@@ -16,6 +16,7 @@ export function ImpersonationControls({ currentUserRole }: { currentUserRole: Us
 
   const roles: UserRole[] = [
     'LOAN_OFFICER',
+    'LOA',
     'DISCLOSURE_SPECIALIST',
     'VA',
     'VA_TITLE',
@@ -30,6 +31,7 @@ export function ImpersonationControls({ currentUserRole }: { currentUserRole: Us
 
   const getRoleButtonClass = (role: UserRole) => {
     if (role === UserRole.LOAN_OFFICER) return 'bg-amber-500 text-white';
+    if (role === UserRole.LOA) return 'bg-amber-500 text-white';
     if (role === UserRole.QC) return 'bg-violet-600 text-white';
     if (role === UserRole.DISCLOSURE_SPECIALIST) return 'bg-blue-600 text-white';
     return 'bg-blue-600 text-white';

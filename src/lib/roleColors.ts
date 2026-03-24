@@ -19,6 +19,9 @@ export function getRoleBubbleClass(role: UserRole | null) {
   if (role === UserRole.LOAN_OFFICER) {
     return 'border-amber-200 bg-amber-50 text-amber-700';
   }
+  if (role === UserRole.LOA) {
+    return 'border-amber-200 bg-amber-50 text-amber-700';
+  }
   if (role === UserRole.PROCESSOR_JR) {
     return 'border-cyan-200 bg-cyan-50 text-cyan-700';
   }

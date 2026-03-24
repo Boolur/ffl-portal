@@ -27,6 +27,11 @@ type LoanOfficerDashboardProps = {
     };
   }>;
   loanOfficerName?: string;
+  isLoanOfficerAssistant?: boolean;
+  loanOfficerOptions?: Array<{
+    id: string;
+    name: string;
+  }>;
   disclosureEnabled?: boolean;
   qcEnabled?: boolean;
 };
@@ -34,12 +39,16 @@ type LoanOfficerDashboardProps = {
 export function LoanOfficerDashboard({
   submissions = [],
   loanOfficerName,
+  isLoanOfficerAssistant = false,
+  loanOfficerOptions = [],
   disclosureEnabled = true,
   qcEnabled = false,
 }: LoanOfficerDashboardProps) {
   const [showNewTask, setShowNewTask] = useState(false);
   const [initialTaskType, setInitialTaskType] = useState<'DISCLOSURES' | 'QC'>('DISCLOSURES');
-  const scopedSubmissions = loanOfficerName
+  const scopedSubmissions = isLoanOfficerAssistant
+    ? submissions
+    : loanOfficerName
     ? submissions.filter((t) => t.loan.loanOfficer?.name === loanOfficerName)
     : submissions;
   const isLoDashboardCountKind = (kind: TaskKind | null) =>
@@ -220,6 +229,8 @@ export function LoanOfficerDashboard({
         open={showNewTask}
         onClose={() => setShowNewTask(false)}
         loanOfficerName={loanOfficerName || 'Admin User'}
+        isLoanOfficerAssistant={isLoanOfficerAssistant}
+        loanOfficerOptions={loanOfficerOptions}
         initialType={initialTaskType}
         disclosureEnabled={disclosureEnabled}
         qcEnabled={qcEnabled}

@@ -1833,6 +1833,7 @@ type SubmissionType = 'DISCLOSURES' | 'QC';
 type SubmissionPayload = {
   submissionType: SubmissionType;
   loanOfficerName?: string;
+  loanOfficerId?: string;
   borrowerFirstName: string;
   borrowerLastName: string;
   borrowerPhone?: string;
@@ -1887,6 +1888,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     const {
       submissionType,
       loanOfficerName,
+      loanOfficerId,
       borrowerFirstName,
       borrowerLastName,
       borrowerPhone,
@@ -2010,7 +2012,9 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     }
 
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
     const sessionUserId = session?.user?.id as string | undefined;
     const sessionUser = sessionUserId
       ? await prisma.user.findUnique({
@@ -2074,17 +2078,63 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       }
     }
 
+    if (role === UserRole.LOA && !loanOfficerId) {
+      return {
+        success: false,
+        error: 'Please select the Loan Officer for this request.',
+      };
+    }
+
     // Prefer the session user as the loan officer when possible.
     // (Keeps pipelines isolated per-LO and avoids name-based lookups.)
     let loanOfficerUser =
       role === UserRole.LOAN_OFFICER && sessionUserId
-        ? await prisma.user.findUnique({ where: { id: sessionUserId } })
+        ? await prisma.user.findUnique({
+            where: { id: sessionUserId },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+              roles: true,
+            },
+          })
         : null;
+
+    if (!loanOfficerUser && loanOfficerId) {
+      const selectedLoanOfficer = await prisma.user.findUnique({
+        where: { id: loanOfficerId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          roles: true,
+        },
+      });
+      const hasLoanOfficerRole =
+        selectedLoanOfficer?.role === UserRole.LOAN_OFFICER ||
+        selectedLoanOfficer?.roles.includes(UserRole.LOAN_OFFICER);
+      if (!selectedLoanOfficer || !hasLoanOfficerRole) {
+        return {
+          success: false,
+          error: 'Selected Loan Officer is invalid. Please choose an active Loan Officer.',
+        };
+      }
+      loanOfficerUser = selectedLoanOfficer;
+    }
 
     // Back-compat fallback (older UI sent loanOfficerName)
     if (!loanOfficerUser && loanOfficerName) {
       loanOfficerUser = await prisma.user.findFirst({
         where: { name: loanOfficerName },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          roles: true,
+        },
       });
     }
 
@@ -2092,6 +2142,13 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     if (!loanOfficerUser) {
       loanOfficerUser = await prisma.user.findFirst({
         where: { role: UserRole.LOAN_OFFICER },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          roles: true,
+        },
       });
     }
 
@@ -2154,7 +2211,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       
       const initialNote = {
         author: session?.user?.name || loanOfficerName || 'Loan Officer',
-        role: UserRole.LOAN_OFFICER,
+        role: role || UserRole.LOAN_OFFICER,
         message: `Initial Submission Notes: ${notes.trim()}`,
         date: new Date().toISOString(),
       };

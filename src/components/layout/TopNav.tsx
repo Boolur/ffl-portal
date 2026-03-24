@@ -17,6 +17,9 @@ const getRoleChipClass = (role: UserRole) => {
   if (role === UserRole.LOAN_OFFICER) {
     return 'border-amber-200 bg-amber-50 text-amber-700';
   }
+  if (role === UserRole.LOA) {
+    return 'border-amber-200 bg-amber-50 text-amber-700';
+  }
   if (role === UserRole.QC) {
     return 'border-violet-200 bg-violet-50 text-violet-700';
   }
@@ -37,6 +40,7 @@ const getRoleChipClass = (role: UserRole) => {
 
 const getRoleAvatarClass = (role: UserRole) => {
   if (role === UserRole.LOAN_OFFICER) return 'from-amber-100 to-amber-200 text-amber-800 border-amber-200';
+  if (role === UserRole.LOA) return 'from-amber-100 to-amber-200 text-amber-800 border-amber-200';
   if (role === UserRole.DISCLOSURE_SPECIALIST) return 'from-blue-100 to-blue-200 text-blue-800 border-blue-200';
   if (role === UserRole.QC) return 'from-violet-100 to-violet-200 text-violet-800 border-violet-200';
   if (role === UserRole.VA || role === UserRole.VA_TITLE || role === UserRole.VA_PAYOFF || role === UserRole.VA_APPRAISAL) {

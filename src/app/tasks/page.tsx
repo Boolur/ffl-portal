@@ -163,12 +163,13 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   // Fetch tasks assigned to this role OR specifically to this user
   // For LOs, we want to see tasks for loans they own OR tasks assigned to them
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
+  const isLoanOfficerAssistant = role === UserRole.LOA;
   const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
   const isGenericVa = role === UserRole.VA;
   
   const where: Prisma.TaskWhereInput = isAdminOrManager ? {} : {};
 
-  if (isAdminOrManager) {
+  if (isAdminOrManager || isLoanOfficerAssistant) {
     // no-op: managers/admins can review all queues
   } else if (isLoanOfficer && userId) {
     // Strict LO scope: only tasks tied to loans they own.
@@ -879,6 +880,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const roleBuckets = getRoleBuckets(sessionRole, allTasks);
   const dualDeskRows = sessionRole === UserRole.LOAN_OFFICER
     ? getLoPilotRows(allTasks)
+    : sessionRole === UserRole.LOA
+    ? getLoPilotRows(allTasks)
     : sessionRole === UserRole.MANAGER
     ? getManagerDeskRows(allTasks)
     : null;
@@ -894,6 +897,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       name: sessionUser.name,
     });
   const loVaProgressItems = showLoVaPilot ? buildLoVaBorrowerProgress(allTasks) : [];
+  const loaVaProgressItems =
+    sessionRole === UserRole.LOA ? buildLoVaBorrowerProgress(allTasks) : [];
   const managerLoVaProgressItems =
     sessionRole === UserRole.MANAGER ? buildLoVaBorrowerProgress(allTasks) : [];
   const isDualDeskMode = Boolean(dualDeskRows);
@@ -901,6 +906,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const roleTaskSubtitle: Record<string, string> = {
     [UserRole.LOAN_OFFICER]:
       'Manage submitted requests, complete LO actions, and track returns sent back to Disclosure.',
+    [UserRole.LOA]:
+      'Submit requests and monitor all loan officer workflows across Disclosure, QC, VA, and JR desks.',
     [UserRole.ADMIN]: 'Manage and clean up tasks across all teams.',
     [UserRole.MANAGER]:
       'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
@@ -973,6 +980,9 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           />
           {sessionRole === UserRole.LOAN_OFFICER && showLoVaPilot && (
             <LoVaBorrowerProgressList items={loVaProgressItems} />
+          )}
+          {sessionRole === UserRole.LOA && (
+            <LoVaBorrowerProgressList items={loaVaProgressItems} />
           )}
           {sessionRole === UserRole.MANAGER && managerVaRows && (
             <>

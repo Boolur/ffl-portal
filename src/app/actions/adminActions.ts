@@ -12,9 +12,10 @@ type TaskFilter = {
 export async function getAllTasks(filter?: TaskFilter) {
   const role = filter?.role ?? null;
   const userId = filter?.userId || null;
-  const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdminOrManager =
+    role === UserRole.ADMIN || role === UserRole.MANAGER || role === UserRole.LOA;
   const isGenericVa = role === UserRole.VA;
-  const needsRichTaskPayload = role === UserRole.LOAN_OFFICER;
+  const needsRichTaskPayload = role === UserRole.LOAN_OFFICER || role === UserRole.LOA;
 
   const where = isAdminOrManager
     ? undefined

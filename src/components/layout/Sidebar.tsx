@@ -56,6 +56,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
       href: '/tasks',
       roles: [
         UserRole.LOAN_OFFICER,
+        UserRole.LOA,
         UserRole.DISCLOSURE_SPECIALIST,
         UserRole.VA,
         UserRole.VA_TITLE,
@@ -120,8 +121,8 @@ export function Sidebar({ collapsed }: SidebarProps) {
       )
   );
 
-  // Keep Tasks visible for LOs even under role switching edge cases
-  if (activeRole === UserRole.LOAN_OFFICER) {
+  // Keep Tasks visible for LO/LOA even under role switching edge cases
+  if (activeRole === UserRole.LOAN_OFFICER || activeRole === UserRole.LOA) {
     const taskItem = navItems.find((i) => i.name === 'Tasks');
     if (taskItem && !mainNavItems.find((i) => i.name === 'Tasks')) {
       const overviewIndex = mainNavItems.findIndex((i) => i.name === 'Overview');
