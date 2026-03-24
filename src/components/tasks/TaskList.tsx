@@ -890,13 +890,50 @@ function getLifecycleDurationBubbleClass(durationMs: number) {
   return 'border-rose-300 bg-rose-100 text-rose-800';
 }
 
-function getLifecycleBucketBubbleClass(key: string, label: string) {
+function getLifecycleBucketBubbleClass(
+  key: string,
+  label: string,
+  currentRole: string,
+  taskKind: TaskKind | null
+) {
   const normalizedKey = key.trim().toUpperCase();
   const normalizedLabel = label.trim().toLowerCase();
+  const profile = getLifecycleBucketLabelProfile(currentRole, taskKind);
 
   if (normalizedKey === 'COMPLETED' || normalizedKey === '__COMPLETED__' || normalizedLabel.includes('completed')) {
     return 'border-emerald-300 bg-emerald-100 text-emerald-800';
   }
+
+  if (profile) {
+    const isNewBucket = label === profile.newLabel;
+    const isWaitingBucket = label === profile.waitingLabel && profile.waitingLabel !== profile.newLabel;
+    const isReviewBucket = label === profile.reviewLabel && profile.reviewLabel !== profile.newLabel;
+    const isApprovalBucket =
+      label === profile.approvalLabel &&
+      profile.approvalLabel !== profile.newLabel &&
+      profile.approvalLabel !== profile.waitingLabel;
+
+    if (isNewBucket) {
+      if (taskKind === TaskKind.VA_HOI) return 'border-cyan-300 bg-cyan-100 text-cyan-800';
+      if (
+        taskKind === TaskKind.VA_TITLE ||
+        taskKind === TaskKind.VA_PAYOFF ||
+        taskKind === TaskKind.VA_APPRAISAL
+      ) {
+        return 'border-rose-300 bg-rose-100 text-rose-800';
+      }
+      if (taskKind === TaskKind.SUBMIT_QC || taskKind === TaskKind.SUBMIT_DISCLOSURES) {
+        return 'border-blue-300 bg-blue-100 text-blue-800';
+      }
+      if (taskKind === TaskKind.LO_NEEDS_INFO) {
+        return 'border-indigo-300 bg-indigo-100 text-indigo-800';
+      }
+    }
+    if (isWaitingBucket) return 'border-amber-300 bg-amber-100 text-amber-800';
+    if (isReviewBucket) return 'border-sky-300 bg-sky-100 text-sky-800';
+    if (isApprovalBucket) return 'border-indigo-300 bg-indigo-100 text-indigo-800';
+  }
+
   if (
     normalizedKey === 'WAITING_ON_LO_APPROVAL' ||
     normalizedLabel.includes('approval') ||
@@ -4405,7 +4442,9 @@ export function TaskList({
                         <span
                           className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${getLifecycleBucketBubbleClass(
                             row.key,
-                            row.label
+                          row.label,
+                          currentRole,
+                          lifecyclePopup.taskKind
                           )}`}
                           title={`Bucket: ${row.label}`}
                         >

@@ -106,13 +106,30 @@ function getTimerClassName(elapsedMs: number) {
   return 'border-rose-400 bg-rose-100 text-rose-800';
 }
 
-function getLifecycleBucketBubbleClass(key: string, label: string) {
+function getLifecycleBucketBubbleClass(key: string, label: string, stageLabel: string) {
   const normalizedKey = key.trim().toUpperCase();
   const normalizedLabel = label.trim().toLowerCase();
+  const normalizedStage = stageLabel.trim().toLowerCase();
 
   if (normalizedKey === 'COMPLETED' || normalizedKey === '__COMPLETED__' || normalizedLabel.includes('completed')) {
     return 'border-emerald-300 bg-emerald-100 text-emerald-800';
   }
+
+  const isNewBucketLike =
+    normalizedKey === 'NONE' ||
+    normalizedKey === 'PENDING' ||
+    normalizedLabel.includes('new') ||
+    normalizedLabel === 'none' ||
+    normalizedLabel.includes('pending');
+  if (isNewBucketLike) {
+    if (normalizedStage.includes('jr processor')) {
+      return 'border-cyan-300 bg-cyan-100 text-cyan-800';
+    }
+    if (normalizedStage.includes('va')) {
+      return 'border-rose-300 bg-rose-100 text-rose-800';
+    }
+  }
+
   if (
     normalizedKey === 'WAITING_ON_LO_APPROVAL' ||
     normalizedLabel.includes('approval') ||
@@ -1880,7 +1897,8 @@ export function LoVaBorrowerProgressList({
                               <span
                                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${getLifecycleBucketBubbleClass(
                                   row.key,
-                                  row.label
+                                  row.label,
+                                  stage.label
                                 )}`}
                                 title={`Bucket: ${row.label}`}
                               >
