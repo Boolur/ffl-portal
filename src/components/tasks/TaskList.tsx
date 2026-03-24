@@ -1589,6 +1589,7 @@ export function TaskList({
     taskKind: TaskKind | null;
     loanOfficerName: string | null;
   } | null>(null);
+  const [attachmentOpenError, setAttachmentOpenError] = React.useState<string | null>(null);
 
   const getQcChecklistRows = React.useCallback(
     (taskId: string) => qcChecklistByTask[taskId] ?? createDefaultQcChecklistRows(),
@@ -2167,9 +2168,10 @@ export function TaskList({
   const handleViewAttachment = async (attachmentId: string) => {
     const result = await getTaskAttachmentDownloadUrl(attachmentId);
     if (!result.success) {
-      alert(result.error || 'Failed to open attachment.');
+      setAttachmentOpenError(result.error || 'Failed to open attachment.');
       return;
     }
+    setAttachmentOpenError(null);
     window.open(result.url, '_blank', 'noopener,noreferrer');
   };
 
@@ -3032,7 +3034,10 @@ export function TaskList({
               <div
                 data-live-refresh-pause="true"
                 className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
-                onClick={() => setFocusedTaskId(null)}
+                onClick={() => {
+                  setFocusedTaskId(null);
+                  setAttachmentOpenError(null);
+                }}
               >
                 <div
                   className="w-full max-w-5xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-[24px] border border-slate-200/60 bg-slate-50 p-6 sm:p-10 shadow-2xl"
@@ -3062,13 +3067,33 @@ export function TaskList({
                     </div>
                     <button
                       type="button"
-                      onClick={() => setFocusedTaskId(null)}
+                      onClick={() => {
+                        setFocusedTaskId(null);
+                        setAttachmentOpenError(null);
+                      }}
                       className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 hover:shadow-sm transition-all"
                       aria-label="Close task modal"
                     >
                       <X className="h-5 w-5" />
                     </button>
                   </div>
+                  {attachmentOpenError && (
+                    <div className="fixed inset-0 z-[85] flex items-center justify-center p-4">
+                      <div className="w-full max-w-md rounded-xl border border-rose-200 bg-white px-4 py-3 shadow-xl">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="text-sm font-semibold text-rose-700">{attachmentOpenError}</p>
+                          <button
+                            type="button"
+                            onClick={() => setAttachmentOpenError(null)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                            aria-label="Dismiss attachment error"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="mt-8">
                     <h4 className="mb-5 flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">

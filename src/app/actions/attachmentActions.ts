@@ -215,7 +215,8 @@ export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
 
     if (!attachment) return { success: false, error: 'Attachment not found.' };
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll =
+      role === UserRole.ADMIN || role === UserRole.MANAGER || role === UserRole.LOA;
     const isAssignedToUser = attachment.task.assignedUserId === userId;
     const isAssignedToRole = attachment.task.assignedRole === role;
     const isLoanOwner =

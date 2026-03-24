@@ -1030,6 +1030,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         workflowState: true,
         disclosureReason: true,
         loanId: true,
+        submissionData: true,
       },
     });
     if (!task) return false;
@@ -1106,9 +1107,23 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       loan.loanOfficer?.active && loan.loanOfficer.email?.trim()
         ? loan.loanOfficer.email.trim().toLowerCase()
         : null;
-    const shouldSendLoanOfficerAudience =
-      Boolean(loanOfficerEmail) && !teamRecipientSet.has(loanOfficerEmail as string);
-    if (teamRecipientSet.size === 0 && !shouldSendLoanOfficerAudience) return false;
+    const submissionDataObj =
+      task.submissionData && typeof task.submissionData === 'object' && !Array.isArray(task.submissionData)
+        ? (task.submissionData as Record<string, unknown>)
+        : null;
+    const loaSubmitterEmailRaw = submissionDataObj?.loaSubmitterEmail;
+    const loaSubmitterEmail =
+      typeof loaSubmitterEmailRaw === 'string' && loaSubmitterEmailRaw.trim()
+        ? loaSubmitterEmailRaw.trim().toLowerCase()
+        : null;
+    const observerRecipientSet = new Set<string>();
+    if (loanOfficerEmail && !teamRecipientSet.has(loanOfficerEmail)) {
+      observerRecipientSet.add(loanOfficerEmail);
+    }
+    if (loaSubmitterEmail && !teamRecipientSet.has(loaSubmitterEmail)) {
+      observerRecipientSet.add(loaSubmitterEmail);
+    }
+    if (teamRecipientSet.size === 0 && observerRecipientSet.size === 0) return false;
 
     const portalBaseUrl = getPortalBaseUrl();
     const taskUrl = `${portalBaseUrl}/tasks?taskId=${encodeURIComponent(task.id)}`;
@@ -1203,8 +1218,8 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       teamAudience,
       Array.from(teamRecipientSet)
     );
-    if (loanOfficerEmail && shouldSendLoanOfficerAudience) {
-      await sendByAudience('LO', [loanOfficerEmail]);
+    if (observerRecipientSet.size > 0) {
+      await sendByAudience('LO', Array.from(observerRecipientSet));
     }
     return true;
   } catch (error) {
@@ -2222,6 +2237,16 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       };
       
       dataObj.notesHistory = [initialNote];
+      finalSubmissionData = dataObj as Prisma.JsonObject;
+    }
+    if (role === UserRole.LOA && session?.user?.email) {
+      const dataObj =
+        finalSubmissionData && typeof finalSubmissionData === 'object' && !Array.isArray(finalSubmissionData)
+          ? { ...(finalSubmissionData as Record<string, unknown>) }
+          : {};
+      dataObj.loaSubmitterEmail = session.user.email.trim().toLowerCase();
+      dataObj.loaSubmitterName = session.user.name || loanOfficerName || 'Loan Officer Assistant';
+      if (sessionUserId) dataObj.loaSubmitterId = sessionUserId;
       finalSubmissionData = dataObj as Prisma.JsonObject;
     }
 
