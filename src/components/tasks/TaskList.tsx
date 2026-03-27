@@ -2525,7 +2525,9 @@ export function TaskList({
           [];
         const vaOptionalNote = (vaNoteByTask[task.id] || '').trim();
         const requiresStartBeforeVaComplete =
-          isVaTaskKind(task.kind) && task.status === TaskStatus.PENDING;
+          isVaTaskKind(task.kind) &&
+          task.status === TaskStatus.PENDING &&
+          task.workflowState === TaskWorkflowState.NONE;
         const requiresProofForCompletion =
           isVaTaskKind(task.kind) ||
           isDisclosureSubmissionTask(task);
