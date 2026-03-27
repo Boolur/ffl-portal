@@ -3334,7 +3334,15 @@ export function TaskList({
 
                   {shouldShowProofUploader && (
                     <div className="relative mt-6">
-                    <div className="rounded-2xl border border-amber-200 bg-gradient-to-b from-amber-50/70 to-white p-5 shadow-sm">
+                    <div
+                      className={`rounded-2xl border bg-gradient-to-b to-white p-5 shadow-sm ${
+                        isVaRequiredProofBadge
+                          ? hasVaProofUploaded
+                            ? 'border-emerald-200 from-emerald-50/70'
+                            : 'border-rose-200 from-rose-50/70'
+                          : 'border-amber-200 from-amber-50/70'
+                      }`}
+                    >
                       {uploadStatusByTask[task.id] && (
                         <div
                           className={`mb-3 rounded-lg border px-3 py-2 text-xs font-semibold ${
@@ -4303,7 +4311,8 @@ export function TaskList({
                     <WorkedByTags summary={workedBySummary} className="mr-auto" />
                     {!isLoanOfficerAssistantRole &&
                       showDeskStartOverlay &&
-                      !isJrDeskStartLockTask && (
+                      !isJrDeskStartLockTask &&
+                      !isVaDeskStartLockTask && (
                       <button
                         type="button"
                         onClick={() => void handleStartDeskTask(task)}
