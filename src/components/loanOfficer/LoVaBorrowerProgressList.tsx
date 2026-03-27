@@ -1288,7 +1288,7 @@ export function LoVaBorrowerProgressList({
                   { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
                   { label: 'HOI', done: getJrDone('hoi') },
                   { label: 'VOE', done: getJrDone('voe') },
-                  { label: 'Underwriting', done: getJrDone('underwriting') },
+                  { label: 'Submit to UW', done: getJrDone('underwriting') },
                 ];
                 const vaRows = combinedRows.slice(0, 3);
                 const jrRows = combinedRows.slice(3, 6);
