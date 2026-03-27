@@ -1631,7 +1631,7 @@ function QcForm({
             )
           }
         />
-        <Select label="Title" value={form.titleCompany} onChange={(v) => update('titleCompany', v)} options={['Acrisure', 'Unisource', 'BCHH', 'ServiceLink']} required invalid={highlightedMissingFields.has('titleCompany')} />
+        <Select label="Title" value={form.titleCompany} onChange={(v) => update('titleCompany', v)} options={['Acrisure', 'Unisource', 'BCHH', 'ServiceLink', 'Other']} required invalid={highlightedMissingFields.has('titleCompany')} />
         <RadioGroup
           label="Appraisal Waiver"
           value={form.appraisalWaiver}
