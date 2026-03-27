@@ -1696,15 +1696,12 @@ export function TaskList({
 
   const updateJrChecklistRows = React.useCallback(
     (taskId: string, updater: (rows: JrChecklistDraftItem[]) => JrChecklistDraftItem[]) => {
-      let nextRows: JrChecklistDraftItem[] = [];
       setJrChecklistByTask((prev) => {
         const current = prev[taskId] ?? createDefaultJrChecklistRows();
-        nextRows = updater(current);
+        const nextRows = updater(current);
+        queueJrChecklistAutosave(taskId, nextRows);
         return { ...prev, [taskId]: nextRows };
       });
-      if (nextRows.length > 0) {
-        queueJrChecklistAutosave(taskId, nextRows);
-      }
     },
     [queueJrChecklistAutosave]
   );
@@ -3461,7 +3458,7 @@ export function TaskList({
                       <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
                         <div className="flex h-full items-center justify-center">
                           <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
-                            <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                            <p className={`text-base font-bold ${deskStartHeadingToneClass}`}>Start required</p>
                             <p className="mt-1 text-xs font-medium text-slate-600">
                               {deskStartOverlayMessage}
                             </p>
@@ -3569,7 +3566,7 @@ export function TaskList({
                         <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
                           <div className="flex h-full items-center justify-center">
                             <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
-                              <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                              <p className={`text-base font-bold ${deskStartHeadingToneClass}`}>Start required</p>
                               <p className="mt-1 text-xs font-medium text-slate-600">
                                 {deskStartOverlayMessage}
                               </p>
@@ -3713,7 +3710,7 @@ export function TaskList({
                         <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
                           <div className="flex h-full items-center justify-center">
                             <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
-                              <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                              <p className={`text-base font-bold ${deskStartHeadingToneClass}`}>Start required</p>
                               <p className="mt-1 text-xs font-medium text-slate-600">
                                 {deskStartOverlayMessage}
                               </p>
@@ -4032,7 +4029,7 @@ export function TaskList({
                         <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
                           <div className="flex h-full items-center justify-center">
                             <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
-                              <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                              <p className={`text-base font-bold ${deskStartHeadingToneClass}`}>Start required</p>
                               <p className="mt-1 text-xs font-medium text-slate-600">
                                 {deskStartOverlayMessage}
                               </p>
@@ -4242,7 +4239,7 @@ export function TaskList({
                         <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
                           <div className="flex h-full items-center justify-center">
                             <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
-                              <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                              <p className={`text-base font-bold ${deskStartHeadingToneClass}`}>Start required</p>
                               <p className="mt-1 text-xs font-medium text-slate-600">
                                 {deskStartOverlayMessage}
                               </p>
@@ -4293,7 +4290,9 @@ export function TaskList({
 
                   <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200/60 pt-6">
                     <WorkedByTags summary={workedBySummary} className="mr-auto" />
-                    {!isLoanOfficerAssistantRole && showDeskStartOverlay && (
+                    {!isLoanOfficerAssistantRole &&
+                      showDeskStartOverlay &&
+                      !isJrDeskStartLockTask && (
                       <button
                         type="button"
                         onClick={() => void handleStartDeskTask(task)}
