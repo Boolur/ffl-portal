@@ -3835,10 +3835,16 @@ export function TaskList({
                           const RowIcon = getJrChecklistHeadingIcon(row.id);
                           const statusMeta = getJrChecklistStatusPresentation(row.status);
                           const StatusIcon = getJrChecklistStatusIcon(row.status);
+                          const jrRowToneClassName =
+                            row.status === 'COMPLETED'
+                              ? 'border-emerald-200 bg-emerald-50/45'
+                              : row.status === 'ORDERED'
+                              ? 'border-yellow-200 bg-yellow-50/45'
+                              : 'border-rose-200 bg-rose-50/45';
                           return (
                           <div
                             key={row.id}
-                            className="rounded-xl border border-sky-100 bg-white px-3 py-2.5 shadow-sm"
+                            className={`rounded-xl border px-3 py-2.5 shadow-sm ${jrRowToneClassName}`}
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <p className="inline-flex items-center gap-2 text-base font-extrabold tracking-tight text-slate-900">
@@ -3856,13 +3862,18 @@ export function TaskList({
                             </div>
                             <select
                               value={row.status}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                const nextStatus = event.target.value as JrChecklistStatus;
+                                if (nextStatus === 'COMPLETED' && !proofAttachmentId) {
+                                  alert('Upload proof first before marking this item as Completed.');
+                                  return;
+                                }
                                 updateJrChecklistRow(
                                   task.id,
                                   row.id,
-                                  event.target.value as JrChecklistStatus
-                                )
-                              }
+                                  nextStatus
+                                );
+                              }}
                               disabled={isJrChecklistLocked}
                               className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                             >
