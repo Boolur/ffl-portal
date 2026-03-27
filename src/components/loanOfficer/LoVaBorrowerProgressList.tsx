@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ClipboardCheck,
   Calendar,
@@ -20,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
+import { respondToDisclosureRequest } from '@/app/actions/taskActions';
 import type { LoVaBorrowerProgressItem, VaChipState } from '@/lib/loVaProgress';
 import { getRoleBubbleClass } from '@/lib/roleColors';
 import {
@@ -75,6 +77,47 @@ function StatusChip({ label, state }: { label: string; state: VaChipState }) {
       {label}: {completed ? 'Completed' : 'Incomplete'}
     </span>
   );
+}
+
+function getVaStageStatusDisplay(state: VaChipState) {
+  if (state === 'completed') {
+    return {
+      panelClass: 'border-emerald-200 bg-emerald-50',
+      iconClass: 'bg-emerald-100 text-emerald-700',
+      pillClass: 'border-emerald-300 bg-emerald-100 text-emerald-800',
+      statusLabel: 'Completed',
+    };
+  }
+  if (state === 'waiting') {
+    return {
+      panelClass: 'border-amber-200 bg-amber-50',
+      iconClass: 'bg-amber-100 text-amber-700',
+      pillClass: 'border-amber-300 bg-amber-100 text-amber-800',
+      statusLabel: 'Pending LO Response',
+    };
+  }
+  if (state === 'review') {
+    return {
+      panelClass: 'border-sky-200 bg-sky-50',
+      iconClass: 'bg-sky-100 text-sky-700',
+      pillClass: 'border-sky-300 bg-sky-100 text-sky-800',
+      statusLabel: 'Ready to Complete',
+    };
+  }
+  if (state === 'working') {
+    return {
+      panelClass: 'border-blue-200 bg-blue-50',
+      iconClass: 'bg-blue-100 text-blue-700',
+      pillClass: 'border-blue-300 bg-blue-100 text-blue-800',
+      statusLabel: 'In Progress',
+    };
+  }
+  return {
+    panelClass: 'border-rose-200 bg-rose-50',
+    iconClass: 'bg-rose-100 text-rose-700',
+    pillClass: 'border-rose-300 bg-rose-100 text-rose-800',
+    statusLabel: 'Incomplete',
+  };
 }
 
 function formatCompactDateTime(value: Date) {
@@ -570,11 +613,14 @@ export function LoVaBorrowerProgressList({
   items,
   className,
   mode = 'all',
+  currentRole,
 }: {
   items: LoVaBorrowerProgressItem[];
   className?: string;
   mode?: 'all' | 'completed_only';
+  currentRole?: UserRole;
 }) {
+  const router = useRouter();
   const completedOnlyMode = mode === 'completed_only';
   const [focusedItemKey, setFocusedItemKey] = React.useState<string | null>(null);
   const [focusedQueue, setFocusedQueue] = React.useState<'va' | 'jr' | 'completed'>('va');
@@ -603,6 +649,15 @@ export function LoVaBorrowerProgressList({
       fallbackActors: Array<{ name: string; role: UserRole | null }>;
     }>;
   } | null>(null);
+  const [loResponseDraftByTaskId, setLoResponseDraftByTaskId] = React.useState<
+    Record<string, string>
+  >({});
+  const [submittingLoResponseTaskId, setSubmittingLoResponseTaskId] = React.useState<string | null>(
+    null
+  );
+  const [loResponseErrorByTaskId, setLoResponseErrorByTaskId] = React.useState<
+    Record<string, string | null>
+  >({});
   const focusedItem =
     focusedItemKey === null
       ? null
@@ -699,6 +754,34 @@ export function LoVaBorrowerProgressList({
     window.open(result.url, '_blank', 'noopener,noreferrer');
     setOpeningAttachmentId(null);
   };
+
+  const submitLoResponseForVa = React.useCallback(
+    async (actionTaskId: string) => {
+      const response = (loResponseDraftByTaskId[actionTaskId] || '').trim();
+      if (!response) {
+        setLoResponseErrorByTaskId((prev) => ({
+          ...prev,
+          [actionTaskId]: 'Please add a response note before sending back to VA.',
+        }));
+        return;
+      }
+      setSubmittingLoResponseTaskId(actionTaskId);
+      const result = await respondToDisclosureRequest(actionTaskId, response);
+      if (!result.success) {
+        setLoResponseErrorByTaskId((prev) => ({
+          ...prev,
+          [actionTaskId]: result.error || 'Failed to submit LO response.',
+        }));
+        setSubmittingLoResponseTaskId(null);
+        return;
+      }
+      setLoResponseErrorByTaskId((prev) => ({ ...prev, [actionTaskId]: null }));
+      setLoResponseDraftByTaskId((prev) => ({ ...prev, [actionTaskId]: '' }));
+      router.refresh();
+      setSubmittingLoResponseTaskId(null);
+    },
+    [loResponseDraftByTaskId, router]
+  );
 
   React.useEffect(() => {
     setExpandedStageNotes(new Set());
@@ -807,9 +890,9 @@ export function LoVaBorrowerProgressList({
                     ? 'working'
                     : 'not_started';
                 const vaStatusPills = [
-                  { label: 'Title', done: item.vaStageDetails.title.completed },
-                  { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
-                  { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
+                  { label: 'Title', state: item.vaChips.title },
+                  { label: 'Payoff', state: item.vaChips.payoff },
+                  { label: 'Appraisal', state: item.vaChips.appraisal },
                 ];
                 return (
                 <article
@@ -862,19 +945,18 @@ export function LoVaBorrowerProgressList({
                         </div>
                         <div className="inline-flex items-start gap-1.5 shrink-0">
                           <div className="flex max-w-[230px] flex-wrap justify-end gap-1">
-                            {vaStatusPills.map((row) => (
+                            {vaStatusPills.map((row) => {
+                              const statusDisplay = getVaStageStatusDisplay(row.state);
+                              return (
                               <span
                                 key={row.label}
-                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                                  row.done
-                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                    : 'border-rose-300 bg-rose-100 text-rose-800'
-                                }`}
-                                title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
+                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusDisplay.pillClass}`}
+                                title={`${row.label}: ${statusDisplay.statusLabel}`}
                               >
                                 {row.label}
                               </span>
-                            ))}
+                              );
+                            })}
                           </div>
                           <button
                             type="button"
@@ -1441,23 +1523,32 @@ export function LoVaBorrowerProgressList({
                       detail.completed,
                       timerNowMs
                     );
+                    const stageState = focusedItem.vaChips[key];
+                    const stageDisplay = getVaStageStatusDisplay(stageState);
+                    const appraisalActionTaskId = focusedItem.actionTaskId;
+                    const canLoRespondToAppraisal =
+                      key === 'appraisal' &&
+                      stageState === 'waiting' &&
+                      currentRole === UserRole.LOAN_OFFICER &&
+                      Boolean(appraisalActionTaskId);
+                    const appraisalResponseValue = appraisalActionTaskId
+                      ? loResponseDraftByTaskId[appraisalActionTaskId] || ''
+                      : '';
+                    const appraisalResponseError = appraisalActionTaskId
+                      ? loResponseErrorByTaskId[appraisalActionTaskId]
+                      : null;
+                    const appraisalResponseLoading =
+                      Boolean(appraisalActionTaskId) &&
+                      submittingLoResponseTaskId === appraisalActionTaskId;
                     return (
                       <div
                         key={label}
-                        className={`rounded-xl border p-3.5 ${
-                          detail.completed
-                            ? 'border-emerald-200 bg-emerald-50'
-                            : 'border-rose-200 bg-rose-50'
-                        }`}
+                        className={`rounded-xl border p-3.5 ${stageDisplay.panelClass}`}
                       >
                         <div className="flex items-center justify-between gap-3">
                           <span className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight text-slate-900">
                             <span
-                              className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${
-                                detail.completed
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-rose-100 text-rose-700'
-                              }`}
+                              className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${stageDisplay.iconClass}`}
                             >
                               <Icon className="h-3.5 w-3.5" />
                             </span>
@@ -1480,13 +1571,9 @@ export function LoVaBorrowerProgressList({
                               </span>
                             )}
                             <span
-                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
-                                detail.completed
-                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                  : 'border-rose-300 bg-rose-100 text-rose-800'
-                              }`}
+                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${stageDisplay.pillClass}`}
                             >
-                              {detail.completed ? 'Completed' : 'Incomplete'}
+                              {stageDisplay.statusLabel}
                             </span>
                             <button
                               type="button"
@@ -1583,6 +1670,47 @@ export function LoVaBorrowerProgressList({
                                 </>
                               )}
                             </div>
+                            {canLoRespondToAppraisal && appraisalActionTaskId && (
+                              <div className="mt-2 rounded-lg border border-amber-200 bg-white/90 px-3 py-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">
+                                    Loan Officer Response Needed
+                                  </p>
+                                </div>
+                                <textarea
+                                  value={appraisalResponseValue}
+                                  onChange={(event) =>
+                                    setLoResponseDraftByTaskId((prev) => ({
+                                      ...prev,
+                                      [appraisalActionTaskId]: event.target.value,
+                                    }))
+                                  }
+                                  rows={3}
+                                  placeholder="Add your response for the VA Appraisal request..."
+                                  className="mt-2 w-full resize-y rounded-md border border-amber-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-300"
+                                />
+                                {appraisalResponseError ? (
+                                  <p className="mt-2 text-xs font-semibold text-rose-700">
+                                    {appraisalResponseError}
+                                  </p>
+                                ) : null}
+                                <div className="mt-2 flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => void submitLoResponseForVa(appraisalActionTaskId)}
+                                    disabled={appraisalResponseLoading}
+                                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-300 bg-amber-100 px-3 text-xs font-bold text-amber-800 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {appraisalResponseLoading ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <FileText className="h-3.5 w-3.5" />
+                                    )}
+                                    Respond to VA
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </>
                         )}
                       </div>

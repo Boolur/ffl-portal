@@ -979,10 +979,10 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
           />
           {sessionRole === UserRole.LOAN_OFFICER && showLoVaPilot && (
-            <LoVaBorrowerProgressList items={loVaProgressItems} />
+            <LoVaBorrowerProgressList items={loVaProgressItems} currentRole={sessionRole} />
           )}
           {sessionRole === UserRole.LOA && (
-            <LoVaBorrowerProgressList items={loaVaProgressItems} />
+            <LoVaBorrowerProgressList items={loaVaProgressItems} currentRole={sessionRole} />
           )}
           {sessionRole === UserRole.MANAGER && managerVaRows && (
             <>
@@ -1050,6 +1050,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 items={managerLoVaProgressItems}
                 mode="completed_only"
                 className="pt-1"
+                currentRole={sessionRole}
               />
             </>
           )}

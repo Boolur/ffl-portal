@@ -566,7 +566,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
 
     if (isOpenAppraisalParent || isOpenAppraisalChildResponse) {
       existing.appraisalNeedsLoResponse = true;
-      if (!existing.appraisalActionTaskId || isOpenAppraisalChildResponse) {
+      if (isOpenAppraisalChildResponse) {
         existing.appraisalActionTaskId = task.id;
       }
     }

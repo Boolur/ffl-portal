@@ -128,7 +128,6 @@ type TimelineItem = {
 
 type ContributorSummary = {
   visibleContributors: Array<{ name: string; role: UserRole | null }>;
-  overflowCount: number;
 };
 
 type QcChecklistStatus = 'GREEN_CHECK' | 'RED_X' | 'YELLOW';
@@ -486,10 +485,8 @@ function injectLoanOfficerContributor(
     ...existing,
   ];
 
-  const totalCount = contributors.length + (summary?.overflowCount ?? 0);
   return {
-    visibleContributors: contributors.slice(0, 2),
-    overflowCount: Math.max(0, totalCount - 2),
+    visibleContributors: contributors,
   };
 }
 
@@ -511,10 +508,8 @@ function injectAssignedContributor(
     ...existing,
   ];
 
-  const totalCount = contributors.length + (summary?.overflowCount ?? 0);
   return {
-    visibleContributors: contributors.slice(0, 2),
-    overflowCount: Math.max(0, totalCount - 2),
+    visibleContributors: contributors,
   };
 }
 
@@ -1402,8 +1397,7 @@ function getContributorSummaryFromSubmissionData(
   if (uniqueContributors.length === 0) return null;
 
   return {
-    visibleContributors: uniqueContributors.slice(0, 2),
-    overflowCount: Math.max(0, uniqueContributors.length - 2),
+    visibleContributors: uniqueContributors,
   };
 }
 
@@ -1442,14 +1436,6 @@ function WorkedByTags({
           <span className="truncate">{contributor.name}</span>
         </span>
       ))}
-      {summary.overflowCount > 0 && (
-        <span
-          className={`inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 font-semibold text-indigo-700 ${chipSize}`}
-          title={`${summary.overflowCount} more contributor${summary.overflowCount === 1 ? '' : 's'}`}
-        >
-          +{summary.overflowCount} more
-        </span>
-      )}
     </div>
   );
 }
