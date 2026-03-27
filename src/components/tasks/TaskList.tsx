@@ -2608,8 +2608,10 @@ export function TaskList({
               isQcSubmissionTask(task) &&
               task.workflowState === TaskWorkflowState.READY_TO_COMPLETE) ||
             (canManageVaDesk &&
-              task.kind === TaskKind.VA_APPRAISAL &&
-              task.workflowState === TaskWorkflowState.READY_TO_COMPLETE));
+              isVaTaskKind(task.kind) &&
+              task.kind !== TaskKind.VA_HOI &&
+              (task.workflowState === TaskWorkflowState.READY_TO_COMPLETE ||
+                task.workflowState === TaskWorkflowState.NONE)));
         const shouldShowProofUploader =
           task.status !== 'COMPLETED' &&
           (task.status !== TaskStatus.PENDING || allowProofUploaderWhilePending) &&
@@ -2672,6 +2674,11 @@ export function TaskList({
             isQcDeskStartLockTask ||
             isVaDeskStartLockTask ||
             isJrDeskStartLockTask);
+        const showVaProofStartOverlay =
+          showDeskStartOverlay &&
+          isVaDeskStartLockTask &&
+          task.kind !== TaskKind.VA_APPRAISAL &&
+          shouldShowProofUploader;
         const deskStartLockedByAnother =
           showDeskStartOverlay &&
           hasAssignedSpecialist &&
@@ -2738,6 +2745,14 @@ export function TaskList({
         const noteHistoryEntries = parseNoteHistory(
           parsedSubmissionData as Record<string, unknown> | null
         );
+        const vaLoResponseEntries = noteHistoryEntries
+          .filter(
+            (entry) =>
+              entry.role === UserRole.LOAN_OFFICER && Boolean(entry.message && entry.message.trim())
+          )
+          .sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
         const workedBySummary = injectLoanOfficerContributor(
           injectAssignedContributor(
             getContributorSummaryFromSubmissionData(
@@ -3313,7 +3328,8 @@ export function TaskList({
                   )}
 
                   {shouldShowProofUploader && (
-                    <div className="mt-6 rounded-2xl border border-amber-200 bg-gradient-to-b from-amber-50/70 to-white p-5 shadow-sm">
+                    <div className="relative mt-6">
+                    <div className="rounded-2xl border border-amber-200 bg-gradient-to-b from-amber-50/70 to-white p-5 shadow-sm">
                       {uploadStatusByTask[task.id] && (
                         <div
                           className={`mb-3 rounded-lg border px-3 py-2 text-xs font-semibold ${
@@ -3432,6 +3448,32 @@ export function TaskList({
                           ))}
                         </div>
                       )}
+                    </div>
+                    {showVaProofStartOverlay && (
+                      <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
+                        <div className="flex h-full items-center justify-center">
+                          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                            <p className={`text-sm font-semibold ${deskStartHeadingToneClass}`}>Start required</p>
+                            <p className="mt-1 text-xs font-medium text-slate-600">
+                              {deskStartOverlayMessage}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => void handleStartDeskTask(task)}
+                              disabled={deskStartLockedByAnother || isDeskTaskActionStarting}
+                              className={`mt-4 inline-flex h-9 items-center rounded-lg border bg-white px-4 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${deskStartButtonToneClass}`}
+                            >
+                              {isDeskTaskActionStarting && (
+                                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                              )}
+                              {deskStartLockedByAnother
+                                ? `Started by ${assignedSpecialistName || 'another specialist'}`
+                                : deskStartLabel}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     </div>
                   )}
                   {isDisclosureMissingItemsRoute && (
@@ -3691,6 +3733,32 @@ export function TaskList({
                     isVaTaskKind(task.kind) &&
                     task.kind !== TaskKind.VA_HOI &&
                     task.status !== TaskStatus.COMPLETED && (
+                      <>
+                      {vaLoResponseEntries.length > 0 && (
+                        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4 shadow-sm space-y-2">
+                          <label className="text-[11px] font-bold uppercase tracking-widest text-amber-700">
+                            Loan Officer Responses
+                          </label>
+                          <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                            {vaLoResponseEntries.map((entry, index) => (
+                              <div
+                                key={`${entry.date}-${entry.author}-${index}`}
+                                className="rounded-lg border border-amber-200 bg-white px-3 py-2"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-bold text-slate-800">{entry.author}</p>
+                                  <p className="text-[11px] font-medium text-slate-500">
+                                    {formatCompactDateTime(entry.date)}
+                                  </p>
+                                </div>
+                                <p className="mt-1 whitespace-pre-wrap text-xs font-medium text-slate-700">
+                                  {entry.message}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4 shadow-sm space-y-2">
                         <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
                           Optional VA Notes
@@ -3710,6 +3778,7 @@ export function TaskList({
                           Saved to task history when you complete this request.
                         </p>
                       </div>
+                      </>
                     )}
 
                   {canManageJrChecklist && (
