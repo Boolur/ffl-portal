@@ -696,17 +696,49 @@ function getGroupedSubmissionDetails(
 }
 
 function getVaSubmissionDetails(groups: SubmissionDetailGroup[]): SubmissionDetailGroup[] {
+  const hiddenVaKeys = new Set([
+    'notes',
+    'notesHistory',
+    'lifecycleHistory',
+    'qcChecklist',
+    'jrChecklist',
+    'loaSubmitterEmail',
+    'loaSubmitterName',
+    'loaSubmitterId',
+  ]);
   return groups
     .map((group) => ({
       ...group,
-      rows: group.rows.filter((row) => row.key !== 'notes'),
+      rows: group.rows.filter((row) => !hiddenVaKeys.has(row.key)),
     }))
     .filter(
       (group) =>
         group.rows.length > 0 &&
-        group.title !== 'Loan Officer & Notes' &&
-        group.title !== 'Additional Details'
+        group.title !== 'Loan Officer & Notes'
     );
+}
+
+function isVaTimelineRole(role: UserRole | null) {
+  return (
+    role === UserRole.VA ||
+    role === UserRole.VA_TITLE ||
+    role === UserRole.VA_PAYOFF ||
+    role === UserRole.VA_APPRAISAL ||
+    role === UserRole.PROCESSOR_JR
+  );
+}
+
+function getVaSafeTimelineItems(items: TimelineItem[]): TimelineItem[] {
+  return items.filter((item) => {
+    if (item.type === 'attachment') {
+      // VA lanes care about proof artifacts they/JR uploaded while working the request.
+      return item.attachmentPurpose === TaskAttachmentPurpose.PROOF;
+    }
+    if (item.noteEntryType === 'jrChecklist') {
+      return true;
+    }
+    return isVaTimelineRole(item.actorRole);
+  });
 }
 
 function getWorkflowChip(
@@ -2799,6 +2831,9 @@ export function TaskList({
           (a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
+        const visibleTimelineItems = isVaSubmissionView
+          ? getVaSafeTimelineItems(timelineItems)
+          : timelineItems;
         const normalizedAssignedRole =
           typeof task.assignedRole === 'string' &&
           (Object.values(UserRole) as string[]).includes(task.assignedRole)
@@ -3179,7 +3214,7 @@ export function TaskList({
                     )}
                   </div>
 
-                  {!isVaSubmissionView && timelineItems.length > 0 && (
+                  {visibleTimelineItems.length > 0 && (
                     <div className="mt-8">
                       <div className="mb-5 flex items-center justify-between">
                         <h4 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
@@ -3189,11 +3224,11 @@ export function TaskList({
                           Notes & Attachments
                         </h4>
                         <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
-                          {timelineItems.length} update{timelineItems.length === 1 ? '' : 's'}
+                          {visibleTimelineItems.length} update{visibleTimelineItems.length === 1 ? '' : 's'}
                         </span>
                       </div>
                       <div className="space-y-3">
-                        {timelineItems.map((item) => {
+                        {visibleTimelineItems.map((item) => {
                           const purposeMeta =
                             item.type === 'attachment' && item.attachmentPurpose
                               ? getAttachmentPurposeMeta(item.attachmentPurpose)
