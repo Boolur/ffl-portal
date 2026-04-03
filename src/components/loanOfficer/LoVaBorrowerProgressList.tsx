@@ -1525,21 +1525,22 @@ export function LoVaBorrowerProgressList({
                     );
                     const stageState = focusedItem.vaChips[key];
                     const stageDisplay = getVaStageStatusDisplay(stageState);
-                    const appraisalActionTaskId = focusedItem.actionTaskId;
-                    const canLoRespondToAppraisal =
-                      key === 'appraisal' &&
+                    const vaResponseActionTaskId = focusedItem.actionTaskId;
+                    const canLoRespondToVa =
+                      (key === 'appraisal' || key === 'payoff') &&
                       stageState === 'waiting' &&
                       currentRole === UserRole.LOAN_OFFICER &&
-                      Boolean(appraisalActionTaskId);
-                    const appraisalResponseValue = appraisalActionTaskId
-                      ? loResponseDraftByTaskId[appraisalActionTaskId] || ''
+                      Boolean(vaResponseActionTaskId);
+                    const vaResponseValue = vaResponseActionTaskId
+                      ? loResponseDraftByTaskId[vaResponseActionTaskId] || ''
                       : '';
-                    const appraisalResponseError = appraisalActionTaskId
-                      ? loResponseErrorByTaskId[appraisalActionTaskId]
+                    const vaResponseError = vaResponseActionTaskId
+                      ? loResponseErrorByTaskId[vaResponseActionTaskId]
                       : null;
-                    const appraisalResponseLoading =
-                      Boolean(appraisalActionTaskId) &&
-                      submittingLoResponseTaskId === appraisalActionTaskId;
+                    const vaResponseLoading =
+                      Boolean(vaResponseActionTaskId) &&
+                      submittingLoResponseTaskId === vaResponseActionTaskId;
+                    const vaResponseTaskLabel = key === 'payoff' ? 'Payoff' : 'Appraisal';
                     return (
                       <div
                         key={label}
@@ -1670,7 +1671,7 @@ export function LoVaBorrowerProgressList({
                                 </>
                               )}
                             </div>
-                            {canLoRespondToAppraisal && appraisalActionTaskId && (
+                            {canLoRespondToVa && vaResponseActionTaskId && (
                               <div className="mt-2 rounded-lg border border-amber-200 bg-white/90 px-3 py-3">
                                 <div className="flex items-center justify-between gap-2">
                                   <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">
@@ -1678,30 +1679,30 @@ export function LoVaBorrowerProgressList({
                                   </p>
                                 </div>
                                 <textarea
-                                  value={appraisalResponseValue}
+                                  value={vaResponseValue}
                                   onChange={(event) =>
                                     setLoResponseDraftByTaskId((prev) => ({
                                       ...prev,
-                                      [appraisalActionTaskId]: event.target.value,
+                                      [vaResponseActionTaskId]: event.target.value,
                                     }))
                                   }
                                   rows={3}
-                                  placeholder="Add your response for the VA Appraisal request..."
+                                  placeholder={`Add your response for the VA ${vaResponseTaskLabel} request...`}
                                   className="mt-2 w-full resize-y rounded-md border border-amber-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-300"
                                 />
-                                {appraisalResponseError ? (
+                                {vaResponseError ? (
                                   <p className="mt-2 text-xs font-semibold text-rose-700">
-                                    {appraisalResponseError}
+                                    {vaResponseError}
                                   </p>
                                 ) : null}
                                 <div className="mt-2 flex justify-end">
                                   <button
                                     type="button"
-                                    onClick={() => void submitLoResponseForVa(appraisalActionTaskId)}
-                                    disabled={appraisalResponseLoading}
+                                    onClick={() => void submitLoResponseForVa(vaResponseActionTaskId)}
+                                    disabled={vaResponseLoading}
                                     className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-300 bg-amber-100 px-3 text-xs font-bold text-amber-800 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
                                   >
-                                    {appraisalResponseLoading ? (
+                                    {vaResponseLoading ? (
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                     ) : (
                                       <FileText className="h-3.5 w-3.5" />

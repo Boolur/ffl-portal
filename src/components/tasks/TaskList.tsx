@@ -2207,15 +2207,16 @@ export function TaskList({
 
   const handleSendToLoanOfficer = async (task: Task) => {
     if (sendingToLoId) return;
-    const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
-    const reason = isVaAppraisalTask
+    const isVaRouteTask =
+      task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF;
+    const reason = isVaRouteTask
       ? disclosureReasonByTask[task.id] || DisclosureDecisionReason.MISSING_ITEMS
       : disclosureReasonByTask[task.id] ||
         DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
     const message = (disclosureMessageByTask[task.id] || '').trim();
     const vaOptionalNote = (vaNoteByTask[task.id] || '').trim();
     const messageWithVaNote =
-      isVaAppraisalTask && vaOptionalNote
+      isVaRouteTask && vaOptionalNote
         ? `${message}${message ? '\n\n' : ''}VA Note: ${vaOptionalNote}`
         : message;
     const isQcTask = task.kind === TaskKind.SUBMIT_QC;
@@ -2560,15 +2561,17 @@ export function TaskList({
         const requiresProofForCompletion =
           isVaTaskKind(task.kind) ||
           isDisclosureSubmissionTask(task);
-        const isVaAppraisalWaitingOnLoState =
+        const isVaLoResponseRouteTask =
+          task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF;
+        const isVaWaitingOnLoState =
           canManageVaDesk &&
-          task.kind === TaskKind.VA_APPRAISAL &&
+          isVaLoResponseRouteTask &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.WAITING_ON_LO;
         const canCompleteTask =
           (!requiresProofForCompletion || proofCount > 0) &&
           !requiresStartBeforeVaComplete &&
-          !isVaAppraisalWaitingOnLoState &&
+          !isVaWaitingOnLoState &&
           !jrChecklistBlocksCompletion;
         const isLoTaskForCurrentLoanOfficer =
           currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
@@ -2582,8 +2585,14 @@ export function TaskList({
           isLoResponseTask(task) &&
           Boolean(task.parentTask) &&
           task.parentTask?.kind === TaskKind.VA_APPRAISAL;
+        const isVaPayoffLinkedLoResponseTask =
+          isLoResponseTask(task) &&
+          Boolean(task.parentTask) &&
+          task.parentTask?.kind === TaskKind.VA_PAYOFF;
         const loResponseDeskLabel = isVaAppraisalLinkedLoResponseTask
           ? 'Appraisal VA'
+          : isVaPayoffLinkedLoResponseTask
+          ? 'Payoff VA'
           : isQcLinkedLoResponseTask
           ? 'QC'
           : 'Disclosure';
@@ -2606,25 +2615,27 @@ export function TaskList({
           task.workflowState === TaskWorkflowState.READY_TO_COMPLETE;
         const shouldHideGenericStartForDisclosureSubmission =
           canManageDisclosureDesk && isDisclosureSubmissionTask(task);
-        const isVaAppraisalRouteState =
+        const isVaRouteState =
           canManageVaDesk &&
-          task.kind === TaskKind.VA_APPRAISAL &&
+          isVaLoResponseRouteTask &&
           task.status !== TaskStatus.COMPLETED &&
           (task.status === TaskStatus.PENDING ||
             task.status === TaskStatus.IN_PROGRESS ||
             task.workflowState === TaskWorkflowState.READY_TO_COMPLETE);
-        const isVaAppraisalMissingItemsAction =
-          isVaAppraisalRouteState &&
+        const vaRouteTaskLabel = task.kind === TaskKind.VA_PAYOFF ? 'Payoff' : 'Appraisal';
+        const vaRouteTaskLabelLower = vaRouteTaskLabel.toLowerCase();
+        const isVaMissingItemsAction =
+          isVaRouteState &&
           selectedVaReason === DisclosureDecisionReason.MISSING_ITEMS;
-        const isVaAppraisalCompleteAction =
-          isVaAppraisalRouteState &&
+        const isVaCompleteAction =
+          isVaRouteState &&
           selectedVaReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const shouldRouteFromFooter =
           task.status !== TaskStatus.COMPLETED &&
           ((isDisclosureInitialRoutingState ||
             isDisclosureReturnedRoutingState) ||
             (canManageQcDesk && isQcSubmissionTask(task)) ||
-            (isVaAppraisalRouteState &&
+            (isVaRouteState &&
               (task.status !== TaskStatus.PENDING ||
                 task.workflowState === TaskWorkflowState.READY_TO_COMPLETE)));
         const isDisclosureMissingItemsRoute =
@@ -2653,7 +2664,7 @@ export function TaskList({
             (canEditProofAttachments && !isDisclosureMissingItemsRoute) ||
             (canManageQcDesk && isQcSubmissionTask(task)));
         const isQcAttachmentSection = canManageQcDesk && isQcSubmissionTask(task);
-        const isVaMissingItemsNoProofFlow = isVaAppraisalMissingItemsAction;
+        const isVaMissingItemsNoProofFlow = isVaMissingItemsAction;
         const isVaAttachmentSection = canManageVaDesk && isVaTaskKind(task.kind);
         const isVaRequiredProofBadge =
           isVaAttachmentSection && !isVaMissingItemsNoProofFlow && !isQcAttachmentSection;
@@ -2673,7 +2684,7 @@ export function TaskList({
           (canManageQcDesk &&
             isQcSubmissionTask(task) &&
             selectedQcReason === DisclosureDecisionReason.MISSING_ITEMS) ||
-          isVaAppraisalMissingItemsAction;
+          isVaMissingItemsAction;
         const shouldLoRespondFromFooter =
           isLoTaskForCurrentLoanOfficer && task.status !== TaskStatus.COMPLETED;
         const assignedSpecialistName = task.assignedUser?.name?.trim() || '';
@@ -3633,11 +3644,11 @@ export function TaskList({
                     </div>
                   )}
 
-                  {isVaAppraisalRouteState && (
+                  {isVaRouteState && (
                     <div className="relative mt-8">
                       <div
                       className={`rounded-2xl border p-6 shadow-sm space-y-4 ${
-                        isVaAppraisalCompleteAction
+                        isVaCompleteAction
                           ? 'border-emerald-200 bg-gradient-to-b from-emerald-50/80 to-white'
                           : 'border-amber-200 bg-gradient-to-b from-amber-50/80 to-white'
                       }`}
@@ -3646,7 +3657,7 @@ export function TaskList({
                         <div className="flex items-center gap-3">
                           <div
                             className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                              isVaAppraisalCompleteAction
+                              isVaCompleteAction
                                 ? 'bg-emerald-100 text-emerald-700'
                                 : 'bg-amber-100 text-amber-700'
                             }`}
@@ -3656,16 +3667,16 @@ export function TaskList({
                           <div>
                             <h4
                               className={`text-sm font-bold ${
-                                isVaAppraisalCompleteAction
+                                isVaCompleteAction
                                   ? 'text-emerald-900'
                                   : 'text-amber-900'
                               }`}
                             >
-                              Appraisal VA Action
+                              {vaRouteTaskLabel} VA Action
                             </h4>
                             <p
                               className={`text-xs font-medium ${
-                                isVaAppraisalCompleteAction
+                                isVaCompleteAction
                                   ? 'text-emerald-800/80'
                                   : 'text-amber-800/80'
                               }`}
@@ -3677,12 +3688,12 @@ export function TaskList({
                         </div>
                         <span
                           className={`inline-flex items-center rounded-full border bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
-                            isVaAppraisalCompleteAction
+                            isVaCompleteAction
                               ? 'border-emerald-200 text-emerald-700'
                               : 'border-amber-200 text-amber-700'
                           }`}
                         >
-                          {isVaAppraisalCompleteAction ? 'Complete Request' : 'Required Note'}
+                          {isVaCompleteAction ? 'Complete Request' : 'Required Note'}
                         </span>
                       </div>
                       <div className="space-y-2">
@@ -3698,7 +3709,7 @@ export function TaskList({
                             }))
                           }
                           className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-semibold shadow-sm ${
-                            isVaAppraisalCompleteAction
+                            isVaCompleteAction
                               ? 'border-emerald-200 text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
                               : 'border-amber-200 text-amber-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
                           }`}
@@ -3711,7 +3722,7 @@ export function TaskList({
                           </option>
                         </select>
                       </div>
-                      {!isVaAppraisalCompleteAction && (
+                      {!isVaCompleteAction && (
                         <div className="space-y-2">
                         <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
                           LO Context / Notes
@@ -3731,20 +3742,20 @@ export function TaskList({
                       )}
                       <div
                         className={`rounded-lg border bg-white px-3 py-2 ${
-                          isVaAppraisalCompleteAction
+                          isVaCompleteAction
                             ? 'border-emerald-200'
                             : 'border-amber-200'
                         }`}
                       >
                         <p
                           className={`text-xs font-semibold ${
-                            isVaAppraisalCompleteAction
+                            isVaCompleteAction
                               ? 'text-emerald-700'
                               : 'text-amber-700'
                           }`}
                         >
-                          {isVaAppraisalCompleteAction
-                            ? 'Use the bottom action bar to complete this appraisal request.'
+                          {isVaCompleteAction
+                            ? `Use the bottom action bar to complete this ${vaRouteTaskLabelLower} request.`
                             : 'Use the bottom action bar to send this request back to LO.'}
                         </p>
                       </div>
@@ -4385,11 +4396,11 @@ export function TaskList({
                       !isLoTaskForCurrentLoanOfficer &&
                       task.status !== 'COMPLETED' &&
                       !isDisclosureInitialRoutingState &&
-                      !isVaAppraisalRouteState &&
+                      !isVaRouteState &&
                       !(
                         shouldRouteFromFooter &&
                         !isDisclosureReturnedRoutingState &&
-                        !isVaAppraisalRouteState
+                        !isVaRouteState
                       ) &&
                       !isLoanOfficerSubmissionTask && (
                       <button
@@ -4429,14 +4440,16 @@ export function TaskList({
                     {!isLoanOfficerAssistantRole && shouldRouteFromFooter && (
                       (() => {
                         const isQcRouteTask = isQcSubmissionTask(task);
-                        const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
+                        const isVaRouteTask =
+                          task.kind === TaskKind.VA_APPRAISAL ||
+                          task.kind === TaskKind.VA_PAYOFF;
                         const disableRouteButton =
                           isTaskActionLocked ||
                           showDeskStartOverlay ||
                           sendingToLoId === task.id ||
                           (requiresProofForRouting && proofCount < 1) ||
-                          (isVaAppraisalTask
-                            ? isVaAppraisalMissingItemsAction
+                          (isVaRouteTask
+                            ? isVaMissingItemsAction
                               ? !disclosureFooterMessage
                               : !canCompleteTask
                             : false) ||
@@ -4445,11 +4458,11 @@ export function TaskList({
                               qcChecklistBlocksCompleteAction ||
                               qcChecklistBlocksMissingItemsAction ||
                               qcGeneralNotesMissing
-                            : isVaAppraisalTask
+                            : isVaRouteTask
                             ? false
                             : !disclosureFooterMessage);
-                        if (isVaAppraisalTask && isVaAppraisalCompleteAction) {
-                          const appraisalCompleteLabel = !canCompleteTask
+                        if (isVaRouteTask && isVaCompleteAction) {
+                          const vaCompleteLabel = !canCompleteTask
                             ? requiresStartBeforeVaComplete
                               ? 'Start First'
                               : 'Upload Proof First'
@@ -4468,7 +4481,7 @@ export function TaskList({
                               {updatingId === task.id && (
                                 <Loader2 className="w-4 h-4 animate-spin" />
                               )}
-                              {updatingId === task.id ? 'Saving...' : appraisalCompleteLabel}
+                              {updatingId === task.id ? 'Saving...' : vaCompleteLabel}
                             </button>
                           );
                         }
@@ -4495,7 +4508,7 @@ export function TaskList({
                             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
                             ? 'Send to LO for Approval'
                             : 'Send Back to LO'
-                          : task.kind === TaskKind.VA_APPRAISAL
+                          : isVaRouteTask
                           ? 'Send Back to LO'
                           : selectedQcReason ===
                             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES

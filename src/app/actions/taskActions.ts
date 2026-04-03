@@ -2983,11 +2983,13 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       },
     });
 
-    const isVaAppraisalTask = task.kind === TaskKind.VA_APPRAISAL;
-    if (!isSubmissionTask(task) && !isVaAppraisalTask) {
+    const isVaLoResponseTask =
+      task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF;
+    if (!isSubmissionTask(task) && !isVaLoResponseTask) {
       return {
         success: false,
-        error: 'This action is only supported for disclosure/QC submissions and VA Appraisal tasks.',
+        error:
+          'This action is only supported for disclosure/QC submissions and VA Appraisal/Payoff tasks.',
       };
     }
     if (!canBypassDeskStartLock(role) && isStartLockedDeskTask(task)) {
@@ -3059,10 +3061,11 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       }
     }
 
-    if (isVaAppraisalTask && normalizedReason !== DisclosureDecisionReason.MISSING_ITEMS) {
+    if (isVaLoResponseTask && normalizedReason !== DisclosureDecisionReason.MISSING_ITEMS) {
       return {
         success: false,
-        error: 'VA Appraisal can only send Missing/Incomplete items back to LO.',
+        error:
+          'VA Appraisal and Payoff can only send Missing/Incomplete items back to LO.',
       };
     }
 

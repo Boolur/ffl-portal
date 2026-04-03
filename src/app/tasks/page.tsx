@@ -66,6 +66,10 @@ type TaskBucketFilter =
   | 'qc-completed-requests'
   | 'va-new-request'
   | 'va-completed-requests'
+  | 'va-payoff-new'
+  | 'va-payoff-waiting-missing'
+  | 'va-payoff-lo-responded'
+  | 'va-payoff-completed'
   | 'va-appraisal-new'
   | 'va-appraisal-waiting-missing'
   | 'va-appraisal-lo-responded'
@@ -96,6 +100,10 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
     value === 'qc-completed-requests' ||
     value === 'va-new-request' ||
     value === 'va-completed-requests' ||
+    value === 'va-payoff-new' ||
+    value === 'va-payoff-waiting-missing' ||
+    value === 'va-payoff-lo-responded' ||
+    value === 'va-payoff-completed' ||
     value === 'va-appraisal-new' ||
     value === 'va-appraisal-waiting-missing' ||
     value === 'va-appraisal-lo-responded' ||
@@ -768,14 +776,40 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
     const vaPayoffTasks = allTasks.filter((task) => task.kind === TaskKind.VA_PAYOFF);
     return [
       {
-        id: 'va-new-request',
+        id: 'va-payoff-new',
         label: 'New VA Payoff Requests',
         chipLabel: 'New',
         chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
-        tasks: vaPayoffTasks.filter((task) => task.status !== TaskStatus.COMPLETED),
+        tasks: vaPayoffTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.NONE
+        ),
       },
       {
-        id: 'va-completed-requests',
+        id: 'va-payoff-waiting-missing',
+        label: 'Waiting Missing/Incomplete',
+        chipLabel: 'Pending LO',
+        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+        tasks: vaPayoffTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO
+        ),
+      },
+      {
+        id: 'va-payoff-lo-responded',
+        label: 'LO Responded (Review)',
+        chipLabel: 'Needs Review',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaPayoffTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'va-payoff-completed',
         label: 'Completed VA Payoff Requests',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',

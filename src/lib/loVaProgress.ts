@@ -556,13 +556,17 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     }
 
     const isOpenAppraisalParent =
-      (task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_HOI) &&
+      (task.kind === TaskKind.VA_APPRAISAL ||
+        task.kind === TaskKind.VA_PAYOFF ||
+        task.kind === TaskKind.VA_HOI) &&
       task.status !== TaskStatus.COMPLETED &&
       task.workflowState === TaskWorkflowState.WAITING_ON_LO;
     const isOpenAppraisalChildResponse =
       task.kind === TaskKind.LO_NEEDS_INFO &&
       task.status !== TaskStatus.COMPLETED &&
-      (task.parentTask?.kind === TaskKind.VA_APPRAISAL || task.parentTask?.kind === TaskKind.VA_HOI);
+      (task.parentTask?.kind === TaskKind.VA_APPRAISAL ||
+        task.parentTask?.kind === TaskKind.VA_PAYOFF ||
+        task.parentTask?.kind === TaskKind.VA_HOI);
 
     if (isOpenAppraisalParent || isOpenAppraisalChildResponse) {
       existing.appraisalNeedsLoResponse = true;
