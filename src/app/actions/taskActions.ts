@@ -1082,6 +1082,12 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
           loanOfficer: {
             select: { email: true, name: true, active: true },
           },
+          secondaryLoanOfficer: {
+            select: { email: true, name: true, active: true },
+          },
+          visibilitySubmitterUser: {
+            select: { email: true, name: true, active: true },
+          },
         },
       }),
       prisma.user.findMany({
@@ -1117,6 +1123,14 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       loan.loanOfficer?.active && loan.loanOfficer.email?.trim()
         ? loan.loanOfficer.email.trim().toLowerCase()
         : null;
+    const secondaryLoanOfficerEmail =
+      loan.secondaryLoanOfficer?.active && loan.secondaryLoanOfficer.email?.trim()
+        ? loan.secondaryLoanOfficer.email.trim().toLowerCase()
+        : null;
+    const visibilitySubmitterEmail =
+      loan.visibilitySubmitterUser?.active && loan.visibilitySubmitterUser.email?.trim()
+        ? loan.visibilitySubmitterUser.email.trim().toLowerCase()
+        : null;
     const submissionDataObj =
       task.submissionData && typeof task.submissionData === 'object' && !Array.isArray(task.submissionData)
         ? (task.submissionData as Record<string, unknown>)
@@ -1129,6 +1143,12 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     const observerRecipientSet = new Set<string>();
     if (loanOfficerEmail && !teamRecipientSet.has(loanOfficerEmail)) {
       observerRecipientSet.add(loanOfficerEmail);
+    }
+    if (secondaryLoanOfficerEmail && !teamRecipientSet.has(secondaryLoanOfficerEmail)) {
+      observerRecipientSet.add(secondaryLoanOfficerEmail);
+    }
+    if (visibilitySubmitterEmail && !teamRecipientSet.has(visibilitySubmitterEmail)) {
+      observerRecipientSet.add(visibilitySubmitterEmail);
     }
     if (loaSubmitterEmail && !teamRecipientSet.has(loaSubmitterEmail)) {
       observerRecipientSet.add(loaSubmitterEmail);
