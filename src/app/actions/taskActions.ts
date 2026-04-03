@@ -1697,14 +1697,22 @@ export async function updateTaskStatus(
     if (newStatus === TaskStatus.COMPLETED && existing.kind === TaskKind.VA_HOI) {
       const checklistItems = getSavedJrChecklistItemsFromSubmissionData(existing.submissionData);
       const allCompleted =
-        checklistItems !== null && checklistItems.every((item) => item.status === 'COMPLETED');
+        checklistItems !== null &&
+        checklistItems.every(
+          (item) =>
+            item.status === 'COMPLETED' ||
+            (item.id === JR_VOE_ROW_ID && item.status === 'NOT_REQUIRED')
+        );
       const allProofAttached =
-        checklistItems !== null && checklistItems.every((item) => Boolean(item.proofAttachmentId));
+        checklistItems !== null &&
+        checklistItems.every((item) =>
+          item.status === 'COMPLETED' ? Boolean(item.proofAttachmentId) : true
+        );
       if (!allCompleted || !allProofAttached) {
         return {
           success: false,
           error:
-            'JR Processor task can only be completed when HOI, VOE, and Submitted to Underwriting are all marked Completed with proof attached.',
+            'JR Processor task can only be completed when HOI and Submitted to Underwriting are Completed with proof, and VOE is either Completed with proof or marked Not Required.',
         };
       }
     }
@@ -2682,6 +2690,7 @@ export async function saveJrProcessorChecklist(
         : String(processorAssignedNote ?? '').trim() || null;
     const existingItemsRaw = existingChecklistRaw?.items;
     const existingNotesByRowId = new Map<string, string>();
+    const existingProofAttachmentIdByRowId = new Map<string, string | null>();
     if (Array.isArray(existingItemsRaw)) {
       for (const item of existingItemsRaw) {
         if (!item || typeof item !== 'object') continue;
@@ -2689,6 +2698,10 @@ export async function saveJrProcessorChecklist(
         const note = String((item as { note?: unknown }).note ?? '').trim();
         if (!id) continue;
         existingNotesByRowId.set(id, note);
+        const proofAttachmentId = String(
+          (item as { proofAttachmentId?: unknown }).proofAttachmentId ?? ''
+        ).trim();
+        existingProofAttachmentIdByRowId.set(id, proofAttachmentId || null);
       }
     }
 
@@ -2729,14 +2742,27 @@ export async function saveJrProcessorChecklist(
     const changedNoteLabels = normalizedItems
       .filter((item) => (existingNotesByRowId.get(item.id) || '').trim() !== (item.note || '').trim())
       .map((item) => item.label);
+    const changedProofRows = normalizedItems
+      .map((item) => {
+        const previousAttachmentId = existingProofAttachmentIdByRowId.get(item.id) || null;
+        const nextAttachmentId = item.proofAttachmentId || null;
+        if (previousAttachmentId === nextAttachmentId) return null;
+        if (nextAttachmentId && !previousAttachmentId) return `${item.label} (uploaded)`;
+        if (!nextAttachmentId && previousAttachmentId) return `${item.label} (removed)`;
+        return `${item.label} (updated)`;
+      })
+      .filter((entry): entry is string => Boolean(entry));
     const processorAssignedNoteChanged =
       previousProcessorAssignedNote !== String(normalizedProcessorAssignedNote ?? '').trim();
 
-    if (changedNoteLabels.length > 0 || processorAssignedNoteChanged) {
+    if (changedNoteLabels.length > 0 || processorAssignedNoteChanged || changedProofRows.length > 0) {
       const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
       const summaryParts: string[] = [];
       if (changedNoteLabels.length > 0) {
         summaryParts.push(`JR notes updated for: ${changedNoteLabels.join(', ')}.`);
+      }
+      if (changedProofRows.length > 0) {
+        summaryParts.push(`JR attachments updated: ${changedProofRows.join(', ')}.`);
       }
       if (processorAssignedNoteChanged) {
         summaryParts.push('Processor assignment note updated.');

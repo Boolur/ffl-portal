@@ -1891,9 +1891,20 @@ export function TaskList({
   const updateJrProcessorAssignedNote = React.useCallback(
     (taskId: string, note: string) => {
       setJrProcessorAssignedNoteByTask((prev) => ({ ...prev, [taskId]: note }));
-      queueJrChecklistAutosave(taskId, getJrChecklistRows(taskId), undefined, note);
     },
-    [getJrChecklistRows, queueJrChecklistAutosave]
+    []
+  );
+
+  const submitJrNotesUpdate = React.useCallback(
+    (taskId: string) => {
+      const rows = getJrChecklistRows(taskId);
+      const processorAssigned = jrProcessorAssignedByTask[taskId] ?? null;
+      const processorAssignedNote = jrProcessorAssignedNoteByTask[taskId] || '';
+      const nextVersion = (jrChecklistSaveVersionRef.current[taskId] ?? 0) + 1;
+      jrChecklistSaveVersionRef.current[taskId] = nextVersion;
+      void persistJrChecklist(taskId, rows, processorAssigned, processorAssignedNote, nextVersion);
+    },
+    [getJrChecklistRows, jrProcessorAssignedByTask, jrProcessorAssignedNoteByTask, persistJrChecklist]
   );
 
   React.useEffect(() => {
@@ -4292,25 +4303,39 @@ export function TaskList({
                                 <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
                                   Notes
                                 </span>
-                                {row.noteUpdatedAt && (
-                                  <span className="text-[10px] font-medium text-slate-500">
-                                    {formatCompactDateTime(new Date(row.noteUpdatedAt))}
-                                  </span>
-                                )}
+                                <div className="inline-flex items-center gap-2">
+                                  {row.noteUpdatedAt && (
+                                    <span className="text-[10px] font-medium text-slate-500">
+                                      {formatCompactDateTime(new Date(row.noteUpdatedAt))}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => submitJrNotesUpdate(task.id)}
+                                    disabled={isJrChecklistLocked || jrChecklistSaveStateByTask[task.id]?.state === 'saving'}
+                                    className="inline-flex h-6 items-center rounded-md border border-sky-300 bg-white px-2 text-[10px] font-bold uppercase tracking-wide text-sky-700 hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    Submit Notes Update
+                                  </button>
+                                </div>
                               </div>
                               <textarea
                                 value={row.note || ''}
                                 onChange={(event) =>
-                                  updateJrChecklistRows(task.id, (current) =>
-                                    current.map((item) =>
-                                      item.id === row.id
-                                        ? {
-                                            ...item,
-                                            note: event.target.value,
-                                          }
-                                        : item
-                                    )
-                                  )
+                                  setJrChecklistByTask((prev) => {
+                                    const current = prev[task.id] ?? createDefaultJrChecklistRows();
+                                    return {
+                                      ...prev,
+                                      [task.id]: current.map((item) =>
+                                        item.id === row.id
+                                          ? {
+                                              ...item,
+                                              note: event.target.value,
+                                            }
+                                          : item
+                                      ),
+                                    };
+                                  })
                                 }
                                 disabled={isJrChecklistLocked}
                                 placeholder={`Add ${row.label} note for LO visibility...`}
@@ -4380,6 +4405,14 @@ export function TaskList({
                               <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
                                 Optional Notes
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => submitJrNotesUpdate(task.id)}
+                                disabled={isJrChecklistLocked || jrChecklistSaveStateByTask[task.id]?.state === 'saving'}
+                                className="inline-flex h-6 items-center rounded-md border border-sky-300 bg-white px-2 text-[10px] font-bold uppercase tracking-wide text-sky-700 hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                Submit Notes Update
+                              </button>
                             </div>
                             <textarea
                               value={jrProcessorAssignedNote}

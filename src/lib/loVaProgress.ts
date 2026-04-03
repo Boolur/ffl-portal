@@ -823,6 +823,15 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     }
 
     const jrChecklistRows = jrStageDetails.hoi.checklist;
+    const jrTaskStatus = value.jrByKind.hoi?.status ?? null;
+    const jrTaskMarkedCompleted = jrTaskStatus === TaskStatus.COMPLETED;
+    const jrChecklistSatisfied =
+      jrChecklistRows.length > 0
+        ? jrChecklistRows.every(
+            (row) =>
+              row.status === 'COMPLETED' || (row.id === JR_VOE_ROW_ID && row.status === 'NOT_REQUIRED')
+          )
+        : Object.values(jrChips).every((chip) => chip === 'completed');
     const jrTotalCount = jrChecklistRows.length > 0 ? jrChecklistRows.length : 1;
     const jrCompletedCount =
       jrChecklistRows.length > 0
@@ -832,11 +841,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         : Object.values(jrChips).filter((chip) => chip === 'completed').length;
     const hasIncompleteJr =
       hasAnyJrTask &&
-      (jrChecklistRows.length > 0
-        ? jrChecklistRows.some(
-            (row) => row.status !== 'COMPLETED' && !(row.id === JR_VOE_ROW_ID && row.status === 'NOT_REQUIRED')
-          )
-        : Object.values(jrChips).some((chip) => chip !== 'completed'));
+      (!jrTaskMarkedCompleted || !jrChecklistSatisfied);
 
     const notesTimeline = dedupeTimelineEntries(Array.from(timelineById.values()));
     const workedByContributors = Array.from(workedByLatestByName.values())
