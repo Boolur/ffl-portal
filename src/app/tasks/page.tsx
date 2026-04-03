@@ -141,6 +141,9 @@ type TaskRow = {
     loanOfficer: {
       name: string;
     } | null;
+    secondaryLoanOfficer: {
+      name: string;
+    } | null;
   };
   assignedRole: UserRole | null;
   assignedUser: {
@@ -154,6 +157,9 @@ type TaskRow = {
     createdAt: Date;
     uploadedByName: string | null;
     uploadedByRole: UserRole | null;
+    sourceTaskKind: TaskKind | null;
+    sourceTaskAssignedRole: UserRole | null;
+    sourceTaskCreatedAt: Date | null;
   }[];
   timelineAttachments: {
     id: string;
@@ -162,6 +168,9 @@ type TaskRow = {
     createdAt: Date;
     uploadedByName: string | null;
     uploadedByRole: UserRole | null;
+    sourceTaskKind: TaskKind | null;
+    sourceTaskAssignedRole: UserRole | null;
+    sourceTaskCreatedAt: Date | null;
   }[];
 };
 
@@ -221,6 +230,11 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
           borrowerName: true,
           stage: true, // Include stage
           loanOfficer: {
+            select: {
+              name: true,
+            },
+          },
+          secondaryLoanOfficer: {
             select: {
               name: true,
             },
@@ -345,6 +359,13 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
             purpose: true,
             storagePath: true,
             createdAt: true,
+            task: {
+              select: {
+                kind: true,
+                assignedRole: true,
+                createdAt: true,
+              },
+            },
             uploadedBy: {
               select: {
                 name: true,
@@ -383,6 +404,9 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
         createdAt: Date;
         uploadedByName: string | null;
         uploadedByRole: UserRole | null;
+        sourceTaskKind: TaskKind | null;
+        sourceTaskAssignedRole: UserRole | null;
+        sourceTaskCreatedAt: Date | null;
       }
     >();
 
@@ -400,6 +424,9 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
           createdAt: att.createdAt,
           uploadedByName: att.uploadedBy?.name || null,
           uploadedByRole: att.uploadedBy?.role || null,
+          sourceTaskKind: att.task?.kind || null,
+          sourceTaskAssignedRole: att.task?.assignedRole || null,
+          sourceTaskCreatedAt: att.task?.createdAt || null,
         });
       }
     }
@@ -417,6 +444,9 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
         createdAt: att.createdAt,
         uploadedByName: att.uploadedBy?.name || null,
         uploadedByRole: att.uploadedBy?.role || null,
+        sourceTaskKind: task.kind,
+        sourceTaskAssignedRole: task.assignedRole,
+        sourceTaskCreatedAt: task.createdAt,
       })),
       timelineAttachments,
     };

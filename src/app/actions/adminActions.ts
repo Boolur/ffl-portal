@@ -61,6 +61,11 @@ export async function getAllTasks(filter?: TaskFilter) {
                   name: true,
                 },
               },
+              secondaryLoanOfficer: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
           attachments: {
@@ -123,6 +128,11 @@ export async function getAllTasks(filter?: TaskFilter) {
               loanNumber: true,
               borrowerName: true,
               loanOfficer: {
+                select: {
+                  name: true,
+                },
+              },
+              secondaryLoanOfficer: {
                 select: {
                   name: true,
                 },

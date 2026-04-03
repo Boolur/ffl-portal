@@ -117,6 +117,9 @@ type TimelineItem = {
   createdAt: string;
   actorName: string;
   actorRole: UserRole | null;
+  sourceTaskKind?: TaskKind | null;
+  sourceTaskAssignedRole?: UserRole | null;
+  sourceTaskCreatedAt?: string | null;
   message?: string;
   attachmentId?: string;
   attachmentFilename?: string;
@@ -467,26 +470,27 @@ function getSavedJrChecklistRowsFromSubmissionData(
   }));
 }
 
-function injectLoanOfficerContributor(
+function injectLoanOfficerContributors(
   summary: ContributorSummary | null,
-  loanOfficerName?: string | null
+  loanOfficerNames: Array<string | null | undefined>
 ): ContributorSummary | null {
-  const normalizedLoanOfficer = loanOfficerName?.trim();
-  if (!normalizedLoanOfficer) return summary;
-
   const existing = summary?.visibleContributors ?? [];
-  const alreadyPresent = existing.some(
-    (contributor) => contributor.name.trim().toLowerCase() === normalizedLoanOfficer.toLowerCase()
-  );
-  if (alreadyPresent) return summary;
-
-  const contributors = [
-    { name: normalizedLoanOfficer, role: UserRole.LOAN_OFFICER as UserRole | null },
-    ...existing,
-  ];
-
+  const dedupeSet = new Set(existing.map((contributor) => contributor.name.trim().toLowerCase()));
+  const additions: Array<{ name: string; role: UserRole | null }> = [];
+  for (const loanOfficerName of loanOfficerNames) {
+    const normalizedLoanOfficer = loanOfficerName?.trim();
+    if (!normalizedLoanOfficer) continue;
+    const dedupeKey = normalizedLoanOfficer.toLowerCase();
+    if (dedupeSet.has(dedupeKey)) continue;
+    dedupeSet.add(dedupeKey);
+    additions.push({
+      name: normalizedLoanOfficer,
+      role: UserRole.LOAN_OFFICER as UserRole | null,
+    });
+  }
+  if (additions.length === 0) return summary;
   return {
-    visibleContributors: contributors,
+    visibleContributors: [...additions, ...existing],
   };
 }
 
@@ -539,6 +543,7 @@ const submissionDetailOrder = [
   'creditReportType',
   'aus',
   'loanOfficer',
+  'secondaryLoanOfficer',
   'notes',
 ] as const;
 
@@ -567,7 +572,8 @@ const submissionDetailLabels: Record<string, string> = {
   pricingOption: 'Pricing Option',
   creditReportType: 'Credit Report Type',
   aus: 'AUS',
-  loanOfficer: 'Loan Officer',
+  loanOfficer: 'Primary Loan Officer',
+  secondaryLoanOfficer: 'Secondary Loan Officer',
   notes: 'Notes',
 };
 
@@ -608,7 +614,7 @@ const submissionDetailGroupConfig = [
   },
   {
     title: 'Loan Officer & Notes',
-    keys: ['loanOfficer', 'notes'],
+    keys: ['loanOfficer', 'secondaryLoanOfficer', 'notes'],
   },
 ] as const;
 
@@ -731,13 +737,27 @@ function isVaTimelineRole(role: UserRole | null) {
 function getVaSafeTimelineItems(items: TimelineItem[]): TimelineItem[] {
   return items.filter((item) => {
     if (item.type === 'attachment') {
-      // VA lanes care about proof artifacts they/JR uploaded while working the request.
-      return item.attachmentPurpose === TaskAttachmentPurpose.PROOF;
+      // VA lanes only keep proof attachments produced in VA/LO response channel.
+      if (item.attachmentPurpose !== TaskAttachmentPurpose.PROOF) return false;
+      if (item.sourceTaskKind) {
+        return (
+          item.sourceTaskKind === TaskKind.VA_TITLE ||
+          item.sourceTaskKind === TaskKind.VA_PAYOFF ||
+          item.sourceTaskKind === TaskKind.VA_APPRAISAL ||
+          item.sourceTaskKind === TaskKind.VA_HOI ||
+          item.sourceTaskKind === TaskKind.LO_NEEDS_INFO
+        );
+      }
+      return (
+        isVaTimelineRole(item.actorRole) || item.actorRole === UserRole.LOAN_OFFICER
+      );
     }
     if (item.noteEntryType === 'jrChecklist') {
       return true;
     }
-    return isVaTimelineRole(item.actorRole);
+    return (
+      isVaTimelineRole(item.actorRole) || item.actorRole === UserRole.LOAN_OFFICER
+    );
   });
 }
 
@@ -1498,6 +1518,7 @@ export type Task = {
     borrowerName: string;
     stage?: string;
     loanOfficer?: { name?: string } | null;
+    secondaryLoanOfficer?: { name?: string } | null;
   };
   assignedRole: string | null;
   assignedUser?: {
@@ -1512,6 +1533,9 @@ export type Task = {
     createdAt: Date;
     uploadedByName?: string | null;
     uploadedByRole?: UserRole | null;
+    sourceTaskKind?: TaskKind | null;
+    sourceTaskAssignedRole?: UserRole | null;
+    sourceTaskCreatedAt?: Date | string | null;
   }[];
   timelineAttachments?: {
     id: string;
@@ -1520,6 +1544,9 @@ export type Task = {
     createdAt: Date;
     uploadedByName?: string | null;
     uploadedByRole?: UserRole | null;
+    sourceTaskKind?: TaskKind | null;
+    sourceTaskAssignedRole?: UserRole | null;
+    sourceTaskCreatedAt?: Date | string | null;
   }[];
 };
 
@@ -2777,9 +2804,21 @@ export function TaskList({
         const showWorkflowChip =
           !canManageJrChecklist &&
           (Boolean(workflowChip) || task.workflowState !== TaskWorkflowState.NONE);
-        const submissionDataGroups = getGroupedSubmissionDetails(
-          parsedSubmissionData as Record<string, unknown> | null
-        );
+        const submissionDataWithLoanOfficers =
+          parsedSubmissionData &&
+          typeof parsedSubmissionData === 'object' &&
+          !Array.isArray(parsedSubmissionData)
+            ? { ...(parsedSubmissionData as Record<string, unknown>) }
+            : ({} as Record<string, unknown>);
+        const primaryLoanOfficerName = task.loan.loanOfficer?.name?.trim() || '';
+        const secondaryLoanOfficerName = task.loan.secondaryLoanOfficer?.name?.trim() || '';
+        if (primaryLoanOfficerName) {
+          submissionDataWithLoanOfficers.loanOfficer = primaryLoanOfficerName;
+        }
+        if (secondaryLoanOfficerName) {
+          submissionDataWithLoanOfficers.secondaryLoanOfficer = secondaryLoanOfficerName;
+        }
+        const submissionDataGroups = getGroupedSubmissionDetails(submissionDataWithLoanOfficers);
         const isVaSubmissionView =
           isVaTaskKind(task.kind) && (isVaSubRole || isManagerRole);
         const visibleSubmissionDataGroups = isVaSubmissionView
@@ -2801,14 +2840,14 @@ export function TaskList({
             return entryMs >= vaTaskCreatedAtMs;
           })
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        const workedBySummary = injectLoanOfficerContributor(
+        const workedBySummary = injectLoanOfficerContributors(
           injectAssignedContributor(
             getContributorSummaryFromSubmissionData(
               parsedSubmissionData as Record<string, unknown> | null
             ),
             task.assignedUser || null
           ),
-          task.loan.loanOfficer?.name || null
+          [task.loan.loanOfficer?.name, task.loan.secondaryLoanOfficer?.name]
         );
         const timelineItems: TimelineItem[] = [
           ...noteHistoryEntries.map((entry, index) => ({
@@ -2834,6 +2873,13 @@ export function TaskList({
                 : new Date(att.createdAt).toISOString(),
             actorName: att.uploadedByName || 'Team Member',
             actorRole: att.uploadedByRole || null,
+            sourceTaskKind: att.sourceTaskKind || null,
+            sourceTaskAssignedRole: att.sourceTaskAssignedRole || null,
+            sourceTaskCreatedAt: att.sourceTaskCreatedAt
+              ? att.sourceTaskCreatedAt instanceof Date
+                ? att.sourceTaskCreatedAt.toISOString()
+                : new Date(att.sourceTaskCreatedAt).toISOString()
+              : null,
             attachmentId: att.id,
             attachmentFilename: att.filename,
             attachmentPurpose: att.purpose,
