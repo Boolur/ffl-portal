@@ -1415,7 +1415,7 @@ export function LoVaBorrowerProgressList({
                   { id: 'ordered-voe', label: 'VOE', status: getJrStatus('voe') },
                   {
                     id: 'submitted-underwriting',
-                    label: 'Submit to UW',
+                    label: 'Sub to UW',
                     status: getJrStatus('underwriting'),
                   },
                 ];
