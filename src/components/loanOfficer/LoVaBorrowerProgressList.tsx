@@ -677,11 +677,17 @@ export function LoVaBorrowerProgressList({
     [focusedItem]
   );
   const vaItems = React.useMemo(
-    () => items.filter((item) => !item.isFullyComplete && item.hasIncompleteVa),
+    () =>
+      items.filter(
+        (item) => !item.isFullyComplete && (item.hasIncompleteVa || item.vaCompletedCount > 0)
+      ),
     [items]
   );
   const jrItems = React.useMemo(
-    () => items.filter((item) => !item.isFullyComplete && item.hasIncompleteJr),
+    () =>
+      items.filter(
+        (item) => !item.isFullyComplete && (item.hasIncompleteJr || item.jrCompletedCount > 0)
+      ),
     [items]
   );
   const completedItems = React.useMemo(() => items.filter((item) => item.isFullyComplete), [items]);
