@@ -500,17 +500,32 @@ function formatNoteDateTime(value: string) {
   }).format(dt);
 }
 
-function formatJrChecklistStatus(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED') {
+function isUnderwritingChecklistRow(rowId?: string, label?: string) {
+  if (rowId === 'submitted-underwriting') return true;
+  return (label || '').toLowerCase().includes('underwriting');
+}
+
+function formatJrChecklistStatus(
+  status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED',
+  rowId?: string,
+  label?: string
+) {
   if (status === 'MISSING_ITEMS') return 'Missing Items / Action Required';
   if (status === 'NOT_REQUIRED') return 'Not Required';
   if (status === 'COMPLETED') return 'Completed';
+  if (isUnderwritingChecklistRow(rowId, label)) return 'Pending';
   return 'Ordered';
 }
 
-function getJrChecklistStatusClass(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED') {
+function getJrChecklistStatusClass(
+  status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED',
+  rowId?: string,
+  label?: string
+) {
   if (status === 'MISSING_ITEMS') return 'border-rose-300 bg-rose-100 text-rose-800';
   if (status === 'NOT_REQUIRED') return 'border-slate-300 bg-slate-100 text-slate-700';
   if (status === 'COMPLETED') return 'border-emerald-300 bg-emerald-100 text-emerald-800';
+  if (isUnderwritingChecklistRow(rowId, label)) return 'border-sky-300 bg-sky-100 text-sky-800';
   return 'border-yellow-300 bg-yellow-100 text-yellow-800';
 }
 
@@ -1163,32 +1178,37 @@ export function LoVaBorrowerProgressList({
                     ? 'working'
                     : 'not_started';
                 type JrStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
-                const jrRows: Array<{ label: string; status: JrStatus }> =
+                const jrRows: Array<{ id: string; label: string; status: JrStatus }> =
                   item.jrStageDetails.hoi.checklist.length > 0
                     ? item.jrStageDetails.hoi.checklist.map((row) => ({
+                        id: row.id,
                         label: row.label,
                         status: row.status as JrStatus,
                       }))
                     : [
                         {
+                          id: 'ordered-hoi',
                           label: 'HOI',
                           status: item.jrStageDetails.hoi.completed ? 'COMPLETED' : 'MISSING_ITEMS',
                         },
                       ];
-                const jrStatusPills: Array<{ label: string; status: JrStatus }> = [
+                const jrStatusPills: Array<{ id: string; label: string; status: JrStatus }> = [
                   {
+                    id: 'ordered-hoi',
                     label: 'HOI',
                     status:
                       jrRows.find((row) => row.label.toLowerCase().includes('hoi'))?.status ||
                       'MISSING_ITEMS',
                   },
                   {
+                    id: 'ordered-voe',
                     label: 'VOE',
                     status:
                       jrRows.find((row) => row.label.toLowerCase().includes('voe'))?.status ||
                       'MISSING_ITEMS',
                   },
                   {
+                    id: 'submitted-underwriting',
                     label: 'Underwriting',
                     status:
                       jrRows.find((row) => row.label.toLowerCase().includes('underwriting'))?.status ||
@@ -1252,11 +1272,13 @@ export function LoVaBorrowerProgressList({
                             <div className="flex max-w-[240px] flex-wrap justify-end gap-1">
                               {jrStatusPills.map((row) => (
                                 <span
-                                  key={row.label}
+                                  key={row.id}
                                   className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none ${getJrChecklistStatusClass(
-                                    row.status
+                                    row.status,
+                                    row.id,
+                                    row.label
                                   )}`}
-                                  title={`${row.label}: ${formatJrChecklistStatus(row.status)}`}
+                                  title={`${row.label}: ${formatJrChecklistStatus(row.status, row.id, row.label)}`}
                                 >
                                   {row.label}
                                 </span>
@@ -1354,6 +1376,7 @@ export function LoVaBorrowerProgressList({
                 const cardExpanded = expandedBorrowerCards.has(cardKey);
                 const workedBy = item.workedByContributors;
                 const jrChecklistRows = item.jrStageDetails.hoi.checklist;
+                type JrStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
                 const getJrDone = (keyword: 'hoi' | 'voe' | 'underwriting') => {
                   if (jrChecklistRows.length === 0) {
                     if (keyword === 'hoi') return item.jrStageDetails.hoi.completed;
@@ -1368,20 +1391,41 @@ export function LoVaBorrowerProgressList({
                     (keyword === 'voe' && match.id === 'ordered-voe' && match.status === 'NOT_REQUIRED')
                   );
                 };
+                const getJrStatus = (keyword: 'hoi' | 'voe' | 'underwriting'): JrStatus => {
+                  if (jrChecklistRows.length === 0) {
+                    return keyword === 'hoi' && item.jrStageDetails.hoi.completed
+                      ? 'COMPLETED'
+                      : 'MISSING_ITEMS';
+                  }
+                  const match = jrChecklistRows.find((row) =>
+                    row.label.toLowerCase().includes(keyword)
+                  );
+                  return (match?.status as JrStatus) || 'MISSING_ITEMS';
+                };
                 const processorAssignedLabel = getProcessorAssignedLabel(
                   item.jrStageDetails.hoi.processorAssigned
                 );
-                const combinedRows = [
+                const vaRows = [
                   { label: 'Title', done: item.vaStageDetails.title.completed },
                   { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
                   { label: 'Appraisal', done: item.vaStageDetails.appraisal.completed },
-                  { label: 'HOI', done: getJrDone('hoi') },
-                  { label: 'VOE', done: getJrDone('voe') },
-                  { label: 'Submit to UW', done: getJrDone('underwriting') },
                 ];
-                const vaRows = combinedRows.slice(0, 3);
-                const jrRows = combinedRows.slice(3, 6);
-                const allComplete = combinedRows.every((row) => row.done);
+                const jrRows = [
+                  { id: 'ordered-hoi', label: 'HOI', status: getJrStatus('hoi') },
+                  { id: 'ordered-voe', label: 'VOE', status: getJrStatus('voe') },
+                  {
+                    id: 'submitted-underwriting',
+                    label: 'Submit to UW',
+                    status: getJrStatus('underwriting'),
+                  },
+                ];
+                const allComplete =
+                  vaRows.every((row) => row.done) &&
+                  jrRows.every(
+                    (row) =>
+                      row.status === 'COMPLETED' ||
+                      (row.id === 'ordered-voe' && row.status === 'NOT_REQUIRED')
+                  );
                 const iconState: 'not_started' | 'working' | 'completed' = allComplete
                   ? 'completed'
                   : 'working';
@@ -1454,13 +1498,17 @@ export function LoVaBorrowerProgressList({
                               <div className="grid grid-cols-3 gap-1">
                                 {jrRows.map((row) => (
                                   <span
-                                    key={row.label}
-                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none ${
-                                      row.done
-                                        ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                        : 'border-rose-300 bg-rose-100 text-rose-800'
-                                    }`}
-                                    title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
+                                    key={row.id}
+                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none ${getJrChecklistStatusClass(
+                                      row.status,
+                                      row.id,
+                                      row.label
+                                    )}`}
+                                    title={`${row.label}: ${formatJrChecklistStatus(
+                                      row.status,
+                                      row.id,
+                                      row.label
+                                    )}`}
                                   >
                                     {row.label}
                                   </span>
@@ -1919,11 +1967,14 @@ export function LoVaBorrowerProgressList({
                         return jrRows.map((row) => {
                           const rowComplete = row.status === 'COMPLETED';
                           const rowIsOrdered = row.status === 'ORDERED';
+                          const rowIsPending = rowIsOrdered && isUnderwritingChecklistRow(row.id, row.label);
                           const rowNotRequired = row.status === 'NOT_REQUIRED';
                           const rowPanelClass = rowComplete
                             ? 'border-emerald-200 bg-emerald-50'
                             : rowNotRequired
                               ? 'border-slate-300 bg-slate-100'
+                            : rowIsPending
+                              ? 'border-sky-200 bg-sky-50'
                             : rowIsOrdered
                               ? 'border-yellow-200 bg-yellow-50'
                               : 'border-rose-200 bg-rose-50';
@@ -1931,6 +1982,8 @@ export function LoVaBorrowerProgressList({
                             ? 'bg-emerald-100 text-emerald-700'
                             : rowNotRequired
                               ? 'bg-slate-200 text-slate-700'
+                            : rowIsPending
+                              ? 'bg-sky-100 text-sky-700'
                             : rowIsOrdered
                               ? 'bg-yellow-100 text-yellow-700'
                               : 'bg-rose-100 text-rose-700';
@@ -1981,10 +2034,12 @@ export function LoVaBorrowerProgressList({
                                   )}
                                   <span
                                     className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
-                                      row.status
+                                      row.status,
+                                      row.id,
+                                      row.label
                                     )}`}
                                   >
-                                    {formatJrChecklistStatus(row.status)}
+                                    {formatJrChecklistStatus(row.status, row.id, row.label)}
                                   </span>
                                   <button
                                     type="button"

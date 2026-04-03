@@ -217,6 +217,7 @@ const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string 
   { value: 'COMPLETED', label: 'Completed' },
 ];
 const jrVoeChecklistRowId = 'ordered-voe';
+const jrUnderwritingChecklistRowId = 'submitted-underwriting';
 const jrProcessorAssignedOptions: Array<{ value: JrProcessorAssignedValue; label: string }> = [
   { value: 'DEVON_CARAG', label: 'Devon Carag' },
 ];
@@ -233,7 +234,11 @@ function getJrChecklistHeadingIcon(id: string) {
   return FileText;
 }
 
-function getJrChecklistStatusPresentation(status: JrChecklistStatus) {
+function isJrChecklistPendingStatus(rowId: string, status: JrChecklistStatus) {
+  return rowId === jrUnderwritingChecklistRowId && status === 'ORDERED';
+}
+
+function getJrChecklistStatusPresentation(status: JrChecklistStatus, rowId: string) {
   if (status === 'COMPLETED') {
     return {
       label: 'Completed',
@@ -250,6 +255,12 @@ function getJrChecklistStatusPresentation(status: JrChecklistStatus) {
     return {
       label: 'Missing Items',
       className: 'border-rose-300 bg-rose-100 text-rose-800',
+    };
+  }
+  if (isJrChecklistPendingStatus(rowId, status)) {
+    return {
+      label: 'Pending',
+      className: 'border-sky-300 bg-sky-100 text-sky-800',
     };
   }
   return {
@@ -274,6 +285,7 @@ function isJrChecklistRowSatisfied(row: Pick<JrChecklistDraftItem, 'id' | 'statu
 }
 
 function isJrChecklistProofRequired(row: Pick<JrChecklistDraftItem, 'id' | 'status'>) {
+  if (isJrChecklistPendingStatus(row.id, row.status)) return false;
   return !(isJrChecklistNotRequiredAllowed(row.id) && row.status === 'NOT_REQUIRED');
 }
 
@@ -3635,7 +3647,10 @@ export function TaskList({
                                     )}
                                     <div className="space-y-2">
                                       {item.jrChecklist.map((row) => {
-                                        const statusMeta = getJrChecklistStatusPresentation(row.status);
+                                        const statusMeta = getJrChecklistStatusPresentation(
+                                          row.status,
+                                          row.id
+                                        );
                                         const StatusIcon = getJrChecklistStatusIcon(row.status);
                                         return (
                                           <div
@@ -4203,7 +4218,7 @@ export function TaskList({
                         {jrChecklistRows.map((row) => {
                           const proofAttachmentId = row.proofAttachmentId;
                           const RowIcon = getJrChecklistHeadingIcon(row.id);
-                          const statusMeta = getJrChecklistStatusPresentation(row.status);
+                          const statusMeta = getJrChecklistStatusPresentation(row.status, row.id);
                           const StatusIcon = getJrChecklistStatusIcon(row.status);
                           const isProofRequired = isJrChecklistProofRequired(row);
                           const isVoeNotRequired =
@@ -4219,6 +4234,8 @@ export function TaskList({
                               ? 'border-emerald-200 bg-emerald-50/45'
                               : row.status === 'NOT_REQUIRED'
                               ? 'border-slate-300 bg-slate-100/70'
+                              : isJrChecklistPendingStatus(row.id, row.status)
+                              ? 'border-sky-200 bg-sky-50/45'
                               : row.status === 'ORDERED'
                               ? 'border-yellow-200 bg-yellow-50/45'
                               : 'border-rose-200 bg-rose-50/45';
@@ -4260,7 +4277,10 @@ export function TaskList({
                             >
                               {rowStatusOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
-                                  {option.label}
+                                  {option.value === 'ORDERED' &&
+                                  row.id === jrUnderwritingChecklistRowId
+                                    ? 'Pending'
+                                    : option.label}
                                 </option>
                               ))}
                             </select>
