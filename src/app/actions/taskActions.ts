@@ -721,23 +721,35 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: s
     const sourceQcSubmission = qcTaskId
       ? await tx.task.findUnique({
           where: { id: qcTaskId },
-          select: { submissionData: true, kind: true },
+          select: { submissionData: true, kind: true, assignedRole: true, title: true },
         })
       : await tx.task.findFirst({
           where: {
             loanId,
-            kind: TaskKind.SUBMIT_QC,
+            OR: [
+              { kind: TaskKind.SUBMIT_QC },
+              { assignedRole: UserRole.QC, title: { contains: 'qc', mode: 'insensitive' } },
+            ],
           },
           select: {
             submissionData: true,
             kind: true,
+            assignedRole: true,
+            title: true,
           },
           orderBy: {
             updatedAt: 'desc',
           },
         });
-    // Safety rail: VA fanout is only allowed from a true QC submission task.
-    if (!sourceQcSubmission || sourceQcSubmission.kind !== TaskKind.SUBMIT_QC) {
+    const sourceIsQcSubmissionTask = sourceQcSubmission
+      ? isQcSubmissionTask({
+          kind: sourceQcSubmission.kind,
+          assignedRole: sourceQcSubmission.assignedRole,
+          title: sourceQcSubmission.title || '',
+        })
+      : false;
+    // Safety rail: VA fanout is only allowed from QC submission tasks (including legacy QC rows).
+    if (!sourceQcSubmission || !sourceIsQcSubmissionTask) {
       return [] as TaskKind[];
     }
     const qcSubmissionData = mergeSubmissionDataWithLoanFallback(
