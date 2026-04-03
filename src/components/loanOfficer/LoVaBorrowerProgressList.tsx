@@ -1175,11 +1175,6 @@ export function LoVaBorrowerProgressList({
                             {item.borrowerName}
                           </p>
                           <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
-                          {processorAssignedLabel && (
-                            <p className="mt-0.5 text-[11px] font-semibold text-slate-600">
-                              Processor Assigned: {processorAssignedLabel}
-                            </p>
-                          )}
                           {item.earliestCreatedAt && (
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <button
@@ -1197,18 +1192,23 @@ export function LoVaBorrowerProgressList({
                           )}
                         </div>
                         <div className="inline-flex items-start gap-1.5 shrink-0">
-                          <div className="flex max-w-[240px] flex-wrap justify-end gap-1">
-                            {jrStatusPills.map((row) => (
-                              <span
-                                key={row.label}
-                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
-                                  row.status
-                                )}`}
-                                title={`${row.label}: ${formatJrChecklistStatus(row.status)}`}
-                              >
-                                {row.label}
-                              </span>
-                            ))}
+                          <div className="flex max-w-[240px] flex-col items-end gap-1">
+                            <div className="flex max-w-[240px] flex-wrap justify-end gap-1">
+                              {jrStatusPills.map((row) => (
+                                <span
+                                  key={row.label}
+                                  className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
+                                    row.status
+                                  )}`}
+                                  title={`${row.label}: ${formatJrChecklistStatus(row.status)}`}
+                                >
+                                  {row.label}
+                                </span>
+                              ))}
+                            </div>
+                            <p className="text-[10px] font-semibold text-slate-600">
+                              Processor: {processorAssignedLabel || 'Unassigned'}
+                            </p>
                           </div>
                           <button
                             type="button"
