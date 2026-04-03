@@ -3857,7 +3857,7 @@ export function TaskList({
                           </p>
                         </div>
                       </div>
-                      {showDeskStartOverlay && (
+                      {showDeskStartOverlay && !showVaProofStartOverlay && (
                         <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
                           <div className="flex h-full items-center justify-center">
                             <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
