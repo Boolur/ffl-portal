@@ -36,7 +36,8 @@ type VaKindKey = 'title' | 'payoff' | 'appraisal';
 type JrKindKey = 'hoi';
 type StageKey = VaKindKey | JrKindKey;
 export type VaChipState = 'not_started' | 'new' | 'working' | 'waiting' | 'review' | 'completed';
-type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
+type JrProcessorAssignedValue = 'DEVON_CARAG';
 type JrChecklistRow = {
   id: string;
   label: string;
@@ -91,6 +92,7 @@ export type LoVaBorrowerProgressItem = {
       createdAt: Date | null;
       updatedAt: Date | null;
       checklist: JrChecklistRow[];
+      processorAssigned: JrProcessorAssignedValue | null;
       proofAttachments: Array<{ id: string; filename: string }>;
       latestNote: {
         message: string;
@@ -128,6 +130,22 @@ const JR_CHECKLIST_TEMPLATE: Array<{ id: string; label: string }> = [
   { id: 'ordered-voe', label: 'Ordered VOE' },
   { id: 'submitted-underwriting', label: 'Submitted to Underwriting' },
 ];
+const JR_VOE_ROW_ID = 'ordered-voe';
+
+function getJrProcessorAssignedLabel(value: string | null | undefined) {
+  if (!value) return null;
+  if (value === 'DEVON_CARAG') return 'Devon Carag';
+  return null;
+}
+
+function getJrProcessorAssignedFromSubmissionData(data: unknown): JrProcessorAssignedValue | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const checklistRaw = (data as { jrChecklist?: unknown }).jrChecklist;
+  if (!checklistRaw || typeof checklistRaw !== 'object' || Array.isArray(checklistRaw)) return null;
+  const value = String((checklistRaw as { processorAssigned?: unknown }).processorAssigned ?? '').trim();
+  if (value === 'DEVON_CARAG') return 'DEVON_CARAG';
+  return null;
+}
 
 function toDate(value?: Date | string | null) {
   if (!value) return null;
@@ -197,6 +215,7 @@ const snapshotPreferredOrder = [
   'pricingOption',
   'creditReportType',
   'aus',
+  'processorAssigned',
 ] as const;
 
 function toReadableLabel(key: string) {
@@ -223,9 +242,14 @@ function buildSubmissionSnapshot(
       (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
     );
   });
-  if (entries.length === 0) return [];
-
   const valueByKey = new Map(entries);
+  const processorAssignedLabel = getJrProcessorAssignedLabel(
+    getJrProcessorAssignedFromSubmissionData(data)
+  );
+  if (processorAssignedLabel) {
+    valueByKey.set('processorAssigned', processorAssignedLabel);
+  }
+  if (valueByKey.size === 0) return [];
   const ordered: Array<{ key: string; label: string; value: string }> = [];
   for (const key of snapshotPreferredOrder) {
     if (!valueByKey.has(key)) continue;
@@ -410,8 +434,12 @@ function getJrChecklistFromSubmissionData(data: unknown) {
       if (
         statusRaw !== 'ORDERED' &&
         statusRaw !== 'MISSING_ITEMS' &&
-        statusRaw !== 'COMPLETED'
+        statusRaw !== 'COMPLETED' &&
+        statusRaw !== 'NOT_REQUIRED'
       ) {
+        return null;
+      }
+      if (statusRaw === 'NOT_REQUIRED' && id !== JR_VOE_ROW_ID) {
         return null;
       }
       return {
@@ -643,6 +671,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         createdAt: null,
         updatedAt: null,
         checklist: [],
+        processorAssigned: null,
         proofAttachments: [],
         latestNote: null,
         lifecycleBreakdown: null,
@@ -739,6 +768,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         createdAt: toDate(task.createdAt),
         updatedAt: toDate(task.updatedAt),
         checklist: jrChecklist,
+        processorAssigned: getJrProcessorAssignedFromSubmissionData(task.submissionData),
         proofAttachments: (task.attachments || [])
           .filter((att) => isProofAttachment(att.purpose))
           .map((att) => ({ id: att.id, filename: att.filename })),
@@ -783,12 +813,16 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     const jrTotalCount = jrChecklistRows.length > 0 ? jrChecklistRows.length : 1;
     const jrCompletedCount =
       jrChecklistRows.length > 0
-        ? jrChecklistRows.filter((row) => row.status === 'COMPLETED').length
+        ? jrChecklistRows.filter(
+            (row) => row.status === 'COMPLETED' || (row.id === JR_VOE_ROW_ID && row.status === 'NOT_REQUIRED')
+          ).length
         : Object.values(jrChips).filter((chip) => chip === 'completed').length;
     const hasIncompleteJr =
       hasAnyJrTask &&
       (jrChecklistRows.length > 0
-        ? jrChecklistRows.some((row) => row.status !== 'COMPLETED')
+        ? jrChecklistRows.some(
+            (row) => row.status !== 'COMPLETED' && !(row.id === JR_VOE_ROW_ID && row.status === 'NOT_REQUIRED')
+          )
         : Object.values(jrChips).some((chip) => chip !== 'completed'));
 
     const notesTimeline = dedupeTimelineEntries(Array.from(timelineById.values()));

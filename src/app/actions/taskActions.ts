@@ -2456,7 +2456,7 @@ function appendSubmissionHistoryEntry(
   return dataObj as Prisma.JsonObject;
 }
 
-type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
 type JrChecklistItemInput = {
   id: string;
   label: string;
@@ -2469,6 +2469,8 @@ type JrChecklistItemInput = {
   noteRole?: UserRole | null;
 };
 
+type JrProcessorAssignedValue = 'DEVON_CARAG';
+
 const JR_CHECKLIST_TEMPLATE: Array<{ id: string; label: string }> = [
   { id: 'ordered-hoi', label: 'HOI' },
   { id: 'ordered-voe', label: 'VOE' },
@@ -2479,7 +2481,22 @@ const JR_CHECKLIST_STATUS_SET = new Set<JrChecklistStatus>([
   'ORDERED',
   'MISSING_ITEMS',
   'COMPLETED',
+  'NOT_REQUIRED',
 ]);
+const JR_VOE_ROW_ID = 'ordered-voe';
+const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>(['DEVON_CARAG']);
+
+function normalizeJrProcessorAssigned(
+  input: unknown
+): JrProcessorAssignedValue | null | undefined {
+  if (input === undefined) return undefined;
+  const raw = String(input ?? '').trim();
+  if (!raw) return null;
+  if (JR_PROCESSOR_ASSIGNED_SET.has(raw as JrProcessorAssignedValue)) {
+    return raw as JrProcessorAssignedValue;
+  }
+  return undefined;
+}
 
 function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemInput[] | null {
   if (!Array.isArray(input) || input.length !== JR_CHECKLIST_TEMPLATE.length) return null;
@@ -2502,6 +2519,7 @@ function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemIn
     if (!id || !label || !expectedById.has(id)) return null;
     if (label !== expectedById.get(id)) return null;
     if (!JR_CHECKLIST_STATUS_SET.has(status)) return null;
+    if (status === 'NOT_REQUIRED' && id !== JR_VOE_ROW_ID) return null;
     parsed.push({
       id,
       label,
@@ -2523,7 +2541,8 @@ function buildJrChecklistSummary(items: JrChecklistItemInput[]) {
   const ordered = items.filter((item) => item.status === 'ORDERED').length;
   const missing = items.filter((item) => item.status === 'MISSING_ITEMS').length;
   const completed = items.filter((item) => item.status === 'COMPLETED').length;
-  return `JR checklist updated: ${completed} completed, ${ordered} ordered, ${missing} missing/action required.`;
+  const notRequired = items.filter((item) => item.status === 'NOT_REQUIRED').length;
+  return `JR checklist updated: ${completed} completed, ${ordered} ordered, ${missing} missing/action required, ${notRequired} not required.`;
 }
 
 function getSavedJrChecklistItemsFromSubmissionData(
@@ -2563,7 +2582,11 @@ function isStartLockedDeskTask(task: {
   return isDeskKind && task.status === TaskStatus.PENDING && task.workflowState === TaskWorkflowState.NONE;
 }
 
-export async function saveJrProcessorChecklist(taskId: string, items: JrChecklistItemInput[]) {
+export async function saveJrProcessorChecklist(
+  taskId: string,
+  items: JrChecklistItemInput[],
+  processorAssigned?: string | null
+) {
   try {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
@@ -2641,6 +2664,17 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
       !Array.isArray(dataObj.jrChecklist)
         ? (dataObj.jrChecklist as Record<string, unknown>)
         : null;
+    const normalizedProcessorAssignedInput = normalizeJrProcessorAssigned(processorAssigned);
+    if (processorAssigned !== undefined && normalizedProcessorAssignedInput === undefined) {
+      return { success: false, error: 'Invalid processor assignment.' };
+    }
+    const existingProcessorAssigned = normalizeJrProcessorAssigned(
+      existingChecklistRaw?.processorAssigned
+    );
+    const normalizedProcessorAssigned =
+      normalizedProcessorAssignedInput === undefined
+        ? (existingProcessorAssigned ?? null)
+        : normalizedProcessorAssignedInput;
     const existingItemsRaw = existingChecklistRaw?.items;
     const existingNotesByRowId = new Map<string, string>();
     if (Array.isArray(existingItemsRaw)) {
@@ -2678,6 +2712,7 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
 
     dataObj.jrChecklist = {
       items: normalizedItems,
+      processorAssigned: normalizedProcessorAssigned,
       updatedAt: new Date().toISOString(),
       updatedBy: session?.user?.name || 'Team Member',
     };
@@ -2693,8 +2728,12 @@ export async function saveJrProcessorChecklist(taskId: string, items: JrChecklis
     });
     dataObj.notesHistory = notes;
 
-    const allCompleted = normalizedItems.every((item) => item.status === 'COMPLETED');
-    const allProofAttached = normalizedItems.every((item) => Boolean(item.proofAttachmentId));
+    const allCompleted = normalizedItems.every(
+      (item) => item.status === 'COMPLETED' || (item.id === JR_VOE_ROW_ID && item.status === 'NOT_REQUIRED')
+    );
+    const allProofAttached = normalizedItems.every((item) =>
+      item.status === 'COMPLETED' ? Boolean(item.proofAttachmentId) : true
+    );
 
     await prisma.task.update({
       where: { id: taskId },

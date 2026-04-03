@@ -450,6 +450,7 @@ const submissionDetailGroups = [
       'pricingOption',
       'creditReportType',
       'aus',
+      'processorAssigned',
     ],
   },
 ] as const;
@@ -496,16 +497,24 @@ function formatNoteDateTime(value: string) {
   }).format(dt);
 }
 
-function formatJrChecklistStatus(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED') {
+function formatJrChecklistStatus(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED') {
   if (status === 'MISSING_ITEMS') return 'Missing Items / Action Required';
+  if (status === 'NOT_REQUIRED') return 'Not Required';
   if (status === 'COMPLETED') return 'Completed';
   return 'Ordered';
 }
 
-function getJrChecklistStatusClass(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED') {
+function getJrChecklistStatusClass(status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED') {
   if (status === 'MISSING_ITEMS') return 'border-rose-300 bg-rose-100 text-rose-800';
+  if (status === 'NOT_REQUIRED') return 'border-slate-300 bg-slate-100 text-slate-700';
   if (status === 'COMPLETED') return 'border-emerald-300 bg-emerald-100 text-emerald-800';
   return 'border-yellow-300 bg-yellow-100 text-yellow-800';
+}
+
+function getProcessorAssignedLabel(value: string | null | undefined) {
+  if (!value) return null;
+  if (value === 'DEVON_CARAG') return 'Devon Carag';
+  return null;
 }
 
 function SummaryRows({
@@ -1076,13 +1085,18 @@ export function LoVaBorrowerProgressList({
                           noteRole: null,
                         },
                       ];
-                const jrAllComplete = jrRowsForState.every((row) => row.status === 'COMPLETED');
+                const jrAllComplete = jrRowsForState.every(
+                  (row) =>
+                    row.status === 'COMPLETED' ||
+                    (row.id === 'ordered-voe' && row.status === 'NOT_REQUIRED')
+                );
                 const jrAnyWorking =
                   !jrAllComplete &&
                   jrRowsForState.some(
                     (row) =>
                       row.status === 'ORDERED' ||
                       row.status === 'COMPLETED' ||
+                      row.status === 'NOT_REQUIRED' ||
                       Boolean(row.proofAttachmentId) ||
                       Boolean((row.note || '').trim())
                   );
@@ -1091,7 +1105,7 @@ export function LoVaBorrowerProgressList({
                   : jrAnyWorking
                     ? 'working'
                     : 'not_started';
-                type JrStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+                type JrStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
                 const jrRows: Array<{ label: string; status: JrStatus }> =
                   item.jrStageDetails.hoi.checklist.length > 0
                     ? item.jrStageDetails.hoi.checklist.map((row) => ({
@@ -1124,6 +1138,9 @@ export function LoVaBorrowerProgressList({
                       'MISSING_ITEMS',
                   },
                 ];
+                const processorAssignedLabel = getProcessorAssignedLabel(
+                  item.jrStageDetails.hoi.processorAssigned
+                );
                 return (
                 <article
                   key={`${item.loanNumber}-${item.borrowerName}`}
@@ -1157,6 +1174,11 @@ export function LoVaBorrowerProgressList({
                             {item.borrowerName}
                           </p>
                           <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
+                          {processorAssignedLabel && (
+                            <p className="mt-0.5 text-[11px] font-semibold text-slate-600">
+                              Processor Assigned: {processorAssignedLabel}
+                            </p>
+                          )}
                           {item.earliestCreatedAt && (
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <button
@@ -1280,8 +1302,15 @@ export function LoVaBorrowerProgressList({
                   const match = jrChecklistRows.find((row) =>
                     row.label.toLowerCase().includes(keyword)
                   );
-                  return Boolean(match && match.status === 'COMPLETED');
+                  if (!match) return false;
+                  return (
+                    match.status === 'COMPLETED' ||
+                    (keyword === 'voe' && match.id === 'ordered-voe' && match.status === 'NOT_REQUIRED')
+                  );
                 };
+                const processorAssignedLabel = getProcessorAssignedLabel(
+                  item.jrStageDetails.hoi.processorAssigned
+                );
                 const combinedRows = [
                   { label: 'Title', done: item.vaStageDetails.title.completed },
                   { label: 'Payoff', done: item.vaStageDetails.payoff.completed },
@@ -1329,6 +1358,11 @@ export function LoVaBorrowerProgressList({
                               {item.borrowerName}
                             </p>
                             <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
+                            {processorAssignedLabel && (
+                              <p className="mt-0.5 text-[11px] font-semibold text-slate-600">
+                                Processor Assigned: {processorAssignedLabel}
+                              </p>
+                            )}
                             {item.earliestCreatedAt && (
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 <button
@@ -1726,7 +1760,7 @@ export function LoVaBorrowerProgressList({
                         const jrRows: Array<{
                           id: string;
                           label: string;
-                          status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+                          status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
                           proofAttachmentId: string | null;
                           proofFilename: string | null;
                           note: string | null;
@@ -1738,7 +1772,7 @@ export function LoVaBorrowerProgressList({
                             ? (detail.checklist as Array<{
                                 id: string;
                                 label: string;
-                                status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+                                status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
                                 proofAttachmentId: string | null;
                                 proofFilename: string | null;
                                 note: string | null;
@@ -1791,13 +1825,18 @@ export function LoVaBorrowerProgressList({
                         return jrRows.map((row) => {
                           const rowComplete = row.status === 'COMPLETED';
                           const rowIsOrdered = row.status === 'ORDERED';
+                          const rowNotRequired = row.status === 'NOT_REQUIRED';
                           const rowPanelClass = rowComplete
                             ? 'border-emerald-200 bg-emerald-50'
+                            : rowNotRequired
+                              ? 'border-slate-300 bg-slate-100'
                             : rowIsOrdered
                               ? 'border-yellow-200 bg-yellow-50'
                               : 'border-rose-200 bg-rose-50';
                           const rowIconClass = rowComplete
                             ? 'bg-emerald-100 text-emerald-700'
+                            : rowNotRequired
+                              ? 'bg-slate-200 text-slate-700'
                             : rowIsOrdered
                               ? 'bg-yellow-100 text-yellow-700'
                               : 'bg-rose-100 text-rose-700';
@@ -1878,7 +1917,11 @@ export function LoVaBorrowerProgressList({
                                       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                                         Proof
                                       </p>
-                                      {proofAttachmentId ? (
+                                      {row.status === 'NOT_REQUIRED' ? (
+                                        <span className="inline-flex items-center rounded-md border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700">
+                                          Not Required
+                                        </span>
+                                      ) : proofAttachmentId ? (
                                         <button
                                           type="button"
                                           onClick={() => void openAttachment(proofAttachmentId)}

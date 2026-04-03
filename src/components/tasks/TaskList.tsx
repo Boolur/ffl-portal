@@ -159,7 +159,8 @@ type QcChecklistDraftItem = {
   isCustom?: boolean;
 };
 
-type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED';
+type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
+type JrProcessorAssignedValue = 'DEVON_CARAG';
 
 type JrChecklistItem = {
   id: string;
@@ -214,6 +215,16 @@ const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string 
   { value: 'ORDERED', label: 'Ordered' },
   { value: 'COMPLETED', label: 'Completed' },
 ];
+const jrVoeChecklistRowId = 'ordered-voe';
+const jrProcessorAssignedOptions: Array<{ value: JrProcessorAssignedValue; label: string }> = [
+  { value: 'DEVON_CARAG', label: 'Devon Carag' },
+];
+
+function getJrProcessorAssignedLabel(value: string | null | undefined) {
+  if (!value) return null;
+  const match = jrProcessorAssignedOptions.find((option) => option.value === value);
+  return match?.label ?? null;
+}
 
 function getJrChecklistHeadingIcon(id: string) {
   if (id === 'ordered-hoi') return Home;
@@ -226,6 +237,12 @@ function getJrChecklistStatusPresentation(status: JrChecklistStatus) {
     return {
       label: 'Completed',
       className: 'border-emerald-300 bg-emerald-100 text-emerald-800',
+    };
+  }
+  if (status === 'NOT_REQUIRED') {
+    return {
+      label: 'Not Required',
+      className: 'border-slate-300 bg-slate-100 text-slate-700',
     };
   }
   if (status === 'MISSING_ITEMS') {
@@ -242,8 +259,21 @@ function getJrChecklistStatusPresentation(status: JrChecklistStatus) {
 
 function getJrChecklistStatusIcon(status: JrChecklistStatus) {
   if (status === 'COMPLETED') return CheckCircle;
+  if (status === 'NOT_REQUIRED') return Clock3;
   if (status === 'MISSING_ITEMS') return X;
   return Clock3;
+}
+
+function isJrChecklistNotRequiredAllowed(rowId: string) {
+  return rowId === jrVoeChecklistRowId;
+}
+
+function isJrChecklistRowSatisfied(row: Pick<JrChecklistDraftItem, 'id' | 'status'>) {
+  return row.status === 'COMPLETED' || (isJrChecklistNotRequiredAllowed(row.id) && row.status === 'NOT_REQUIRED');
+}
+
+function isJrChecklistProofRequired(row: Pick<JrChecklistDraftItem, 'status'>) {
+  return row.status === 'COMPLETED';
 }
 
 function createDefaultJrChecklistRows(): JrChecklistDraftItem[] {
@@ -414,7 +444,15 @@ function getSavedJrChecklistRowsFromSubmissionData(
     const id = String((item as { id?: unknown }).id ?? '').trim();
     const status = String((item as { status?: unknown }).status ?? '').trim();
     if (!id) continue;
-    if (status !== 'ORDERED' && status !== 'MISSING_ITEMS' && status !== 'COMPLETED') continue;
+    if (
+      status !== 'ORDERED' &&
+      status !== 'MISSING_ITEMS' &&
+      status !== 'COMPLETED' &&
+      status !== 'NOT_REQUIRED'
+    ) {
+      continue;
+    }
+    if (status === 'NOT_REQUIRED' && !isJrChecklistNotRequiredAllowed(id)) continue;
     const proofAttachmentIdRaw = (item as { proofAttachmentId?: unknown }).proofAttachmentId;
     const proofFilenameRaw = (item as { proofFilename?: unknown }).proofFilename;
     const noteRaw = (item as { note?: unknown }).note;
@@ -468,6 +506,19 @@ function getSavedJrChecklistRowsFromSubmissionData(
     noteAuthor: savedById.get(row.id)?.noteAuthor ?? null,
     noteRole: savedById.get(row.id)?.noteRole ?? null,
   }));
+}
+
+function getSavedJrProcessorAssignedFromSubmissionData(
+  data: Record<string, unknown> | null
+): JrProcessorAssignedValue | null {
+  if (!data || typeof data !== 'object') return null;
+  const jrChecklistRaw = (data as { jrChecklist?: unknown }).jrChecklist;
+  if (!jrChecklistRaw || typeof jrChecklistRaw !== 'object') return null;
+  const processorAssignedRaw = (jrChecklistRaw as { processorAssigned?: unknown }).processorAssigned;
+  if (typeof processorAssignedRaw !== 'string') return null;
+  const normalized = processorAssignedRaw.trim();
+  const match = jrProcessorAssignedOptions.find((option) => option.value === normalized);
+  return match ? match.value : null;
 }
 
 function injectLoanOfficerContributors(
@@ -544,6 +595,7 @@ const submissionDetailOrder = [
   'aus',
   'loanOfficer',
   'secondaryLoanOfficer',
+  'processorAssigned',
   'notes',
 ] as const;
 
@@ -574,6 +626,7 @@ const submissionDetailLabels: Record<string, string> = {
   aus: 'AUS',
   loanOfficer: 'Primary Loan Officer',
   secondaryLoanOfficer: 'Secondary Loan Officer',
+  processorAssigned: 'Processor Assigned',
   notes: 'Notes',
 };
 
@@ -614,7 +667,7 @@ const submissionDetailGroupConfig = [
   },
   {
     title: 'Loan Officer & Notes',
-    keys: ['loanOfficer', 'secondaryLoanOfficer', 'notes'],
+    keys: ['loanOfficer', 'secondaryLoanOfficer', 'processorAssigned', 'notes'],
   },
 ] as const;
 
@@ -1389,8 +1442,12 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
                 if (
                   statusRaw !== 'ORDERED' &&
                   statusRaw !== 'MISSING_ITEMS' &&
-                  statusRaw !== 'COMPLETED'
+                  statusRaw !== 'COMPLETED' &&
+                  statusRaw !== 'NOT_REQUIRED'
                 ) {
+                  return null;
+                }
+                if (statusRaw === 'NOT_REQUIRED' && !isJrChecklistNotRequiredAllowed(id)) {
                   return null;
                 }
                 const proofAttachmentIdRaw = (row as { proofAttachmentId?: unknown })
@@ -1621,6 +1678,9 @@ export function TaskList({
   const [jrChecklistByTask, setJrChecklistByTask] = React.useState<
     Record<string, JrChecklistDraftItem[]>
   >({});
+  const [jrProcessorAssignedByTask, setJrProcessorAssignedByTask] = React.useState<
+    Record<string, JrProcessorAssignedValue | null>
+  >({});
   const [jrChecklistSaveStateByTask, setJrChecklistSaveStateByTask] = React.useState<
     Record<string, { state: 'idle' | 'saving' | 'saved' | 'error'; message?: string }>
   >({});
@@ -1682,7 +1742,12 @@ export function TaskList({
   );
 
   const persistJrChecklist = React.useCallback(
-    async (taskId: string, rows: JrChecklistDraftItem[], version: number) => {
+    async (
+      taskId: string,
+      rows: JrChecklistDraftItem[],
+      processorAssigned: JrProcessorAssignedValue | null,
+      version: number
+    ) => {
       setJrChecklistSaveStateByTask((prev) => ({
         ...prev,
         [taskId]: { state: 'saving' },
@@ -1699,7 +1764,8 @@ export function TaskList({
           noteUpdatedAt: row.noteUpdatedAt ?? null,
           noteAuthor: row.noteAuthor ?? null,
           noteRole: row.noteRole ?? null,
-        }))
+        })),
+        processorAssigned
       );
       if (jrChecklistSaveVersionRef.current[taskId] !== version) {
         return;
@@ -1738,11 +1804,19 @@ export function TaskList({
   );
 
   const queueJrChecklistAutosave = React.useCallback(
-    (taskId: string, rows: JrChecklistDraftItem[]) => {
+    (
+      taskId: string,
+      rows: JrChecklistDraftItem[],
+      processorAssignedOverride?: JrProcessorAssignedValue | null
+    ) => {
       const pendingTimer = jrChecklistAutosaveTimersRef.current[taskId];
       if (pendingTimer) {
         window.clearTimeout(pendingTimer);
       }
+      const processorAssigned =
+        processorAssignedOverride !== undefined
+          ? processorAssignedOverride
+          : (jrProcessorAssignedByTask[taskId] ?? null);
       const nextVersion = (jrChecklistSaveVersionRef.current[taskId] ?? 0) + 1;
       jrChecklistSaveVersionRef.current[taskId] = nextVersion;
       setJrChecklistSaveStateByTask((prev) => ({
@@ -1750,10 +1824,10 @@ export function TaskList({
         [taskId]: { state: 'saving' },
       }));
       jrChecklistAutosaveTimersRef.current[taskId] = window.setTimeout(() => {
-        void persistJrChecklist(taskId, rows, nextVersion);
+        void persistJrChecklist(taskId, rows, processorAssigned, nextVersion);
       }, 650);
     },
-    [persistJrChecklist]
+    [jrProcessorAssignedByTask, persistJrChecklist]
   );
 
   const updateJrChecklistRows = React.useCallback(
@@ -1775,6 +1849,14 @@ export function TaskList({
       );
     },
     [updateJrChecklistRows]
+  );
+
+  const updateJrProcessorAssigned = React.useCallback(
+    (taskId: string, value: JrProcessorAssignedValue | null) => {
+      setJrProcessorAssignedByTask((prev) => ({ ...prev, [taskId]: value }));
+      queueJrChecklistAutosave(taskId, getJrChecklistRows(taskId), value);
+    },
+    [getJrChecklistRows, queueJrChecklistAutosave]
   );
 
   React.useEffect(() => {
@@ -1840,6 +1922,31 @@ export function TaskList({
         const savedRows = getSavedJrChecklistRowsFromSubmissionData(parsedSubmissionData);
         if (!savedRows) continue;
         next[task.id] = savedRows;
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  React.useEffect(() => {
+    setJrProcessorAssignedByTask((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const task of tasks) {
+        if (task.kind !== TaskKind.VA_HOI || task.id in next) continue;
+        const parsedSubmissionData =
+          task.submissionData &&
+          typeof task.submissionData === 'object' &&
+          !Array.isArray(task.submissionData)
+            ? (task.submissionData as Record<string, unknown>)
+            : task.parentTask?.submissionData &&
+                typeof task.parentTask.submissionData === 'object' &&
+                !Array.isArray(task.parentTask.submissionData)
+              ? (task.parentTask.submissionData as Record<string, unknown>)
+              : null;
+        next[task.id] = getSavedJrProcessorAssignedFromSubmissionData(parsedSubmissionData);
         changed = true;
       }
 
@@ -2542,10 +2649,12 @@ export function TaskList({
           (row) => row.status === 'MISSING_ITEMS'
         );
         const jrChecklistAllCompleted =
-          jrChecklistRows.length > 0 && jrChecklistRows.every((row) => row.status === 'COMPLETED');
+          jrChecklistRows.length > 0 && jrChecklistRows.every((row) => isJrChecklistRowSatisfied(row));
         const jrChecklistAllProofAttached =
           jrChecklistRows.length > 0 &&
-          jrChecklistRows.every((row) => Boolean(row.proofAttachmentId));
+          jrChecklistRows.every((row) =>
+            isJrChecklistProofRequired(row) ? Boolean(row.proofAttachmentId) : true
+          );
         const jrChecklistBlocksCompletion =
           isJrChecklistTask && (!jrChecklistAllCompleted || !jrChecklistAllProofAttached);
         const qcChecklistHasRedXItems = hasQcChecklistRedItem(qcChecklistRows);
@@ -2820,6 +2929,16 @@ export function TaskList({
         }
         if (secondaryLoanOfficerName) {
           submissionDataWithLoanOfficers.secondaryLoanOfficer = secondaryLoanOfficerName;
+        }
+        const processorAssignedLabel =
+          getJrProcessorAssignedLabel(jrProcessorAssignedByTask[task.id]) ||
+          getJrProcessorAssignedLabel(
+            getSavedJrProcessorAssignedFromSubmissionData(
+              parsedSubmissionData as Record<string, unknown> | null
+            )
+          );
+        if (processorAssignedLabel) {
+          submissionDataWithLoanOfficers.processorAssigned = processorAssignedLabel;
         }
         const submissionDataGroups = getGroupedSubmissionDetails(submissionDataWithLoanOfficers);
         const isVaSubmissionView =
@@ -3928,9 +4047,30 @@ export function TaskList({
                           </p>
                         </div>
                         <span className="inline-flex items-center rounded-full border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-sky-700">
-                          {jrChecklistRows.filter((row) => row.status === 'COMPLETED').length}/
+                          {jrChecklistRows.filter((row) => isJrChecklistRowSatisfied(row)).length}/
                           {jrChecklistRows.length} Completed
                         </span>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                        <label className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                          Processor Assigned
+                        </label>
+                        <select
+                          value={jrProcessorAssignedByTask[task.id] || ''}
+                          onChange={(event) => {
+                            const nextValue = event.target.value as JrProcessorAssignedValue | '';
+                            updateJrProcessorAssigned(task.id, nextValue ? nextValue : null);
+                          }}
+                          disabled={isJrChecklistLocked}
+                          className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                        >
+                          <option value="">Select a processor</option>
+                          {jrProcessorAssignedOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div className="space-y-2.5">
                         {jrChecklistRows.map((row) => {
@@ -3938,9 +4078,18 @@ export function TaskList({
                           const RowIcon = getJrChecklistHeadingIcon(row.id);
                           const statusMeta = getJrChecklistStatusPresentation(row.status);
                           const StatusIcon = getJrChecklistStatusIcon(row.status);
+                          const isProofRequired = isJrChecklistProofRequired(row);
+                          const rowStatusOptions = isJrChecklistNotRequiredAllowed(row.id)
+                            ? [
+                                ...jrChecklistStatusOptions,
+                                { value: 'NOT_REQUIRED' as JrChecklistStatus, label: 'Not Required' },
+                              ]
+                            : jrChecklistStatusOptions;
                           const jrRowToneClassName =
                             row.status === 'COMPLETED'
                               ? 'border-emerald-200 bg-emerald-50/45'
+                              : row.status === 'NOT_REQUIRED'
+                              ? 'border-slate-300 bg-slate-100/70'
                               : row.status === 'ORDERED'
                               ? 'border-yellow-200 bg-yellow-50/45'
                               : 'border-rose-200 bg-rose-50/45';
@@ -3980,7 +4129,7 @@ export function TaskList({
                               disabled={isJrChecklistLocked}
                               className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                             >
-                              {jrChecklistStatusOptions.map((option) => (
+                              {rowStatusOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
                                   {option.label}
                                 </option>
@@ -3988,7 +4137,9 @@ export function TaskList({
                             </select>
                             <div
                               className={`mt-2.5 rounded-lg border p-2.5 ${
-                                row.proofAttachmentId
+                                !isProofRequired
+                                  ? 'border-slate-300 bg-slate-100/80'
+                                  : row.proofAttachmentId
                                   ? 'border-emerald-200 bg-emerald-50/60'
                                   : 'border-rose-200 bg-rose-50/60'
                               }`}
@@ -3996,12 +4147,20 @@ export function TaskList({
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span
                                   className={`text-[11px] font-bold uppercase tracking-wide ${
-                                    row.proofAttachmentId ? 'text-emerald-700' : 'text-rose-700'
+                                    !isProofRequired
+                                      ? 'text-slate-600'
+                                      : row.proofAttachmentId
+                                      ? 'text-emerald-700'
+                                      : 'text-rose-700'
                                   }`}
                                 >
-                                  Attach Proof (Required)
+                                  {isProofRequired ? 'Attach Proof (Required)' : 'Proof Optional'}
                                 </span>
-                                {proofAttachmentId ? (
+                                {!isProofRequired ? (
+                                  <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                                    Not Required
+                                  </span>
+                                ) : proofAttachmentId ? (
                                   <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                                     Attached
                                   </span>
@@ -4011,6 +4170,11 @@ export function TaskList({
                                   </span>
                                 )}
                               </div>
+                              {!isProofRequired && (
+                                <p className="mt-2 text-[11px] font-medium text-slate-600">
+                                  VOE marked as Not Required does not require proof.
+                                </p>
+                              )}
                               <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <label className="inline-flex cursor-pointer items-center rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50">
                                   {uploadingId === task.id ? 'Uploading...' : 'Upload Proof'}
@@ -4114,7 +4278,7 @@ export function TaskList({
                           )}
                           {jrChecklistBlocksCompletion && (
                             <p className="text-xs font-semibold text-slate-600">
-                              Complete is available only when all checklist rows are Completed and have proof attached.
+                              Complete is available only when all checklist rows are Completed (or VOE is Not Required) and every Completed row has proof attached.
                             </p>
                           )}
                           {jrChecklistSaveStateByTask[task.id]?.state === 'saving' && (
