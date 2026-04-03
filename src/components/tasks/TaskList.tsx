@@ -739,6 +739,9 @@ function getVaSafeTimelineItems(items: TimelineItem[]): TimelineItem[] {
     if (item.type === 'attachment') {
       // VA lanes only keep proof attachments produced in VA/LO response channel.
       if (item.attachmentPurpose !== TaskAttachmentPurpose.PROOF) return false;
+      const isVaOrLoAttachmentActor =
+        isVaTimelineRole(item.actorRole) || item.actorRole === UserRole.LOAN_OFFICER;
+      if (!isVaOrLoAttachmentActor) return false;
       if (item.sourceTaskKind) {
         return (
           item.sourceTaskKind === TaskKind.VA_TITLE ||
