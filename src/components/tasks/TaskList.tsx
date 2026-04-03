@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
+  addJrProcessorNote,
   deleteTask,
   reviewInitialDisclosureFigures,
   requestInfoFromLoanOfficer,
@@ -1896,15 +1897,75 @@ export function TaskList({
   );
 
   const submitJrNotesUpdate = React.useCallback(
-    (taskId: string) => {
-      const rows = getJrChecklistRows(taskId);
+    (
+      taskId: string,
+      rowsOverride?: JrChecklistDraftItem[],
+      processorAssignedNoteOverride?: string
+    ) => {
+      const rows = rowsOverride ?? getJrChecklistRows(taskId);
       const processorAssigned = jrProcessorAssignedByTask[taskId] ?? null;
-      const processorAssignedNote = jrProcessorAssignedNoteByTask[taskId] || '';
+      const processorAssignedNote =
+        processorAssignedNoteOverride !== undefined
+          ? processorAssignedNoteOverride
+          : (jrProcessorAssignedNoteByTask[taskId] || '');
       const nextVersion = (jrChecklistSaveVersionRef.current[taskId] ?? 0) + 1;
       jrChecklistSaveVersionRef.current[taskId] = nextVersion;
       void persistJrChecklist(taskId, rows, processorAssigned, processorAssignedNote, nextVersion);
     },
     [getJrChecklistRows, jrProcessorAssignedByTask, jrProcessorAssignedNoteByTask, persistJrChecklist]
+  );
+
+  const submitJrRowNoteUpdate = React.useCallback(
+    async (taskId: string, rowId: string) => {
+      const rows = getJrChecklistRows(taskId);
+      const targetRow = rows.find((row) => row.id === rowId);
+      const note = (targetRow?.note || '').trim();
+      if (!targetRow || !note) {
+        alert('Please enter a note before submitting an update.');
+        return;
+      }
+
+      const result = await addJrProcessorNote(taskId, `${targetRow.label}: ${note}`);
+      if (!result.success) {
+        alert(result.error || 'Failed to submit JR note update.');
+        return;
+      }
+
+      const clearedRows = rows.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              note: '',
+              noteUpdatedAt: null,
+              noteAuthor: null,
+              noteRole: null,
+            }
+          : row
+      );
+      setJrChecklistByTask((prev) => ({ ...prev, [taskId]: clearedRows }));
+      submitJrNotesUpdate(taskId, clearedRows);
+    },
+    [getJrChecklistRows, submitJrNotesUpdate]
+  );
+
+  const submitJrProcessorAssignmentNoteUpdate = React.useCallback(
+    async (taskId: string) => {
+      const note = (jrProcessorAssignedNoteByTask[taskId] || '').trim();
+      if (!note) {
+        alert('Please enter a note before submitting an update.');
+        return;
+      }
+
+      const result = await addJrProcessorNote(taskId, `Processor Assignment: ${note}`);
+      if (!result.success) {
+        alert(result.error || 'Failed to submit processor note update.');
+        return;
+      }
+
+      setJrProcessorAssignedNoteByTask((prev) => ({ ...prev, [taskId]: '' }));
+      submitJrNotesUpdate(taskId, undefined, '');
+    },
+    [jrProcessorAssignedNoteByTask, submitJrNotesUpdate]
   );
 
   React.useEffect(() => {
@@ -4311,7 +4372,7 @@ export function TaskList({
                                   )}
                                   <button
                                     type="button"
-                                    onClick={() => submitJrNotesUpdate(task.id)}
+                                    onClick={() => void submitJrRowNoteUpdate(task.id, row.id)}
                                     disabled={isJrChecklistLocked || jrChecklistSaveStateByTask[task.id]?.state === 'saving'}
                                     className="inline-flex h-6 items-center rounded-md border border-sky-300 bg-white px-2 text-[10px] font-bold uppercase tracking-wide text-sky-700 hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
                                   >
@@ -4407,7 +4468,7 @@ export function TaskList({
                               </span>
                               <button
                                 type="button"
-                                onClick={() => submitJrNotesUpdate(task.id)}
+                                onClick={() => void submitJrProcessorAssignmentNoteUpdate(task.id)}
                                 disabled={isJrChecklistLocked || jrChecklistSaveStateByTask[task.id]?.state === 'saving'}
                                 className="inline-flex h-6 items-center rounded-md border border-sky-300 bg-white px-2 text-[10px] font-bold uppercase tracking-wide text-sky-700 hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
                               >

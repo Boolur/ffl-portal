@@ -17,12 +17,13 @@ import {
   Paperclip,
   Search,
   Loader2,
+  Trash2,
   User,
   UserCog,
   X,
 } from 'lucide-react';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
-import { respondToDisclosureRequest } from '@/app/actions/taskActions';
+import { deleteTask, respondToDisclosureRequest } from '@/app/actions/taskActions';
 import type { LoVaBorrowerProgressItem, VaChipState } from '@/lib/loVaProgress';
 import { getRoleBubbleClass } from '@/lib/roleColors';
 import {
@@ -666,9 +667,14 @@ export function LoVaBorrowerProgressList({
   const [submittingLoResponseTaskId, setSubmittingLoResponseTaskId] = React.useState<string | null>(
     null
   );
+  const [deletingCompletedBorrowerKey, setDeletingCompletedBorrowerKey] = React.useState<string | null>(
+    null
+  );
   const [loResponseErrorByTaskId, setLoResponseErrorByTaskId] = React.useState<
     Record<string, string | null>
   >({});
+  const canDeleteCompletedRequests =
+    currentRole === UserRole.MANAGER || currentRole === UserRole.ADMIN;
   const focusedItem =
     focusedItemKey === null
       ? null
@@ -802,6 +808,45 @@ export function LoVaBorrowerProgressList({
       setSubmittingLoResponseTaskId(null);
     },
     [loResponseDraftByTaskId, router]
+  );
+
+  const handleDeleteCompletedBorrower = React.useCallback(
+    async (item: LoVaBorrowerProgressItem) => {
+      if (!canDeleteCompletedRequests) return;
+      const borrowerKey = `${item.loanNumber}-${item.borrowerName}`;
+      const confirmed = window.confirm(
+        `Delete completed VA/JR processing request for ${item.borrowerName} (${item.loanNumber})?`
+      );
+      if (!confirmed) return;
+
+      const candidateIds = [
+        item.vaStageDetails.title.taskId,
+        item.vaStageDetails.payoff.taskId,
+        item.vaStageDetails.appraisal.taskId,
+        item.jrStageDetails.hoi.taskId,
+        item.detailTaskId,
+      ];
+      const taskIds = Array.from(
+        new Set(candidateIds.filter((value): value is string => Boolean(value && value.trim())))
+      );
+      if (taskIds.length === 0) {
+        alert('No deletable task IDs found for this completed request.');
+        return;
+      }
+
+      setDeletingCompletedBorrowerKey(borrowerKey);
+      for (const taskId of taskIds) {
+        const result = await deleteTask(taskId);
+        if (!result.success && result.error !== 'Task not found.') {
+          alert(result.error || 'Failed to delete completed VA/JR request.');
+          setDeletingCompletedBorrowerKey(null);
+          return;
+        }
+      }
+      setDeletingCompletedBorrowerKey(null);
+      router.refresh();
+    },
+    [canDeleteCompletedRequests, router]
   );
 
   React.useEffect(() => {
@@ -1454,22 +1499,44 @@ export function LoVaBorrowerProgressList({
                     </div>
                     {cardExpanded && (
                       <div className="mt-2 border-t border-slate-200 pt-2">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                            Worked By
-                          </span>
-                          {(workedBy.length > 0
-                            ? workedBy
-                            : [{ name: 'Unassigned', role: null as null }]).map((contributor) => (
-                            <span
-                              key={contributor.name}
-                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
-                                contributor.role
-                              )}`}
-                            >
-                              {contributor.name}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                              Worked By
                             </span>
-                          ))}
+                            {(workedBy.length > 0
+                              ? workedBy
+                              : [{ name: 'Unassigned', role: null as null }]).map((contributor) => (
+                              <span
+                                key={contributor.name}
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
+                                  contributor.role
+                                )}`}
+                              >
+                                {contributor.name}
+                              </span>
+                            ))}
+                          </div>
+                          {canDeleteCompletedRequests && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteCompletedBorrower(item)}
+                              disabled={
+                                deletingCompletedBorrowerKey ===
+                                `${item.loanNumber}-${item.borrowerName}`
+                              }
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                              aria-label="Delete completed VA/JR processing request"
+                              title="Delete completed VA/JR processing request"
+                            >
+                              {deletingCompletedBorrowerKey ===
+                              `${item.loanNumber}-${item.borrowerName}` ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}

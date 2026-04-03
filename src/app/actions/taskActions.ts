@@ -2736,12 +2736,6 @@ export async function saveJrProcessorChecklist(
       updatedBy: session?.user?.name || 'Team Member',
     };
 
-    const previousProcessorAssignedNote = String(
-      existingChecklistRaw?.processorAssignedNote ?? ''
-    ).trim();
-    const changedNoteLabels = normalizedItems
-      .filter((item) => (existingNotesByRowId.get(item.id) || '').trim() !== (item.note || '').trim())
-      .map((item) => item.label);
     const changedProofRows = normalizedItems
       .map((item) => {
         const previousAttachmentId = existingProofAttachmentIdByRowId.get(item.id) || null;
@@ -2752,20 +2746,11 @@ export async function saveJrProcessorChecklist(
         return `${item.label} (updated)`;
       })
       .filter((entry): entry is string => Boolean(entry));
-    const processorAssignedNoteChanged =
-      previousProcessorAssignedNote !== String(normalizedProcessorAssignedNote ?? '').trim();
-
-    if (changedNoteLabels.length > 0 || processorAssignedNoteChanged || changedProofRows.length > 0) {
+    if (changedProofRows.length > 0) {
       const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
       const summaryParts: string[] = [];
-      if (changedNoteLabels.length > 0) {
-        summaryParts.push(`JR notes updated for: ${changedNoteLabels.join(', ')}.`);
-      }
       if (changedProofRows.length > 0) {
         summaryParts.push(`JR attachments updated: ${changedProofRows.join(', ')}.`);
-      }
-      if (processorAssignedNoteChanged) {
-        summaryParts.push('Processor assignment note updated.');
       }
       notes.push({
         author: session?.user?.name || 'Team Member',
