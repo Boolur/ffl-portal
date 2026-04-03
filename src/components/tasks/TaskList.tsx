@@ -521,6 +521,17 @@ function getSavedJrProcessorAssignedFromSubmissionData(
   return match ? match.value : null;
 }
 
+function getSavedJrProcessorAssignedNoteFromSubmissionData(
+  data: Record<string, unknown> | null
+): string {
+  if (!data || typeof data !== 'object') return '';
+  const jrChecklistRaw = (data as { jrChecklist?: unknown }).jrChecklist;
+  if (!jrChecklistRaw || typeof jrChecklistRaw !== 'object') return '';
+  const noteRaw = (jrChecklistRaw as { processorAssignedNote?: unknown }).processorAssignedNote;
+  if (typeof noteRaw !== 'string') return '';
+  return noteRaw;
+}
+
 function injectLoanOfficerContributors(
   summary: ContributorSummary | null,
   loanOfficerNames: Array<string | null | undefined>
@@ -596,6 +607,7 @@ const submissionDetailOrder = [
   'loanOfficer',
   'secondaryLoanOfficer',
   'processorAssigned',
+  'processorAssignedNote',
   'notes',
 ] as const;
 
@@ -627,6 +639,7 @@ const submissionDetailLabels: Record<string, string> = {
   loanOfficer: 'Primary Loan Officer',
   secondaryLoanOfficer: 'Secondary Loan Officer',
   processorAssigned: 'Processor Assigned',
+  processorAssignedNote: 'Processor Assignment Note',
   notes: 'Notes',
 };
 
@@ -667,7 +680,13 @@ const submissionDetailGroupConfig = [
   },
   {
     title: 'Loan Officer & Notes',
-    keys: ['loanOfficer', 'secondaryLoanOfficer', 'processorAssigned', 'notes'],
+    keys: [
+      'loanOfficer',
+      'secondaryLoanOfficer',
+      'processorAssigned',
+      'processorAssignedNote',
+      'notes',
+    ],
   },
 ] as const;
 
@@ -1681,6 +1700,9 @@ export function TaskList({
   const [jrProcessorAssignedByTask, setJrProcessorAssignedByTask] = React.useState<
     Record<string, JrProcessorAssignedValue | null>
   >({});
+  const [jrProcessorAssignedNoteByTask, setJrProcessorAssignedNoteByTask] = React.useState<
+    Record<string, string>
+  >({});
   const [jrChecklistSaveStateByTask, setJrChecklistSaveStateByTask] = React.useState<
     Record<string, { state: 'idle' | 'saving' | 'saved' | 'error'; message?: string }>
   >({});
@@ -1746,6 +1768,7 @@ export function TaskList({
       taskId: string,
       rows: JrChecklistDraftItem[],
       processorAssigned: JrProcessorAssignedValue | null,
+      processorAssignedNote: string,
       version: number
     ) => {
       setJrChecklistSaveStateByTask((prev) => ({
@@ -1765,7 +1788,8 @@ export function TaskList({
           noteAuthor: row.noteAuthor ?? null,
           noteRole: row.noteRole ?? null,
         })),
-        processorAssigned
+        processorAssigned,
+        processorAssignedNote
       );
       if (jrChecklistSaveVersionRef.current[taskId] !== version) {
         return;
@@ -1807,7 +1831,8 @@ export function TaskList({
     (
       taskId: string,
       rows: JrChecklistDraftItem[],
-      processorAssignedOverride?: JrProcessorAssignedValue | null
+      processorAssignedOverride?: JrProcessorAssignedValue | null,
+      processorAssignedNoteOverride?: string
     ) => {
       const pendingTimer = jrChecklistAutosaveTimersRef.current[taskId];
       if (pendingTimer) {
@@ -1817,6 +1842,10 @@ export function TaskList({
         processorAssignedOverride !== undefined
           ? processorAssignedOverride
           : (jrProcessorAssignedByTask[taskId] ?? null);
+      const processorAssignedNote =
+        processorAssignedNoteOverride !== undefined
+          ? processorAssignedNoteOverride
+          : (jrProcessorAssignedNoteByTask[taskId] || '');
       const nextVersion = (jrChecklistSaveVersionRef.current[taskId] ?? 0) + 1;
       jrChecklistSaveVersionRef.current[taskId] = nextVersion;
       setJrChecklistSaveStateByTask((prev) => ({
@@ -1824,10 +1853,10 @@ export function TaskList({
         [taskId]: { state: 'saving' },
       }));
       jrChecklistAutosaveTimersRef.current[taskId] = window.setTimeout(() => {
-        void persistJrChecklist(taskId, rows, processorAssigned, nextVersion);
+        void persistJrChecklist(taskId, rows, processorAssigned, processorAssignedNote, nextVersion);
       }, 650);
     },
-    [jrProcessorAssignedByTask, persistJrChecklist]
+    [jrProcessorAssignedByTask, jrProcessorAssignedNoteByTask, persistJrChecklist]
   );
 
   const updateJrChecklistRows = React.useCallback(
@@ -1855,6 +1884,14 @@ export function TaskList({
     (taskId: string, value: JrProcessorAssignedValue | null) => {
       setJrProcessorAssignedByTask((prev) => ({ ...prev, [taskId]: value }));
       queueJrChecklistAutosave(taskId, getJrChecklistRows(taskId), value);
+    },
+    [getJrChecklistRows, queueJrChecklistAutosave]
+  );
+
+  const updateJrProcessorAssignedNote = React.useCallback(
+    (taskId: string, note: string) => {
+      setJrProcessorAssignedNoteByTask((prev) => ({ ...prev, [taskId]: note }));
+      queueJrChecklistAutosave(taskId, getJrChecklistRows(taskId), undefined, note);
     },
     [getJrChecklistRows, queueJrChecklistAutosave]
   );
@@ -1947,6 +1984,31 @@ export function TaskList({
               ? (task.parentTask.submissionData as Record<string, unknown>)
               : null;
         next[task.id] = getSavedJrProcessorAssignedFromSubmissionData(parsedSubmissionData);
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  React.useEffect(() => {
+    setJrProcessorAssignedNoteByTask((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const task of tasks) {
+        if (task.kind !== TaskKind.VA_HOI || task.id in next) continue;
+        const parsedSubmissionData =
+          task.submissionData &&
+          typeof task.submissionData === 'object' &&
+          !Array.isArray(task.submissionData)
+            ? (task.submissionData as Record<string, unknown>)
+            : task.parentTask?.submissionData &&
+                typeof task.parentTask.submissionData === 'object' &&
+                !Array.isArray(task.parentTask.submissionData)
+              ? (task.parentTask.submissionData as Record<string, unknown>)
+              : null;
+        next[task.id] = getSavedJrProcessorAssignedNoteFromSubmissionData(parsedSubmissionData);
         changed = true;
       }
 
@@ -2657,6 +2719,9 @@ export function TaskList({
           );
         const jrChecklistBlocksCompletion =
           isJrChecklistTask && (!jrChecklistAllCompleted || !jrChecklistAllProofAttached);
+        const jrProcessorAssignedValue = jrProcessorAssignedByTask[task.id] ?? null;
+        const jrProcessorAssignedLabel = getJrProcessorAssignedLabel(jrProcessorAssignedValue);
+        const jrProcessorAssignedNote = jrProcessorAssignedNoteByTask[task.id] || '';
         const qcChecklistHasRedXItems = hasQcChecklistRedItem(qcChecklistRows);
         const qcChecklistAllGreen = isQcChecklistGreenOnly(qcChecklistRows);
         const qcChecklistMissingFields = hasQcChecklistMissingSelections(qcChecklistRows);
@@ -2931,14 +2996,22 @@ export function TaskList({
           submissionDataWithLoanOfficers.secondaryLoanOfficer = secondaryLoanOfficerName;
         }
         const processorAssignedLabel =
-          getJrProcessorAssignedLabel(jrProcessorAssignedByTask[task.id]) ||
+          jrProcessorAssignedLabel ||
           getJrProcessorAssignedLabel(
             getSavedJrProcessorAssignedFromSubmissionData(
               parsedSubmissionData as Record<string, unknown> | null
             )
           );
+        const processorAssignedNote =
+          jrProcessorAssignedNote ||
+          getSavedJrProcessorAssignedNoteFromSubmissionData(
+            parsedSubmissionData as Record<string, unknown> | null
+          );
         if (processorAssignedLabel) {
           submissionDataWithLoanOfficers.processorAssigned = processorAssignedLabel;
+        }
+        if (processorAssignedNote.trim()) {
+          submissionDataWithLoanOfficers.processorAssignedNote = processorAssignedNote.trim();
         }
         const submissionDataGroups = getGroupedSubmissionDetails(submissionDataWithLoanOfficers);
         const isVaSubmissionView =
@@ -4051,27 +4124,6 @@ export function TaskList({
                           {jrChecklistRows.length} Completed
                         </span>
                       </div>
-                      <div className="rounded-lg border border-slate-200 bg-white p-3">
-                        <label className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
-                          Processor Assigned
-                        </label>
-                        <select
-                          value={jrProcessorAssignedByTask[task.id] || ''}
-                          onChange={(event) => {
-                            const nextValue = event.target.value as JrProcessorAssignedValue | '';
-                            updateJrProcessorAssigned(task.id, nextValue ? nextValue : null);
-                          }}
-                          disabled={isJrChecklistLocked}
-                          className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                        >
-                          <option value="">Select a processor</option>
-                          {jrProcessorAssignedOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
                       <div className="space-y-2.5">
                         {jrChecklistRows.map((row) => {
                           const proofAttachmentId = row.proofAttachmentId;
@@ -4268,6 +4320,73 @@ export function TaskList({
                           </div>
                           );
                         })}
+                        <div
+                          className={`rounded-xl border px-3 py-2.5 shadow-sm ${
+                            jrProcessorAssignedLabel
+                              ? 'border-sky-200 bg-sky-50/60'
+                              : 'border-rose-200 bg-rose-50/60'
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="inline-flex items-center gap-2 text-base font-extrabold tracking-tight text-slate-900">
+                              <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-slate-700">
+                                <User className="h-4 w-4" />
+                              </span>
+                              Processor Assigned
+                            </p>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                jrProcessorAssignedLabel
+                                  ? 'border-sky-300 bg-sky-100 text-sky-800'
+                                  : 'border-rose-300 bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {jrProcessorAssignedLabel ? (
+                                <>
+                                  <CheckCircle className="h-3 w-3" />
+                                  Assigned
+                                </>
+                              ) : (
+                                <>
+                                  <X className="h-3 w-3" />
+                                  Missing Items
+                                </>
+                              )}
+                            </span>
+                          </div>
+                          <select
+                            value={jrProcessorAssignedValue || ''}
+                            onChange={(event) => {
+                              const nextValue = event.target.value as JrProcessorAssignedValue | '';
+                              updateJrProcessorAssigned(task.id, nextValue ? nextValue : null);
+                            }}
+                            disabled={isJrChecklistLocked}
+                            className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                          >
+                            <option value="">Select a processor</option>
+                            {jrProcessorAssignedOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                                Optional Notes
+                              </span>
+                            </div>
+                            <textarea
+                              value={jrProcessorAssignedNote}
+                              onChange={(event) =>
+                                updateJrProcessorAssignedNote(task.id, event.target.value)
+                              }
+                              disabled={isJrChecklistLocked}
+                              placeholder="Add optional processor assignment notes for LO visibility..."
+                              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[76px] focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                            />
+                          </div>
+                        </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="min-h-[18px]">

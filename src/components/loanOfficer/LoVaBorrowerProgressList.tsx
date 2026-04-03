@@ -451,6 +451,7 @@ const submissionDetailGroups = [
       'creditReportType',
       'aus',
       'processorAssigned',
+      'processorAssignedNote',
     ],
   },
 ] as const;
@@ -1358,11 +1359,6 @@ export function LoVaBorrowerProgressList({
                               {item.borrowerName}
                             </p>
                             <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
-                            {processorAssignedLabel && (
-                              <p className="mt-0.5 text-[11px] font-semibold text-slate-600">
-                                Processor Assigned: {processorAssignedLabel}
-                              </p>
-                            )}
                             {item.earliestCreatedAt && (
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 <button
@@ -1380,12 +1376,12 @@ export function LoVaBorrowerProgressList({
                             )}
                           </div>
                           <div className="inline-flex items-start gap-1.5 shrink-0">
-                            <div className="flex w-[270px] flex-col gap-1">
+                            <div className="flex w-[230px] flex-col gap-1">
                               <div className="grid grid-cols-3 gap-1">
                                 {vaRows.map((row) => (
                                   <span
                                     key={row.label}
-                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
                                       row.done
                                         ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
                                         : 'border-rose-300 bg-rose-100 text-rose-800'
@@ -1400,7 +1396,7 @@ export function LoVaBorrowerProgressList({
                                 {jrRows.map((row) => (
                                   <span
                                     key={row.label}
-                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
                                       row.done
                                         ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
                                         : 'border-rose-300 bg-rose-100 text-rose-800'
@@ -1411,6 +1407,11 @@ export function LoVaBorrowerProgressList({
                                   </span>
                                 ))}
                               </div>
+                              {processorAssignedLabel && (
+                                <p className="mt-0.5 text-[10px] font-semibold text-slate-600">
+                                  Processor: {processorAssignedLabel}
+                                </p>
+                              )}
                             </div>
                             <button
                               type="button"

@@ -147,6 +147,14 @@ function getJrProcessorAssignedFromSubmissionData(data: unknown): JrProcessorAss
   return null;
 }
 
+function getJrProcessorAssignedNoteFromSubmissionData(data: unknown): string | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const checklistRaw = (data as { jrChecklist?: unknown }).jrChecklist;
+  if (!checklistRaw || typeof checklistRaw !== 'object' || Array.isArray(checklistRaw)) return null;
+  const note = String((checklistRaw as { processorAssignedNote?: unknown }).processorAssignedNote ?? '').trim();
+  return note || null;
+}
+
 function toDate(value?: Date | string | null) {
   if (!value) return null;
   const dateValue = value instanceof Date ? value : new Date(value);
@@ -216,6 +224,7 @@ const snapshotPreferredOrder = [
   'creditReportType',
   'aus',
   'processorAssigned',
+  'processorAssignedNote',
 ] as const;
 
 function toReadableLabel(key: string) {
@@ -248,6 +257,10 @@ function buildSubmissionSnapshot(
   );
   if (processorAssignedLabel) {
     valueByKey.set('processorAssigned', processorAssignedLabel);
+  }
+  const processorAssignedNote = getJrProcessorAssignedNoteFromSubmissionData(data);
+  if (processorAssignedNote) {
+    valueByKey.set('processorAssignedNote', processorAssignedNote);
   }
   if (valueByKey.size === 0) return [];
   const ordered: Array<{ key: string; label: string; value: string }> = [];

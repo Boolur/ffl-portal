@@ -2585,7 +2585,8 @@ function isStartLockedDeskTask(task: {
 export async function saveJrProcessorChecklist(
   taskId: string,
   items: JrChecklistItemInput[],
-  processorAssigned?: string | null
+  processorAssigned?: string | null,
+  processorAssignedNote?: string | null
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -2675,6 +2676,10 @@ export async function saveJrProcessorChecklist(
       normalizedProcessorAssignedInput === undefined
         ? (existingProcessorAssigned ?? null)
         : normalizedProcessorAssignedInput;
+    const normalizedProcessorAssignedNote =
+      processorAssignedNote === undefined
+        ? String(existingChecklistRaw?.processorAssignedNote ?? '').trim() || null
+        : String(processorAssignedNote ?? '').trim() || null;
     const existingItemsRaw = existingChecklistRaw?.items;
     const existingNotesByRowId = new Map<string, string>();
     if (Array.isArray(existingItemsRaw)) {
@@ -2713,6 +2718,7 @@ export async function saveJrProcessorChecklist(
     dataObj.jrChecklist = {
       items: normalizedItems,
       processorAssigned: normalizedProcessorAssigned,
+      processorAssignedNote: normalizedProcessorAssignedNote,
       updatedAt: new Date().toISOString(),
       updatedBy: session?.user?.name || 'Team Member',
     };
