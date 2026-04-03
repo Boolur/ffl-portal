@@ -4091,7 +4091,7 @@ export function TaskList({
                         </p>
                       </div>
                       </div>
-                      {showDeskStartOverlay && (
+                      {showDeskStartOverlay && !showVaProofStartOverlay && (
                         <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
                           <div className="flex h-full items-center justify-center">
                             <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
@@ -4220,7 +4220,9 @@ export function TaskList({
                           const RowIcon = getJrChecklistHeadingIcon(row.id);
                           const statusMeta = getJrChecklistStatusPresentation(row.status, row.id);
                           const StatusIcon = getJrChecklistStatusIcon(row.status);
-                          const isProofRequired = isJrChecklistProofRequired(row);
+                          const isProofStrictlyRequired = isJrChecklistProofRequired(row);
+                          const shouldDisplayProofRequired =
+                            row.id === jrUnderwritingChecklistRowId || isProofStrictlyRequired;
                           const isVoeNotRequired =
                             isJrChecklistNotRequiredAllowed(row.id) && row.status === 'NOT_REQUIRED';
                           const rowStatusOptions = isJrChecklistNotRequiredAllowed(row.id)
@@ -4286,7 +4288,7 @@ export function TaskList({
                             </select>
                             <div
                               className={`mt-2.5 rounded-lg border p-2.5 ${
-                                !isProofRequired
+                                !shouldDisplayProofRequired
                                   ? 'border-slate-300 bg-slate-100/80'
                                   : row.proofAttachmentId
                                   ? 'border-emerald-200 bg-emerald-50/60'
@@ -4296,16 +4298,18 @@ export function TaskList({
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span
                                   className={`text-[11px] font-bold uppercase tracking-wide ${
-                                    !isProofRequired
+                                    !shouldDisplayProofRequired
                                       ? 'text-slate-600'
                                       : row.proofAttachmentId
                                       ? 'text-emerald-700'
                                       : 'text-rose-700'
                                   }`}
                                 >
-                                  {isProofRequired ? 'Attach Proof (Required)' : 'Proof Not Required'}
+                                  {shouldDisplayProofRequired
+                                    ? 'Attach Proof (Required)'
+                                    : 'Proof Not Required'}
                                 </span>
-                                {!isProofRequired ? (
+                                {!shouldDisplayProofRequired ? (
                                   <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                                     Not Required
                                   </span>
@@ -4448,7 +4452,7 @@ export function TaskList({
                             <span
                               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                                 jrProcessorAssignedLabel
-                                  ? 'border-sky-300 bg-sky-100 text-sky-800'
+                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
                                   : 'border-rose-300 bg-rose-100 text-rose-800'
                               }`}
                             >

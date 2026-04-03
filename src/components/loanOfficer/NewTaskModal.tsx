@@ -33,6 +33,7 @@ const investorOptions = [
   'PennyMac',
 ];
 const qcInvestorOptions = [...investorOptions, 'Other'];
+const qcInvestorOptionSet = new Set(qcInvestorOptions.map((option) => option.trim().toUpperCase()));
 const buttonPricingOptions = [
   'Max Comp',
   'Max Comp 2',
@@ -43,6 +44,11 @@ const buttonPricingOptions = [
   'Buydown 3',
 ];
 const SECONDARY_LO_NA_VALUE = '__NA__';
+
+function isValidQcInvestorValue(value: string | null | undefined) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  return normalized.length > 0 && qcInvestorOptionSet.has(normalized);
+}
 
 export function NewTaskModal({
   open,
@@ -1398,7 +1404,11 @@ function QcForm({
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
-  const isOtherInvestor = form.investor.trim().toUpperCase() === 'OTHER';
+  const normalizedInvestor = form.investor.trim().toUpperCase();
+  const investorSelectionInvalid = !isValidQcInvestorValue(form.investor);
+  const shouldHighlightInvestorImmediately =
+    investorSelectionInvalid && Boolean(form.arriveLoanNumber.trim() || form.borrowerFirstName.trim());
+  const isOtherInvestor = normalizedInvestor === 'OTHER';
 
   const requiredEntryFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     { key: 'loanOfficerId', label: 'Primary Loan Officer' },
@@ -1425,7 +1435,10 @@ function QcForm({
   ];
   const missingEntryKeys = new Set<keyof typeof form>(
     requiredEntryFields
-      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .filter(({ key }) => {
+        if (key === 'investor') return investorSelectionInvalid;
+        return !String(form[key] ?? '').trim();
+      })
       .map(({ key }) => key)
   );
   const highlightedMissingFields = new Set<keyof typeof form>();
@@ -1441,7 +1454,10 @@ function QcForm({
     setShowValidationErrors(true);
 
     const missingEntryLabels = requiredEntryFields
-      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .filter(({ key }) => {
+        if (key === 'investor') return investorSelectionInvalid;
+        return !String(form[key] ?? '').trim();
+      })
       .map(({ label }) => label);
     if (isOtherInvestor && !form.notesGoals.trim()) {
       missingEntryLabels.push('Notes / Goals');
@@ -1644,7 +1660,7 @@ function QcForm({
           onChange={(v) => update('investor', v)}
           options={qcInvestorOptions}
           required
-          invalid={highlightedMissingFields.has('investor')}
+          invalid={highlightedMissingFields.has('investor') || shouldHighlightInvestorImmediately}
         />
         <RadioGroup
           label="Was UWM free credit used?"

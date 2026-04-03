@@ -69,6 +69,18 @@ const VA_TASK_BLUEPRINTS: Array<{
   { kind: TaskKind.VA_APPRAISAL, assignedRole: UserRole.VA_APPRAISAL, title: 'VA: Appraisal' },
 ];
 
+const QC_INVESTOR_ALLOWED_VALUES = new Set([
+  'UWM',
+  'KIND',
+  'EPM',
+  'SUN WEST',
+  'BUTTON',
+  'FREEDOM',
+  'LOAN UNITED',
+  'PENNYMAC',
+  'OTHER',
+]);
+
 function isVaTaskKind(kind: TaskKind | null) {
   return (
     kind === TaskKind.VA_TITLE ||
@@ -2138,6 +2150,12 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           ? (submissionData as Record<string, unknown>)
           : null;
       const qcInvestor = String(submissionObject?.investor ?? '').trim().toUpperCase();
+      if (!qcInvestor || !QC_INVESTOR_ALLOWED_VALUES.has(qcInvestor)) {
+        return {
+          success: false,
+          error: 'Investor is required before submitting QC.',
+        };
+      }
       const qcNotes = String(notes ?? submissionObject?.notesGoals ?? '').trim();
       if (qcInvestor === 'OTHER' && !qcNotes) {
         return {
