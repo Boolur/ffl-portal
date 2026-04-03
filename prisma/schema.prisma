@@ -112,6 +112,8 @@ model User {
 
   // Relations
   loansAsLO        Loan[] @relation("LoanOfficer")
+  loansAsSecondaryLO Loan[] @relation("LoanSecondaryOfficer")
+  loansAsVisibilitySubmitter Loan[] @relation("LoanVisibilitySubmitter")
   loansAsProcessor Loan[] @relation("Processor")
   assignedTasks    Task[]
   uploadedTaskAttachments TaskAttachment[] @relation("TaskAttachmentsUploadedBy")
@@ -148,6 +150,10 @@ model Loan {
   // Assignments
   loanOfficerId   String
   loanOfficer     User      @relation("LoanOfficer", fields: [loanOfficerId], references: [id])
+  secondaryLoanOfficerId String?
+  secondaryLoanOfficer User? @relation("LoanSecondaryOfficer", fields: [secondaryLoanOfficerId], references: [id])
+  visibilitySubmitterUserId String?
+  visibilitySubmitterUser User? @relation("LoanVisibilitySubmitter", fields: [visibilitySubmitterUserId], references: [id])
   
   processorId     String?
   processor       User?     @relation("Processor", fields: [processorId], references: [id])
@@ -161,6 +167,8 @@ model Loan {
   leadMailboxLeads LeadMailboxLead[]
 
   @@index([loanOfficerId, pipelineStageId])
+  @@index([secondaryLoanOfficerId])
+  @@index([visibilitySubmitterUserId])
   @@index([clientId])
 }
 

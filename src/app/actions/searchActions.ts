@@ -4,6 +4,7 @@ import { Prisma, TaskKind, TaskStatus, UserRole } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 
 type SearchResultItem = {
   id: string;
@@ -26,7 +27,7 @@ function getRoleScopedTaskWhere(role: UserRole, userId?: string): Prisma.TaskWhe
   if (isAdminOrManager) return {};
 
   if (isLoanOfficer && userId) {
-    return { OR: [{ loan: { loanOfficerId: userId } }] };
+    return buildLoanOfficerTaskWhere(userId);
   }
 
   if (role === UserRole.DISCLOSURE_SPECIALIST) {

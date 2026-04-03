@@ -17,6 +17,7 @@ import {
   getTaskAttachmentsBucket,
 } from '@/lib/supabaseAdmin';
 import { randomUUID } from 'crypto';
+import { canLoanOfficerViewLoan } from '@/lib/loanOfficerVisibility';
 
 function sanitizeFilename(filename: string) {
   const trimmed = filename.trim();
@@ -54,7 +55,13 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
       workflowState: true,
       assignedRole: true,
       assignedUserId: true,
-      loan: { select: { loanOfficerId: true } },
+      loan: {
+        select: {
+          loanOfficerId: true,
+          secondaryLoanOfficerId: true,
+          visibilitySubmitterUserId: true,
+        },
+      },
     },
   });
 
@@ -73,7 +80,10 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
         task.kind === TaskKind.VA_TITLE ||
         task.kind === TaskKind.VA_PAYOFF ||
         task.kind === TaskKind.VA_APPRAISAL));
-  const isLoanOwner = role === UserRole.LOAN_OFFICER && task.loan?.loanOfficerId === userId;
+  const isLoanOwner =
+    role === UserRole.LOAN_OFFICER &&
+    task.loan &&
+    canLoanOfficerViewLoan(task.loan, userId);
 
   if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
     return { ok: false as const, error: 'Not authorized.' };
@@ -207,7 +217,13 @@ export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
           select: {
             assignedRole: true,
             assignedUserId: true,
-            loan: { select: { loanOfficerId: true } },
+            loan: {
+              select: {
+                loanOfficerId: true,
+                secondaryLoanOfficerId: true,
+                visibilitySubmitterUserId: true,
+              },
+            },
           },
         },
       },
@@ -220,7 +236,8 @@ export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
     const isAssignedToUser = attachment.task.assignedUserId === userId;
     const isAssignedToRole = attachment.task.assignedRole === role;
     const isLoanOwner =
-      role === UserRole.LOAN_OFFICER && attachment.task.loan.loanOfficerId === userId;
+      role === UserRole.LOAN_OFFICER &&
+      canLoanOfficerViewLoan(attachment.task.loan, userId);
 
     if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
       return { success: false, error: 'Not authorized.' };
@@ -266,7 +283,13 @@ export async function deleteTaskAttachment(attachmentId: string) {
             workflowState: true,
             assignedRole: true,
             assignedUserId: true,
-            loan: { select: { loanOfficerId: true } },
+            loan: {
+              select: {
+                loanOfficerId: true,
+                secondaryLoanOfficerId: true,
+                visibilitySubmitterUserId: true,
+              },
+            },
           },
         },
       },

@@ -19,6 +19,7 @@ import { sendEmail } from '@/lib/email';
 import { randomUUID } from 'crypto';
 import { recordPerfMetric } from '@/lib/perf';
 import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
+import { canLoanOfficerViewLoan } from '@/lib/loanOfficerVisibility';
 
 function isSubmissionTask(task: {
   kind: TaskKind | null;
@@ -1582,7 +1583,13 @@ export async function updateTaskStatus(
         workflowState: true,
         loanOfficerApprovedAt: true,
         submissionData: true,
-        loan: { select: { loanOfficerId: true } },
+        loan: {
+          select: {
+            loanOfficerId: true,
+            secondaryLoanOfficerId: true,
+            visibilitySubmitterUserId: true,
+          },
+        },
       },
     });
 
@@ -1600,7 +1607,9 @@ export async function updateTaskStatus(
           existing.assignedRole === UserRole.VA_APPRAISAL ||
           (existing.kind !== TaskKind.VA_HOI && isVaTaskKind(existing.kind))));
     const isLoanOwner =
-      role === UserRole.LOAN_OFFICER && existing.loan?.loanOfficerId === userId;
+      role === UserRole.LOAN_OFFICER &&
+      existing.loan &&
+      canLoanOfficerViewLoan(existing.loan, userId);
 
     if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
       return { success: false, error: 'Not authorized to update this task.' };
@@ -1849,6 +1858,7 @@ type SubmissionPayload = {
   submissionType: SubmissionType;
   loanOfficerName?: string;
   loanOfficerId?: string;
+  secondaryLoanOfficerId?: string | null;
   borrowerFirstName: string;
   borrowerLastName: string;
   borrowerPhone?: string;
@@ -1904,6 +1914,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       submissionType,
       loanOfficerName,
       loanOfficerId,
+      secondaryLoanOfficerId,
       borrowerFirstName,
       borrowerLastName,
       borrowerPhone,
@@ -2093,32 +2104,59 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       }
     }
 
-    if (role === UserRole.LOA && !loanOfficerId) {
+    if (!loanOfficerId) {
       return {
         success: false,
-        error: 'Please select the Loan Officer for this request.',
+        error: 'Please select the Primary Loan Officer for this request.',
+      };
+    }
+    if (secondaryLoanOfficerId === undefined) {
+      return {
+        success: false,
+        error: 'Please select the Secondary Loan Officer (or N/A) for this request.',
       };
     }
 
-    // Prefer the session user as the loan officer when possible.
-    // (Keeps pipelines isolated per-LO and avoids name-based lookups.)
-    let loanOfficerUser =
-      role === UserRole.LOAN_OFFICER && sessionUserId
-        ? await prisma.user.findUnique({
-            where: { id: sessionUserId },
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              role: true,
-              roles: true,
-            },
-          })
-        : null;
+    const normalizedSecondaryLoanOfficerId = secondaryLoanOfficerId?.trim() || null;
+    if (normalizedSecondaryLoanOfficerId && normalizedSecondaryLoanOfficerId === loanOfficerId) {
+      return {
+        success: false,
+        error: 'Primary and Secondary Loan Officer must be different users.',
+      };
+    }
 
-    if (!loanOfficerUser && loanOfficerId) {
-      const selectedLoanOfficer = await prisma.user.findUnique({
-        where: { id: loanOfficerId },
+    const loanOfficerUser = await prisma.user.findUnique({
+      where: { id: loanOfficerId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        roles: true,
+      },
+    });
+    const hasLoanOfficerRole =
+      loanOfficerUser?.role === UserRole.LOAN_OFFICER ||
+      loanOfficerUser?.roles.includes(UserRole.LOAN_OFFICER);
+    if (!loanOfficerUser || !hasLoanOfficerRole) {
+      return {
+        success: false,
+        error: 'Selected Primary Loan Officer is invalid. Please choose an active Loan Officer.',
+      };
+    }
+
+    let secondaryLoanOfficerUser:
+      | {
+          id: string;
+          name: string;
+          email: string;
+          role: UserRole;
+          roles: UserRole[];
+        }
+      | null = null;
+    if (normalizedSecondaryLoanOfficerId) {
+      secondaryLoanOfficerUser = await prisma.user.findUnique({
+        where: { id: normalizedSecondaryLoanOfficerId },
         select: {
           id: true,
           name: true,
@@ -2127,49 +2165,26 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           roles: true,
         },
       });
-      const hasLoanOfficerRole =
-        selectedLoanOfficer?.role === UserRole.LOAN_OFFICER ||
-        selectedLoanOfficer?.roles.includes(UserRole.LOAN_OFFICER);
-      if (!selectedLoanOfficer || !hasLoanOfficerRole) {
+      const hasSecondaryLoanOfficerRole =
+        secondaryLoanOfficerUser?.role === UserRole.LOAN_OFFICER ||
+        secondaryLoanOfficerUser?.roles.includes(UserRole.LOAN_OFFICER);
+      if (!secondaryLoanOfficerUser || !hasSecondaryLoanOfficerRole) {
         return {
           success: false,
-          error: 'Selected Loan Officer is invalid. Please choose an active Loan Officer.',
+          error: 'Selected Secondary Loan Officer is invalid. Please choose an active Loan Officer or N/A.',
         };
       }
-      loanOfficerUser = selectedLoanOfficer;
-    }
-
-    // Back-compat fallback (older UI sent loanOfficerName)
-    if (!loanOfficerUser && loanOfficerName) {
-      loanOfficerUser = await prisma.user.findFirst({
-        where: { name: loanOfficerName },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          roles: true,
-        },
-      });
-    }
-
-    // Last resort fallback
-    if (!loanOfficerUser) {
-      loanOfficerUser = await prisma.user.findFirst({
-        where: { role: UserRole.LOAN_OFFICER },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          roles: true,
-        },
-      });
     }
 
     if (!loanOfficerUser) {
       return { success: false, error: 'No loan officer user found' };
     }
+    const visibilitySubmitterUserId =
+      sessionUserId &&
+      sessionUserId !== loanOfficerUser.id &&
+      sessionUserId !== normalizedSecondaryLoanOfficerId
+        ? sessionUserId
+        : null;
 
     // Find or create loan
     let loan = await prisma.loan.findFirst({
@@ -2188,21 +2203,37 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           borrowerEmail: borrowerEmail?.trim() || null,
           amount: Number(loanAmount || 0),
           loanOfficerId: loanOfficerUser.id,
+          secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId,
+          visibilitySubmitterUserId,
           stage: targetStage,
         },
       });
     } else {
       // If LOA selected a Loan Officer, ensure ownership follows that selection
       // so the chosen LO immediately sees the request in their portal.
-      const shouldReassignLoanOfficer =
-        role === UserRole.LOA && loanOfficerUser?.id && loan.loanOfficerId !== loanOfficerUser.id;
+      const shouldReassignLoanOfficer = loan.loanOfficerId !== loanOfficerUser.id;
+      const shouldUpdateSecondaryLoanOfficer =
+        (loan.secondaryLoanOfficerId || null) !== normalizedSecondaryLoanOfficerId;
+      const shouldUpdateVisibilitySubmitter =
+        (loan.visibilitySubmitterUserId || null) !== visibilitySubmitterUserId;
       const shouldPromoteIntakeStage = loan.stage === 'INTAKE';
-      if (shouldReassignLoanOfficer || shouldPromoteIntakeStage) {
+      if (
+        shouldReassignLoanOfficer ||
+        shouldPromoteIntakeStage ||
+        shouldUpdateSecondaryLoanOfficer ||
+        shouldUpdateVisibilitySubmitter
+      ) {
         loan = await prisma.loan.update({
           where: { id: loan.id },
           data: {
             ...(shouldPromoteIntakeStage ? { stage: targetStage } : {}),
             ...(shouldReassignLoanOfficer ? { loanOfficerId: loanOfficerUser.id } : {}),
+            ...(shouldUpdateSecondaryLoanOfficer
+              ? { secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId }
+              : {}),
+            ...(shouldUpdateVisibilitySubmitter
+              ? { visibilitySubmitterUserId }
+              : {}),
             borrowerPhone: borrowerPhone?.trim() || loan.borrowerPhone || null,
             borrowerEmail: borrowerEmail?.trim() || loan.borrowerEmail || null,
           },

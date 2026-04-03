@@ -11,6 +11,10 @@ import {
   getSignedUrlExpirySeconds,
   getSupabaseAdmin,
 } from '@/lib/supabaseAdmin';
+import {
+  buildLoanOfficerLoanWhere,
+  canLoanOfficerViewLoan,
+} from '@/lib/loanOfficerVisibility';
 
 function sanitizeFilename(filename: string) {
   const trimmed = filename.trim();
@@ -27,6 +31,8 @@ async function ensureClientForLoan(loanId: string) {
       borrowerPhone: true,
       borrowerEmail: true,
       loanOfficerId: true,
+      secondaryLoanOfficerId: true,
+      visibilitySubmitterUserId: true,
       clientId: true,
     },
   });
@@ -39,7 +45,7 @@ async function ensureClientForLoan(loanId: string) {
     select: { leadId: true },
   });
 
-  const ownerId = loan.loanOfficerId;
+    const ownerId = loan.loanOfficerId;
   const phone = loan.borrowerPhone?.trim() || null;
   const leadId = lead?.leadId || null;
 
@@ -99,12 +105,16 @@ export async function getClientFolderForLoan(loanId: string) {
 
     const loan = await prisma.loan.findUnique({
       where: { id: loanId },
-      select: { loanOfficerId: true },
+      select: {
+        loanOfficerId: true,
+        secondaryLoanOfficerId: true,
+        visibilitySubmitterUserId: true,
+      },
     });
     if (!loan) return { success: false, error: 'Loan not found.' };
 
     const canViewAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
-    if (!canViewAll && loan.loanOfficerId !== userId) {
+    if (!canViewAll && !canLoanOfficerViewLoan(loan, userId)) {
       return { success: false, error: 'Not authorized.' };
     }
 
@@ -143,7 +153,7 @@ export async function getMyPipelineClients() {
     // Primary use-case: Loan Officers selecting a client from their own pipeline.
     const ownerId = userId;
     const loans = await prisma.loan.findMany({
-      where: { loanOfficerId: ownerId },
+      where: buildLoanOfficerLoanWhere(ownerId),
       select: {
         id: true,
         loanNumber: true,
@@ -178,13 +188,21 @@ export async function attachClientDocumentsToTask(input: {
       where: { id: input.taskId },
       select: {
         id: true,
-        loan: { select: { loanOfficerId: true } },
+        loan: {
+          select: {
+            loanOfficerId: true,
+            secondaryLoanOfficerId: true,
+            visibilitySubmitterUserId: true,
+          },
+        },
       },
     });
     if (!task) return { success: false, error: 'Task not found.' };
 
     const canViewAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
-    const isLoanOwner = role === UserRole.LOAN_OFFICER && task.loan.loanOfficerId === userId;
+    const isLoanOwner =
+      role === UserRole.LOAN_OFFICER &&
+      canLoanOfficerViewLoan(task.loan, userId);
     if (!canViewAll && !isLoanOwner) {
       return { success: false, error: 'Not authorized.' };
     }
@@ -246,12 +264,16 @@ export async function createClientDocumentUploadUrl(input: {
 
     const loan = await prisma.loan.findUnique({
       where: { id: input.loanId },
-      select: { loanOfficerId: true },
+      select: {
+        loanOfficerId: true,
+        secondaryLoanOfficerId: true,
+        visibilitySubmitterUserId: true,
+      },
     });
     if (!loan) return { success: false, error: 'Loan not found.' };
 
     const canViewAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
-    if (!canViewAll && loan.loanOfficerId !== userId) {
+    if (!canViewAll && !canLoanOfficerViewLoan(loan, userId)) {
       return { success: false, error: 'Not authorized.' };
     }
 

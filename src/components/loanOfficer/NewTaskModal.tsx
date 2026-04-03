@@ -10,7 +10,6 @@ import { TaskAttachmentPurpose } from '@prisma/client';
 type NewTaskModalProps = {
   open: boolean;
   onClose: () => void;
-  loanOfficerName?: string;
   isLoanOfficerAssistant?: boolean;
   loanOfficerOptions?: Array<{
     id: string;
@@ -43,11 +42,11 @@ const buttonPricingOptions = [
   'Buydown 2',
   'Buydown 3',
 ];
+const SECONDARY_LO_NA_VALUE = '__NA__';
 
 export function NewTaskModal({
   open,
   onClose,
-  loanOfficerName,
   isLoanOfficerAssistant = false,
   loanOfficerOptions = [],
   initialType = 'DISCLOSURES',
@@ -141,7 +140,6 @@ export function NewTaskModal({
         <div className="mt-6 overflow-y-auto pr-1">
           {type === 'DISCLOSURES' ? (
             <DisclosuresForm
-              loanOfficerName={loanOfficerName}
               isLoanOfficerAssistant={isLoanOfficerAssistant}
               loanOfficerOptions={loanOfficerOptions}
               onStepChange={setCurrentStep}
@@ -153,7 +151,6 @@ export function NewTaskModal({
             />
           ) : (
             <QcForm
-              loanOfficerName={loanOfficerName}
               isLoanOfficerAssistant={isLoanOfficerAssistant}
               loanOfficerOptions={loanOfficerOptions}
               onStepChange={setCurrentStep}
@@ -668,14 +665,12 @@ function SubmissionProgress({
 }
 
 function DisclosuresForm({
-  loanOfficerName,
   isLoanOfficerAssistant,
   loanOfficerOptions,
   onSubmitted,
   onStepChange,
   currentStep,
 }: {
-  loanOfficerName?: string;
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
   onSubmitted: () => void;
@@ -687,8 +682,9 @@ function DisclosuresForm({
   const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [form, setForm] = useState({
     qualificationStatus: '',
-    loanOfficer: loanOfficerName || '',
+    loanOfficer: '',
     loanOfficerId: '',
+    secondaryLoanOfficerId: '',
     borrowerFirstName: '',
     borrowerLastName: '',
     borrowerPhone: '',
@@ -782,9 +778,8 @@ function DisclosuresForm({
     ...missingReadonlyLabels,
   ].filter(Boolean) as string[];
   const requiredEntryFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
-    ...(isLoanOfficerAssistant
-      ? ([{ key: 'loanOfficerId', label: 'Loan Officer' }] as const)
-      : []),
+    { key: 'loanOfficerId', label: 'Primary Loan Officer' },
+    { key: 'secondaryLoanOfficerId', label: 'Secondary Loan Officer' },
     { key: 'arriveLoanNumber', label: 'Arrive Loan Number' },
     { key: 'borrowerFirstName', label: 'Borrower First Name' },
     { key: 'borrowerLastName', label: 'Borrower Last Name' },
@@ -935,6 +930,10 @@ function DisclosuresForm({
         submissionType: 'DISCLOSURES',
         loanOfficerName: form.loanOfficer,
         loanOfficerId: form.loanOfficerId || undefined,
+        secondaryLoanOfficerId:
+          form.secondaryLoanOfficerId === SECONDARY_LO_NA_VALUE
+            ? null
+            : form.secondaryLoanOfficerId || undefined,
         borrowerFirstName: form.borrowerFirstName,
         borrowerLastName: form.borrowerLastName,
         borrowerPhone: form.borrowerPhone,
@@ -1009,7 +1008,6 @@ function DisclosuresForm({
       setMismoIncomeProfile(parsedIncomeProfile);
       setForm((prev) => ({
         ...prev,
-        loanOfficer: isLoanOfficerAssistant ? prev.loanOfficer : prefill.loanOfficer || prev.loanOfficer,
         borrowerFirstName: prefill.borrowerFirstName || prev.borrowerFirstName,
         borrowerLastName: prefill.borrowerLastName || prev.borrowerLastName,
         borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
@@ -1109,47 +1107,72 @@ function DisclosuresForm({
             <p className="text-xs text-red-600">{submitError}</p>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {isLoanOfficerAssistant ? (
-          <label className="space-y-1 text-sm">
-            <span
-              className={
-                highlightedMissingFields.has('loanOfficerId')
-                  ? 'font-medium text-red-700'
-                  : 'text-slate-700 font-medium'
-              }
-            >
-              Loan Officer *
-            </span>
-            <select
-              className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
-                highlightedMissingFields.has('loanOfficerId')
-                  ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
-                  : 'border border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-500/20'
-              }`}
-              value={form.loanOfficerId}
-              onChange={(event) => {
-                const selectedId = event.target.value;
-                const selectedLoanOfficer =
-                  loanOfficerOptions.find((option) => option.id === selectedId) || null;
-                setForm((prev) => ({
-                  ...prev,
-                  loanOfficerId: selectedId,
-                  loanOfficer: selectedLoanOfficer?.name || '',
-                }));
-              }}
-              required
-            >
-              <option value="">Select loan officer...</option>
-              {loanOfficerOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
-        )}
+        <label className="space-y-1 text-sm">
+          <span
+            className={
+              highlightedMissingFields.has('loanOfficerId')
+                ? 'font-medium text-red-700'
+                : 'text-slate-700 font-medium'
+            }
+          >
+            Primary Loan Officer *
+          </span>
+          <select
+            className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+              highlightedMissingFields.has('loanOfficerId')
+                ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
+                : 'border border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-500/20'
+            }`}
+            value={form.loanOfficerId}
+            onChange={(event) => {
+              const selectedId = event.target.value;
+              const selectedLoanOfficer =
+                loanOfficerOptions.find((option) => option.id === selectedId) || null;
+              setForm((prev) => ({
+                ...prev,
+                loanOfficerId: selectedId,
+                loanOfficer: selectedLoanOfficer?.name || '',
+              }));
+            }}
+            required
+          >
+            <option value="">Select primary loan officer...</option>
+            {loanOfficerOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-sm">
+          <span
+            className={
+              highlightedMissingFields.has('secondaryLoanOfficerId')
+                ? 'font-medium text-red-700'
+                : 'text-slate-700 font-medium'
+            }
+          >
+            Secondary Loan Officer *
+          </span>
+          <select
+            className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+              highlightedMissingFields.has('secondaryLoanOfficerId')
+                ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
+                : 'border border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-500/20'
+            }`}
+            value={form.secondaryLoanOfficerId}
+            onChange={(event) => update('secondaryLoanOfficerId', event.target.value)}
+            required
+          >
+            <option value="">Select secondary loan officer...</option>
+            <option value={SECONDARY_LO_NA_VALUE}>N/A</option>
+            {loanOfficerOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
         <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required invalid={highlightedMissingFields.has('borrowerFirstName')} />
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required invalid={highlightedMissingFields.has('borrowerLastName')} />
@@ -1326,14 +1349,12 @@ function DisclosuresForm({
 }
 
 function QcForm({
-  loanOfficerName,
   isLoanOfficerAssistant,
   loanOfficerOptions,
   onSubmitted,
   onStepChange,
   currentStep,
 }: {
-  loanOfficerName?: string;
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
   onSubmitted: () => void;
@@ -1345,9 +1366,9 @@ function QcForm({
   const [showValidationErrors, setShowValidationErrors] = useState(true);
   const [form, setForm] = useState({
     preApproved: '',
-    loanOfficer: loanOfficerName || '',
+    loanOfficer: '',
     loanOfficerId: '',
-    secondaryLoanOfficer: '',
+    secondaryLoanOfficerId: '',
     borrowerFirstName: '',
     borrowerLastName: '',
     borrowerPhone: '',
@@ -1380,9 +1401,8 @@ function QcForm({
   const isOtherInvestor = form.investor.trim().toUpperCase() === 'OTHER';
 
   const requiredEntryFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
-    ...(isLoanOfficerAssistant
-      ? ([{ key: 'loanOfficerId', label: 'Loan Officer' }] as const)
-      : []),
+    { key: 'loanOfficerId', label: 'Primary Loan Officer' },
+    { key: 'secondaryLoanOfficerId', label: 'Secondary Loan Officer' },
     { key: 'preApproved', label: 'Pre-Approved Status in Arrive' },
     { key: 'borrowerFirstName', label: 'Borrower First Name' },
     { key: 'borrowerLastName', label: 'Borrower Last Name' },
@@ -1443,6 +1463,10 @@ function QcForm({
         submissionType: 'QC',
         loanOfficerName: form.loanOfficer,
         loanOfficerId: form.loanOfficerId || undefined,
+        secondaryLoanOfficerId:
+          form.secondaryLoanOfficerId === SECONDARY_LO_NA_VALUE
+            ? null
+            : form.secondaryLoanOfficerId || undefined,
         borrowerFirstName: form.borrowerFirstName,
         borrowerLastName: form.borrowerLastName,
         borrowerPhone: form.borrowerPhone,
@@ -1477,7 +1501,6 @@ function QcForm({
       setImportError('');
       setForm((prev) => ({
         ...prev,
-        loanOfficer: isLoanOfficerAssistant ? prev.loanOfficer : prefill.loanOfficer || prev.loanOfficer,
         borrowerFirstName: prefill.borrowerFirstName || prev.borrowerFirstName,
         borrowerLastName: prefill.borrowerLastName || prev.borrowerLastName,
         borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
@@ -1536,48 +1559,72 @@ function QcForm({
         </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {isLoanOfficerAssistant ? (
-          <label className="space-y-1 text-sm">
-            <span
-              className={
-                highlightedMissingFields.has('loanOfficerId')
-                  ? 'font-medium text-red-700'
-                  : 'text-slate-700 font-medium'
-              }
-            >
-              Loan Officer *
-            </span>
-            <select
-              className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
-                highlightedMissingFields.has('loanOfficerId')
-                  ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
-                  : 'border border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-500/20'
-              }`}
-              value={form.loanOfficerId}
-              onChange={(event) => {
-                const selectedId = event.target.value;
-                const selectedLoanOfficer =
-                  loanOfficerOptions.find((option) => option.id === selectedId) || null;
-                setForm((prev) => ({
-                  ...prev,
-                  loanOfficerId: selectedId,
-                  loanOfficer: selectedLoanOfficer?.name || '',
-                }));
-              }}
-              required
-            >
-              <option value="">Select loan officer...</option>
-              {loanOfficerOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <Input label="Loan Officer" value={form.loanOfficer} onChange={(v) => update('loanOfficer', v)} />
-        )}
-        <Input label="Secondary Loan Officer" value={form.secondaryLoanOfficer} onChange={(v) => update('secondaryLoanOfficer', v)} />
+        <label className="space-y-1 text-sm">
+          <span
+            className={
+              highlightedMissingFields.has('loanOfficerId')
+                ? 'font-medium text-red-700'
+                : 'text-slate-700 font-medium'
+            }
+          >
+            Primary Loan Officer *
+          </span>
+          <select
+            className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+              highlightedMissingFields.has('loanOfficerId')
+                ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
+                : 'border border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-500/20'
+            }`}
+            value={form.loanOfficerId}
+            onChange={(event) => {
+              const selectedId = event.target.value;
+              const selectedLoanOfficer =
+                loanOfficerOptions.find((option) => option.id === selectedId) || null;
+              setForm((prev) => ({
+                ...prev,
+                loanOfficerId: selectedId,
+                loanOfficer: selectedLoanOfficer?.name || '',
+              }));
+            }}
+            required
+          >
+            <option value="">Select primary loan officer...</option>
+            {loanOfficerOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-sm">
+          <span
+            className={
+              highlightedMissingFields.has('secondaryLoanOfficerId')
+                ? 'font-medium text-red-700'
+                : 'text-slate-700 font-medium'
+            }
+          >
+            Secondary Loan Officer *
+          </span>
+          <select
+            className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+              highlightedMissingFields.has('secondaryLoanOfficerId')
+                ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
+                : 'border border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-500/20'
+            }`}
+            value={form.secondaryLoanOfficerId}
+            onChange={(event) => update('secondaryLoanOfficerId', event.target.value)}
+            required
+          >
+            <option value="">Select secondary loan officer...</option>
+            <option value={SECONDARY_LO_NA_VALUE}>N/A</option>
+            {loanOfficerOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required invalid={highlightedMissingFields.has('borrowerFirstName')} />
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required invalid={highlightedMissingFields.has('borrowerLastName')} />
         <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required invalid={highlightedMissingFields.has('borrowerPhone')} />

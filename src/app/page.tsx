@@ -6,6 +6,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { UserRole } from '@prisma/client';
 import { startPerfTimer, withPerfMetric } from '@/lib/perf';
+import { buildLoanOfficerLoanWhere } from '@/lib/loanOfficerVisibility';
 
 async function getLoans(role?: string | null, userId?: string | null) {
   const endPerf = startPerfTimer('page.dashboard.getLoans.total', {
@@ -19,7 +20,7 @@ async function getLoans(role?: string | null, userId?: string | null) {
     : isLoanOfficerAssistant
       ? undefined
     : isLoanOfficer && userId
-      ? { loanOfficerId: userId }
+      ? buildLoanOfficerLoanWhere(userId)
       : { id: '__none__' };
 
   const loans = await withPerfMetric(

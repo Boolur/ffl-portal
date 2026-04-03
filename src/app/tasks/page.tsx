@@ -7,6 +7,7 @@ import { TaskDeskSection } from '@/components/tasks/TaskDeskSection';
 import { TasksRouteSyncGate } from '@/components/tasks/TasksRouteSyncGate';
 import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
 import { buildLoVaBorrowerProgress, isLoVaPilotUser } from '@/lib/loVaProgress';
+import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import {
   DisclosureDecisionReason,
   TaskAttachmentPurpose,
@@ -180,8 +181,8 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   if (isAdminOrManager || isLoanOfficerAssistant) {
     // no-op: managers/admins can review all queues
   } else if (isLoanOfficer && userId) {
-    // Strict LO scope: only tasks tied to loans they own.
-    where.OR = [{ loan: { loanOfficerId: userId } }];
+    // LO scope includes primary, secondary, and submitter fallback visibility.
+    Object.assign(where, buildLoanOfficerTaskWhere(userId));
   } else if (role === UserRole.DISCLOSURE_SPECIALIST) {
     where.OR = [
       { assignedRole: role as UserRole },

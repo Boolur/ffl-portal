@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/prisma';
 import { TaskKind, UserRole } from '@prisma/client';
 import { withPerfMetric } from '@/lib/perf';
+import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 
 type TaskFilter = {
   role?: UserRole | null;
@@ -20,11 +21,7 @@ export async function getAllTasks(filter?: TaskFilter) {
   const where = isAdminOrManager
     ? undefined
     : role === UserRole.LOAN_OFFICER
-      ? {
-          loan: {
-            loanOfficerId: userId || undefined,
-          },
-        }
+      ? buildLoanOfficerTaskWhere(userId)
       : isGenericVa
         ? {
             OR: [

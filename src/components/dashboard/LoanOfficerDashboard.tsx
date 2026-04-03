@@ -228,7 +228,6 @@ export function LoanOfficerDashboard({
       <NewTaskModal
         open={showNewTask}
         onClose={() => setShowNewTask(false)}
-        loanOfficerName={loanOfficerName || 'Admin User'}
         isLoanOfficerAssistant={isLoanOfficerAssistant}
         loanOfficerOptions={loanOfficerOptions}
         initialType={initialTaskType}
