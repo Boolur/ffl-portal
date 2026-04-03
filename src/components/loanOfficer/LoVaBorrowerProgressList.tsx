@@ -1016,7 +1016,7 @@ export function LoVaBorrowerProgressList({
                               return (
                               <span
                                 key={row.label}
-                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusDisplay.pillClass}`}
+                                className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none ${statusDisplay.pillClass}`}
                                 title={`${row.label}: ${statusDisplay.statusLabel}`}
                               >
                                 {row.label}
@@ -1253,7 +1253,7 @@ export function LoVaBorrowerProgressList({
                               {jrStatusPills.map((row) => (
                                 <span
                                   key={row.label}
-                                  className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
+                                  className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none ${getJrChecklistStatusClass(
                                     row.status
                                   )}`}
                                   title={`${row.label}: ${formatJrChecklistStatus(row.status)}`}
@@ -1440,7 +1440,7 @@ export function LoVaBorrowerProgressList({
                                 {vaRows.map((row) => (
                                   <span
                                     key={row.label}
-                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none ${
                                       row.done
                                         ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
                                         : 'border-rose-300 bg-rose-100 text-rose-800'
@@ -1455,7 +1455,7 @@ export function LoVaBorrowerProgressList({
                                 {jrRows.map((row) => (
                                   <span
                                     key={row.label}
-                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                                    className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none ${
                                       row.done
                                         ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
                                         : 'border-rose-300 bg-rose-100 text-rose-800'
