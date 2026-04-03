@@ -2723,16 +2723,32 @@ export async function saveJrProcessorChecklist(
       updatedBy: session?.user?.name || 'Team Member',
     };
 
-    const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
-    notes.push({
-      author: session?.user?.name || 'Team Member',
-      role,
-      message: buildJrChecklistSummary(normalizedItems),
-      date: new Date().toISOString(),
-      entryType: 'jrChecklist',
-      jrChecklist: normalizedItems,
-    });
-    dataObj.notesHistory = notes;
+    const previousProcessorAssignedNote = String(
+      existingChecklistRaw?.processorAssignedNote ?? ''
+    ).trim();
+    const changedNoteLabels = normalizedItems
+      .filter((item) => (existingNotesByRowId.get(item.id) || '').trim() !== (item.note || '').trim())
+      .map((item) => item.label);
+    const processorAssignedNoteChanged =
+      previousProcessorAssignedNote !== String(normalizedProcessorAssignedNote ?? '').trim();
+
+    if (changedNoteLabels.length > 0 || processorAssignedNoteChanged) {
+      const notes = Array.isArray(dataObj.notesHistory) ? [...dataObj.notesHistory] : [];
+      const summaryParts: string[] = [];
+      if (changedNoteLabels.length > 0) {
+        summaryParts.push(`JR notes updated for: ${changedNoteLabels.join(', ')}.`);
+      }
+      if (processorAssignedNoteChanged) {
+        summaryParts.push('Processor assignment note updated.');
+      }
+      notes.push({
+        author: session?.user?.name || 'Team Member',
+        role,
+        message: summaryParts.join(' ').trim(),
+        date: new Date().toISOString(),
+      });
+      dataObj.notesHistory = notes;
+    }
 
     const allCompleted = normalizedItems.every(
       (item) => item.status === 'COMPLETED' || (item.id === JR_VOE_ROW_ID && item.status === 'NOT_REQUIRED')

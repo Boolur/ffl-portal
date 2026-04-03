@@ -272,8 +272,8 @@ function isJrChecklistRowSatisfied(row: Pick<JrChecklistDraftItem, 'id' | 'statu
   return row.status === 'COMPLETED' || (isJrChecklistNotRequiredAllowed(row.id) && row.status === 'NOT_REQUIRED');
 }
 
-function isJrChecklistProofRequired(row: Pick<JrChecklistDraftItem, 'status'>) {
-  return row.status === 'COMPLETED';
+function isJrChecklistProofRequired(row: Pick<JrChecklistDraftItem, 'id' | 'status'>) {
+  return !(isJrChecklistNotRequiredAllowed(row.id) && row.status === 'NOT_REQUIRED');
 }
 
 function createDefaultJrChecklistRows(): JrChecklistDraftItem[] {
@@ -4134,6 +4134,8 @@ export function TaskList({
                           const statusMeta = getJrChecklistStatusPresentation(row.status);
                           const StatusIcon = getJrChecklistStatusIcon(row.status);
                           const isProofRequired = isJrChecklistProofRequired(row);
+                          const isVoeNotRequired =
+                            isJrChecklistNotRequiredAllowed(row.id) && row.status === 'NOT_REQUIRED';
                           const rowStatusOptions = isJrChecklistNotRequiredAllowed(row.id)
                             ? [
                                 ...jrChecklistStatusOptions,
@@ -4209,7 +4211,7 @@ export function TaskList({
                                       : 'text-rose-700'
                                   }`}
                                 >
-                                  {isProofRequired ? 'Attach Proof (Required)' : 'Proof Optional'}
+                                  {isProofRequired ? 'Attach Proof (Required)' : 'Proof Not Required'}
                                 </span>
                                 {!isProofRequired ? (
                                   <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
@@ -4225,7 +4227,7 @@ export function TaskList({
                                   </span>
                                 )}
                               </div>
-                              {!isProofRequired && (
+                              {isVoeNotRequired && (
                                 <p className="mt-2 text-[11px] font-medium text-slate-600">
                                   VOE marked as Not Required does not require proof.
                                 </p>
@@ -4400,7 +4402,7 @@ export function TaskList({
                           )}
                           {jrChecklistBlocksCompletion && (
                             <p className="text-xs font-semibold text-slate-600">
-                              Complete is available only when all checklist rows are Completed (or VOE is Not Required) and every Completed row has proof attached.
+                              Complete is available only when all checklist rows are Completed (or VOE is Not Required) and every required row has proof attached.
                             </p>
                           )}
                           {jrChecklistSaveStateByTask[task.id]?.state === 'saving' && (

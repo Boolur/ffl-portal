@@ -677,6 +677,10 @@ export function LoVaBorrowerProgressList({
     () => (focusedItem ? groupSubmissionSnapshot(focusedItem.submissionSnapshot) : []),
     [focusedItem]
   );
+  const focusedProcessorAssignedLabel = React.useMemo(() => {
+    if (!focusedItem) return null;
+    return getProcessorAssignedLabel(focusedItem.jrStageDetails.hoi.processorAssigned);
+  }, [focusedItem]);
   const vaItems = React.useMemo(
     () =>
       items.filter(
@@ -1532,6 +1536,17 @@ export function LoVaBorrowerProgressList({
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {focusedQueue === 'completed' && focusedItem && (
+              <div className="mt-5">
+                <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-50 text-slate-600 ring-1 ring-slate-200">
+                    <User className="h-3 w-3" />
+                  </span>
+                  Processor: {focusedProcessorAssignedLabel || 'Unassigned'}
+                </span>
               </div>
             )}
 
