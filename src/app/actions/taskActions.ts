@@ -280,6 +280,7 @@ function buildTaskNotificationHtml(input: {
 type EmailAudience = 'LO' | 'DISCLOSURE' | 'QC' | 'VA';
 type DeskType = 'DISCLOSURE' | 'QC' | 'VA' | 'JR';
 type NotificationDeliveryMode = 'sync' | 'dual' | 'async';
+const INLINE_OUTBOX_DRAIN_BATCH_SIZE = 3;
 
 function getNotificationDeliveryMode(): NotificationDeliveryMode {
   const value = String(process.env.NOTIFICATION_DELIVERY_MODE || 'async')
@@ -287,6 +288,14 @@ function getNotificationDeliveryMode(): NotificationDeliveryMode {
     .toLowerCase();
   if (value === 'sync' || value === 'dual' || value === 'async') return value;
   return 'async';
+}
+
+async function kickInlineOutboxDrain(source: 'task-workflow' | 'va-fanout') {
+  try {
+    await drainNotificationOutboxBatch({ batchSize: INLINE_OUTBOX_DRAIN_BATCH_SIZE });
+  } catch (error) {
+    console.error(`[notifications.outbox] inline drain kick failed (${source})`, error);
+  }
 }
 
 function getEffectiveReasonLabel(task: {
@@ -1261,7 +1270,9 @@ async function dispatchTaskWorkflowNotification(input: TaskWorkflowNotificationP
   }
   if (mode === 'dual') {
     await sendTaskWorkflowNotificationsByTaskId(input);
+    return;
   }
+  await kickInlineOutboxDrain('task-workflow');
 }
 
 async function dispatchVaFanoutNotifications(input: VaFanoutNotificationPayload) {
@@ -1296,7 +1307,9 @@ async function dispatchVaFanoutNotifications(input: VaFanoutNotificationPayload)
   }
   if (mode === 'dual') {
     await sendVaFanoutNotifications(input);
+    return;
   }
+  await kickInlineOutboxDrain('va-fanout');
 }
 
 type DrainNotificationOutboxResult = {
