@@ -17,6 +17,7 @@ import {
   Paperclip,
   Search,
   Loader2,
+  User,
   UserCog,
   X,
 } from 'lucide-react';
@@ -1212,7 +1213,10 @@ export function LoVaBorrowerProgressList({
                                 </span>
                               ))}
                             </div>
-                            <p className="text-[10px] font-semibold text-slate-600">
+                            <p className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
+                                <User className="h-2.5 w-2.5" />
+                              </span>
                               Processor: {processorAssignedLabel || 'Unassigned'}
                             </p>
                           </div>
@@ -1413,11 +1417,12 @@ export function LoVaBorrowerProgressList({
                                   </span>
                                 ))}
                               </div>
-                              {processorAssignedLabel && (
-                                <p className="mt-0.5 text-[10px] font-semibold text-slate-600">
-                                  Processor: {processorAssignedLabel}
-                                </p>
-                              )}
+                              <p className="mt-0.5 inline-flex items-center gap-1 self-start rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
+                                  <User className="h-2.5 w-2.5" />
+                                </span>
+                                Processor: {processorAssignedLabel || 'Unassigned'}
+                              </p>
                             </div>
                             <button
                               type="button"
