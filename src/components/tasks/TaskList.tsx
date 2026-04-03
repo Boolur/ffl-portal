@@ -2789,6 +2789,12 @@ export function TaskList({
         const jrChecklistRows = getJrChecklistRows(task.id);
         const isJrChecklistTask = task.kind === TaskKind.VA_HOI;
         const isJrChecklistLocked = isJrChecklistTask && task.status === TaskStatus.COMPLETED;
+        const canEditCompletedJrProcessorAssignment =
+          isJrChecklistLocked &&
+          isJrChecklistTask &&
+          (currentRole === UserRole.PROCESSOR_JR || isManagerRole);
+        const isJrProcessorAssignmentLocked =
+          isJrChecklistLocked && !canEditCompletedJrProcessorAssignment;
         const canManageJrChecklist =
           (currentRole === UserRole.PROCESSOR_JR || isManagerRole) && isJrChecklistTask;
         const jrChecklistHasMissingItems = jrChecklistRows.some(
@@ -4475,7 +4481,7 @@ export function TaskList({
                               const nextValue = event.target.value as JrProcessorAssignedValue | '';
                               updateJrProcessorAssigned(task.id, nextValue ? nextValue : null);
                             }}
-                            disabled={isJrChecklistLocked}
+                            disabled={isJrProcessorAssignmentLocked}
                             className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                           >
                             <option value="">Select a processor</option>
@@ -4536,7 +4542,10 @@ export function TaskList({
                           )}
                           {isJrChecklistLocked && (
                             <p className="text-xs font-semibold text-slate-600">
-                              Checklist is locked after completion. Ask a manager to reopen if changes are needed.
+                              Checklist is locked after completion.
+                              {canEditCompletedJrProcessorAssignment
+                                ? ' You can still update Processor Assigned if staffing changes.'
+                                : ' Ask a manager to reopen if changes are needed.'}
                             </p>
                           )}
                         </div>

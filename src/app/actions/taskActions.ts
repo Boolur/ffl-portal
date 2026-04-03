@@ -2656,22 +2656,63 @@ export async function saveJrProcessorChecklist(
     if (existing.kind !== TaskKind.VA_HOI) {
       return { success: false, error: 'Only JR Processor tasks support this checklist.' };
     }
-    if (existing.status === TaskStatus.COMPLETED) {
-      return {
-        success: false,
-        error: 'JR checklist is locked after task completion. Ask a manager to reopen the task.',
-      };
-    }
-
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const canManageJrTask =
       role === UserRole.PROCESSOR_JR ||
-      existing.assignedRole === UserRole.PROCESSOR_JR ||
       existing.assignedUserId === userId;
     if (!canManageAll && !canManageJrTask) {
       return { success: false, error: 'Not authorized to update this checklist.' };
     }
-    if (!canBypassDeskStartLock(role) && isStartLockedDeskTask(existing)) {
+
+    const dataObj =
+      existing.submissionData &&
+      typeof existing.submissionData === 'object' &&
+      !Array.isArray(existing.submissionData)
+        ? { ...(existing.submissionData as Record<string, unknown>) }
+        : {};
+
+    const existingChecklistRaw =
+      dataObj.jrChecklist &&
+      typeof dataObj.jrChecklist === 'object' &&
+      !Array.isArray(dataObj.jrChecklist)
+        ? (dataObj.jrChecklist as Record<string, unknown>)
+        : null;
+
+    if (existing.status === TaskStatus.COMPLETED) {
+      const canUpdateCompletedProcessorAssignment =
+        role === UserRole.PROCESSOR_JR || role === UserRole.MANAGER || role === UserRole.ADMIN;
+      if (!canUpdateCompletedProcessorAssignment) {
+        return {
+          success: false,
+          error: 'JR checklist is locked after task completion. Ask a manager to reopen the task.',
+        };
+      }
+      const existingParsedItems =
+        parseJrChecklistItems(
+          Array.isArray(existingChecklistRaw?.items)
+            ? (existingChecklistRaw?.items as JrChecklistItemInput[])
+            : []
+        ) || [];
+      const checklistMutated =
+        existingParsedItems.length !== parsedItems.length ||
+        parsedItems.some((item, index) => {
+          const previous = existingParsedItems[index];
+          if (!previous) return true;
+          return (
+            previous.id !== item.id ||
+            previous.status !== item.status ||
+            (previous.proofAttachmentId || null) !== (item.proofAttachmentId || null) ||
+            (previous.note || '').trim() !== (item.note || '').trim()
+          );
+        });
+      if (checklistMutated || processorAssignedNote !== undefined) {
+        return {
+          success: false,
+          error:
+            'Completed JR tasks only allow updating Processor Assigned. Reopen the task for other changes.',
+        };
+      }
+    } else if (!canBypassDeskStartLock(role) && isStartLockedDeskTask(existing)) {
       return { success: false, error: 'Start this task before editing the JR checklist.' };
     }
 
@@ -2690,19 +2731,6 @@ export async function saveJrProcessorChecklist(
       }
     }
 
-    const dataObj =
-      existing.submissionData &&
-      typeof existing.submissionData === 'object' &&
-      !Array.isArray(existing.submissionData)
-        ? { ...(existing.submissionData as Record<string, unknown>) }
-        : {};
-
-    const existingChecklistRaw =
-      dataObj.jrChecklist &&
-      typeof dataObj.jrChecklist === 'object' &&
-      !Array.isArray(dataObj.jrChecklist)
-        ? (dataObj.jrChecklist as Record<string, unknown>)
-        : null;
     const normalizedProcessorAssignedInput = normalizeJrProcessorAssigned(processorAssigned);
     if (processorAssigned !== undefined && normalizedProcessorAssignedInput === undefined) {
       return { success: false, error: 'Invalid processor assignment.' };
@@ -2803,6 +2831,9 @@ export async function saveJrProcessorChecklist(
       data: {
         submissionData: dataObj as Prisma.JsonObject,
         workflowState:
+          existing.status === TaskStatus.COMPLETED
+            ? existing.workflowState
+            :
           allCompleted && allProofAttached
             ? TaskWorkflowState.READY_TO_COMPLETE
             : TaskWorkflowState.NONE,
