@@ -385,7 +385,28 @@ function normalizeBorrower(item: LoVaBorrowerProgressItem) {
 }
 
 function normalizeSearch(item: LoVaBorrowerProgressItem) {
-  return `${item.borrowerName} ${item.loanNumber}`.toLowerCase();
+  const tokens = new Set<string>();
+  const pushToken = (value: unknown) => {
+    if (value === null || value === undefined) return;
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized) return;
+    tokens.add(normalized);
+  };
+
+  pushToken(item.borrowerName);
+  pushToken(item.loanNumber);
+  pushToken(item.jrStageDetails.hoi.processorAssigned);
+
+  for (const row of item.submissionSnapshot) {
+    pushToken(row.label);
+    pushToken(row.value);
+  }
+  for (const contributor of item.workedByContributors) {
+    pushToken(contributor.name);
+    pushToken(contributor.role);
+  }
+
+  return Array.from(tokens).join(' ');
 }
 
 function sortBorrowerItems(items: LoVaBorrowerProgressItem[], sortBy: SortOption) {
