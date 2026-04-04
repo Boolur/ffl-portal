@@ -3126,6 +3126,22 @@ export function TaskList({
           !Array.isArray(parsedSubmissionData)
             ? { ...(parsedSubmissionData as Record<string, unknown>) }
             : ({} as Record<string, unknown>);
+        const investorValue = String(submissionDataWithLoanOfficers.investor ?? '').trim();
+        if (!investorValue) {
+          const investorFallbackKeys = [
+            'investorName',
+            'productProviderName',
+            'productProvider',
+            'lenderName',
+            'lender',
+          ];
+          const fallbackInvestor = investorFallbackKeys
+            .map((key) => String(submissionDataWithLoanOfficers[key] ?? '').trim())
+            .find((value) => value.length > 0);
+          if (fallbackInvestor) {
+            submissionDataWithLoanOfficers.investor = fallbackInvestor;
+          }
+        }
         const primaryLoanOfficerName = task.loan.loanOfficer?.name?.trim() || '';
         const secondaryLoanOfficerName = task.loan.secondaryLoanOfficer?.name?.trim() || '';
         if (primaryLoanOfficerName) {

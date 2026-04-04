@@ -2,6 +2,7 @@
 
 import React, {
   useCallback,
+  useDeferredValue,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -71,11 +72,16 @@ function normalizeBorrower(task: Task) {
 
 function normalizeSearch(task: Task) {
   const tokens = new Set<string>();
+  const addCommonSearchAliases = (normalized: string) => {
+    if (normalized.includes('united wholesale mortgage')) tokens.add('uwm');
+    if (normalized === 'uwm') tokens.add('united wholesale mortgage');
+  };
   const pushToken = (value: unknown) => {
     if (value === null || value === undefined) return;
     const normalized = String(value).trim().toLowerCase();
     if (!normalized) return;
     tokens.add(normalized);
+    addCommonSearchAliases(normalized);
   };
   const collectFromValue = (value: unknown, depth = 0) => {
     if (depth > 4 || value === null || value === undefined) return;
@@ -179,12 +185,14 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
     currentRole === 'PROCESSOR_JR'
       ? 'created_asc'
       : 'updated_desc';
-  const [globalSort] = useState<SortOption>(defaultGlobalSort);
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [globalSort, setGlobalSort] = useState<SortOption>(defaultGlobalSort);
   const [controlsByBucket, setControlsByBucket] = useState<Record<string, BucketControls>>({});
   const [selectedTaskIdsByBucket, setSelectedTaskIdsByBucket] = useState<Record<string, string[]>>(
     {}
   );
   const [batchDeletingBucketId, setBatchDeletingBucketId] = useState<string | null>(null);
+  const deferredGlobalSearch = useDeferredValue(globalSearch.trim().toLowerCase());
   const updateBucketControls = (bucketId: string, next: Partial<BucketControls>) => {
     setControlsByBucket((prev) => ({
       ...prev,
@@ -207,6 +215,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
           : bucketControls.sort;
       const filtered = bucket.tasks.filter((task) => {
         const searchable = normalizeSearch(task);
+        if (deferredGlobalSearch && !searchable.includes(deferredGlobalSearch)) return false;
         if (deferredLocalSearch && !searchable.includes(deferredLocalSearch)) return false;
         return true;
       });
@@ -217,7 +226,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
         controls: bucketControls,
       };
     });
-  }, [buckets, controlsByBucket, globalSort]);
+  }, [buckets, controlsByBucket, deferredGlobalSearch, globalSort]);
 
   const setAllBucketsCollapsed = useCallback(
     (collapsed: boolean) => {
@@ -269,6 +278,42 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
 
   return (
     <div className="space-y-3.5">
+      <div className="w-full md:w-fit rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative w-full md:w-[420px]">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              value={globalSearch}
+              onChange={(event) => setGlobalSearch(event.target.value)}
+              placeholder="Search all buckets..."
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+            />
+          </label>
+          <select
+            value={globalSort}
+            onChange={(event) => setGlobalSort(event.target.value as SortOption)}
+            className="min-w-[170px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+          >
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              setGlobalSearch('');
+              setGlobalSort(defaultGlobalSort);
+              setControlsByBucket({});
+            }}
+            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+
       <div
         className="grid gap-3.5"
         style={{
@@ -478,7 +523,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                     }}
                     emptyState={
                       bucket.visibleTasks.length === 0 &&
-                      Boolean(bucket.controls.search.trim())
+                      Boolean(deferredGlobalSearch || bucket.controls.search.trim())
                         ? 'no_results'
                         : 'all_caught_up'
                     }

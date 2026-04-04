@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, LogOut, PanelLeft, Search, Shield } from 'lucide-react';
+import { Bell, LogOut, PanelLeft, Shield } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { UserRole } from '@prisma/client';
 import { useRouter } from 'next/navigation';
@@ -10,7 +10,6 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/app/actions/notificationActions';
-import { searchPortal } from '@/app/actions/searchActions';
 
 const formatRole = (role: string) => role.replace(/_/g, ' ');
 const getRoleChipClass = (role: UserRole) => {
@@ -51,17 +50,6 @@ const getRoleAvatarClass = (role: UserRole) => {
   return 'from-slate-100 to-slate-200 text-slate-700 border-slate-200';
 };
 
-type SearchResultItem = {
-  id: string;
-  kind: 'task';
-  title: string;
-  borrowerName: string;
-  loanNumber: string;
-  stage: string;
-  status: string;
-  assignedRole: UserRole | null;
-  href: string;
-};
 const formatRelativeTime = (iso: string) => {
   const created = new Date(iso);
   if (Number.isNaN(created.getTime())) return '';
@@ -108,13 +96,8 @@ export function TopNav({
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const notificationRef = useRef<HTMLDivElement | null>(null);
-  const searchRef = useRef<HTMLDivElement | null>(null);
 
   const loadNotifications = React.useCallback(async (showLoader = false) => {
     if (showLoader) setIsLoadingNotifications(true);
@@ -141,12 +124,6 @@ export function TopNav({
         !notificationRef.current.contains(event.target as Node)
       ) {
         setNotificationOpen(false);
-      }
-      if (
-        searchRef.current &&
-        !searchRef.current.contains(event.target as Node)
-      ) {
-        setSearchOpen(false);
       }
     };
 
@@ -176,30 +153,6 @@ export function TopNav({
     }, 30000);
     return () => window.clearInterval(interval);
   }, [loadNotifications]);
-
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (q.length < 2) {
-      setSearchResults([]);
-      setIsSearching(false);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setIsSearching(true);
-      const response = await searchPortal(q);
-      if (cancelled) return;
-      setSearchResults(response.success ? (response.results as SearchResultItem[]) : []);
-      setIsSearching(false);
-      setSearchOpen(true);
-    }, 220);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [searchQuery]);
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
@@ -259,31 +212,13 @@ export function TopNav({
     router.push(item.href || '/tasks');
   };
 
-  const handleSearchSelect = (item: SearchResultItem) => {
-    setSearchOpen(false);
-    setSearchQuery('');
-    setSearchResults([]);
-    router.push(item.href);
-  };
-
-  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (searchResults[0]) {
-      handleSearchSelect(searchResults[0]);
-      return;
-    }
-    if (searchQuery.trim().length >= 2) {
-      router.push('/tasks');
-    }
-  };
-
   return (
     <header
       className={`h-16 border-b border-border app-glass flex items-center justify-between px-4 sm:px-6 fixed top-0 right-0 z-10 transition-all duration-300 ${
         sidebarCollapsed ? 'left-20' : 'left-64'
       }`}
     >
-      <div className="flex items-center flex-1 max-w-xl min-w-0">
+      <div className="flex items-center flex-1 min-w-0">
         <button
           type="button"
           onClick={onToggleSidebar}
@@ -292,55 +227,6 @@ export function TopNav({
         >
           <PanelLeft className="h-4 w-4" />
         </button>
-        <div ref={searchRef} className="relative w-full">
-          <form onSubmit={handleSearchSubmit}>
-            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-4 w-4 text-muted-foreground" />
-            </span>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              onFocus={() => {
-                if (searchResults.length > 0 || isSearching) setSearchOpen(true);
-              }}
-              className="block w-full pl-10 pr-3 py-2 border border-input rounded-lg leading-5 bg-card placeholder:text-muted-foreground text-foreground focus:outline-none focus:bg-card focus:ring-2 focus:ring-primary/20 focus:border-primary sm:text-sm transition-all"
-              placeholder="Search loans, borrowers, or tasks..."
-            />
-          </form>
-          {searchOpen && (
-            <div className="absolute left-0 right-0 top-[2.8rem] z-30 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-              <div className="max-h-[420px] overflow-y-auto p-1.5">
-                {isSearching ? (
-                  <div className="px-3 py-3 text-sm font-medium text-slate-500">Searching...</div>
-                ) : searchResults.length === 0 ? (
-                  <div className="px-3 py-3 text-sm font-medium text-slate-500">
-                    No matches found.
-                  </div>
-                ) : (
-                  searchResults.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => handleSearchSelect(item)}
-                      className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="line-clamp-1 text-sm font-semibold text-slate-900">
-                          {item.borrowerName} ({item.loanNumber})
-                        </p>
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                          {item.stage}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 line-clamp-1 text-xs font-medium text-slate-600">{item.title}</p>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
       <div className="flex items-center space-x-4">
