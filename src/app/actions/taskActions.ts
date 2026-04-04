@@ -2520,7 +2520,6 @@ type JrProcessorAssignedValue =
   | 'JO_LANDIS'
   | 'KIM_GORDON'
   | 'KIM_MARTIN'
-  | 'LOAN_PROCESSING'
   | 'MONICA_VINEY'
   | 'ROMI_HIRAYAMA'
   | 'RYAN_KATAOKA'
@@ -2557,7 +2556,6 @@ const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>([
   'JO_LANDIS',
   'KIM_GORDON',
   'KIM_MARTIN',
-  'LOAN_PROCESSING',
   'MONICA_VINEY',
   'ROMI_HIRAYAMA',
   'RYAN_KATAOKA',
@@ -2732,31 +2730,40 @@ export async function saveJrProcessorChecklist(
           error: 'JR checklist is locked after task completion. Ask a manager to reopen the task.',
         };
       }
-      const existingParsedItems =
-        parseJrChecklistItems(
-          Array.isArray(existingChecklistRaw?.items)
-            ? (existingChecklistRaw?.items as JrChecklistItemInput[])
-            : []
-        ) || [];
-      const checklistMutated =
-        existingParsedItems.length !== parsedItems.length ||
-        parsedItems.some((item, index) => {
-          const previous = existingParsedItems[index];
-          if (!previous) return true;
-          return (
-            previous.id !== item.id ||
-            previous.status !== item.status ||
-            (previous.proofAttachmentId || null) !== (item.proofAttachmentId || null) ||
-            (previous.note || '').trim() !== (item.note || '').trim()
-          );
-        });
-      if (checklistMutated || processorAssignedNote !== undefined) {
-        return {
-          success: false,
-          error:
-            'Completed JR tasks only allow updating Processor Assigned. Reopen the task for other changes.',
-        };
+      const normalizedProcessorAssignedInput = normalizeJrProcessorAssigned(processorAssigned);
+      if (processorAssigned !== undefined && normalizedProcessorAssignedInput === undefined) {
+        return { success: false, error: 'Invalid processor assignment.' };
       }
+      const existingProcessorAssigned = normalizeJrProcessorAssigned(
+        existingChecklistRaw?.processorAssigned
+      );
+      const normalizedProcessorAssigned =
+        normalizedProcessorAssignedInput === undefined
+          ? (existingProcessorAssigned ?? null)
+          : normalizedProcessorAssignedInput;
+      const existingItems = Array.isArray(existingChecklistRaw?.items)
+        ? (existingChecklistRaw?.items as Prisma.JsonValue[])
+        : [];
+      const existingProcessorAssignedNote =
+        String(existingChecklistRaw?.processorAssignedNote ?? '').trim() || null;
+      dataObj.jrChecklist = {
+        items: existingItems,
+        processorAssigned: normalizedProcessorAssigned,
+        processorAssignedNote: existingProcessorAssignedNote,
+        updatedAt: new Date().toISOString(),
+        updatedBy: session?.user?.name || 'Team Member',
+      };
+      await prisma.task.update({
+        where: { id: taskId },
+        data: {
+          submissionData: dataObj as Prisma.JsonObject,
+          workflowState: existing.workflowState,
+        },
+      });
+
+      revalidatePath('/tasks');
+      revalidatePath('/');
+      return { success: true };
     } else if (!canBypassDeskStartLock(role) && isStartLockedDeskTask(existing)) {
       return { success: false, error: 'Start this task before editing the JR checklist.' };
     }
@@ -2876,9 +2883,6 @@ export async function saveJrProcessorChecklist(
       data: {
         submissionData: dataObj as Prisma.JsonObject,
         workflowState:
-          existing.status === TaskStatus.COMPLETED
-            ? existing.workflowState
-            :
           allCompleted && allProofAttached
             ? TaskWorkflowState.READY_TO_COMPLETE
             : TaskWorkflowState.NONE,

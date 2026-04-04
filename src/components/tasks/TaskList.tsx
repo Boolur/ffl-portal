@@ -174,7 +174,6 @@ type JrProcessorAssignedValue =
   | 'JO_LANDIS'
   | 'KIM_GORDON'
   | 'KIM_MARTIN'
-  | 'LOAN_PROCESSING'
   | 'MONICA_VINEY'
   | 'ROMI_HIRAYAMA'
   | 'RYAN_KATAOKA'
@@ -253,7 +252,6 @@ const jrProcessorAssignedOptions: Array<{ value: JrProcessorAssignedValue; label
   { value: 'JO_LANDIS', label: 'Jo Landis' },
   { value: 'KIM_GORDON', label: 'Kim Gordon' },
   { value: 'KIM_MARTIN', label: 'Kim Martin' },
-  { value: 'LOAN_PROCESSING', label: 'Loan Processing' },
   { value: 'MONICA_VINEY', label: 'Monica Viney' },
   { value: 'ROMI_HIRAYAMA', label: 'Romi Hirayama' },
   { value: 'RYAN_KATAOKA', label: 'Ryan Kataoka' },
@@ -1940,9 +1938,11 @@ export function TaskList({
   );
 
   const updateJrProcessorAssigned = React.useCallback(
-    (taskId: string, value: JrProcessorAssignedValue | null) => {
+    (taskId: string, value: JrProcessorAssignedValue | null, shouldPersist = true) => {
       setJrProcessorAssignedByTask((prev) => ({ ...prev, [taskId]: value }));
-      queueJrChecklistAutosave(taskId, getJrChecklistRows(taskId), value);
+      if (shouldPersist) {
+        queueJrChecklistAutosave(taskId, getJrChecklistRows(taskId), value);
+      }
     },
     [getJrChecklistRows, queueJrChecklistAutosave]
   );
@@ -4584,7 +4584,11 @@ export function TaskList({
                             value={jrProcessorAssignedValue || ''}
                             onChange={(event) => {
                               const nextValue = event.target.value as JrProcessorAssignedValue | '';
-                              updateJrProcessorAssigned(task.id, nextValue ? nextValue : null);
+                              updateJrProcessorAssigned(
+                                task.id,
+                                nextValue ? nextValue : null,
+                                !isJrChecklistLocked
+                              );
                             }}
                             disabled={isJrProcessorAssignmentLocked}
                             className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
@@ -4596,6 +4600,18 @@ export function TaskList({
                               </option>
                             ))}
                           </select>
+                          {canEditCompletedJrProcessorAssignment && (
+                            <div className="mt-2 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => submitJrNotesUpdate(task.id)}
+                                disabled={jrChecklistSaveStateByTask[task.id]?.state === 'saving'}
+                                className="inline-flex h-7 items-center rounded-md border border-sky-300 bg-white px-2.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Update Processor
+                              </button>
+                            </div>
+                          )}
                           {!isJrChecklistLocked && (
                             <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
                               <div className="flex items-center justify-between gap-2">
