@@ -531,8 +531,32 @@ function getJrChecklistStatusClass(
 
 function getProcessorAssignedLabel(value: string | null | undefined) {
   if (!value) return null;
-  if (value === 'DEVON_CARAG') return 'Devon Carag';
-  return null;
+  const options: Array<{ value: string; label: string }> = [
+    { value: 'CARRIE_JOHNSON', label: 'Carrie Johnson' },
+    { value: 'CHRISTY_HORSTMAN', label: 'Christy Horstman' },
+    { value: 'DEREK_SOUCIE', label: 'Derek Soucie' },
+    { value: 'DEVON_CARAG', label: 'Devon Carag' },
+    { value: 'DOREEN_SCHEAR', label: 'Doreen Schear' },
+    { value: 'GEORGE_ISRAEL', label: 'George Israel' },
+    { value: 'HANH_NGUYEN', label: 'Hanh Nguyen' },
+    { value: 'JENNIFER_ALVA', label: 'Jennifer Alva' },
+    { value: 'JESSICA_ADAIR', label: 'Jessica Adair' },
+    { value: 'JO_LANDIS', label: 'Jo Landis' },
+    { value: 'KIM_GORDON', label: 'Kim Gordon' },
+    { value: 'KIM_MARTIN', label: 'Kim Martin' },
+    { value: 'LOAN_PROCESSING', label: 'Loan Processing' },
+    { value: 'MONICA_VINEY', label: 'Monica Viney' },
+    { value: 'ROMI_HIRAYAMA', label: 'Romi Hirayama' },
+    { value: 'RYAN_KATAOKA', label: 'Ryan Kataoka' },
+    { value: 'SARABETH_DUONG', label: 'Sarabeth Duong' },
+    { value: 'SHAILI_RYAN', label: 'Shaili Ryan' },
+    { value: 'TERRI_WITTE', label: 'Terri Witte' },
+    { value: 'THAO_NGUYEN', label: 'Thao Nguyen' },
+    { value: 'TIMOTHY_CRUZ', label: 'Timothy Cruz' },
+    { value: 'TYLER_HANCOCK', label: 'Tyler Hancock' },
+  ];
+  const match = options.find((option) => option.value === value);
+  return match?.label ?? null;
 }
 
 function SummaryRows({

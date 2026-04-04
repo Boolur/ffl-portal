@@ -2507,7 +2507,29 @@ type JrChecklistItemInput = {
   noteRole?: UserRole | null;
 };
 
-type JrProcessorAssignedValue = 'DEVON_CARAG';
+type JrProcessorAssignedValue =
+  | 'CARRIE_JOHNSON'
+  | 'CHRISTY_HORSTMAN'
+  | 'DEREK_SOUCIE'
+  | 'DEVON_CARAG'
+  | 'DOREEN_SCHEAR'
+  | 'GEORGE_ISRAEL'
+  | 'HANH_NGUYEN'
+  | 'JENNIFER_ALVA'
+  | 'JESSICA_ADAIR'
+  | 'JO_LANDIS'
+  | 'KIM_GORDON'
+  | 'KIM_MARTIN'
+  | 'LOAN_PROCESSING'
+  | 'MONICA_VINEY'
+  | 'ROMI_HIRAYAMA'
+  | 'RYAN_KATAOKA'
+  | 'SARABETH_DUONG'
+  | 'SHAILI_RYAN'
+  | 'TERRI_WITTE'
+  | 'THAO_NGUYEN'
+  | 'TIMOTHY_CRUZ'
+  | 'TYLER_HANCOCK';
 
 const JR_CHECKLIST_TEMPLATE: Array<{ id: string; label: string }> = [
   { id: 'ordered-hoi', label: 'HOI' },
@@ -2522,7 +2544,30 @@ const JR_CHECKLIST_STATUS_SET = new Set<JrChecklistStatus>([
   'NOT_REQUIRED',
 ]);
 const JR_VOE_ROW_ID = 'ordered-voe';
-const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>(['DEVON_CARAG']);
+const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>([
+  'CARRIE_JOHNSON',
+  'CHRISTY_HORSTMAN',
+  'DEREK_SOUCIE',
+  'DEVON_CARAG',
+  'DOREEN_SCHEAR',
+  'GEORGE_ISRAEL',
+  'HANH_NGUYEN',
+  'JENNIFER_ALVA',
+  'JESSICA_ADAIR',
+  'JO_LANDIS',
+  'KIM_GORDON',
+  'KIM_MARTIN',
+  'LOAN_PROCESSING',
+  'MONICA_VINEY',
+  'ROMI_HIRAYAMA',
+  'RYAN_KATAOKA',
+  'SARABETH_DUONG',
+  'SHAILI_RYAN',
+  'TERRI_WITTE',
+  'THAO_NGUYEN',
+  'TIMOTHY_CRUZ',
+  'TYLER_HANCOCK',
+]);
 
 function normalizeJrProcessorAssigned(
   input: unknown

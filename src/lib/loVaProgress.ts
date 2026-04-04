@@ -37,7 +37,29 @@ type JrKindKey = 'hoi';
 type StageKey = VaKindKey | JrKindKey;
 export type VaChipState = 'not_started' | 'new' | 'working' | 'waiting' | 'review' | 'completed';
 type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
-type JrProcessorAssignedValue = 'DEVON_CARAG';
+type JrProcessorAssignedValue =
+  | 'CARRIE_JOHNSON'
+  | 'CHRISTY_HORSTMAN'
+  | 'DEREK_SOUCIE'
+  | 'DEVON_CARAG'
+  | 'DOREEN_SCHEAR'
+  | 'GEORGE_ISRAEL'
+  | 'HANH_NGUYEN'
+  | 'JENNIFER_ALVA'
+  | 'JESSICA_ADAIR'
+  | 'JO_LANDIS'
+  | 'KIM_GORDON'
+  | 'KIM_MARTIN'
+  | 'LOAN_PROCESSING'
+  | 'MONICA_VINEY'
+  | 'ROMI_HIRAYAMA'
+  | 'RYAN_KATAOKA'
+  | 'SARABETH_DUONG'
+  | 'SHAILI_RYAN'
+  | 'TERRI_WITTE'
+  | 'THAO_NGUYEN'
+  | 'TIMOTHY_CRUZ'
+  | 'TYLER_HANCOCK';
 type JrChecklistRow = {
   id: string;
   label: string;
@@ -131,11 +153,38 @@ const JR_CHECKLIST_TEMPLATE: Array<{ id: string; label: string }> = [
   { id: 'submitted-underwriting', label: 'Submitted to Underwriting' },
 ];
 const JR_VOE_ROW_ID = 'ordered-voe';
+const JR_PROCESSOR_ASSIGNED_OPTIONS: Array<{
+  value: JrProcessorAssignedValue;
+  label: string;
+}> = [
+  { value: 'CARRIE_JOHNSON', label: 'Carrie Johnson' },
+  { value: 'CHRISTY_HORSTMAN', label: 'Christy Horstman' },
+  { value: 'DEREK_SOUCIE', label: 'Derek Soucie' },
+  { value: 'DEVON_CARAG', label: 'Devon Carag' },
+  { value: 'DOREEN_SCHEAR', label: 'Doreen Schear' },
+  { value: 'GEORGE_ISRAEL', label: 'George Israel' },
+  { value: 'HANH_NGUYEN', label: 'Hanh Nguyen' },
+  { value: 'JENNIFER_ALVA', label: 'Jennifer Alva' },
+  { value: 'JESSICA_ADAIR', label: 'Jessica Adair' },
+  { value: 'JO_LANDIS', label: 'Jo Landis' },
+  { value: 'KIM_GORDON', label: 'Kim Gordon' },
+  { value: 'KIM_MARTIN', label: 'Kim Martin' },
+  { value: 'LOAN_PROCESSING', label: 'Loan Processing' },
+  { value: 'MONICA_VINEY', label: 'Monica Viney' },
+  { value: 'ROMI_HIRAYAMA', label: 'Romi Hirayama' },
+  { value: 'RYAN_KATAOKA', label: 'Ryan Kataoka' },
+  { value: 'SARABETH_DUONG', label: 'Sarabeth Duong' },
+  { value: 'SHAILI_RYAN', label: 'Shaili Ryan' },
+  { value: 'TERRI_WITTE', label: 'Terri Witte' },
+  { value: 'THAO_NGUYEN', label: 'Thao Nguyen' },
+  { value: 'TIMOTHY_CRUZ', label: 'Timothy Cruz' },
+  { value: 'TYLER_HANCOCK', label: 'Tyler Hancock' },
+];
 
 function getJrProcessorAssignedLabel(value: string | null | undefined) {
   if (!value) return null;
-  if (value === 'DEVON_CARAG') return 'Devon Carag';
-  return null;
+  const match = JR_PROCESSOR_ASSIGNED_OPTIONS.find((option) => option.value === value);
+  return match?.label ?? null;
 }
 
 function getJrProcessorAssignedFromSubmissionData(data: unknown): JrProcessorAssignedValue | null {
@@ -143,8 +192,8 @@ function getJrProcessorAssignedFromSubmissionData(data: unknown): JrProcessorAss
   const checklistRaw = (data as { jrChecklist?: unknown }).jrChecklist;
   if (!checklistRaw || typeof checklistRaw !== 'object' || Array.isArray(checklistRaw)) return null;
   const value = String((checklistRaw as { processorAssigned?: unknown }).processorAssigned ?? '').trim();
-  if (value === 'DEVON_CARAG') return 'DEVON_CARAG';
-  return null;
+  const match = JR_PROCESSOR_ASSIGNED_OPTIONS.find((option) => option.value === value);
+  return match ? match.value : null;
 }
 
 function getJrProcessorAssignedNoteFromSubmissionData(data: unknown): string | null {
