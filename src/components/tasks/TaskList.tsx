@@ -1672,6 +1672,9 @@ export function TaskList({
   const [expandedTaskIds, setExpandedTaskIds] = React.useState<Set<string>>(
     () => new Set()
   );
+  const [expandedJrCompletedRowDetails, setExpandedJrCompletedRowDetails] = React.useState<
+    Set<string>
+  >(() => new Set());
   const [initialFocusConsumed, setInitialFocusConsumed] = React.useState(false);
   const [startingDisclosureId, setStartingDisclosureId] = React.useState<string | null>(
     null
@@ -4247,6 +4250,10 @@ export function TaskList({
                               : row.status === 'ORDERED'
                               ? 'border-yellow-200 bg-yellow-50/45'
                               : 'border-rose-200 bg-rose-50/45';
+                          const completedRowDetailsKey = `jr-completed-${task.id}-${row.id}`;
+                          const completedRowDetailsExpanded = expandedJrCompletedRowDetails.has(
+                            completedRowDetailsKey
+                          );
                           return (
                           <div
                             key={row.id}
@@ -4266,178 +4273,233 @@ export function TaskList({
                                 {statusMeta.label}
                               </span>
                             </div>
-                            <select
-                              value={row.status}
-                              onChange={(event) => {
-                                const nextStatus = event.target.value as JrChecklistStatus;
-                                if (nextStatus === 'COMPLETED' && !proofAttachmentId) {
-                                  alert('Upload proof first before marking this item as Completed.');
-                                  return;
-                                }
-                                updateJrChecklistRow(
-                                  task.id,
-                                  row.id,
-                                  nextStatus
-                                );
-                              }}
-                              disabled={isJrChecklistLocked}
-                              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                            >
-                              {rowStatusOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.value === 'ORDERED' &&
-                                  row.id === jrUnderwritingChecklistRowId
-                                    ? 'Pending'
-                                    : option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <div
-                              className={`mt-2.5 rounded-lg border p-2.5 ${
-                                !shouldDisplayProofRequired
-                                  ? 'border-slate-300 bg-slate-100/80'
-                                  : row.proofAttachmentId
-                                  ? 'border-emerald-200 bg-emerald-50/60'
-                                  : 'border-rose-200 bg-rose-50/60'
-                              }`}
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span
-                                  className={`text-[11px] font-bold uppercase tracking-wide ${
-                                    !shouldDisplayProofRequired
-                                      ? 'text-slate-600'
-                                      : row.proofAttachmentId
-                                      ? 'text-emerald-700'
-                                      : 'text-rose-700'
-                                  }`}
-                                >
-                                  {shouldDisplayProofRequired
-                                    ? 'Attach Proof (Required)'
-                                    : 'Proof Not Required'}
-                                </span>
-                                {!shouldDisplayProofRequired ? (
-                                  <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                                    Not Required
-                                  </span>
-                                ) : proofAttachmentId ? (
-                                  <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                    Attached
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
-                                    Missing
-                                  </span>
-                                )}
-                              </div>
-                              {isVoeNotRequired && (
-                                <p className="mt-2 text-[11px] font-medium text-slate-600">
-                                  VOE marked as Not Required does not require proof.
-                                </p>
-                              )}
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <label className="inline-flex cursor-pointer items-center rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50">
-                                  {uploadingId === task.id ? 'Uploading...' : 'Upload Proof'}
-                                  <input
-                                    type="file"
-                                    className="hidden"
-                                    onChange={(event) => {
-                                      const file = event.target.files?.[0];
-                                      if (!file) return;
-                                      void handleUploadJrChecklistProof(task.id, row.id, file);
-                                      event.target.value = '';
-                                    }}
-                                    disabled={uploadingId === task.id || isJrChecklistLocked}
-                                  />
-                                </label>
-                                {proofAttachmentId && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleViewAttachment(proofAttachmentId)}
-                                      className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                    >
-                                      <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                                      Open
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        void handleDeleteJrChecklistProof(
-                                          task.id,
-                                          row.id,
-                                          proofAttachmentId
-                                        )
-                                      }
-                                      disabled={
-                                        deletingAttachmentId === proofAttachmentId || isJrChecklistLocked
-                                      }
-                                      className="inline-flex h-7 items-center rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
-                                    >
-                                      {deletingAttachmentId === proofAttachmentId ? (
-                                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                                      ) : (
-                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                      )}
-                                      Remove
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                              {row.proofFilename && (
-                                <p className="mt-2 truncate text-[11px] font-medium text-slate-600">
-                                  {row.proofFilename}
-                                </p>
-                              )}
-                            </div>
-                            <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
-                                  Notes
-                                </span>
-                                <div className="inline-flex items-center gap-2">
-                                  {row.noteUpdatedAt && (
-                                    <span className="text-[10px] font-medium text-slate-500">
-                                      {formatCompactDateTime(new Date(row.noteUpdatedAt))}
-                                    </span>
-                                  )}
+                            {isJrChecklistLocked ? (
+                              <div className="mt-2.5 rounded-lg border border-emerald-200 bg-emerald-50/60 p-2.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                                    Completed Summary
+                                  </p>
                                   <button
                                     type="button"
-                                    onClick={() => void submitJrRowNoteUpdate(task.id, row.id)}
-                                    disabled={isJrChecklistLocked || jrChecklistSaveStateByTask[task.id]?.state === 'saving'}
-                                    className="inline-flex h-6 items-center rounded-md border border-sky-300 bg-white px-2 text-[10px] font-bold uppercase tracking-wide text-sky-700 hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    onClick={() =>
+                                      setExpandedJrCompletedRowDetails((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(completedRowDetailsKey)) next.delete(completedRowDetailsKey);
+                                        else next.add(completedRowDetailsKey);
+                                        return next;
+                                      })
+                                    }
+                                    className="inline-flex h-7 items-center gap-1 rounded-md border border-emerald-200 bg-white px-2.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 hover:bg-emerald-50"
                                   >
-                                    Submit Notes Update
+                                    {completedRowDetailsExpanded ? 'Hide Details' : 'Show Details'}
                                   </button>
                                 </div>
+                                {completedRowDetailsExpanded && (
+                                  <div className="mt-2 rounded-md border border-emerald-200 bg-white px-2.5 py-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                                        Attach Proof
+                                      </span>
+                                      {proofAttachmentId ? (
+                                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                          Attached
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                                          Missing
+                                        </span>
+                                      )}
+                                    </div>
+                                    {row.proofFilename && (
+                                      <p className="mt-2 truncate text-[11px] font-medium text-slate-600">
+                                        {row.proofFilename}
+                                      </p>
+                                    )}
+                                    {proofAttachmentId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleViewAttachment(proofAttachmentId)}
+                                        className="mt-2 inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                      >
+                                        <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                                        Open
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                              <textarea
-                                value={row.note || ''}
-                                onChange={(event) =>
-                                  setJrChecklistByTask((prev) => {
-                                    const current = prev[task.id] ?? createDefaultJrChecklistRows();
-                                    return {
-                                      ...prev,
-                                      [task.id]: current.map((item) =>
-                                        item.id === row.id
-                                          ? {
-                                              ...item,
-                                              note: event.target.value,
-                                            }
-                                          : item
-                                      ),
-                                    };
-                                  })
-                                }
-                                disabled={isJrChecklistLocked}
-                                placeholder={`Add ${row.label} note for LO visibility...`}
-                                className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[76px] focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                              />
-                              {row.noteAuthor && (
-                                <p className="mt-1 text-[11px] font-medium text-slate-500">
-                                  Last updated by {row.noteAuthor}
-                                </p>
-                              )}
-                            </div>
+                            ) : (
+                              <>
+                                <select
+                                  value={row.status}
+                                  onChange={(event) => {
+                                    const nextStatus = event.target.value as JrChecklistStatus;
+                                    if (nextStatus === 'COMPLETED' && !proofAttachmentId) {
+                                      alert('Upload proof first before marking this item as Completed.');
+                                      return;
+                                    }
+                                    updateJrChecklistRow(task.id, row.id, nextStatus);
+                                  }}
+                                  disabled={isJrChecklistLocked}
+                                  className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                                >
+                                  {rowStatusOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.value === 'ORDERED' &&
+                                      row.id === jrUnderwritingChecklistRowId
+                                        ? 'Pending'
+                                        : option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <div
+                                  className={`mt-2.5 rounded-lg border p-2.5 ${
+                                    !shouldDisplayProofRequired
+                                      ? 'border-slate-300 bg-slate-100/80'
+                                      : row.proofAttachmentId
+                                      ? 'border-emerald-200 bg-emerald-50/60'
+                                      : 'border-rose-200 bg-rose-50/60'
+                                  }`}
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span
+                                      className={`text-[11px] font-bold uppercase tracking-wide ${
+                                        !shouldDisplayProofRequired
+                                          ? 'text-slate-600'
+                                          : row.proofAttachmentId
+                                          ? 'text-emerald-700'
+                                          : 'text-rose-700'
+                                      }`}
+                                    >
+                                      {shouldDisplayProofRequired
+                                        ? 'Attach Proof (Required)'
+                                        : 'Proof Not Required'}
+                                    </span>
+                                    {!shouldDisplayProofRequired ? (
+                                      <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                                        Not Required
+                                      </span>
+                                    ) : proofAttachmentId ? (
+                                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                        Attached
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                                        Missing
+                                      </span>
+                                    )}
+                                  </div>
+                                  {isVoeNotRequired && (
+                                    <p className="mt-2 text-[11px] font-medium text-slate-600">
+                                      VOE marked as Not Required does not require proof.
+                                    </p>
+                                  )}
+                                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <label className="inline-flex cursor-pointer items-center rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50">
+                                      {uploadingId === task.id ? 'Uploading...' : 'Upload Proof'}
+                                      <input
+                                        type="file"
+                                        className="hidden"
+                                        onChange={(event) => {
+                                          const file = event.target.files?.[0];
+                                          if (!file) return;
+                                          void handleUploadJrChecklistProof(task.id, row.id, file);
+                                          event.target.value = '';
+                                        }}
+                                        disabled={uploadingId === task.id || isJrChecklistLocked}
+                                      />
+                                    </label>
+                                    {proofAttachmentId && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleViewAttachment(proofAttachmentId)}
+                                          className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                        >
+                                          <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                                          Open
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void handleDeleteJrChecklistProof(
+                                              task.id,
+                                              row.id,
+                                              proofAttachmentId
+                                            )
+                                          }
+                                          disabled={
+                                            deletingAttachmentId === proofAttachmentId || isJrChecklistLocked
+                                          }
+                                          className="inline-flex h-7 items-center rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                                        >
+                                          {deletingAttachmentId === proofAttachmentId ? (
+                                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                          ) : (
+                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                          )}
+                                          Remove
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                  {row.proofFilename && (
+                                    <p className="mt-2 truncate text-[11px] font-medium text-slate-600">
+                                      {row.proofFilename}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                                      Notes
+                                    </span>
+                                    <div className="inline-flex items-center gap-2">
+                                      {row.noteUpdatedAt && (
+                                        <span className="text-[10px] font-medium text-slate-500">
+                                          {formatCompactDateTime(new Date(row.noteUpdatedAt))}
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => void submitJrRowNoteUpdate(task.id, row.id)}
+                                        disabled={isJrChecklistLocked || jrChecklistSaveStateByTask[task.id]?.state === 'saving'}
+                                        className="inline-flex h-6 items-center rounded-md border border-sky-300 bg-white px-2 text-[10px] font-bold uppercase tracking-wide text-sky-700 hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                      >
+                                        Submit Notes Update
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <textarea
+                                    value={row.note || ''}
+                                    onChange={(event) =>
+                                      setJrChecklistByTask((prev) => {
+                                        const current = prev[task.id] ?? createDefaultJrChecklistRows();
+                                        return {
+                                          ...prev,
+                                          [task.id]: current.map((item) =>
+                                            item.id === row.id
+                                              ? {
+                                                  ...item,
+                                                  note: event.target.value,
+                                                }
+                                              : item
+                                          ),
+                                        };
+                                      })
+                                    }
+                                    disabled={isJrChecklistLocked}
+                                    placeholder={`Add ${row.label} note for LO visibility...`}
+                                    className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[76px] focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                                  />
+                                  {row.noteAuthor && (
+                                    <p className="mt-1 text-[11px] font-medium text-slate-500">
+                                      Last updated by {row.noteAuthor}
+                                    </p>
+                                  )}
+                                </div>
+                              </>
+                            )}
                           </div>
                           );
                         })}
@@ -4491,30 +4553,32 @@ export function TaskList({
                               </option>
                             ))}
                           </select>
-                          <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
-                                Optional Notes
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => void submitJrProcessorAssignmentNoteUpdate(task.id)}
-                                disabled={isJrChecklistLocked || jrChecklistSaveStateByTask[task.id]?.state === 'saving'}
-                                className="inline-flex h-6 items-center rounded-md border border-sky-300 bg-white px-2 text-[10px] font-bold uppercase tracking-wide text-sky-700 hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
-                                Submit Notes Update
-                              </button>
+                          {!isJrChecklistLocked && (
+                            <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                                  Optional Notes
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => void submitJrProcessorAssignmentNoteUpdate(task.id)}
+                                  disabled={isJrChecklistLocked || jrChecklistSaveStateByTask[task.id]?.state === 'saving'}
+                                  className="inline-flex h-6 items-center rounded-md border border-sky-300 bg-white px-2 text-[10px] font-bold uppercase tracking-wide text-sky-700 hover:bg-sky-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  Submit Notes Update
+                                </button>
+                              </div>
+                              <textarea
+                                value={jrProcessorAssignedNote}
+                                onChange={(event) =>
+                                  updateJrProcessorAssignedNote(task.id, event.target.value)
+                                }
+                                disabled={isJrChecklistLocked}
+                                placeholder="Add optional processor assignment notes for LO visibility..."
+                                className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[76px] focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                              />
                             </div>
-                            <textarea
-                              value={jrProcessorAssignedNote}
-                              onChange={(event) =>
-                                updateJrProcessorAssignedNote(task.id, event.target.value)
-                              }
-                              disabled={isJrChecklistLocked}
-                              placeholder="Add optional processor assignment notes for LO visibility..."
-                              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[76px] focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                            />
-                          </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2">
