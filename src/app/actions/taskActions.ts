@@ -1932,6 +1932,11 @@ type SubmissionPayload = {
   loanAmount?: string;
   notes?: string;
   submissionData?: Prisma.InputJsonValue;
+  buttonRequiredAttachments?: {
+    avm?: boolean;
+    titleSheet?: boolean;
+    pricingSheet?: boolean;
+  };
 };
 
 const disclosureEmployerReadonlyFields: Array<{
@@ -1988,6 +1993,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       loanAmount,
       notes,
       submissionData,
+      buttonRequiredAttachments,
     } = payload;
     const normalizedArriveLoanNumber = arriveLoanNumber.trim();
     if (!normalizedArriveLoanNumber) {
@@ -2014,6 +2020,26 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       }
 
       const investor = String(submissionObject.investor ?? '').trim().toUpperCase();
+      if (investor === 'BUTTON') {
+        const runId = String(submissionObject.runId ?? '').trim();
+        const pricingOption = String(submissionObject.pricingOption ?? '').trim();
+        if (!runId || !pricingOption) {
+          return {
+            success: false,
+            error: 'Run ID and Pricing Option are required for Button submissions.',
+          };
+        }
+        const hasRequiredButtonAttachments =
+          Boolean(buttonRequiredAttachments?.avm) &&
+          Boolean(buttonRequiredAttachments?.titleSheet) &&
+          Boolean(buttonRequiredAttachments?.pricingSheet);
+        if (!hasRequiredButtonAttachments) {
+          return {
+            success: false,
+            error: 'Attach AVM, Title Sheet, and Pricing Sheet for Button submissions.',
+          };
+        }
+      }
       const hasMultipleBorrowers = Boolean(submissionObject.hasMultipleBorrowers);
       const normalizedBorrowerEmail = String(
         submissionObject.borrowerEmail ?? borrowerEmail ?? ''

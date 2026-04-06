@@ -948,6 +948,13 @@ function DisclosuresForm({
         loanAmount: form.loanAmount,
         notes: form.notes,
         submissionData: { ...form, incomeProfile: mismoIncomeProfile },
+        buttonRequiredAttachments: isButtonInvestor
+          ? {
+              avm: Boolean(buttonFiles.avm),
+              titleSheet: Boolean(buttonFiles.titleSheet),
+              pricingSheet: Boolean(buttonFiles.pricingSheet),
+            }
+          : undefined,
       });
 
       if (res.success) {
