@@ -92,7 +92,7 @@ export function LoanOfficerDashboard({
               ? 'Submit for Disclosures'
               : 'Submit for Disclosures is disabled for this user by Admin.'
           }
-          className={`group relative flex flex-col items-start p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
+          className={`group relative flex flex-col items-start p-6 sm:p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
             disclosureEnabled
               ? 'border-blue-200 bg-white hover:shadow-md hover:border-blue-300 transition-all'
               : 'border-slate-200 bg-slate-50/70 cursor-not-allowed'
@@ -107,7 +107,7 @@ export function LoanOfficerDashboard({
             <ClipboardCheck className="w-7 h-7" />
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h3 className={`text-2xl font-bold ${disclosureEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
+            <h3 className={`text-xl sm:text-2xl font-bold ${disclosureEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
               Submit for Disclosures
             </h3>
             <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
@@ -134,7 +134,7 @@ export function LoanOfficerDashboard({
           }}
           disabled={!qcEnabled}
           title={qcEnabled ? 'Submit for QC' : 'Submit for QC is disabled for this user by Admin.'}
-          className={`group relative flex flex-col items-start p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
+          className={`group relative flex flex-col items-start p-6 sm:p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
             qcEnabled
               ? 'border-violet-200 bg-white hover:shadow-md hover:border-violet-300 transition-all'
               : 'border-slate-200 bg-slate-50/70 cursor-not-allowed'
@@ -151,7 +151,7 @@ export function LoanOfficerDashboard({
             <ShieldCheck className="w-7 h-7" />
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h3 className={`text-2xl font-bold ${qcEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
+            <h3 className={`text-xl sm:text-2xl font-bold ${qcEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
               Submit for QC
             </h3>
             <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
@@ -203,20 +203,22 @@ export function LoanOfficerDashboard({
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-lg font-semibold text-slate-900">Recent Task Requests</h2>
           <span className="text-xs text-slate-500">{requestSubmissions.length} total</span>
         </div>
         <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
           {requestSubmissions.map((task) => (
-            <div key={task.id} className="p-6 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-900">{task.title}</p>
+            <div key={task.id} className="p-4 sm:p-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-900 truncate">{task.title}</p>
                 <p className="text-xs text-slate-500">
                   {task.loan.borrowerName} • {task.loan.loanNumber}
                 </p>
               </div>
-              <span className="text-xs text-slate-500">{new Date(task.createdAt).toLocaleString()}</span>
+              <span className="shrink-0 text-[11px] sm:text-xs text-slate-500">
+                {new Date(task.createdAt).toLocaleString()}
+              </span>
             </div>
           ))}
           {requestSubmissions.length === 0 && (

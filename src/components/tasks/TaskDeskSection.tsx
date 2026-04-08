@@ -59,7 +59,7 @@ export function TaskDeskSection({
   return (
     <section>
       <div className="mb-2">
-        <h2 className="inline-flex items-center gap-3 text-xl font-bold text-slate-900">
+        <h2 className="flex flex-wrap items-center gap-3 text-xl font-bold text-slate-900">
           <span
             className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ring-1 ${iconClassName}`}
           >

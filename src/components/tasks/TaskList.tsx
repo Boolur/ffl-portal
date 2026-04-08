@@ -3505,7 +3505,7 @@ export function TaskList({
                   <FileText className="h-4 w-4" />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       {compactDateTime && (
                         <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
@@ -3567,8 +3567,8 @@ export function TaskList({
                       )}
                     </div>
                     {shouldShowCompletedJrBorrowerBubbles ? (
-                      <div className="inline-flex items-start gap-1.5 shrink-0">
-                        <div className="flex w-[230px] flex-col gap-1">
+                      <div className="inline-flex w-full items-start gap-1.5 sm:w-auto sm:shrink-0">
+                        <div className="flex w-full sm:w-[230px] flex-col gap-1">
                           <div className="grid grid-cols-3 gap-1">
                             {completedJrVaRows.map((row) => (
                               <span

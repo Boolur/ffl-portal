@@ -16,6 +16,7 @@ type DashboardShellProps = {
 function DashboardContent({ children, user }: DashboardShellProps) {
   const { activeRole, availableRoles, setActiveRole } = useImpersonation();
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = React.useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const { update } = useSession();
@@ -152,6 +153,10 @@ function DashboardContent({ children, user }: DashboardShellProps) {
     };
   }, [pathname, router]);
 
+  React.useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [pathname]);
+
   // Create a display user that reflects the impersonated role
   const displayUser = {
     name: user.name,
@@ -168,24 +173,34 @@ function DashboardContent({ children, user }: DashboardShellProps) {
     [activeRole, router, setActiveRole, update]
   );
 
+  const handleToggleSidebar = React.useCallback(() => {
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      setMobileSidebarOpen((prev) => !prev);
+      return;
+    }
+    setSidebarCollapsed((prev) => !prev);
+  }, []);
+
   return (
     <div className="min-h-screen app-shell-bg">
       <Sidebar
         collapsed={sidebarCollapsed}
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
       />
       <TopNav
         user={displayUser}
         availableRoles={availableRoles}
         onRoleChange={handleRoleChange}
         sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
+        onToggleSidebar={handleToggleSidebar}
       />
       <main
-        className={`pt-16 min-h-screen transition-all duration-300 ${
-          sidebarCollapsed ? 'ml-20' : 'ml-64'
+        className={`pt-16 min-h-screen transition-all duration-300 ml-0 ${
+          sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'
         }`}
       >
-        <div className="relative w-full p-6">
+        <div className="relative w-full p-3 sm:p-4 md:p-6">
           {routeOverlay && (
             <div className="pointer-events-none absolute inset-0 z-30 flex items-start justify-center rounded-2xl bg-slate-100/20 pt-[14vh] backdrop-blur-[2px]">
               <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 px-6 py-6 shadow-2xl">

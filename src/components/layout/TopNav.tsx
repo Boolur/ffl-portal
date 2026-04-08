@@ -214,8 +214,8 @@ export function TopNav({
 
   return (
     <header
-      className={`h-16 border-b border-border app-glass flex items-center justify-between px-4 sm:px-6 fixed top-0 right-0 z-10 transition-all duration-300 ${
-        sidebarCollapsed ? 'left-20' : 'left-64'
+      className={`h-16 border-b border-border app-glass flex items-center justify-between px-4 sm:px-6 fixed top-0 right-0 z-10 transition-all duration-300 left-0 ${
+        sidebarCollapsed ? 'md:left-20' : 'md:left-64'
       }`}
     >
       <div className="flex items-center flex-1 min-w-0">
@@ -246,7 +246,7 @@ export function TopNav({
           </button>
 
           {notificationOpen && (
-            <div className="absolute right-0 top-[2.8rem] z-20 w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="absolute right-0 top-[2.8rem] z-20 w-[calc(100vw-1rem)] max-w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
               <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-3 py-2.5">
                 <div>
                   <p className="text-sm font-semibold text-slate-900">Notifications</p>

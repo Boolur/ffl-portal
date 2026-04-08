@@ -19,9 +19,11 @@ import { usePathname, useRouter } from 'next/navigation';
 
 type SidebarProps = {
   collapsed: boolean;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
 };
 
-export function Sidebar({ collapsed }: SidebarProps) {
+export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) {
   const { activeRole } = useImpersonation();
   const pathname = usePathname();
   const router = useRouter();
@@ -150,11 +152,20 @@ export function Sidebar({ collapsed }: SidebarProps) {
     }`;
 
   return (
-    <aside
-      className={`fixed left-0 top-0 z-50 flex h-screen flex-col overflow-y-auto border-r border-slate-200/80 bg-gradient-to-b from-white to-slate-50 shadow-sm transition-all duration-300 ${
-        collapsed ? 'w-20' : 'w-64'
-      }`}
-    >
+    <>
+      {mobileOpen && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-[1px] md:hidden"
+          onClick={onCloseMobile}
+        />
+      )}
+      <aside
+        className={`fixed left-0 top-0 z-50 flex h-screen flex-col overflow-y-auto border-r border-slate-200/80 bg-gradient-to-b from-white to-slate-50 shadow-sm transition-all duration-300 w-64 ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        } ${collapsed ? 'md:w-20' : 'md:w-64'} md:translate-x-0`}
+      >
       <div className={`border-b border-slate-200/80 ${collapsed ? 'p-3' : 'p-5'}`}>
         <div className="flex items-center justify-center">
           <div className={`relative h-12 ${collapsed ? 'w-9' : 'w-full'}`}>
@@ -177,7 +188,12 @@ export function Sidebar({ collapsed }: SidebarProps) {
               key={item.name}
               href={item.href}
               prefetch
-              onClick={() => emitNavigationIntent(item.href, item.name)}
+              onClick={() => {
+                emitNavigationIntent(item.href, item.name);
+                if (window.matchMedia('(max-width: 767px)').matches) {
+                  onCloseMobile();
+                }
+              }}
               onMouseEnter={() => warmRoute(item.href)}
               className={linkClasses(isActive)}
               title={collapsed ? item.name : undefined}
@@ -208,7 +224,12 @@ export function Sidebar({ collapsed }: SidebarProps) {
                   key={item.name}
                   href={item.href}
                   prefetch
-                  onClick={() => emitNavigationIntent(item.href, item.name)}
+                  onClick={() => {
+                    emitNavigationIntent(item.href, item.name);
+                    if (window.matchMedia('(max-width: 767px)').matches) {
+                      onCloseMobile();
+                    }
+                  }}
                   onMouseEnter={() => warmRoute(item.href)}
                   className={linkClasses(isActive)}
                   title={collapsed ? item.name : undefined}
@@ -225,7 +246,8 @@ export function Sidebar({ collapsed }: SidebarProps) {
           </>
         )}
       </nav>
-    </aside>
+      </aside>
+    </>
   );
 }
 

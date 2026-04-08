@@ -1142,8 +1142,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const pageOutput = (
     <DashboardShell user={sessionUser}>
       <TasksRouteSyncGate>
-        <div className="flex items-center justify-between app-page-header">
-        <div>
+        <div className="app-page-header flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="app-page-title">Tasks</h1>
           {taskPageSubtitle && (
             <p className="app-page-subtitle">
@@ -1151,7 +1151,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             </p>
           )}
         </div>
-        <div className="flex space-x-3">
+        <div className="flex shrink-0 space-x-3">
           <span className="app-count-badge">
             {allTasks.length} Total Tasks
           </span>

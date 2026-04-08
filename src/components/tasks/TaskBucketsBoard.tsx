@@ -194,6 +194,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
     {}
   );
   const [batchDeletingBucketId, setBatchDeletingBucketId] = useState<string | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const deferredGlobalSearch = useDeferredValue(globalSearch.trim().toLowerCase());
   const updateBucketControls = (bucketId: string, next: Partial<BucketControls>) => {
     setControlsByBucket((prev) => ({
@@ -269,6 +270,13 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
       collapsed,
     });
   }, [onCollapseSummaryChange, processedBuckets]);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const applyMatch = () => setIsMobileViewport(mediaQuery.matches);
+    applyMatch();
+    mediaQuery.addEventListener('change', applyMatch);
+    return () => mediaQuery.removeEventListener('change', applyMatch);
+  }, []);
   const compactBoardMaxWidth =
     processedBuckets.length <= 1
       ? '520px'
@@ -294,7 +302,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
           <select
             value={globalSort}
             onChange={(event) => setGlobalSort(event.target.value as SortOption)}
-            className="min-w-[170px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+            className="w-full sm:w-auto sm:min-w-[170px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
           >
             {sortOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -319,7 +327,9 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
       <div
         className="grid gap-3.5"
         style={{
-          gridTemplateColumns: `repeat(${processedBuckets.length}, minmax(0, 1fr))`,
+          gridTemplateColumns: isMobileViewport
+            ? 'repeat(1, minmax(0, 1fr))'
+            : `repeat(${processedBuckets.length}, minmax(0, 1fr))`,
           ...(compactBoardMaxWidth ? { maxWidth: compactBoardMaxWidth } : {}),
         }}
       >
@@ -397,8 +407,8 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <label className="relative min-w-[120px] flex-1">
+                <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
+                  <label className="relative w-full sm:min-w-[120px] sm:flex-1">
                     <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
                     <input
                       value={bucket.controls.search}
@@ -416,7 +426,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                         sort: event.target.value as LocalSortOption,
                       })
                     }
-                    className="min-w-[125px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    className="w-full sm:w-auto sm:min-w-[125px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
                   >
                     <option value="global">Use Global ({sortLabelByValue[globalSort]})</option>
                     {sortOptions.map((option) => (
