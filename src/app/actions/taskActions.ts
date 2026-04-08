@@ -712,6 +712,16 @@ function mergeSubmissionDataWithLoanFallback(
   return merged as Prisma.JsonObject;
 }
 
+function stripDeskHistoryFromSubmissionData(
+  source: Prisma.JsonObject
+): Prisma.JsonObject {
+  const next = { ...source } as Record<string, unknown>;
+  // Downstream VA/JR tasks should not inherit upstream desk actors.
+  delete next.notesHistory;
+  delete next.lifecycleHistory;
+  return next as Prisma.JsonObject;
+}
+
 async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: string) {
   const createdKinds = await prisma.$transaction(async (tx) => {
     const loanSnapshot = await tx.loan.findUnique({
@@ -764,10 +774,11 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: s
     if (!sourceQcSubmission || !sourceIsQcSubmissionTask) {
       return [] as TaskKind[];
     }
-    const qcSubmissionData = mergeSubmissionDataWithLoanFallback(
+    const qcSubmissionDataRaw = mergeSubmissionDataWithLoanFallback(
       sourceQcSubmission?.submissionData,
       loanFallbackSubmissionData
     );
+    const qcSubmissionData = stripDeskHistoryFromSubmissionData(qcSubmissionDataRaw);
 
     const existingKinds = await tx.task.findMany({
       where: { loanId },
