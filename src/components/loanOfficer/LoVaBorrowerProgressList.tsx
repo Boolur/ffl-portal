@@ -1766,8 +1766,8 @@ export function LoVaBorrowerProgressList({
                         key={label}
                         className={`rounded-xl border p-3.5 ${stageDisplay.panelClass}`}
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight text-slate-900">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="inline-flex items-center gap-2 text-base sm:text-lg font-extrabold tracking-tight text-slate-900">
                             <span
                               className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${stageDisplay.iconClass}`}
                             >
@@ -1775,10 +1775,10 @@ export function LoVaBorrowerProgressList({
                             </span>
                             {label}
                           </span>
-                          <div className="inline-flex items-center gap-2.5 shrink-0">
+                          <div className="flex w-full flex-wrap items-center gap-2 sm:inline-flex sm:w-auto sm:shrink-0 sm:gap-2.5">
                             {stageElapsedMs !== null && (
                               <span
-                                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold ${getTimerClassName(
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-bold ${getTimerClassName(
                                   stageElapsedMs
                                 )}`}
                                 title={
@@ -1792,7 +1792,7 @@ export function LoVaBorrowerProgressList({
                               </span>
                             )}
                             <span
-                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${stageDisplay.pillClass}`}
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-wide ${stageDisplay.pillClass}`}
                             >
                               {stageDisplay.statusLabel}
                             </span>
@@ -1806,7 +1806,7 @@ export function LoVaBorrowerProgressList({
                                   return next;
                                 })
                               }
-                              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+                              className="inline-flex h-9 sm:h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 sm:px-4 text-xs sm:text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
                             >
                               <FileText className="h-4 w-4" />
                               {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
@@ -1842,7 +1842,7 @@ export function LoVaBorrowerProgressList({
                             )}
 
                             <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                              <div className="flex items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
                                 <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                                   Latest VA Note
                                 </p>
@@ -1893,7 +1893,7 @@ export function LoVaBorrowerProgressList({
                             </div>
                             {canLoRespondToVa && vaResponseActionTaskId && (
                               <div className="mt-2 rounded-lg border border-amber-200 bg-white/90 px-3 py-3">
-                                <div className="flex items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
                                   <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">
                                     Loan Officer Response Needed
                                   </p>
@@ -2053,17 +2053,17 @@ export function LoVaBorrowerProgressList({
                               key={row.id}
                               className={`rounded-xl border p-3.5 ${rowPanelClass}`}
                             >
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight text-slate-900">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <span className="inline-flex items-center gap-2 text-base sm:text-lg font-extrabold tracking-tight text-slate-900">
                                   <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${rowIconClass}`}>
                                     <FileText className="h-3.5 w-3.5" />
                                   </span>
                                   {row.label}
                                 </span>
-                                <div className="inline-flex items-center gap-2.5 shrink-0">
+                                <div className="flex w-full flex-wrap items-center gap-2 sm:inline-flex sm:w-auto sm:shrink-0 sm:gap-2.5">
                                   {stageElapsedMs !== null && (
                                     <span
-                                      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold ${getTimerClassName(
+                                      className={`inline-flex items-center rounded-full border px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-bold ${getTimerClassName(
                                         stageElapsedMs
                                       )}`}
                                       title={
@@ -2077,7 +2077,7 @@ export function LoVaBorrowerProgressList({
                                     </span>
                                   )}
                                   <span
-                                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-wide ${getJrChecklistStatusClass(
                                       row.status,
                                       row.id,
                                       row.label
@@ -2095,7 +2095,7 @@ export function LoVaBorrowerProgressList({
                                         return next;
                                       })
                                     }
-                                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+                                    className="inline-flex h-9 sm:h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 sm:px-4 text-xs sm:text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
                                   >
                                     <FileText className="h-4 w-4" />
                                     {stageDetailsExpanded ? 'Hide Details' : 'Show Details'}
@@ -2106,7 +2106,7 @@ export function LoVaBorrowerProgressList({
                               {stageDetailsExpanded && (
                                 <>
                                   <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                                    <div className="flex items-center justify-between gap-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
                                       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                                         Proof
                                       </p>
@@ -2142,7 +2142,7 @@ export function LoVaBorrowerProgressList({
                                   </div>
 
                                   <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                                    <div className="flex items-center justify-between gap-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
                                       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                                         {row.label} Note
                                       </p>
