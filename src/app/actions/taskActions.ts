@@ -2100,7 +2100,12 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           : null;
       const hasAnyIncomeItems = Boolean(incomeProfileRaw?.hasAnyIncomeItems);
       const hasEmploymentIncome = Boolean(incomeProfileRaw?.hasEmploymentIncome);
-      const employmentFieldsRequired = hasAnyIncomeItems ? hasEmploymentIncome : true;
+      const isVaIrrrl = Boolean(incomeProfileRaw?.isVaIrrrl);
+      const employmentFieldsRequired = isVaIrrrl
+        ? false
+        : hasAnyIncomeItems
+        ? hasEmploymentIncome
+        : true;
       const loanProgram = String(submissionObject.loanProgram ?? '')
         .trim()
         .toUpperCase();

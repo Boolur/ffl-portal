@@ -206,6 +206,7 @@ type MismoIncomeProfile = {
   hasEmploymentIncome: boolean;
   hasNonEmploymentIncome: boolean;
   employmentFieldsRequired: boolean;
+  isVaIrrrl: boolean;
 };
 
 const DEFAULT_MISMO_INCOME_PROFILE: MismoIncomeProfile = {
@@ -213,6 +214,7 @@ const DEFAULT_MISMO_INCOME_PROFILE: MismoIncomeProfile = {
   hasEmploymentIncome: false,
   hasNonEmploymentIncome: false,
   employmentFieldsRequired: true,
+  isVaIrrrl: false,
 };
 
 function isMismoValidationErrorMessage(message: string) {
@@ -372,8 +374,10 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     hasAnyIncomeItems,
     hasEmploymentIncome,
     hasNonEmploymentIncome,
-    // Fail-safe: if income is unavailable/ambiguous, keep employer fields required.
-    employmentFieldsRequired: hasAnyIncomeItems ? hasEmploymentIncome : true,
+    // IRRRL loans can legitimately omit employer fields from MISMO exports.
+    employmentFieldsRequired: isVaIrrrl ? false : hasAnyIncomeItems ? hasEmploymentIncome : true,
+    // Otherwise keep employer fields required when income is unavailable/ambiguous.
+    isVaIrrrl,
   };
 
   const borrowerFirstName = getTextFromElement(borrowerParty, 'FirstName');
@@ -502,10 +506,19 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
   const investor = getText(doc, 'ProductProviderName');
 
   const mortgageType = getText(doc, 'MortgageType');
+  const mortgageTypeNormalized = mortgageType.trim().toUpperCase();
   const loanType =
     ['Conventional', 'FHA', 'VA'].includes(mortgageType) ? mortgageType : '';
 
   const loanPurposeType = getText(doc, 'LoanPurposeType').trim().toUpperCase();
+  const governmentRefinanceType = getText(doc, 'GovernmentRefinanceType').trim().toUpperCase();
+  const refinancePrimaryPurposeType = getText(doc, 'RefinancePrimaryPurposeType')
+    .trim()
+    .toUpperCase();
+  const isVaIrrrl =
+    mortgageTypeNormalized === 'VA' &&
+    (governmentRefinanceType === 'INTERESTRATEREDUCTIONREFINANCELOAN' ||
+      refinancePrimaryPurposeType === 'INTERESTRATEREDUCTION');
   const loanProgram =
     loanPurposeType === 'PURCHASE'
       ? 'Purchase'
