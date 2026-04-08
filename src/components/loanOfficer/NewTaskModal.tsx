@@ -336,6 +336,18 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     'WAGES',
   ]);
 
+  const irrrlMortgageType = getText(doc, 'MortgageType').trim().toUpperCase();
+  const irrrlGovernmentRefinanceType = getText(doc, 'GovernmentRefinanceType')
+    .trim()
+    .toUpperCase();
+  const irrrlRefinancePrimaryPurposeType = getText(doc, 'RefinancePrimaryPurposeType')
+    .trim()
+    .toUpperCase();
+  const isVaIrrrl =
+    irrrlMortgageType === 'VA' &&
+    (irrrlGovernmentRefinanceType === 'INTERESTRATEREDUCTIONREFINANCELOAN' ||
+      irrrlRefinancePrimaryPurposeType === 'INTERESTRATEREDUCTION');
+
   let incomeItemCount = 0;
   let hasEmploymentIncome = false;
   let hasNonEmploymentIncome = false;
@@ -511,14 +523,6 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     ['Conventional', 'FHA', 'VA'].includes(mortgageType) ? mortgageType : '';
 
   const loanPurposeType = getText(doc, 'LoanPurposeType').trim().toUpperCase();
-  const governmentRefinanceType = getText(doc, 'GovernmentRefinanceType').trim().toUpperCase();
-  const refinancePrimaryPurposeType = getText(doc, 'RefinancePrimaryPurposeType')
-    .trim()
-    .toUpperCase();
-  const isVaIrrrl =
-    mortgageTypeNormalized === 'VA' &&
-    (governmentRefinanceType === 'INTERESTRATEREDUCTIONREFINANCELOAN' ||
-      refinancePrimaryPurposeType === 'INTERESTRATEREDUCTION');
   const loanProgram =
     loanPurposeType === 'PURCHASE'
       ? 'Purchase'
