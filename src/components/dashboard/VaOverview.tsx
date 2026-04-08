@@ -45,6 +45,31 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
   const roleLabel = vaRoleLabel[role];
   const isAppraisal = role === UserRole.VA_APPRAISAL;
   const isHoiProcessor = role === UserRole.PROCESSOR_JR;
+  const topBannerTone = isHoiProcessor
+    ? {
+        container:
+          'border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-50/50 hover:border-sky-300',
+        glow: 'bg-sky-400',
+        ring: 'ring-sky-100',
+        iconActive: 'text-sky-600',
+        iconIdle: 'text-slate-400',
+        title: 'text-sky-950',
+        subtitle: 'text-sky-800/80',
+        count: 'text-sky-700 ring-sky-100',
+        arrowWrap: 'bg-sky-100 text-sky-600',
+      }
+    : {
+        container:
+          'border-rose-200 bg-gradient-to-r from-rose-50 to-pink-50/50 hover:border-rose-300',
+        glow: 'bg-rose-400',
+        ring: 'ring-rose-100',
+        iconActive: 'text-rose-600',
+        iconIdle: 'text-slate-400',
+        title: 'text-rose-950',
+        subtitle: 'text-rose-800/80',
+        count: 'text-rose-700 ring-rose-100',
+        arrowWrap: 'bg-rose-100 text-rose-600',
+      };
   const isJrPublicNewTask = (task: VaTask) =>
     task.status === TaskStatus.PENDING &&
     task.workflowState === TaskWorkflowState.NONE &&
@@ -158,20 +183,26 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
     <div className="space-y-6">
       <Link
         href={getNewBucketHref(role)}
-        className="group relative flex items-center justify-between overflow-hidden rounded-2xl border border-rose-200 bg-gradient-to-r from-rose-50 to-pink-50/50 p-5 shadow-sm transition-all hover:shadow-md hover:border-rose-300"
+        className={`group relative flex items-center justify-between overflow-hidden rounded-2xl border p-5 shadow-sm transition-all hover:shadow-md ${topBannerTone.container}`}
       >
-        <div className="absolute -left-6 -top-6 h-24 w-24 rounded-full bg-rose-400 opacity-10 blur-2xl group-hover:opacity-20 transition-opacity"></div>
+        <div
+          className={`absolute -left-6 -top-6 h-24 w-24 rounded-full opacity-10 blur-2xl transition-opacity group-hover:opacity-20 ${topBannerTone.glow}`}
+        ></div>
         <div className="relative flex items-center gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-rose-100">
+          <div
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ${topBannerTone.ring}`}
+          >
             <BellRing
-              className={`h-6 w-6 ${newCount > 0 ? 'text-rose-600 animate-pulse' : 'text-slate-400'}`}
+              className={`h-6 w-6 ${
+                newCount > 0 ? `${topBannerTone.iconActive} animate-pulse` : topBannerTone.iconIdle
+              }`}
             />
           </div>
           <div>
-            <p className="text-lg font-extrabold tracking-tight text-rose-950">
+            <p className={`text-lg font-extrabold tracking-tight ${topBannerTone.title}`}>
               New {isHoiProcessor ? '' : 'VA '}{roleLabel} Requests
             </p>
-            <p className="text-sm font-medium text-rose-800/80">
+            <p className={`text-sm font-medium ${topBannerTone.subtitle}`}>
               {newCount > 0
                 ? `${newCount} request${newCount === 1 ? '' : 's'} ready to be worked.`
                 : 'No new requests waiting right now.'}
@@ -179,10 +210,14 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
           </div>
         </div>
         <div className="relative flex items-center gap-4">
-          <span className="inline-flex h-10 min-w-10 items-center justify-center rounded-full bg-white px-3 text-lg font-black text-rose-700 shadow-sm ring-1 ring-rose-100">
+          <span
+            className={`inline-flex h-10 min-w-10 items-center justify-center rounded-full bg-white px-3 text-lg font-black shadow-sm ring-1 ${topBannerTone.count}`}
+          >
             {newCount}
           </span>
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-100 text-rose-600 opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-1">
+          <div
+            className={`flex h-8 w-8 items-center justify-center rounded-full opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-1 ${topBannerTone.arrowWrap}`}
+          >
             <ArrowRight className="h-4 w-4" />
           </div>
         </div>
