@@ -277,14 +277,15 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
     mediaQuery.addEventListener('change', applyMatch);
     return () => mediaQuery.removeEventListener('change', applyMatch);
   }, []);
-  const compactBoardMaxWidth =
-    processedBuckets.length <= 1
-      ? '520px'
-      : processedBuckets.length === 2
-      ? currentRole === 'MANAGER'
-        ? 'calc(50% - 0.4375rem)'
-        : '1040px'
-      : null;
+  const compactBoardMaxWidth = isMobileViewport
+    ? null
+    : processedBuckets.length <= 1
+    ? '520px'
+    : processedBuckets.length === 2
+    ? currentRole === 'MANAGER'
+      ? 'calc(50% - 0.4375rem)'
+      : '1040px'
+    : null;
 
   return (
     <div className="space-y-3.5">
