@@ -1633,6 +1633,7 @@ function WorkedByTags({
 
 export type Task = {
   id: string;
+  loanId?: string;
   title: string;
   description: string | null;
   status: TaskStatus;
@@ -1687,6 +1688,11 @@ export type Task = {
     sourceTaskAssignedRole?: UserRole | null;
     sourceTaskCreatedAt?: Date | string | null;
   }[];
+  vaCompletionSummary?: {
+    titleDone: boolean;
+    payoffDone: boolean;
+    appraisalDone: boolean;
+  };
 };
 
 export function TaskList({
@@ -3257,6 +3263,34 @@ export function TaskList({
               parsedSubmissionData as Record<string, unknown> | null
             )
           );
+        const shouldShowCompletedJrBorrowerBubbles =
+          currentRole === UserRole.PROCESSOR_JR &&
+          task.kind === TaskKind.VA_HOI &&
+          task.status === TaskStatus.COMPLETED;
+        const compactJrChecklistState = {
+          hoiDone: jrChecklistRows.some(
+            (row) => row.id === 'ordered-hoi' && isJrChecklistRowSatisfied(row)
+          ),
+          voeDone: jrChecklistRows.some(
+            (row) => row.id === 'ordered-voe' && isJrChecklistRowSatisfied(row)
+          ),
+          underwritingDone: jrChecklistRows.some(
+            (row) =>
+              row.id === 'submitted-underwriting' &&
+              isJrChecklistRowSatisfied(row)
+          ),
+        };
+        const compactJrProgressBubbles = [
+          { label: 'Title', done: Boolean(task.vaCompletionSummary?.titleDone) },
+          { label: 'Payoff', done: Boolean(task.vaCompletionSummary?.payoffDone) },
+          {
+            label: 'Appraisal',
+            done: Boolean(task.vaCompletionSummary?.appraisalDone),
+          },
+          { label: 'HOI', done: compactJrChecklistState.hoiDone },
+          { label: 'VOE', done: compactJrChecklistState.voeDone },
+          { label: 'UW', done: compactJrChecklistState.underwritingDone },
+        ];
         const processorAssignedNote =
           jrProcessorAssignedNote ||
           getSavedJrProcessorAssignedNoteFromSubmissionData(
@@ -3471,6 +3505,30 @@ export function TaskList({
                       <p className="text-xs font-medium text-slate-500 truncate">
                         {task.loan.loanNumber}
                       </p>
+                      {shouldShowCompletedJrBorrowerBubbles && (
+                        <div className="mt-1.5 space-y-1.5">
+                          <span className="inline-flex max-w-full items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700">
+                            Processor: {processorAssignedLabel || 'Unassigned'}
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {compactJrProgressBubbles.map((bubble) => (
+                              <span
+                                key={`${task.id}-${bubble.label}`}
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                                  bubble.done
+                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                    : 'border-rose-300 bg-rose-100 text-rose-800'
+                                }`}
+                                title={`${bubble.label}: ${
+                                  bubble.done ? 'Completed' : 'Not completed'
+                                }`}
+                              >
+                                {bubble.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {(queueTimerMeta || completedTotalTimeMeta) && (
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           {queueTimerMeta && (

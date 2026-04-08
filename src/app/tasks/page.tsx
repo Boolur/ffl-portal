@@ -119,6 +119,7 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
 
 type TaskRow = {
   id: string;
+  loanId: string;
   title: string;
   description: string | null;
   status: TaskStatus;
@@ -174,6 +175,11 @@ type TaskRow = {
     sourceTaskAssignedRole: UserRole | null;
     sourceTaskCreatedAt: Date | null;
   }[];
+  vaCompletionSummary?: {
+    titleDone: boolean;
+    payoffDone: boolean;
+    appraisalDone: boolean;
+  };
 };
 
 async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
@@ -306,6 +312,67 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
       hasUserId: Boolean(userId),
     }
   );
+
+  const jrLoanIds =
+    role === UserRole.PROCESSOR_JR
+      ? Array.from(
+          new Set(
+            tasks
+              .filter((task) => task.kind === TaskKind.VA_HOI)
+              .map((task) => task.loanId)
+              .filter((loanId): loanId is string => Boolean(loanId))
+          )
+        )
+      : [];
+
+  const vaCompletionByLoanId = new Map<
+    string,
+    {
+      titleDone: boolean;
+      payoffDone: boolean;
+      appraisalDone: boolean;
+    }
+  >();
+
+  if (jrLoanIds.length > 0) {
+    const jrRelatedVaTasks = await withPerfMetric(
+      'query.tasks.findMany.jrVaSummary',
+      () =>
+        prisma.task.findMany({
+          where: {
+            loanId: { in: jrLoanIds },
+            kind: {
+              in: [TaskKind.VA_TITLE, TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL],
+            },
+          },
+          select: {
+            loanId: true,
+            kind: true,
+            status: true,
+          },
+        }),
+      {
+        role,
+        loanCount: jrLoanIds.length,
+      }
+    );
+
+    for (const row of jrRelatedVaTasks) {
+      const existing = vaCompletionByLoanId.get(row.loanId) || {
+        titleDone: false,
+        payoffDone: false,
+        appraisalDone: false,
+      };
+      if (row.kind === TaskKind.VA_TITLE && row.status === TaskStatus.COMPLETED) {
+        existing.titleDone = true;
+      } else if (row.kind === TaskKind.VA_PAYOFF && row.status === TaskStatus.COMPLETED) {
+        existing.payoffDone = true;
+      } else if (row.kind === TaskKind.VA_APPRAISAL && row.status === TaskStatus.COMPLETED) {
+        existing.appraisalDone = true;
+      }
+      vaCompletionByLoanId.set(row.loanId, existing);
+    }
+  }
 
   const hasTimelineRelevantTasks = tasks.some(
     (task) =>
@@ -474,6 +541,14 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
         sourceTaskCreatedAt: task.createdAt,
       })),
       timelineAttachments,
+      vaCompletionSummary:
+        task.kind === TaskKind.VA_HOI
+          ? vaCompletionByLoanId.get(task.loanId) || {
+              titleDone: false,
+              payoffDone: false,
+              appraisalDone: false,
+            }
+          : undefined,
     };
   }) as TaskRow[];
 
