@@ -3267,30 +3267,46 @@ export function TaskList({
           currentRole === UserRole.PROCESSOR_JR &&
           task.kind === TaskKind.VA_HOI &&
           task.status === TaskStatus.COMPLETED;
-        const compactJrChecklistState = {
-          hoiDone: jrChecklistRows.some(
-            (row) => row.id === 'ordered-hoi' && isJrChecklistRowSatisfied(row)
-          ),
-          voeDone: jrChecklistRows.some(
-            (row) => row.id === 'ordered-voe' && isJrChecklistRowSatisfied(row)
-          ),
-          underwritingDone: jrChecklistRows.some(
-            (row) =>
-              row.id === 'submitted-underwriting' &&
-              isJrChecklistRowSatisfied(row)
-          ),
-        };
-        const compactJrProgressBubbles = [
+        const completedJrVaRows = [
           { label: 'Title', done: Boolean(task.vaCompletionSummary?.titleDone) },
           { label: 'Payoff', done: Boolean(task.vaCompletionSummary?.payoffDone) },
-          {
-            label: 'Appraisal',
-            done: Boolean(task.vaCompletionSummary?.appraisalDone),
-          },
-          { label: 'HOI', done: compactJrChecklistState.hoiDone },
-          { label: 'VOE', done: compactJrChecklistState.voeDone },
-          { label: 'UW', done: compactJrChecklistState.underwritingDone },
+          { label: 'Appraisal', done: Boolean(task.vaCompletionSummary?.appraisalDone) },
         ];
+        const completedJrRows = [
+          {
+            id: 'ordered-hoi',
+            label: 'HOI',
+            status: jrChecklistRows.some(
+              (row) => row.id === 'ordered-hoi' && isJrChecklistRowSatisfied(row)
+            )
+              ? 'COMPLETED'
+              : 'MISSING_ITEMS',
+          },
+          {
+            id: 'ordered-voe',
+            label: 'VOE',
+            status: jrChecklistRows.some(
+              (row) => row.id === 'ordered-voe' && isJrChecklistRowSatisfied(row)
+            )
+              ? 'COMPLETED'
+              : 'MISSING_ITEMS',
+          },
+          {
+            id: 'submitted-underwriting',
+            label: 'Sub to UW',
+            status: jrChecklistRows.some(
+              (row) =>
+                row.id === 'submitted-underwriting' &&
+                isJrChecklistRowSatisfied(row)
+            )
+              ? 'COMPLETED'
+              : 'MISSING_ITEMS',
+          },
+        ] as Array<{
+          id: string;
+          label: string;
+          status: 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
+        }>;
         const processorAssignedNote =
           jrProcessorAssignedNote ||
           getSavedJrProcessorAssignedNoteFromSubmissionData(
@@ -3505,30 +3521,6 @@ export function TaskList({
                       <p className="text-xs font-medium text-slate-500 truncate">
                         {task.loan.loanNumber}
                       </p>
-                      {shouldShowCompletedJrBorrowerBubbles && (
-                        <div className="mt-1.5 space-y-1.5">
-                          <span className="inline-flex max-w-full items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700">
-                            Processor: {processorAssignedLabel || 'Unassigned'}
-                          </span>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {compactJrProgressBubbles.map((bubble) => (
-                              <span
-                                key={`${task.id}-${bubble.label}`}
-                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                                  bubble.done
-                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                    : 'border-rose-300 bg-rose-100 text-rose-800'
-                                }`}
-                                title={`${bubble.label}: ${
-                                  bubble.done ? 'Completed' : 'Not completed'
-                                }`}
-                              >
-                                {bubble.label}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                       {(queueTimerMeta || completedTotalTimeMeta) && (
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           {queueTimerMeta && (
@@ -3574,21 +3566,81 @@ export function TaskList({
                         </div>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleTaskExpanded(task.id);
-                      }}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                      aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
-                    >
-                      {isExpanded ? (
-                        <ChevronUp className="h-4 w-4" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4" />
-                      )}
-                    </button>
+                    {shouldShowCompletedJrBorrowerBubbles ? (
+                      <div className="inline-flex items-start gap-1.5 shrink-0">
+                        <div className="flex w-[230px] flex-col gap-1">
+                          <div className="grid grid-cols-3 gap-1">
+                            {completedJrVaRows.map((row) => (
+                              <span
+                                key={`${task.id}-${row.label}`}
+                                className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none ${
+                                  row.done
+                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                    : 'border-rose-300 bg-rose-100 text-rose-800'
+                                }`}
+                                title={`${row.label}: ${row.done ? 'Completed' : 'Incomplete'}`}
+                              >
+                                {row.label}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="grid grid-cols-3 gap-1">
+                            {completedJrRows.map((row) => {
+                              const statusMeta = getJrChecklistStatusPresentation(
+                                row.status,
+                                row.id
+                              );
+                              return (
+                                <span
+                                  key={`${task.id}-${row.id}`}
+                                  className={`inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none ${statusMeta.className}`}
+                                  title={`${row.label}: ${statusMeta.label}`}
+                                >
+                                  {row.label}
+                                </span>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-0.5 inline-flex items-center gap-1 self-start rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
+                              <User className="h-2.5 w-2.5" />
+                            </span>
+                            Processor: {processorAssignedLabel || 'Unassigned'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleTaskExpanded(task.id);
+                          }}
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                          aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleTaskExpanded(task.id);
+                        }}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                        aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
+                      >
+                        {isExpanded ? (
+                          <ChevronUp className="h-4 w-4" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
