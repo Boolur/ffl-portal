@@ -16,6 +16,8 @@ import Image from 'next/image';
 import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
 import { usePathname, useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { canAccessLendersDirectory } from '@/lib/lendersPilot';
 
 type SidebarProps = {
   collapsed: boolean;
@@ -25,8 +27,14 @@ type SidebarProps = {
 
 export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) {
   const { activeRole } = useImpersonation();
+  const { data: session } = useSession();
   const pathname = usePathname();
   const router = useRouter();
+  const canSeeLendersDirectory = canAccessLendersDirectory({
+    role: activeRole,
+    email: session?.user?.email || '',
+    name: session?.user?.name || '',
+  });
 
   const emitNavigationIntent = React.useCallback((href: string, name: string) => {
     window.dispatchEvent(
@@ -70,6 +78,12 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
         UserRole.ADMIN,
         UserRole.MANAGER,
       ],
+    },
+    {
+      name: 'Lenders',
+      icon: Building2,
+      href: '/lenders',
+      roles: ['all'],
     },
     {
       name: 'Team',
@@ -118,6 +132,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   const mainNavItems = navItems.filter(
     (item) =>
       (item.roles.includes('all') || item.roles.includes(activeRole)) &&
+      (item.name !== 'Lenders' || canSeeLendersDirectory) &&
       !['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'].includes(
         item.name
       )

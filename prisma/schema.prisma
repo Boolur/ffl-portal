@@ -96,6 +96,14 @@ enum NotificationOutboxEventType {
   VA_FANOUT
 }
 
+enum LenderLinkType {
+  PORTAL
+  RATES
+  GUIDE
+  SUPPORT
+  OTHER
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
@@ -212,6 +220,57 @@ model Task {
   @@index([kind, dueDate])
   @@index([status, dueDate])
   @@index([loanId, updatedAt])
+}
+
+model Lender {
+  id              String          @id @default(uuid())
+  name            String
+  slug            String          @unique
+  description     String?
+  logoStoragePath String?
+  logoFilename    String?
+  logoUrl         String?
+  portalUrl       String?
+  active          Boolean         @default(true)
+  sortOrder       Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  contacts        LenderContact[]
+  links           LenderLink[]
+
+  @@unique([name])
+  @@index([active, sortOrder])
+}
+
+model LenderContact {
+  id         String   @id @default(uuid())
+  lenderId   String
+  lender     Lender   @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  name       String
+  title      String?
+  email      String?
+  phone      String?
+  notes      String?
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([lenderId, sortOrder])
+}
+
+model LenderLink {
+  id         String         @id @default(uuid())
+  lenderId   String
+  lender     Lender         @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  label      String
+  url        String
+  linkType   LenderLinkType @default(PORTAL)
+  sortOrder  Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([lenderId, sortOrder])
 }
 
 model Notification {

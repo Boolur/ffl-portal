@@ -29,6 +29,10 @@ export function getClientDocumentsBucket() {
   return process.env.SUPABASE_STORAGE_BUCKET_CLIENT_DOCUMENTS || 'client-documents';
 }
 
+export function getLenderLogosBucket() {
+  return process.env.SUPABASE_STORAGE_BUCKET_LENDER_LOGOS || 'lender-logos';
+}
+
 export function getSignedUrlExpirySeconds() {
   const raw = process.env.SUPABASE_SIGNED_URL_TTL_SECONDS;
   const parsed = raw ? Number(raw) : 60 * 10;
