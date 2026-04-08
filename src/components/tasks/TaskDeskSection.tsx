@@ -26,6 +26,7 @@ export function TaskDeskSection({
   canDelete,
   currentRole,
   currentUserId,
+  jrAssigneeOptions = [],
   initialFocusedTaskId,
   bucketScrollMode = 'auto',
   fixedScrollClassName = 'max-h-[520px] overflow-y-auto pr-1',
@@ -39,6 +40,7 @@ export function TaskDeskSection({
   canDelete: boolean;
   currentRole: string;
   currentUserId?: string;
+  jrAssigneeOptions?: Array<{ id: string; name: string }>;
   initialFocusedTaskId?: string | null;
   bucketScrollMode?: 'auto' | 'fixed';
   fixedScrollClassName?: string;
@@ -86,6 +88,7 @@ export function TaskDeskSection({
         canDelete={canDelete}
         currentRole={currentRole}
         currentUserId={currentUserId}
+        jrAssigneeOptions={jrAssigneeOptions}
         initialFocusedTaskId={initialFocusedTaskId}
         bucketScrollMode={bucketScrollMode}
         fixedScrollClassName={fixedScrollClassName}

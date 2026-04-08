@@ -45,6 +45,13 @@ function isStartLockedDeskAttachmentTask(task: {
   return isDeskKind && task.status === TaskStatus.PENDING && task.workflowState === TaskWorkflowState.NONE;
 }
 
+function isJrTaskOwnedByDifferentUser(task: {
+  kind: TaskKind | null;
+  assignedUserId: string | null;
+}, userId: string) {
+  return task.kind === TaskKind.VA_HOI && Boolean(task.assignedUserId) && task.assignedUserId !== userId;
+}
+
 async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId: string) {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
@@ -87,6 +94,9 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
 
   if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
     return { ok: false as const, error: 'Not authorized.' };
+  }
+  if (!canManageAll && role === UserRole.PROCESSOR_JR && isJrTaskOwnedByDifferentUser(task, userId)) {
+    return { ok: false as const, error: 'This JR task is assigned to another processor.' };
   }
 
   return { ok: true as const, task };
@@ -215,6 +225,7 @@ export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
         taskId: true,
         task: {
           select: {
+            kind: true,
             assignedRole: true,
             assignedUserId: true,
             loan: {
@@ -241,6 +252,19 @@ export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
 
     if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
       return { success: false, error: 'Not authorized.' };
+    }
+    if (
+      !canManageAll &&
+      role === UserRole.PROCESSOR_JR &&
+      isJrTaskOwnedByDifferentUser(
+        {
+          kind: attachment.task.kind ?? null,
+          assignedUserId: attachment.task.assignedUserId ?? null,
+        },
+        userId
+      )
+    ) {
+      return { success: false, error: 'This JR task is assigned to another processor.' };
     }
 
     const supabase = getSupabaseAdmin();
@@ -360,6 +384,18 @@ export async function deleteTaskAttachment(attachmentId: string) {
       const isUploader = attachment.uploadedById === userId;
       if (!isAssignedToRole && !isAssignedToUser && !isUploader) {
         return { success: false, error: 'Not authorized.' };
+      }
+      if (
+        role === UserRole.PROCESSOR_JR &&
+        isJrTaskOwnedByDifferentUser(
+          {
+            kind: attachment.task.kind ?? null,
+            assignedUserId: attachment.task.assignedUserId ?? null,
+          },
+          userId
+        )
+      ) {
+        return { success: false, error: 'This JR task is assigned to another processor.' };
       }
     }
 

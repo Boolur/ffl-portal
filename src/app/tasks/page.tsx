@@ -66,6 +66,7 @@ type TaskBucketFilter =
   | 'qc-lo-responded'
   | 'qc-completed-requests'
   | 'va-new-request'
+  | 'jr-my-requests'
   | 'va-completed-requests'
   | 'va-payoff-new'
   | 'va-payoff-waiting-missing'
@@ -100,6 +101,7 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
     value === 'qc-lo-responded' ||
     value === 'qc-completed-requests' ||
     value === 'va-new-request' ||
+    value === 'jr-my-requests' ||
     value === 'va-completed-requests' ||
     value === 'va-payoff-new' ||
     value === 'va-payoff-waiting-missing' ||
@@ -209,8 +211,31 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
       { assignedRole: UserRole.VA },
     ];
   } else if (role === UserRole.PROCESSOR_JR) {
-    // Backward compatibility: preserve HOI visibility regardless of assignment role drift.
-    where.OR = [{ assignedRole: UserRole.PROCESSOR_JR }, { kind: TaskKind.VA_HOI }];
+    // JR queue scoping:
+    // - Public New: unassigned + pending + initial workflow
+    // - Private middle bucket: assigned to current JR (not completed)
+    // - Completed: visible for reporting/history
+    if (userId) {
+      where.OR = [
+        {
+          kind: TaskKind.VA_HOI,
+          status: TaskStatus.PENDING,
+          workflowState: TaskWorkflowState.NONE,
+          assignedUserId: null,
+        },
+        {
+          kind: TaskKind.VA_HOI,
+          status: { not: TaskStatus.COMPLETED },
+          assignedUserId: userId,
+        },
+        {
+          kind: TaskKind.VA_HOI,
+          status: TaskStatus.COMPLETED,
+        },
+      ];
+    } else {
+      where.OR = [{ kind: TaskKind.VA_HOI }];
+    }
   } else {
     where.OR = [
       { assignedRole: role as UserRole },
@@ -790,7 +815,28 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         label: 'New JR Processor Requests',
         chipLabel: 'New',
         chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
-        tasks: vaHoiTasks.filter((task) => task.status !== TaskStatus.COMPLETED),
+        tasks: vaHoiTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.status === TaskStatus.PENDING &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !task.assignedUser?.id
+        ),
+      },
+      {
+        id: 'jr-my-requests',
+        label: 'My JR Processor Requests',
+        chipLabel: 'In Progress',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaHoiTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            !(
+              task.status === TaskStatus.PENDING &&
+              task.workflowState === TaskWorkflowState.NONE &&
+              !task.assignedUser?.id
+            )
+        ),
       },
       {
         id: 'va-completed-requests',
@@ -942,6 +988,25 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     typeof rawBucket === 'string' ? rawBucket : undefined
   ) || 'all';
   const allTasks = await getTasks(sessionRole, sessionUser.id);
+  const jrAssigneeOptions =
+    sessionRole === UserRole.ADMIN ||
+    sessionRole === UserRole.MANAGER ||
+    sessionRole === UserRole.PROCESSOR_JR
+      ? await prisma.user.findMany({
+          where: {
+            active: true,
+            OR: [
+              { role: UserRole.PROCESSOR_JR },
+              { roles: { has: UserRole.PROCESSOR_JR } },
+            ],
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+          orderBy: { name: 'asc' },
+        })
+      : [];
   const roleBuckets = getRoleBuckets(sessionRole, allTasks);
   const dualDeskRows = sessionRole === UserRole.LOAN_OFFICER
     ? getLoPilotRows(allTasks)
@@ -1026,6 +1091,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             canDelete={canDelete}
             currentRole={sessionRole}
             currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
             bucketScrollMode="fixed"
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
@@ -1039,6 +1105,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             canDelete={canDelete}
             currentRole={sessionRole}
             currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
             bucketScrollMode="fixed"
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
@@ -1062,6 +1129,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 canDelete={canDelete}
                 currentRole={sessionRole}
                 currentUserId={sessionUser.id}
+                jrAssigneeOptions={jrAssigneeOptions}
                 initialFocusedTaskId={focusedTaskId}
                 bucketScrollMode="fixed"
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
@@ -1078,6 +1146,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 canDelete={canDelete}
                 currentRole={sessionRole}
                 currentUserId={sessionUser.id}
+                jrAssigneeOptions={jrAssigneeOptions}
                 initialFocusedTaskId={focusedTaskId}
                 bucketScrollMode="fixed"
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
@@ -1092,6 +1161,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 canDelete={canDelete}
                 currentRole={sessionRole}
                 currentUserId={sessionUser.id}
+                jrAssigneeOptions={jrAssigneeOptions}
                 initialFocusedTaskId={focusedTaskId}
                 bucketScrollMode="fixed"
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
@@ -1106,6 +1176,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
                 canDelete={canDelete}
                 currentRole={sessionRole}
                 currentUserId={sessionUser.id}
+                jrAssigneeOptions={jrAssigneeOptions}
                 initialFocusedTaskId={focusedTaskId}
                 bucketScrollMode="fixed"
                 fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
@@ -1135,6 +1206,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             canDelete={canDelete}
             currentRole={sessionRole}
             currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
             bucketScrollMode="fixed"
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
@@ -1150,6 +1222,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             canDelete={canDelete}
             currentRole={sessionRole}
             currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
             bucketScrollMode="fixed"
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
@@ -1163,6 +1236,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             canDelete={canDelete}
             currentRole={sessionRole}
             currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
             bucketScrollMode="fixed"
             fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
@@ -1177,6 +1251,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           canDelete={canDelete}
           currentRole={sessionRole}
           currentUserId={sessionUser.id}
+          jrAssigneeOptions={jrAssigneeOptions}
           initialFocusedTaskId={focusedTaskId}
           bucketScrollMode="auto"
         />
@@ -1188,6 +1263,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             canDelete={canDelete}
             currentRole={sessionRole}
             currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
           />
         )}

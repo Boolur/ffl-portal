@@ -1671,6 +1671,9 @@ export async function updateTaskStatus(
     if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
       return { success: false, error: 'Not authorized to update this task.' };
     }
+    if (!canManageAll && role === UserRole.PROCESSOR_JR && isJrTaskOwnedByDifferentUser(existing, userId)) {
+      return { success: false, error: 'This JR task is assigned to another processor.' };
+    }
 
     if (existing.status === newStatus) {
       return { success: true };
@@ -2689,6 +2692,13 @@ function isStartLockedDeskTask(task: {
   return isDeskKind && task.status === TaskStatus.PENDING && task.workflowState === TaskWorkflowState.NONE;
 }
 
+function isJrTaskOwnedByDifferentUser(task: {
+  kind: TaskKind | null;
+  assignedUserId: string | null;
+}, userId: string) {
+  return task.kind === TaskKind.VA_HOI && Boolean(task.assignedUserId) && task.assignedUserId !== userId;
+}
+
 export async function saveJrProcessorChecklist(
   taskId: string,
   items: JrChecklistItemInput[],
@@ -2727,7 +2737,8 @@ export async function saveJrProcessorChecklist(
     }
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const canManageJrTask =
-      role === UserRole.PROCESSOR_JR ||
+      (role === UserRole.PROCESSOR_JR &&
+        !isJrTaskOwnedByDifferentUser(existing, userId)) ||
       existing.assignedUserId === userId;
     if (!canManageAll && !canManageJrTask) {
       return { success: false, error: 'Not authorized to update this checklist.' };
@@ -2964,8 +2975,8 @@ export async function addJrProcessorNote(taskId: string, note: string) {
 
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const canManageJrTask =
-      role === UserRole.PROCESSOR_JR ||
-      existing.assignedRole === UserRole.PROCESSOR_JR ||
+      (role === UserRole.PROCESSOR_JR &&
+        !isJrTaskOwnedByDifferentUser(existing, userId)) ||
       existing.assignedUserId === userId;
     if (!canManageAll && !canManageJrTask) {
       return { success: false, error: 'Not authorized to add a JR note.' };
@@ -2994,6 +3005,196 @@ export async function addJrProcessorNote(taskId: string, note: string) {
   } catch (error) {
     console.error('Failed to add JR note:', error);
     return { success: false, error: 'Failed to add JR note.' };
+  }
+}
+
+export async function releaseJrTaskToQueue(taskId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) {
+      return { success: false, error: 'Not authenticated.' };
+    }
+
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canRelease = canManageAll || role === UserRole.PROCESSOR_JR;
+    if (!canRelease) {
+      return { success: false, error: 'Not authorized to release JR tasks.' };
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        workflowState: true,
+        assignedUserId: true,
+        assignedUser: { select: { name: true } },
+        assignedRole: true,
+        submissionData: true,
+      },
+    });
+    if (!task) return { success: false, error: 'Task not found.' };
+    if (task.kind !== TaskKind.VA_HOI) {
+      return { success: false, error: 'Only JR Processor tasks can be released.' };
+    }
+    if (task.status === TaskStatus.COMPLETED) {
+      return { success: false, error: 'Completed JR tasks cannot be released.' };
+    }
+    if (!canManageAll && task.assignedUserId !== userId) {
+      return { success: false, error: 'Only the assigned JR can release this task.' };
+    }
+    if (
+      task.assignedUserId === null &&
+      task.status === TaskStatus.PENDING &&
+      task.workflowState === TaskWorkflowState.NONE
+    ) {
+      return { success: true };
+    }
+
+    const actorName = session?.user?.name || 'Team Member';
+    let updatedSubmissionData = appendLifecycleHistoryEvent(task.submissionData, {
+      actorName,
+      actorRole: role,
+      eventType: 'ASSIGNMENT_CHANGED',
+      fromStatus: task.status,
+      toStatus: TaskStatus.PENDING,
+      fromWorkflow: task.workflowState,
+      toWorkflow: TaskWorkflowState.NONE,
+      fromAssignedUserId: task.assignedUserId,
+      toAssignedUserId: null,
+      fromAssignedUserName: task.assignedUser?.name || null,
+      toAssignedUserName: null,
+      fromAssignedRole: task.assignedRole,
+      toAssignedRole: task.assignedRole,
+      note: 'Released JR task back to public queue.',
+    });
+    updatedSubmissionData = appendSubmissionHistoryEntry(
+      updatedSubmissionData as Prisma.JsonValue,
+      {
+      author: actorName,
+      role,
+      message: 'Released JR task back to New JR Processor Requests.',
+      entryType: 'status',
+      }
+    );
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        status: TaskStatus.PENDING,
+        workflowState: TaskWorkflowState.NONE,
+        assignedUserId: null,
+        submissionData: updatedSubmissionData as Prisma.InputJsonValue,
+      },
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to release JR task:', error);
+    return { success: false, error: 'Failed to release JR task.' };
+  }
+}
+
+export async function reassignJrTask(taskId: string, nextAssignedUserId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    if (!role) {
+      return { success: false, error: 'Not authenticated.' };
+    }
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    if (!canManageAll) {
+      return { success: false, error: 'Only Admin/Manager can reassign JR tasks.' };
+    }
+
+    const normalizedTargetId = String(nextAssignedUserId ?? '').trim();
+    if (!normalizedTargetId) {
+      return { success: false, error: 'Select a JR processor to reassign.' };
+    }
+
+    const [task, targetUser] = await Promise.all([
+      prisma.task.findUnique({
+        where: { id: taskId },
+        select: {
+          id: true,
+          kind: true,
+          status: true,
+          workflowState: true,
+          assignedUserId: true,
+          assignedUser: { select: { name: true } },
+          assignedRole: true,
+          submissionData: true,
+        },
+      }),
+      prisma.user.findUnique({
+        where: { id: normalizedTargetId },
+        select: { id: true, name: true, role: true, roles: true, active: true },
+      }),
+    ]);
+
+    if (!task) return { success: false, error: 'Task not found.' };
+    if (task.kind !== TaskKind.VA_HOI) {
+      return { success: false, error: 'Only JR Processor tasks can be reassigned.' };
+    }
+    if (task.status === TaskStatus.COMPLETED) {
+      return { success: false, error: 'Completed JR tasks cannot be reassigned.' };
+    }
+    const targetIsJr =
+      targetUser?.role === UserRole.PROCESSOR_JR ||
+      Boolean(targetUser?.roles?.includes(UserRole.PROCESSOR_JR));
+    if (!targetUser || !targetUser.active || !targetIsJr) {
+      return { success: false, error: 'Selected user is not an active JR processor.' };
+    }
+    if (task.assignedUserId === targetUser.id) {
+      return { success: true };
+    }
+
+    const actorName = session?.user?.name || 'Team Member';
+    let updatedSubmissionData = appendLifecycleHistoryEvent(task.submissionData, {
+      actorName,
+      actorRole: role,
+      eventType: 'ASSIGNMENT_CHANGED',
+      fromStatus: task.status,
+      toStatus: task.status,
+      fromWorkflow: task.workflowState,
+      toWorkflow: task.workflowState,
+      fromAssignedUserId: task.assignedUserId,
+      toAssignedUserId: targetUser.id,
+      fromAssignedUserName: task.assignedUser?.name || null,
+      toAssignedUserName: targetUser.name || null,
+      fromAssignedRole: task.assignedRole,
+      toAssignedRole: task.assignedRole,
+      note: `JR reassigned to ${targetUser.name || 'processor'}.`,
+    });
+    updatedSubmissionData = appendSubmissionHistoryEntry(
+      updatedSubmissionData as Prisma.JsonValue,
+      {
+      author: actorName,
+      role,
+      message: `JR task reassigned to ${targetUser.name || 'processor'}.`,
+      entryType: 'status',
+      }
+    );
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        assignedUserId: targetUser.id,
+        submissionData: updatedSubmissionData as Prisma.InputJsonValue,
+      },
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to reassign JR task:', error);
+    return { success: false, error: 'Failed to reassign JR task.' };
   }
 }
 

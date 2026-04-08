@@ -25,6 +25,8 @@ import { useRouter } from 'next/navigation';
 import {
   addJrProcessorNote,
   deleteTask,
+  reassignJrTask,
+  releaseJrTaskToQueue,
   reviewInitialDisclosureFigures,
   requestInfoFromLoanOfficer,
   respondToDisclosureRequest,
@@ -197,6 +199,10 @@ type JrChecklistItem = {
 };
 
 type JrChecklistDraftItem = JrChecklistItem;
+type JrAssigneeOption = {
+  id: string;
+  name: string;
+};
 
 const qcChecklistTemplate: Array<{ id: string; label: string }> = [
   { id: 'mortgage-documents', label: 'Verify Mortgage Documents' },
@@ -1688,6 +1694,7 @@ export function TaskList({
   canDelete = false,
   currentRole,
   currentUserId,
+  jrAssigneeOptions = [],
   initialFocusedTaskId = null,
   emptyState = 'all_caught_up',
   enableTaskSelection = false,
@@ -1698,6 +1705,7 @@ export function TaskList({
   canDelete?: boolean;
   currentRole: string;
   currentUserId?: string;
+  jrAssigneeOptions?: JrAssigneeOption[];
   initialFocusedTaskId?: string | null;
   emptyState?: 'all_caught_up' | 'no_results';
   enableTaskSelection?: boolean;
@@ -1757,6 +1765,9 @@ export function TaskList({
   const [jrProcessorAssignedByTask, setJrProcessorAssignedByTask] = React.useState<
     Record<string, JrProcessorAssignedValue | null>
   >({});
+  const [jrReassignTargetByTask, setJrReassignTargetByTask] = React.useState<Record<string, string>>(
+    {}
+  );
   const [jrProcessorAssignedNoteByTask, setJrProcessorAssignedNoteByTask] = React.useState<
     Record<string, string>
   >({});
@@ -2147,6 +2158,29 @@ export function TaskList({
   }, [tasks]);
 
   React.useEffect(() => {
+    setJrReassignTargetByTask((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const task of tasks) {
+        if (task.kind !== TaskKind.VA_HOI) continue;
+        const assignedUserId = task.assignedUser?.id || '';
+        if (!(task.id in next)) {
+          next[task.id] = assignedUserId;
+          changed = true;
+          continue;
+        }
+        if (!next[task.id] && assignedUserId) {
+          next[task.id] = assignedUserId;
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  React.useEffect(() => {
     setOptimisticProofCountByTask((prev) => {
       let changed = false;
       const next = { ...prev };
@@ -2292,6 +2326,45 @@ export function TaskList({
       nextStatus: newStatus,
       hide: newStatus === TaskStatus.COMPLETED,
     });
+    router.refresh();
+    setUpdatingId(null);
+  };
+
+  const handleReleaseJrTask = async (taskId: string) => {
+    if (updatingId) return;
+    const confirmed = window.confirm(
+      'Release this JR task back to the public New JR Processor Requests queue?'
+    );
+    if (!confirmed) return;
+
+    setUpdatingId(taskId);
+    const result = await releaseJrTaskToQueue(taskId);
+    if (!result.success) {
+      alert(result.error || 'Failed to release JR task.');
+      setUpdatingId(null);
+      return;
+    }
+    lockTaskActionUntilRefresh(taskId);
+    router.refresh();
+    setUpdatingId(null);
+  };
+
+  const handleReassignJrTask = async (taskId: string) => {
+    if (updatingId) return;
+    const nextAssignedUserId = (jrReassignTargetByTask[taskId] || '').trim();
+    if (!nextAssignedUserId) {
+      alert('Select a JR processor to reassign.');
+      return;
+    }
+
+    setUpdatingId(taskId);
+    const result = await reassignJrTask(taskId, nextAssignedUserId);
+    if (!result.success) {
+      alert(result.error || 'Failed to reassign JR task.');
+      setUpdatingId(null);
+      return;
+    }
+    lockTaskActionUntilRefresh(taskId);
     router.refresh();
     setUpdatingId(null);
   };
@@ -3034,6 +3107,33 @@ export function TaskList({
         const hasAssignedSpecialist = Boolean(task.assignedUser?.id);
         const isAssignedToCurrentUser =
           Boolean(currentUserId) && task.assignedUser?.id === currentUserId;
+        const isJrTask = task.kind === TaskKind.VA_HOI;
+        const canManageAllJrTasks = currentRole === UserRole.ADMIN || isManagerRole;
+        const isJrInPublicNewQueue =
+          isJrTask &&
+          task.status === TaskStatus.PENDING &&
+          task.workflowState === TaskWorkflowState.NONE &&
+          !task.assignedUser?.id;
+        const canReleaseJrTask =
+          isJrTask &&
+          task.status !== TaskStatus.COMPLETED &&
+          !isJrInPublicNewQueue &&
+          (canManageAllJrTasks ||
+            (currentRole === UserRole.PROCESSOR_JR && isAssignedToCurrentUser));
+        const canReassignJrTask =
+          isJrTask && task.status !== TaskStatus.COMPLETED && canManageAllJrTasks;
+        const selectedJrReassignTarget = jrReassignTargetByTask[task.id] || '';
+        const jrReassignOptionsForTask = task.assignedUser?.id
+          ? jrAssigneeOptions.some((option) => option.id === task.assignedUser?.id)
+            ? jrAssigneeOptions
+            : [
+                {
+                  id: task.assignedUser.id,
+                  name: task.assignedUser.name || 'Current assignee',
+                },
+                ...jrAssigneeOptions,
+              ]
+          : jrAssigneeOptions;
         const isQcInitialRoutingState =
           canManageQcDesk &&
           isQcSubmissionTask(task) &&
@@ -4656,6 +4756,66 @@ export function TaskList({
                           )}
                         </div>
                       </div>
+                      {(canReleaseJrTask || canReassignJrTask) && (
+                        <div className="rounded-xl border border-sky-200 bg-sky-50/60 px-3 py-2.5 shadow-sm">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-sky-800">
+                            JR Queue Controls
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-end gap-2">
+                            {canReleaseJrTask && (
+                              <button
+                                type="button"
+                                onClick={() => void handleReleaseJrTask(task.id)}
+                                disabled={!!updatingId || isTaskActionLocked}
+                                className="inline-flex h-8 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {updatingId === task.id ? (
+                                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                ) : null}
+                                Release to New Queue
+                              </button>
+                            )}
+                            {canReassignJrTask && (
+                              <>
+                                <select
+                                  value={selectedJrReassignTarget}
+                                  onChange={(event) =>
+                                    setJrReassignTargetByTask((prev) => ({
+                                      ...prev,
+                                      [task.id]: event.target.value,
+                                    }))
+                                  }
+                                  disabled={!!updatingId || isTaskActionLocked}
+                                  className="h-8 min-w-[210px] rounded-lg border border-sky-200 bg-white px-2.5 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  <option value="">Select JR to reassign</option>
+                                  {jrReassignOptionsForTask.map((option) => (
+                                    <option key={option.id} value={option.id}>
+                                      {option.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleReassignJrTask(task.id)}
+                                  disabled={
+                                    !!updatingId ||
+                                    isTaskActionLocked ||
+                                    !selectedJrReassignTarget ||
+                                    selectedJrReassignTarget === (task.assignedUser?.id || '')
+                                  }
+                                  className="inline-flex h-8 items-center rounded-lg border border-sky-300 bg-white px-3 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {updatingId === task.id ? (
+                                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                  ) : null}
+                                  Reassign JR
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="min-h-[18px]">
                           {jrChecklistHasMissingItems && (

@@ -145,6 +145,7 @@ type TaskBucketsBoardProps = {
   canDelete: boolean;
   currentRole: string;
   currentUserId?: string;
+  jrAssigneeOptions?: Array<{ id: string; name: string }>;
   initialFocusedTaskId?: string | null;
   bucketScrollMode?: 'auto' | 'fixed';
   fixedScrollClassName?: string;
@@ -164,6 +165,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
       canDelete,
       currentRole,
       currentUserId,
+      jrAssigneeOptions = [],
       initialFocusedTaskId,
       bucketScrollMode = 'auto',
       fixedScrollClassName = 'max-h-[520px] overflow-y-auto pr-1',
@@ -502,6 +504,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                     canDelete={canDelete}
                     currentRole={currentRole}
                     currentUserId={currentUserId}
+                    jrAssigneeOptions={jrAssigneeOptions}
                     initialFocusedTaskId={initialFocusedTaskId}
                     enableTaskSelection={enableBatchDelete}
                     selectedTaskIds={new Set(selectedIds)}
