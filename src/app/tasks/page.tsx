@@ -954,9 +954,14 @@ function getManagerDeskRows(allTasks: TaskRow[]) {
 }
 
 function getManagerVaDeskRows(allTasks: TaskRow[]) {
+  const vaHoiBuckets = getRoleBuckets(UserRole.PROCESSOR_JR, allTasks).map((bucket) =>
+    bucket.id === 'jr-my-requests'
+      ? { ...bucket, label: 'Assigned Requests' }
+      : bucket
+  );
   return {
     vaTitleBuckets: getRoleBuckets(UserRole.VA_TITLE, allTasks),
-    vaHoiBuckets: getRoleBuckets(UserRole.PROCESSOR_JR, allTasks),
+    vaHoiBuckets,
     vaPayoffBuckets: getRoleBuckets(UserRole.VA_PAYOFF, allTasks),
     vaAppraisalBuckets: getRoleBuckets(UserRole.VA_APPRAISAL, allTasks),
   };
