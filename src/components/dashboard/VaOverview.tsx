@@ -16,6 +16,7 @@ type VaTask = {
   kind: TaskKind | null;
   status: TaskStatus;
   workflowState: TaskWorkflowState;
+  assignedUser?: { name: string } | null;
 };
 
 export type VaRole = 'VA_TITLE' | 'PROCESSOR_JR' | 'VA_PAYOFF' | 'VA_APPRAISAL';
@@ -44,14 +45,26 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
   const roleLabel = vaRoleLabel[role];
   const isAppraisal = role === UserRole.VA_APPRAISAL;
   const isHoiProcessor = role === UserRole.PROCESSOR_JR;
+  const isJrPublicNewTask = (task: VaTask) =>
+    task.status === TaskStatus.PENDING &&
+    task.workflowState === TaskWorkflowState.NONE &&
+    !task.assignedUser;
 
   const newCount = scopedTasks.filter(
     (task) =>
       task.status !== TaskStatus.COMPLETED &&
-      (isAppraisal
+      (isHoiProcessor
+        ? isJrPublicNewTask(task)
+        : isAppraisal
         ? task.workflowState === TaskWorkflowState.NONE
         : true)
   ).length;
+
+  const myJrCount = isHoiProcessor
+    ? scopedTasks.filter(
+        (task) => task.status !== TaskStatus.COMPLETED && !isJrPublicNewTask(task)
+      ).length
+    : 0;
 
   const waitingMissingCount = scopedTasks.filter(
     (task) =>
@@ -123,6 +136,22 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
 
   const cards = isAppraisal
     ? [commonCards[0], ...appraisalCards, commonCards[1]]
+    : isHoiProcessor
+    ? [
+        commonCards[0],
+        {
+          id: 'jr-my-requests',
+          title: 'My Requests',
+          chipLabel: 'In Progress',
+          chipClassName: 'border-sky-200 bg-sky-50 text-sky-700 shadow-sm',
+          icon: Clock,
+          iconClassName: 'bg-sky-100 text-sky-600',
+          subtitle: 'Started JR processor tasks assigned to you.',
+          count: myJrCount,
+          href: '/tasks?bucket=jr-my-requests',
+        },
+        commonCards[1],
+      ]
     : commonCards;
 
   return (
@@ -159,7 +188,11 @@ export function VaOverview({ tasks, role }: { tasks: VaTask[]; role: VaRole }) {
         </div>
       </Link>
 
-      <div className={`grid grid-cols-1 gap-5 md:grid-cols-2 ${isAppraisal ? 'xl:grid-cols-4' : ''}`}>
+      <div
+        className={`grid grid-cols-1 gap-5 md:grid-cols-2 ${
+          isAppraisal ? 'xl:grid-cols-4' : isHoiProcessor ? 'xl:grid-cols-3' : ''
+        }`}
+      >
         {cards.map((card) => (
           <Link
             key={card.id}

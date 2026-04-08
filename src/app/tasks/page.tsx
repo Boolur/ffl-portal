@@ -825,7 +825,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
       },
       {
         id: 'jr-my-requests',
-        label: 'My JR Processor Requests',
+        label: 'My Requests',
         chipLabel: 'In Progress',
         chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
         tasks: vaHoiTasks.filter(
