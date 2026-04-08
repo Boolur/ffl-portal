@@ -4281,7 +4281,7 @@ export function TaskList({
                                   : 'text-amber-900'
                               }`}
                             >
-                              {vaRouteTaskLabel} VA Action
+                              {vaRouteTaskLabel} Action
                             </h4>
                             <p
                               className={`text-xs font-medium ${

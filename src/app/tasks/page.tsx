@@ -976,7 +976,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
     return [
       {
         id: 'va-appraisal-new',
-        label: 'New VA Appraisal Requests',
+        label: 'New Appraisal Requests',
         chipLabel: 'New',
         chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
         tasks: vaAppraisalTasks.filter(
@@ -1009,7 +1009,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
       },
       {
         id: 'va-appraisal-completed',
-        label: 'Completed VA Appraisal Requests',
+        label: 'Completed Appraisal Requests',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
         isCompleted: true,
