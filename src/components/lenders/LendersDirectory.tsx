@@ -92,13 +92,13 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                 aria-expanded={isExpanded}
                 aria-label={isExpanded ? `Collapse ${lender.name} details` : `Expand ${lender.name} details`}
               >
-                <div className="flex h-[108px] w-full items-center justify-center">
+                <div className="flex h-full w-full items-center justify-center">
                   {lender.logoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={lender.logoUrl}
                       alt={`${lender.name} logo`}
-                      className="max-h-[108px] w-auto max-w-full object-contain"
+                      className="h-auto w-[92%] max-h-full object-contain"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">
