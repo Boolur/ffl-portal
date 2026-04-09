@@ -3,18 +3,18 @@ import { UserRole } from '@prisma/client';
 
 const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.ADMIN]: ['*'],
-  [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources'],
-  [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources'],
-  [UserRole.LOA]: ['/', '/tasks', '/resources'],
-  [UserRole.DISCLOSURE_SPECIALIST]: ['/', '/tasks', '/resources'],
-  [UserRole.VA]: ['/', '/tasks', '/resources'],
-  [UserRole.VA_TITLE]: ['/', '/tasks', '/resources'],
-  [UserRole.VA_HOI]: ['/', '/tasks', '/resources'],
-  [UserRole.VA_PAYOFF]: ['/', '/tasks', '/resources'],
-  [UserRole.VA_APPRAISAL]: ['/', '/tasks', '/resources'],
-  [UserRole.QC]: ['/', '/tasks', '/resources'],
-  [UserRole.PROCESSOR_JR]: ['/', '/tasks', '/resources'],
-  [UserRole.PROCESSOR_SR]: ['/', '/tasks', '/resources'],
+  [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders'],
+  [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources', '/lenders'],
+  [UserRole.LOA]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.DISCLOSURE_SPECIALIST]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.VA]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.VA_TITLE]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.VA_HOI]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.VA_PAYOFF]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.VA_APPRAISAL]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.QC]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.PROCESSOR_JR]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.PROCESSOR_SR]: ['/', '/tasks', '/resources', '/lenders'],
 };
 
 function normalizeRole(role?: string | null): UserRole | null {
