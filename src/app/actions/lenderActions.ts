@@ -232,6 +232,29 @@ function revalidateLenderRoutes() {
   revalidatePath('/admin/lenders');
 }
 
+async function buildSignedLenderLogoUrl(storagePath: string) {
+  const supabase = getSupabaseAdmin();
+  const bucket = getLenderLogosBucket();
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(storagePath, getSignedUrlExpirySeconds());
+  if (error || !data?.signedUrl) {
+    console.error('[lenders] createSignedUrl failed', error);
+    return null;
+  }
+  return data.signedUrl;
+}
+
+async function hydrateSignedLogoUrls(lenders: LenderRecord[]) {
+  return Promise.all(
+    lenders.map(async (lender) => {
+      if (!lender.logoStoragePath) return lender;
+      const signedUrl = await buildSignedLenderLogoUrl(lender.logoStoragePath);
+      return { ...lender, logoUrl: signedUrl || lender.logoUrl };
+    })
+  );
+}
+
 export async function listLendersForDirectory(): Promise<{
   success: boolean;
   error?: string;
@@ -248,7 +271,9 @@ export async function listLendersForDirectory(): Promise<{
       include: lenderInclude(),
     });
 
-    return { success: true, lenders: lenders.map(toLenderRecord) };
+    const lenderRecords = lenders.map(toLenderRecord);
+    const signedLenderRecords = await hydrateSignedLogoUrls(lenderRecords);
+    return { success: true, lenders: signedLenderRecords };
   } catch (error) {
     console.error('Failed to list lenders for directory:', error);
     return { success: false, error: 'Failed to load lenders.' };
@@ -269,7 +294,9 @@ export async function listLendersForAdmin(): Promise<{
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: lenderInclude(),
     });
-    return { success: true, lenders: lenders.map(toLenderRecord) };
+    const lenderRecords = lenders.map(toLenderRecord);
+    const signedLenderRecords = await hydrateSignedLogoUrls(lenderRecords);
+    return { success: true, lenders: signedLenderRecords };
   } catch (error) {
     console.error('Failed to list lenders for admin:', error);
     return { success: false, error: 'Failed to load lenders.' };
@@ -499,8 +526,7 @@ export async function finalizeLenderLogoUpload(input: {
 
     const supabase = getSupabaseAdmin();
     const bucket = getLenderLogosBucket();
-    const publicUrlData = supabase.storage.from(bucket).getPublicUrl(storagePath);
-    const logoUrl = normalizeOptional(publicUrlData?.data?.publicUrl) || null;
+    const logoUrl = await buildSignedLenderLogoUrl(storagePath);
 
     if (lender.logoStoragePath && lender.logoStoragePath !== storagePath) {
       const { error: removeError } = await supabase.storage
