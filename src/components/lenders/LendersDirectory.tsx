@@ -98,35 +98,26 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                 )}
               </div>
 
-              <h2 className="mb-2 text-center text-2xl font-bold text-slate-900">
-                {lender.name}
-              </h2>
-
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
-                    {lender.contacts.length} Contacts
-                  </span>
-                  <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
-                    {lender.links.length + (lender.portalUrl ? 1 : 0)} Links
-                  </span>
-                </div>
+              <div className="flex items-center justify-end">
                 <button
                   type="button"
                   onClick={() => setExpandedLenderId((prev) => (prev === lender.id ? null : lender.id))}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  aria-label={isExpanded ? 'Collapse lender details' : 'Expand lender details'}
                 >
-                  {isExpanded ? 'Hide' : 'Details'}
                   {isExpanded ? (
-                    <ChevronUp className="h-3.5 w-3.5" />
+                    <ChevronUp className="h-4 w-4" />
                   ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
+                    <ChevronDown className="h-4 w-4" />
                   )}
                 </button>
               </div>
 
               {isExpanded && (
                 <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+                  <h3 className="text-center text-lg font-bold text-slate-900">
+                    {lender.name}
+                  </h3>
                   {(lender.portalUrl || lender.links.length > 0) && (
                     <div>
                       <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
