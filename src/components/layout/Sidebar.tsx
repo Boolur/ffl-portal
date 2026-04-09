@@ -89,13 +89,13 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       name: 'Team',
       icon: Users,
       href: '/team',
-      roles: [UserRole.MANAGER, UserRole.ADMIN],
+      roles: [UserRole.ADMIN],
     },
     {
       name: 'Reports',
       icon: BarChart,
       href: '/reports',
-      roles: [UserRole.MANAGER, UserRole.ADMIN],
+      roles: [UserRole.ADMIN],
     },
     {
       name: 'User Management',
