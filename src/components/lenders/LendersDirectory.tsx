@@ -98,7 +98,7 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                     <img
                       src={lender.logoUrl}
                       alt={`${lender.name} logo`}
-                      className="h-[92px] w-auto max-w-[92%] object-contain"
+                      className="h-[108px] w-auto max-w-[94%] object-contain"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">
