@@ -74,6 +74,8 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {filteredLenders.map((lender) => {
           const isExpanded = expandedLenderId === lender.id;
+          const toggleExpanded = () =>
+            setExpandedLenderId((prev) => (prev === lender.id ? null : lender.id));
           return (
             <article
               key={lender.id}
@@ -83,7 +85,13 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                   : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
               }`}
             >
-              <div className="mb-3 flex min-h-[140px] items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
+              <button
+                type="button"
+                onClick={toggleExpanded}
+                className="mb-3 flex min-h-[140px] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-3 text-center transition hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+                aria-expanded={isExpanded}
+                aria-label={isExpanded ? `Collapse ${lender.name} details` : `Expand ${lender.name} details`}
+              >
                 {lender.logoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -96,13 +104,13 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                     <Building2 className="h-10 w-10 text-slate-300" />
                   </div>
                 )}
-              </div>
+              </button>
 
-              <div className="flex items-center justify-end">
+              <div className="flex items-center justify-center">
                 <button
                   type="button"
-                  onClick={() => setExpandedLenderId((prev) => (prev === lender.id ? null : lender.id))}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  onClick={toggleExpanded}
+                  className="inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
                   aria-label={isExpanded ? 'Collapse lender details' : 'Expand lender details'}
                 >
                   {isExpanded ? (
