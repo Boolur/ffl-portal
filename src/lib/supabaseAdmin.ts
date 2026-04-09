@@ -30,7 +30,7 @@ export function getClientDocumentsBucket() {
 }
 
 export function getLenderLogosBucket() {
-  return process.env.SUPABASE_STORAGE_BUCKET_LENDER_LOGOS || 'lender-logos';
+  return process.env.SUPABASE_STORAGE_BUCKET_LENDER_LOGOS || getClientDocumentsBucket();
 }
 
 export function getSignedUrlExpirySeconds() {

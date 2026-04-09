@@ -454,7 +454,12 @@ export async function createLenderLogoUploadUrl(input: {
       .createSignedUploadUrl(storagePath);
     if (error || !data) {
       console.error('[lenders] createSignedUploadUrl failed', error);
-      return { success: false, error: 'Failed to create upload URL.' };
+      return {
+        success: false,
+        error: error?.message
+          ? `Failed to create upload URL: ${error.message}`
+          : 'Failed to create upload URL.',
+      };
     }
 
     return {
