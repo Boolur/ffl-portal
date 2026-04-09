@@ -88,7 +88,7 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
               <button
                 type="button"
                 onClick={toggleExpanded}
-                className="mb-1.5 flex min-h-[140px] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-3 text-center transition hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+                className="mb-1.5 flex h-[140px] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-3 text-center transition hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
                 aria-expanded={isExpanded}
                 aria-label={isExpanded ? `Collapse ${lender.name} details` : `Expand ${lender.name} details`}
               >
@@ -98,11 +98,11 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                     <img
                       src={lender.logoUrl}
                       alt={`${lender.name} logo`}
-                      className="h-auto w-[92%] max-h-full object-contain"
+                      className="h-[92px] w-auto max-w-[92%] object-contain"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">
-                      <Building2 className="h-10 w-10 text-slate-300" />
+                      <Building2 className="h-12 w-12 text-slate-300" />
                     </div>
                   )}
                 </div>
