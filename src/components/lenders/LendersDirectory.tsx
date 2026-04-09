@@ -83,26 +83,26 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                   : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
               }`}
             >
-              <div className="mb-3 flex min-h-[124px] flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
-                <div className="mb-2 h-14 w-14 overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <div className="mb-3 flex min-h-[140px] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
+                <div className="h-20 w-20 overflow-hidden rounded-lg border border-slate-200 bg-white">
                   {lender.logoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={lender.logoUrl}
                       alt={`${lender.name} logo`}
-                      className="h-full w-full object-contain p-1.5"
+                      className="h-full w-full object-contain p-2"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">
-                      <Building2 className="h-7 w-7 text-slate-300" />
+                      <Building2 className="h-8 w-8 text-slate-300" />
                     </div>
                   )}
                 </div>
-                <h2 className="line-clamp-2 text-lg font-bold text-slate-900">{lender.name}</h2>
-                <p className="mt-1 line-clamp-2 text-xs text-slate-500">
-                  {lender.description || 'Details, links, and contact information.'}
-                </p>
               </div>
+
+              <h2 className="mb-2 text-center text-2xl font-bold text-slate-900">
+                {lender.name}
+              </h2>
 
               <div className="flex items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
