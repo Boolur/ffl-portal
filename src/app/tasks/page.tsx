@@ -6,7 +6,7 @@ import { TaskBucketsBoard } from '@/components/tasks/TaskBucketsBoard';
 import { TaskDeskSection } from '@/components/tasks/TaskDeskSection';
 import { TasksRouteSyncGate } from '@/components/tasks/TasksRouteSyncGate';
 import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
-import { buildLoVaBorrowerProgress, isLoVaPilotUser } from '@/lib/loVaProgress';
+import { buildLoVaBorrowerProgress } from '@/lib/loVaProgress';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import {
   DisclosureDecisionReason,
@@ -1099,13 +1099,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     sessionRole === UserRole.MANAGER || sessionRole === UserRole.VA
       ? getManagerVaDeskRows(allTasks)
       : null;
-  const showLoVaPilot =
-    sessionRole === UserRole.LOAN_OFFICER &&
-    isLoVaPilotUser({
-      role: sessionRole,
-      email: sessionUser.email,
-      name: sessionUser.name,
-    });
+  const showLoVaPilot = sessionRole === UserRole.LOAN_OFFICER;
   const loVaProgressItems = showLoVaPilot ? buildLoVaBorrowerProgress(allTasks) : [];
   const loaVaProgressItems =
     sessionRole === UserRole.LOA ? buildLoVaBorrowerProgress(allTasks) : [];

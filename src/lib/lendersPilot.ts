@@ -31,7 +31,6 @@ export function isLendersRolloutEnabled() {
 
 export function canAccessLendersDirectory(user: LendersPilotUser) {
   const role = String(user.role || '').toUpperCase();
-  if (role === UserRole.ADMIN) return true;
-  if (isLendersRolloutEnabled()) return true;
-  return isLendersPilotUser(user);
+  if (!role) return false;
+  return true;
 }
