@@ -88,7 +88,7 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
               <button
                 type="button"
                 onClick={toggleExpanded}
-                className="mb-3 flex min-h-[140px] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-3 text-center transition hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+                className="mb-1.5 flex min-h-[140px] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-3 text-center transition hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
                 aria-expanded={isExpanded}
                 aria-label={isExpanded ? `Collapse ${lender.name} details` : `Expand ${lender.name} details`}
               >
@@ -106,17 +106,17 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                 )}
               </button>
 
-              <div className="flex items-center justify-center">
+              <div className="flex h-6 items-center justify-center">
                 <button
                   type="button"
                   onClick={toggleExpanded}
-                  className="inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+                  className="inline-flex h-6 w-6 items-center justify-center text-slate-500 transition hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
                   aria-label={isExpanded ? 'Collapse lender details' : 'Expand lender details'}
                 >
                   {isExpanded ? (
-                    <ChevronUp className="h-4 w-4" />
+                    <ChevronUp className="h-5 w-5" />
                   ) : (
-                    <ChevronDown className="h-4 w-4" />
+                    <ChevronDown className="h-5 w-5" />
                   )}
                 </button>
               </div>
