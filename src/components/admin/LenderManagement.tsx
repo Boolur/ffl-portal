@@ -173,14 +173,15 @@ export function LenderManagement({ lenders }: LenderManagementProps) {
         setStatus({ type: 'error', message: result.error || 'Failed to save lender.' });
         return;
       }
+      if (result.lender) {
+        setDraft(toEditableLender(result.lender));
+        setSelectedLenderId(result.lender.id);
+      }
       setStatus({
         type: 'success',
         message: draft.id ? 'Lender updated successfully.' : 'Lender created successfully.',
       });
       router.refresh();
-      if (!draft.id && result.lender?.id) {
-        setSelectedLenderId(result.lender.id);
-      }
     } catch (error) {
       console.error('Failed to save lender:', error);
       setStatus({ type: 'error', message: 'Failed to save lender.' });
@@ -437,9 +438,18 @@ export function LenderManagement({ lenders }: LenderManagementProps) {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={!draft.id || isUploadingLogo}
-                onClick={() => logoFileInputRef.current?.click()}
-                className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-60"
+                disabled={isUploadingLogo}
+                onClick={() => {
+                  if (!draft.id) {
+                    setStatus({
+                      type: 'error',
+                      message: 'Save the lender first, then upload a logo.',
+                    });
+                    return;
+                  }
+                  logoFileInputRef.current?.click();
+                }}
+                className="app-btn-secondary h-8 px-2.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isUploadingLogo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 Upload Logo
@@ -460,10 +470,22 @@ export function LenderManagement({ lenders }: LenderManagementProps) {
               className="hidden"
               onChange={(event) => {
                 const file = event.target.files?.[0] || null;
+                if (!draft.id) {
+                  setStatus({
+                    type: 'error',
+                    message: 'Save the lender first, then upload a logo.',
+                  });
+                  return;
+                }
                 void handleUploadLogo(file);
               }}
             />
           </div>
+          {!draft.id && (
+            <p className="mt-2 text-[11px] text-slate-500">
+              Save this lender to create it before uploading a logo.
+            </p>
+          )}
         </div>
 
         <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
