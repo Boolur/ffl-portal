@@ -23,12 +23,23 @@ ALTER COLUMN "role" TYPE TEXT
 USING ("role"::TEXT);
 
 ALTER TABLE "User"
+ALTER COLUMN "roles" DROP DEFAULT;
+
+ALTER TABLE "User"
 ALTER COLUMN "roles" TYPE TEXT[]
 USING ("roles"::TEXT[]);
 
 ALTER TABLE "Task"
 ALTER COLUMN "assignedRole" TYPE TEXT
 USING ("assignedRole"::TEXT);
+
+ALTER TABLE "TaskTemplate"
+ALTER COLUMN "assignedRole" TYPE TEXT
+USING ("assignedRole"::TEXT);
+
+ALTER TABLE "InviteToken"
+ALTER COLUMN "role" TYPE TEXT
+USING ("role"::TEXT);
 
 -- Normalize legacy enum values.
 UPDATE "User"
@@ -53,6 +64,9 @@ ALTER TABLE "User"
 ALTER COLUMN "roles" TYPE "UserRole"[]
 USING ("roles"::"UserRole"[]);
 
+ALTER TABLE "User"
+ALTER COLUMN "roles" SET DEFAULT ARRAY[]::"UserRole"[];
+
 ALTER TABLE "Task"
 ALTER COLUMN "assignedRole" TYPE "UserRole"
 USING (
@@ -61,5 +75,13 @@ USING (
     ELSE "assignedRole"::"UserRole"
   END
 );
+
+ALTER TABLE "TaskTemplate"
+ALTER COLUMN "assignedRole" TYPE "UserRole"
+USING ("assignedRole"::"UserRole");
+
+ALTER TABLE "InviteToken"
+ALTER COLUMN "role" TYPE "UserRole"
+USING ("role"::"UserRole");
 
 DROP TYPE "UserRole_old";

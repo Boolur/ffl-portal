@@ -1,11 +1,23 @@
--- CreateEnum
-CREATE TYPE "NotificationOutboxStatus" AS ENUM ('PENDING', 'PROCESSING', 'RETRY', 'SENT', 'FAILED');
+-- CreateEnum (idempotent for environments where enum already exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'NotificationOutboxStatus') THEN
+    CREATE TYPE "NotificationOutboxStatus" AS ENUM ('PENDING', 'PROCESSING', 'RETRY', 'SENT', 'FAILED');
+  END IF;
+END
+$$;
 
--- CreateEnum
-CREATE TYPE "NotificationOutboxEventType" AS ENUM ('TASK_WORKFLOW', 'VA_FANOUT');
+-- CreateEnum (idempotent for environments where enum already exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'NotificationOutboxEventType') THEN
+    CREATE TYPE "NotificationOutboxEventType" AS ENUM ('TASK_WORKFLOW', 'VA_FANOUT');
+  END IF;
+END
+$$;
 
 -- CreateTable
-CREATE TABLE "NotificationOutbox" (
+CREATE TABLE IF NOT EXISTS "NotificationOutbox" (
     "id" TEXT NOT NULL,
     "eventType" "NotificationOutboxEventType" NOT NULL,
     "status" "NotificationOutboxStatus" NOT NULL DEFAULT 'PENDING',
@@ -24,10 +36,10 @@ CREATE TABLE "NotificationOutbox" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "NotificationOutbox_idempotencyKey_key" ON "NotificationOutbox"("idempotencyKey");
+CREATE UNIQUE INDEX IF NOT EXISTS "NotificationOutbox_idempotencyKey_key" ON "NotificationOutbox"("idempotencyKey");
 
 -- CreateIndex
-CREATE INDEX "NotificationOutbox_status_nextAttemptAt_createdAt_idx" ON "NotificationOutbox"("status", "nextAttemptAt", "createdAt");
+CREATE INDEX IF NOT EXISTS "NotificationOutbox_status_nextAttemptAt_createdAt_idx" ON "NotificationOutbox"("status", "nextAttemptAt", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "NotificationOutbox_eventType_status_idx" ON "NotificationOutbox"("eventType", "status");
+CREATE INDEX IF NOT EXISTS "NotificationOutbox_eventType_status_idx" ON "NotificationOutbox"("eventType", "status");
