@@ -83,21 +83,19 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                   : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
               }`}
             >
-              <div className="mb-3 flex min-h-[140px] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
-                <div className="h-20 w-20 overflow-hidden rounded-lg border border-slate-200 bg-white">
-                  {lender.logoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={lender.logoUrl}
-                      alt={`${lender.name} logo`}
-                      className="h-full w-full object-contain p-2"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center">
-                      <Building2 className="h-8 w-8 text-slate-300" />
-                    </div>
-                  )}
-                </div>
+              <div className="mb-3 flex min-h-[140px] items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
+                {lender.logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={lender.logoUrl}
+                    alt={`${lender.name} logo`}
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <Building2 className="h-10 w-10 text-slate-300" />
+                  </div>
+                )}
               </div>
 
               <h2 className="mb-2 text-center text-2xl font-bold text-slate-900">
