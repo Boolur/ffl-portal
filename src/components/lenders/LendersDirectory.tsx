@@ -12,6 +12,7 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
   const [search, setSearch] = useState('');
   const [expandedLenderId, setExpandedLenderId] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [logoAspectRatios, setLogoAspectRatios] = useState<Record<string, number>>({});
 
   const filteredLenders = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -42,6 +43,15 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
     } catch {
       setCopiedText('Copy failed');
     }
+  };
+
+  const getLogoWidthCap = (aspectRatio: number | undefined) => {
+    // Wide wordmark logos can feel visually larger; tighten width cap to normalize perceived size.
+    if (!aspectRatio) return 88;
+    if (aspectRatio >= 3.2) return 76;
+    if (aspectRatio >= 2.7) return 82;
+    if (aspectRatio >= 2.2) return 88;
+    return 94;
   };
 
   return (
@@ -98,7 +108,16 @@ export function LendersDirectory({ lenders }: LendersDirectoryProps) {
                     <img
                       src={lender.logoUrl}
                       alt={`${lender.name} logo`}
-                      className="h-[108px] w-auto max-w-[94%] object-contain"
+                      className="h-[108px] w-auto object-contain"
+                      style={{ maxWidth: `${getLogoWidthCap(logoAspectRatios[lender.id])}%` }}
+                      onLoad={(event) => {
+                        const image = event.currentTarget;
+                        if (!image.naturalHeight) return;
+                        const ratio = image.naturalWidth / image.naturalHeight;
+                        setLogoAspectRatios((prev) =>
+                          prev[lender.id] === ratio ? prev : { ...prev, [lender.id]: ratio }
+                        );
+                      }}
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">
