@@ -332,6 +332,7 @@ function isJrChecklistRowSatisfied(row: Pick<JrChecklistDraftItem, 'id' | 'statu
 }
 
 function isJrChecklistProofRequired(row: Pick<JrChecklistDraftItem, 'id' | 'status'>) {
+  if (row.id === jrUnderwritingChecklistRowId) return false;
   if (isJrChecklistPendingStatus(row.id, row.status)) return false;
   return !(isJrChecklistNotRequiredAllowed(row.id) && row.status === 'NOT_REQUIRED');
 }
@@ -4499,8 +4500,7 @@ export function TaskList({
                           const statusMeta = getJrChecklistStatusPresentation(row.status, row.id);
                           const StatusIcon = getJrChecklistStatusIcon(row.status);
                           const isProofStrictlyRequired = isJrChecklistProofRequired(row);
-                          const shouldDisplayProofRequired =
-                            row.id === jrUnderwritingChecklistRowId || isProofStrictlyRequired;
+                          const shouldDisplayProofRequired = isProofStrictlyRequired;
                           const isVoeNotRequired =
                             isJrChecklistNotRequiredAllowed(row.id) && row.status === 'NOT_REQUIRED';
                           const rowStatusOptions = isJrChecklistNotRequiredAllowed(row.id)
@@ -4567,11 +4567,15 @@ export function TaskList({
                                   <div className="mt-2 rounded-md border border-emerald-200 bg-white px-2.5 py-2">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                       <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
-                                        Attach Proof
+                                        {shouldDisplayProofRequired ? 'Attach Proof' : 'Proof Optional'}
                                       </span>
                                       {proofAttachmentId ? (
                                         <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                                           Attached
+                                        </span>
+                                      ) : !shouldDisplayProofRequired ? (
+                                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                                          Not Required
                                         </span>
                                       ) : (
                                         <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
@@ -4603,7 +4607,11 @@ export function TaskList({
                                   value={row.status}
                                   onChange={(event) => {
                                     const nextStatus = event.target.value as JrChecklistStatus;
-                                    if (nextStatus === 'COMPLETED' && !proofAttachmentId) {
+                                    if (
+                                      nextStatus === 'COMPLETED' &&
+                                      isJrChecklistProofRequired({ id: row.id, status: nextStatus }) &&
+                                      !proofAttachmentId
+                                    ) {
                                       alert('Upload proof first before marking this item as Completed.');
                                       return;
                                     }

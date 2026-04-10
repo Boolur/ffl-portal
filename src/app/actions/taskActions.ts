@@ -1744,13 +1744,13 @@ export async function updateTaskStatus(
       const allProofAttached =
         checklistItems !== null &&
         checklistItems.every((item) =>
-          item.status === 'COMPLETED' ? Boolean(item.proofAttachmentId) : true
+          isJrChecklistProofRequired(item) ? Boolean(item.proofAttachmentId) : true
         );
       if (!allCompleted || !allProofAttached) {
         return {
           success: false,
           error:
-            'JR Processor task can only be completed when HOI and Submitted to Underwriting are Completed with proof, and VOE is either Completed with proof or marked Not Required.',
+            'JR Processor task can only be completed when HOI is Completed with proof, Submitted to Underwriting is Completed, and VOE is either Completed with proof or marked Not Required.',
         };
       }
     }
@@ -2588,6 +2588,7 @@ const JR_CHECKLIST_STATUS_SET = new Set<JrChecklistStatus>([
   'NOT_REQUIRED',
 ]);
 const JR_VOE_ROW_ID = 'ordered-voe';
+const JR_UNDERWRITING_ROW_ID = 'submitted-underwriting';
 const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>([
   'CARRIE_JOHNSON',
   'CHRISTY_HORSTMAN',
@@ -2661,6 +2662,11 @@ function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemIn
   const uniqueIds = new Set(parsed.map((row) => row.id));
   if (uniqueIds.size !== JR_CHECKLIST_TEMPLATE.length) return null;
   return JR_CHECKLIST_TEMPLATE.map((template) => parsed.find((row) => row.id === template.id)!) as JrChecklistItemInput[];
+}
+
+function isJrChecklistProofRequired(item: Pick<JrChecklistItemInput, 'id' | 'status'>) {
+  if (item.id === JR_UNDERWRITING_ROW_ID) return false;
+  return item.status === 'COMPLETED';
 }
 
 function buildJrChecklistSummary(items: JrChecklistItemInput[]) {
@@ -2928,7 +2934,7 @@ export async function saveJrProcessorChecklist(
       (item) => item.status === 'COMPLETED' || (item.id === JR_VOE_ROW_ID && item.status === 'NOT_REQUIRED')
     );
     const allProofAttached = normalizedItems.every((item) =>
-      item.status === 'COMPLETED' ? Boolean(item.proofAttachmentId) : true
+      isJrChecklistProofRequired(item) ? Boolean(item.proofAttachmentId) : true
     );
 
     await prisma.task.update({
