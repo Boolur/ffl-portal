@@ -10,8 +10,9 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/app/actions/notificationActions';
+import { getRoleDisplayLabel } from '@/lib/roleLabels';
 
-const formatRole = (role: string) => role.replace(/_/g, ' ');
+const formatRole = (role: string) => getRoleDisplayLabel(role);
 const getRoleChipClass = (role: UserRole) => {
   if (role === UserRole.LOAN_OFFICER) {
     return 'border-amber-200 bg-amber-50 text-amber-700';

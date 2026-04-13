@@ -51,6 +51,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { getRoleBubbleClass } from '@/lib/roleColors';
+import { getRoleDisplayLabel } from '@/lib/roleLabels';
 import {
   buildTaskLifecycleBreakdown,
   formatLifecycleDuration,
@@ -1197,11 +1198,11 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
 
   if (isVaAppraisal) {
     return {
-      newLabel: 'New VA Appraisal Requests',
+      newLabel: 'New Appraisal Specialist Requests',
       waitingLabel: 'Waiting Missing/Incomplete',
       reviewLabel: 'LO Responded (Review)',
       approvalLabel: 'Waiting Missing/Incomplete',
-      completedLabel: 'Completed VA Appraisal Requests',
+      completedLabel: 'Completed Appraisal Specialist Requests',
     };
   }
 
@@ -2317,7 +2318,7 @@ export function TaskList({
   const handleStatusChange = async (
     taskId: string,
     newStatus: TaskStatus,
-    options?: { noteMessage?: string }
+    options?: { noteMessage?: string; skipProofRequirement?: boolean }
   ) => {
     if (updatingId) return;
     setUpdatingId(taskId);
@@ -2911,6 +2912,9 @@ export function TaskList({
         const selectedVaReason =
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+        const isVaPiwSelected =
+          task.kind === TaskKind.VA_APPRAISAL &&
+          selectedVaReason === DisclosureDecisionReason.OTHER;
         const qcChecklistRows = getQcChecklistRows(task.id);
         const jrChecklistRows = getJrChecklistRows(task.id);
         const isJrChecklistTask = task.kind === TaskKind.VA_HOI;
@@ -2979,7 +2983,7 @@ export function TaskList({
           task.status === TaskStatus.PENDING &&
           task.workflowState === TaskWorkflowState.NONE;
         const requiresProofForCompletion =
-          isVaTaskKind(task.kind) ||
+          (isVaTaskKind(task.kind) && !isVaPiwSelected) ||
           isDisclosureSubmissionTask(task);
         const isVaLoResponseRouteTask =
           task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF;
@@ -3050,9 +3054,10 @@ export function TaskList({
         const isVaMissingItemsAction =
           isVaRouteState &&
           selectedVaReason === DisclosureDecisionReason.MISSING_ITEMS;
+        const isVaPiwAction = isVaRouteState && isVaPiwSelected;
         const isVaCompleteAction =
           isVaRouteState &&
-          selectedVaReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
+          (selectedVaReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES || isVaPiwAction);
         const shouldRouteFromFooter =
           task.status !== TaskStatus.COMPLETED &&
           ((isDisclosureInitialRoutingState ||
@@ -3090,7 +3095,10 @@ export function TaskList({
         const isVaMissingItemsNoProofFlow = isVaMissingItemsAction;
         const isVaAttachmentSection = canManageVaDesk && isVaTaskKind(task.kind);
         const isVaRequiredProofBadge =
-          isVaAttachmentSection && !isVaMissingItemsNoProofFlow && !isQcAttachmentSection;
+          isVaAttachmentSection &&
+          !isVaMissingItemsNoProofFlow &&
+          !isVaPiwAction &&
+          !isQcAttachmentSection;
         const hasVaProofUploaded = proofCount > 0;
         const requiresProofForRouting =
           (canManageDisclosureDesk &&
@@ -3864,7 +3872,7 @@ export function TaskList({
                                   <span
                                     className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold uppercase tracking-wide ${getRoleBubbleClass(item.actorRole)}`}
                                   >
-                                    {item.actorRole.replace(/_/g, ' ')}
+                                    {getRoleDisplayLabel(item.actorRole)}
                                   </span>
                                 )}
                                 <span className="text-slate-400">•</span>
@@ -4330,6 +4338,11 @@ export function TaskList({
                           <option value={DisclosureDecisionReason.MISSING_ITEMS}>
                             Send Back - Missing/Incomplete
                           </option>
+                          {task.kind === TaskKind.VA_APPRAISAL && (
+                            <option value={DisclosureDecisionReason.OTHER}>
+                              Appraisal Not Need/PIW
+                            </option>
+                          )}
                         </select>
                       </div>
                       {!isVaCompleteAction && (
@@ -4369,6 +4382,13 @@ export function TaskList({
                             : 'Use the bottom action bar to send this request back to LO.'}
                         </p>
                       </div>
+                      {isVaPiwAction && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                          <p className="text-xs font-semibold text-emerald-700">
+                            Appraisal Not Need/PIW selected: proof is optional for completion.
+                          </p>
+                        </div>
+                      )}
                       </div>
                       {showDeskStartOverlay && !showVaProofStartOverlay && (
                         <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
@@ -5436,6 +5456,7 @@ export function TaskList({
                               onClick={() =>
                                 handleStatusChange(task.id, 'COMPLETED', {
                                   noteMessage: vaOptionalNote || undefined,
+                                  skipProofRequirement: isVaPiwAction,
                                 })
                               }
                               disabled={disableRouteButton || !!updatingId}

@@ -16,6 +16,7 @@ import {
   ListFilter,
   Loader2
 } from 'lucide-react';
+import { getRoleDisplayLabel } from '@/lib/roleLabels';
 
 type TaskWithRelations = {
   id: string;
@@ -319,7 +320,7 @@ function TaskCard({
       <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
         <button className="text-xs text-blue-600 hover:text-blue-700 font-medium">Show More</button>
         <span className="text-[10px] text-slate-400 uppercase tracking-wider">
-          {task.assignedRole?.replace(/_/g, ' ') || 'Unassigned'}
+          {getRoleDisplayLabel(task.assignedRole) || 'Unassigned'}
         </span>
       </div>
     </div>

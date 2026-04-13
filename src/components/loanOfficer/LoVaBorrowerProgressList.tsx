@@ -810,14 +810,14 @@ export function LoVaBorrowerProgressList({
       if (queue !== 'jr') {
         maybePush('VA Title', item.vaStageDetails.title.lifecycleBreakdown);
         maybePush('VA Payoff', item.vaStageDetails.payoff.lifecycleBreakdown);
-        maybePush('VA Appraisal', item.vaStageDetails.appraisal.lifecycleBreakdown);
+        maybePush('Appraisal Specialist', item.vaStageDetails.appraisal.lifecycleBreakdown);
       }
       maybePush('JR Processor (HOI/VOE/Underwriting)', item.jrStageDetails.hoi.lifecycleBreakdown);
 
       if (queue === 'jr' && stages.length === 0) {
         maybePush('VA Title', item.vaStageDetails.title.lifecycleBreakdown);
         maybePush('VA Payoff', item.vaStageDetails.payoff.lifecycleBreakdown);
-        maybePush('VA Appraisal', item.vaStageDetails.appraisal.lifecycleBreakdown);
+        maybePush('Appraisal Specialist', item.vaStageDetails.appraisal.lifecycleBreakdown);
       }
 
       if (stages.length === 0) return;

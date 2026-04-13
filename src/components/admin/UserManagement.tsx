@@ -17,6 +17,7 @@ import {
 } from '@/app/actions/userActions';
 import { useRouter } from 'next/navigation';
 import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Mail } from 'lucide-react';
+import { getRoleDisplayLabel } from '@/lib/roleLabels';
 
 type UserRow = {
   id: string;
@@ -374,7 +375,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                             }))
                           }
                         />
-                        {role.replace(/_/g, ' ')}
+                        {getRoleDisplayLabel(role)}
                       </label>
                     ))}
                   </div>
@@ -433,7 +434,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                 >
                   {roleOptions.map((role) => (
                     <option key={role} value={role}>
-                      {role.replace(/_/g, ' ')}
+                      {getRoleDisplayLabel(role)}
                     </option>
                   ))}
                 </select>
@@ -503,7 +504,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    {role.replace(/_/g, ' ')}
+                    {getRoleDisplayLabel(role)}
                   </button>
                 );
               })}
@@ -571,7 +572,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                                         handleRoleChange(user.id, toggleRoleInList(roleList, role))
                                       }
                                     />
-                                    <span className="truncate">{role.replace(/_/g, ' ')}</span>
+                                    <span className="truncate">{getRoleDisplayLabel(role)}</span>
                                   </label>
                                 );
                               })}
@@ -691,7 +692,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                                   handleRoleChange(user.id, toggleRoleInList(roleList, role))
                                 }
                               />
-                              <span className="truncate">{role.replace(/_/g, ' ')}</span>
+                              <span className="truncate">{getRoleDisplayLabel(role)}</span>
                             </label>
                           );
                         })}
@@ -797,7 +798,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
               <div>
                 <p className="text-sm font-medium text-slate-900">{invite.email}</p>
                 <p className="text-xs text-slate-500">
-                  {invite.role.replace(/_/g, ' ')} • Expires{' '}
+                  {getRoleDisplayLabel(invite.role)} • Expires{' '}
                   {new Date(invite.expiresAt).toLocaleDateString()}
                 </p>
               </div>

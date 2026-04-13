@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
 import { Eye, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { getRoleDisplayLabel } from '@/lib/roleLabels';
 
 export function ImpersonationControls({ currentUserRole }: { currentUserRole: UserRole }) {
   const { activeRole, isImpersonating, startImpersonating, stopImpersonating } = useImpersonation();
@@ -42,7 +43,7 @@ export function ImpersonationControls({ currentUserRole }: { currentUserRole: Us
       {isImpersonating && (
         <div className="bg-amber-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center animate-pulse">
           <Eye className="w-4 h-4 mr-2" />
-          <span className="text-sm font-bold">Viewing as {activeRole.replace(/_/g, ' ')}</span>
+          <span className="text-sm font-bold">Viewing as {getRoleDisplayLabel(activeRole)}</span>
           <button 
             onClick={stopImpersonating}
             className="ml-3 p-1 hover:bg-amber-600 rounded-full"
@@ -83,7 +84,7 @@ export function ImpersonationControls({ currentUserRole }: { currentUserRole: Us
                       : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100'
                   }`}
                 >
-                  {role.replace(/_/g, ' ')}
+                  {getRoleDisplayLabel(role)}
                 </button>
               ))}
             </div>

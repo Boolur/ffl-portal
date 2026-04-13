@@ -66,7 +66,7 @@ const VA_TASK_BLUEPRINTS: Array<{
   { kind: TaskKind.VA_TITLE, assignedRole: UserRole.VA_TITLE, title: 'VA: Title' },
   { kind: TaskKind.VA_HOI, assignedRole: UserRole.PROCESSOR_JR, title: 'HOI: Order Request' },
   { kind: TaskKind.VA_PAYOFF, assignedRole: UserRole.VA_PAYOFF, title: 'VA: Payoff' },
-  { kind: TaskKind.VA_APPRAISAL, assignedRole: UserRole.VA_APPRAISAL, title: 'VA: Appraisal' },
+  { kind: TaskKind.VA_APPRAISAL, assignedRole: UserRole.VA_APPRAISAL, title: 'Appraisal Specialist' },
 ];
 
 const QC_INVESTOR_ALLOWED_VALUES = new Set([
@@ -1620,7 +1620,7 @@ export async function requeueFailedNotificationOutbox(limit = 100) {
 export async function updateTaskStatus(
   taskId: string,
   newStatus: TaskStatus,
-  options?: { noteMessage?: string }
+  options?: { noteMessage?: string; skipProofRequirement?: boolean }
 ) {
   const perfStartedAt = Date.now();
   try {
@@ -1704,6 +1704,14 @@ export async function updateTaskStatus(
 
     const isSubmissionWorkflowTask = isSubmissionTask(existing);
     const normalizedNoteMessage = String(options?.noteMessage ?? '').trim();
+    const skipProofRequirement = Boolean(options?.skipProofRequirement);
+    const canSkipProofForAppraisal =
+      skipProofRequirement &&
+      existing.kind === TaskKind.VA_APPRAISAL &&
+      (role === UserRole.VA ||
+        role === UserRole.VA_APPRAISAL ||
+        role === UserRole.MANAGER ||
+        role === UserRole.ADMIN);
 
     // Loan Officers should not use generic status transitions for submission tasks.
     // Their workflow is controlled through disclosure/QC response actions instead.
@@ -1724,7 +1732,7 @@ export async function updateTaskStatus(
       const proofCount = await prisma.taskAttachment.count({
         where: { taskId, purpose: 'PROOF' },
       });
-      if (proofCount < 1) {
+      if (proofCount < 1 && !canSkipProofForAppraisal) {
         return {
           success: false,
           error: 'Upload proof (PDF/Image) before completing this task.',
@@ -3484,7 +3492,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       return {
         success: false,
         error:
-          'This action is only supported for disclosure/QC submissions and VA Appraisal/Payoff tasks.',
+          'This action is only supported for disclosure/QC submissions and Appraisal Specialist/Payoff tasks.',
       };
     }
     if (!canBypassDeskStartLock(role) && isStartLockedDeskTask(task)) {
@@ -3560,7 +3568,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       return {
         success: false,
         error:
-          'VA Appraisal and Payoff can only send Missing/Incomplete items back to LO.',
+          'Appraisal Specialist and Payoff can only send Missing/Incomplete items back to LO.',
       };
     }
 

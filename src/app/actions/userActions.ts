@@ -6,6 +6,7 @@ import { UserRole } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { sendEmail } from '@/lib/email';
+import { getRoleDisplayLabel } from '@/lib/roleLabels';
 
 const ALLOWED_ROLES = Object.values(UserRole);
 const INVITE_TTL_DAYS = 7;
@@ -16,7 +17,7 @@ const normalizeEmail = (email: string) => email.toLowerCase().trim();
 const getBaseUrl = () => process.env.NEXTAUTH_URL || 'http://localhost:3000';
 const normalizeRoleList = (roles: UserRole[]) =>
   Array.from(new Set(roles.filter((role) => ALLOWED_ROLES.includes(role))));
-const formatRoleLabel = (role: UserRole) => role.replace(/_/g, ' ');
+const formatRoleLabel = (role: UserRole) => getRoleDisplayLabel(role);
 const escapeHtml = (value: string) =>
   value
     .replace(/&/g, '&amp;')

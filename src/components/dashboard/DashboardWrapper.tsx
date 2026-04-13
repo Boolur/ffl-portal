@@ -140,8 +140,8 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
       subtitle: 'Complete Payoff tasks and upload proof before finishing.',
     },
     [UserRole.VA_APPRAISAL]: {
-      title: 'VA Queue (Appraisal)',
-      subtitle: 'Complete Appraisal tasks and upload proof before finishing.',
+      title: 'Appraisal Specialist Queue',
+      subtitle: 'Complete Appraisal Specialist tasks and upload proof before finishing.',
     },
     [UserRole.QC]: {
       title: 'QC Queue',
@@ -208,8 +208,8 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
           </section>
           <section className="space-y-4">
             <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - Appraisal</h2>
-              <p className="app-page-subtitle">Live VA Appraisal workload and status mix.</p>
+              <h2 className="app-page-title">Appraisal Specialist Desk</h2>
+              <p className="app-page-subtitle">Live Appraisal Specialist workload and status mix.</p>
             </div>
             <VaOverview tasks={adminTasks} role={UserRole.VA_APPRAISAL} />
           </section>
@@ -241,8 +241,8 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
         <div className="space-y-8">
           <section className="space-y-4">
             <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - Appraisal</h2>
-              <p className="app-page-subtitle">Live VA Appraisal workload and status mix.</p>
+              <h2 className="app-page-title">Appraisal Specialist Desk</h2>
+              <p className="app-page-subtitle">Live Appraisal Specialist workload and status mix.</p>
             </div>
             <VaOverview tasks={adminTasks} role={UserRole.VA_APPRAISAL} />
           </section>

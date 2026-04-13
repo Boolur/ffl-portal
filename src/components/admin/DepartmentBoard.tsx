@@ -73,7 +73,7 @@ const DEPARTMENTS = [
   },
   { 
     id: 'VA_APPRAISAL', 
-    label: 'VA - Appraisal', 
+    label: 'Appraisal Specialist', 
     roles: [UserRole.VA_APPRAISAL],
     color: 'bg-purple-50 border-purple-100 text-purple-700'
   },

@@ -25,7 +25,7 @@ const vaRoleLabel: Record<VaRole, string> = {
   [UserRole.VA_TITLE]: 'Title',
   [UserRole.PROCESSOR_JR]: 'JR Processor',
   [UserRole.VA_PAYOFF]: 'Payoff',
-  [UserRole.VA_APPRAISAL]: 'Appraisal',
+  [UserRole.VA_APPRAISAL]: 'Appraisal Specialist',
 };
 
 const vaRoleTaskKind: Record<VaRole, TaskKind> = {

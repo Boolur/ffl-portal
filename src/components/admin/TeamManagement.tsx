@@ -22,6 +22,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { getRoleDisplayLabel } from '@/lib/roleLabels';
 
 export function TeamManagement({
   members,
@@ -146,7 +147,7 @@ export function TeamManagement({
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-900">{member.name}</h3>
-                    <p className="text-xs text-slate-500">{member.role.replace(/_/g, ' ')}</p>
+                    <p className="text-xs text-slate-500">{getRoleDisplayLabel(member.role)}</p>
                   </div>
                 </div>
                 <ChevronRight className="w-5 h-5 text-slate-300" />
@@ -186,7 +187,7 @@ export function TeamManagement({
                   <p className="text-sm text-slate-500">{details.user.email}</p>
                   <div className="flex items-center gap-2 mt-2">
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
-                      {details.user.role.replace(/_/g, ' ')}
+                      {getRoleDisplayLabel(details.user.role)}
                     </span>
                     <span className="text-xs text-slate-400">
                       Joined {new Date(details.user.createdAt).toLocaleDateString()}

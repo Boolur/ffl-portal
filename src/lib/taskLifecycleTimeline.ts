@@ -1,4 +1,5 @@
 import { TaskStatus, TaskWorkflowState, UserRole } from '@prisma/client';
+import { getRoleDisplayLabel } from '@/lib/roleLabels';
 
 export type TaskLifecycleEventType =
   | 'CREATED'
@@ -417,7 +418,7 @@ function workflowLabel(workflow: TaskWorkflowState | null) {
 
 function roleLabel(role: UserRole | null) {
   if (!role) return 'Unassigned';
-  return role.replace(/_/g, ' ');
+  return getRoleDisplayLabel(role);
 }
 
 function formatPercent(value: number, total: number) {

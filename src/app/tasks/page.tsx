@@ -976,7 +976,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
     return [
       {
         id: 'va-appraisal-new',
-        label: 'New Appraisal Requests',
+        label: 'New Appraisal Specialist Requests',
         chipLabel: 'New',
         chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
         tasks: vaAppraisalTasks.filter(
@@ -1009,7 +1009,7 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
       },
       {
         id: 'va-appraisal-completed',
-        label: 'Completed Appraisal Requests',
+        label: 'Completed Appraisal Specialist Requests',
         chipLabel: 'Completed',
         chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
         isCompleted: true,
@@ -1120,7 +1120,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       'Work all VA queues (Title, Payoff, Appraisal) without manager-level disclosure/QC views.',
     [UserRole.VA_TITLE]: 'Complete Title tasks and upload proof before finishing.',
     [UserRole.VA_PAYOFF]: 'Complete Payoff tasks and upload proof before finishing.',
-    [UserRole.VA_APPRAISAL]: 'Complete Appraisal tasks and upload proof before finishing.',
+    [UserRole.VA_APPRAISAL]:
+      'Complete Appraisal Specialist tasks and upload proof before finishing.',
     [UserRole.QC]: 'Review and complete quality control tasks.',
     [UserRole.PROCESSOR_JR]: 'Complete JR Processor requests and upload proof before finishing.',
     [UserRole.PROCESSOR_SR]: 'Handle advanced processing tasks and escalations.',
