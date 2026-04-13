@@ -3810,6 +3810,7 @@ export async function respondToDisclosureRequest(
         status: true,
         description: true,
         parentTaskId: true,
+        assignedRole: true,
         assignedUserId: true,
         disclosureReason: true,
         submissionData: true,
@@ -3845,13 +3846,17 @@ export async function respondToDisclosureRequest(
 
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const isVisibleLoanOfficerResponder =
-      role === UserRole.LOAN_OFFICER &&
-      task.loan &&
-      canLoanOfficerViewLoan(task.loan, userId);
+      role === UserRole.LOAN_OFFICER && task.loan && canLoanOfficerViewLoan(task.loan, userId);
+    const isLoanOfficerAssistantResponder =
+      role === UserRole.LOA &&
+      (task.assignedRole === UserRole.LOAN_OFFICER ||
+        task.assignedRole === UserRole.LOA ||
+        task.assignedUserId === userId);
     const canRespond =
       canManageAll ||
       (role === UserRole.LOAN_OFFICER &&
-        (task.assignedUserId === userId || isVisibleLoanOfficerResponder));
+        (task.assignedUserId === userId || isVisibleLoanOfficerResponder)) ||
+      isLoanOfficerAssistantResponder;
     if (!canRespond) return { success: false, error: 'Not authorized.' };
 
     await prisma.$transaction(async (tx) => {
@@ -3951,6 +3956,7 @@ export async function reviewInitialDisclosureFigures(input: {
         status: true,
         description: true,
         parentTaskId: true,
+        assignedRole: true,
         assignedUserId: true,
         disclosureReason: true,
         submissionData: true,
@@ -3996,13 +4002,17 @@ export async function reviewInitialDisclosureFigures(input: {
 
     const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
     const isVisibleLoanOfficerReviewer =
-      role === UserRole.LOAN_OFFICER &&
-      task.loan &&
-      canLoanOfficerViewLoan(task.loan, userId);
+      role === UserRole.LOAN_OFFICER && task.loan && canLoanOfficerViewLoan(task.loan, userId);
+    const isLoanOfficerAssistantReviewer =
+      role === UserRole.LOA &&
+      (task.assignedRole === UserRole.LOAN_OFFICER ||
+        task.assignedRole === UserRole.LOA ||
+        task.assignedUserId === userId);
     const canReview =
       canManageAll ||
       (role === UserRole.LOAN_OFFICER &&
-        (task.assignedUserId === userId || isVisibleLoanOfficerReviewer));
+        (task.assignedUserId === userId || isVisibleLoanOfficerReviewer)) ||
+      isLoanOfficerAssistantReviewer;
     if (!canReview) return { success: false, error: 'Not authorized.' };
 
     const note = input.message?.trim();

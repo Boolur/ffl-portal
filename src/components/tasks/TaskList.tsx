@@ -1149,6 +1149,7 @@ function getLifecycleBucketBubbleClass(
 
 function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind | null) {
   const role = currentRole as UserRole;
+  const isLoanOfficerLikeRole = role === UserRole.LOAN_OFFICER || role === UserRole.LOA;
   const isDisclosure = taskKind === TaskKind.SUBMIT_DISCLOSURES;
   const isQc = taskKind === TaskKind.SUBMIT_QC;
   const isVaAppraisal = taskKind === TaskKind.VA_APPRAISAL;
@@ -1157,7 +1158,7 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   const isJr = taskKind === TaskKind.VA_HOI;
   const isLoResponse = taskKind === TaskKind.LO_NEEDS_INFO;
 
-  if (role === UserRole.LOAN_OFFICER && isLoResponse) {
+  if (isLoanOfficerLikeRole && isLoResponse) {
     return {
       newLabel: 'Action Required (Approve Figures / Missing Info)',
       waitingLabel: 'Action Required (Approve Figures / Missing Info)',
@@ -1168,7 +1169,7 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   }
 
   if (isDisclosure) {
-    if (role === UserRole.LOAN_OFFICER) {
+    if (isLoanOfficerLikeRole) {
       return {
         newLabel: 'Submitted for Disclosures',
         waitingLabel: 'Submitted for Disclosures',
@@ -2998,7 +2999,8 @@ export function TaskList({
           !isVaWaitingOnLoState &&
           !jrChecklistBlocksCompletion;
         const isLoTaskForCurrentLoanOfficer =
-          currentRole === UserRole.LOAN_OFFICER && isLoResponseTask(task);
+          (currentRole === UserRole.LOAN_OFFICER || currentRole === UserRole.LOA) &&
+          isLoResponseTask(task);
         const isQcLinkedLoResponseTask =
           isLoResponseTask(task) &&
           Boolean(task.parentTask) &&
@@ -3024,7 +3026,7 @@ export function TaskList({
           ? 'QC'
           : 'Disclosure';
         const isLoanOfficerSubmissionTask =
-          currentRole === UserRole.LOAN_OFFICER &&
+          (currentRole === UserRole.LOAN_OFFICER || currentRole === UserRole.LOA) &&
           (isDisclosureSubmissionTask(task) || isQcSubmissionTask(task));
         const isApprovalReviewTask =
           isLoTaskForCurrentLoanOfficer &&
