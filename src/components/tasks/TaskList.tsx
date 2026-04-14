@@ -13,6 +13,7 @@ import {
   Trash2,
   Loader2,
   Plus,
+  RotateCcw,
   X,
   User,
   DollarSign,
@@ -26,6 +27,7 @@ import {
   addJrProcessorNote,
   deleteTask,
   reassignJrTask,
+  reopenCompletedVaTaskToNew,
   releaseJrTaskToQueue,
   reviewInitialDisclosureFigures,
   requestInfoFromLoanOfficer,
@@ -2456,6 +2458,26 @@ export function TaskList({
     setUpdatingId(null);
   };
 
+  const handleReopenCompletedVaTask = async (taskId: string) => {
+    if (updatingId) return;
+    const confirmed = window.confirm(
+      'Return this completed VA task to the New bucket and clear its current assignment?'
+    );
+    if (!confirmed) return;
+
+    setUpdatingId(taskId);
+    const result = await reopenCompletedVaTaskToNew(taskId);
+    if (!result.success) {
+      alert(result.error || 'Failed to return task to New.');
+      setUpdatingId(null);
+      return;
+    }
+    lockTaskActionUntilRefresh(taskId);
+    setFocusedTaskId(null);
+    router.refresh();
+    setUpdatingId(null);
+  };
+
   const handleReassignJrTask = async (taskId: string) => {
     if (updatingId) return;
     const nextAssignedUserId = (jrReassignTargetByTask[taskId] || '').trim();
@@ -3604,6 +3626,12 @@ export function TaskList({
           ? returnedToDisclosureIconClassName
           : defaultIconClassName;
         const isVaDeskTask = canManageVaDesk && isVaTaskKind(task.kind);
+        const canManagerReturnCompletedVaTaskToNew =
+          isManagerRole &&
+          task.status === TaskStatus.COMPLETED &&
+          (task.kind === TaskKind.VA_TITLE ||
+            task.kind === TaskKind.VA_PAYOFF ||
+            task.kind === TaskKind.VA_APPRAISAL);
         const shouldShowQueueTimer =
           (isDisclosureRole || isLoanOfficerRole || isQcRole || isManagerRole || isVaSubRole) &&
           (isDisclosureSubmissionTask(task) ||
@@ -5732,6 +5760,21 @@ export function TaskList({
                         ) : (
                           <Trash2 className="w-4 h-4" />
                         )}
+                      </button>
+                    )}
+                    {canManagerReturnCompletedVaTaskToNew && (
+                      <button
+                        type="button"
+                        onClick={() => void handleReopenCompletedVaTask(task.id)}
+                        disabled={updatingId === task.id || isTaskActionLocked}
+                        className="inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800 shadow-sm hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {updatingId === task.id ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="mr-1.5 h-4 w-4" />
+                        )}
+                        {updatingId === task.id ? 'Returning...' : 'Return to New'}
                       </button>
                     )}
                     <button

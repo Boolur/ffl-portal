@@ -3184,6 +3184,96 @@ export async function releaseJrTaskToQueue(taskId: string) {
   }
 }
 
+export async function reopenCompletedVaTaskToNew(taskId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    if (!role) {
+      return { success: false, error: 'Not authenticated.' };
+    }
+
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    if (!canManageAll) {
+      return { success: false, error: 'Only Admin/Manager can reopen completed VA tasks.' };
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        workflowState: true,
+        assignedUserId: true,
+        assignedUser: { select: { name: true } },
+        assignedRole: true,
+        submissionData: true,
+      },
+    });
+    if (!task) return { success: false, error: 'Task not found.' };
+
+    const isCompletedVaTask =
+      task.status === TaskStatus.COMPLETED &&
+      (task.kind === TaskKind.VA_TITLE ||
+        task.kind === TaskKind.VA_PAYOFF ||
+        task.kind === TaskKind.VA_APPRAISAL);
+    if (!isCompletedVaTask) {
+      return { success: false, error: 'Only completed VA tasks can be returned to New.' };
+    }
+
+    const actorName = session?.user?.name || 'Team Member';
+    let updatedSubmissionData = appendLifecycleHistoryEvent(task.submissionData, {
+      actorName,
+      actorRole: role,
+      eventType: 'STATUS_CHANGED',
+      fromStatus: task.status,
+      toStatus: TaskStatus.PENDING,
+      fromWorkflow: task.workflowState,
+      toWorkflow: TaskWorkflowState.NONE,
+      fromAssignedUserId: task.assignedUserId,
+      toAssignedUserId: null,
+      fromAssignedUserName: task.assignedUser?.name || null,
+      toAssignedUserName: null,
+      fromAssignedRole: task.assignedRole,
+      toAssignedRole: task.assignedRole,
+      note: 'Manager returned completed VA task to New.',
+    });
+    updatedSubmissionData = appendSubmissionHistoryEntry(
+      updatedSubmissionData as Prisma.JsonValue,
+      {
+        author: actorName,
+        role,
+        message: 'Manager returned this completed VA task to the New bucket.',
+        entryType: 'status',
+      }
+    );
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        status: TaskStatus.PENDING,
+        workflowState: TaskWorkflowState.NONE,
+        completedAt: null,
+        assignedUserId: null,
+        submissionData: updatedSubmissionData as Prisma.InputJsonValue,
+      },
+    });
+
+    await dispatchTaskWorkflowNotification({
+      taskId,
+      eventLabel: 'Task Reopened to New',
+      changedBy: actorName,
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to reopen completed VA task:', error);
+    return { success: false, error: 'Failed to return task to New.' };
+  }
+}
+
 export async function reassignJrTask(taskId: string, nextAssignedUserId: string) {
   try {
     const session = await getServerSession(authOptions);
