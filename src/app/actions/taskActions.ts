@@ -1752,7 +1752,7 @@ export async function updateTaskStatus(
       const allProofAttached =
         checklistItems !== null &&
         checklistItems.every((item) =>
-          isJrChecklistProofRequired(item) ? Boolean(item.proofAttachmentId) : true
+          isJrChecklistProofRequired(item) ? getJrChecklistProofAttachments(item).length > 0 : true
         );
       if (!allCompleted || !allProofAttached) {
         return {
@@ -2548,12 +2548,17 @@ function appendSubmissionHistoryEntry(
 }
 
 type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
+type JrProofAttachmentInput = {
+  attachmentId: string;
+  filename: string;
+};
 type JrChecklistItemInput = {
   id: string;
   label: string;
   status: JrChecklistStatus;
   proofAttachmentId?: string | null;
   proofFilename?: string | null;
+  proofAttachments?: JrProofAttachmentInput[];
   note?: string | null;
   noteUpdatedAt?: string | null;
   noteAuthor?: string | null;
@@ -2633,6 +2638,23 @@ function normalizeJrProcessorAssigned(
   return undefined;
 }
 
+function getJrChecklistProofAttachments(
+  item: Pick<JrChecklistItemInput, 'proofAttachmentId' | 'proofFilename' | 'proofAttachments'>
+) {
+  if (Array.isArray(item.proofAttachments) && item.proofAttachments.length > 0) {
+    return item.proofAttachments;
+  }
+  if (item.proofAttachmentId && item.proofFilename) {
+    return [
+      {
+        attachmentId: item.proofAttachmentId,
+        filename: item.proofFilename,
+      },
+    ];
+  }
+  return [];
+}
+
 function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemInput[] | null {
   if (!Array.isArray(input) || input.length !== JR_CHECKLIST_TEMPLATE.length) return null;
   const expectedById = new Map(JR_CHECKLIST_TEMPLATE.map((item) => [item.id, item.label]));
@@ -2643,6 +2665,7 @@ function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemIn
     const status = String(row?.status ?? '').trim() as JrChecklistStatus;
     const proofAttachmentId = String(row?.proofAttachmentId ?? '').trim();
     const proofFilename = String(row?.proofFilename ?? '').trim();
+    const proofAttachmentsRaw = Array.isArray(row?.proofAttachments) ? row.proofAttachments : [];
     const note = String(row?.note ?? '').trim();
     const noteUpdatedAt = String(row?.noteUpdatedAt ?? '').trim();
     const noteAuthor = String(row?.noteAuthor ?? '').trim();
@@ -2655,12 +2678,34 @@ function parseJrChecklistItems(input: JrChecklistItemInput[]): JrChecklistItemIn
     if (label !== expectedById.get(id)) return null;
     if (!JR_CHECKLIST_STATUS_SET.has(status)) return null;
     if (status === 'NOT_REQUIRED' && id !== JR_VOE_ROW_ID) return null;
+    const proofAttachments = proofAttachmentsRaw
+      .map((attachment) => {
+        if (!attachment || typeof attachment !== 'object') return null;
+        const attachmentId = String(
+          (attachment as { attachmentId?: unknown }).attachmentId ?? ''
+        ).trim();
+        const filename = String((attachment as { filename?: unknown }).filename ?? '').trim();
+        if (!attachmentId || !filename) return null;
+        return {
+          attachmentId,
+          filename,
+        };
+      })
+      .filter((attachment): attachment is JrProofAttachmentInput => Boolean(attachment));
+    if (proofAttachments.length === 0 && proofAttachmentId && proofFilename) {
+      proofAttachments.push({
+        attachmentId: proofAttachmentId,
+        filename: proofFilename,
+      });
+    }
+    const primaryProofAttachment = proofAttachments[0] ?? null;
     parsed.push({
       id,
       label,
       status,
-      proofAttachmentId: proofAttachmentId || null,
-      proofFilename: proofFilename || null,
+      proofAttachmentId: primaryProofAttachment?.attachmentId ?? null,
+      proofFilename: primaryProofAttachment?.filename ?? null,
+      proofAttachments,
       note: note || null,
       noteUpdatedAt: noteUpdatedAt || null,
       noteAuthor: noteAuthor || null,
@@ -2835,9 +2880,13 @@ export async function saveJrProcessorChecklist(
       return { success: false, error: 'Start this task before editing the JR checklist.' };
     }
 
-    const proofAttachmentIds = parsedItems
-      .map((item) => item.proofAttachmentId || null)
-      .filter((id): id is string => Boolean(id));
+    const proofAttachmentIds = Array.from(
+      new Set(
+        parsedItems.flatMap((item) =>
+          getJrChecklistProofAttachments(item).map((attachment) => attachment.attachmentId)
+        )
+      )
+    );
     if (proofAttachmentIds.length > 0) {
       const attachmentCount = await prisma.taskAttachment.count({
         where: {
@@ -2867,18 +2916,17 @@ export async function saveJrProcessorChecklist(
         : String(processorAssignedNote ?? '').trim() || null;
     const existingItemsRaw = existingChecklistRaw?.items;
     const existingNotesByRowId = new Map<string, string>();
-    const existingProofAttachmentIdByRowId = new Map<string, string | null>();
-    if (Array.isArray(existingItemsRaw)) {
-      for (const item of existingItemsRaw) {
-        if (!item || typeof item !== 'object') continue;
-        const id = String((item as { id?: unknown }).id ?? '').trim();
-        const note = String((item as { note?: unknown }).note ?? '').trim();
-        if (!id) continue;
-        existingNotesByRowId.set(id, note);
-        const proofAttachmentId = String(
-          (item as { proofAttachmentId?: unknown }).proofAttachmentId ?? ''
-        ).trim();
-        existingProofAttachmentIdByRowId.set(id, proofAttachmentId || null);
+    const existingProofAttachmentIdsByRowId = new Map<string, string[]>();
+    const existingParsedItems = Array.isArray(existingItemsRaw)
+      ? parseJrChecklistItems(existingItemsRaw as JrChecklistItemInput[])
+      : null;
+    if (existingParsedItems) {
+      for (const item of existingParsedItems) {
+        existingNotesByRowId.set(item.id, String(item.note ?? '').trim());
+        existingProofAttachmentIdsByRowId.set(
+          item.id,
+          getJrChecklistProofAttachments(item).map((attachment) => attachment.attachmentId)
+        );
       }
     }
 
@@ -2915,11 +2963,17 @@ export async function saveJrProcessorChecklist(
 
     const changedProofRows = normalizedItems
       .map((item) => {
-        const previousAttachmentId = existingProofAttachmentIdByRowId.get(item.id) || null;
-        const nextAttachmentId = item.proofAttachmentId || null;
-        if (previousAttachmentId === nextAttachmentId) return null;
-        if (nextAttachmentId && !previousAttachmentId) return `${item.label} (uploaded)`;
-        if (!nextAttachmentId && previousAttachmentId) return `${item.label} (removed)`;
+        const previousAttachmentIds = existingProofAttachmentIdsByRowId.get(item.id) || [];
+        const nextAttachmentIds = getJrChecklistProofAttachments(item).map(
+          (attachment) => attachment.attachmentId
+        );
+        if (previousAttachmentIds.join('|') === nextAttachmentIds.join('|')) return null;
+        if (nextAttachmentIds.length > 0 && previousAttachmentIds.length === 0) {
+          return `${item.label} (uploaded)`;
+        }
+        if (nextAttachmentIds.length === 0 && previousAttachmentIds.length > 0) {
+          return `${item.label} (removed)`;
+        }
         return `${item.label} (updated)`;
       })
       .filter((entry): entry is string => Boolean(entry));
@@ -2942,7 +2996,7 @@ export async function saveJrProcessorChecklist(
       (item) => item.status === 'COMPLETED' || (item.id === JR_VOE_ROW_ID && item.status === 'NOT_REQUIRED')
     );
     const allProofAttached = normalizedItems.every((item) =>
-      isJrChecklistProofRequired(item) ? Boolean(item.proofAttachmentId) : true
+      isJrChecklistProofRequired(item) ? getJrChecklistProofAttachments(item).length > 0 : true
     );
 
     await prisma.task.update({

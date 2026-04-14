@@ -186,6 +186,10 @@ type JrProcessorAssignedValue =
   | 'THAO_NGUYEN'
   | 'TIMOTHY_CRUZ'
   | 'TYLER_HANCOCK';
+type JrProofAttachmentRef = {
+  attachmentId: string;
+  filename: string;
+};
 
 type JrChecklistItem = {
   id: string;
@@ -193,6 +197,7 @@ type JrChecklistItem = {
   status: JrChecklistStatus;
   proofAttachmentId?: string | null;
   proofFilename?: string | null;
+  proofAttachments?: JrProofAttachmentRef[];
   note?: string | null;
   noteUpdatedAt?: string | null;
   noteAuthor?: string | null;
@@ -234,9 +239,30 @@ const qcChecklistGreenOptions = new Set<QcChecklistNoteOption>([
 ]);
 
 const jrChecklistTemplate: JrChecklistDraftItem[] = [
-  { id: 'ordered-hoi', label: 'HOI', status: 'MISSING_ITEMS', proofAttachmentId: null, proofFilename: null },
-  { id: 'ordered-voe', label: 'VOE', status: 'MISSING_ITEMS', proofAttachmentId: null, proofFilename: null },
-  { id: 'submitted-underwriting', label: 'Submitted to Underwriting', status: 'MISSING_ITEMS', proofAttachmentId: null, proofFilename: null },
+  {
+    id: 'ordered-hoi',
+    label: 'HOI',
+    status: 'MISSING_ITEMS',
+    proofAttachmentId: null,
+    proofFilename: null,
+    proofAttachments: [],
+  },
+  {
+    id: 'ordered-voe',
+    label: 'VOE',
+    status: 'MISSING_ITEMS',
+    proofAttachmentId: null,
+    proofFilename: null,
+    proofAttachments: [],
+  },
+  {
+    id: 'submitted-underwriting',
+    label: 'Submitted to Underwriting',
+    status: 'MISSING_ITEMS',
+    proofAttachmentId: null,
+    proofFilename: null,
+    proofAttachments: [],
+  },
 ];
 
 const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string }> = [
@@ -336,6 +362,23 @@ function isJrChecklistProofRequired(row: Pick<JrChecklistDraftItem, 'id' | 'stat
   if (row.id === jrUnderwritingChecklistRowId) return false;
   if (isJrChecklistPendingStatus(row.id, row.status)) return false;
   return !(isJrChecklistNotRequiredAllowed(row.id) && row.status === 'NOT_REQUIRED');
+}
+
+function getJrChecklistProofAttachments(
+  row: Pick<JrChecklistItem, 'proofAttachmentId' | 'proofFilename' | 'proofAttachments'>
+): JrProofAttachmentRef[] {
+  if (Array.isArray(row.proofAttachments) && row.proofAttachments.length > 0) {
+    return row.proofAttachments;
+  }
+  if (row.proofAttachmentId && row.proofFilename) {
+    return [
+      {
+        attachmentId: row.proofAttachmentId,
+        filename: row.proofFilename,
+      },
+    ];
+  }
+  return [];
 }
 
 function createDefaultJrChecklistRows(): JrChecklistDraftItem[] {
@@ -495,6 +538,7 @@ function getSavedJrChecklistRowsFromSubmissionData(
       status: JrChecklistStatus;
       proofAttachmentId: string | null;
       proofFilename: string | null;
+      proofAttachments: JrProofAttachmentRef[];
       note: string | null;
       noteUpdatedAt: string | null;
       noteAuthor: string | null;
@@ -517,6 +561,9 @@ function getSavedJrChecklistRowsFromSubmissionData(
     if (status === 'NOT_REQUIRED' && !isJrChecklistNotRequiredAllowed(id)) continue;
     const proofAttachmentIdRaw = (item as { proofAttachmentId?: unknown }).proofAttachmentId;
     const proofFilenameRaw = (item as { proofFilename?: unknown }).proofFilename;
+    const proofAttachmentsRaw = Array.isArray((item as { proofAttachments?: unknown }).proofAttachments)
+      ? ((item as { proofAttachments?: unknown }).proofAttachments as unknown[])
+      : [];
     const noteRaw = (item as { note?: unknown }).note;
     const noteUpdatedAtRaw = (item as { noteUpdatedAt?: unknown }).noteUpdatedAt;
     const noteAuthorRaw = (item as { noteAuthor?: unknown }).noteAuthor;
@@ -529,6 +576,23 @@ function getSavedJrChecklistRowsFromSubmissionData(
       typeof proofFilenameRaw === 'string' && proofFilenameRaw.trim().length > 0
         ? proofFilenameRaw.trim()
         : null;
+    const proofAttachments = proofAttachmentsRaw
+      .map((attachment): JrProofAttachmentRef | null => {
+        if (!attachment || typeof attachment !== 'object') return null;
+        const attachmentId = String(
+          (attachment as { attachmentId?: unknown }).attachmentId ?? ''
+        ).trim();
+        const filename = String((attachment as { filename?: unknown }).filename ?? '').trim();
+        if (!attachmentId || !filename) return null;
+        return { attachmentId, filename };
+      })
+      .filter((attachment): attachment is JrProofAttachmentRef => Boolean(attachment));
+    if (proofAttachments.length === 0 && proofAttachmentId && proofFilename) {
+      proofAttachments.push({
+        attachmentId: proofAttachmentId,
+        filename: proofFilename,
+      });
+    }
     const note =
       typeof noteRaw === 'string' && noteRaw.trim().length > 0 ? noteRaw.trim() : null;
     const noteUpdatedAt =
@@ -545,8 +609,9 @@ function getSavedJrChecklistRowsFromSubmissionData(
         : null;
     savedById.set(id, {
       status: status as JrChecklistStatus,
-      proofAttachmentId,
-      proofFilename,
+      proofAttachmentId: proofAttachments[0]?.attachmentId ?? proofAttachmentId,
+      proofFilename: proofAttachments[0]?.filename ?? proofFilename,
+      proofAttachments,
       note,
       noteUpdatedAt,
       noteAuthor,
@@ -563,6 +628,7 @@ function getSavedJrChecklistRowsFromSubmissionData(
     status: (savedById.get(row.id)?.status ?? 'MISSING_ITEMS') as JrChecklistStatus,
     proofAttachmentId: savedById.get(row.id)?.proofAttachmentId ?? null,
     proofFilename: savedById.get(row.id)?.proofFilename ?? null,
+    proofAttachments: savedById.get(row.id)?.proofAttachments ?? [],
     note: savedById.get(row.id)?.note ?? null,
     noteUpdatedAt: savedById.get(row.id)?.noteUpdatedAt ?? null,
     noteAuthor: savedById.get(row.id)?.noteAuthor ?? null,
@@ -1535,6 +1601,36 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
                 const proofAttachmentIdRaw = (row as { proofAttachmentId?: unknown })
                   .proofAttachmentId;
                 const proofFilenameRaw = (row as { proofFilename?: unknown }).proofFilename;
+                const proofAttachmentsRaw = Array.isArray(
+                  (row as { proofAttachments?: unknown }).proofAttachments
+                )
+                  ? ((row as { proofAttachments?: unknown }).proofAttachments as unknown[])
+                  : [];
+                const proofAttachments = proofAttachmentsRaw
+                  .map((attachment): JrProofAttachmentRef | null => {
+                    if (!attachment || typeof attachment !== 'object') return null;
+                    const attachmentId = String(
+                      (attachment as { attachmentId?: unknown }).attachmentId ?? ''
+                    ).trim();
+                    const filename = String(
+                      (attachment as { filename?: unknown }).filename ?? ''
+                    ).trim();
+                    if (!attachmentId || !filename) return null;
+                    return { attachmentId, filename };
+                  })
+                  .filter((attachment): attachment is JrProofAttachmentRef => Boolean(attachment));
+                if (
+                  proofAttachments.length === 0 &&
+                  typeof proofAttachmentIdRaw === 'string' &&
+                  proofAttachmentIdRaw.trim().length > 0 &&
+                  typeof proofFilenameRaw === 'string' &&
+                  proofFilenameRaw.trim().length > 0
+                ) {
+                  proofAttachments.push({
+                    attachmentId: proofAttachmentIdRaw.trim(),
+                    filename: proofFilenameRaw.trim(),
+                  });
+                }
                 return {
                   id,
                   label,
@@ -1548,6 +1644,7 @@ function parseNoteHistory(data: Record<string, unknown> | null): NoteHistoryEntr
                     typeof proofFilenameRaw === 'string' && proofFilenameRaw.trim().length > 0
                       ? proofFilenameRaw.trim()
                       : null,
+                  proofAttachments,
                 };
               })
               .filter((row): row is JrChecklistItem => Boolean(row))
@@ -1860,6 +1957,7 @@ export function TaskList({
           status: row.status,
           proofAttachmentId: row.proofAttachmentId ?? null,
           proofFilename: row.proofFilename ?? null,
+          proofAttachments: getJrChecklistProofAttachments(row),
           note: row.note ?? null,
           noteUpdatedAt: row.noteUpdatedAt ?? null,
           noteAuthor: row.noteAuthor ?? null,
@@ -2437,8 +2535,9 @@ export function TaskList({
     }
   };
 
-  const handleUploadProof = async (taskId: string, file: File) => {
+  const handleUploadProof = async (taskId: string, files: File[]) => {
     if (uploadingId) return;
+    if (files.length === 0) return;
     setUploadingId(taskId);
     setUploadStatusByTask((prev) => {
       if (!prev[taskId]) return prev;
@@ -2448,28 +2547,35 @@ export function TaskList({
     });
 
     try {
-      const uploaded = await uploadProofAttachment(taskId, file);
-      if (!uploaded.success) {
-        setUploadStatusByTask((prev) => ({
-          ...prev,
-          [taskId]: {
-            type: 'error',
-            message: uploaded.error || 'Failed to upload proof.',
-          },
-        }));
-        return;
+      let uploadedCount = 0;
+      for (const file of files) {
+        const uploaded = await uploadProofAttachment(taskId, file);
+        if (!uploaded.success) {
+          setUploadStatusByTask((prev) => ({
+            ...prev,
+            [taskId]: {
+              type: 'error',
+              message: uploaded.error || 'Failed to upload proof.',
+            },
+          }));
+          return;
+        }
+        uploadedCount += 1;
       }
 
       setUploadStatusByTask((prev) => ({
         ...prev,
         [taskId]: {
           type: 'success',
-          message: 'Proof uploaded successfully.',
+          message:
+            uploadedCount === 1
+              ? 'Proof uploaded successfully.'
+              : `${uploadedCount} proof documents uploaded successfully.`,
         },
       }));
       setOptimisticProofCountByTask((prev) => ({
         ...prev,
-        [taskId]: (prev[taskId] || 0) + 1,
+        [taskId]: (prev[taskId] || 0) + uploadedCount,
       }));
       router.refresh();
     } catch (error) {
@@ -2504,8 +2610,9 @@ export function TaskList({
     }
   };
 
-  const handleUploadJrChecklistProof = async (taskId: string, rowId: string, file: File) => {
+  const handleUploadJrChecklistProof = async (taskId: string, rowId: string, files: File[]) => {
     if (uploadingId) return;
+    if (files.length === 0) return;
     setUploadingId(taskId);
     setUploadStatusByTask((prev) => {
       if (!prev[taskId]) return prev;
@@ -2515,16 +2622,23 @@ export function TaskList({
     });
 
     try {
-      const uploaded = await uploadProofAttachment(taskId, file);
-      if (!uploaded.success) {
-        setUploadStatusByTask((prev) => ({
-          ...prev,
-          [taskId]: {
-            type: 'error',
-            message: uploaded.error || 'Failed to upload proof.',
-          },
-        }));
-        return;
+      const uploadedAttachments: JrProofAttachmentRef[] = [];
+      for (const file of files) {
+        const uploaded = await uploadProofAttachment(taskId, file);
+        if (!uploaded.success) {
+          setUploadStatusByTask((prev) => ({
+            ...prev,
+            [taskId]: {
+              type: 'error',
+              message: uploaded.error || 'Failed to upload proof.',
+            },
+          }));
+          return;
+        }
+        uploadedAttachments.push({
+          attachmentId: uploaded.attachmentId,
+          filename: uploaded.filename,
+        });
       }
 
       updateJrChecklistRows(taskId, (current) =>
@@ -2532,8 +2646,18 @@ export function TaskList({
           row.id === rowId
             ? {
                 ...row,
-                proofAttachmentId: uploaded.attachmentId,
-                proofFilename: uploaded.filename,
+                proofAttachmentId:
+                  getJrChecklistProofAttachments(row)[0]?.attachmentId ||
+                  uploadedAttachments[0]?.attachmentId ||
+                  null,
+                proofFilename:
+                  getJrChecklistProofAttachments(row)[0]?.filename ||
+                  uploadedAttachments[0]?.filename ||
+                  null,
+                proofAttachments: [
+                  ...getJrChecklistProofAttachments(row),
+                  ...uploadedAttachments,
+                ],
               }
             : row
         )
@@ -2543,12 +2667,15 @@ export function TaskList({
         ...prev,
         [taskId]: {
           type: 'success',
-          message: 'JR proof uploaded successfully.',
+          message:
+            uploadedAttachments.length === 1
+              ? 'JR proof uploaded successfully.'
+              : `${uploadedAttachments.length} JR proof documents uploaded successfully.`,
         },
       }));
       setOptimisticProofCountByTask((prev) => ({
         ...prev,
-        [taskId]: (prev[taskId] || 0) + 1,
+        [taskId]: (prev[taskId] || 0) + uploadedAttachments.length,
       }));
       router.refresh();
     } catch (error) {
@@ -2579,11 +2706,17 @@ export function TaskList({
     updateJrChecklistRows(taskId, (current) =>
       current.map((row) =>
         row.id === rowId
-          ? {
-              ...row,
-              proofAttachmentId: null,
-              proofFilename: null,
-            }
+          ? (() => {
+              const remainingAttachments = getJrChecklistProofAttachments(row).filter(
+                (attachment) => attachment.attachmentId !== attachmentId
+              );
+              return {
+                ...row,
+                proofAttachmentId: remainingAttachments[0]?.attachmentId ?? null,
+                proofFilename: remainingAttachments[0]?.filename ?? null,
+                proofAttachments: remainingAttachments,
+              };
+            })()
           : row
       )
     );
@@ -2938,7 +3071,7 @@ export function TaskList({
         const jrChecklistAllProofAttached =
           jrChecklistRows.length > 0 &&
           jrChecklistRows.every((row) =>
-            isJrChecklistProofRequired(row) ? Boolean(row.proofAttachmentId) : true
+            isJrChecklistProofRequired(row) ? getJrChecklistProofAttachments(row).length > 0 : true
           );
         const jrChecklistBlocksCompletion =
           isJrChecklistTask && (!jrChecklistAllCompleted || !jrChecklistAllProofAttached);
@@ -3355,14 +3488,15 @@ export function TaskList({
         });
         const isFocused = focusedTaskId === task.id;
         const isExpanded = expandedTaskIds.has(task.id);
-        const visibleSubmissionDataRows = isExpanded
+        const needsDetailedTaskData = isExpanded || isFocused;
+        const visibleSubmissionDataRows = needsDetailedTaskData
           ? visibleSubmissionDataGroups.flatMap((group) => group.rows)
           : [];
-        const noteHistoryEntries = isExpanded
+        const noteHistoryEntries = needsDetailedTaskData
           ? parseNoteHistory(parsedSubmissionData as Record<string, unknown> | null)
           : [];
         const vaTaskCreatedAtMs = task.createdAt ? new Date(task.createdAt).getTime() : null;
-        const vaLoResponseEntries = isExpanded
+        const vaLoResponseEntries = needsDetailedTaskData
           ? noteHistoryEntries
               .filter((entry) => {
                 if (entry.role !== UserRole.LOAN_OFFICER) return false;
@@ -3375,7 +3509,7 @@ export function TaskList({
               })
               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
           : [];
-        const workedBySummary = isExpanded
+        const workedBySummary = needsDetailedTaskData
           ? injectLoanOfficerContributors(
               injectAssignedContributor(
                 getContributorSummaryFromSubmissionData(
@@ -3386,7 +3520,7 @@ export function TaskList({
               [task.loan.loanOfficer?.name, task.loan.secondaryLoanOfficer?.name]
             )
           : { visibleContributors: [] };
-        const timelineItems: TimelineItem[] = isExpanded
+        const timelineItems: TimelineItem[] = needsDetailedTaskData
           ? [
               ...noteHistoryEntries.map((entry, index) => ({
                 id: `note-${index}-${entry.date}`,
@@ -3428,7 +3562,9 @@ export function TaskList({
             )
           : [];
         const visibleTimelineItems =
-          isExpanded && isVaSubmissionView ? getVaSafeTimelineItems(timelineItems) : timelineItems;
+          needsDetailedTaskData && isVaSubmissionView
+            ? getVaSafeTimelineItems(timelineItems)
+            : timelineItems;
         const completionEndValue = task.completedAt || task.updatedAt;
         const completedTotalTimeMeta =
           task.status === TaskStatus.COMPLETED && task.createdAt && completionEndValue
@@ -4066,13 +4202,14 @@ export function TaskList({
                       <div className="flex flex-wrap items-center gap-3">
                         <input
                           type="file"
+                          multiple
                           accept="application/pdf,image/*"
                           disabled={!!uploadingId}
                           onChange={(e) => {
-                            const f = e.target.files?.[0];
+                            const files = Array.from(e.target.files || []);
                             e.currentTarget.value = '';
-                            if (!f) return;
-                            void handleUploadProof(task.id, f);
+                            if (files.length === 0) return;
+                            void handleUploadProof(task.id, files);
                           }}
                           className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-50 disabled:opacity-60"
                         />
@@ -4526,7 +4663,9 @@ export function TaskList({
                       </div>
                       <div className="space-y-2.5">
                         {jrChecklistRows.map((row) => {
-                          const proofAttachmentId = row.proofAttachmentId;
+                          const jrProofAttachments = getJrChecklistProofAttachments(row);
+                          const hasJrProofAttachments = jrProofAttachments.length > 0;
+                          const proofAttachmentId = jrProofAttachments[0]?.attachmentId ?? null;
                           const RowIcon = getJrChecklistHeadingIcon(row.id);
                           const statusMeta = getJrChecklistStatusPresentation(row.status, row.id);
                           const StatusIcon = getJrChecklistStatusIcon(row.status);
@@ -4600,9 +4739,11 @@ export function TaskList({
                                       <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
                                         {shouldDisplayProofRequired ? 'Attach Proof' : 'Proof Optional'}
                                       </span>
-                                      {proofAttachmentId ? (
+                                      {hasJrProofAttachments ? (
                                         <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                          Attached
+                                          {jrProofAttachments.length > 1
+                                            ? `${jrProofAttachments.length} Attached`
+                                            : 'Attached'}
                                         </span>
                                       ) : !shouldDisplayProofRequired ? (
                                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
@@ -4614,20 +4755,27 @@ export function TaskList({
                                         </span>
                                       )}
                                     </div>
-                                    {row.proofFilename && (
-                                      <p className="mt-2 truncate text-[11px] font-medium text-slate-600">
-                                        {row.proofFilename}
-                                      </p>
-                                    )}
-                                    {proofAttachmentId && (
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleViewAttachment(proofAttachmentId)}
-                                        className="mt-2 inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                      >
-                                        <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                                        Open
-                                      </button>
+                                    {jrProofAttachments.length > 0 && (
+                                      <div className="mt-2 space-y-2">
+                                        {jrProofAttachments.map((attachment) => (
+                                          <div
+                                            key={`${row.id}-${attachment.attachmentId}`}
+                                            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2"
+                                          >
+                                            <p className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-600">
+                                              {attachment.filename}
+                                            </p>
+                                            <button
+                                              type="button"
+                                              onClick={() => void handleViewAttachment(attachment.attachmentId)}
+                                              className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                            >
+                                              <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                                              Open
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
                                     )}
                                   </div>
                                 )}
@@ -4641,7 +4789,7 @@ export function TaskList({
                                     if (
                                       nextStatus === 'COMPLETED' &&
                                       isJrChecklistProofRequired({ id: row.id, status: nextStatus }) &&
-                                      !proofAttachmentId
+                                      !hasJrProofAttachments
                                     ) {
                                       alert('Upload proof first before marking this item as Completed.');
                                       return;
@@ -4664,7 +4812,7 @@ export function TaskList({
                                   className={`mt-2.5 rounded-lg border p-2.5 ${
                                     !shouldDisplayProofRequired
                                       ? 'border-slate-300 bg-slate-100/80'
-                                      : row.proofAttachmentId
+                                      : hasJrProofAttachments
                                       ? 'border-emerald-200 bg-emerald-50/60'
                                       : 'border-rose-200 bg-rose-50/60'
                                   }`}
@@ -4674,7 +4822,7 @@ export function TaskList({
                                       className={`text-[11px] font-bold uppercase tracking-wide ${
                                         !shouldDisplayProofRequired
                                           ? 'text-slate-600'
-                                          : row.proofAttachmentId
+                                          : hasJrProofAttachments
                                           ? 'text-emerald-700'
                                           : 'text-rose-700'
                                       }`}
@@ -4687,9 +4835,11 @@ export function TaskList({
                                       <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                                         Not Required
                                       </span>
-                                    ) : proofAttachmentId ? (
+                                    ) : hasJrProofAttachments ? (
                                       <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                        Attached
+                                        {jrProofAttachments.length > 1
+                                          ? `${jrProofAttachments.length} Attached`
+                                          : 'Attached'}
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
@@ -4707,54 +4857,63 @@ export function TaskList({
                                       {uploadingId === task.id ? 'Uploading...' : 'Upload Proof'}
                                       <input
                                         type="file"
+                                        multiple
                                         className="hidden"
                                         onChange={(event) => {
-                                          const file = event.target.files?.[0];
-                                          if (!file) return;
-                                          void handleUploadJrChecklistProof(task.id, row.id, file);
+                                          const files = Array.from(event.target.files || []);
+                                          if (files.length === 0) return;
+                                          void handleUploadJrChecklistProof(task.id, row.id, files);
                                           event.target.value = '';
                                         }}
                                         disabled={uploadingId === task.id || isJrChecklistLocked}
                                       />
                                     </label>
-                                    {proofAttachmentId && (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleViewAttachment(proofAttachmentId)}
-                                          className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                        >
-                                          <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                                          Open
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            void handleDeleteJrChecklistProof(
-                                              task.id,
-                                              row.id,
-                                              proofAttachmentId
-                                            )
-                                          }
-                                          disabled={
-                                            deletingAttachmentId === proofAttachmentId || isJrChecklistLocked
-                                          }
-                                          className="inline-flex h-7 items-center rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
-                                        >
-                                          {deletingAttachmentId === proofAttachmentId ? (
-                                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                                          ) : (
-                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                          )}
-                                          Remove
-                                        </button>
-                                      </>
-                                    )}
                                   </div>
-                                  {row.proofFilename && (
-                                    <p className="mt-2 truncate text-[11px] font-medium text-slate-600">
-                                      {row.proofFilename}
-                                    </p>
+                                  {jrProofAttachments.length > 0 && (
+                                    <div className="mt-2 space-y-2">
+                                      {jrProofAttachments.map((attachment) => (
+                                        <div
+                                          key={`${row.id}-${attachment.attachmentId}-editable`}
+                                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2"
+                                        >
+                                          <p className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-600">
+                                            {attachment.filename}
+                                          </p>
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => void handleViewAttachment(attachment.attachmentId)}
+                                              className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                            >
+                                              <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                                              Open
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                void handleDeleteJrChecklistProof(
+                                                  task.id,
+                                                  row.id,
+                                                  attachment.attachmentId
+                                                )
+                                              }
+                                              disabled={
+                                                deletingAttachmentId === attachment.attachmentId ||
+                                                isJrChecklistLocked
+                                              }
+                                              className="inline-flex h-7 items-center rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                                            >
+                                              {deletingAttachmentId === attachment.attachmentId ? (
+                                                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                              ) : (
+                                                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                              )}
+                                              Remove
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
                                   )}
                                 </div>
                                 <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
@@ -5282,13 +5441,14 @@ export function TaskList({
                           </div>
                           <input
                             type="file"
+                            multiple
                             accept="application/pdf,image/*"
                             disabled={!!uploadingId}
                             onChange={(event) => {
-                              const file = event.target.files?.[0];
+                              const files = Array.from(event.target.files || []);
                               event.currentTarget.value = '';
-                              if (!file) return;
-                              void handleUploadProof(task.id, file);
+                              if (files.length === 0) return;
+                              void handleUploadProof(task.id, files);
                             }}
                             className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-50 disabled:opacity-60"
                           />
