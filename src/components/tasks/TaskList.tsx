@@ -2866,6 +2866,8 @@ export function TaskList({
   const isDisclosureRole = currentRole === UserRole.DISCLOSURE_SPECIALIST;
   const isLoanOfficerRole = currentRole === UserRole.LOAN_OFFICER;
   const isLoanOfficerAssistantRole = currentRole === UserRole.LOA;
+  const isLoanOfficerLikeCurrentRole =
+    currentRole === UserRole.LOAN_OFFICER || currentRole === UserRole.LOA;
   const isQcRole = currentRole === UserRole.QC;
   const isManagerRole = currentRole === UserRole.MANAGER;
   const canManageVaDesk = !isLoanOfficerAssistantRole && (isManagerRole || isVaSubRole);
@@ -5504,7 +5506,7 @@ export function TaskList({
                         );
                       })()
                     )}
-                    {!isLoanOfficerAssistantRole &&
+                    {isLoanOfficerLikeCurrentRole &&
                       shouldLoRespondFromFooter &&
                       (isApprovalReviewTask ? (
                         <>

@@ -1749,7 +1749,7 @@ export function LoVaBorrowerProgressList({
                     const canLoRespondToVa =
                       (key === 'appraisal' || key === 'payoff') &&
                       stageState === 'waiting' &&
-                      currentRole === UserRole.LOAN_OFFICER &&
+                      (currentRole === UserRole.LOAN_OFFICER || currentRole === UserRole.LOA) &&
                       Boolean(vaResponseActionTaskId);
                     const vaResponseValue = vaResponseActionTaskId
                       ? loResponseDraftByTaskId[vaResponseActionTaskId] || ''
