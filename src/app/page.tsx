@@ -168,7 +168,7 @@ export default async function Home() {
     getDashboardTasks(user.role as UserRole, user.id),
   ]);
   const loanOfficerOptions =
-    user.role === UserRole.LOA
+    user.role === UserRole.LOA || user.role === UserRole.LOAN_OFFICER
       ? await prisma.user.findMany({
           where: {
             active: true,
