@@ -3337,73 +3337,6 @@ export function TaskList({
         const visibleSubmissionDataGroups = isVaSubmissionView
           ? getVaSubmissionDetails(submissionDataGroups)
           : submissionDataGroups;
-        const visibleSubmissionDataRows = visibleSubmissionDataGroups.flatMap((group) => group.rows);
-        const noteHistoryEntries = parseNoteHistory(
-          parsedSubmissionData as Record<string, unknown> | null
-        );
-        const vaTaskCreatedAtMs = task.createdAt ? new Date(task.createdAt).getTime() : null;
-        const vaLoResponseEntries = noteHistoryEntries
-          .filter((entry) => {
-            if (entry.role !== UserRole.LOAN_OFFICER) return false;
-            if (!entry.message || !entry.message.trim()) return false;
-            if (!vaTaskCreatedAtMs || !Number.isFinite(vaTaskCreatedAtMs)) return true;
-            const entryMs = new Date(entry.date).getTime();
-            if (!Number.isFinite(entryMs)) return false;
-            // Only show LO notes that happened during this VA task lifecycle.
-            return entryMs >= vaTaskCreatedAtMs;
-          })
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        const workedBySummary = injectLoanOfficerContributors(
-          injectAssignedContributor(
-            getContributorSummaryFromSubmissionData(
-              parsedSubmissionData as Record<string, unknown> | null
-            ),
-            task.assignedUser || null
-          ),
-          [task.loan.loanOfficer?.name, task.loan.secondaryLoanOfficer?.name]
-        );
-        const timelineItems: TimelineItem[] = [
-          ...noteHistoryEntries.map((entry, index) => ({
-            id: `note-${index}-${entry.date}`,
-            type: 'note' as const,
-            createdAt: entry.date,
-            actorName: entry.author,
-            actorRole: entry.role,
-            message: entry.message,
-            noteEntryType: entry.entryType || 'note',
-            checklist: entry.checklist,
-            jrChecklist: entry.jrChecklist,
-          })),
-          ...((task.timelineAttachments && task.timelineAttachments.length > 0
-            ? task.timelineAttachments
-            : task.attachments || []
-          ).map((att) => ({
-            id: `attachment-${att.id}`,
-            type: 'attachment' as const,
-            createdAt:
-              att.createdAt instanceof Date
-                ? att.createdAt.toISOString()
-                : new Date(att.createdAt).toISOString(),
-            actorName: att.uploadedByName || 'Team Member',
-            actorRole: att.uploadedByRole || null,
-            sourceTaskKind: att.sourceTaskKind || null,
-            sourceTaskAssignedRole: att.sourceTaskAssignedRole || null,
-            sourceTaskCreatedAt: att.sourceTaskCreatedAt
-              ? att.sourceTaskCreatedAt instanceof Date
-                ? att.sourceTaskCreatedAt.toISOString()
-                : new Date(att.sourceTaskCreatedAt).toISOString()
-              : null,
-            attachmentId: att.id,
-            attachmentFilename: att.filename,
-            attachmentPurpose: att.purpose,
-          }))),
-        ].sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        const visibleTimelineItems = isVaSubmissionView
-          ? getVaSafeTimelineItems(timelineItems)
-          : timelineItems;
         const normalizedAssignedRole =
           typeof task.assignedRole === 'string' &&
           (Object.values(UserRole) as string[]).includes(task.assignedRole)
@@ -3422,6 +3355,80 @@ export function TaskList({
         });
         const isFocused = focusedTaskId === task.id;
         const isExpanded = expandedTaskIds.has(task.id);
+        const visibleSubmissionDataRows = isExpanded
+          ? visibleSubmissionDataGroups.flatMap((group) => group.rows)
+          : [];
+        const noteHistoryEntries = isExpanded
+          ? parseNoteHistory(parsedSubmissionData as Record<string, unknown> | null)
+          : [];
+        const vaTaskCreatedAtMs = task.createdAt ? new Date(task.createdAt).getTime() : null;
+        const vaLoResponseEntries = isExpanded
+          ? noteHistoryEntries
+              .filter((entry) => {
+                if (entry.role !== UserRole.LOAN_OFFICER) return false;
+                if (!entry.message || !entry.message.trim()) return false;
+                if (!vaTaskCreatedAtMs || !Number.isFinite(vaTaskCreatedAtMs)) return true;
+                const entryMs = new Date(entry.date).getTime();
+                if (!Number.isFinite(entryMs)) return false;
+                // Only show LO notes that happened during this VA task lifecycle.
+                return entryMs >= vaTaskCreatedAtMs;
+              })
+              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          : [];
+        const workedBySummary = isExpanded
+          ? injectLoanOfficerContributors(
+              injectAssignedContributor(
+                getContributorSummaryFromSubmissionData(
+                  parsedSubmissionData as Record<string, unknown> | null
+                ),
+                task.assignedUser || null
+              ),
+              [task.loan.loanOfficer?.name, task.loan.secondaryLoanOfficer?.name]
+            )
+          : { visibleContributors: [] };
+        const timelineItems: TimelineItem[] = isExpanded
+          ? [
+              ...noteHistoryEntries.map((entry, index) => ({
+                id: `note-${index}-${entry.date}`,
+                type: 'note' as const,
+                createdAt: entry.date,
+                actorName: entry.author,
+                actorRole: entry.role,
+                message: entry.message,
+                noteEntryType: entry.entryType || 'note',
+                checklist: entry.checklist,
+                jrChecklist: entry.jrChecklist,
+              })),
+              ...((task.timelineAttachments && task.timelineAttachments.length > 0
+                ? task.timelineAttachments
+                : task.attachments || []
+              ).map((att) => ({
+                id: `attachment-${att.id}`,
+                type: 'attachment' as const,
+                createdAt:
+                  att.createdAt instanceof Date
+                    ? att.createdAt.toISOString()
+                    : new Date(att.createdAt).toISOString(),
+                actorName: att.uploadedByName || 'Team Member',
+                actorRole: att.uploadedByRole || null,
+                sourceTaskKind: att.sourceTaskKind || null,
+                sourceTaskAssignedRole: att.sourceTaskAssignedRole || null,
+                sourceTaskCreatedAt: att.sourceTaskCreatedAt
+                  ? att.sourceTaskCreatedAt instanceof Date
+                    ? att.sourceTaskCreatedAt.toISOString()
+                    : new Date(att.sourceTaskCreatedAt).toISOString()
+                  : null,
+                attachmentId: att.id,
+                attachmentFilename: att.filename,
+                attachmentPurpose: att.purpose,
+              }))),
+            ].sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )
+          : [];
+        const visibleTimelineItems =
+          isExpanded && isVaSubmissionView ? getVaSafeTimelineItems(timelineItems) : timelineItems;
         const completionEndValue = task.completedAt || task.updatedAt;
         const completedTotalTimeMeta =
           task.status === TaskStatus.COMPLETED && task.createdAt && completionEndValue

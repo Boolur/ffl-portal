@@ -195,6 +195,16 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   const [batchDeletingBucketId, setBatchDeletingBucketId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const deferredGlobalSearch = useDeferredValue(globalSearch.trim().toLowerCase());
+  const searchableTextByTaskId = useMemo(() => {
+    const next = new Map<string, string>();
+    for (const bucket of buckets) {
+      for (const task of bucket.tasks) {
+        if (next.has(task.id)) continue;
+        next.set(task.id, normalizeSearch(task));
+      }
+    }
+    return next;
+  }, [buckets]);
   const updateBucketControls = (bucketId: string, next: Partial<BucketControls>) => {
     setControlsByBucket((prev) => ({
       ...prev,
@@ -216,7 +226,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
             : globalSort
           : bucketControls.sort;
       const filtered = bucket.tasks.filter((task) => {
-        const searchable = normalizeSearch(task);
+        const searchable = searchableTextByTaskId.get(task.id) || '';
         if (deferredGlobalSearch && !searchable.includes(deferredGlobalSearch)) return false;
         if (deferredLocalSearch && !searchable.includes(deferredLocalSearch)) return false;
         return true;
@@ -228,7 +238,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
         controls: bucketControls,
       };
     });
-  }, [buckets, controlsByBucket, deferredGlobalSearch, globalSort]);
+  }, [buckets, controlsByBucket, deferredGlobalSearch, globalSort, searchableTextByTaskId]);
 
   const setAllBucketsCollapsed = useCallback(
     (collapsed: boolean) => {
