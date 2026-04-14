@@ -215,9 +215,14 @@ model Task {
 
   @@index([parentTaskId])
   @@index([workflowState])
+  @@index([createdAt])
   @@index([assignedRole, dueDate])
+  @@index([assignedRole, createdAt])
   @@index([assignedUserId, dueDate])
+  @@index([assignedUserId, createdAt])
   @@index([kind, dueDate])
+  @@index([kind, createdAt])
+  @@index([loanId, dueDate])
   @@index([status, dueDate])
   @@index([loanId, updatedAt])
 }
