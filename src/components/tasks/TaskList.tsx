@@ -14,6 +14,7 @@ import {
   Loader2,
   Plus,
   RotateCcw,
+  Upload,
   X,
   User,
   DollarSign,
@@ -1843,6 +1844,7 @@ export function TaskList({
   const [uploadStatusByTask, setUploadStatusByTask] = React.useState<
     Record<string, { type: 'success' | 'error'; message: string }>
   >({});
+  const [activeProofDropZoneId, setActiveProofDropZoneId] = React.useState<string | null>(null);
   const [sendingToLoId, setSendingToLoId] = React.useState<string | null>(null);
   const [respondingId, setRespondingId] = React.useState<string | null>(null);
   const [lockedTaskActionIds, setLockedTaskActionIds] = React.useState<Set<string>>(
@@ -2555,6 +2557,74 @@ export function TaskList({
     } finally {
       if (timeoutHandle) window.clearTimeout(timeoutHandle);
     }
+  };
+
+  const isSupportedProofFile = (file: File) => {
+    const mimeType = (file.type || '').toLowerCase();
+    if (mimeType === 'application/pdf' || mimeType.startsWith('image/')) {
+      return true;
+    }
+    const lowercaseName = file.name.toLowerCase();
+    return (
+      lowercaseName.endsWith('.pdf') ||
+      lowercaseName.endsWith('.png') ||
+      lowercaseName.endsWith('.jpg') ||
+      lowercaseName.endsWith('.jpeg') ||
+      lowercaseName.endsWith('.webp') ||
+      lowercaseName.endsWith('.gif') ||
+      lowercaseName.endsWith('.bmp') ||
+      lowercaseName.endsWith('.tif') ||
+      lowercaseName.endsWith('.tiff')
+    );
+  };
+
+  const handleProofDropZoneDragOver = (
+    event: React.DragEvent<HTMLElement>,
+    zoneId: string,
+    disabled: boolean
+  ) => {
+    if (disabled) return;
+    event.preventDefault();
+    if (activeProofDropZoneId !== zoneId) {
+      setActiveProofDropZoneId(zoneId);
+    }
+  };
+
+  const handleProofDropZoneDragLeave = (event: React.DragEvent<HTMLElement>, zoneId: string) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return;
+    }
+    setActiveProofDropZoneId((current) => (current === zoneId ? null : current));
+  };
+
+  const handleProofDropZoneDrop = (
+    event: React.DragEvent<HTMLElement>,
+    zoneId: string,
+    taskId: string,
+    onFiles: (files: File[]) => void,
+    options?: { restrictToProofFiles?: boolean }
+  ) => {
+    event.preventDefault();
+    setActiveProofDropZoneId((current) => (current === zoneId ? null : current));
+    if (uploadingId) return;
+    const droppedFiles = Array.from(event.dataTransfer.files || []);
+    if (droppedFiles.length === 0) return;
+    const shouldRestrictToProofFiles = options?.restrictToProofFiles ?? true;
+    const files = shouldRestrictToProofFiles
+      ? droppedFiles.filter((file) => isSupportedProofFile(file))
+      : droppedFiles;
+    if (files.length === 0) {
+      setUploadStatusByTask((prev) => ({
+        ...prev,
+        [taskId]: {
+          type: 'error',
+          message: 'Please drop PDF or image files only.',
+        },
+      }));
+      return;
+    }
+    onFiles(files);
   };
 
   const handleUploadProof = async (taskId: string, files: File[]) => {
@@ -3626,6 +3696,11 @@ export function TaskList({
           ? returnedToDisclosureIconClassName
           : defaultIconClassName;
         const isVaDeskTask = canManageVaDesk && isVaTaskKind(task.kind);
+        const proofDropZoneId = `proof-${task.id}`;
+        const loResponseProofDropZoneId = `lo-proof-${task.id}`;
+        const isProofDropZoneActive = activeProofDropZoneId === proofDropZoneId;
+        const isLoResponseProofDropZoneActive =
+          activeProofDropZoneId === loResponseProofDropZoneId;
         const canManagerReturnCompletedVaTaskToNew =
           isManagerRole &&
           task.status === TaskStatus.COMPLETED &&
@@ -4227,28 +4302,53 @@ export function TaskList({
                             : 'Required'}
                         </span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <input
-                          type="file"
-                          multiple
-                          accept="application/pdf,image/*"
-                          disabled={!!uploadingId}
-                          onChange={(e) => {
-                            const files = Array.from(e.target.files || []);
-                            e.currentTarget.value = '';
-                            if (files.length === 0) return;
-                            void handleUploadProof(task.id, files);
-                          }}
-                          className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-50 disabled:opacity-60"
-                        />
-                        {uploadingId === task.id && (
-                          <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            {isQcAttachmentSection
-                              ? 'Uploading attachment...'
-                              : 'Uploading proof...'}
-                          </div>
-                        )}
+                      <div
+                        onDragOver={(event) =>
+                          handleProofDropZoneDragOver(event, proofDropZoneId, Boolean(uploadingId))
+                        }
+                        onDragLeave={(event) => handleProofDropZoneDragLeave(event, proofDropZoneId)}
+                        onDrop={(event) =>
+                          handleProofDropZoneDrop(
+                            event,
+                            proofDropZoneId,
+                            task.id,
+                            (files) => void handleUploadProof(task.id, files),
+                            { restrictToProofFiles: true }
+                          )
+                        }
+                        className={`rounded-xl border-2 border-dashed p-3 transition ${
+                          isProofDropZoneActive
+                            ? 'border-blue-300 bg-blue-50/60'
+                            : 'border-slate-200 bg-white/70'
+                        } ${uploadingId ? 'opacity-70' : ''}`}
+                      >
+                        <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-600">
+                          <Upload className="h-3.5 w-3.5 text-slate-500" />
+                          Drag and drop PDF/Image files here, or choose files below.
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <input
+                            type="file"
+                            multiple
+                            accept="application/pdf,image/*"
+                            disabled={!!uploadingId}
+                            onChange={(e) => {
+                              const files = Array.from(e.target.files || []);
+                              e.currentTarget.value = '';
+                              if (files.length === 0) return;
+                              void handleUploadProof(task.id, files);
+                            }}
+                            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-50 disabled:opacity-60"
+                          />
+                          {uploadingId === task.id && (
+                            <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              {isQcAttachmentSection
+                                ? 'Uploading attachment...'
+                                : 'Uploading proof...'}
+                            </div>
+                          )}
+                        </div>
                       </div>
                       {(proofAttachments.length > 0 || optimisticProofCount > 0) && (
                         <div className="mt-4 space-y-2">
@@ -4718,6 +4818,9 @@ export function TaskList({
                               ? 'border-yellow-200 bg-yellow-50/45'
                               : 'border-rose-200 bg-rose-50/45';
                           const completedRowDetailsKey = `jr-completed-${task.id}-${row.id}`;
+                          const jrProofDropZoneId = `jr-proof-${task.id}-${row.id}`;
+                          const isJrProofDropZoneActive =
+                            activeProofDropZoneId === jrProofDropZoneId;
                           const completedRowDetailsExpanded = expandedJrCompletedRowDetails.has(
                             completedRowDetailsKey
                           );
@@ -4880,22 +4983,54 @@ export function TaskList({
                                       VOE marked as Not Required does not require proof.
                                     </p>
                                   )}
-                                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                                    <label className="inline-flex cursor-pointer items-center rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50">
-                                      {uploadingId === task.id ? 'Uploading...' : 'Upload Proof'}
-                                      <input
-                                        type="file"
-                                        multiple
-                                        className="hidden"
-                                        onChange={(event) => {
-                                          const files = Array.from(event.target.files || []);
-                                          if (files.length === 0) return;
-                                          void handleUploadJrChecklistProof(task.id, row.id, files);
-                                          event.target.value = '';
-                                        }}
-                                        disabled={uploadingId === task.id || isJrChecklistLocked}
-                                      />
-                                    </label>
+                                  <div
+                                    className={`mt-2 rounded-md border border-dashed p-2 transition ${
+                                      isJrProofDropZoneActive
+                                        ? 'border-sky-300 bg-sky-50'
+                                        : 'border-slate-200 bg-white/70'
+                                    }`}
+                                    onDragOver={(event) =>
+                                      handleProofDropZoneDragOver(
+                                        event,
+                                        jrProofDropZoneId,
+                                        uploadingId === task.id || isJrChecklistLocked
+                                      )
+                                    }
+                                    onDragLeave={(event) =>
+                                      handleProofDropZoneDragLeave(event, jrProofDropZoneId)
+                                    }
+                                    onDrop={(event) =>
+                                      handleProofDropZoneDrop(
+                                        event,
+                                        jrProofDropZoneId,
+                                        task.id,
+                                        (files) =>
+                                          void handleUploadJrChecklistProof(task.id, row.id, files),
+                                        { restrictToProofFiles: true }
+                                      )
+                                    }
+                                  >
+                                    <p className="mb-2 text-[11px] font-medium text-slate-600">
+                                      Drag and drop proof files here, or upload manually.
+                                    </p>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <label className="inline-flex cursor-pointer items-center rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50">
+                                        {uploadingId === task.id ? 'Uploading...' : 'Upload Proof'}
+                                        <input
+                                          type="file"
+                                          multiple
+                                          accept="application/pdf,image/*"
+                                          className="hidden"
+                                          onChange={(event) => {
+                                            const files = Array.from(event.target.files || []);
+                                            if (files.length === 0) return;
+                                            void handleUploadJrChecklistProof(task.id, row.id, files);
+                                            event.target.value = '';
+                                          }}
+                                          disabled={uploadingId === task.id || isJrChecklistLocked}
+                                        />
+                                      </label>
+                                    </div>
                                   </div>
                                   {jrProofAttachments.length > 0 && (
                                     <div className="mt-2 space-y-2">
@@ -5467,19 +5602,50 @@ export function TaskList({
                               Optional
                             </span>
                           </div>
-                          <input
-                            type="file"
-                            multiple
-                            accept="application/pdf,image/*"
-                            disabled={!!uploadingId}
-                            onChange={(event) => {
-                              const files = Array.from(event.target.files || []);
-                              event.currentTarget.value = '';
-                              if (files.length === 0) return;
-                              void handleUploadProof(task.id, files);
-                            }}
-                            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-50 disabled:opacity-60"
-                          />
+                          <div
+                            onDragOver={(event) =>
+                              handleProofDropZoneDragOver(
+                                event,
+                                loResponseProofDropZoneId,
+                                Boolean(uploadingId)
+                              )
+                            }
+                            onDragLeave={(event) =>
+                              handleProofDropZoneDragLeave(event, loResponseProofDropZoneId)
+                            }
+                            onDrop={(event) =>
+                              handleProofDropZoneDrop(
+                                event,
+                                loResponseProofDropZoneId,
+                                task.id,
+                                (files) => void handleUploadProof(task.id, files),
+                                { restrictToProofFiles: true }
+                              )
+                            }
+                            className={`rounded-xl border-2 border-dashed p-3 transition ${
+                              isLoResponseProofDropZoneActive
+                                ? 'border-blue-300 bg-blue-50/60'
+                                : 'border-slate-200 bg-white'
+                            } ${uploadingId ? 'opacity-70' : ''}`}
+                          >
+                            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-600">
+                              <Upload className="h-3.5 w-3.5 text-slate-500" />
+                              Drag and drop PDF/Image files here, or choose files below.
+                            </div>
+                            <input
+                              type="file"
+                              multiple
+                              accept="application/pdf,image/*"
+                              disabled={!!uploadingId}
+                              onChange={(event) => {
+                                const files = Array.from(event.target.files || []);
+                                event.currentTarget.value = '';
+                                if (files.length === 0) return;
+                                void handleUploadProof(task.id, files);
+                              }}
+                              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-50 disabled:opacity-60"
+                            />
+                          </div>
                           {(proofAttachments.length > 0 || optimisticProofCount > 0) && (
                             <div className="mt-3 space-y-2">
                               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
