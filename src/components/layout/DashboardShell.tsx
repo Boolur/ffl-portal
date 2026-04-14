@@ -105,6 +105,7 @@ function DashboardContent({ children, user }: DashboardShellProps) {
     if (!shouldAutoRefresh) return;
 
     const INTERACTION_PAUSE_MS = 4000;
+    const AUTO_REFRESH_MS = 20000;
     let lastInteractionAt = Date.now();
     const markInteraction = () => {
       lastInteractionAt = Date.now();
@@ -122,7 +123,7 @@ function DashboardContent({ children, user }: DashboardShellProps) {
       router.refresh();
     };
 
-    const interval = window.setInterval(refreshIfSafe, 10000);
+    const interval = window.setInterval(refreshIfSafe, AUTO_REFRESH_MS);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;

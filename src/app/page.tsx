@@ -4,9 +4,18 @@ import { getAllTasks } from '@/app/actions/adminActions';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { UserRole } from '@prisma/client';
+import { TaskKind, UserRole } from '@prisma/client';
 import { startPerfTimer, withPerfMetric } from '@/lib/perf';
-import { buildLoanOfficerLoanWhere } from '@/lib/loanOfficerVisibility';
+import { buildLoanOfficerLoanWhere, buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
+
+const LO_DASHBOARD_TASK_KINDS: TaskKind[] = [
+  TaskKind.SUBMIT_DISCLOSURES,
+  TaskKind.SUBMIT_QC,
+  TaskKind.VA_TITLE,
+  TaskKind.VA_PAYOFF,
+  TaskKind.VA_APPRAISAL,
+  TaskKind.VA_HOI,
+];
 
 async function getLoans(role?: string | null, userId?: string | null) {
   const endPerf = startPerfTimer('page.dashboard.getLoans.total', {
@@ -15,10 +24,15 @@ async function getLoans(role?: string | null, userId?: string | null) {
   const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const isLoanOfficerAssistant = role === UserRole.LOA;
+  if (isLoanOfficer || isLoanOfficerAssistant) {
+    endPerf({
+      count: 0,
+      skipped: true,
+    });
+    return [];
+  }
   const where = isAdminOrManager
     ? undefined
-    : isLoanOfficerAssistant
-      ? undefined
     : isLoanOfficer && userId
       ? buildLoanOfficerLoanWhere(userId)
       : { id: '__none__' };
@@ -46,6 +60,79 @@ async function getLoans(role?: string | null, userId?: string | null) {
     count: mapped.length,
   });
   return mapped;
+}
+
+async function getDashboardTasks(role: UserRole, userId?: string) {
+  const isLoanOfficer = role === UserRole.LOAN_OFFICER;
+  const isLoanOfficerAssistant = role === UserRole.LOA;
+
+  if (!isLoanOfficer && !isLoanOfficerAssistant) {
+    return withPerfMetric(
+      'query.dashboard.getAllTasks.entry',
+      () => getAllTasks({ role, userId }),
+      {
+        role,
+      }
+    );
+  }
+
+  const where = isLoanOfficer
+    ? {
+        AND: [
+          buildLoanOfficerTaskWhere(userId),
+          { kind: { in: LO_DASHBOARD_TASK_KINDS } },
+        ],
+      }
+    : {
+        kind: { in: LO_DASHBOARD_TASK_KINDS },
+      };
+
+  return withPerfMetric(
+    'query.dashboard.getDashboardTasks.loanOfficer',
+    () =>
+      prisma.task.findMany({
+        where,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          status: true,
+          priority: true,
+          kind: true,
+          createdAt: true,
+          dueDate: true,
+          workflowState: true,
+          disclosureReason: true,
+          parentTaskId: true,
+          loanOfficerApprovedAt: true,
+          assignedRole: true,
+          assignedUser: {
+            select: {
+              name: true,
+            },
+          },
+          loan: {
+            select: {
+              loanNumber: true,
+              borrowerName: true,
+              stage: true,
+              loanOfficer: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      }),
+    {
+      role,
+      hasUserId: Boolean(userId),
+    }
+  );
 }
 
 export default async function Home() {
@@ -78,28 +165,25 @@ export default async function Home() {
   };
   const [loans, adminTasks] = await Promise.all([
     getLoans(user.role, user.id),
-    withPerfMetric(
-      'query.dashboard.getAllTasks.entry',
-      () => getAllTasks({ role: user.role as UserRole, userId: user.id }),
-      {
-        role: user.role,
-      }
-    ),
+    getDashboardTasks(user.role as UserRole, user.id),
   ]);
-  const loanOfficerOptions = await prisma.user.findMany({
-    where: {
-      active: true,
-      OR: [
-        { role: UserRole.LOAN_OFFICER },
-        { roles: { has: UserRole.LOAN_OFFICER } },
-      ],
-    },
-    select: {
-      id: true,
-      name: true,
-    },
-    orderBy: { name: 'asc' },
-  });
+  const loanOfficerOptions =
+    user.role === UserRole.LOA
+      ? await prisma.user.findMany({
+          where: {
+            active: true,
+            OR: [
+              { role: UserRole.LOAN_OFFICER },
+              { roles: { has: UserRole.LOAN_OFFICER } },
+            ],
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+          orderBy: { name: 'asc' },
+        })
+      : [];
 
   const pageOutput = (
     <DashboardWrapper

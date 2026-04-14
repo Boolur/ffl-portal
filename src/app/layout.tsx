@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { ImpersonationProvider } from "@/lib/impersonation";
 import { UserRole } from "@prisma/client";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -46,6 +47,7 @@ export default async function RootLayout({
           <ImpersonationProvider initialRole={initialRole} availableRoles={availableRoles}>
             {children}
           </ImpersonationProvider>
+          <SpeedInsights />
         </Providers>
       </body>
     </html>

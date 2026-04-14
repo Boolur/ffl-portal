@@ -35,6 +35,15 @@ const VA_TASK_KINDS: TaskKind[] = [
   TaskKind.VA_APPRAISAL,
 ];
 
+const LOA_MONITORED_TASK_KINDS: TaskKind[] = [
+  TaskKind.SUBMIT_DISCLOSURES,
+  TaskKind.SUBMIT_QC,
+  TaskKind.VA_TITLE,
+  TaskKind.VA_PAYOFF,
+  TaskKind.VA_APPRAISAL,
+  TaskKind.VA_HOI,
+];
+
 function normalizeRole(role?: string | null): UserRole {
   if (!role) return MOCK_USER.role;
   const normalized = role.trim().toUpperCase();
@@ -195,8 +204,14 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   
   const where: Prisma.TaskWhereInput = isAdminOrManager ? {} : {};
 
-  if (isAdminOrManager || isLoanOfficerAssistant) {
+  if (isAdminOrManager) {
     // no-op: managers/admins can review all queues
+  } else if (isLoanOfficerAssistant) {
+    where.OR = [
+      { kind: { in: LOA_MONITORED_TASK_KINDS } },
+      { assignedRole: UserRole.LOA },
+      ...(userId ? [{ assignedUserId: userId }] : []),
+    ];
   } else if (isLoanOfficer && userId) {
     // LO scope includes primary, secondary, and submitter fallback visibility.
     Object.assign(where, buildLoanOfficerTaskWhere(userId));
