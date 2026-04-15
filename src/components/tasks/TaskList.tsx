@@ -1166,6 +1166,8 @@ function getLifecycleBucketBubbleClass(
       profile.approvalLabel !== profile.newLabel &&
       profile.approvalLabel !== profile.waitingLabel;
 
+    const isStartedBucket = label === profile.startedLabel && profile.startedLabel !== profile.newLabel;
+
     if (isNewBucket) {
       if (taskKind === TaskKind.VA_HOI) return 'border-cyan-300 bg-cyan-100 text-cyan-800';
       if (
@@ -1182,6 +1184,7 @@ function getLifecycleBucketBubbleClass(
         return 'border-indigo-300 bg-indigo-100 text-indigo-800';
       }
     }
+    if (isStartedBucket) return 'border-blue-300 bg-blue-100 text-blue-800';
     if (isWaitingBucket) return 'border-amber-300 bg-amber-100 text-amber-800';
     if (isReviewBucket) return 'border-sky-300 bg-sky-100 text-sky-800';
     if (isApprovalBucket) return 'border-indigo-300 bg-indigo-100 text-indigo-800';
@@ -1202,8 +1205,8 @@ function getLifecycleBucketBubbleClass(
   ) {
     return 'border-amber-300 bg-amber-100 text-amber-800';
   }
-  if (normalizedKey === 'IN_PROGRESS' || normalizedLabel.includes('in progress')) {
-    return 'border-sky-300 bg-sky-100 text-sky-800';
+  if (normalizedKey === 'IN_PROGRESS' || normalizedLabel.includes('in progress') || normalizedLabel.includes('started by')) {
+    return 'border-blue-300 bg-blue-100 text-blue-800';
   }
   if (
     normalizedKey === 'PENDING' ||
@@ -1230,6 +1233,7 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   if (isLoanOfficerLikeRole && isLoResponse) {
     return {
       newLabel: 'Action Required (Approve Figures / Missing Info)',
+      startedLabel: 'Action Required (Approve Figures / Missing Info)',
       waitingLabel: 'Action Required (Approve Figures / Missing Info)',
       reviewLabel: 'Action Required (Approve Figures / Missing Info)',
       approvalLabel: 'Action Required (Approve Figures / Missing Info)',
@@ -1241,6 +1245,7 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
     if (isLoanOfficerLikeRole) {
       return {
         newLabel: 'Submitted for Disclosures',
+        startedLabel: 'Submitted for Disclosures',
         waitingLabel: 'Submitted for Disclosures',
         reviewLabel: 'Returned to Disclosure',
         approvalLabel: 'Submitted for Disclosures',
@@ -1249,6 +1254,7 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
     }
     return {
       newLabel: 'New Disclosure Requests',
+      startedLabel: 'Started by Specialist',
       waitingLabel: 'Waiting Missing/Incomplete',
       reviewLabel: 'LO Responded (Review)',
       approvalLabel: 'Waiting for Approval',
@@ -1259,6 +1265,7 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   if (isQc) {
     return {
       newLabel: 'New QC Requests',
+      startedLabel: 'Started by QC',
       waitingLabel: 'Waiting Missing/Incomplete',
       reviewLabel: 'LO Responded (Review)',
       approvalLabel: 'Waiting Missing/Incomplete',
@@ -1269,6 +1276,7 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   if (isVaAppraisal) {
     return {
       newLabel: 'New Appraisal Specialist Requests',
+      startedLabel: 'Started by Appraisal Specialist',
       waitingLabel: 'Waiting Missing/Incomplete',
       reviewLabel: 'LO Responded (Review)',
       approvalLabel: 'Waiting Missing/Incomplete',
@@ -1279,9 +1287,10 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   if (isVaTitle) {
     return {
       newLabel: 'New VA Title Requests',
-      waitingLabel: 'New VA Title Requests',
-      reviewLabel: 'New VA Title Requests',
-      approvalLabel: 'New VA Title Requests',
+      startedLabel: 'Started by VA Title',
+      waitingLabel: 'Waiting Missing/Incomplete',
+      reviewLabel: 'LO Responded (Review)',
+      approvalLabel: 'Waiting Missing/Incomplete',
       completedLabel: 'Completed VA Title Requests',
     };
   }
@@ -1289,9 +1298,10 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   if (isVaPayoff) {
     return {
       newLabel: 'New VA Payoff Requests',
-      waitingLabel: 'New VA Payoff Requests',
-      reviewLabel: 'New VA Payoff Requests',
-      approvalLabel: 'New VA Payoff Requests',
+      startedLabel: 'Started by VA Payoff',
+      waitingLabel: 'Waiting Missing/Incomplete',
+      reviewLabel: 'LO Responded (Review)',
+      approvalLabel: 'Waiting Missing/Incomplete',
       completedLabel: 'Completed VA Payoff Requests',
     };
   }
@@ -1299,9 +1309,10 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   if (isJr) {
     return {
       newLabel: 'New JR Processor Requests',
-      waitingLabel: 'New JR Processor Requests',
-      reviewLabel: 'New JR Processor Requests',
-      approvalLabel: 'New JR Processor Requests',
+      startedLabel: 'Started by JR Processor',
+      waitingLabel: 'Waiting Missing/Incomplete',
+      reviewLabel: 'LO Responded (Review)',
+      approvalLabel: 'Waiting Missing/Incomplete',
       completedLabel: 'Completed JR Processor Requests',
     };
   }
@@ -1330,7 +1341,7 @@ function mapLifecycleRowToBucketLabel(
   }
 
   if (normalizedKey === 'BLOCKED') return profile.waitingLabel;
-  if (normalizedKey === 'IN_PROGRESS') return profile.reviewLabel;
+  if (normalizedKey === 'IN_PROGRESS') return profile.startedLabel;
   if (normalizedKey === 'PENDING') return profile.newLabel;
   return fallbackLabel;
 }
