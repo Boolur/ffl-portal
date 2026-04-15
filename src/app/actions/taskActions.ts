@@ -1294,40 +1294,48 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
 }
 
 async function dispatchTaskWorkflowNotification(input: TaskWorkflowNotificationPayload) {
-  const mode = getNotificationDeliveryMode();
-  const payload: Prisma.JsonObject = {
-    taskId: input.taskId,
-    eventLabel: input.eventLabel,
-    changedBy: input.changedBy ?? null,
-  };
-  const enqueue = async () =>
-    enqueueNotificationOutboxEvent({
-      eventType: NotificationOutboxEventType.TASK_WORKFLOW,
-      payload,
-      idempotencyKey: `task-workflow:${input.taskId}:${input.eventLabel}:${Date.now()}:${randomUUID()}`,
-    });
-
-  if (mode === 'sync') {
-    await sendTaskWorkflowNotificationsByTaskId(input);
-    return;
-  }
   try {
-    await enqueue();
+    const mode = getNotificationDeliveryMode();
+    const payload: Prisma.JsonObject = {
+      taskId: input.taskId,
+      eventLabel: input.eventLabel,
+      changedBy: input.changedBy ?? null,
+    };
+    const enqueue = async () =>
+      enqueueNotificationOutboxEvent({
+        eventType: NotificationOutboxEventType.TASK_WORKFLOW,
+        payload,
+        idempotencyKey: `task-workflow:${input.taskId}:${input.eventLabel}:${Date.now()}:${randomUUID()}`,
+      });
+
+    if (mode === 'sync') {
+      await sendTaskWorkflowNotificationsByTaskId(input);
+      return;
+    }
+    try {
+      await enqueue();
+    } catch (error) {
+      // Fail open for core workflows: if outbox is unavailable, preserve user action
+      // and send via the legacy synchronous path.
+      console.error(
+        '[notifications.outbox] enqueue failed for task workflow; falling back to synchronous send',
+        error
+      );
+      await sendTaskWorkflowNotificationsByTaskId(input);
+      return;
+    }
+    if (mode === 'dual') {
+      await sendTaskWorkflowNotificationsByTaskId(input);
+      return;
+    }
+    await kickInlineOutboxDrain('task-workflow');
   } catch (error) {
-    // Fail open for core workflows: if outbox is unavailable, preserve user action
-    // and send via the legacy synchronous path.
+    // Never fail user workflows due to notification subsystem issues.
     console.error(
-      '[notifications.outbox] enqueue failed for task workflow; falling back to synchronous send',
+      '[notifications.outbox] task workflow dispatch failed; continuing without blocking workflow',
       error
     );
-    await sendTaskWorkflowNotificationsByTaskId(input);
-    return;
   }
-  if (mode === 'dual') {
-    await sendTaskWorkflowNotificationsByTaskId(input);
-    return;
-  }
-  await kickInlineOutboxDrain('task-workflow');
 }
 
 async function dispatchVaFanoutNotifications(input: VaFanoutNotificationPayload) {
@@ -2419,11 +2427,16 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       },
     });
 
-    await dispatchTaskWorkflowNotification({
-      taskId: createdTask.id,
-      eventLabel: 'New Request Submitted',
-      changedBy: session?.user?.name || loanOfficerName || null,
-    });
+    try {
+      await dispatchTaskWorkflowNotification({
+        taskId: createdTask.id,
+        eventLabel: 'New Request Submitted',
+        changedBy: session?.user?.name || loanOfficerName || null,
+      });
+    } catch (notificationError) {
+      // Do not fail successful submissions due to notification delivery issues.
+      console.error('Submission created but notification dispatch failed:', notificationError);
+    }
 
     revalidatePath('/tasks');
     revalidatePath('/');
