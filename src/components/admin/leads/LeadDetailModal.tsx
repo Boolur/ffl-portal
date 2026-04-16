@@ -25,6 +25,7 @@ import {
   addLeadNote,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 type LeadDetail = {
   id: string;
@@ -545,14 +546,14 @@ export function LeadDetailModal({
             <span>
               Received{' '}
               <span className="font-medium text-slate-500">
-                {new Date(lead.receivedAt).toLocaleString()}
+                <FormatDate date={lead.receivedAt} mode="datetime" />
               </span>
             </span>
             {lead.assignedAt && (
               <span>
                 Assigned{' '}
                 <span className="font-medium text-slate-500">
-                  {new Date(lead.assignedAt).toLocaleString()}
+                  <FormatDate date={lead.assignedAt} mode="datetime" />
                 </span>
               </span>
             )}
@@ -710,7 +711,7 @@ export function LeadDetailModal({
                           {note.author.name}
                         </span>
                         <span className="text-[10px] text-slate-400">
-                          {new Date(note.createdAt).toLocaleString()}
+                          <FormatDate date={note.createdAt} mode="datetime" />
                         </span>
                       </div>
                       <p className="text-xs text-slate-600 whitespace-pre-wrap leading-relaxed">

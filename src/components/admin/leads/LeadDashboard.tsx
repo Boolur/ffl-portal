@@ -14,6 +14,7 @@ import {
 import { CsvUploadModal } from './CsvUploadModal';
 import { LeadDetailModal } from './LeadDetailModal';
 import { getLead } from '@/app/actions/leadActions';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 type DashboardStats = {
   totalToday: number;
@@ -267,7 +268,7 @@ export function LeadDashboard({
                       )}
                     </td>
                     <td className="px-6 py-3 text-right text-xs text-slate-500 whitespace-nowrap">
-                      {new Date(l.receivedAt).toLocaleString()}
+                      <FormatDate date={l.receivedAt} mode="datetime" />
                     </td>
                   </tr>
                 ))}

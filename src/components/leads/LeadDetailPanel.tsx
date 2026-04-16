@@ -5,6 +5,7 @@ import { Loader2, X, Send, ChevronDown, ChevronRight } from 'lucide-react';
 import { updateLeadStatus, addLeadNote } from '@/app/actions/leadActions';
 import { LeadStatusBadge } from './LeadStatusBadge';
 import { useRouter } from 'next/navigation';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 type LeadDetail = {
   id: string;
@@ -285,7 +286,7 @@ export function LeadDetailPanel({
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-semibold text-slate-700">{note.author.name}</span>
                       <span className="text-[10px] text-slate-400">
-                        {new Date(note.createdAt).toLocaleString()}
+                        <FormatDate date={note.createdAt} mode="datetime" />
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 whitespace-pre-wrap">{note.content}</p>
@@ -297,7 +298,7 @@ export function LeadDetailPanel({
 
           <div className="mt-4 text-[10px] text-slate-400">
             <p>Source: {lead.source || '—'}</p>
-            <p>Received: {new Date(lead.receivedAt).toLocaleString()}</p>
+            <p>Received: <FormatDate date={lead.receivedAt} mode="datetime" /></p>
           </div>
         </div>
       </div>

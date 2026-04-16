@@ -18,6 +18,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Mail } from 'lucide-react';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 type UserRow = {
   id: string;
@@ -552,7 +553,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                                 </span>
                               )}
                               <span className="text-[11px] text-slate-400">
-                                Created {new Date(user.createdAt).toLocaleDateString()}
+                                Created <FormatDate date={user.createdAt} />
                               </span>
                             </div>
                           </td>
@@ -743,7 +744,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                           </span>
                         )}
                         <span className="text-[11px] text-slate-400">
-                          Created {new Date(user.createdAt).toLocaleDateString()}
+                          Created <FormatDate date={user.createdAt} />
                         </span>
                       </div>
 
@@ -799,12 +800,12 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                 <p className="text-sm font-medium text-slate-900">{invite.email}</p>
                 <p className="text-xs text-slate-500">
                   {getRoleDisplayLabel(invite.role)} • Expires{' '}
-                  {new Date(invite.expiresAt).toLocaleDateString()}
+                  <FormatDate date={invite.expiresAt} />
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3 text-xs">
                 <span className="text-slate-400">
-                  Sent {new Date(invite.createdAt).toLocaleDateString()}
+                  Sent <FormatDate date={invite.createdAt} />
                 </span>
                 <button
                   onClick={() => handleResendInvite(invite.id)}

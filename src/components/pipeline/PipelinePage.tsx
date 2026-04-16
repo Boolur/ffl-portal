@@ -20,6 +20,7 @@ import {
 } from '@/app/actions/clientFolderActions';
 import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
+import { FormatDate } from '@/components/ui/FormatDate';
 import {
   Plus,
   Search,
@@ -775,7 +776,7 @@ export function PipelinePage() {
                         <div className="flex items-center justify-between mt-2 pt-2 border-t border-yellow-100/50">
                           <span className="font-semibold text-yellow-700">{note.user.name}</span>
                           <span className="text-yellow-600/70 text-[10px]">
-                            {new Date(note.createdAt).toLocaleDateString()}
+                            <FormatDate date={note.createdAt} />
                           </span>
                         </div>
                       </div>
@@ -862,7 +863,7 @@ export function PipelinePage() {
                               </span>
                             </div>
                             <span className="text-[10px] font-semibold text-slate-400">
-                              {new Date(doc.createdAt).toLocaleDateString()}
+                              <FormatDate date={doc.createdAt} />
                             </span>
                           </button>
                         ))}
@@ -890,7 +891,7 @@ export function PipelinePage() {
                         <div>
                           <p className="text-sm font-medium text-slate-900">{task.title}</p>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            Due: {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'None'}
+                            Due: {task.dueDate ? <FormatDate date={task.dueDate} /> : 'None'}
                           </p>
                         </div>
                       </div>

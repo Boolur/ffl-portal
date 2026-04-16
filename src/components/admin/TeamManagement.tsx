@@ -8,6 +8,7 @@ import {
   reassignLoans,
 } from '@/app/actions/teamActions';
 import { deleteTask } from '@/app/actions/taskActions';
+import { FormatDate } from '@/components/ui/FormatDate';
 import { deleteUser } from '@/app/actions/userActions';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import {
@@ -190,7 +191,7 @@ export function TeamManagement({
                       {getRoleDisplayLabel(details.user.role)}
                     </span>
                     <span className="text-xs text-slate-400">
-                      Joined {new Date(details.user.createdAt).toLocaleDateString()}
+                      Joined <FormatDate date={details.user.createdAt} />
                     </span>
                   </div>
                 </div>

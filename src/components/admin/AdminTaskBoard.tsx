@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { TaskStatus, TaskPriority } from '@prisma/client';
 import { useRouter } from 'next/navigation';
 import { deleteTask } from '@/app/actions/taskActions';
+import { FormatDate } from '@/components/ui/FormatDate';
 import { 
   Clock, 
   Trash2, 
@@ -313,7 +314,7 @@ function TaskCard({
         </div>
         <div className="flex items-center text-xs text-slate-500">
           <Clock className="w-3 h-3 mr-2 text-slate-400" />
-          <span>{new Date(task.createdAt).toLocaleString()}</span>
+          <span><FormatDate date={task.createdAt} mode="datetime" /></span>
         </div>
       </div>
 

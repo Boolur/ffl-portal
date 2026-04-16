@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { Loader2, Search, UserPlus, Inbox } from 'lucide-react';
 import { assignLead, bulkAssignLeads } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 type LeadRow = {
   id: string;
@@ -166,7 +167,7 @@ export function LeadPool({
                   <td className="px-4 py-3 text-slate-600">{l.vendor?.name || '—'}</td>
                   <td className="px-4 py-3 text-slate-600">{l.campaign?.name || '—'}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">
-                    {new Date(l.receivedAt).toLocaleDateString()}
+                    <FormatDate date={l.receivedAt} />
                   </td>
                 </tr>
               ))}

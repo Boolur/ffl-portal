@@ -5,6 +5,7 @@ import { Search, Inbox } from 'lucide-react';
 import { LeadStatusBadge } from './LeadStatusBadge';
 import { LeadDetailPanel } from './LeadDetailPanel';
 import { getLead } from '@/app/actions/leadActions';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 type LeadRow = {
   id: string;
@@ -153,7 +154,7 @@ export function LeadTable({ leads }: { leads: LeadRow[] }) {
                     <div>
                       <p className="text-xs text-slate-500">{l.campaign?.name || l.vendor?.name || ''}</p>
                       <p className="text-[10px] text-slate-400">
-                        {new Date(l.receivedAt).toLocaleDateString()}
+                        <FormatDate date={l.receivedAt} />
                       </p>
                     </div>
                   </div>

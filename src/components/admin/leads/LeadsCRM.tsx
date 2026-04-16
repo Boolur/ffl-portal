@@ -35,6 +35,7 @@ import {
   revalidateLeadPaths,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 const PAGE_SIZE = 200;
 
@@ -1442,7 +1443,7 @@ export function LeadsCRM({
                       {l.source || '—'}
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-slate-500 whitespace-nowrap">
-                      {new Date(l.receivedAt).toLocaleDateString()}
+                      <FormatDate date={l.receivedAt} />
                     </td>
                   </tr>
                 ))}

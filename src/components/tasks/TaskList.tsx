@@ -55,6 +55,7 @@ import {
 } from '@prisma/client';
 import { getRoleBubbleClass } from '@/lib/roleColors';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
+import { FormatDate } from '@/components/ui/FormatDate';
 import {
   buildTaskLifecycleBreakdown,
   formatLifecycleDuration,
@@ -4077,7 +4078,7 @@ export function TaskList({
                     {task.dueDate && (
                       <p className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">
                         <Calendar className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
-                        {new Date(task.dueDate).toLocaleDateString()}
+                        <FormatDate date={task.dueDate} />
                       </p>
                     )}
                     {task.disclosureReason && (

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ClipboardCheck, ShieldCheck } from 'lucide-react';
 import { NewTaskModal } from '@/components/loanOfficer/NewTaskModal';
 import { TaskKind, TaskStatus } from '@prisma/client';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 type Loan = {
   id: string;
@@ -217,7 +218,7 @@ export function LoanOfficerDashboard({
                 </p>
               </div>
               <span className="shrink-0 text-[11px] sm:text-xs text-slate-500">
-                {new Date(task.createdAt).toLocaleString()}
+                <FormatDate date={task.createdAt} mode="datetime" />
               </span>
             </div>
           ))}
