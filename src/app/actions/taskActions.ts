@@ -3987,6 +3987,24 @@ export async function respondToDisclosureRequest(
 
     if (!task) return { success: false, error: 'Task not found.' };
     if (task.kind !== TaskKind.LO_NEEDS_INFO || !task.parentTaskId) {
+      const isParentVaOrSubmission =
+        task.kind === TaskKind.VA_APPRAISAL ||
+        task.kind === TaskKind.VA_PAYOFF ||
+        task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+        task.kind === TaskKind.SUBMIT_QC;
+      if (isParentVaOrSubmission) {
+        const childLoTask = await prisma.task.findFirst({
+          where: {
+            parentTaskId: taskId,
+            kind: TaskKind.LO_NEEDS_INFO,
+            status: { not: TaskStatus.COMPLETED },
+          },
+          select: { id: true },
+        });
+        if (childLoTask) {
+          return respondToDisclosureRequest(childLoTask.id, responseMessage);
+        }
+      }
       return { success: false, error: 'This task does not support LO responses.' };
     }
     if (task.status === TaskStatus.COMPLETED) {

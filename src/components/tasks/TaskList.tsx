@@ -3232,6 +3232,10 @@ export function TaskList({
           isVaLoResponseRouteTask &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.WAITING_ON_LO;
+        const canManagerRespondAsLoOnVaParent =
+          isManagerRole && isVaWaitingOnLoState;
+        const managerVaRespondLabel =
+          task.kind === TaskKind.VA_APPRAISAL ? 'Appraisal VA' : 'Payoff VA';
         const canCompleteTask =
           (!requiresProofForCompletion || proofCount > 0) &&
           !requiresStartBeforeVaComplete &&
@@ -3327,6 +3331,7 @@ export function TaskList({
                 task.workflowState === TaskWorkflowState.NONE)));
         const shouldShowProofUploader =
           task.status !== 'COMPLETED' &&
+          !canManagerRespondAsLoOnVaParent &&
           (task.status !== TaskStatus.PENDING || allowProofUploaderWhilePending) &&
           !canManageJrChecklist &&
           ((canManageVaDesk && isVaTaskKind(task.kind)) ||
@@ -4550,7 +4555,7 @@ export function TaskList({
                     </div>
                   )}
 
-                  {isVaRouteState && (
+                  {isVaRouteState && !canManagerRespondAsLoOnVaParent && (
                     <div className="relative mt-8">
                       <div
                       className={`rounded-2xl border p-6 shadow-sm space-y-4 ${
@@ -4753,6 +4758,7 @@ export function TaskList({
                           </div>
                         </div>
                       )}
+                      {!canManagerRespondAsLoOnVaParent && (
                       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4 shadow-sm space-y-2">
                         <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
                           Optional VA Notes
@@ -4772,8 +4778,31 @@ export function TaskList({
                           Saved to task history when you complete this request.
                         </p>
                       </div>
+                      )}
                       </>
                     )}
+
+                  {canManagerRespondAsLoOnVaParent && (
+                    <div className="mt-8 rounded-2xl border border-blue-200 bg-blue-50/60 p-6 shadow-sm space-y-4">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                          <MessageSquare className="h-4 w-4" />
+                        </div>
+                        <h4 className="text-sm font-bold text-blue-900">Respond on Behalf of Loan Officer</h4>
+                      </div>
+                      <textarea
+                        value={loResponseByTask[task.id] || ''}
+                        onChange={(event) =>
+                          setLoResponseByTask((prev) => ({
+                            ...prev,
+                            [task.id]: event.target.value,
+                          }))
+                        }
+                        placeholder={`Describe the response for ${managerVaRespondLabel}...`}
+                        className="w-full rounded-xl border border-blue-200 bg-white px-4 py-3 text-sm font-medium shadow-sm min-h-[100px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
 
                   {canManageJrChecklist && (
                     <div className="relative mt-6">
@@ -5742,6 +5771,7 @@ export function TaskList({
                       !isQcDeskStartLockTask &&
                       !shouldRouteFromFooter &&
                       !shouldLoRespondFromFooter &&
+                      !canManagerRespondAsLoOnVaParent &&
                       !isLoanOfficerSubmissionTask && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
@@ -5754,6 +5784,7 @@ export function TaskList({
                     )}
                     {!isLoanOfficerAssistantRole &&
                       !isLoTaskForCurrentLoanOfficer &&
+                      !canManagerRespondAsLoOnVaParent &&
                       task.status !== 'COMPLETED' &&
                       !isDisclosureInitialRoutingState &&
                       !isVaRouteState &&
@@ -5926,6 +5957,19 @@ export function TaskList({
                           {`Respond to ${loResponseDeskLabel}`}
                         </button>
                       ))}
+                    {canManagerRespondAsLoOnVaParent && (
+                      <button
+                        type="button"
+                        onClick={() => void handleLoanOfficerResponse(task)}
+                        disabled={respondingId === task.id || !loFooterResponse || isTaskActionLocked}
+                        className="app-btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {respondingId === task.id && (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        )}
+                        {`Respond to ${managerVaRespondLabel}`}
+                      </button>
+                    )}
                     {canDelete && (
                       <button
                         onClick={() => handleDelete(task.id)}
