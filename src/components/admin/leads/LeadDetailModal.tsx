@@ -37,6 +37,7 @@ type LeadDetail = {
   homePhone: string | null;
   workPhone: string | null;
   dob: string | null;
+  ssn: string | null;
   coFirstName: string | null;
   coLastName: string | null;
   coEmail: string | null;
@@ -91,6 +92,7 @@ type LeadDetail = {
   fhaLoan: string | null;
   sourceUrl: string | null;
   source: string | null;
+  leadCreated: string | null;
   price: string | null;
   receivedAt: string;
   assignedAt: string | null;
@@ -158,6 +160,7 @@ const EDITABLE_FIELDS: Array<{ key: string; label: string }> = [
   { key: 'homePhone', label: 'Home Phone' },
   { key: 'workPhone', label: 'Work Phone' },
   { key: 'dob', label: 'DOB' },
+  { key: 'ssn', label: 'SSN' },
   { key: 'coFirstName', label: 'Co First Name' },
   { key: 'coLastName', label: 'Co Last Name' },
   { key: 'coEmail', label: 'Co Email' },
@@ -207,6 +210,7 @@ const EDITABLE_FIELDS: Array<{ key: string; label: string }> = [
   { key: 'fhaLoan', label: 'FHA Loan' },
   { key: 'sourceUrl', label: 'Source URL' },
   { key: 'source', label: 'Source' },
+  { key: 'leadCreated', label: 'Created Date' },
   { key: 'price', label: 'Price' },
 ];
 
@@ -574,6 +578,7 @@ export function LeadDetailModal({
             <FieldRow label="Home Phone" value={lead.homePhone} fieldKey="homePhone" {...fp} />
             <FieldRow label="Work Phone" value={lead.workPhone} fieldKey="workPhone" {...fp} />
             <FieldRow label="DOB" value={lead.dob} fieldKey="dob" {...fp} />
+            <FieldRow label="SSN" value={lead.ssn} fieldKey="ssn" {...fp} />
           </Section>
 
           <Section title="Contact — Co-Borrower" icon={User} defaultOpen={false}>
@@ -650,6 +655,7 @@ export function LeadDetailModal({
           <Section title="Source / Meta" icon={Tag} defaultOpen={false}>
             <FieldRow label="Source" value={lead.source} fieldKey="source" {...fp} />
             <FieldRow label="Source URL" value={lead.sourceUrl} fieldKey="sourceUrl" {...fp} />
+            <FieldRow label="Created Date" value={lead.leadCreated} fieldKey="leadCreated" {...fp} />
             <FieldRow label="Price" value={lead.price} fieldKey="price" {...fp} />
           </Section>
 

@@ -15,7 +15,7 @@ import { useRouter } from 'next/navigation';
 type SavedMapping = { csvHeader: string; ourField: string; usageCount: number };
 
 const NORMALIZED_FIELDS = [
-  'firstName','lastName','email','phone','homePhone','workPhone','dob',
+  'firstName','lastName','email','phone','homePhone','workPhone','dob','ssn',
   'coFirstName','coLastName','coEmail','coPhone','coHomePhone','coWorkPhone','coDob',
   'propertyAddress','propertyCity','propertyState','propertyZip','propertyCounty',
   'purchasePrice','propertyValue','propertyType','propertyUse','propertyAcquired','propertyLtv',
@@ -25,14 +25,14 @@ const NORMALIZED_FIELDS = [
   'downPayment','cashOut','creditRating',
   'currentLender','currentBalance','currentRate','currentPayment','currentTerm','currentType',
   'otherBalance','otherPayment','targetRate',
-  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','price',
+  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','leadCreated','price',
 ];
 
 const REQUIRED_FIELDS = new Set(['phone', 'propertyState']);
 
 const FIELD_LABELS: Record<string, string> = {
   firstName: 'First Name', lastName: 'Last Name', email: 'Email', phone: 'Phone',
-  homePhone: 'Home Phone', workPhone: 'Work Phone', dob: 'DOB',
+  homePhone: 'Home Phone', workPhone: 'Work Phone', dob: 'DOB', ssn: 'SSN',
   coFirstName: 'Co First Name', coLastName: 'Co Last Name', coEmail: 'Co Email',
   coPhone: 'Co Phone', coHomePhone: 'Co Home Phone', coWorkPhone: 'Co Work Phone', coDob: 'Co DOB',
   propertyAddress: 'Address', propertyCity: 'City', propertyState: 'State',
@@ -50,7 +50,7 @@ const FIELD_LABELS: Record<string, string> = {
   currentPayment: 'Current Payment', currentTerm: 'Current Term', currentType: 'Current Type',
   otherBalance: 'Other Balance', otherPayment: 'Other Payment', targetRate: 'Target Rate',
   vaStatus: 'VA Status', vaLoan: 'VA Loan', isMilitary: 'Is Military',
-  fhaLoan: 'FHA Loan', sourceUrl: 'Source URL', price: 'Price',
+  fhaLoan: 'FHA Loan', sourceUrl: 'Source URL', leadCreated: 'Created Date', price: 'Price',
 };
 
 export function CsvUploadModal({
