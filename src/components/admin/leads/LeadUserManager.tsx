@@ -354,47 +354,9 @@ function UserDetailPanel({
 
           {/* Campaigns */}
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Campaigns ({user.memberships.length})
-              </p>
-              {availableCampaigns.length > 0 && (
-                <button
-                  type="button"
-                  className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors"
-                  onClick={() => setAddingCampaign(!addingCampaign)}
-                >
-                  <Plus className="inline h-3.5 w-3.5 mr-0.5" />
-                  Add to Campaign
-                </button>
-              )}
-            </div>
-
-            {addingCampaign && (
-              <div className="mb-3 flex gap-2 items-end rounded-lg border border-dashed border-blue-300 bg-blue-50/30 p-3">
-                <label className="flex-1 space-y-1">
-                  <span className="text-xs font-medium text-slate-600">Campaign</span>
-                  <select
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    value={addCampaignId}
-                    onChange={(e) => setAddCampaignId(e.target.value)}
-                  >
-                    <option value="">Select campaign...</option>
-                    {availableCampaigns.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.vendorName})</option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="app-btn-primary h-[38px] px-4 text-sm disabled:opacity-70"
-                  onClick={() => void handleAddCampaign()}
-                  disabled={saving || !addCampaignId}
-                >
-                  Add
-                </button>
-              </div>
-            )}
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">
+              Campaigns ({user.memberships.length})
+            </p>
 
             {user.memberships.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-4">Not assigned to any campaigns.</p>
@@ -403,6 +365,53 @@ function UserDetailPanel({
                 {user.memberships.map((m) => (
                   <MembershipRow key={m.id} membership={m} onRefresh={onRefresh} />
                 ))}
+              </div>
+            )}
+
+            {availableCampaigns.length > 0 && !addingCampaign && (
+              <button
+                type="button"
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 py-3 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-400 hover:bg-blue-50/40 hover:text-blue-700"
+                onClick={() => setAddingCampaign(true)}
+              >
+                <Plus className="h-4 w-4" />
+                Add Campaign
+              </button>
+            )}
+
+            {addingCampaign && (
+              <div className="mt-3 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/30 p-4 space-y-3">
+                <label className="space-y-1 block">
+                  <span className="text-xs font-medium text-slate-600">Select a campaign</span>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={addCampaignId}
+                    onChange={(e) => setAddCampaignId(e.target.value)}
+                  >
+                    <option value="">Choose campaign...</option>
+                    {availableCampaigns.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} ({c.vendorName})</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="app-btn-primary flex-1 text-sm disabled:opacity-70"
+                    onClick={() => void handleAddCampaign()}
+                    disabled={saving || !addCampaignId}
+                  >
+                    {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                    Add to Campaign
+                  </button>
+                  <button
+                    type="button"
+                    className="app-btn-secondary text-sm"
+                    onClick={() => { setAddingCampaign(false); setAddCampaignId(''); }}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
           </div>
