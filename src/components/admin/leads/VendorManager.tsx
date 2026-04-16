@@ -124,8 +124,22 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const [mappingError, setMappingError] = useState('');
+
   const addMapping = () => {
-    if (!newMappingVendorField.trim() || !newMappingOurField) return;
+    if (!newMappingVendorField.trim() && !newMappingOurField) {
+      setMappingError('Enter a vendor field name and select one of our fields.');
+      return;
+    }
+    if (!newMappingVendorField.trim()) {
+      setMappingError('Enter a vendor field name on the left.');
+      return;
+    }
+    if (!newMappingOurField) {
+      setMappingError('Select one of our fields on the right.');
+      return;
+    }
+    setMappingError('');
     setForm((prev) => ({
       ...prev,
       fieldMapping: { ...prev.fieldMapping, [newMappingVendorField.trim()]: newMappingOurField },
@@ -303,7 +317,9 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
               )}
 
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">Field Mapping</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">
+                  Field Mapping ({Object.keys(form.fieldMapping).length})
+                </p>
                 <p className="text-xs text-slate-500 mb-3">
                   Map vendor payload fields to our normalized lead fields. Supports dot notation (e.g. &quot;borrower.first_name&quot;).
                 </p>
@@ -315,7 +331,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                         <code className="flex-1 text-xs font-mono text-slate-600">{vendorField}</code>
                         <span className="text-xs text-slate-400">&rarr;</span>
                         <span className="flex-1 text-xs font-semibold text-slate-700">{ourField}</span>
-                        <button className="text-slate-400 hover:text-red-600 transition-colors" onClick={() => removeMapping(vendorField)}>
+                        <button type="button" className="text-slate-400 hover:text-red-600 transition-colors" onClick={() => removeMapping(vendorField)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -323,50 +339,47 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                   </div>
                 )}
 
-                <div className="flex items-end gap-2">
-                  <label className="flex-1 space-y-1 text-sm">
-                    <span className="text-xs font-medium text-slate-500">Vendor field</span>
-                    <input
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      value={newMappingVendorField}
-                      onChange={(e) => setNewMappingVendorField(e.target.value)}
-                      placeholder="vendor_field_name"
-                      onKeyDown={(e) => e.key === 'Enter' && addMapping()}
-                    />
-                  </label>
-                  <label className="flex-1 space-y-1 text-sm">
-                    <span className="text-xs font-medium text-slate-500">Our field</span>
-                    <select
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      value={newMappingOurField}
-                      onChange={(e) => setNewMappingOurField(e.target.value)}
-                    >
-                      <option value="">Select...</option>
-                      {NORMALIZED_FIELDS.filter((f) => !Object.values(form.fieldMapping).includes(f)).map((f) => (
-                        <option key={f} value={f}>{f}</option>
-                      ))}
-                    </select>
-                  </label>
+                <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/50 p-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs font-medium text-slate-600">Vendor field name</span>
+                      <input
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        value={newMappingVendorField}
+                        onChange={(e) => setNewMappingVendorField(e.target.value)}
+                        placeholder="e.g. first_name"
+                        onKeyDown={(e) => e.key === 'Enter' && addMapping()}
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs font-medium text-slate-600">Maps to our field</span>
+                      <select
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        value={newMappingOurField}
+                        onChange={(e) => setNewMappingOurField(e.target.value)}
+                      >
+                        <option value="">Select our field...</option>
+                        {NORMALIZED_FIELDS.filter((f) => !Object.values(form.fieldMapping).includes(f)).map((f) => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                   <button
                     type="button"
-                    className={`h-[38px] px-3 text-xs rounded-lg font-medium transition-colors ${
-                      newMappingVendorField.trim() && newMappingOurField
-                        ? 'app-btn-primary'
-                        : 'border border-slate-200 bg-slate-100 text-slate-400 cursor-default'
-                    }`}
+                    className="app-btn-primary w-full text-sm"
                     onClick={addMapping}
-                    title={
-                      !newMappingVendorField.trim() && !newMappingOurField
-                        ? 'Enter a vendor field name and select one of our fields first'
-                        : !newMappingVendorField.trim()
-                        ? 'Enter a vendor field name first'
-                        : !newMappingOurField
-                        ? 'Select one of our fields first'
-                        : 'Add mapping'
-                    }
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    Add Field Mapping
                   </button>
+                  {mappingError ? (
+                    <p className="text-[11px] text-red-500 text-center font-medium">{mappingError}</p>
+                  ) : (!newMappingVendorField.trim() || !newMappingOurField) ? (
+                    <p className="text-[11px] text-slate-400 text-center">
+                      Fill in both fields above, then click &quot;Add Field Mapping&quot;
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </div>

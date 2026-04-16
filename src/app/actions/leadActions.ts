@@ -192,6 +192,8 @@ export async function createLeadVendor(data: {
     },
   });
   revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
   return vendor;
 }
 
@@ -218,12 +220,16 @@ export async function updateLeadVendor(
     },
   });
   revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
   return vendor;
 }
 
 export async function deleteLeadVendor(id: string) {
   await prisma.leadVendor.delete({ where: { id } });
   revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
 }
 
 // ---------------------------------------------------------------------------
