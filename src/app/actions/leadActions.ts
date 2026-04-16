@@ -45,11 +45,26 @@ export async function distributeLead(leadId: string) {
 
   const leadState = (lead.propertyState || '').trim().toUpperCase();
 
+  const currentDayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon...6=Sat
+
   for (const member of members) {
+    const globalQuota = await prisma.userLeadQuota.findUnique({
+      where: { userId: member.userId },
+    });
+
+    if (globalQuota && !globalQuota.leadsEnabled) continue;
+
+    if (globalQuota && globalQuota.licensedStates.length > 0 && leadState) {
+      const globalStates = globalQuota.licensedStates.map((s) => s.trim().toUpperCase());
+      if (!globalStates.includes(leadState)) continue;
+    }
+
     if (member.licensedStates.length > 0 && leadState) {
       const upperStates = member.licensedStates.map((s) => s.trim().toUpperCase());
       if (!upperStates.includes(leadState)) continue;
     }
+
+    if (member.receiveDays.length > 0 && !member.receiveDays.includes(currentDayOfWeek)) continue;
 
     if (campaign.enableUserQuotas) {
       if (member.dailyQuota > 0 && member.leadsReceivedToday >= member.dailyQuota) continue;
@@ -57,9 +72,6 @@ export async function distributeLead(leadId: string) {
       if (member.monthlyQuota > 0 && member.leadsReceivedThisMonth >= member.monthlyQuota) continue;
     }
 
-    const globalQuota = await prisma.userLeadQuota.findUnique({
-      where: { userId: member.userId },
-    });
     if (globalQuota) {
       if (globalQuota.globalDailyQuota > 0 && globalQuota.leadsReceivedToday >= globalQuota.globalDailyQuota) continue;
       if (globalQuota.globalWeeklyQuota > 0 && globalQuota.leadsReceivedThisWeek >= globalQuota.globalWeeklyQuota) continue;
@@ -409,6 +421,7 @@ export async function setCampaignMembers(
   ]);
 
   revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads/users');
 }
 
 // ---------------------------------------------------------------------------
@@ -567,6 +580,170 @@ export async function getLeadEligibleUsers() {
       role: { in: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.MANAGER] },
     },
     select: { id: true, name: true, email: true, role: true },
+    orderBy: { name: 'asc' },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// User management for leads
+// ---------------------------------------------------------------------------
+
+export async function getLeadUsers() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const users = await prisma.user.findMany({
+    where: {
+      active: true,
+      role: { in: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.MANAGER] },
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      leadQuota: true,
+      campaignMemberships: {
+        include: {
+          campaign: {
+            select: { id: true, name: true, vendor: { select: { name: true } } },
+          },
+        },
+      },
+      _count: {
+        select: {
+          leads: { where: { receivedAt: { gte: today } } },
+        },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  return users;
+}
+
+export async function getLeadUser(userId: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      leadQuota: true,
+      campaignMemberships: {
+        include: {
+          campaign: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              active: true,
+              vendor: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      },
+      _count: {
+        select: {
+          leads: { where: { receivedAt: { gte: today } } },
+        },
+      },
+    },
+  });
+
+  return user;
+}
+
+export async function updateUserLeadSettings(
+  userId: string,
+  data: {
+    leadsEnabled?: boolean;
+    licensedStates?: string[];
+    globalDailyQuota?: number;
+    globalWeeklyQuota?: number;
+    globalMonthlyQuota?: number;
+  }
+) {
+  await prisma.userLeadQuota.upsert({
+    where: { userId },
+    create: {
+      userId,
+      leadsEnabled: data.leadsEnabled ?? true,
+      licensedStates: data.licensedStates ?? [],
+      globalDailyQuota: data.globalDailyQuota ?? 0,
+      globalWeeklyQuota: data.globalWeeklyQuota ?? 0,
+      globalMonthlyQuota: data.globalMonthlyQuota ?? 0,
+    },
+    update: {
+      ...(data.leadsEnabled !== undefined && { leadsEnabled: data.leadsEnabled }),
+      ...(data.licensedStates !== undefined && { licensedStates: data.licensedStates }),
+      ...(data.globalDailyQuota !== undefined && { globalDailyQuota: data.globalDailyQuota }),
+      ...(data.globalWeeklyQuota !== undefined && { globalWeeklyQuota: data.globalWeeklyQuota }),
+      ...(data.globalMonthlyQuota !== undefined && { globalMonthlyQuota: data.globalMonthlyQuota }),
+    },
+  });
+  revalidatePath('/admin/leads/users');
+}
+
+export async function updateMemberSettings(
+  memberId: string,
+  data: {
+    dailyQuota?: number;
+    weeklyQuota?: number;
+    monthlyQuota?: number;
+    receiveDays?: number[];
+    active?: boolean;
+  }
+) {
+  await prisma.campaignMember.update({
+    where: { id: memberId },
+    data: {
+      ...(data.dailyQuota !== undefined && { dailyQuota: data.dailyQuota }),
+      ...(data.weeklyQuota !== undefined && { weeklyQuota: data.weeklyQuota }),
+      ...(data.monthlyQuota !== undefined && { monthlyQuota: data.monthlyQuota }),
+      ...(data.receiveDays !== undefined && { receiveDays: data.receiveDays }),
+      ...(data.active !== undefined && { active: data.active }),
+    },
+  });
+  revalidatePath('/admin/leads/users');
+  revalidatePath('/admin/leads/campaigns');
+}
+
+export async function addUserToCampaign(userId: string, campaignId: string) {
+  const maxMember = await prisma.campaignMember.findFirst({
+    where: { campaignId },
+    orderBy: { roundRobinPosition: 'desc' },
+  });
+  await prisma.campaignMember.create({
+    data: {
+      campaignId,
+      userId,
+      roundRobinPosition: (maxMember?.roundRobinPosition ?? -1) + 1,
+    },
+  });
+  revalidatePath('/admin/leads/users');
+  revalidatePath('/admin/leads/campaigns');
+}
+
+export async function removeUserFromCampaign(memberId: string) {
+  await prisma.campaignMember.delete({ where: { id: memberId } });
+  revalidatePath('/admin/leads/users');
+  revalidatePath('/admin/leads/campaigns');
+}
+
+export async function getAllCampaignsForUserAdd() {
+  return prisma.leadCampaign.findMany({
+    where: { active: true },
+    select: {
+      id: true,
+      name: true,
+      vendor: { select: { name: true } },
+    },
     orderBy: { name: 'asc' },
   });
 }

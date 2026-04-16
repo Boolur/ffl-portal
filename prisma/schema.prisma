@@ -578,6 +578,7 @@ model CampaignMember {
   weeklyQuota           Int       @default(0)
   monthlyQuota          Int       @default(0)
   licensedStates        String[]  @default([])
+  receiveDays           Int[]     @default([1, 2, 3, 4, 5])
   active                Boolean   @default(true)
   roundRobinPosition    Int       @default(0)
   leadsReceivedToday    Int       @default(0)
@@ -597,6 +598,9 @@ model UserLeadQuota {
   id                    String   @id @default(uuid())
   userId                String   @unique
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  leadsEnabled          Boolean  @default(true)
+  licensedStates        String[] @default([])
 
   globalDailyQuota      Int      @default(0)
   globalWeeklyQuota     Int      @default(0)

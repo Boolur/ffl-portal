@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Inbox, Megaphone, Globe, ArrowRight, Users } from 'lucide-react';
+import { Inbox, Megaphone, Globe, ArrowRight, Users, UserCog } from 'lucide-react';
 
 type DashboardStats = {
   totalToday: number;
@@ -33,7 +33,7 @@ export function LeadDashboard({ stats }: { stats: DashboardStats }) {
   return (
     <div className="space-y-6">
       {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
@@ -85,6 +85,23 @@ export function LeadDashboard({ stats }: { stats: DashboardStats }) {
               <div>
                 <p className="text-sm font-semibold text-slate-900">Campaigns</p>
                 <p className="text-xs text-slate-500">Distribution rules</p>
+              </div>
+            </div>
+            <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
+          </div>
+        </Link>
+        <Link
+          href="/admin/leads/users"
+          className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
+                <UserCog className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Users</p>
+                <p className="text-xs text-slate-500">Quotas &amp; schedules</p>
               </div>
             </div>
             <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
