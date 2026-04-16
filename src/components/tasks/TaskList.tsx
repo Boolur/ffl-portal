@@ -3772,7 +3772,7 @@ export function TaskList({
         const defaultIconClassName =
           task.status === TaskStatus.COMPLETED
             ? completedColorMeta.iconClassName
-            : task.status === TaskStatus.IN_PROGRESS
+            : task.status === TaskStatus.IN_PROGRESS || task.status === TaskStatus.BLOCKED
             ? 'bg-blue-100 text-blue-600'
             : 'bg-slate-100 text-slate-500';
         const iconClassName = isReturnedToDisclosure
