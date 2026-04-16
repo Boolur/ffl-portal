@@ -3,7 +3,7 @@ import { UserRole } from '@prisma/client';
 
 const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.ADMIN]: ['*'],
-  [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders', '/leads', '/admin/leads'],
+  [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders'],
   [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources', '/lenders', '/leads'],
   [UserRole.LOA]: ['/', '/tasks', '/resources', '/lenders', '/leads'],
   [UserRole.DISCLOSURE_SPECIALIST]: ['/', '/tasks', '/resources', '/lenders'],

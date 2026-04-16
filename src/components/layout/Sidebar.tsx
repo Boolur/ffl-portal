@@ -90,7 +90,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       name: 'Leads',
       icon: Inbox,
       href: '/leads',
-      roles: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.ADMIN, UserRole.MANAGER],
+      roles: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.ADMIN],
     },
     {
       name: 'Lenders',
@@ -132,7 +132,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       name: 'Lead Distribution',
       icon: Megaphone,
       href: '/admin/leads',
-      roles: [UserRole.ADMIN, UserRole.MANAGER],
+      roles: [UserRole.ADMIN],
     },
     {
       name: 'Lender Mgmt',
