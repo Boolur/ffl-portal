@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState, useCallback, useRef } from 'react';
-import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Globe, HelpCircle } from 'lucide-react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Globe, HelpCircle, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import {
   createLeadVendor,
   updateLeadVendor,
   deleteLeadVendor,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 type Vendor = {
   id: string;
@@ -18,6 +19,8 @@ type Vendor = {
   routingTagField: string;
   active: boolean;
   _count: { leads: number; campaigns: number };
+  createdAt: Date | string;
+  updatedAt: Date | string;
 };
 
 const NORMALIZED_FIELDS = [
@@ -77,6 +80,44 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [vendorSearch, setVendorSearch] = useState('');
+  const [sortCol, setSortCol] = useState<string>('created');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = useCallback((col: string) => {
+    setSortCol((prev) => {
+      if (prev === col) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return col;
+      }
+      setSortDir('asc');
+      return col;
+    });
+  }, []);
+
+  const filteredVendors = useMemo(() => {
+    let list = vendors;
+    if (vendorSearch) {
+      const q = vendorSearch.toLowerCase();
+      list = list.filter(
+        (v) => v.name.toLowerCase().includes(q) || v.slug.toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a, b) => {
+      let cmp = 0;
+      switch (sortCol) {
+        case 'name': cmp = a.name.localeCompare(b.name); break;
+        case 'slug': cmp = a.slug.localeCompare(b.slug); break;
+        case 'status': cmp = (a.active === b.active ? 0 : a.active ? -1 : 1); break;
+        case 'campaigns': cmp = a._count.campaigns - b._count.campaigns; break;
+        case 'leads': cmp = a._count.leads - b._count.leads; break;
+        case 'created': cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break;
+        case 'modified': cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime(); break;
+        default: cmp = 0;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [vendors, vendorSearch, sortCol, sortDir]);
 
   const [form, setForm] = useState({
     name: '',
@@ -215,11 +256,21 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
           </div>
         </div>
       )}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-            {vendors.length} vendor{vendors.length !== 1 ? 's' : ''}
+            {filteredVendors.length} vendor{filteredVendors.length !== 1 ? 's' : ''}
           </span>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search vendors…"
+              value={vendorSearch}
+              onChange={(e) => setVendorSearch(e.target.value)}
+              className="rounded-lg border border-slate-200 py-1.5 pl-8 pr-3 text-xs focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none w-56"
+            />
+          </div>
         </div>
         <button className="app-btn-primary" onClick={openCreate}>
           <Plus className="mr-1.5 h-4 w-4" />
@@ -227,7 +278,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
         </button>
       </div>
 
-      {vendors.length === 0 ? (
+      {filteredVendors.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
           <Globe className="mx-auto h-10 w-10 text-slate-300" />
           <p className="mt-3 text-sm font-semibold text-slate-700">No vendors configured</p>
@@ -238,17 +289,32 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-[1] bg-slate-50">
               <tr className="border-b border-slate-200">
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Vendor</th>
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Slug</th>
-                <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Status</th>
-                <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Campaigns</th>
-                <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Leads</th>
+                {([
+                  { key: 'name', label: 'Vendor', align: 'left' },
+                  { key: 'slug', label: 'Slug', align: 'left' },
+                  { key: 'status', label: 'Status', align: 'center' },
+                  { key: 'campaigns', label: 'Campaigns', align: 'center' },
+                  { key: 'leads', label: 'Leads', align: 'center' },
+                  { key: 'created', label: 'Created', align: 'left' },
+                  { key: 'modified', label: 'Modified', align: 'left' },
+                ] as const).map((col) => (
+                  <th
+                    key={col.key}
+                    className={`px-4 py-3 text-${col.align} text-[11px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-slate-700 transition-colors`}
+                    onClick={() => toggleSort(col.key)}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {col.label}
+                      {sortCol === col.key && (sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+                    </span>
+                  </th>
+                ))}
                 <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Webhook</th>
                 <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {vendors.map((v) => (
+              {filteredVendors.map((v) => (
                 <tr key={v.id} className="align-middle hover:bg-slate-50/70">
                   <td className="px-4 py-3 font-semibold text-slate-900">{v.name}</td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{v.slug}</td>
@@ -266,6 +332,12 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                   </td>
                   <td className="px-4 py-3 text-center text-slate-700">{v._count.campaigns}</td>
                   <td className="px-4 py-3 text-center text-slate-700">{v._count.leads}</td>
+                  <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                    <FormatDate date={v.createdAt} mode="datetime" />
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                    <FormatDate date={v.updatedAt} mode="datetime" />
+                  </td>
                   <td className="px-4 py-3 text-center">
                     <button
                       onClick={() => copyWebhookUrl(v.slug)}

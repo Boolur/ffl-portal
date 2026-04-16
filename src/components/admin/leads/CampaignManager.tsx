@@ -9,6 +9,7 @@ import {
   setCampaignMembers,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
+import { FormatDate } from '@/components/ui/FormatDate';
 
 type Vendor = { id: string; name: string; slug: string };
 type EligibleUser = { id: string; name: string; email: string; role: string };
@@ -30,6 +31,8 @@ type Campaign = {
   vendor: { id: string; name: string; slug: string };
   defaultUser: { id: string; name: string } | null;
   _count: { members: number; leads: number };
+  createdAt: Date | string;
+  updatedAt: Date | string;
 };
 type CampaignDetail = Campaign & {
   members: Array<{
@@ -132,8 +135,8 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
   const [userSearch, setUserSearch] = useState('');
   const [filterVendor, setFilterVendor] = useState('');
   const [campaignSearch, setCampaignSearch] = useState('');
-  const [sortCol, setSortCol] = useState<string>('name');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [sortCol, setSortCol] = useState<string>('created');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const toggleSort = useCallback((col: string) => {
     setSortCol((prev) => {
@@ -169,6 +172,8 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
         case 'members': cmp = a._count.members - b._count.members; break;
         case 'leads': cmp = a._count.leads - b._count.leads; break;
         case 'status': cmp = (a.active === b.active ? 0 : a.active ? -1 : 1); break;
+        case 'created': cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break;
+        case 'modified': cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime(); break;
         default: cmp = 0;
       }
       return sortDir === 'asc' ? cmp : -cmp;
@@ -361,6 +366,8 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                   { key: 'tag', label: 'Routing Tag', align: 'left' },
                   { key: 'members', label: 'Members', align: 'center' },
                   { key: 'leads', label: 'Leads', align: 'center' },
+                  { key: 'created', label: 'Created', align: 'left' },
+                  { key: 'modified', label: 'Modified', align: 'left' },
                 ] as const).map((col) => (
                   <th
                     key={col.key}
@@ -403,6 +410,12 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.routingTag}</td>
                   <td className="px-4 py-3 text-center text-slate-700">{c._count.members}</td>
                   <td className="px-4 py-3 text-center text-slate-700">{c._count.leads}</td>
+                  <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                    <FormatDate date={c.createdAt} mode="datetime" />
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                    <FormatDate date={c.updatedAt} mode="datetime" />
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       <button className="app-icon-btn" onClick={() => copyWebhookInfo(c)} title="Copy webhook info">
