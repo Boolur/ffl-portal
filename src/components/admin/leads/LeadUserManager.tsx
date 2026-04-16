@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users,
+  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users, Check,
 } from 'lucide-react';
 import {
   updateUserLeadSettings,
@@ -170,7 +170,7 @@ function UserDetailPanel({
   const [globalWeekly, setGlobalWeekly] = useState(user.globalWeeklyQuota);
   const [globalMonthly, setGlobalMonthly] = useState(user.globalMonthlyQuota);
   const [addingCampaign, setAddingCampaign] = useState(false);
-  const [addCampaignId, setAddCampaignId] = useState('');
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<string>>(new Set());
 
   const availableCampaigns = useMemo(() => {
     const memberCampaignIds = new Set(user.memberships.map((m) => m.campaignId));
@@ -205,12 +205,22 @@ function UserDetailPanel({
     setLicensedStates(licensedStates.filter((s) => s !== state));
   };
 
-  const handleAddCampaign = async () => {
-    if (!addCampaignId) return;
+  const toggleCampaignSelection = (id: string) => {
+    setSelectedCampaignIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAddCampaigns = async () => {
+    if (selectedCampaignIds.size === 0) return;
     setSaving(true);
     try {
-      await addUserToCampaign(user.id, addCampaignId);
-      setAddCampaignId('');
+      for (const cid of selectedCampaignIds) {
+        await addUserToCampaign(user.id, cid);
+      }
+      setSelectedCampaignIds(new Set());
       setAddingCampaign(false);
       onRefresh();
     } finally {
@@ -371,10 +381,10 @@ function UserDetailPanel({
             {!addingCampaign && (
               <button
                 type="button"
-                className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-semibold transition-colors ${
+                className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-colors ${
                   availableCampaigns.length > 0
-                    ? 'border-blue-300 bg-blue-50/30 text-blue-600 hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700'
-                    : 'border-slate-200 bg-slate-50/30 text-slate-400 cursor-not-allowed'
+                    ? 'bg-blue-600 text-white shadow-sm hover:bg-blue-700'
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 }`}
                 onClick={() => availableCampaigns.length > 0 && setAddingCampaign(true)}
                 disabled={availableCampaigns.length === 0}
@@ -385,34 +395,49 @@ function UserDetailPanel({
             )}
 
             {addingCampaign && (
-              <div className="mt-3 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/30 p-4 space-y-3">
-                <label className="space-y-1 block">
-                  <span className="text-xs font-medium text-slate-600">Select a campaign</span>
-                  <select
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    value={addCampaignId}
-                    onChange={(e) => setAddCampaignId(e.target.value)}
-                  >
-                    <option value="">Choose campaign...</option>
-                    {availableCampaigns.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.vendorName})</option>
-                    ))}
-                  </select>
-                </label>
+              <div className="mt-3 space-y-3">
+                <p className="text-xs font-medium text-slate-600">Select campaigns to add:</p>
+                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden divide-y divide-slate-100">
+                  {availableCampaigns.map((c) => {
+                    const checked = selectedCampaignIds.has(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => toggleCampaignSelection(c.id)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+                          checked ? 'bg-blue-50' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs transition-colors ${
+                          checked
+                            ? 'border-blue-500 bg-blue-500 text-white'
+                            : 'border-slate-300 bg-white'
+                        }`}>
+                          {checked && <Check className="h-3.5 w-3.5" />}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 truncate">{c.name}</p>
+                          <p className="text-[11px] text-slate-500">{c.vendorName}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    className="app-btn-primary flex-1 text-sm disabled:opacity-70"
-                    onClick={() => void handleAddCampaign()}
-                    disabled={saving || !addCampaignId}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    onClick={() => void handleAddCampaigns()}
+                    disabled={saving || selectedCampaignIds.size === 0}
                   >
-                    {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                    Add to Campaign
+                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Add to Campaign{selectedCampaignIds.size > 1 ? 's' : ''} ({selectedCampaignIds.size})
                   </button>
                   <button
                     type="button"
                     className="app-btn-secondary text-sm"
-                    onClick={() => { setAddingCampaign(false); setAddCampaignId(''); }}
+                    onClick={() => { setAddingCampaign(false); setSelectedCampaignIds(new Set()); }}
                   >
                     Cancel
                   </button>
