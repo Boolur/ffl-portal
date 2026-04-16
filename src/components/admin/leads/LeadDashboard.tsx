@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Database,
@@ -9,8 +9,11 @@ import {
   UserCog,
   Upload,
   Inbox,
+  Loader2,
 } from 'lucide-react';
 import { CsvUploadModal } from './CsvUploadModal';
+import { LeadDetailModal } from './LeadDetailModal';
+import { getLead } from '@/app/actions/leadActions';
 
 type DashboardStats = {
   totalToday: number;
@@ -97,11 +100,33 @@ export function LeadDashboard({
   onOpenCsv?: () => void;
 }) {
   const [csvOpen, setCsvOpen] = useState(false);
+  const [detailLead, setDetailLead] = useState<React.ComponentProps<typeof LeadDetailModal>['lead'] | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const handleCsvOpen = () => {
     if (onOpenCsv) onOpenCsv();
     else setCsvOpen(true);
   };
+
+  const openLeadDetail = useCallback(async (leadId: string) => {
+    setDetailLoading(true);
+    try {
+      const full = await getLead(leadId);
+      if (full) {
+        setDetailLead({
+          ...full,
+          receivedAt: full.receivedAt.toISOString(),
+          assignedAt: full.assignedAt?.toISOString() ?? null,
+          notes: full.notes.map((n) => ({
+            ...n,
+            createdAt: n.createdAt.toISOString(),
+          })),
+        } as React.ComponentProps<typeof LeadDetailModal>['lead']);
+      }
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
 
   return (
     <div className="space-y-8">
@@ -214,7 +239,8 @@ export function LeadDashboard({
                 {stats.recentLeads.map((l) => (
                   <tr
                     key={l.id}
-                    className="hover:bg-slate-50/70 transition-colors"
+                    className="hover:bg-slate-50/70 transition-colors cursor-pointer"
+                    onClick={() => void openLeadDetail(l.id)}
                   >
                     <td className="px-6 py-3">
                       <span
@@ -250,6 +276,20 @@ export function LeadDashboard({
           </div>
         )}
       </div>
+
+      {detailLoading && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      )}
+
+      {detailLead && (
+        <LeadDetailModal
+          lead={detailLead}
+          onClose={() => setDetailLead(null)}
+          onUpdated={() => {}}
+        />
+      )}
 
       <CsvUploadModal
         open={csvOpen}
