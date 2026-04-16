@@ -3,6 +3,18 @@
     {
       "path": "/api/internal/notifications/drain?batchSize=25",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/internal/leads/quota-reset?type=daily",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/internal/leads/quota-reset?type=weekly",
+      "schedule": "0 0 * * 1"
+    },
+    {
+      "path": "/api/internal/leads/quota-reset?type=monthly",
+      "schedule": "0 0 1 * *"
     }
   ]
 }

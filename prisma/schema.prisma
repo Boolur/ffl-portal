@@ -104,6 +104,27 @@ enum LenderLinkType {
   OTHER
 }
 
+enum LeadStatus {
+  NEW
+  CONTACTED
+  WORKING
+  CONVERTED
+  DEAD
+  RETURNED
+  UNASSIGNED
+}
+
+enum LeadDistributionMethod {
+  ROUND_ROBIN
+  MANUAL
+}
+
+enum LeadDuplicateHandling {
+  NONE
+  REJECT
+  ALLOW
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
@@ -135,6 +156,13 @@ model User {
   invitesCreated   InviteToken[] @relation("InvitesCreated")
   passwordResets   PasswordResetToken[]
   notifications    Notification[]
+
+  // Lead distribution relations
+  leads              Lead[]
+  campaignMemberships CampaignMember[]
+  leadQuota          UserLeadQuota?
+  defaultForCampaigns LeadCampaign[] @relation("CampaignDefaultUser")
+  leadNotes          LeadNote[]
 }
 
 model Loan {
@@ -485,4 +513,221 @@ model PipelineNote {
   createdAt DateTime @default(now())
 
   @@index([loanId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Lead Distribution System
+// ---------------------------------------------------------------------------
+
+model LeadVendor {
+  id              String   @id @default(uuid())
+  name            String
+  slug            String   @unique
+  webhookSecret   String?
+  fieldMapping    Json     @default("{}")
+  routingTagField String   @default("routing_tag")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  leads     Lead[]
+  campaigns LeadCampaign[]
+}
+
+model LeadCampaign {
+  id                  String                 @id @default(uuid())
+  name                String
+  description         String?
+  vendorId            String
+  vendor              LeadVendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  routingTag          String
+  active              Boolean                @default(true)
+  distributionMethod  LeadDistributionMethod @default(ROUND_ROBIN)
+  independentRotation Boolean                @default(true)
+
+  duplicateHandling   LeadDuplicateHandling  @default(NONE)
+  defaultLeadStatus   String                 @default("NEW")
+  enableUserQuotas    Boolean                @default(true)
+  price               Decimal?               @db.Decimal(10, 2)
+
+  defaultUserId       String?
+  defaultUser         User?                  @relation("CampaignDefaultUser", fields: [defaultUserId], references: [id], onDelete: SetNull)
+
+  stateFilter         String[]               @default([])
+  loanTypeFilter      String[]               @default([])
+
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  members  CampaignMember[]
+  leads    Lead[]
+
+  @@unique([vendorId, routingTag])
+  @@index([vendorId])
+  @@index([active])
+}
+
+model CampaignMember {
+  id                    String    @id @default(uuid())
+  campaignId            String
+  campaign              LeadCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  dailyQuota            Int       @default(0)
+  weeklyQuota           Int       @default(0)
+  monthlyQuota          Int       @default(0)
+  licensedStates        String[]  @default([])
+  active                Boolean   @default(true)
+  roundRobinPosition    Int       @default(0)
+  leadsReceivedToday    Int       @default(0)
+  leadsReceivedThisWeek Int       @default(0)
+  leadsReceivedThisMonth Int      @default(0)
+  lastAssignedAt        DateTime?
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([campaignId, userId])
+  @@index([campaignId, active, roundRobinPosition])
+  @@index([userId])
+}
+
+model UserLeadQuota {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  globalDailyQuota      Int      @default(0)
+  globalWeeklyQuota     Int      @default(0)
+  globalMonthlyQuota    Int      @default(0)
+  leadsReceivedToday    Int      @default(0)
+  leadsReceivedThisWeek Int      @default(0)
+  leadsReceivedThisMonth Int     @default(0)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Lead {
+  id            String      @id @default(uuid())
+  vendorLeadId  String?
+  vendorId      String
+  vendor        LeadVendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  // Contact
+  firstName     String?
+  lastName      String?
+  email         String?
+  phone         String?
+  homePhone     String?
+  workPhone     String?
+  dob           String?
+
+  // Co-borrower contact
+  coFirstName   String?
+  coLastName    String?
+  coEmail       String?
+  coPhone       String?
+  coHomePhone   String?
+  coWorkPhone   String?
+  coDob         String?
+
+  // Mailing address
+  mailingAddress String?
+  mailingCity    String?
+  mailingState   String?
+  mailingZip     String?
+  mailingCounty  String?
+
+  // Property address
+  propertyAddress String?
+  propertyCity    String?
+  propertyState   String?
+  propertyZip     String?
+  propertyCounty  String?
+
+  // Property
+  purchasePrice  String?
+  propertyValue  String?
+  propertyType   String?
+  propertyUse    String?
+  propertyAcquired String?
+  propertyLtv    String?
+
+  // Employer (borrower)
+  employer         String?
+  jobTitle         String?
+  employmentLength String?
+  selfEmployed     String?
+  income           String?
+  bankruptcy       String?
+  homeowner        String?
+
+  // Employer (co-borrower)
+  coEmployer         String?
+  coJobTitle         String?
+  coEmploymentLength String?
+  coSelfEmployed     String?
+  coIncome           String?
+
+  // Loan
+  loanPurpose    String?
+  loanAmount     String?
+  loanTerm       String?
+  loanType       String?
+  loanRate       String?
+  downPayment    String?
+  cashOut        String?
+  creditRating   String?
+  currentLender  String?
+  currentBalance String?
+  currentRate    String?
+  currentPayment String?
+  currentTerm    String?
+  currentType    String?
+  otherBalance   String?
+  otherPayment   String?
+  targetRate     String?
+  vaStatus       String?
+  vaLoan         String?
+  isMilitary     String?
+  fhaLoan        String?
+  sourceUrl      String?
+
+  // Routing / status
+  status         LeadStatus  @default(UNASSIGNED)
+  assignedUserId String?
+  assignedUser   User?       @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  assignedAt     DateTime?
+  campaignId     String?
+  campaign       LeadCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  source         String?
+
+  rawPayload     Json        @default("{}")
+  receivedAt     DateTime    @default(now())
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  notes          LeadNote[]
+
+  @@unique([vendorId, vendorLeadId])
+  @@index([status])
+  @@index([assignedUserId, status])
+  @@index([campaignId])
+  @@index([vendorId, receivedAt])
+  @@index([propertyState])
+  @@index([receivedAt])
+}
+
+model LeadNote {
+  id        String   @id @default(uuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
 }

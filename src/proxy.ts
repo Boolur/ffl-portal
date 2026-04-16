@@ -3,9 +3,9 @@ import { UserRole } from '@prisma/client';
 
 const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.ADMIN]: ['*'],
-  [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders'],
-  [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources', '/lenders'],
-  [UserRole.LOA]: ['/', '/tasks', '/resources', '/lenders'],
+  [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders', '/leads', '/admin/leads'],
+  [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources', '/lenders', '/leads'],
+  [UserRole.LOA]: ['/', '/tasks', '/resources', '/lenders', '/leads'],
   [UserRole.DISCLOSURE_SPECIALIST]: ['/', '/tasks', '/resources', '/lenders'],
   [UserRole.VA]: ['/', '/tasks', '/resources', '/lenders'],
   [UserRole.VA_TITLE]: ['/', '/tasks', '/resources', '/lenders'],
@@ -55,6 +55,6 @@ export const proxy = authProxy;
 
 export const config = {
   matcher: [
-    '/((?!api/auth|api/webhooks/lead-mailbox|login|auth|_next|favicon.ico|.*\\..*).*)',
+    '/((?!api/auth|api/webhooks/lead-mailbox|api/webhooks/leads|login|auth|_next|favicon.ico|.*\\..*).*)',
   ],
 };

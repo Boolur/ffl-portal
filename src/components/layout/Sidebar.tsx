@@ -10,6 +10,8 @@ import {
   Mail,
   Building2,
   LayoutGrid,
+  Megaphone,
+  Inbox,
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -18,6 +20,7 @@ import { UserRole } from '@prisma/client';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { canAccessLendersDirectory } from '@/lib/lendersPilot';
+import { canAccessLeadsTab } from '@/lib/leadsPilot';
 
 type SidebarProps = {
   collapsed: boolean;
@@ -34,6 +37,10 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     role: activeRole,
     email: session?.user?.email || '',
     name: session?.user?.name || '',
+  });
+  const canSeeLeadsTab = canAccessLeadsTab({
+    role: activeRole,
+    email: session?.user?.email || '',
   });
 
   const emitNavigationIntent = React.useCallback((href: string, name: string) => {
@@ -80,6 +87,12 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       ],
     },
     {
+      name: 'Leads',
+      icon: Inbox,
+      href: '/leads',
+      roles: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.ADMIN, UserRole.MANAGER],
+    },
+    {
       name: 'Lenders',
       icon: Building2,
       href: '/lenders',
@@ -116,6 +129,12 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       roles: [UserRole.ADMIN],
     },
     {
+      name: 'Lead Distribution',
+      icon: Megaphone,
+      href: '/admin/leads',
+      roles: [UserRole.ADMIN, UserRole.MANAGER],
+    },
+    {
       name: 'Lender Mgmt',
       icon: Building2,
       href: '/admin/lenders',
@@ -133,6 +152,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     (item) =>
       (item.roles.includes('all') || item.roles.includes(activeRole)) &&
       (item.name !== 'Lenders' || canSeeLendersDirectory) &&
+      (item.name !== 'Leads' || canSeeLeadsTab) &&
       !['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'].includes(
         item.name
       )
