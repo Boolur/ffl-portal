@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Inbox, Megaphone, Globe, ArrowRight, Users, UserCog, Upload } from 'lucide-react';
+import { Inbox, Megaphone, Globe, ArrowRight, Users, UserCog, Upload, Database } from 'lucide-react';
 import { CsvUploadModal } from './CsvUploadModal';
 
 type DashboardStats = {
@@ -55,7 +55,7 @@ export function LeadDashboard({
           Upload CSV
         </button>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
@@ -78,6 +78,23 @@ export function LeadDashboard({
             </div>
           </div>
         </div>
+        <Link
+          href="/admin/leads/all"
+          className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                <Database className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Leads</p>
+                <p className="text-xs text-slate-500">Browse &amp; manage</p>
+              </div>
+            </div>
+            <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
+          </div>
+        </Link>
         <Link
           href="/admin/leads/vendors"
           className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all group"

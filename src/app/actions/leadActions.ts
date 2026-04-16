@@ -428,17 +428,39 @@ export async function setCampaignMembers(
 export async function getLeads(filters?: {
   status?: LeadStatus;
   assignedUserId?: string;
+  unassigned?: boolean;
   campaignId?: string;
   vendorId?: string;
+  propertyState?: string;
+  source?: string;
+  dateFrom?: string;
+  dateTo?: string;
   search?: string;
   take?: number;
   skip?: number;
 }) {
   const where: Record<string, unknown> = {};
   if (filters?.status) where.status = filters.status;
-  if (filters?.assignedUserId) where.assignedUserId = filters.assignedUserId;
+  if (filters?.unassigned) where.assignedUserId = null;
+  else if (filters?.assignedUserId) where.assignedUserId = filters.assignedUserId;
   if (filters?.campaignId) where.campaignId = filters.campaignId;
   if (filters?.vendorId) where.vendorId = filters.vendorId;
+  if (filters?.propertyState) {
+    where.propertyState = { contains: filters.propertyState, mode: 'insensitive' };
+  }
+  if (filters?.source) {
+    where.source = { contains: filters.source, mode: 'insensitive' };
+  }
+  if (filters?.dateFrom || filters?.dateTo) {
+    const receivedAt: Record<string, Date> = {};
+    if (filters.dateFrom) receivedAt.gte = new Date(filters.dateFrom);
+    if (filters.dateTo) {
+      const end = new Date(filters.dateTo);
+      end.setHours(23, 59, 59, 999);
+      receivedAt.lte = end;
+    }
+    where.receivedAt = receivedAt;
+  }
   if (filters?.search) {
     where.OR = [
       { firstName: { contains: filters.search, mode: 'insensitive' } },
@@ -489,6 +511,7 @@ export async function updateLeadStatus(leadId: string, status: LeadStatus) {
   await prisma.lead.update({ where: { id: leadId }, data: { status } });
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/all');
 }
 
 export async function assignLead(leadId: string, userId: string) {
@@ -503,6 +526,7 @@ export async function assignLead(leadId: string, userId: string) {
   await createLeadNotification(userId, { id: leadId }, 'Manual Assignment');
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/all');
 }
 
 export async function bulkAssignLeads(leadIds: string[], userId: string) {
@@ -516,6 +540,41 @@ export async function bulkAssignLeads(leadIds: string[], userId: string) {
   });
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/all');
+}
+
+export async function bulkUpdateLeadStatus(
+  leadIds: string[],
+  status: LeadStatus
+) {
+  await prisma.lead.updateMany({
+    where: { id: { in: leadIds } },
+    data: { status },
+  });
+  revalidatePath('/leads');
+  revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/all');
+}
+
+export async function bulkDeleteLeads(leadIds: string[]) {
+  await prisma.$transaction([
+    prisma.leadNote.deleteMany({ where: { leadId: { in: leadIds } } }),
+    prisma.lead.deleteMany({ where: { id: { in: leadIds } } }),
+  ]);
+  revalidatePath('/leads');
+  revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/all');
+  revalidatePath('/admin/leads/pool');
+}
+
+export async function getDistinctLeadSources() {
+  const results = await prisma.lead.findMany({
+    where: { source: { not: null } },
+    select: { source: true },
+    distinct: ['source'],
+    orderBy: { source: 'asc' },
+  });
+  return results.map((r) => r.source).filter(Boolean) as string[];
 }
 
 export async function addLeadNote(leadId: string, content: string) {
