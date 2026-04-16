@@ -4680,7 +4680,9 @@ export function TaskList({
                     <div className="relative mt-8">
                       <div
                       className={`rounded-2xl border p-6 shadow-sm space-y-4 ${
-                        isVaCompleteAction
+                        isVaPiwAction
+                          ? 'border-slate-300 bg-gradient-to-b from-slate-100/80 to-white'
+                          : isVaCompleteAction
                           ? 'border-emerald-200 bg-gradient-to-b from-emerald-50/80 to-white'
                           : 'border-amber-200 bg-gradient-to-b from-amber-50/80 to-white'
                       }`}
@@ -4689,7 +4691,9 @@ export function TaskList({
                         <div className="flex items-center gap-3">
                           <div
                             className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                              isVaCompleteAction
+                              isVaPiwAction
+                                ? 'bg-slate-200 text-slate-600'
+                                : isVaCompleteAction
                                 ? 'bg-emerald-100 text-emerald-700'
                                 : 'bg-amber-100 text-amber-700'
                             }`}
@@ -4699,7 +4703,9 @@ export function TaskList({
                           <div>
                             <h4
                               className={`text-sm font-bold ${
-                                isVaCompleteAction
+                                isVaPiwAction
+                                  ? 'text-slate-800'
+                                  : isVaCompleteAction
                                   ? 'text-emerald-900'
                                   : 'text-amber-900'
                               }`}
@@ -4708,7 +4714,9 @@ export function TaskList({
                             </h4>
                             <p
                               className={`text-xs font-medium ${
-                                isVaCompleteAction
+                                isVaPiwAction
+                                  ? 'text-slate-600'
+                                  : isVaCompleteAction
                                   ? 'text-emerald-800/80'
                                   : 'text-amber-800/80'
                               }`}
@@ -4720,12 +4728,14 @@ export function TaskList({
                         </div>
                         <span
                           className={`inline-flex items-center rounded-full border bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
-                            isVaCompleteAction
+                            isVaPiwAction
+                              ? 'border-slate-300 text-slate-600'
+                              : isVaCompleteAction
                               ? 'border-emerald-200 text-emerald-700'
                               : 'border-amber-200 text-amber-700'
                           }`}
                         >
-                          {isVaCompleteAction ? 'Complete Request' : 'Required Note'}
+                          {isVaPiwAction ? 'Not Needed' : isVaCompleteAction ? 'Complete Request' : 'Required Note'}
                         </span>
                       </div>
                       <div className="space-y-2">
@@ -4741,7 +4751,9 @@ export function TaskList({
                             }))
                           }
                           className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-semibold shadow-sm ${
-                            isVaCompleteAction
+                            isVaPiwAction
+                              ? 'border-slate-300 text-slate-700 focus:border-slate-400 focus:ring-1 focus:ring-slate-400'
+                              : isVaCompleteAction
                               ? 'border-emerald-200 text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
                               : 'border-amber-200 text-amber-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
                           }`}
@@ -4784,26 +4796,32 @@ export function TaskList({
                       )}
                       <div
                         className={`rounded-lg border bg-white px-3 py-2 ${
-                          isVaCompleteAction
+                          isVaPiwAction
+                            ? 'border-slate-200'
+                            : isVaCompleteAction
                             ? 'border-emerald-200'
                             : 'border-amber-200'
                         }`}
                       >
                         <p
                           className={`text-xs font-semibold ${
-                            isVaCompleteAction
+                            isVaPiwAction
+                              ? 'text-slate-600'
+                              : isVaCompleteAction
                               ? 'text-emerald-700'
                               : 'text-amber-700'
                           }`}
                         >
-                          {isVaCompleteAction
+                          {isVaPiwAction
+                            ? `Use the bottom action bar to mark this ${vaRouteTaskLabelLower} as not needed.`
+                            : isVaCompleteAction
                             ? `Use the bottom action bar to complete this ${vaRouteTaskLabelLower} request.`
                             : 'Use the bottom action bar to send this request back to LO.'}
                         </p>
                       </div>
                       {isVaPiwAction && (
-                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-                          <p className="text-xs font-semibold text-emerald-700">
+                        <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2">
+                          <p className="text-xs font-semibold text-slate-600">
                             {task.kind === TaskKind.VA_PAYOFF
                               ? 'No Payoff Needed selected: proof is optional for completion.'
                               : 'Appraisal Not Need/PIW selected: proof is optional for completion.'}
@@ -6022,6 +6040,8 @@ export function TaskList({
                             ? requiresStartBeforeVaComplete
                               ? 'Start First'
                               : 'Upload Proof First'
+                            : isVaPiwAction
+                            ? 'Not Needed'
                             : 'Complete';
                           return (
                             <button
@@ -6033,7 +6053,11 @@ export function TaskList({
                                 })
                               }
                               disabled={disableRouteButton || !!updatingId}
-                              className="inline-flex h-9 items-center rounded-lg border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                              className={`inline-flex h-9 items-center rounded-lg border bg-white px-4 text-sm font-semibold shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                                isVaPiwAction
+                                  ? 'border-slate-300 text-slate-600 hover:border-slate-400 hover:bg-slate-50'
+                                  : 'border-emerald-300 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-50'
+                              }`}
                             >
                               {updatingId === task.id && (
                                 <Loader2 className="w-4 h-4 animate-spin" />
