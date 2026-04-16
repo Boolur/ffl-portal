@@ -1,5 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
+import { Database } from 'lucide-react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LeadsCRM } from '@/components/admin/leads/LeadsCRM';
 import { getServerSession } from 'next-auth';
@@ -46,11 +47,17 @@ export default async function AllLeadsPage() {
         >
           &larr; Back to Lead Distribution
         </Link>
-        <h1 className="app-page-title">All Leads</h1>
-        <p className="app-page-subtitle">
-          Browse, filter, and manage your entire lead database. Click a lead to
-          view details.
-        </p>
+        <div className="flex items-center gap-3 mt-1">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 shadow-sm">
+            <Database className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="app-page-title !mb-0">All Leads</h1>
+            <p className="text-sm text-slate-500">
+              Browse, filter, and manage your entire lead database.
+            </p>
+          </div>
+        </div>
       </div>
       <LeadsCRM
         initialLeads={leads.map((l) => ({
