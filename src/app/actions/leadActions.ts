@@ -6,6 +6,8 @@ import { authOptions } from '@/lib/auth';
 import { LeadStatus, UserRole, type Prisma } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 
+const CSV_VENDOR_SLUG = 'csv-upload';
+
 // ---------------------------------------------------------------------------
 // Distribution Engine
 // ---------------------------------------------------------------------------
@@ -180,8 +182,9 @@ export async function resetMonthlyQuotas() {
 // Vendor CRUD
 // ---------------------------------------------------------------------------
 
-export async function getLeadVendors() {
+export async function getLeadVendors(includeSystem = false) {
   return prisma.leadVendor.findMany({
+    where: includeSystem ? undefined : { slug: { not: CSV_VENDOR_SLUG } },
     orderBy: { name: 'asc' },
     include: { _count: { select: { leads: true, campaigns: true } } },
   });
@@ -893,8 +896,6 @@ export async function getAllCampaignsForUserAdd() {
 // ---------------------------------------------------------------------------
 // CSV Upload
 // ---------------------------------------------------------------------------
-
-const CSV_VENDOR_SLUG = 'csv-upload';
 
 async function getOrCreateCsvVendor() {
   return prisma.leadVendor.upsert({

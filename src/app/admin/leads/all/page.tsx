@@ -26,7 +26,7 @@ export default async function AllLeadsPage() {
     crmStats,
   ] = await Promise.all([
     getLeads({ take: 200, skip: 0 }),
-    getLeadVendors(),
+    getLeadVendors(true),
     getLeadCampaigns(),
     getLeadEligibleUsers(),
     getDistinctLeadSources(),
