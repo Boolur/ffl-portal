@@ -625,6 +625,92 @@ export async function getLeadDashboardStats() {
   return { totalToday, unassigned, byVendor, byCampaign, recentLeads };
 }
 
+export async function getLeadCrmStats() {
+  const now = new Date();
+
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+  weekStart.setHours(0, 0, 0, 0);
+  if (weekStart > now) weekStart.setDate(weekStart.getDate() - 7);
+
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [
+    totalLeads,
+    newToday,
+    newThisWeek,
+    newThisMonth,
+    unassigned,
+    vendorGroupsAll,
+    campaignGroupsToday,
+  ] = await prisma.$transaction([
+    prisma.lead.count(),
+    prisma.lead.count({ where: { receivedAt: { gte: todayStart } } }),
+    prisma.lead.count({ where: { receivedAt: { gte: weekStart } } }),
+    prisma.lead.count({ where: { receivedAt: { gte: monthStart } } }),
+    prisma.lead.count({ where: { status: LeadStatus.UNASSIGNED } }),
+    prisma.lead.groupBy({
+      by: ['vendorId'],
+      _count: { id: true },
+      orderBy: { _count: { id: 'desc' } },
+    }),
+    prisma.lead.groupBy({
+      by: ['campaignId'],
+      _count: { id: true },
+      where: { receivedAt: { gte: todayStart }, campaignId: { not: null } },
+      orderBy: { _count: { id: 'desc' } },
+    }),
+  ]);
+
+  const vendorIds = vendorGroupsAll.map((v) => v.vendorId);
+  const vendors = await prisma.leadVendor.findMany({
+    where: { id: { in: vendorIds } },
+    select: { id: true, name: true },
+  });
+  const vendorMap = new Map(vendors.map((v) => [v.id, v.name]));
+
+  const campaignIds = campaignGroupsToday
+    .map((c) => c.campaignId)
+    .filter(Boolean) as string[];
+  const campaigns = await prisma.leadCampaign.findMany({
+    where: { id: { in: campaignIds } },
+    select: { id: true, name: true, vendor: { select: { name: true } } },
+  });
+  const campaignMap = new Map(
+    campaigns.map((c) => [c.id, { name: c.name, vendorName: c.vendor.name }])
+  );
+
+  return {
+    totalLeads,
+    newToday,
+    newThisWeek,
+    newThisMonth,
+    unassigned,
+    byVendor: vendorGroupsAll.map((v) => {
+      const cnt = v._count;
+      return {
+        vendorId: v.vendorId,
+        vendorName: vendorMap.get(v.vendorId) || 'Unknown',
+        count: typeof cnt === 'object' && cnt !== null ? (cnt.id ?? 0) : 0,
+      };
+    }),
+    byCampaignToday: campaignGroupsToday
+      .filter((c) => c.campaignId)
+      .map((c) => {
+        const cnt = c._count;
+        return {
+          campaignId: c.campaignId!,
+          campaignName: campaignMap.get(c.campaignId!)?.name || 'Unknown',
+          vendorName: campaignMap.get(c.campaignId!)?.vendorName || 'Unknown',
+          count: typeof cnt === 'object' && cnt !== null ? (cnt.id ?? 0) : 0,
+        };
+      }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // User helpers for admin pages
 // ---------------------------------------------------------------------------

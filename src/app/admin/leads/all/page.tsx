@@ -10,19 +10,27 @@ import {
   getLeadCampaigns,
   getLeadEligibleUsers,
   getDistinctLeadSources,
+  getLeadCrmStats,
 } from '@/app/actions/leadActions';
 
 export default async function AllLeadsPage() {
   const session = await getServerSession(authOptions);
 
-  const [{ leads, total }, vendors, campaigns, eligibleUsers, sources] =
-    await Promise.all([
-      getLeads({ take: 200, skip: 0 }),
-      getLeadVendors(),
-      getLeadCampaigns(),
-      getLeadEligibleUsers(),
-      getDistinctLeadSources(),
-    ]);
+  const [
+    { leads, total },
+    vendors,
+    campaigns,
+    eligibleUsers,
+    sources,
+    crmStats,
+  ] = await Promise.all([
+    getLeads({ take: 200, skip: 0 }),
+    getLeadVendors(),
+    getLeadCampaigns(),
+    getLeadEligibleUsers(),
+    getDistinctLeadSources(),
+    getLeadCrmStats(),
+  ]);
 
   const user = {
     name: session?.user?.name || 'Admin',
@@ -54,6 +62,7 @@ export default async function AllLeadsPage() {
         campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
         users={eligibleUsers.map((u) => ({ id: u.id, name: u.name }))}
         sources={sources}
+        stats={crmStats}
       />
     </DashboardShell>
   );

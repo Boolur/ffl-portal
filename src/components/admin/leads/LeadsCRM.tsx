@@ -13,6 +13,12 @@ import {
   Zap,
   X,
   Filter,
+  Database,
+  TrendingUp,
+  Calendar,
+  AlertCircle,
+  Globe,
+  Megaphone,
 } from 'lucide-react';
 import { LeadStatusBadge } from '@/components/leads/LeadStatusBadge';
 import { LeadDetailModal } from './LeadDetailModal';
@@ -59,6 +65,32 @@ type FilterOption = { id: string; name: string };
 
 type LeadDetailData = React.ComponentProps<typeof LeadDetailModal>['lead'];
 
+type CrmStats = {
+  totalLeads: number;
+  newToday: number;
+  newThisWeek: number;
+  newThisMonth: number;
+  unassigned: number;
+  byVendor: Array<{ vendorId: string; vendorName: string; count: number }>;
+  byCampaignToday: Array<{
+    campaignId: string;
+    campaignName: string;
+    vendorName: string;
+    count: number;
+  }>;
+};
+
+const VENDOR_COLORS = [
+  'bg-blue-500',
+  'bg-violet-500',
+  'bg-emerald-500',
+  'bg-amber-500',
+  'bg-rose-500',
+  'bg-cyan-500',
+  'bg-indigo-500',
+  'bg-orange-500',
+];
+
 export function LeadsCRM({
   initialLeads,
   initialTotal,
@@ -66,6 +98,7 @@ export function LeadsCRM({
   campaigns,
   users,
   sources,
+  stats,
 }: {
   initialLeads: LeadRow[];
   initialTotal: number;
@@ -73,16 +106,15 @@ export function LeadsCRM({
   campaigns: FilterOption[];
   users: FilterOption[];
   sources: string[];
+  stats?: CrmStats;
 }) {
   const router = useRouter();
 
-  // Data state
   const [leads, setLeads] = useState<LeadRow[]>(initialLeads);
   const [total, setTotal] = useState(initialTotal);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Filters
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
@@ -94,15 +126,13 @@ export function LeadsCRM({
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(0);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(
+    null
+  );
 
-  // Selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
-
-  // Detail modal
   const [detailLead, setDetailLead] = useState<LeadDetailData | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-
-  // Batch action dropdowns
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusChangeOpen, setStatusChangeOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -119,7 +149,17 @@ export function LeadsCRM({
     if (dateFrom) count++;
     if (dateTo) count++;
     return count;
-  }, [search, statusFilter, vendorFilter, campaignFilter, userFilter, stateFilter, sourceFilter, dateFrom, dateTo]);
+  }, [
+    search,
+    statusFilter,
+    vendorFilter,
+    campaignFilter,
+    userFilter,
+    stateFilter,
+    sourceFilter,
+    dateFrom,
+    dateTo,
+  ]);
 
   const buildFilters = useCallback(
     (pageOverride?: number) => {
@@ -139,7 +179,18 @@ export function LeadsCRM({
       if (dateTo) f.dateTo = dateTo;
       return f;
     },
-    [page, search, statusFilter, vendorFilter, campaignFilter, userFilter, stateFilter, sourceFilter, dateFrom, dateTo]
+    [
+      page,
+      search,
+      statusFilter,
+      vendorFilter,
+      campaignFilter,
+      userFilter,
+      stateFilter,
+      sourceFilter,
+      dateFrom,
+      dateTo,
+    ]
   );
 
   const fetchLeads = useCallback(
@@ -175,7 +226,7 @@ export function LeadsCRM({
     [fetchLeads]
   );
 
-  const clearFilters = useCallback(() => {
+  const clearAllFilters = useCallback(() => {
     setSearch('');
     setStatusFilter('');
     setVendorFilter('');
@@ -186,6 +237,7 @@ export function LeadsCRM({
     setDateFrom('');
     setDateTo('');
     setPage(0);
+    setActiveQuickFilter(null);
     setLoading(true);
     getLeads({ take: PAGE_SIZE, skip: 0 } as never).then((result) => {
       setLeads(
@@ -200,7 +252,165 @@ export function LeadsCRM({
     });
   }, []);
 
-  // Selection handlers
+  // Quick filter from stat cards
+  const applyQuickFilter = useCallback(
+    (key: string) => {
+      setSearch('');
+      setStatusFilter('');
+      setVendorFilter('');
+      setCampaignFilter('');
+      setUserFilter('');
+      setStateFilter('');
+      setSourceFilter('');
+
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+
+      const weekStart = new Date(now);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+      if (weekStart > now) weekStart.setDate(weekStart.getDate() - 7);
+      const weekStr = weekStart.toISOString().split('T')[0];
+
+      const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+
+      if (key === activeQuickFilter) {
+        setDateFrom('');
+        setDateTo('');
+        setActiveQuickFilter(null);
+        setPage(0);
+        setLoading(true);
+        getLeads({ take: PAGE_SIZE, skip: 0 } as never).then((result) => {
+          setLeads(
+            result.leads.map((l) => ({
+              ...l,
+              receivedAt: l.receivedAt.toISOString(),
+            })) as unknown as LeadRow[]
+          );
+          setTotal(result.total);
+          setSelected(new Set());
+          setLoading(false);
+        });
+        return;
+      }
+
+      setActiveQuickFilter(key);
+
+      let filters: Record<string, unknown> = {
+        take: PAGE_SIZE,
+        skip: 0,
+      };
+
+      switch (key) {
+        case 'total':
+          setDateFrom('');
+          setDateTo('');
+          break;
+        case 'today':
+          setDateFrom(todayStr);
+          setDateTo(todayStr);
+          filters = { ...filters, dateFrom: todayStr, dateTo: todayStr };
+          break;
+        case 'week':
+          setDateFrom(weekStr);
+          setDateTo(todayStr);
+          filters = { ...filters, dateFrom: weekStr, dateTo: todayStr };
+          break;
+        case 'month':
+          setDateFrom(monthStr);
+          setDateTo(todayStr);
+          filters = { ...filters, dateFrom: monthStr, dateTo: todayStr };
+          break;
+        case 'unassigned':
+          setDateFrom('');
+          setDateTo('');
+          setUserFilter('__unassigned__');
+          filters = { ...filters, unassigned: true };
+          break;
+      }
+
+      setPage(0);
+      setLoading(true);
+      getLeads(filters as never).then((result) => {
+        setLeads(
+          result.leads.map((l) => ({
+            ...l,
+            receivedAt: l.receivedAt.toISOString(),
+          })) as unknown as LeadRow[]
+        );
+        setTotal(result.total);
+        setSelected(new Set());
+        setLoading(false);
+      });
+    },
+    [activeQuickFilter]
+  );
+
+  const applyVendorFilter = useCallback(
+    (vendorId: string) => {
+      setSearch('');
+      setStatusFilter('');
+      setCampaignFilter('');
+      setUserFilter('');
+      setStateFilter('');
+      setSourceFilter('');
+      setDateFrom('');
+      setDateTo('');
+      setVendorFilter(vendorId);
+      setActiveQuickFilter(null);
+      setPage(0);
+      setLoading(true);
+      getLeads({
+        take: PAGE_SIZE,
+        skip: 0,
+        vendorId,
+      } as never).then((result) => {
+        setLeads(
+          result.leads.map((l) => ({
+            ...l,
+            receivedAt: l.receivedAt.toISOString(),
+          })) as unknown as LeadRow[]
+        );
+        setTotal(result.total);
+        setSelected(new Set());
+        setLoading(false);
+      });
+    },
+    []
+  );
+
+  const applyCampaignFilter = useCallback(
+    (campaignId: string) => {
+      setSearch('');
+      setStatusFilter('');
+      setVendorFilter('');
+      setUserFilter('');
+      setStateFilter('');
+      setSourceFilter('');
+      setDateFrom('');
+      setDateTo('');
+      setCampaignFilter(campaignId);
+      setActiveQuickFilter(null);
+      setPage(0);
+      setLoading(true);
+      getLeads({
+        take: PAGE_SIZE,
+        skip: 0,
+        campaignId,
+      } as never).then((result) => {
+        setLeads(
+          result.leads.map((l) => ({
+            ...l,
+            receivedAt: l.receivedAt.toISOString(),
+          })) as unknown as LeadRow[]
+        );
+        setTotal(result.total);
+        setSelected(new Set());
+        setLoading(false);
+      });
+    },
+    []
+  );
+
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -215,7 +425,6 @@ export function LeadsCRM({
     else setSelected(new Set(leads.map((l) => l.id)));
   };
 
-  // Open lead detail
   const openLeadDetail = useCallback(async (leadId: string) => {
     setDetailLoading(true);
     try {
@@ -236,7 +445,6 @@ export function LeadsCRM({
     }
   }, []);
 
-  // Batch actions
   const handleBulkAssign = useCallback(
     async (userId: string) => {
       if (selected.size === 0) return;
@@ -286,16 +494,67 @@ export function LeadsCRM({
   const startIdx = page * PAGE_SIZE + 1;
   const endIdx = Math.min((page + 1) * PAGE_SIZE, total);
 
+  const maxVendorCount = stats
+    ? Math.max(...stats.byVendor.map((v) => v.count), 1)
+    : 1;
+
+  const STAT_CARDS = stats
+    ? [
+        {
+          key: 'total',
+          label: 'Total Leads',
+          value: stats.totalLeads,
+          Icon: Database,
+          accent: 'text-slate-600',
+          bg: 'bg-slate-50',
+          ring: 'ring-slate-300',
+        },
+        {
+          key: 'today',
+          label: 'New Today',
+          value: stats.newToday,
+          Icon: Inbox,
+          accent: 'text-blue-600',
+          bg: 'bg-blue-50',
+          ring: 'ring-blue-300',
+        },
+        {
+          key: 'week',
+          label: 'This Week',
+          value: stats.newThisWeek,
+          Icon: TrendingUp,
+          accent: 'text-indigo-600',
+          bg: 'bg-indigo-50',
+          ring: 'ring-indigo-300',
+        },
+        {
+          key: 'month',
+          label: 'This Month',
+          value: stats.newThisMonth,
+          Icon: Calendar,
+          accent: 'text-violet-600',
+          bg: 'bg-violet-50',
+          ring: 'ring-violet-300',
+        },
+        {
+          key: 'unassigned',
+          label: 'Unassigned',
+          value: stats.unassigned,
+          Icon: AlertCircle,
+          accent: 'text-orange-600',
+          bg: 'bg-orange-50',
+          ring: 'ring-orange-300',
+        },
+      ]
+    : [];
+
   return (
-    <div className="space-y-4">
-      {/* Loading overlays */}
+    <div className="space-y-5">
       {actionLoading && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            <p className="text-sm font-medium text-slate-600">
-              Processing...
-            </p>
+            <p className="text-sm font-medium text-slate-600">Processing...</p>
           </div>
         </div>
       )}
@@ -306,11 +565,166 @@ export function LeadsCRM({
         </div>
       )}
 
+      {/* Analytics: Stat Cards */}
+      {stats && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
+            {STAT_CARDS.map((card) => {
+              const isActive = activeQuickFilter === card.key;
+              return (
+                <button
+                  key={card.key}
+                  type="button"
+                  onClick={() => applyQuickFilter(card.key)}
+                  className={`relative bg-white border rounded-2xl p-4 text-left transition-all hover:shadow-md group ${
+                    isActive
+                      ? `border-transparent ring-2 ${card.ring} shadow-md`
+                      : 'border-slate-200 shadow-sm hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center ${card.bg}`}
+                    >
+                      <card.Icon className={`h-4.5 w-4.5 ${card.accent}`} />
+                    </div>
+                    {isActive && (
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {card.value.toLocaleString()}
+                  </p>
+                  <p className="text-xs font-medium text-slate-500 mt-0.5">
+                    {card.label}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Vendor Breakdown + Campaign Volume */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {/* Vendor Breakdown */}
+            {stats.byVendor.length > 0 && (
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
+                  <Globe className="h-4 w-4 text-slate-400" />
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Leads by Vendor
+                  </h3>
+                  <span className="text-[11px] text-slate-400 ml-auto">
+                    All time
+                  </span>
+                </div>
+                <div className="px-5 py-3 space-y-2.5">
+                  {stats.byVendor.map((v, i) => {
+                    const pct = Math.round((v.count / maxVendorCount) * 100);
+                    const isActiveVendor = vendorFilter === v.vendorId;
+                    return (
+                      <button
+                        key={v.vendorId}
+                        type="button"
+                        onClick={() => applyVendorFilter(v.vendorId)}
+                        className={`w-full text-left group/row rounded-lg px-2 py-1.5 -mx-2 transition-colors ${
+                          isActiveVendor
+                            ? 'bg-blue-50'
+                            : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span
+                            className={`text-sm font-medium ${isActiveVendor ? 'text-blue-700' : 'text-slate-700'}`}
+                          >
+                            {v.vendorName}
+                          </span>
+                          <span
+                            className={`text-sm font-bold ${isActiveVendor ? 'text-blue-700' : 'text-slate-900'}`}
+                          >
+                            {v.count.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              VENDOR_COLORS[i % VENDOR_COLORS.length]
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Campaign Daily Volume */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
+                <Megaphone className="h-4 w-4 text-slate-400" />
+                <h3 className="text-sm font-bold text-slate-900">
+                  Today&apos;s Campaign Volume
+                </h3>
+                <span className="text-[11px] text-slate-400 ml-auto">
+                  Today
+                </span>
+              </div>
+              <div className="px-5 py-3">
+                {stats.byCampaignToday.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-4">
+                    No campaign leads received today
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {stats.byCampaignToday.map((c) => {
+                      const isActiveCampaign =
+                        campaignFilter === c.campaignId;
+                      return (
+                        <button
+                          key={c.campaignId}
+                          type="button"
+                          onClick={() =>
+                            applyCampaignFilter(c.campaignId)
+                          }
+                          className={`w-full text-left flex items-center justify-between rounded-lg px-3 py-2.5 -mx-1 transition-colors ${
+                            isActiveCampaign
+                              ? 'bg-blue-50'
+                              : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p
+                              className={`text-sm font-medium truncate ${isActiveCampaign ? 'text-blue-700' : 'text-slate-800'}`}
+                            >
+                              {c.campaignName}
+                            </p>
+                            <p className="text-[11px] text-slate-400">
+                              {c.vendorName}
+                            </p>
+                          </div>
+                          <span
+                            className={`text-lg font-bold shrink-0 ml-4 ${isActiveCampaign ? 'text-blue-700' : 'text-slate-900'}`}
+                          >
+                            {c.count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Filter bar */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-        {/* Primary row: search + toggle */}
         <div className="px-4 py-3 flex items-center gap-3">
-          <div className="relative flex-1">
+          <div className="relative w-full max-w-sm">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
               className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -322,7 +736,7 @@ export function LeadsCRM({
           </div>
           <button
             type="button"
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors shrink-0 ${
               filtersExpanded || activeFilterCount > 0
                 ? 'border-blue-300 bg-blue-50 text-blue-700'
                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -339,14 +753,25 @@ export function LeadsCRM({
           </button>
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors shrink-0"
             onClick={() => void fetchLeads()}
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
+            />
           </button>
+          {(activeFilterCount > 0 || activeQuickFilter) && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors shrink-0"
+              onClick={clearAllFilters}
+            >
+              <X className="h-3.5 w-3.5" />
+              Clear
+            </button>
+          )}
         </div>
 
-        {/* Expanded filters */}
         {filtersExpanded && (
           <div className="border-t border-slate-100 px-4 py-3">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -357,9 +782,7 @@ export function LeadsCRM({
                 <select
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   value={statusFilter}
-                  onChange={(e) => {
-                    setStatusFilter(e.target.value);
-                  }}
+                  onChange={(e) => setStatusFilter(e.target.value)}
                 >
                   <option value="">All Statuses</option>
                   {ALL_STATUSES.map((s) => (
@@ -376,9 +799,7 @@ export function LeadsCRM({
                 <select
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   value={vendorFilter}
-                  onChange={(e) => {
-                    setVendorFilter(e.target.value);
-                  }}
+                  onChange={(e) => setVendorFilter(e.target.value)}
                 >
                   <option value="">All Vendors</option>
                   {vendors.map((v) => (
@@ -395,9 +816,7 @@ export function LeadsCRM({
                 <select
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   value={campaignFilter}
-                  onChange={(e) => {
-                    setCampaignFilter(e.target.value);
-                  }}
+                  onChange={(e) => setCampaignFilter(e.target.value)}
                 >
                   <option value="">All Campaigns</option>
                   {campaigns.map((c) => (
@@ -414,9 +833,7 @@ export function LeadsCRM({
                 <select
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   value={userFilter}
-                  onChange={(e) => {
-                    setUserFilter(e.target.value);
-                  }}
+                  onChange={(e) => setUserFilter(e.target.value)}
                 >
                   <option value="">All Users</option>
                   <option value="__unassigned__">Unassigned</option>
@@ -435,9 +852,7 @@ export function LeadsCRM({
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   placeholder="e.g. CA, TX"
                   value={stateFilter}
-                  onChange={(e) => {
-                    setStateFilter(e.target.value);
-                  }}
+                  onChange={(e) => setStateFilter(e.target.value)}
                 />
               </div>
               <div>
@@ -447,9 +862,7 @@ export function LeadsCRM({
                 <select
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   value={sourceFilter}
-                  onChange={(e) => {
-                    setSourceFilter(e.target.value);
-                  }}
+                  onChange={(e) => setSourceFilter(e.target.value)}
                 >
                   <option value="">All Sources</option>
                   {sources.map((s) => (
@@ -467,9 +880,7 @@ export function LeadsCRM({
                   type="date"
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   value={dateFrom}
-                  onChange={(e) => {
-                    setDateFrom(e.target.value);
-                  }}
+                  onChange={(e) => setDateFrom(e.target.value)}
                 />
               </div>
               <div>
@@ -480,9 +891,7 @@ export function LeadsCRM({
                   type="date"
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   value={dateTo}
-                  onChange={(e) => {
-                    setDateTo(e.target.value);
-                  }}
+                  onChange={(e) => setDateTo(e.target.value)}
                 />
               </div>
             </div>
@@ -499,7 +908,7 @@ export function LeadsCRM({
                 <button
                   type="button"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-                  onClick={clearFilters}
+                  onClick={clearAllFilters}
                 >
                   <X className="h-3.5 w-3.5" />
                   Clear All
@@ -518,7 +927,6 @@ export function LeadsCRM({
           </span>
           <div className="h-5 w-px bg-blue-200" />
 
-          {/* Assign */}
           <div className="relative">
             <button
               type="button"
@@ -547,7 +955,6 @@ export function LeadsCRM({
             )}
           </div>
 
-          {/* Change Status */}
           <div className="relative">
             <button
               type="button"
@@ -576,7 +983,6 @@ export function LeadsCRM({
             )}
           </div>
 
-          {/* Push to Service (placeholder) */}
           <button
             type="button"
             className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-400 cursor-not-allowed"
@@ -587,7 +993,6 @@ export function LeadsCRM({
             Push to Service
           </button>
 
-          {/* Delete */}
           <div className="relative ml-auto">
             {!deleteConfirm ? (
               <button
@@ -605,7 +1010,8 @@ export function LeadsCRM({
             ) : (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-red-700">
-                  Delete {selected.size} lead{selected.size !== 1 ? 's' : ''}?
+                  Delete {selected.size} lead
+                  {selected.size !== 1 ? 's' : ''}?
                 </span>
                 <button
                   type="button"
@@ -629,13 +1035,15 @@ export function LeadsCRM({
 
       {/* Table */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        {/* Table header with counts and pagination info */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <p className="text-sm text-slate-600">
-            <span className="font-bold text-slate-900">{total.toLocaleString()}</span> total leads
+            <span className="font-bold text-slate-900">
+              {total.toLocaleString()}
+            </span>{' '}
+            leads
             {total > 0 && (
               <span className="text-slate-400 ml-1">
-                · showing {startIdx}–{endIdx}
+                &middot; showing {startIdx}&ndash;{endIdx}
               </span>
             )}
           </p>
@@ -648,12 +1056,12 @@ export function LeadsCRM({
           <div className="p-12 text-center">
             <Inbox className="mx-auto h-10 w-10 text-slate-300" />
             <p className="mt-3 text-sm font-semibold text-slate-700">
-              {activeFilterCount > 0
+              {activeFilterCount > 0 || activeQuickFilter
                 ? 'No leads match your filters'
                 : 'No leads yet'}
             </p>
             <p className="mt-1 text-sm text-slate-500">
-              {activeFilterCount > 0
+              {activeFilterCount > 0 || activeQuickFilter
                 ? 'Try adjusting your filters or clearing them.'
                 : 'Leads will appear here as they are received.'}
             </p>
@@ -700,7 +1108,7 @@ export function LeadsCRM({
                   <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     Source
                   </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     Received
                   </th>
                 </tr>
@@ -759,7 +1167,7 @@ export function LeadsCRM({
                     <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
                       {l.source || '—'}
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                    <td className="px-4 py-3 text-right text-xs text-slate-500 whitespace-nowrap">
                       {new Date(l.receivedAt).toLocaleDateString()}
                     </td>
                   </tr>
@@ -769,7 +1177,6 @@ export function LeadsCRM({
           </div>
         )}
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
             <button
@@ -799,7 +1206,6 @@ export function LeadsCRM({
         )}
       </div>
 
-      {/* Lead Detail Modal */}
       {detailLead && (
         <LeadDetailModal
           lead={detailLead}
