@@ -29,8 +29,10 @@ import {
   bulkAssignLeads,
   bulkUpdateLeadStatus,
   bulkDeleteLeads,
+  bulkDeleteLeadsBatch,
   getAllLeadIds,
   getLeadsForExport,
+  revalidateLeadPaths,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 
@@ -142,6 +144,11 @@ export function LeadsCRM({
   const [statusChangeOpen, setStatusChangeOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const [progressOverlay, setProgressOverlay] = useState<{
+    label: string;
+    percent: number;
+    detail?: string;
+  } | null>(null);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -470,9 +477,13 @@ export function LeadsCRM({
     const ids = getEffectiveIds();
     if (ids.length === 0) return;
     setExportLoading(true);
+    setProgressOverlay({
+      label: 'Exporting leads...',
+      percent: 0,
+      detail: `Preparing ${ids.length.toLocaleString()} leads`,
+    });
     try {
-      const exportLeads = await getLeadsForExport(ids);
-      const headers = [
+      const csvHeaders = [
         'First Name',
         'Last Name',
         'Email',
@@ -480,7 +491,7 @@ export function LeadsCRM({
         'Property State',
         'Loan Purpose',
         'Loan Amount',
-        'Credit Score',
+        'Credit Rating',
         'Status',
         'Source',
         'Vendor',
@@ -497,27 +508,45 @@ export function LeadsCRM({
         return s;
       };
 
-      const rows = exportLeads.map((l) =>
-        [
-          escCsv(l.firstName),
-          escCsv(l.lastName),
-          escCsv(l.email),
-          escCsv(l.phone),
-          escCsv(l.propertyState),
-          escCsv(l.loanPurpose),
-          escCsv(l.loanAmount),
-          escCsv(l.creditRating),
-          escCsv(l.status),
-          escCsv(l.source),
-          escCsv(l.vendor?.name),
-          escCsv(l.campaign?.name),
-          escCsv(l.assignedUser?.name),
-          escCsv(l.receivedAt.toISOString()),
-        ].join(',')
-      );
+      const batchSize = 200;
+      const totalBatches = Math.ceil(ids.length / batchSize);
+      const allRows: string[] = [];
 
-      const csvContent = [headers.join(','), ...rows].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const batchIds = ids.slice(i, i + batchSize);
+        const exportLeads = await getLeadsForExport(batchIds);
+        for (const l of exportLeads) {
+          allRows.push(
+            [
+              escCsv(l.firstName),
+              escCsv(l.lastName),
+              escCsv(l.email),
+              escCsv(l.phone),
+              escCsv(l.propertyState),
+              escCsv(l.loanPurpose),
+              escCsv(l.loanAmount),
+              escCsv(l.creditRating),
+              escCsv(l.status),
+              escCsv(l.source),
+              escCsv(l.vendor?.name),
+              escCsv(l.campaign?.name),
+              escCsv(l.assignedUser?.name),
+              escCsv(l.receivedAt.toISOString()),
+            ].join(',')
+          );
+        }
+        const completed = Math.min(Math.floor(i / batchSize) + 1, totalBatches);
+        setProgressOverlay({
+          label: 'Exporting leads...',
+          percent: Math.round((completed / totalBatches) * 100),
+          detail: `${Math.min(i + batchSize, ids.length).toLocaleString()} of ${ids.length.toLocaleString()} leads`,
+        });
+      }
+
+      const csvContent = [csvHeaders.join(','), ...allRows].join('\n');
+      const blob = new Blob([csvContent], {
+        type: 'text/csv;charset=utf-8;',
+      });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -528,6 +557,7 @@ export function LeadsCRM({
       URL.revokeObjectURL(url);
     } finally {
       setExportLoading(false);
+      setProgressOverlay(null);
     }
   }, [getEffectiveIds]);
 
@@ -590,15 +620,45 @@ export function LeadsCRM({
   const handleBulkDelete = useCallback(async () => {
     const ids = getEffectiveIds();
     if (ids.length === 0) return;
-    setActionLoading(true);
+    setDeleteConfirm(false);
+
+    if (ids.length <= 200) {
+      setActionLoading(true);
+      try {
+        await bulkDeleteLeads(ids);
+        clearSelection();
+        router.refresh();
+        await fetchLeads();
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
+    setProgressOverlay({
+      label: 'Deleting leads...',
+      percent: 0,
+      detail: `0 of ${ids.length.toLocaleString()} leads`,
+    });
     try {
-      await bulkDeleteLeads(ids);
-      setDeleteConfirm(false);
+      const batchSize = 100;
+      const totalBatches = Math.ceil(ids.length / batchSize);
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const batchIds = ids.slice(i, i + batchSize);
+        await bulkDeleteLeadsBatch(batchIds);
+        const completed = Math.min(Math.floor(i / batchSize) + 1, totalBatches);
+        setProgressOverlay({
+          label: 'Deleting leads...',
+          percent: Math.round((completed / totalBatches) * 100),
+          detail: `${Math.min(i + batchSize, ids.length).toLocaleString()} of ${ids.length.toLocaleString()} leads`,
+        });
+      }
+      await revalidateLeadPaths();
       clearSelection();
       router.refresh();
       await fetchLeads();
     } finally {
-      setActionLoading(false);
+      setProgressOverlay(null);
     }
   }, [getEffectiveIds, clearSelection, fetchLeads, router]);
 
@@ -662,11 +722,49 @@ export function LeadsCRM({
 
   return (
     <div className="space-y-5">
-      {actionLoading && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            <p className="text-sm font-medium text-slate-600">Processing...</p>
+      {/* Full-screen progress overlay (export, delete, etc.) */}
+      {progressOverlay && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 p-8 w-80 flex flex-col items-center gap-5">
+            <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+            <div className="w-full">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-sm font-semibold text-slate-700">
+                  {progressOverlay.label}
+                </p>
+                <span className="text-sm font-bold text-blue-600">
+                  {progressOverlay.percent}%
+                </span>
+              </div>
+              <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${progressOverlay.percent}%` }}
+                />
+              </div>
+              {progressOverlay.detail && (
+                <p className="text-xs text-slate-500 mt-2 text-center">
+                  {progressOverlay.detail}
+                </p>
+              )}
+            </div>
+            <p className="text-xs text-slate-400">
+              Please wait, do not navigate away.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {actionLoading && !progressOverlay && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 p-8 flex flex-col items-center gap-4">
+            <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+            <p className="text-sm font-semibold text-slate-700">
+              Processing...
+            </p>
+            <p className="text-xs text-slate-400">
+              Please wait, do not navigate away.
+            </p>
           </div>
         </div>
       )}

@@ -633,6 +633,14 @@ export async function bulkDeleteLeads(leadIds: string[]) {
   revalidatePath('/admin/leads/pool');
 }
 
+export async function bulkDeleteLeadsBatch(leadIds: string[]) {
+  await prisma.$transaction([
+    prisma.leadNote.deleteMany({ where: { leadId: { in: leadIds } } }),
+    prisma.lead.deleteMany({ where: { id: { in: leadIds } } }),
+  ]);
+  return { deleted: leadIds.length };
+}
+
 export async function getDistinctLeadSources() {
   const results = await prisma.lead.findMany({
     where: { source: { not: null } },
@@ -1042,4 +1050,34 @@ export async function bulkCreateLeadsFromCsv(
   revalidatePath('/admin/leads');
   revalidatePath('/admin/leads/pool');
   return { created };
+}
+
+export async function bulkCreateLeadsBatch(
+  rows: Array<Record<string, string | null>>
+) {
+  const vendor = await getOrCreateCsvVendor();
+  const now = new Date();
+  const creates: Prisma.LeadCreateManyInput[] = rows.map((row) => {
+    const data: Record<string, unknown> = {
+      vendorId: vendor.id,
+      status: LeadStatus.UNASSIGNED,
+      source: 'CSV Upload',
+      rawPayload: row as unknown as Prisma.InputJsonValue,
+      receivedAt: now,
+    };
+    for (const [field, value] of Object.entries(row)) {
+      if (LEAD_STRING_FIELDS.has(field) && value != null && value !== '') {
+        data[field] = value;
+      }
+    }
+    return data as Prisma.LeadCreateManyInput;
+  });
+  const result = await prisma.lead.createMany({ data: creates });
+  return { created: result.count };
+}
+
+export async function revalidateLeadPaths() {
+  revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/pool');
+  revalidatePath('/admin/leads/all');
 }

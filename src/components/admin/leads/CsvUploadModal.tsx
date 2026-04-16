@@ -6,8 +6,9 @@ import {
 } from 'lucide-react';
 import Papa from 'papaparse';
 import {
-  bulkCreateLeadsFromCsv,
+  bulkCreateLeadsBatch,
   saveCsvMappings,
+  revalidateLeadPaths,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 
@@ -70,6 +71,7 @@ export function CsvUploadModal({
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [columnMap, setColumnMap] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState<{ created: number } | null>(null);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
@@ -172,6 +174,7 @@ export function CsvUploadModal({
 
   const handleUpload = async () => {
     setUploading(true);
+    setUploadProgress(0);
     setError('');
     try {
       const mappedRows = rows.map((row) => {
@@ -186,19 +189,35 @@ export function CsvUploadModal({
         return mapped;
       });
 
+      const batchSize = 50;
+      const totalBatches = Math.ceil(mappedRows.length / batchSize);
+      let totalCreated = 0;
+
+      for (let i = 0; i < mappedRows.length; i += batchSize) {
+        const batch = mappedRows.slice(i, i + batchSize);
+        const res = await bulkCreateLeadsBatch(batch);
+        totalCreated += res.created;
+        const completedBatches = Math.min(
+          Math.floor(i / batchSize) + 1,
+          totalBatches
+        );
+        setUploadProgress(Math.round((completedBatches / totalBatches) * 100));
+      }
+
       const activeMappings = Object.entries(columnMap)
         .filter(([, v]) => v && v !== '__skip__')
         .map(([csvHeader, ourField]) => ({ csvHeader, ourField }));
-
-      const res = await bulkCreateLeadsFromCsv(mappedRows);
       await saveCsvMappings(activeMappings);
-      setResult(res);
+      await revalidateLeadPaths();
+
+      setResult({ created: totalCreated });
       setStep(3);
       router.refresh();
     } catch {
       setError('Upload failed. Please try again.');
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -230,10 +249,28 @@ export function CsvUploadModal({
         onClick={(e) => e.stopPropagation()}
       >
         {uploading && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-[1px] rounded-2xl">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-              <p className="text-sm font-medium text-slate-600">Uploading {rows.length} leads...</p>
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/95 backdrop-blur-sm rounded-2xl">
+            <div className="flex flex-col items-center gap-4 w-64">
+              <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+              <div className="w-full">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-sm font-semibold text-slate-700">
+                    Uploading leads...
+                  </p>
+                  <span className="text-sm font-bold text-blue-600">
+                    {uploadProgress}%
+                  </span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-600 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-500 mt-1.5 text-center">
+                  {rows.length.toLocaleString()} leads &middot; Please wait...
+                </p>
+              </div>
             </div>
           </div>
         )}
