@@ -347,6 +347,40 @@ function UserDetailPanel({
                 />
               </label>
             </div>
+
+            {user.memberships.length > 0 && (() => {
+              const totalCampaignDaily = user.memberships.reduce((sum, m) => sum + m.dailyQuota, 0);
+              const hasUnlimited = user.memberships.some((m) => m.dailyQuota === 0);
+              const overGlobal = globalDaily > 0 && !hasUnlimited && totalCampaignDaily > globalDaily;
+              return (
+                <div className={`mt-3 rounded-lg px-3 py-2.5 text-xs ${
+                  overGlobal
+                    ? 'bg-amber-50 border border-amber-200'
+                    : 'bg-slate-50 border border-slate-200'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-slate-600">Campaign Daily Quota Total</span>
+                    <span className={`font-bold ${overGlobal ? 'text-amber-700' : 'text-slate-800'}`}>
+                      {hasUnlimited ? (
+                        <span className="text-slate-400 font-medium italic">Includes unlimited</span>
+                      ) : (
+                        <>
+                          {totalCampaignDaily}
+                          {globalDaily > 0 && (
+                            <span className="text-slate-400 font-normal ml-1">/ {globalDaily} global</span>
+                          )}
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  {overGlobal && (
+                    <p className="mt-1 text-amber-600">
+                      Campaign quotas exceed global cap — global limit will take priority.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Save global settings */}
