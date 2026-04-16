@@ -338,11 +338,13 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
       )}
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={closeModal}>
+          <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" />
           <div
             role="dialog"
             aria-modal="true"
             className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-lg max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-lg font-semibold text-slate-900">
