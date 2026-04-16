@@ -3238,7 +3238,7 @@ export function TaskList({
           !isVaWaitingOnLoState &&
           !jrChecklistBlocksCompletion;
         const isLoTaskForCurrentLoanOfficer =
-          (currentRole === UserRole.LOAN_OFFICER || currentRole === UserRole.LOA) &&
+          (currentRole === UserRole.LOAN_OFFICER || currentRole === UserRole.LOA || isManagerRole) &&
           isLoResponseTask(task);
         const isQcLinkedLoResponseTask =
           isLoResponseTask(task) &&
@@ -5879,7 +5879,7 @@ export function TaskList({
                         );
                       })()
                     )}
-                    {isLoanOfficerLikeCurrentRole &&
+                    {(isLoanOfficerLikeCurrentRole || isManagerRole) &&
                       shouldLoRespondFromFooter &&
                       (isApprovalReviewTask ? (
                         <>
