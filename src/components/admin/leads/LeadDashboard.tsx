@@ -2,7 +2,14 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Inbox, Megaphone, Globe, ArrowRight, Users, UserCog, Upload, Database } from 'lucide-react';
+import {
+  Database,
+  Globe,
+  Megaphone,
+  UserCog,
+  Upload,
+  Inbox,
+} from 'lucide-react';
 import { CsvUploadModal } from './CsvUploadModal';
 
 type DashboardStats = {
@@ -14,6 +21,7 @@ type DashboardStats = {
     lastName: string | null;
     status: string;
     receivedAt: string;
+    source: string | null;
     vendor: { name: string } | null;
     campaign: { name: string } | null;
     assignedUser: { name: string } | null;
@@ -32,164 +40,207 @@ const STATUS_COLORS: Record<string, string> = {
 
 type SavedMapping = { csvHeader: string; ourField: string; usageCount: number };
 
+const NAV_CARDS = [
+  {
+    title: 'Leads',
+    subtitle: 'Browse, filter, and manage your entire lead database.',
+    href: '/admin/leads/all',
+    Icon: Database,
+    border: 'border-emerald-200 hover:border-emerald-300',
+    iconBg: 'bg-emerald-600',
+    watermark: 'text-emerald-600',
+    cta: 'bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white',
+    ctaLabel: 'Browse Leads',
+  },
+  {
+    title: 'Vendors',
+    subtitle: 'Configure lead sources, webhook endpoints, and field mappings.',
+    href: '/admin/leads/vendors',
+    Icon: Globe,
+    border: 'border-violet-200 hover:border-violet-300',
+    iconBg: 'bg-violet-600',
+    watermark: 'text-violet-600',
+    cta: 'bg-violet-50 text-violet-700 group-hover:bg-violet-600 group-hover:text-white',
+    ctaLabel: 'Manage Vendors',
+  },
+  {
+    title: 'Campaigns',
+    subtitle: 'Set up distribution rules, routing tags, and auto-assignment logic.',
+    href: '/admin/leads/campaigns',
+    Icon: Megaphone,
+    border: 'border-blue-200 hover:border-blue-300',
+    iconBg: 'bg-blue-600',
+    watermark: 'text-blue-600',
+    cta: 'bg-blue-50 text-blue-700 group-hover:bg-blue-600 group-hover:text-white',
+    ctaLabel: 'Manage Campaigns',
+  },
+  {
+    title: 'Users',
+    subtitle: 'Control quotas, licensed states, schedules, and campaign access.',
+    href: '/admin/leads/users',
+    Icon: UserCog,
+    border: 'border-orange-200 hover:border-orange-300',
+    iconBg: 'bg-orange-500',
+    watermark: 'text-orange-500',
+    cta: 'bg-orange-50 text-orange-700 group-hover:bg-orange-500 group-hover:text-white',
+    ctaLabel: 'Manage Users',
+  },
+] as const;
+
 export function LeadDashboard({
   stats,
   csvMappings = [],
+  onOpenCsv,
 }: {
   stats: DashboardStats;
   csvMappings?: SavedMapping[];
+  onOpenCsv?: () => void;
 }) {
   const [csvOpen, setCsvOpen] = useState(false);
 
+  const handleCsvOpen = () => {
+    if (onOpenCsv) onOpenCsv();
+    else setCsvOpen(true);
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Stat cards + Upload button */}
-      <div className="flex items-center justify-between">
-        <div />
+    <div className="space-y-8">
+      {/* Primary Navigation Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        {NAV_CARDS.map((card) => (
+          <Link
+            key={card.href}
+            href={card.href}
+            className={`group relative flex flex-col items-start p-6 sm:p-8 rounded-2xl border shadow-sm text-left overflow-hidden bg-white hover:shadow-md transition-all ${card.border}`}
+          >
+            <div className="absolute top-0 right-0 p-8 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity">
+              <card.Icon className={`w-32 h-32 ${card.watermark}`} />
+            </div>
+            <div
+              className={`w-14 h-14 rounded-xl flex items-center justify-center mb-6 shadow-sm text-white group-hover:scale-105 transition-transform ${card.iconBg}`}
+            >
+              <card.Icon className="w-7 h-7" />
+            </div>
+            <h3 className="text-xl sm:text-2xl font-bold text-slate-900 mb-1">
+              {card.title}
+            </h3>
+            <p className="text-slate-500 text-sm mb-8 max-w-sm leading-relaxed">
+              {card.subtitle}
+            </p>
+            <div
+              className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold text-sm transition-colors ${card.cta}`}
+            >
+              {card.ctaLabel}
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      {/* Quick Actions Bar */}
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
-          onClick={() => setCsvOpen(true)}
+          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+          onClick={handleCsvOpen}
         >
           <Upload className="h-4 w-4" />
           Upload CSV
         </button>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-              <Inbox className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-slate-900">{stats.totalToday}</p>
-              <p className="text-xs text-slate-500">Leads Today</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
-              <Users className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-slate-900">{stats.unassigned}</p>
-              <p className="text-xs text-slate-500">Unassigned</p>
-            </div>
-          </div>
-        </div>
         <Link
-          href="/admin/leads/all"
-          className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all group"
+          href="/admin/leads/pool"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                <Database className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Leads</p>
-                <p className="text-xs text-slate-500">Browse &amp; manage</p>
-              </div>
-            </div>
-            <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
-          </div>
-        </Link>
-        <Link
-          href="/admin/leads/vendors"
-          className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all group"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
-                <Globe className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Vendors</p>
-                <p className="text-xs text-slate-500">Manage sources</p>
-              </div>
-            </div>
-            <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
-          </div>
-        </Link>
-        <Link
-          href="/admin/leads/campaigns"
-          className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all group"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
-                <Megaphone className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Campaigns</p>
-                <p className="text-xs text-slate-500">Distribution rules</p>
-              </div>
-            </div>
-            <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
-          </div>
-        </Link>
-        <Link
-          href="/admin/leads/users"
-          className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition-all group"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
-                <UserCog className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Users</p>
-                <p className="text-xs text-slate-500">Quotas &amp; schedules</p>
-              </div>
-            </div>
-            <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
-          </div>
+          View Unassigned Pool &rarr;
         </Link>
       </div>
 
-      {/* Recent leads table */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Recent Leads</h2>
-          <Link href="/admin/leads/pool" className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors">
-            View Unassigned Pool &rarr;
-          </Link>
+      {/* Recent Leads */}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">
+                Recent Leads
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Latest incoming leads across all sources
+              </p>
+            </div>
+            <Link
+              href="/admin/leads/all"
+              className="text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              View All &rarr;
+            </Link>
+          </div>
         </div>
         {stats.recentLeads.length === 0 ? (
-          <div className="p-12 text-center">
+          <div className="px-6 py-16 text-center">
             <Inbox className="mx-auto h-10 w-10 text-slate-300" />
-            <p className="mt-3 text-sm font-semibold text-slate-700">No leads yet</p>
-            <p className="mt-1 text-sm text-slate-500">Leads will appear here as they are received from vendors.</p>
+            <p className="mt-3 text-sm font-semibold text-slate-700">
+              No leads yet
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Leads will appear here as they are received from vendors or
+              uploaded via CSV.
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr className="border-b border-slate-200">
-                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Status</th>
-                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Name</th>
-                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Vendor</th>
-                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Campaign</th>
-                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Assigned To</th>
-                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Received</th>
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/60">
+                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Source
+                  </th>
+                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Vendor
+                  </th>
+                  <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Assigned To
+                  </th>
+                  <th className="px-6 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Received
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-100">
                 {stats.recentLeads.map((l) => (
-                  <tr key={l.id} className="hover:bg-slate-50/70">
+                  <tr
+                    key={l.id}
+                    className="hover:bg-slate-50/70 transition-colors"
+                  >
                     <td className="px-6 py-3">
-                      <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[l.status] || STATUS_COLORS.NEW}`}>
+                      <span
+                        className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[l.status] || STATUS_COLORS.NEW}`}
+                      >
                         {l.status}
                       </span>
                     </td>
-                    <td className="px-6 py-3 font-semibold text-slate-900">
-                      {[l.firstName, l.lastName].filter(Boolean).join(' ') || '—'}
+                    <td className="px-6 py-3 font-semibold text-slate-900 whitespace-nowrap">
+                      {[l.firstName, l.lastName].filter(Boolean).join(' ') ||
+                        '—'}
                     </td>
-                    <td className="px-6 py-3 text-slate-600">{l.vendor?.name || '—'}</td>
-                    <td className="px-6 py-3 text-slate-600">{l.campaign?.name || '—'}</td>
-                    <td className="px-6 py-3 text-slate-600">{l.assignedUser?.name || <span className="text-orange-600 font-medium">Unassigned</span>}</td>
-                    <td className="px-6 py-3 text-xs text-slate-500">
+                    <td className="px-6 py-3 text-slate-500 text-xs">
+                      {l.source || '—'}
+                    </td>
+                    <td className="px-6 py-3 text-slate-600">
+                      {l.vendor?.name || '—'}
+                    </td>
+                    <td className="px-6 py-3">
+                      {l.assignedUser?.name || (
+                        <span className="text-orange-600 font-medium text-xs">
+                          Unassigned
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-3 text-right text-xs text-slate-500 whitespace-nowrap">
                       {new Date(l.receivedAt).toLocaleString()}
                     </td>
                   </tr>

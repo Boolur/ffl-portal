@@ -1,9 +1,23 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
-import { Loader2, X, Send, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState, useCallback, useMemo } from 'react';
+import {
+  Loader2,
+  X,
+  Send,
+  ChevronDown,
+  ChevronRight,
+  User,
+  MapPin,
+  Home,
+  Briefcase,
+  DollarSign,
+  Landmark,
+  Shield,
+  Tag,
+  MessageSquare,
+} from 'lucide-react';
 import { updateLeadStatus, addLeadNote } from '@/app/actions/leadActions';
-import { LeadStatusBadge } from '@/components/leads/LeadStatusBadge';
 import { useRouter } from 'next/navigation';
 
 type LeadDetail = {
@@ -84,45 +98,61 @@ type LeadDetail = {
   }>;
 };
 
-function Field({ label, value }: { label: string; value: string | null }) {
+const ALL_STATUSES = [
+  { value: 'NEW', label: 'New', color: 'border-blue-300 bg-blue-50 text-blue-700', active: 'bg-blue-600 text-white border-blue-600' },
+  { value: 'CONTACTED', label: 'Contacted', color: 'border-amber-300 bg-amber-50 text-amber-700', active: 'bg-amber-500 text-white border-amber-500' },
+  { value: 'WORKING', label: 'Working', color: 'border-indigo-300 bg-indigo-50 text-indigo-700', active: 'bg-indigo-600 text-white border-indigo-600' },
+  { value: 'CONVERTED', label: 'Converted', color: 'border-green-300 bg-green-50 text-green-700', active: 'bg-green-600 text-white border-green-600' },
+  { value: 'DEAD', label: 'Dead', color: 'border-slate-300 bg-slate-100 text-slate-500', active: 'bg-slate-500 text-white border-slate-500' },
+  { value: 'RETURNED', label: 'Returned', color: 'border-rose-300 bg-rose-50 text-rose-700', active: 'bg-rose-600 text-white border-rose-600' },
+  { value: 'UNASSIGNED', label: 'Unassigned', color: 'border-orange-300 bg-orange-50 text-orange-700', active: 'bg-orange-500 text-white border-orange-500' },
+];
+
+function FieldRow({ label, value }: { label: string; value: string | null }) {
   if (!value) return null;
   return (
-    <div className="flex justify-between gap-3 py-1.5">
-      <span className="text-xs text-slate-500 shrink-0">{label}</span>
-      <span className="text-xs font-medium text-slate-800 text-right break-all">{value}</span>
+    <div className="grid grid-cols-[140px_1fr] gap-3 py-2 border-b border-slate-50 last:border-b-0">
+      <span className="text-xs font-medium text-slate-400 uppercase tracking-wide pt-0.5">
+        {label}
+      </span>
+      <span className="text-sm text-slate-800 break-words">{value}</span>
     </div>
   );
 }
 
 function Section({
   title,
+  icon: Icon,
   children,
   defaultOpen = true,
 }: {
   title: string;
+  icon: React.ElementType;
   children: React.ReactNode;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const hasContent = React.Children.toArray(children).some(Boolean);
-  if (!hasContent) return null;
+  const childArray = React.Children.toArray(children).filter(Boolean);
+  if (childArray.length === 0) return null;
+
   return (
-    <div className="border-b border-slate-100 last:border-b-0">
+    <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 py-3 text-left"
+        className="flex w-full items-center gap-2.5 px-4 py-3 bg-slate-50/60 hover:bg-slate-50 transition-colors text-left"
       >
+        <Icon className="h-4 w-4 text-slate-400 shrink-0" />
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex-1">
+          {title}
+        </span>
         {open ? (
           <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
         ) : (
           <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
         )}
-        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-          {title}
-        </span>
       </button>
-      {open && <div className="pb-3 pl-5">{children}</div>}
+      {open && <div className="px-4 py-2">{children}</div>}
     </div>
   );
 }
@@ -143,6 +173,7 @@ export function LeadDetailModal({
 
   const handleStatusChange = useCallback(
     async (newStatus: string) => {
+      if (newStatus === lead.status) return;
       setUpdatingStatus(true);
       try {
         await updateLeadStatus(lead.id, newStatus as never);
@@ -152,7 +183,7 @@ export function LeadDetailModal({
         setUpdatingStatus(false);
       }
     },
-    [lead.id, router, onUpdated]
+    [lead.id, lead.status, router, onUpdated]
   );
 
   const handleAddNote = useCallback(async () => {
@@ -170,251 +201,298 @@ export function LeadDetailModal({
 
   const name =
     [lead.firstName, lead.lastName].filter(Boolean).join(' ') || 'Unknown Lead';
+  const initials = [lead.firstName?.[0], lead.lastName?.[0]]
+    .filter(Boolean)
+    .join('')
+    .toUpperCase() || '?';
+
+  const metaChips = useMemo(() => {
+    const chips: Array<{ label: string; value: string }> = [];
+    if (lead.vendor) chips.push({ label: 'Vendor', value: lead.vendor.name });
+    if (lead.campaign) chips.push({ label: 'Campaign', value: lead.campaign.name });
+    if (lead.assignedUser) chips.push({ label: 'Assigned', value: lead.assignedUser.name });
+    if (lead.source) chips.push({ label: 'Source', value: lead.source });
+    return chips;
+  }, [lead.vendor, lead.campaign, lead.assignedUser, lead.source]);
 
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center"
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
       <div
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-slate-200 max-h-[90vh] overflow-hidden flex flex-col"
+        className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 max-h-[92vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="border-b border-slate-200 px-6 py-4 bg-slate-50/50">
-          <div className="flex items-start justify-between">
-            <div className="min-w-0">
-              <h2 className="text-lg font-bold text-slate-900 truncate">
-                {name}
-              </h2>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <LeadStatusBadge status={lead.status} />
-                {lead.vendor && (
-                  <span className="text-xs text-slate-500">
-                    {lead.vendor.name}
-                  </span>
-                )}
-                {lead.campaign && (
-                  <span className="text-xs text-slate-400">
-                    / {lead.campaign.name}
-                  </span>
-                )}
-                {lead.assignedUser && (
-                  <span className="text-xs font-medium text-blue-600">
-                    → {lead.assignedUser.name}
-                  </span>
-                )}
+        {/* Hero Header */}
+        <div className="border-b border-slate-200 px-6 py-5 bg-gradient-to-b from-slate-50 to-white">
+          <div className="flex items-start gap-4">
+            {/* Monogram */}
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-white font-bold text-lg shadow-sm shrink-0">
+              {initials}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-xl font-bold text-slate-900 truncate">
+                    {name}
+                  </h2>
+                  {/* Meta chips */}
+                  {metaChips.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {metaChips.map((chip) => (
+                        <span
+                          key={chip.label}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-xs"
+                        >
+                          <span className="font-medium text-slate-400">
+                            {chip.label}
+                          </span>
+                          <span className="font-semibold text-slate-700">
+                            {chip.value}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
+                  onClick={onClose}
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
             </div>
-            <button
-              className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-200 rounded ml-3 shrink-0"
-              onClick={onClose}
-            >
-              <X className="h-5 w-5" />
-            </button>
           </div>
-          <div className="mt-3">
-            <select
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
-              value={lead.status}
-              onChange={(e) => void handleStatusChange(e.target.value)}
-              disabled={updatingStatus}
-            >
-              <option value="NEW">New</option>
-              <option value="CONTACTED">Contacted</option>
-              <option value="WORKING">Working</option>
-              <option value="CONVERTED">Converted</option>
-              <option value="DEAD">Dead</option>
-              <option value="RETURNED">Returned</option>
-              <option value="UNASSIGNED">Unassigned</option>
-            </select>
+
+          {/* Status pills */}
+          <div className="mt-4 flex flex-wrap gap-1.5">
+            {ALL_STATUSES.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                disabled={updatingStatus}
+                onClick={() => void handleStatusChange(s.value)}
+                className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-all disabled:opacity-60 ${
+                  lead.status === s.value
+                    ? s.active + ' shadow-sm'
+                    : s.color + ' hover:opacity-80'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+            {updatingStatus && (
+              <Loader2 className="h-4 w-4 animate-spin text-blue-600 self-center ml-1" />
+            )}
+          </div>
+
+          {/* Timestamps */}
+          <div className="mt-3 flex items-center gap-4 text-[11px] text-slate-400">
+            <span>
+              Received{' '}
+              <span className="font-medium text-slate-500">
+                {new Date(lead.receivedAt).toLocaleString()}
+              </span>
+            </span>
+            {lead.assignedAt && (
+              <span>
+                Assigned{' '}
+                <span className="font-medium text-slate-500">
+                  {new Date(lead.assignedAt).toLocaleString()}
+                </span>
+              </span>
+            )}
+            {lead.price && (
+              <span>
+                Price{' '}
+                <span className="font-semibold text-emerald-600">
+                  ${lead.price}
+                </span>
+              </span>
+            )}
           </div>
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          <Section title="Contact">
-            <Field label="First Name" value={lead.firstName} />
-            <Field label="Last Name" value={lead.lastName} />
-            <Field label="Email" value={lead.email} />
-            <Field label="Phone" value={lead.phone} />
-            <Field label="Home Phone" value={lead.homePhone} />
-            <Field label="Work Phone" value={lead.workPhone} />
-            <Field label="DOB" value={lead.dob} />
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-slate-50/30">
+          <Section title="Contact" icon={User}>
+            <FieldRow label="First Name" value={lead.firstName} />
+            <FieldRow label="Last Name" value={lead.lastName} />
+            <FieldRow label="Email" value={lead.email} />
+            <FieldRow label="Phone" value={lead.phone} />
+            <FieldRow label="Home Phone" value={lead.homePhone} />
+            <FieldRow label="Work Phone" value={lead.workPhone} />
+            <FieldRow label="DOB" value={lead.dob} />
             {(lead.coFirstName || lead.coLastName) && (
               <>
-                <div className="mt-2 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="mt-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-t border-slate-100 pt-3">
                   Co-Borrower
                 </div>
-                <Field label="First Name" value={lead.coFirstName} />
-                <Field label="Last Name" value={lead.coLastName} />
-                <Field label="Email" value={lead.coEmail} />
-                <Field label="Phone" value={lead.coPhone} />
-                <Field label="Home Phone" value={lead.coHomePhone} />
-                <Field label="Work Phone" value={lead.coWorkPhone} />
-                <Field label="DOB" value={lead.coDob} />
+                <FieldRow label="First Name" value={lead.coFirstName} />
+                <FieldRow label="Last Name" value={lead.coLastName} />
+                <FieldRow label="Email" value={lead.coEmail} />
+                <FieldRow label="Phone" value={lead.coPhone} />
+                <FieldRow label="Home Phone" value={lead.coHomePhone} />
+                <FieldRow label="Work Phone" value={lead.coWorkPhone} />
+                <FieldRow label="DOB" value={lead.coDob} />
               </>
             )}
           </Section>
 
-          <Section title="Address">
-            <Field
+          <Section title="Address" icon={MapPin}>
+            <FieldRow
               label="Mailing"
               value={
-                [
-                  lead.mailingAddress,
-                  lead.mailingCity,
-                  lead.mailingState,
-                  lead.mailingZip,
-                ]
+                [lead.mailingAddress, lead.mailingCity, lead.mailingState, lead.mailingZip]
                   .filter(Boolean)
                   .join(', ') || null
               }
             />
-            <Field label="County" value={lead.mailingCounty} />
-            <Field
+            <FieldRow label="County" value={lead.mailingCounty} />
+            <FieldRow
               label="Property"
               value={
-                [
-                  lead.propertyAddress,
-                  lead.propertyCity,
-                  lead.propertyState,
-                  lead.propertyZip,
-                ]
+                [lead.propertyAddress, lead.propertyCity, lead.propertyState, lead.propertyZip]
                   .filter(Boolean)
                   .join(', ') || null
               }
             />
-            <Field label="Property County" value={lead.propertyCounty} />
+            <FieldRow label="Prop. County" value={lead.propertyCounty} />
           </Section>
 
-          <Section title="Property">
-            <Field label="Purchase Price" value={lead.purchasePrice} />
-            <Field label="Property Value" value={lead.propertyValue} />
-            <Field label="Type" value={lead.propertyType} />
-            <Field label="Use" value={lead.propertyUse} />
-            <Field label="LTV" value={lead.propertyLtv} />
+          <Section title="Property" icon={Home}>
+            <FieldRow label="Purchase Price" value={lead.purchasePrice} />
+            <FieldRow label="Property Value" value={lead.propertyValue} />
+            <FieldRow label="Type" value={lead.propertyType} />
+            <FieldRow label="Use" value={lead.propertyUse} />
+            <FieldRow label="LTV" value={lead.propertyLtv} />
           </Section>
 
-          <Section title="Employment">
-            <Field label="Employer" value={lead.employer} />
-            <Field label="Job Title" value={lead.jobTitle} />
-            <Field label="Income" value={lead.income} />
-            <Field label="Self Employed" value={lead.selfEmployed} />
-            <Field label="Bankruptcy" value={lead.bankruptcy} />
-            <Field label="Homeowner" value={lead.homeowner} />
+          <Section title="Employment" icon={Briefcase}>
+            <FieldRow label="Employer" value={lead.employer} />
+            <FieldRow label="Job Title" value={lead.jobTitle} />
+            <FieldRow label="Income" value={lead.income} />
+            <FieldRow label="Self Employed" value={lead.selfEmployed} />
+            <FieldRow label="Bankruptcy" value={lead.bankruptcy} />
+            <FieldRow label="Homeowner" value={lead.homeowner} />
             {(lead.coEmployer || lead.coIncome) && (
               <>
-                <div className="mt-2 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="mt-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-t border-slate-100 pt-3">
                   Co-Borrower
                 </div>
-                <Field label="Employer" value={lead.coEmployer} />
-                <Field label="Job Title" value={lead.coJobTitle} />
-                <Field label="Income" value={lead.coIncome} />
+                <FieldRow label="Employer" value={lead.coEmployer} />
+                <FieldRow label="Job Title" value={lead.coJobTitle} />
+                <FieldRow label="Income" value={lead.coIncome} />
               </>
             )}
           </Section>
 
-          <Section title="Loan Details">
-            <Field label="Purpose" value={lead.loanPurpose} />
-            <Field label="Amount" value={lead.loanAmount} />
-            <Field label="Term" value={lead.loanTerm} />
-            <Field label="Type" value={lead.loanType} />
-            <Field label="Rate" value={lead.loanRate} />
-            <Field label="Down Payment" value={lead.downPayment} />
-            <Field label="Cash Out" value={lead.cashOut} />
-            <Field label="Credit Rating" value={lead.creditRating} />
+          <Section title="Loan Details" icon={DollarSign}>
+            <FieldRow label="Purpose" value={lead.loanPurpose} />
+            <FieldRow label="Amount" value={lead.loanAmount} />
+            <FieldRow label="Term" value={lead.loanTerm} />
+            <FieldRow label="Type" value={lead.loanType} />
+            <FieldRow label="Rate" value={lead.loanRate} />
+            <FieldRow label="Down Payment" value={lead.downPayment} />
+            <FieldRow label="Cash Out" value={lead.cashOut} />
+            <FieldRow label="Credit Rating" value={lead.creditRating} />
           </Section>
 
-          <Section title="Current Loan" defaultOpen={false}>
-            <Field label="Lender" value={lead.currentLender} />
-            <Field label="Balance" value={lead.currentBalance} />
-            <Field label="Rate" value={lead.currentRate} />
-            <Field label="Payment" value={lead.currentPayment} />
-            <Field label="Term" value={lead.currentTerm} />
-            <Field label="Type" value={lead.currentType} />
-            <Field label="Other Balance" value={lead.otherBalance} />
-            <Field label="Other Payment" value={lead.otherPayment} />
-            <Field label="Target Rate" value={lead.targetRate} />
+          <Section title="Current Loan" icon={Landmark} defaultOpen={false}>
+            <FieldRow label="Lender" value={lead.currentLender} />
+            <FieldRow label="Balance" value={lead.currentBalance} />
+            <FieldRow label="Rate" value={lead.currentRate} />
+            <FieldRow label="Payment" value={lead.currentPayment} />
+            <FieldRow label="Term" value={lead.currentTerm} />
+            <FieldRow label="Type" value={lead.currentType} />
+            <FieldRow label="Other Balance" value={lead.otherBalance} />
+            <FieldRow label="Other Payment" value={lead.otherPayment} />
+            <FieldRow label="Target Rate" value={lead.targetRate} />
           </Section>
 
-          <Section title="Military / VA" defaultOpen={false}>
-            <Field label="VA Status" value={lead.vaStatus} />
-            <Field label="VA Loan" value={lead.vaLoan} />
-            <Field label="Military" value={lead.isMilitary} />
-            <Field label="FHA Loan" value={lead.fhaLoan} />
+          <Section title="Military / VA" icon={Shield} defaultOpen={false}>
+            <FieldRow label="VA Status" value={lead.vaStatus} />
+            <FieldRow label="VA Loan" value={lead.vaLoan} />
+            <FieldRow label="Military" value={lead.isMilitary} />
+            <FieldRow label="FHA Loan" value={lead.fhaLoan} />
           </Section>
 
-          <Section title="Pricing / Source" defaultOpen={false}>
-            <Field label="Price" value={lead.price} />
-            <Field label="Source" value={lead.source} />
-            <Field label="Source URL" value={lead.sourceUrl} />
-            <Field
-              label="Received"
-              value={new Date(lead.receivedAt).toLocaleString()}
-            />
-            {lead.assignedAt && (
-              <Field
-                label="Assigned"
-                value={new Date(lead.assignedAt).toLocaleString()}
-              />
-            )}
+          <Section title="Source / Meta" icon={Tag} defaultOpen={false}>
+            <FieldRow label="Source" value={lead.source} />
+            <FieldRow label="Source URL" value={lead.sourceUrl} />
+            <FieldRow label="Price" value={lead.price} />
           </Section>
 
           {/* Notes */}
-          <Section title={`Notes (${lead.notes.length})`}>
-            <div className="flex gap-2 mb-3">
-              <input
-                className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                placeholder="Add a note..."
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                onKeyDown={(e) =>
-                  e.key === 'Enter' && !e.shiftKey && void handleAddNote()
-                }
-              />
-              <button
-                className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 h-[38px] text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-                onClick={() => void handleAddNote()}
-                disabled={savingNote || !noteText.trim()}
-              >
-                {savingNote ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </button>
+          <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-3 bg-slate-50/60">
+              <MessageSquare className="h-4 w-4 text-slate-400 shrink-0" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex-1">
+                Notes ({lead.notes.length})
+              </span>
             </div>
-            {lead.notes.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-3">
-                No notes yet
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {lead.notes.map((note) => (
-                  <div
-                    key={note.id}
-                    className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2"
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-semibold text-slate-700">
-                        {note.author.name}
-                      </span>
-                      <span className="text-[10px] text-slate-400">
-                        {new Date(note.createdAt).toLocaleString()}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600 whitespace-pre-wrap">
-                      {note.content}
-                    </p>
-                  </div>
-                ))}
+            <div className="px-4 py-3">
+              {/* Note input */}
+              <div className="flex gap-2 mb-3">
+                <textarea
+                  className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none min-h-[38px]"
+                  placeholder="Write a note..."
+                  rows={2}
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      void handleAddNote();
+                    }
+                  }}
+                />
+                <button
+                  className="self-end inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 h-[38px] text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+                  onClick={() => void handleAddNote()}
+                  disabled={savingNote || !noteText.trim()}
+                >
+                  {savingNote ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </button>
               </div>
-            )}
-          </Section>
+
+              {lead.notes.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-4">
+                  No notes yet. Add one above.
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {lead.notes.map((note) => (
+                    <div
+                      key={note.id}
+                      className="rounded-lg bg-slate-50 px-3 py-2.5"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-slate-700">
+                          {note.author.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(note.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 whitespace-pre-wrap leading-relaxed">
+                        {note.content}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

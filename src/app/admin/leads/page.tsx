@@ -22,7 +22,8 @@ export default async function LeadDashboardPage() {
       <div className="app-page-header">
         <h1 className="app-page-title">Lead Distribution</h1>
         <p className="app-page-subtitle">
-          Overview of lead intake, vendor performance, and distribution status.
+          Manage your lead pipeline, vendor sources, campaign rules, and team
+          assignments.
         </p>
       </div>
       <LeadDashboard
