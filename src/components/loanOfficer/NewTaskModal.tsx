@@ -138,7 +138,7 @@ export function NewTaskModal({
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-2xl bg-white/90 backdrop-blur-sm">
             {submissionOverlay === 'submitting' ? (
               <>
-                <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+                <Loader2 className={`h-12 w-12 animate-spin ${type === 'QC' ? 'text-violet-600' : 'text-blue-600'}`} />
                 <p className="mt-4 text-lg font-semibold text-slate-700">
                   Submitting your request&hellip;
                 </p>
