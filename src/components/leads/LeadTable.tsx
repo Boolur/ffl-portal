@@ -5,7 +5,7 @@ import { Search, Inbox } from 'lucide-react';
 import { LeadStatusBadge } from './LeadStatusBadge';
 import { LeadDetailPanel } from './LeadDetailPanel';
 import { getLead } from '@/app/actions/leadActions';
-import { FormatDate } from '@/components/ui/FormatDate';
+import { FormatDate, FormatNumber } from '@/components/ui/FormatDate';
 
 type LeadRow = {
   id: string;
@@ -148,7 +148,7 @@ export function LeadTable({ leads }: { leads: LeadRow[] }) {
                   <div className="flex items-center gap-4 text-right shrink-0">
                     {l.loanAmount && (
                       <span className="text-sm font-semibold text-slate-700">
-                        ${Number(l.loanAmount).toLocaleString()}
+                        $<FormatNumber value={Number(l.loanAmount)} />
                       </span>
                     )}
                     <div>

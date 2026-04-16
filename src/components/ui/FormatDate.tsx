@@ -18,3 +18,13 @@ export function FormatDate({
     </time>
   );
 }
+
+/**
+ * Renders a number with suppressHydrationWarning to avoid server/client
+ * mismatch from locale differences between Vercel and the browser.
+ */
+export function FormatNumber({ value }: { value: number }) {
+  return (
+    <span suppressHydrationWarning>{value.toLocaleString()}</span>
+  );
+}

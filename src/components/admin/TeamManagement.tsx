@@ -8,7 +8,7 @@ import {
   reassignLoans,
 } from '@/app/actions/teamActions';
 import { deleteTask } from '@/app/actions/taskActions';
-import { FormatDate } from '@/components/ui/FormatDate';
+import { FormatDate, FormatNumber } from '@/components/ui/FormatDate';
 import { deleteUser } from '@/app/actions/userActions';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import {
@@ -242,7 +242,7 @@ export function TeamManagement({
                         <div key={loan.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
                           <div>
                             <p className="text-sm font-medium text-slate-900">{loan.borrowerName}</p>
-                            <p className="text-xs text-slate-500">{loan.loanNumber} • ${loan.amount.toLocaleString()}</p>
+                            <p className="text-xs text-slate-500">{loan.loanNumber} • $<FormatNumber value={loan.amount} /></p>
                           </div>
                           <span className="px-2 py-1 bg-white rounded text-xs font-medium text-slate-600 border border-slate-200">
                             {loan.stage}

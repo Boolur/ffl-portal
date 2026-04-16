@@ -20,7 +20,7 @@ import {
 } from '@/app/actions/clientFolderActions';
 import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
-import { FormatDate } from '@/components/ui/FormatDate';
+import { FormatDate, FormatNumber } from '@/components/ui/FormatDate';
 import {
   Plus,
   Search,
@@ -745,7 +745,7 @@ export function PipelinePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
                     <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Amount</p>
-                    <p className="text-sm font-semibold text-slate-900">${loanDetails.amount.toLocaleString()}</p>
+                    <p className="text-sm font-semibold text-slate-900">$<FormatNumber value={loanDetails.amount} /></p>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
                     <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Program</p>

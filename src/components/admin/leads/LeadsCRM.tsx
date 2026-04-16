@@ -35,7 +35,7 @@ import {
   revalidateLeadPaths,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
-import { FormatDate } from '@/components/ui/FormatDate';
+import { FormatDate, FormatNumber } from '@/components/ui/FormatDate';
 
 const PAGE_SIZE = 200;
 
@@ -806,7 +806,7 @@ export function LeadsCRM({
                     )}
                   </div>
                   <p className="text-2xl font-bold text-slate-900">
-                    {card.value.toLocaleString()}
+                    <FormatNumber value={card.value} />
                   </p>
                   <p className="text-xs font-medium text-slate-500 mt-0.5">
                     {card.label}
@@ -854,7 +854,7 @@ export function LeadsCRM({
                           <span
                             className={`text-sm font-bold ${isActiveVendor ? 'text-blue-700' : 'text-slate-900'}`}
                           >
-                            {v.count.toLocaleString()}
+                            <FormatNumber value={v.count} />
                           </span>
                         </div>
                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -1145,7 +1145,7 @@ export function LeadsCRM({
               className="font-bold text-amber-700 underline underline-offset-2 hover:text-amber-900 transition-colors"
               onClick={() => void selectAllMatching()}
             >
-              Select all {total.toLocaleString()} matching leads
+              Select all <FormatNumber value={total} /> matching leads
             </button>
           </div>
         )}
@@ -1155,7 +1155,7 @@ export function LeadsCRM({
           <span className="text-emerald-800">
             All{' '}
             <span className="font-bold">
-              {(globalIds?.length ?? total).toLocaleString()}
+              <FormatNumber value={globalIds?.length ?? total} />
             </span>{' '}
             matching leads are selected.
           </span>
@@ -1172,7 +1172,7 @@ export function LeadsCRM({
       {/* Batch action toolbar */}
       {selected.size > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
-          <span className="text-sm font-bold text-blue-800">
+          <span className="text-sm font-bold text-blue-800" suppressHydrationWarning>
             {selectAllGlobal
               ? `${(globalIds?.length ?? total).toLocaleString()} leads selected`
               : `${selected.size} lead${selected.size !== 1 ? 's' : ''} selected`}
@@ -1275,7 +1275,7 @@ export function LeadsCRM({
               </button>
             ) : (
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-red-700">
+                <span className="text-xs font-semibold text-red-700" suppressHydrationWarning>
                   Delete{' '}
                   {selectAllGlobal
                     ? (globalIds?.length ?? total).toLocaleString()
@@ -1313,7 +1313,7 @@ export function LeadsCRM({
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <p className="text-sm text-slate-600">
             <span className="font-bold text-slate-900">
-              {total.toLocaleString()}
+              <FormatNumber value={total} />
             </span>{' '}
             leads
             {total > 0 && (
