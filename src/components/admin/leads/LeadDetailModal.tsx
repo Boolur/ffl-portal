@@ -91,6 +91,7 @@ type LeadDetail = {
   fhaLoan: string | null;
   sourceUrl: string | null;
   source: string | null;
+  leadCreated: string | null;
   price: string | null;
   receivedAt: string;
   assignedAt: string | null;
@@ -208,6 +209,7 @@ const EDITABLE_FIELDS: Array<{ key: string; label: string }> = [
   { key: 'fhaLoan', label: 'FHA Loan' },
   { key: 'sourceUrl', label: 'Source URL' },
   { key: 'source', label: 'Source' },
+  { key: 'leadCreated', label: 'Created Date' },
   { key: 'price', label: 'Price' },
 ];
 
@@ -644,6 +646,7 @@ export function LeadDetailModal({
           <Section title="Source / Meta" icon={Tag} defaultOpen={false}>
             <FieldRow label="Source" value={lead.source} fieldKey="source" {...fp} />
             <FieldRow label="Source URL" value={lead.sourceUrl} fieldKey="sourceUrl" {...fp} />
+            <FieldRow label="Created Date" value={lead.leadCreated} fieldKey="leadCreated" {...fp} />
             <FieldRow label="Price" value={lead.price} fieldKey="price" {...fp} />
           </Section>
 

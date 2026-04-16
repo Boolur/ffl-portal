@@ -599,7 +599,7 @@ export async function updateLeadFields(
     'downPayment', 'cashOut', 'creditRating',
     'currentLender', 'currentBalance', 'currentRate', 'currentPayment', 'currentTerm', 'currentType',
     'otherBalance', 'otherPayment', 'targetRate',
-    'vaStatus', 'vaLoan', 'isMilitary', 'fhaLoan', 'sourceUrl', 'source', 'price',
+    'vaStatus', 'vaLoan', 'isMilitary', 'fhaLoan', 'sourceUrl', 'source', 'leadCreated', 'price',
   ]);
 
   const data: Record<string, string | null> = {};

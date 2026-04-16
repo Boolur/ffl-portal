@@ -31,7 +31,7 @@ const NORMALIZED_FIELDS = [
   'downPayment','cashOut','creditRating',
   'currentLender','currentBalance','currentRate','currentPayment','currentTerm','currentType',
   'otherBalance','otherPayment','targetRate',
-  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','price',
+  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','leadCreated','price',
 ];
 
 function InfoTip({ text }: { text: string }) {

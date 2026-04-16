@@ -25,7 +25,7 @@ const NORMALIZED_FIELDS = [
   'downPayment','cashOut','creditRating',
   'currentLender','currentBalance','currentRate','currentPayment','currentTerm','currentType',
   'otherBalance','otherPayment','targetRate',
-  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','price',
+  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','leadCreated','price',
 ];
 
 const REQUIRED_FIELDS = new Set(['phone', 'propertyState']);
@@ -50,7 +50,7 @@ const FIELD_LABELS: Record<string, string> = {
   currentPayment: 'Current Payment', currentTerm: 'Current Term', currentType: 'Current Type',
   otherBalance: 'Other Balance', otherPayment: 'Other Payment', targetRate: 'Target Rate',
   vaStatus: 'VA Status', vaLoan: 'VA Loan', isMilitary: 'Is Military',
-  fhaLoan: 'FHA Loan', sourceUrl: 'Source URL', price: 'Price',
+  fhaLoan: 'FHA Loan', sourceUrl: 'Source URL', leadCreated: 'Created Date', price: 'Price',
 };
 
 export function CsvUploadModal({

@@ -699,7 +699,8 @@ model Lead {
   fhaLoan        String?
   sourceUrl      String?
 
-  // Vendor-provided cost
+  // Vendor-provided meta
+  leadCreated    String?
   price          String?
 
   // Routing / status
