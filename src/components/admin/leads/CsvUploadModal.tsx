@@ -237,6 +237,7 @@ export function CsvUploadModal({
   };
 
   const handleClose = () => {
+    if (uploading) return;
     reset();
     onClose();
   };
@@ -288,7 +289,11 @@ export function CsvUploadModal({
               <span className="text-xs text-slate-400">Step {step} of 3</span>
             )}
           </div>
-          <button className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-200 rounded" onClick={handleClose}>
+          <button
+            className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-200 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={handleClose}
+            disabled={uploading}
+          >
             <X className="h-5 w-5" />
           </button>
         </div>

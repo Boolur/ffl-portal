@@ -403,10 +403,17 @@ export function LeadDetailModal({
     onEditChange: handleEditChange,
   };
 
+  const busy = saving || updatingStatus || savingNote;
+
+  const safeClose = useCallback(() => {
+    if (busy) return;
+    onClose();
+  }, [busy, onClose]);
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center"
-      onClick={onClose}
+      onClick={safeClose}
     >
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
       <div
@@ -488,8 +495,9 @@ export function LeadDetailModal({
                     </>
                   )}
                   <button
-                    className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
-                    onClick={onClose}
+                    className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    onClick={safeClose}
+                    disabled={busy}
                   >
                     <X className="h-5 w-5" />
                   </button>
