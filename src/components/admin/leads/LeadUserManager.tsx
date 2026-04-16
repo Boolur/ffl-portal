@@ -226,13 +226,16 @@ function UserDetailPanel({
     globalMonthly !== user.globalMonthlyQuota;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-[1px]" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" />
       <div
-        className="h-full w-full max-w-xl bg-white shadow-2xl border-l border-slate-200 overflow-y-auto"
+        role="dialog"
+        aria-modal="true"
+        className="relative w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-slate-200 max-h-[85vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-6 py-4">
+        <div className="border-b border-slate-200 px-6 py-4 bg-slate-50/50">
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-lg font-bold text-slate-900">{user.name}</h2>
@@ -255,14 +258,14 @@ function UserDetailPanel({
               <span className={`text-xs font-bold ${leadsEnabled ? 'text-green-700' : 'text-slate-500'}`}>
                 {leadsEnabled ? 'LEADS ON' : 'LEADS OFF'}
               </span>
-              <button className="app-icon-btn ml-2" onClick={onClose} aria-label="Close">
+              <button className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-200 rounded ml-2" onClick={onClose} aria-label="Close">
                 <X className="h-5 w-5" />
               </button>
             </div>
           </div>
         </div>
 
-        <div className="px-6 py-5 space-y-6">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
           {/* Licensed States */}
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Licensed States</p>
