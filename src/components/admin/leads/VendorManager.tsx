@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
-import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Globe } from 'lucide-react';
+import React, { useState, useCallback, useRef } from 'react';
+import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Globe, HelpCircle } from 'lucide-react';
 import {
   createLeadVendor,
   updateLeadVendor,
@@ -34,6 +34,41 @@ const NORMALIZED_FIELDS = [
   'otherBalance','otherPayment','targetRate',
   'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','price',
 ];
+
+function InfoTip({ text }: { text: string }) {
+  const [show, setShow] = useState(false);
+  const [align, setAlign] = useState<'center' | 'left' | 'right'>('center');
+  const timeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const iconRef = useRef<HTMLSpanElement>(null);
+
+  const open = () => {
+    clearTimeout(timeout.current);
+    if (iconRef.current) {
+      const rect = iconRef.current.getBoundingClientRect();
+      const tipHalf = 112;
+      if (rect.left < tipHalf + 16) setAlign('left');
+      else if (window.innerWidth - rect.right < tipHalf + 16) setAlign('right');
+      else setAlign('center');
+    }
+    setShow(true);
+  };
+  const close = () => { timeout.current = setTimeout(() => setShow(false), 150); };
+
+  const posClass = align === 'left' ? 'left-0' : align === 'right' ? 'right-0' : 'left-1/2 -translate-x-1/2';
+  const arrowClass = align === 'left' ? 'left-3' : align === 'right' ? 'right-3' : 'left-1/2 -translate-x-1/2';
+
+  return (
+    <span ref={iconRef} className="relative inline-flex ml-1 align-middle" onMouseEnter={open} onMouseLeave={close}>
+      <HelpCircle className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600 cursor-help transition-colors" />
+      {show && (
+        <span className={`absolute bottom-full mb-2 z-50 w-56 rounded-lg border border-slate-200 bg-slate-800 px-3 py-2 text-[11px] leading-relaxed text-white shadow-lg ${posClass}`}>
+          {text}
+          <span className={`absolute top-full -mt-px border-4 border-transparent border-t-slate-800 ${arrowClass}`} />
+        </span>
+      )}
+    </span>
+  );
+}
 
 export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }) {
   const router = useRouter();
@@ -257,7 +292,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Basic Info</p>
               <div className="grid grid-cols-2 gap-4">
                 <label className="space-y-1 text-sm">
-                  <span className="font-medium text-slate-700">Name *</span>
+                  <span className="font-medium text-slate-700">Name *<InfoTip text="A display name for this vendor, e.g. 'Leadpoint' or 'FreeRateUpdate - Matt'. This is how it appears throughout the portal." /></span>
                   <input
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     value={form.name}
@@ -266,7 +301,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                   />
                 </label>
                 <label className="space-y-1 text-sm">
-                  <span className="font-medium text-slate-700">Slug *</span>
+                  <span className="font-medium text-slate-700">Slug *<InfoTip text="A unique URL-friendly identifier used in the webhook URL. Use lowercase letters, numbers, and dashes only. Example: 'leadpoint' or 'fru-matt'." /></span>
                   <input
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     value={form.slug}
@@ -277,7 +312,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <label className="space-y-1 text-sm">
-                  <span className="font-medium text-slate-700">Webhook Secret</span>
+                  <span className="font-medium text-slate-700">Webhook Secret<InfoTip text="An optional password the vendor includes in their request header to prove they're authorized. If set, any request without this secret will be rejected." /></span>
                   <input
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     value={form.webhookSecret}
@@ -286,7 +321,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                   />
                 </label>
                 <label className="space-y-1 text-sm">
-                  <span className="font-medium text-slate-700">Routing Tag Field</span>
+                  <span className="font-medium text-slate-700">Routing Tag Field<InfoTip text="The field name in the vendor's payload that contains the campaign/routing identifier. This tells the system which campaign the lead belongs to. Default is 'routing_tag'." /></span>
                   <input
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     value={form.routingTagField}
