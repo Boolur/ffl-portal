@@ -229,7 +229,6 @@ function FieldRow({
   editValues: Record<string, string>;
   onEditChange: (key: string, value: string) => void;
 }) {
-  if (!editing && !value) return null;
   return (
     <div className="grid grid-cols-[140px_1fr] gap-3 py-2 border-b border-slate-50 last:border-b-0">
       <span className="text-xs font-medium text-slate-400 uppercase tracking-wide pt-1.5">
@@ -244,8 +243,10 @@ function FieldRow({
           placeholder={`Enter ${label.toLowerCase()}...`}
         />
       ) : (
-        <span className="text-sm text-slate-800 break-words pt-0.5">
-          {value}
+        <span
+          className={`text-sm break-words pt-0.5 ${value ? 'text-slate-800' : 'text-slate-300 italic'}`}
+        >
+          {value || '—'}
         </span>
       )}
     </div>
@@ -257,17 +258,13 @@ function Section({
   icon: Icon,
   children,
   defaultOpen = true,
-  forceShow = false,
 }: {
   title: string;
   icon: React.ElementType;
   children: React.ReactNode;
   defaultOpen?: boolean;
-  forceShow?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const childArray = React.Children.toArray(children).filter(Boolean);
-  if (!forceShow && childArray.length === 0) return null;
 
   return (
     <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
@@ -559,7 +556,7 @@ export function LeadDetailModal({
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-slate-50/30">
-          <Section title="Contact" icon={User} forceShow={editing}>
+          <Section title="Contact — Borrower" icon={User}>
             <FieldRow label="First Name" value={lead.firstName} fieldKey="firstName" {...fp} />
             <FieldRow label="Last Name" value={lead.lastName} fieldKey="lastName" {...fp} />
             <FieldRow label="Email" value={lead.email} fieldKey="email" {...fp} />
@@ -567,36 +564,35 @@ export function LeadDetailModal({
             <FieldRow label="Home Phone" value={lead.homePhone} fieldKey="homePhone" {...fp} />
             <FieldRow label="Work Phone" value={lead.workPhone} fieldKey="workPhone" {...fp} />
             <FieldRow label="DOB" value={lead.dob} fieldKey="dob" {...fp} />
-            {(editing || lead.coFirstName || lead.coLastName) && (
-              <>
-                <div className="mt-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-t border-slate-100 pt-3">
-                  Co-Borrower
-                </div>
-                <FieldRow label="First Name" value={lead.coFirstName} fieldKey="coFirstName" {...fp} />
-                <FieldRow label="Last Name" value={lead.coLastName} fieldKey="coLastName" {...fp} />
-                <FieldRow label="Email" value={lead.coEmail} fieldKey="coEmail" {...fp} />
-                <FieldRow label="Phone" value={lead.coPhone} fieldKey="coPhone" {...fp} />
-                <FieldRow label="Home Phone" value={lead.coHomePhone} fieldKey="coHomePhone" {...fp} />
-                <FieldRow label="Work Phone" value={lead.coWorkPhone} fieldKey="coWorkPhone" {...fp} />
-                <FieldRow label="DOB" value={lead.coDob} fieldKey="coDob" {...fp} />
-              </>
-            )}
           </Section>
 
-          <Section title="Address" icon={MapPin} forceShow={editing}>
-            <FieldRow label="Mailing Address" value={lead.mailingAddress} fieldKey="mailingAddress" {...fp} />
-            <FieldRow label="Mailing City" value={lead.mailingCity} fieldKey="mailingCity" {...fp} />
-            <FieldRow label="Mailing State" value={lead.mailingState} fieldKey="mailingState" {...fp} />
-            <FieldRow label="Mailing Zip" value={lead.mailingZip} fieldKey="mailingZip" {...fp} />
-            <FieldRow label="Mailing County" value={lead.mailingCounty} fieldKey="mailingCounty" {...fp} />
-            <FieldRow label="Property Address" value={lead.propertyAddress} fieldKey="propertyAddress" {...fp} />
-            <FieldRow label="Property City" value={lead.propertyCity} fieldKey="propertyCity" {...fp} />
-            <FieldRow label="Property State" value={lead.propertyState} fieldKey="propertyState" {...fp} />
-            <FieldRow label="Property Zip" value={lead.propertyZip} fieldKey="propertyZip" {...fp} />
-            <FieldRow label="Property County" value={lead.propertyCounty} fieldKey="propertyCounty" {...fp} />
+          <Section title="Contact — Co-Borrower" icon={User} defaultOpen={false}>
+            <FieldRow label="First Name" value={lead.coFirstName} fieldKey="coFirstName" {...fp} />
+            <FieldRow label="Last Name" value={lead.coLastName} fieldKey="coLastName" {...fp} />
+            <FieldRow label="Email" value={lead.coEmail} fieldKey="coEmail" {...fp} />
+            <FieldRow label="Phone" value={lead.coPhone} fieldKey="coPhone" {...fp} />
+            <FieldRow label="Home Phone" value={lead.coHomePhone} fieldKey="coHomePhone" {...fp} />
+            <FieldRow label="Work Phone" value={lead.coWorkPhone} fieldKey="coWorkPhone" {...fp} />
+            <FieldRow label="DOB" value={lead.coDob} fieldKey="coDob" {...fp} />
           </Section>
 
-          <Section title="Property" icon={Home} forceShow={editing}>
+          <Section title="Mailing Address" icon={MapPin}>
+            <FieldRow label="Address" value={lead.mailingAddress} fieldKey="mailingAddress" {...fp} />
+            <FieldRow label="City" value={lead.mailingCity} fieldKey="mailingCity" {...fp} />
+            <FieldRow label="State" value={lead.mailingState} fieldKey="mailingState" {...fp} />
+            <FieldRow label="Zip" value={lead.mailingZip} fieldKey="mailingZip" {...fp} />
+            <FieldRow label="County" value={lead.mailingCounty} fieldKey="mailingCounty" {...fp} />
+          </Section>
+
+          <Section title="Property Address" icon={MapPin} defaultOpen={false}>
+            <FieldRow label="Address" value={lead.propertyAddress} fieldKey="propertyAddress" {...fp} />
+            <FieldRow label="City" value={lead.propertyCity} fieldKey="propertyCity" {...fp} />
+            <FieldRow label="State" value={lead.propertyState} fieldKey="propertyState" {...fp} />
+            <FieldRow label="Zip" value={lead.propertyZip} fieldKey="propertyZip" {...fp} />
+            <FieldRow label="County" value={lead.propertyCounty} fieldKey="propertyCounty" {...fp} />
+          </Section>
+
+          <Section title="Property Details" icon={Home}>
             <FieldRow label="Purchase Price" value={lead.purchasePrice} fieldKey="purchasePrice" {...fp} />
             <FieldRow label="Property Value" value={lead.propertyValue} fieldKey="propertyValue" {...fp} />
             <FieldRow label="Type" value={lead.propertyType} fieldKey="propertyType" {...fp} />
@@ -604,26 +600,22 @@ export function LeadDetailModal({
             <FieldRow label="LTV" value={lead.propertyLtv} fieldKey="propertyLtv" {...fp} />
           </Section>
 
-          <Section title="Employment" icon={Briefcase} forceShow={editing}>
+          <Section title="Employment — Borrower" icon={Briefcase}>
             <FieldRow label="Employer" value={lead.employer} fieldKey="employer" {...fp} />
             <FieldRow label="Job Title" value={lead.jobTitle} fieldKey="jobTitle" {...fp} />
             <FieldRow label="Income" value={lead.income} fieldKey="income" {...fp} />
             <FieldRow label="Self Employed" value={lead.selfEmployed} fieldKey="selfEmployed" {...fp} />
             <FieldRow label="Bankruptcy" value={lead.bankruptcy} fieldKey="bankruptcy" {...fp} />
             <FieldRow label="Homeowner" value={lead.homeowner} fieldKey="homeowner" {...fp} />
-            {(editing || lead.coEmployer || lead.coIncome) && (
-              <>
-                <div className="mt-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-t border-slate-100 pt-3">
-                  Co-Borrower
-                </div>
-                <FieldRow label="Employer" value={lead.coEmployer} fieldKey="coEmployer" {...fp} />
-                <FieldRow label="Job Title" value={lead.coJobTitle} fieldKey="coJobTitle" {...fp} />
-                <FieldRow label="Income" value={lead.coIncome} fieldKey="coIncome" {...fp} />
-              </>
-            )}
           </Section>
 
-          <Section title="Loan Details" icon={DollarSign} forceShow={editing}>
+          <Section title="Employment — Co-Borrower" icon={Briefcase} defaultOpen={false}>
+            <FieldRow label="Employer" value={lead.coEmployer} fieldKey="coEmployer" {...fp} />
+            <FieldRow label="Job Title" value={lead.coJobTitle} fieldKey="coJobTitle" {...fp} />
+            <FieldRow label="Income" value={lead.coIncome} fieldKey="coIncome" {...fp} />
+          </Section>
+
+          <Section title="Loan Details" icon={DollarSign}>
             <FieldRow label="Purpose" value={lead.loanPurpose} fieldKey="loanPurpose" {...fp} />
             <FieldRow label="Amount" value={lead.loanAmount} fieldKey="loanAmount" {...fp} />
             <FieldRow label="Term" value={lead.loanTerm} fieldKey="loanTerm" {...fp} />
@@ -634,7 +626,7 @@ export function LeadDetailModal({
             <FieldRow label="Credit Rating" value={lead.creditRating} fieldKey="creditRating" {...fp} />
           </Section>
 
-          <Section title="Current Loan" icon={Landmark} defaultOpen={false} forceShow={editing}>
+          <Section title="Current Loan" icon={Landmark} defaultOpen={false}>
             <FieldRow label="Lender" value={lead.currentLender} fieldKey="currentLender" {...fp} />
             <FieldRow label="Balance" value={lead.currentBalance} fieldKey="currentBalance" {...fp} />
             <FieldRow label="Rate" value={lead.currentRate} fieldKey="currentRate" {...fp} />
@@ -646,14 +638,14 @@ export function LeadDetailModal({
             <FieldRow label="Target Rate" value={lead.targetRate} fieldKey="targetRate" {...fp} />
           </Section>
 
-          <Section title="Military / VA" icon={Shield} defaultOpen={false} forceShow={editing}>
+          <Section title="Military / VA" icon={Shield} defaultOpen={false}>
             <FieldRow label="VA Status" value={lead.vaStatus} fieldKey="vaStatus" {...fp} />
             <FieldRow label="VA Loan" value={lead.vaLoan} fieldKey="vaLoan" {...fp} />
             <FieldRow label="Military" value={lead.isMilitary} fieldKey="isMilitary" {...fp} />
             <FieldRow label="FHA Loan" value={lead.fhaLoan} fieldKey="fhaLoan" {...fp} />
           </Section>
 
-          <Section title="Source / Meta" icon={Tag} defaultOpen={false} forceShow={editing}>
+          <Section title="Source / Meta" icon={Tag} defaultOpen={false}>
             <FieldRow label="Source" value={lead.source} fieldKey="source" {...fp} />
             <FieldRow label="Source URL" value={lead.sourceUrl} fieldKey="sourceUrl" {...fp} />
             <FieldRow label="Price" value={lead.price} fieldKey="price" {...fp} />
