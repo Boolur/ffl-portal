@@ -32,6 +32,7 @@ const investorOptions = [
   'Loan United',
   'PennyMac',
 ];
+const investorOptionSet = new Set(investorOptions.map((option) => option.trim().toUpperCase()));
 const qcInvestorOptions = [...investorOptions, 'Other'];
 const qcInvestorOptionSet = new Set(qcInvestorOptions.map((option) => option.trim().toUpperCase()));
 const buttonPricingOptions = [
@@ -797,6 +798,9 @@ function DisclosuresForm({
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  const investorSelectionInvalid = !investorOptionSet.has(form.investor.trim().toUpperCase());
+  const shouldHighlightInvestorImmediately =
+    investorSelectionInvalid && Boolean(form.arriveLoanNumber.trim() || form.borrowerFirstName.trim());
   const isButtonInvestor = form.investor === 'Button';
   const hasButtonBorrowerEmailMatch =
     isButtonInvestor &&
@@ -860,7 +864,10 @@ function DisclosuresForm({
   ];
   const missingEntryKeys = new Set<keyof typeof form>(
     requiredEntryFields
-      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .filter(({ key }) => {
+        if (key === 'investor') return investorSelectionInvalid;
+        return !String(form[key] ?? '').trim();
+      })
       .map(({ key }) => key)
   );
   const highlightedMissingFields = new Set<keyof typeof form>();
@@ -928,7 +935,10 @@ function DisclosuresForm({
     setShowValidationErrors(true);
 
     const missingEntryLabels = requiredEntryFields
-      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .filter(({ key }) => {
+        if (key === 'investor') return investorSelectionInvalid;
+        return !String(form[key] ?? '').trim();
+      })
       .map(({ label }) => label);
     if (missingEntryLabels.length > 0) {
       setSubmitError(
@@ -1277,7 +1287,7 @@ function DisclosuresForm({
           onChange={(v) => update('investor', v)}
           options={investorOptions}
           required
-          invalid={highlightedMissingFields.has('investor')}
+          invalid={highlightedMissingFields.has('investor') || shouldHighlightInvestorImmediately}
         />
         {isButtonInvestor && (
           <>
