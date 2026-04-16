@@ -23,7 +23,6 @@ type Vendor = {
 const NORMALIZED_FIELDS = [
   'firstName','lastName','email','phone','homePhone','workPhone','dob',
   'coFirstName','coLastName','coEmail','coPhone','coHomePhone','coWorkPhone','coDob',
-  'mailingAddress','mailingCity','mailingState','mailingZip','mailingCounty',
   'propertyAddress','propertyCity','propertyState','propertyZip','propertyCounty',
   'purchasePrice','propertyValue','propertyType','propertyUse','propertyAcquired','propertyLtv',
   'employer','jobTitle','employmentLength','selfEmployed','income','bankruptcy','homeowner',

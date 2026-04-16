@@ -17,7 +17,6 @@ type SavedMapping = { csvHeader: string; ourField: string; usageCount: number };
 const NORMALIZED_FIELDS = [
   'firstName','lastName','email','phone','homePhone','workPhone','dob',
   'coFirstName','coLastName','coEmail','coPhone','coHomePhone','coWorkPhone','coDob',
-  'mailingAddress','mailingCity','mailingState','mailingZip','mailingCounty',
   'propertyAddress','propertyCity','propertyState','propertyZip','propertyCounty',
   'purchasePrice','propertyValue','propertyType','propertyUse','propertyAcquired','propertyLtv',
   'employer','jobTitle','employmentLength','selfEmployed','income','bankruptcy','homeowner',
@@ -29,15 +28,15 @@ const NORMALIZED_FIELDS = [
   'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','price',
 ];
 
+const REQUIRED_FIELDS = new Set(['phone', 'propertyState']);
+
 const FIELD_LABELS: Record<string, string> = {
   firstName: 'First Name', lastName: 'Last Name', email: 'Email', phone: 'Phone',
   homePhone: 'Home Phone', workPhone: 'Work Phone', dob: 'DOB',
   coFirstName: 'Co First Name', coLastName: 'Co Last Name', coEmail: 'Co Email',
   coPhone: 'Co Phone', coHomePhone: 'Co Home Phone', coWorkPhone: 'Co Work Phone', coDob: 'Co DOB',
-  mailingAddress: 'Mailing Address', mailingCity: 'Mailing City', mailingState: 'Mailing State',
-  mailingZip: 'Mailing Zip', mailingCounty: 'Mailing County',
-  propertyAddress: 'Property Address', propertyCity: 'Property City', propertyState: 'Property State',
-  propertyZip: 'Property Zip', propertyCounty: 'Property County',
+  propertyAddress: 'Address', propertyCity: 'City', propertyState: 'State',
+  propertyZip: 'Zip', propertyCounty: 'County',
   purchasePrice: 'Purchase Price', propertyValue: 'Property Value', propertyType: 'Property Type',
   propertyUse: 'Property Use', propertyAcquired: 'Property Acquired', propertyLtv: 'Property LTV',
   employer: 'Employer', jobTitle: 'Job Title', employmentLength: 'Employment Length',
@@ -159,6 +158,11 @@ export function CsvUploadModal({
     () => Object.values(columnMap).filter((v) => v && v !== '__skip__').length,
     [columnMap]
   );
+
+  const missingRequired = useMemo(() => {
+    const mapped = new Set(Object.values(columnMap).filter((v) => v && v !== '__skip__'));
+    return [...REQUIRED_FIELDS].filter((f) => !mapped.has(f));
+  }, [columnMap]);
 
   const setMapping = (header: string, field: string) => {
     setColumnMap((prev) => ({ ...prev, [header]: field }));
@@ -382,7 +386,7 @@ export function CsvUploadModal({
                               value={f}
                               disabled={usedFields.has(f) && columnMap[h] !== f}
                             >
-                              {FIELD_LABELS[f] || f}
+                              {FIELD_LABELS[f] || f}{REQUIRED_FIELDS.has(f) ? ' *' : ''}
                             </option>
                           ))}
                         </select>
@@ -391,6 +395,17 @@ export function CsvUploadModal({
                   );
                 })}
               </div>
+
+              {missingRequired.length > 0 && (
+                <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+                  <span>
+                    <strong>Required:</strong> You must map{' '}
+                    {missingRequired.map((f) => FIELD_LABELS[f] || f).join(' and ')}{' '}
+                    before uploading.
+                  </span>
+                </div>
+              )}
 
               {error && (
                 <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -448,7 +463,7 @@ export function CsvUploadModal({
               type="button"
               className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               onClick={() => void handleUpload()}
-              disabled={uploading || mappedCount === 0}
+              disabled={uploading || mappedCount === 0 || missingRequired.length > 0}
             >
               Upload {rows.length} Leads
               <ChevronRight className="h-4 w-4" />

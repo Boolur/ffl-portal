@@ -164,16 +164,11 @@ const EDITABLE_FIELDS: Array<{ key: string; label: string }> = [
   { key: 'coHomePhone', label: 'Co Home Phone' },
   { key: 'coWorkPhone', label: 'Co Work Phone' },
   { key: 'coDob', label: 'Co DOB' },
-  { key: 'mailingAddress', label: 'Mailing Address' },
-  { key: 'mailingCity', label: 'Mailing City' },
-  { key: 'mailingState', label: 'Mailing State' },
-  { key: 'mailingZip', label: 'Mailing Zip' },
-  { key: 'mailingCounty', label: 'Mailing County' },
-  { key: 'propertyAddress', label: 'Property Address' },
-  { key: 'propertyCity', label: 'Property City' },
-  { key: 'propertyState', label: 'Property State' },
-  { key: 'propertyZip', label: 'Property Zip' },
-  { key: 'propertyCounty', label: 'Property County' },
+  { key: 'propertyAddress', label: 'Address' },
+  { key: 'propertyCity', label: 'City' },
+  { key: 'propertyState', label: 'State' },
+  { key: 'propertyZip', label: 'Zip' },
+  { key: 'propertyCounty', label: 'County' },
   { key: 'purchasePrice', label: 'Purchase Price' },
   { key: 'propertyValue', label: 'Property Value' },
   { key: 'propertyType', label: 'Property Type' },
@@ -576,15 +571,7 @@ export function LeadDetailModal({
             <FieldRow label="DOB" value={lead.coDob} fieldKey="coDob" {...fp} />
           </Section>
 
-          <Section title="Mailing Address" icon={MapPin}>
-            <FieldRow label="Address" value={lead.mailingAddress} fieldKey="mailingAddress" {...fp} />
-            <FieldRow label="City" value={lead.mailingCity} fieldKey="mailingCity" {...fp} />
-            <FieldRow label="State" value={lead.mailingState} fieldKey="mailingState" {...fp} />
-            <FieldRow label="Zip" value={lead.mailingZip} fieldKey="mailingZip" {...fp} />
-            <FieldRow label="County" value={lead.mailingCounty} fieldKey="mailingCounty" {...fp} />
-          </Section>
-
-          <Section title="Property Address" icon={MapPin} defaultOpen={false}>
+          <Section title="Address" icon={MapPin}>
             <FieldRow label="Address" value={lead.propertyAddress} fieldKey="propertyAddress" {...fp} />
             <FieldRow label="City" value={lead.propertyCity} fieldKey="propertyCity" {...fp} />
             <FieldRow label="State" value={lead.propertyState} fieldKey="propertyState" {...fp} />
