@@ -269,25 +269,31 @@ export function LeadDetailModal({
             </div>
           </div>
 
-          {/* Status pills */}
-          <div className="mt-4 flex flex-wrap gap-1.5">
-            {ALL_STATUSES.map((s) => (
-              <button
-                key={s.value}
-                type="button"
-                disabled={updatingStatus}
-                onClick={() => void handleStatusChange(s.value)}
-                className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-all disabled:opacity-60 ${
-                  lead.status === s.value
-                    ? s.active + ' shadow-sm'
-                    : s.color + ' hover:opacity-80'
+          {/* Status dropdown */}
+          <div className="mt-4 flex items-center gap-3">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+              Status
+            </span>
+            <div className="relative">
+              <select
+                className={`appearance-none rounded-lg border pl-3 pr-8 py-1.5 text-sm font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors ${
+                  ALL_STATUSES.find((s) => s.value === lead.status)?.active ||
+                  'border-slate-300 bg-white text-slate-700'
                 }`}
+                value={lead.status}
+                onChange={(e) => void handleStatusChange(e.target.value)}
+                disabled={updatingStatus}
               >
-                {s.label}
-              </button>
-            ))}
+                {ALL_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none text-current opacity-60" />
+            </div>
             {updatingStatus && (
-              <Loader2 className="h-4 w-4 animate-spin text-blue-600 self-center ml-1" />
+              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
             )}
           </div>
 
