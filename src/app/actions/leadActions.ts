@@ -251,15 +251,53 @@ export async function deleteLeadVendor(id: string) {
 // Campaign CRUD
 // ---------------------------------------------------------------------------
 
+function getLastNBusinessDaysStart(n: number): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  let count = 0;
+  while (count < n) {
+    d.setDate(d.getDate() - 1);
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return d;
+}
+
 export async function getLeadCampaigns() {
-  return prisma.leadCampaign.findMany({
-    orderBy: { createdAt: 'desc' },
-    include: {
-      vendor: { select: { id: true, name: true, slug: true } },
-      defaultUser: { select: { id: true, name: true } },
-      _count: { select: { members: true, leads: true } },
-    },
-  });
+  const fiveBdAgo = getLastNBusinessDaysStart(5);
+
+  const [campaigns, quotaSums, recentLeadCounts] = await Promise.all([
+    prisma.leadCampaign.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        vendor: { select: { id: true, name: true, slug: true } },
+        defaultUser: { select: { id: true, name: true } },
+        _count: { select: { members: true, leads: true } },
+      },
+    }),
+    prisma.campaignMember.groupBy({
+      by: ['campaignId'],
+      where: { active: true },
+      _sum: { dailyQuota: true },
+    }),
+    prisma.lead.groupBy({
+      by: ['campaignId'],
+      where: { createdAt: { gte: fiveBdAgo } },
+      _count: { _all: true },
+      orderBy: { campaignId: 'asc' },
+    }),
+  ]);
+
+  const quotaMap = new Map(quotaSums.map((q) => [q.campaignId, q._sum.dailyQuota ?? 0]));
+  const recentMap = new Map(
+    recentLeadCounts.map((r) => [r.campaignId, r._count._all]),
+  );
+
+  return campaigns.map((c) => ({
+    ...c,
+    totalDailyQuota: quotaMap.get(c.id) ?? 0,
+    avgLeads5bd: Math.round(((recentMap.get(c.id) ?? 0) / 5) * 10) / 10,
+  }));
 }
 
 export async function getLeadCampaign(id: string) {

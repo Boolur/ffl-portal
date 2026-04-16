@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Globe, HelpCircle, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import {
   createLeadVendor,
@@ -84,6 +84,12 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
   const [sortCol, setSortCol] = useState<string>('created');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const resizingCol = useRef<string | null>(null);
+  const resizeStartX = useRef(0);
+  const resizeStartW = useRef(0);
+  const tableRef = useRef<HTMLTableElement>(null);
+
   const toggleSort = useCallback((col: string) => {
     setSortCol((prev) => {
       if (prev === col) {
@@ -93,6 +99,31 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
       setSortDir('asc');
       return col;
     });
+  }, []);
+
+  const onResizeStart = useCallback((col: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingCol.current = col;
+    resizeStartX.current = e.clientX;
+    const th = (e.target as HTMLElement).closest('th');
+    resizeStartW.current = th?.offsetWidth ?? 120;
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!resizingCol.current) return;
+      const diff = e.clientX - resizeStartX.current;
+      const newW = Math.max(60, resizeStartW.current + diff);
+      setColWidths((prev) => ({ ...prev, [resizingCol.current!]: newW }));
+    };
+    const onUp = () => { resizingCol.current = null; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
   }, []);
 
   const filteredVendors = useMemo(() => {
@@ -286,7 +317,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full text-sm">
+          <table ref={tableRef} className="w-full text-sm" style={{ tableLayout: Object.keys(colWidths).length ? 'fixed' : undefined }}>
             <thead className="sticky top-0 z-[1] bg-slate-50">
               <tr className="border-b border-slate-200">
                 {([
@@ -300,13 +331,21 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                 ] as const).map((col) => (
                   <th
                     key={col.key}
-                    className={`px-4 py-3 text-${col.align} text-[11px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-slate-700 transition-colors`}
+                    className={`relative px-4 py-3 text-${col.align} text-[11px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-slate-700 transition-colors group/th`}
+                    style={colWidths[col.key] ? { width: colWidths[col.key] } : undefined}
                     onClick={() => toggleSort(col.key)}
                   >
                     <span className="inline-flex items-center gap-1">
                       {col.label}
-                      {sortCol === col.key && (sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+                      {sortCol === col.key && (sortDir === 'asc' ? <ArrowUp className="h-3 w-3 text-blue-600" /> : <ArrowDown className="h-3 w-3 text-blue-600" />)}
                     </span>
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-[5px] cursor-col-resize flex items-center justify-center opacity-0 group-hover/th:opacity-100 hover:!opacity-100 transition-opacity z-[2]"
+                      onMouseDown={(e) => onResizeStart(col.key, e)}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="h-4 w-[3px] rounded-sm border-x border-slate-300" />
+                    </div>
                   </th>
                 ))}
                 <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Webhook</th>

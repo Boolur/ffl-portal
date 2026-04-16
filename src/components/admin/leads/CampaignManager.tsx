@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle, ArrowUp, ArrowDown } from 'lucide-react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import {
   createLeadCampaign,
   updateLeadCampaign,
@@ -33,6 +33,8 @@ type Campaign = {
   _count: { members: number; leads: number };
   createdAt: Date | string;
   updatedAt: Date | string;
+  totalDailyQuota: number;
+  avgLeads5bd: number;
 };
 type CampaignDetail = Campaign & {
   members: Array<{
@@ -137,6 +139,11 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
   const [campaignSearch, setCampaignSearch] = useState('');
   const [sortCol, setSortCol] = useState<string>('created');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const resizingCol = useRef<string | null>(null);
+  const resizeStartX = useRef(0);
+  const resizeStartW = useRef(0);
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const toggleSort = useCallback((col: string) => {
     setSortCol((prev) => {
@@ -147,6 +154,31 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
       setSortDir('asc');
       return col;
     });
+  }, []);
+
+  const onResizeStart = useCallback((col: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingCol.current = col;
+    resizeStartX.current = e.clientX;
+    const th = (e.target as HTMLElement).closest('th');
+    resizeStartW.current = th?.offsetWidth ?? 120;
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!resizingCol.current) return;
+      const diff = e.clientX - resizeStartX.current;
+      const newW = Math.max(60, resizeStartW.current + diff);
+      setColWidths((prev) => ({ ...prev, [resizingCol.current!]: newW }));
+    };
+    const onUp = () => { resizingCol.current = null; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -174,6 +206,8 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
         case 'status': cmp = (a.active === b.active ? 0 : a.active ? -1 : 1); break;
         case 'created': cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break;
         case 'modified': cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime(); break;
+        case 'quota': cmp = a.totalDailyQuota - b.totalDailyQuota; break;
+        case 'avg5bd': cmp = a.avgLeads5bd - b.avgLeads5bd; break;
         default: cmp = 0;
       }
       return sortDir === 'asc' ? cmp : -cmp;
@@ -356,7 +390,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full text-sm">
+          <table ref={tableRef} className="w-full text-sm" style={{ tableLayout: Object.keys(colWidths).length ? 'fixed' : undefined }}>
             <thead className="sticky top-0 z-[1] bg-slate-50">
               <tr className="border-b border-slate-200">
                 {([
@@ -366,12 +400,15 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                   { key: 'tag', label: 'Routing Tag', align: 'left' },
                   { key: 'members', label: 'Members', align: 'center' },
                   { key: 'leads', label: 'Leads', align: 'center' },
+                  { key: 'quota', label: 'Total Quotas', align: 'center' },
+                  { key: 'avg5bd', label: 'Avg / 5 BD', align: 'center' },
                   { key: 'created', label: 'Created', align: 'left' },
                   { key: 'modified', label: 'Modified', align: 'left' },
                 ] as const).map((col) => (
                   <th
                     key={col.key}
-                    className={`px-4 py-3 text-${col.align} text-[11px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-slate-700 transition-colors`}
+                    className={`relative px-4 py-3 text-${col.align} text-[11px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-slate-700 transition-colors group/th`}
+                    style={colWidths[col.key] ? { width: colWidths[col.key] } : undefined}
                     onClick={() => toggleSort(col.key)}
                   >
                     <span className="inline-flex items-center gap-1">
@@ -382,6 +419,13 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                           : <ArrowDown className="h-3 w-3 text-blue-600" />
                       )}
                     </span>
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-[5px] cursor-col-resize flex items-center justify-center opacity-0 group-hover/th:opacity-100 hover:!opacity-100 transition-opacity z-[2]"
+                      onMouseDown={(e) => onResizeStart(col.key, e)}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="h-4 w-[3px] rounded-sm border-x border-slate-300" />
+                    </div>
                   </th>
                 ))}
                 <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">Actions</th>
@@ -410,6 +454,8 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.routingTag}</td>
                   <td className="px-4 py-3 text-center text-slate-700">{c._count.members}</td>
                   <td className="px-4 py-3 text-center text-slate-700">{c._count.leads}</td>
+                  <td className="px-4 py-3 text-center text-slate-700">{c.totalDailyQuota}</td>
+                  <td className="px-4 py-3 text-center text-slate-700">{c.avgLeads5bd}</td>
                   <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
                     <FormatDate date={c.createdAt} mode="datetime" />
                   </td>
