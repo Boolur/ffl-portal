@@ -126,6 +126,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
@@ -178,6 +179,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
 
   const handleSave = async () => {
     setSaving(true);
+    setLoading(true);
     try {
       const payload = {
         name: form.name,
@@ -207,18 +209,29 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
       router.refresh();
     } finally {
       setSaving(false);
+      setLoading(false);
     }
   };
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this campaign? This cannot be undone.')) return;
-    await deleteLeadCampaign(id);
-    router.refresh();
+    setLoading(true);
+    try {
+      await deleteLeadCampaign(id);
+      router.refresh();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleToggleActive = async (c: Campaign) => {
-    await updateLeadCampaign(c.id, { active: !c.active });
-    router.refresh();
+    setLoading(true);
+    try {
+      await updateLeadCampaign(c.id, { active: !c.active });
+      router.refresh();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleMember = (userId: string) => {
@@ -242,6 +255,14 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
 
   return (
     <div className="space-y-6">
+      {loading && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-white/70 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            <p className="text-sm font-medium text-slate-600">Saving changes...</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <select

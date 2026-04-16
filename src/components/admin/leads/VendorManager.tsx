@@ -76,6 +76,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
@@ -116,6 +117,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
 
   const handleSave = async () => {
     setSaving(true);
+    setLoading(true);
     try {
       if (isCreating) {
         await createLeadVendor({
@@ -138,18 +140,29 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
       router.refresh();
     } finally {
       setSaving(false);
+      setLoading(false);
     }
   };
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this vendor and all its campaigns? This cannot be undone.')) return;
-    await deleteLeadVendor(id);
-    router.refresh();
+    setLoading(true);
+    try {
+      await deleteLeadVendor(id);
+      router.refresh();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleToggleActive = async (v: Vendor) => {
-    await updateLeadVendor(v.id, { active: !v.active });
-    router.refresh();
+    setLoading(true);
+    try {
+      await updateLeadVendor(v.id, { active: !v.active });
+      router.refresh();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const copyWebhookUrl = (slug: string) => {
@@ -195,6 +208,14 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
 
   return (
     <div className="space-y-6">
+      {loading && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-white/70 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            <p className="text-sm font-medium text-slate-600">Saving changes...</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
