@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search } from 'lucide-react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle } from 'lucide-react';
 import {
   createLeadCampaign,
   updateLeadCampaign,
@@ -85,6 +85,26 @@ const EMPTY_FORM: FormState = {
   loanTypeFilter: '',
   memberUserIds: [],
 };
+
+function InfoTip({ text }: { text: string }) {
+  const [show, setShow] = useState(false);
+  const timeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const open = () => { clearTimeout(timeout.current); setShow(true); };
+  const close = () => { timeout.current = setTimeout(() => setShow(false), 150); };
+
+  return (
+    <span className="relative inline-flex ml-1 align-middle" onMouseEnter={open} onMouseLeave={close}>
+      <HelpCircle className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600 cursor-help transition-colors" />
+      {show && (
+        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-56 rounded-lg border border-slate-200 bg-slate-800 px-3 py-2 text-[11px] leading-relaxed text-white shadow-lg">
+          {text}
+          <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-slate-800" />
+        </span>
+      )}
+    </span>
+  );
+}
 
 export function CampaignManager({ campaigns, vendors, users }: Props) {
   const router = useRouter();
@@ -324,7 +344,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">Basic Info</p>
                 <div className="grid grid-cols-2 gap-4">
                   <label className="space-y-1 text-sm">
-                    <span className="font-medium text-slate-700">Name *</span>
+                    <span className="font-medium text-slate-700">Name *<InfoTip text="A friendly name for this campaign, e.g. 'CA Retail - Leadpoint'. Used throughout the portal to identify this lead product." /></span>
                     <input
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.name}
@@ -333,7 +353,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                     />
                   </label>
                   <label className="space-y-1 text-sm">
-                    <span className="font-medium text-slate-700">Vendor *</span>
+                    <span className="font-medium text-slate-700">Vendor *<InfoTip text="The lead vendor/source that sends leads for this campaign. Must be set up in the Vendors page first." /></span>
                     <select
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.vendorId}
@@ -345,7 +365,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                 </div>
                 <div className="grid grid-cols-2 gap-4 mt-4">
                   <label className="space-y-1 text-sm">
-                    <span className="font-medium text-slate-700">Description</span>
+                    <span className="font-medium text-slate-700">Description<InfoTip text="Optional details about this campaign — loan type, filters, date range, etc. Helps admins distinguish between similar campaigns." /></span>
                     <input
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.description}
@@ -354,7 +374,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                     />
                   </label>
                   <label className="space-y-1 text-sm">
-                    <span className="font-medium text-slate-700">Routing Tag *</span>
+                    <span className="font-medium text-slate-700">Routing Tag *<InfoTip text="A unique identifier (usually a number) provided by the vendor that tells the system which campaign an incoming lead belongs to. Must match what the vendor sends." /></span>
                     <input
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.routingTag}
@@ -370,7 +390,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">Assignment</p>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <span className="text-xs font-medium text-slate-700">Assigned Users ({form.memberUserIds.length})</span>
+                    <span className="text-xs font-medium text-slate-700">Assigned Users ({form.memberUserIds.length})<InfoTip text="Loan officers who will receive leads from this campaign. Check/uncheck to add or remove users. Leads are distributed among these users based on the distribution method." /></span>
                     <div className="relative">
                       <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                       <input
@@ -404,7 +424,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <span className="text-xs font-medium text-slate-700">Default User (Fallback)</span>
+                    <span className="text-xs font-medium text-slate-700">Default User (Fallback)<InfoTip text="If no assigned user is eligible (all hit their quotas, wrong state, etc.), this person receives the lead as a safety net. Typically a manager." /></span>
                     <select
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.defaultUserId}
@@ -415,7 +435,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                     </select>
                     <p className="text-xs text-slate-500">Manager/fallback who receives unroutable leads and has oversight visibility.</p>
 
-                    <span className="text-xs font-medium text-slate-700 block mt-4">Distribution Method</span>
+                    <span className="text-xs font-medium text-slate-700 block mt-4">Distribution Method<InfoTip text="Round Robin automatically rotates leads evenly across assigned users in order. Manual means leads go to the Unassigned Pool for a manager to hand-assign." /></span>
                     <select
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.distributionMethod}
@@ -433,7 +453,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">Options</p>
                 <div className="grid grid-cols-2 gap-4">
                   <label className="space-y-1 text-sm">
-                    <span className="font-medium text-slate-700">Duplicate Handling</span>
+                    <span className="font-medium text-slate-700">Duplicate Handling<InfoTip text="Controls what happens when a lead with the same vendor ID arrives again. 'None' does nothing special. 'Reject' blocks the duplicate. 'Allow' lets it through as a new lead." /></span>
                     <select
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.duplicateHandling}
@@ -445,7 +465,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                     </select>
                   </label>
                   <label className="space-y-1 text-sm">
-                    <span className="font-medium text-slate-700">Default Lead Status</span>
+                    <span className="font-medium text-slate-700">Default Lead Status<InfoTip text="The initial status a lead gets when it enters this campaign. 'New' means it's ready for the assigned LO. 'Unassigned' means it goes to the pool for manual assignment." /></span>
                     <select
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.defaultLeadStatus}
@@ -464,7 +484,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                       checked={form.enableUserQuotas}
                       onChange={(e) => setForm((p) => ({ ...p, enableUserQuotas: e.target.checked }))}
                     />
-                    Enable User Quotas
+                    Enable User Quotas<InfoTip text="When enabled, the system enforces daily/weekly/monthly lead limits per user in this campaign. When off, users receive unlimited leads." />
                   </label>
                   <label className="flex items-center gap-2 text-sm text-slate-700">
                     <input
@@ -473,12 +493,12 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                       checked={form.independentRotation}
                       onChange={(e) => setForm((p) => ({ ...p, independentRotation: e.target.checked }))}
                     />
-                    Independent Rotation
+                    Independent Rotation<InfoTip text="When enabled, this campaign maintains its own round-robin order separate from other campaigns. When off, the rotation position is shared across campaigns." />
                   </label>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mt-4">
                   <label className="space-y-1 text-sm">
-                    <span className="font-medium text-slate-700">State Filter</span>
+                    <span className="font-medium text-slate-700">State Filter<InfoTip text="Restrict this campaign to leads from specific states. Leave empty to accept leads from all states. Enter comma-separated 2-letter state codes." /></span>
                     <input
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.stateFilter}
