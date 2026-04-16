@@ -106,29 +106,29 @@ export function LeadDashboard({
   return (
     <div className="space-y-8">
       {/* Primary Navigation Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
         {NAV_CARDS.map((card) => (
           <Link
             key={card.href}
             href={card.href}
-            className={`group relative flex flex-col items-start p-6 sm:p-8 rounded-2xl border shadow-sm text-left overflow-hidden bg-white hover:shadow-md transition-all ${card.border}`}
+            className={`group relative flex flex-col items-start p-5 sm:p-6 rounded-2xl border shadow-sm text-left overflow-hidden bg-white hover:shadow-md transition-all ${card.border}`}
           >
-            <div className="absolute top-0 right-0 p-8 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity">
-              <card.Icon className={`w-32 h-32 ${card.watermark}`} />
+            <div className="absolute top-0 right-0 p-6 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity">
+              <card.Icon className={`w-24 h-24 ${card.watermark}`} />
             </div>
             <div
-              className={`w-14 h-14 rounded-xl flex items-center justify-center mb-6 shadow-sm text-white group-hover:scale-105 transition-transform ${card.iconBg}`}
+              className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 shadow-sm text-white group-hover:scale-105 transition-transform ${card.iconBg}`}
             >
-              <card.Icon className="w-7 h-7" />
+              <card.Icon className="w-6 h-6" />
             </div>
-            <h3 className="text-xl sm:text-2xl font-bold text-slate-900 mb-1">
+            <h3 className="text-lg font-bold text-slate-900 mb-1">
               {card.title}
             </h3>
-            <p className="text-slate-500 text-sm mb-8 max-w-sm leading-relaxed">
+            <p className="text-slate-500 text-sm mb-6 leading-relaxed">
               {card.subtitle}
             </p>
             <div
-              className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold text-sm transition-colors ${card.cta}`}
+              className={`mt-auto w-full inline-flex items-center justify-center px-4 py-2.5 rounded-xl font-semibold text-sm transition-colors ${card.cta}`}
             >
               {card.ctaLabel}
             </div>
