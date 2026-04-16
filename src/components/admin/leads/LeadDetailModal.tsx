@@ -16,8 +16,14 @@ import {
   Shield,
   Tag,
   MessageSquare,
+  Pencil,
+  Save,
 } from 'lucide-react';
-import { updateLeadStatus, addLeadNote } from '@/app/actions/leadActions';
+import {
+  updateLeadStatus,
+  updateLeadFields,
+  addLeadNote,
+} from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 
 type LeadDetail = {
@@ -99,23 +105,149 @@ type LeadDetail = {
 };
 
 const ALL_STATUSES = [
-  { value: 'NEW', label: 'New', color: 'border-blue-300 bg-blue-50 text-blue-700', active: 'bg-blue-600 text-white border-blue-600' },
-  { value: 'CONTACTED', label: 'Contacted', color: 'border-amber-300 bg-amber-50 text-amber-700', active: 'bg-amber-500 text-white border-amber-500' },
-  { value: 'WORKING', label: 'Working', color: 'border-indigo-300 bg-indigo-50 text-indigo-700', active: 'bg-indigo-600 text-white border-indigo-600' },
-  { value: 'CONVERTED', label: 'Converted', color: 'border-green-300 bg-green-50 text-green-700', active: 'bg-green-600 text-white border-green-600' },
-  { value: 'DEAD', label: 'Dead', color: 'border-slate-300 bg-slate-100 text-slate-500', active: 'bg-slate-500 text-white border-slate-500' },
-  { value: 'RETURNED', label: 'Returned', color: 'border-rose-300 bg-rose-50 text-rose-700', active: 'bg-rose-600 text-white border-rose-600' },
-  { value: 'UNASSIGNED', label: 'Unassigned', color: 'border-orange-300 bg-orange-50 text-orange-700', active: 'bg-orange-500 text-white border-orange-500' },
+  {
+    value: 'NEW',
+    label: 'New',
+    color: 'border-blue-300 bg-blue-50 text-blue-700',
+    active: 'bg-blue-600 text-white border-blue-600',
+  },
+  {
+    value: 'CONTACTED',
+    label: 'Contacted',
+    color: 'border-amber-300 bg-amber-50 text-amber-700',
+    active: 'bg-amber-500 text-white border-amber-500',
+  },
+  {
+    value: 'WORKING',
+    label: 'Working',
+    color: 'border-indigo-300 bg-indigo-50 text-indigo-700',
+    active: 'bg-indigo-600 text-white border-indigo-600',
+  },
+  {
+    value: 'CONVERTED',
+    label: 'Converted',
+    color: 'border-green-300 bg-green-50 text-green-700',
+    active: 'bg-green-600 text-white border-green-600',
+  },
+  {
+    value: 'DEAD',
+    label: 'Dead',
+    color: 'border-slate-300 bg-slate-100 text-slate-500',
+    active: 'bg-slate-500 text-white border-slate-500',
+  },
+  {
+    value: 'RETURNED',
+    label: 'Returned',
+    color: 'border-rose-300 bg-rose-50 text-rose-700',
+    active: 'bg-rose-600 text-white border-rose-600',
+  },
+  {
+    value: 'UNASSIGNED',
+    label: 'Unassigned',
+    color: 'border-orange-300 bg-orange-50 text-orange-700',
+    active: 'bg-orange-500 text-white border-orange-500',
+  },
 ];
 
-function FieldRow({ label, value }: { label: string; value: string | null }) {
-  if (!value) return null;
+const EDITABLE_FIELDS: Array<{ key: string; label: string }> = [
+  { key: 'firstName', label: 'First Name' },
+  { key: 'lastName', label: 'Last Name' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'homePhone', label: 'Home Phone' },
+  { key: 'workPhone', label: 'Work Phone' },
+  { key: 'dob', label: 'DOB' },
+  { key: 'coFirstName', label: 'Co First Name' },
+  { key: 'coLastName', label: 'Co Last Name' },
+  { key: 'coEmail', label: 'Co Email' },
+  { key: 'coPhone', label: 'Co Phone' },
+  { key: 'coHomePhone', label: 'Co Home Phone' },
+  { key: 'coWorkPhone', label: 'Co Work Phone' },
+  { key: 'coDob', label: 'Co DOB' },
+  { key: 'mailingAddress', label: 'Mailing Address' },
+  { key: 'mailingCity', label: 'Mailing City' },
+  { key: 'mailingState', label: 'Mailing State' },
+  { key: 'mailingZip', label: 'Mailing Zip' },
+  { key: 'mailingCounty', label: 'Mailing County' },
+  { key: 'propertyAddress', label: 'Property Address' },
+  { key: 'propertyCity', label: 'Property City' },
+  { key: 'propertyState', label: 'Property State' },
+  { key: 'propertyZip', label: 'Property Zip' },
+  { key: 'propertyCounty', label: 'Property County' },
+  { key: 'purchasePrice', label: 'Purchase Price' },
+  { key: 'propertyValue', label: 'Property Value' },
+  { key: 'propertyType', label: 'Property Type' },
+  { key: 'propertyUse', label: 'Property Use' },
+  { key: 'propertyLtv', label: 'Property LTV' },
+  { key: 'employer', label: 'Employer' },
+  { key: 'jobTitle', label: 'Job Title' },
+  { key: 'income', label: 'Income' },
+  { key: 'selfEmployed', label: 'Self Employed' },
+  { key: 'bankruptcy', label: 'Bankruptcy' },
+  { key: 'homeowner', label: 'Homeowner' },
+  { key: 'coEmployer', label: 'Co Employer' },
+  { key: 'coJobTitle', label: 'Co Job Title' },
+  { key: 'coIncome', label: 'Co Income' },
+  { key: 'loanPurpose', label: 'Loan Purpose' },
+  { key: 'loanAmount', label: 'Loan Amount' },
+  { key: 'loanTerm', label: 'Loan Term' },
+  { key: 'loanType', label: 'Loan Type' },
+  { key: 'loanRate', label: 'Loan Rate' },
+  { key: 'downPayment', label: 'Down Payment' },
+  { key: 'cashOut', label: 'Cash Out' },
+  { key: 'creditRating', label: 'Credit Rating' },
+  { key: 'currentLender', label: 'Current Lender' },
+  { key: 'currentBalance', label: 'Current Balance' },
+  { key: 'currentRate', label: 'Current Rate' },
+  { key: 'currentPayment', label: 'Current Payment' },
+  { key: 'currentTerm', label: 'Current Term' },
+  { key: 'currentType', label: 'Current Type' },
+  { key: 'otherBalance', label: 'Other Balance' },
+  { key: 'otherPayment', label: 'Other Payment' },
+  { key: 'targetRate', label: 'Target Rate' },
+  { key: 'vaStatus', label: 'VA Status' },
+  { key: 'vaLoan', label: 'VA Loan' },
+  { key: 'isMilitary', label: 'Is Military' },
+  { key: 'fhaLoan', label: 'FHA Loan' },
+  { key: 'sourceUrl', label: 'Source URL' },
+  { key: 'source', label: 'Source' },
+  { key: 'price', label: 'Price' },
+];
+
+function FieldRow({
+  label,
+  value,
+  editing,
+  fieldKey,
+  editValues,
+  onEditChange,
+}: {
+  label: string;
+  value: string | null;
+  editing: boolean;
+  fieldKey: string;
+  editValues: Record<string, string>;
+  onEditChange: (key: string, value: string) => void;
+}) {
+  if (!editing && !value) return null;
   return (
     <div className="grid grid-cols-[140px_1fr] gap-3 py-2 border-b border-slate-50 last:border-b-0">
-      <span className="text-xs font-medium text-slate-400 uppercase tracking-wide pt-0.5">
+      <span className="text-xs font-medium text-slate-400 uppercase tracking-wide pt-1.5">
         {label}
       </span>
-      <span className="text-sm text-slate-800 break-words">{value}</span>
+      {editing ? (
+        <input
+          type="text"
+          className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/20"
+          value={editValues[fieldKey] ?? ''}
+          onChange={(e) => onEditChange(fieldKey, e.target.value)}
+          placeholder={`Enter ${label.toLowerCase()}...`}
+        />
+      ) : (
+        <span className="text-sm text-slate-800 break-words pt-0.5">
+          {value}
+        </span>
+      )}
     </div>
   );
 }
@@ -125,15 +257,17 @@ function Section({
   icon: Icon,
   children,
   defaultOpen = true,
+  forceShow = false,
 }: {
   title: string;
   icon: React.ElementType;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  forceShow?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const childArray = React.Children.toArray(children).filter(Boolean);
-  if (childArray.length === 0) return null;
+  if (!forceShow && childArray.length === 0) return null;
 
   return (
     <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
@@ -170,6 +304,55 @@ export function LeadDetailModal({
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+
+  const startEditing = useCallback(() => {
+    const vals: Record<string, string> = {};
+    for (const f of EDITABLE_FIELDS) {
+      const v = lead[f.key as keyof LeadDetail];
+      vals[f.key] = typeof v === 'string' ? v : '';
+    }
+    setEditValues(vals);
+    setEditing(true);
+  }, [lead]);
+
+  const cancelEditing = useCallback(() => {
+    setEditing(false);
+    setEditValues({});
+  }, []);
+
+  const handleEditChange = useCallback((key: string, value: string) => {
+    setEditValues((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    const changed: Record<string, string | null> = {};
+    for (const f of EDITABLE_FIELDS) {
+      const original = lead[f.key as keyof LeadDetail];
+      const originalStr = typeof original === 'string' ? original : '';
+      const newVal = editValues[f.key] ?? '';
+      if (newVal !== originalStr) {
+        changed[f.key] = newVal || null;
+      }
+    }
+
+    if (Object.keys(changed).length === 0) {
+      setEditing(false);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateLeadFields(lead.id, changed);
+      setEditing(false);
+      router.refresh();
+      onUpdated?.();
+    } finally {
+      setSaving(false);
+    }
+  }, [lead, editValues, router, onUpdated]);
 
   const handleStatusChange = useCallback(
     async (newStatus: string) => {
@@ -201,19 +384,28 @@ export function LeadDetailModal({
 
   const name =
     [lead.firstName, lead.lastName].filter(Boolean).join(' ') || 'Unknown Lead';
-  const initials = [lead.firstName?.[0], lead.lastName?.[0]]
-    .filter(Boolean)
-    .join('')
-    .toUpperCase() || '?';
+  const initials =
+    [lead.firstName?.[0], lead.lastName?.[0]]
+      .filter(Boolean)
+      .join('')
+      .toUpperCase() || '?';
 
   const metaChips = useMemo(() => {
     const chips: Array<{ label: string; value: string }> = [];
     if (lead.vendor) chips.push({ label: 'Vendor', value: lead.vendor.name });
-    if (lead.campaign) chips.push({ label: 'Campaign', value: lead.campaign.name });
-    if (lead.assignedUser) chips.push({ label: 'Assigned', value: lead.assignedUser.name });
+    if (lead.campaign)
+      chips.push({ label: 'Campaign', value: lead.campaign.name });
+    if (lead.assignedUser)
+      chips.push({ label: 'Assigned', value: lead.assignedUser.name });
     if (lead.source) chips.push({ label: 'Source', value: lead.source });
     return chips;
   }, [lead.vendor, lead.campaign, lead.assignedUser, lead.source]);
+
+  const fp = {
+    editing,
+    editValues,
+    onEditChange: handleEditChange,
+  };
 
   return (
     <div
@@ -227,10 +419,21 @@ export function LeadDetailModal({
         className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 max-h-[92vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Saving overlay */}
+        {saving && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/90 backdrop-blur-[1px] rounded-2xl">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+              <p className="text-sm font-medium text-slate-600">
+                Saving changes...
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Hero Header */}
         <div className="border-b border-slate-200 px-6 py-5 bg-gradient-to-b from-slate-50 to-white">
           <div className="flex items-start gap-4">
-            {/* Monogram */}
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-white font-bold text-lg shadow-sm shrink-0">
               {initials}
             </div>
@@ -240,7 +443,6 @@ export function LeadDetailModal({
                   <h2 className="text-xl font-bold text-slate-900 truncate">
                     {name}
                   </h2>
-                  {/* Meta chips */}
                   {metaChips.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2">
                       {metaChips.map((chip) => (
@@ -259,12 +461,43 @@ export function LeadDetailModal({
                     </div>
                   )}
                 </div>
-                <button
-                  className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
-                  onClick={onClose}
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {!editing ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                      onClick={startEditing}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                        onClick={cancelEditing}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
+                        onClick={() => void handleSave()}
+                        disabled={saving}
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        Save
+                      </button>
+                    </>
+                  )}
+                  <button
+                    className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                    onClick={onClose}
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -326,112 +559,104 @@ export function LeadDetailModal({
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 bg-slate-50/30">
-          <Section title="Contact" icon={User}>
-            <FieldRow label="First Name" value={lead.firstName} />
-            <FieldRow label="Last Name" value={lead.lastName} />
-            <FieldRow label="Email" value={lead.email} />
-            <FieldRow label="Phone" value={lead.phone} />
-            <FieldRow label="Home Phone" value={lead.homePhone} />
-            <FieldRow label="Work Phone" value={lead.workPhone} />
-            <FieldRow label="DOB" value={lead.dob} />
-            {(lead.coFirstName || lead.coLastName) && (
+          <Section title="Contact" icon={User} forceShow={editing}>
+            <FieldRow label="First Name" value={lead.firstName} fieldKey="firstName" {...fp} />
+            <FieldRow label="Last Name" value={lead.lastName} fieldKey="lastName" {...fp} />
+            <FieldRow label="Email" value={lead.email} fieldKey="email" {...fp} />
+            <FieldRow label="Phone" value={lead.phone} fieldKey="phone" {...fp} />
+            <FieldRow label="Home Phone" value={lead.homePhone} fieldKey="homePhone" {...fp} />
+            <FieldRow label="Work Phone" value={lead.workPhone} fieldKey="workPhone" {...fp} />
+            <FieldRow label="DOB" value={lead.dob} fieldKey="dob" {...fp} />
+            {(editing || lead.coFirstName || lead.coLastName) && (
               <>
                 <div className="mt-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-t border-slate-100 pt-3">
                   Co-Borrower
                 </div>
-                <FieldRow label="First Name" value={lead.coFirstName} />
-                <FieldRow label="Last Name" value={lead.coLastName} />
-                <FieldRow label="Email" value={lead.coEmail} />
-                <FieldRow label="Phone" value={lead.coPhone} />
-                <FieldRow label="Home Phone" value={lead.coHomePhone} />
-                <FieldRow label="Work Phone" value={lead.coWorkPhone} />
-                <FieldRow label="DOB" value={lead.coDob} />
+                <FieldRow label="First Name" value={lead.coFirstName} fieldKey="coFirstName" {...fp} />
+                <FieldRow label="Last Name" value={lead.coLastName} fieldKey="coLastName" {...fp} />
+                <FieldRow label="Email" value={lead.coEmail} fieldKey="coEmail" {...fp} />
+                <FieldRow label="Phone" value={lead.coPhone} fieldKey="coPhone" {...fp} />
+                <FieldRow label="Home Phone" value={lead.coHomePhone} fieldKey="coHomePhone" {...fp} />
+                <FieldRow label="Work Phone" value={lead.coWorkPhone} fieldKey="coWorkPhone" {...fp} />
+                <FieldRow label="DOB" value={lead.coDob} fieldKey="coDob" {...fp} />
               </>
             )}
           </Section>
 
-          <Section title="Address" icon={MapPin}>
-            <FieldRow
-              label="Mailing"
-              value={
-                [lead.mailingAddress, lead.mailingCity, lead.mailingState, lead.mailingZip]
-                  .filter(Boolean)
-                  .join(', ') || null
-              }
-            />
-            <FieldRow label="County" value={lead.mailingCounty} />
-            <FieldRow
-              label="Property"
-              value={
-                [lead.propertyAddress, lead.propertyCity, lead.propertyState, lead.propertyZip]
-                  .filter(Boolean)
-                  .join(', ') || null
-              }
-            />
-            <FieldRow label="Prop. County" value={lead.propertyCounty} />
+          <Section title="Address" icon={MapPin} forceShow={editing}>
+            <FieldRow label="Mailing Address" value={lead.mailingAddress} fieldKey="mailingAddress" {...fp} />
+            <FieldRow label="Mailing City" value={lead.mailingCity} fieldKey="mailingCity" {...fp} />
+            <FieldRow label="Mailing State" value={lead.mailingState} fieldKey="mailingState" {...fp} />
+            <FieldRow label="Mailing Zip" value={lead.mailingZip} fieldKey="mailingZip" {...fp} />
+            <FieldRow label="Mailing County" value={lead.mailingCounty} fieldKey="mailingCounty" {...fp} />
+            <FieldRow label="Property Address" value={lead.propertyAddress} fieldKey="propertyAddress" {...fp} />
+            <FieldRow label="Property City" value={lead.propertyCity} fieldKey="propertyCity" {...fp} />
+            <FieldRow label="Property State" value={lead.propertyState} fieldKey="propertyState" {...fp} />
+            <FieldRow label="Property Zip" value={lead.propertyZip} fieldKey="propertyZip" {...fp} />
+            <FieldRow label="Property County" value={lead.propertyCounty} fieldKey="propertyCounty" {...fp} />
           </Section>
 
-          <Section title="Property" icon={Home}>
-            <FieldRow label="Purchase Price" value={lead.purchasePrice} />
-            <FieldRow label="Property Value" value={lead.propertyValue} />
-            <FieldRow label="Type" value={lead.propertyType} />
-            <FieldRow label="Use" value={lead.propertyUse} />
-            <FieldRow label="LTV" value={lead.propertyLtv} />
+          <Section title="Property" icon={Home} forceShow={editing}>
+            <FieldRow label="Purchase Price" value={lead.purchasePrice} fieldKey="purchasePrice" {...fp} />
+            <FieldRow label="Property Value" value={lead.propertyValue} fieldKey="propertyValue" {...fp} />
+            <FieldRow label="Type" value={lead.propertyType} fieldKey="propertyType" {...fp} />
+            <FieldRow label="Use" value={lead.propertyUse} fieldKey="propertyUse" {...fp} />
+            <FieldRow label="LTV" value={lead.propertyLtv} fieldKey="propertyLtv" {...fp} />
           </Section>
 
-          <Section title="Employment" icon={Briefcase}>
-            <FieldRow label="Employer" value={lead.employer} />
-            <FieldRow label="Job Title" value={lead.jobTitle} />
-            <FieldRow label="Income" value={lead.income} />
-            <FieldRow label="Self Employed" value={lead.selfEmployed} />
-            <FieldRow label="Bankruptcy" value={lead.bankruptcy} />
-            <FieldRow label="Homeowner" value={lead.homeowner} />
-            {(lead.coEmployer || lead.coIncome) && (
+          <Section title="Employment" icon={Briefcase} forceShow={editing}>
+            <FieldRow label="Employer" value={lead.employer} fieldKey="employer" {...fp} />
+            <FieldRow label="Job Title" value={lead.jobTitle} fieldKey="jobTitle" {...fp} />
+            <FieldRow label="Income" value={lead.income} fieldKey="income" {...fp} />
+            <FieldRow label="Self Employed" value={lead.selfEmployed} fieldKey="selfEmployed" {...fp} />
+            <FieldRow label="Bankruptcy" value={lead.bankruptcy} fieldKey="bankruptcy" {...fp} />
+            <FieldRow label="Homeowner" value={lead.homeowner} fieldKey="homeowner" {...fp} />
+            {(editing || lead.coEmployer || lead.coIncome) && (
               <>
                 <div className="mt-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-t border-slate-100 pt-3">
                   Co-Borrower
                 </div>
-                <FieldRow label="Employer" value={lead.coEmployer} />
-                <FieldRow label="Job Title" value={lead.coJobTitle} />
-                <FieldRow label="Income" value={lead.coIncome} />
+                <FieldRow label="Employer" value={lead.coEmployer} fieldKey="coEmployer" {...fp} />
+                <FieldRow label="Job Title" value={lead.coJobTitle} fieldKey="coJobTitle" {...fp} />
+                <FieldRow label="Income" value={lead.coIncome} fieldKey="coIncome" {...fp} />
               </>
             )}
           </Section>
 
-          <Section title="Loan Details" icon={DollarSign}>
-            <FieldRow label="Purpose" value={lead.loanPurpose} />
-            <FieldRow label="Amount" value={lead.loanAmount} />
-            <FieldRow label="Term" value={lead.loanTerm} />
-            <FieldRow label="Type" value={lead.loanType} />
-            <FieldRow label="Rate" value={lead.loanRate} />
-            <FieldRow label="Down Payment" value={lead.downPayment} />
-            <FieldRow label="Cash Out" value={lead.cashOut} />
-            <FieldRow label="Credit Rating" value={lead.creditRating} />
+          <Section title="Loan Details" icon={DollarSign} forceShow={editing}>
+            <FieldRow label="Purpose" value={lead.loanPurpose} fieldKey="loanPurpose" {...fp} />
+            <FieldRow label="Amount" value={lead.loanAmount} fieldKey="loanAmount" {...fp} />
+            <FieldRow label="Term" value={lead.loanTerm} fieldKey="loanTerm" {...fp} />
+            <FieldRow label="Type" value={lead.loanType} fieldKey="loanType" {...fp} />
+            <FieldRow label="Rate" value={lead.loanRate} fieldKey="loanRate" {...fp} />
+            <FieldRow label="Down Payment" value={lead.downPayment} fieldKey="downPayment" {...fp} />
+            <FieldRow label="Cash Out" value={lead.cashOut} fieldKey="cashOut" {...fp} />
+            <FieldRow label="Credit Rating" value={lead.creditRating} fieldKey="creditRating" {...fp} />
           </Section>
 
-          <Section title="Current Loan" icon={Landmark} defaultOpen={false}>
-            <FieldRow label="Lender" value={lead.currentLender} />
-            <FieldRow label="Balance" value={lead.currentBalance} />
-            <FieldRow label="Rate" value={lead.currentRate} />
-            <FieldRow label="Payment" value={lead.currentPayment} />
-            <FieldRow label="Term" value={lead.currentTerm} />
-            <FieldRow label="Type" value={lead.currentType} />
-            <FieldRow label="Other Balance" value={lead.otherBalance} />
-            <FieldRow label="Other Payment" value={lead.otherPayment} />
-            <FieldRow label="Target Rate" value={lead.targetRate} />
+          <Section title="Current Loan" icon={Landmark} defaultOpen={false} forceShow={editing}>
+            <FieldRow label="Lender" value={lead.currentLender} fieldKey="currentLender" {...fp} />
+            <FieldRow label="Balance" value={lead.currentBalance} fieldKey="currentBalance" {...fp} />
+            <FieldRow label="Rate" value={lead.currentRate} fieldKey="currentRate" {...fp} />
+            <FieldRow label="Payment" value={lead.currentPayment} fieldKey="currentPayment" {...fp} />
+            <FieldRow label="Term" value={lead.currentTerm} fieldKey="currentTerm" {...fp} />
+            <FieldRow label="Type" value={lead.currentType} fieldKey="currentType" {...fp} />
+            <FieldRow label="Other Balance" value={lead.otherBalance} fieldKey="otherBalance" {...fp} />
+            <FieldRow label="Other Payment" value={lead.otherPayment} fieldKey="otherPayment" {...fp} />
+            <FieldRow label="Target Rate" value={lead.targetRate} fieldKey="targetRate" {...fp} />
           </Section>
 
-          <Section title="Military / VA" icon={Shield} defaultOpen={false}>
-            <FieldRow label="VA Status" value={lead.vaStatus} />
-            <FieldRow label="VA Loan" value={lead.vaLoan} />
-            <FieldRow label="Military" value={lead.isMilitary} />
-            <FieldRow label="FHA Loan" value={lead.fhaLoan} />
+          <Section title="Military / VA" icon={Shield} defaultOpen={false} forceShow={editing}>
+            <FieldRow label="VA Status" value={lead.vaStatus} fieldKey="vaStatus" {...fp} />
+            <FieldRow label="VA Loan" value={lead.vaLoan} fieldKey="vaLoan" {...fp} />
+            <FieldRow label="Military" value={lead.isMilitary} fieldKey="isMilitary" {...fp} />
+            <FieldRow label="FHA Loan" value={lead.fhaLoan} fieldKey="fhaLoan" {...fp} />
           </Section>
 
-          <Section title="Source / Meta" icon={Tag} defaultOpen={false}>
-            <FieldRow label="Source" value={lead.source} />
-            <FieldRow label="Source URL" value={lead.sourceUrl} />
-            <FieldRow label="Price" value={lead.price} />
+          <Section title="Source / Meta" icon={Tag} defaultOpen={false} forceShow={editing}>
+            <FieldRow label="Source" value={lead.source} fieldKey="source" {...fp} />
+            <FieldRow label="Source URL" value={lead.sourceUrl} fieldKey="sourceUrl" {...fp} />
+            <FieldRow label="Price" value={lead.price} fieldKey="price" {...fp} />
           </Section>
 
           {/* Notes */}
@@ -443,7 +668,6 @@ export function LeadDetailModal({
               </span>
             </div>
             <div className="px-4 py-3">
-              {/* Note input */}
               <div className="flex gap-2 mb-3">
                 <textarea
                   className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none min-h-[38px]"

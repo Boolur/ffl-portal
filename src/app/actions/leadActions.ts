@@ -580,6 +580,43 @@ export async function updateLeadStatus(leadId: string, status: LeadStatus) {
   revalidatePath('/admin/leads/all');
 }
 
+export async function updateLeadFields(
+  leadId: string,
+  fields: Record<string, string | null>
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) throw new Error('Unauthorized');
+
+  const allowedFields = new Set([
+    'firstName', 'lastName', 'email', 'phone', 'homePhone', 'workPhone', 'dob',
+    'coFirstName', 'coLastName', 'coEmail', 'coPhone', 'coHomePhone', 'coWorkPhone', 'coDob',
+    'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip', 'mailingCounty',
+    'propertyAddress', 'propertyCity', 'propertyState', 'propertyZip', 'propertyCounty',
+    'purchasePrice', 'propertyValue', 'propertyType', 'propertyUse', 'propertyLtv',
+    'employer', 'jobTitle', 'income', 'selfEmployed', 'bankruptcy', 'homeowner',
+    'coEmployer', 'coJobTitle', 'coIncome',
+    'loanPurpose', 'loanAmount', 'loanTerm', 'loanType', 'loanRate',
+    'downPayment', 'cashOut', 'creditRating',
+    'currentLender', 'currentBalance', 'currentRate', 'currentPayment', 'currentTerm', 'currentType',
+    'otherBalance', 'otherPayment', 'targetRate',
+    'vaStatus', 'vaLoan', 'isMilitary', 'fhaLoan', 'sourceUrl', 'source', 'price',
+  ]);
+
+  const data: Record<string, string | null> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (allowedFields.has(key)) {
+      data[key] = value && value.trim() !== '' ? value.trim() : null;
+    }
+  }
+
+  if (Object.keys(data).length === 0) return;
+
+  await prisma.lead.update({ where: { id: leadId }, data });
+  revalidatePath('/leads');
+  revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/all');
+}
+
 export async function assignLead(leadId: string, userId: string) {
   await prisma.lead.update({
     where: { id: leadId },
