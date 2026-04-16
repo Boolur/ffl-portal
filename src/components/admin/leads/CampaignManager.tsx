@@ -24,7 +24,6 @@ type Campaign = {
   duplicateHandling: string;
   defaultLeadStatus: string;
   enableUserQuotas: boolean;
-  price: string | number | null;
   defaultUserId: string | null;
   stateFilter: string[];
   loanTypeFilter: string[];
@@ -65,7 +64,6 @@ type FormState = {
   duplicateHandling: 'NONE' | 'REJECT' | 'ALLOW';
   defaultLeadStatus: string;
   enableUserQuotas: boolean;
-  price: string;
   defaultUserId: string;
   stateFilter: string;
   loanTypeFilter: string;
@@ -82,7 +80,6 @@ const EMPTY_FORM: FormState = {
   duplicateHandling: 'NONE',
   defaultLeadStatus: 'NEW',
   enableUserQuotas: true,
-  price: '',
   defaultUserId: '',
   stateFilter: '',
   loanTypeFilter: '',
@@ -129,7 +126,6 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
       duplicateHandling: c.duplicateHandling as 'NONE' | 'REJECT' | 'ALLOW',
       defaultLeadStatus: c.defaultLeadStatus,
       enableUserQuotas: c.enableUserQuotas,
-      price: c.price != null ? String(c.price) : '',
       defaultUserId: c.defaultUserId || '',
       stateFilter: c.stateFilter.join(', '),
       loanTypeFilter: c.loanTypeFilter.join(', '),
@@ -158,7 +154,6 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
         duplicateHandling: form.duplicateHandling as 'NONE' | 'REJECT' | 'ALLOW',
         defaultLeadStatus: form.defaultLeadStatus,
         enableUserQuotas: form.enableUserQuotas,
-        price: form.price ? parseFloat(form.price) : undefined,
         defaultUserId: form.defaultUserId || undefined,
         stateFilter: form.stateFilter ? form.stateFilter.split(',').map((s) => s.trim()).filter(Boolean) : [],
         loanTypeFilter: form.loanTypeFilter ? form.loanTypeFilter.split(',').map((s) => s.trim()).filter(Boolean) : [],
@@ -489,17 +484,6 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                       value={form.stateFilter}
                       onChange={(e) => setForm((p) => ({ ...p, stateFilter: e.target.value }))}
                       placeholder="WA, CA, TX (comma separated, empty = all)"
-                    />
-                  </label>
-                  <label className="space-y-1 text-sm">
-                    <span className="font-medium text-slate-700">Price per Lead</span>
-                    <input
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      value={form.price}
-                      onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
-                      placeholder="0.00"
-                      type="number"
-                      step="0.01"
                     />
                   </label>
                 </div>

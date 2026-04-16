@@ -283,7 +283,6 @@ export async function createLeadCampaign(data: {
   duplicateHandling?: 'NONE' | 'REJECT' | 'ALLOW';
   defaultLeadStatus?: string;
   enableUserQuotas?: boolean;
-  price?: number;
   defaultUserId?: string;
   stateFilter?: string[];
   loanTypeFilter?: string[];
@@ -299,7 +298,6 @@ export async function createLeadCampaign(data: {
       duplicateHandling: data.duplicateHandling || 'NONE',
       defaultLeadStatus: data.defaultLeadStatus || 'NEW',
       enableUserQuotas: data.enableUserQuotas ?? true,
-      price: data.price ?? null,
       defaultUserId: data.defaultUserId || null,
       stateFilter: data.stateFilter || [],
       loanTypeFilter: data.loanTypeFilter || [],
@@ -322,7 +320,6 @@ export async function updateLeadCampaign(
     duplicateHandling?: 'NONE' | 'REJECT' | 'ALLOW';
     defaultLeadStatus?: string;
     enableUserQuotas?: boolean;
-    price?: number | null;
     defaultUserId?: string | null;
     stateFilter?: string[];
     loanTypeFilter?: string[];

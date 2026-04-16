@@ -32,7 +32,7 @@ const NORMALIZED_FIELDS = [
   'downPayment','cashOut','creditRating',
   'currentLender','currentBalance','currentRate','currentPayment','currentTerm','currentType',
   'otherBalance','otherPayment','targetRate',
-  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl',
+  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','price',
 ];
 
 export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }) {

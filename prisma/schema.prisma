@@ -548,7 +548,6 @@ model LeadCampaign {
   duplicateHandling   LeadDuplicateHandling  @default(NONE)
   defaultLeadStatus   String                 @default("NEW")
   enableUserQuotas    Boolean                @default(true)
-  price               Decimal?               @db.Decimal(10, 2)
 
   defaultUserId       String?
   defaultUser         User?                  @relation("CampaignDefaultUser", fields: [defaultUserId], references: [id], onDelete: SetNull)
@@ -698,6 +697,9 @@ model Lead {
   isMilitary     String?
   fhaLoan        String?
   sourceUrl      String?
+
+  // Vendor-provided cost
+  price          String?
 
   // Routing / status
   status         LeadStatus  @default(UNASSIGNED)

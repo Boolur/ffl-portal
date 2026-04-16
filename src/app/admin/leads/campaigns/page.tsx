@@ -31,7 +31,6 @@ export default async function CampaignsPage() {
       <CampaignManager
         campaigns={campaigns.map((c) => ({
           ...c,
-          price: c.price != null ? String(c.price) : null,
         }))}
         vendors={vendors.map((v) => ({ id: v.id, name: v.name, slug: v.slug }))}
         users={users}
