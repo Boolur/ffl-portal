@@ -1429,7 +1429,7 @@ function getOrderedLifecycleRows(
   const isWorkflowRows =
     prefersWorkflowBuckets || hasWorkflowBuckets || breakdown.statusDurations.length === 0;
   const STARTED_KEY = 'STARTED';
-  const isStartedComposite = (wf: string | null, st: string | null) =>
+  const isStartedComposite = (wf: string | null | undefined, st: string | null | undefined) =>
     (wf === TaskWorkflowState.NONE || !wf) && st === TaskStatus.IN_PROGRESS;
   const rowKeyFromSegment = (segment: TaskLifecycleBreakdown['segments'][number]) => {
     if (isWorkflowRows) {
