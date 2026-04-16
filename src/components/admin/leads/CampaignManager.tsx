@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle, ArrowUp, ArrowDown } from 'lucide-react';
 import {
   createLeadCampaign,
   updateLeadCampaign,
@@ -131,11 +131,50 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
   const [filterVendor, setFilterVendor] = useState('');
+  const [campaignSearch, setCampaignSearch] = useState('');
+  const [sortCol, setSortCol] = useState<string>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const toggleSort = useCallback((col: string) => {
+    setSortCol((prev) => {
+      if (prev === col) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return col;
+      }
+      setSortDir('asc');
+      return col;
+    });
+  }, []);
 
   const filtered = useMemo(() => {
-    if (!filterVendor) return campaigns;
-    return campaigns.filter((c) => c.vendorId === filterVendor);
-  }, [campaigns, filterVendor]);
+    let list = campaigns;
+    if (filterVendor) list = list.filter((c) => c.vendorId === filterVendor);
+    if (campaignSearch) {
+      const q = campaignSearch.toLowerCase();
+      list = list.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.routingTag.toLowerCase().includes(q) ||
+          c.vendor.name.toLowerCase().includes(q) ||
+          (c.description && c.description.toLowerCase().includes(q))
+      );
+    }
+
+    const sorted = [...list].sort((a, b) => {
+      let cmp = 0;
+      switch (sortCol) {
+        case 'name': cmp = a.name.localeCompare(b.name); break;
+        case 'vendor': cmp = a.vendor.name.localeCompare(b.vendor.name); break;
+        case 'tag': cmp = a.routingTag.localeCompare(b.routingTag); break;
+        case 'members': cmp = a._count.members - b._count.members; break;
+        case 'leads': cmp = a._count.leads - b._count.leads; break;
+        case 'status': cmp = (a.active === b.active ? 0 : a.active ? -1 : 1); break;
+        default: cmp = 0;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return sorted;
+  }, [campaigns, filterVendor, campaignSearch, sortCol, sortDir]);
 
   const filteredUsers = useMemo(() => {
     if (!userSearch) return users;
@@ -265,6 +304,15 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
       )}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              className="rounded-lg border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm w-56 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              placeholder="Search campaigns..."
+              value={campaignSearch}
+              onChange={(e) => setCampaignSearch(e.target.value)}
+            />
+          </div>
           <select
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             value={filterVendor}
@@ -306,12 +354,29 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-[1] bg-slate-50">
               <tr className="border-b border-slate-200">
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Status</th>
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Campaign</th>
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Vendor</th>
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Routing Tag</th>
-                <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Members</th>
-                <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Leads</th>
+                {([
+                  { key: 'status', label: 'Status', align: 'left' },
+                  { key: 'name', label: 'Campaign', align: 'left' },
+                  { key: 'vendor', label: 'Vendor', align: 'left' },
+                  { key: 'tag', label: 'Routing Tag', align: 'left' },
+                  { key: 'members', label: 'Members', align: 'center' },
+                  { key: 'leads', label: 'Leads', align: 'center' },
+                ] as const).map((col) => (
+                  <th
+                    key={col.key}
+                    className={`px-4 py-3 text-${col.align} text-[11px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-slate-700 transition-colors`}
+                    onClick={() => toggleSort(col.key)}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {col.label}
+                      {sortCol === col.key && (
+                        sortDir === 'asc'
+                          ? <ArrowUp className="h-3 w-3 text-blue-600" />
+                          : <ArrowDown className="h-3 w-3 text-blue-600" />
+                      )}
+                    </span>
+                  </th>
+                ))}
                 <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">Actions</th>
               </tr>
             </thead>
