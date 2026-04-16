@@ -87,41 +87,34 @@ const EMPTY_FORM: FormState = {
 };
 
 function InfoTip({ text }: { text: string }) {
-  const [show, setShow] = useState(false);
-  const [align, setAlign] = useState<'center' | 'left' | 'right'>('center');
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const timeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const iconRef = useRef<HTMLSpanElement>(null);
+  const tipWidth = 224;
 
   const open = () => {
     clearTimeout(timeout.current);
     if (iconRef.current) {
       const rect = iconRef.current.getBoundingClientRect();
-      const tipHalf = 112; // half of w-56 (224px / 2)
-      if (rect.left < tipHalf + 16) setAlign('left');
-      else if (window.innerWidth - rect.right < tipHalf + 16) setAlign('right');
-      else setAlign('center');
+      let left = rect.left + rect.width / 2 - tipWidth / 2;
+      if (left < 8) left = 8;
+      if (left + tipWidth > window.innerWidth - 8) left = window.innerWidth - tipWidth - 8;
+      setPos({ top: rect.top - 8, left });
     }
-    setShow(true);
   };
-  const close = () => { timeout.current = setTimeout(() => setShow(false), 150); };
-
-  const posClass =
-    align === 'left'  ? 'left-0' :
-    align === 'right' ? 'right-0' :
-    'left-1/2 -translate-x-1/2';
-
-  const arrowClass =
-    align === 'left'  ? 'left-3' :
-    align === 'right' ? 'right-3' :
-    'left-1/2 -translate-x-1/2';
+  const close = () => { timeout.current = setTimeout(() => setPos(null), 150); };
 
   return (
-    <span ref={iconRef} className="relative inline-flex ml-1 align-middle" onMouseEnter={open} onMouseLeave={close}>
+    <span ref={iconRef} className="inline-flex ml-1 align-middle" onMouseEnter={open} onMouseLeave={close}>
       <HelpCircle className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600 cursor-help transition-colors" />
-      {show && (
-        <span className={`absolute bottom-full mb-2 z-50 w-56 rounded-lg border border-slate-200 bg-slate-800 px-3 py-2 text-[11px] leading-relaxed text-white shadow-lg ${posClass}`}>
+      {pos && (
+        <span
+          className="fixed z-[9999] w-56 rounded-lg border border-slate-200 bg-slate-800 px-3 py-2 text-[11px] leading-relaxed text-white shadow-lg"
+          style={{ top: pos.top, left: pos.left, transform: 'translateY(-100%)' }}
+          onMouseEnter={() => clearTimeout(timeout.current)}
+          onMouseLeave={close}
+        >
           {text}
-          <span className={`absolute top-full -mt-px border-4 border-transparent border-t-slate-800 ${arrowClass}`} />
         </span>
       )}
     </span>
