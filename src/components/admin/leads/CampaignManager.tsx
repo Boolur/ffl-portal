@@ -228,17 +228,27 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
             {filtered.length} campaign{filtered.length !== 1 ? 's' : ''}
           </span>
         </div>
-        <button className="app-btn-primary" onClick={openCreate} disabled={vendors.length === 0}>
-          <Plus className="mr-1.5 h-4 w-4" />
-          Add Campaign
-        </button>
+        {vendors.length === 0 ? (
+          <span className="text-xs text-amber-600 font-medium" title="You need at least one vendor before creating a campaign">
+            Add a vendor first to create campaigns
+          </span>
+        ) : (
+          <button className="app-btn-primary" onClick={openCreate}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add Campaign
+          </button>
+        )}
       </div>
 
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
           <Megaphone className="mx-auto h-10 w-10 text-slate-300" />
           <p className="mt-3 text-sm font-semibold text-slate-700">No campaigns yet</p>
-          <p className="mt-1 text-sm text-slate-500">Create a campaign to start routing leads to loan officers.</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {vendors.length === 0
+              ? 'Add a vendor first, then create campaigns to start routing leads.'
+              : 'Create a campaign to start routing leads to loan officers.'}
+          </p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">

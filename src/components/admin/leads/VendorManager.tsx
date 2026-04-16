@@ -348,9 +348,22 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                     </select>
                   </label>
                   <button
-                    className="app-btn-secondary h-[38px] px-3 text-xs"
+                    type="button"
+                    className={`h-[38px] px-3 text-xs rounded-lg font-medium transition-colors ${
+                      newMappingVendorField.trim() && newMappingOurField
+                        ? 'app-btn-primary'
+                        : 'border border-slate-200 bg-slate-100 text-slate-400 cursor-default'
+                    }`}
                     onClick={addMapping}
-                    disabled={!newMappingVendorField.trim() || !newMappingOurField}
+                    title={
+                      !newMappingVendorField.trim() && !newMappingOurField
+                        ? 'Enter a vendor field name and select one of our fields first'
+                        : !newMappingVendorField.trim()
+                        ? 'Enter a vendor field name first'
+                        : !newMappingOurField
+                        ? 'Select one of our fields first'
+                        : 'Add mapping'
+                    }
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </button>

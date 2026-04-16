@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LeadPool } from '@/components/admin/leads/LeadPool';
 import { getServerSession } from 'next-auth';
@@ -20,6 +21,7 @@ export default async function PoolPage() {
   return (
     <DashboardShell user={user}>
       <div className="app-page-header">
+        <Link href="/admin/leads" className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors mb-1 inline-block">&larr; Back to Lead Distribution</Link>
         <h1 className="app-page-title">Unassigned Lead Pool</h1>
         <p className="app-page-subtitle">
           Leads waiting for manual assignment. Select leads and assign to a loan officer.
