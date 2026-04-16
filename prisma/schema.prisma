@@ -626,6 +626,7 @@ model Lead {
   homePhone     String?
   workPhone     String?
   dob           String?
+  ssn           String?
 
   // Co-borrower contact
   coFirstName   String?

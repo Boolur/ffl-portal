@@ -36,6 +36,7 @@ type LeadDetail = {
   homePhone: string | null;
   workPhone: string | null;
   dob: string | null;
+  ssn: string | null;
   coFirstName: string | null;
   coLastName: string | null;
   coEmail: string | null;
@@ -157,6 +158,7 @@ const EDITABLE_FIELDS: Array<{ key: string; label: string }> = [
   { key: 'homePhone', label: 'Home Phone' },
   { key: 'workPhone', label: 'Work Phone' },
   { key: 'dob', label: 'DOB' },
+  { key: 'ssn', label: 'SSN' },
   { key: 'coFirstName', label: 'Co First Name' },
   { key: 'coLastName', label: 'Co Last Name' },
   { key: 'coEmail', label: 'Co Email' },
@@ -565,6 +567,7 @@ export function LeadDetailModal({
             <FieldRow label="Home Phone" value={lead.homePhone} fieldKey="homePhone" {...fp} />
             <FieldRow label="Work Phone" value={lead.workPhone} fieldKey="workPhone" {...fp} />
             <FieldRow label="DOB" value={lead.dob} fieldKey="dob" {...fp} />
+            <FieldRow label="SSN" value={lead.ssn} fieldKey="ssn" {...fp} />
           </Section>
 
           <Section title="Contact — Co-Borrower" icon={User} defaultOpen={false}>

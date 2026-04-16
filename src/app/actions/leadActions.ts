@@ -588,7 +588,7 @@ export async function updateLeadFields(
   if (!session?.user?.id) throw new Error('Unauthorized');
 
   const allowedFields = new Set([
-    'firstName', 'lastName', 'email', 'phone', 'homePhone', 'workPhone', 'dob',
+    'firstName', 'lastName', 'email', 'phone', 'homePhone', 'workPhone', 'dob', 'ssn',
     'coFirstName', 'coLastName', 'coEmail', 'coPhone', 'coHomePhone', 'coWorkPhone', 'coDob',
     'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip', 'mailingCounty',
     'propertyAddress', 'propertyCity', 'propertyState', 'propertyZip', 'propertyCounty',
