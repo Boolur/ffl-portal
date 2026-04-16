@@ -3518,6 +3518,14 @@ export function TaskList({
         const deskStartOverlayMessage = deskStartLockedByAnother
           ? `This task was already started by ${assignedSpecialistName || 'another specialist'}.`
           : 'Click Start to claim this task before editing this form.';
+        const isClaimedByAnother =
+          !canBypassStartLock &&
+          task.status !== TaskStatus.COMPLETED &&
+          task.status !== TaskStatus.PENDING &&
+          hasAssignedSpecialist &&
+          !isAssignedToCurrentUser &&
+          !isLoanOfficerAssistantRole &&
+          (canManageDisclosureDesk || canManageQcDesk || canManageVaDesk || canManageJrChecklist);
         const canAddWaitingNote =
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.WAITING_ON_LO &&
@@ -4508,6 +4516,18 @@ export function TaskList({
                         </div>
                       )}
                     </div>
+                    {isClaimedByAnother && !showVaProofStartOverlay && (
+                      <div className="absolute inset-0 z-10 rounded-2xl border border-slate-300/80 bg-slate-900/35 backdrop-blur-[1px] p-5">
+                        <div className="flex h-full items-center justify-center">
+                          <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                            <p className="text-base font-bold text-slate-900">Task Claimed</p>
+                            <p className="mt-1 text-xs font-medium text-slate-600">
+                              This task is being worked on by <span className="font-bold">{assignedSpecialistName || 'another specialist'}</span>.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     {showVaProofStartOverlay && (
                       <div className={`absolute inset-0 z-10 rounded-2xl border bg-slate-900/35 backdrop-blur-[1px] p-5 ${deskStartOverlayToneClass}`}>
                         <div className="flex h-full items-center justify-center">
@@ -4637,6 +4657,18 @@ export function TaskList({
                                   ? `Started by ${assignedSpecialistName || 'another specialist'}`
                                   : deskStartLabel}
                               </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {isClaimedByAnother && !showDeskStartOverlay && (
+                        <div className="absolute inset-0 z-10 rounded-2xl border border-slate-300/80 bg-slate-900/35 backdrop-blur-[1px] p-5">
+                          <div className="flex h-full items-center justify-center">
+                            <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                              <p className="text-base font-bold text-slate-900">Task Claimed</p>
+                              <p className="mt-1 text-xs font-medium text-slate-600">
+                                This task is being worked on by <span className="font-bold">{assignedSpecialistName || 'another specialist'}</span>.
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -4800,6 +4832,18 @@ export function TaskList({
                                   ? `Started by ${assignedSpecialistName || 'another specialist'}`
                                   : deskStartLabel}
                               </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {isClaimedByAnother && !showDeskStartOverlay && (
+                        <div className="absolute inset-0 z-10 rounded-2xl border border-slate-300/80 bg-slate-900/35 backdrop-blur-[1px] p-5">
+                          <div className="flex h-full items-center justify-center">
+                            <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                              <p className="text-base font-bold text-slate-900">Task Claimed</p>
+                              <p className="mt-1 text-xs font-medium text-slate-600">
+                                This task is being worked on by <span className="font-bold">{assignedSpecialistName || 'another specialist'}</span>.
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -5486,6 +5530,18 @@ export function TaskList({
                           </div>
                         </div>
                       )}
+                      {isClaimedByAnother && !showDeskStartOverlay && (
+                        <div className="absolute inset-0 z-10 rounded-2xl border border-slate-300/80 bg-slate-900/35 backdrop-blur-[1px] p-5">
+                          <div className="flex h-full items-center justify-center">
+                            <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                              <p className="text-base font-bold text-slate-900">Task Claimed</p>
+                              <p className="mt-1 text-xs font-medium text-slate-600">
+                                This task is being worked on by <span className="font-bold">{assignedSpecialistName || 'another specialist'}</span>.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -5696,6 +5752,18 @@ export function TaskList({
                           </div>
                         </div>
                       )}
+                      {isClaimedByAnother && !showDeskStartOverlay && (
+                        <div className="absolute inset-0 z-10 rounded-2xl border border-slate-300/80 bg-slate-900/35 backdrop-blur-[1px] p-5">
+                          <div className="flex h-full items-center justify-center">
+                            <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl">
+                              <p className="text-base font-bold text-slate-900">Task Claimed</p>
+                              <p className="mt-1 text-xs font-medium text-slate-600">
+                                This task is being worked on by <span className="font-bold">{assignedSpecialistName || 'another specialist'}</span>.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -5871,7 +5939,7 @@ export function TaskList({
                       !isLoanOfficerSubmissionTask && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
-                        disabled={!!updatingId || isTaskActionLocked}
+                        disabled={!!updatingId || isTaskActionLocked || isClaimedByAnother}
                         className="inline-flex h-9 items-center px-3 text-slate-600 text-sm font-semibold hover:text-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed gap-2"
                       >
                         {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin" />}
@@ -5905,7 +5973,7 @@ export function TaskList({
                             noteMessage: vaOptionalNote || undefined,
                           });
                         }}
-                        disabled={!!updatingId || !canCompleteTask || isTaskActionLocked}
+                        disabled={!!updatingId || !canCompleteTask || isTaskActionLocked || isClaimedByAnother}
                         className="inline-flex h-9 items-center px-3 rounded-lg border border-emerald-300 bg-white text-emerald-700 text-sm font-semibold shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {updatingId === task.id ? (
@@ -5932,6 +6000,7 @@ export function TaskList({
                           task.kind === TaskKind.VA_PAYOFF;
                         const disableRouteButton =
                           isTaskActionLocked ||
+                          isClaimedByAnother ||
                           showDeskStartOverlay ||
                           sendingToLoId === task.id ||
                           (requiresProofForRouting && proofCount < 1) ||
