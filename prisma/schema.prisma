@@ -737,3 +737,15 @@ model LeadNote {
 
   @@index([leadId, createdAt])
 }
+
+model CsvColumnMapping {
+  id         String   @id @default(uuid())
+  csvHeader  String
+  ourField   String
+  usageCount Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([csvHeader, ourField])
+  @@index([csvHeader])
+}

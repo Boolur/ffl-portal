@@ -3,7 +3,7 @@
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { LeadStatus, UserRole } from '@prisma/client';
+import { LeadStatus, UserRole, type Prisma } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 
 // ---------------------------------------------------------------------------
@@ -743,4 +743,94 @@ export async function getAllCampaignsForUserAdd() {
     },
     orderBy: { name: 'asc' },
   });
+}
+
+// ---------------------------------------------------------------------------
+// CSV Upload
+// ---------------------------------------------------------------------------
+
+const CSV_VENDOR_SLUG = 'csv-upload';
+
+async function getOrCreateCsvVendor() {
+  return prisma.leadVendor.upsert({
+    where: { slug: CSV_VENDOR_SLUG },
+    create: {
+      name: 'CSV Upload',
+      slug: CSV_VENDOR_SLUG,
+      routingTagField: '',
+      active: true,
+    },
+    update: {},
+  });
+}
+
+export async function getSavedCsvMappings() {
+  return prisma.csvColumnMapping.findMany({
+    orderBy: { usageCount: 'desc' },
+  });
+}
+
+export async function saveCsvMappings(
+  mappings: Array<{ csvHeader: string; ourField: string }>
+) {
+  for (const m of mappings) {
+    const key = m.csvHeader.toLowerCase().trim();
+    if (!key || !m.ourField) continue;
+    await prisma.csvColumnMapping.upsert({
+      where: { csvHeader_ourField: { csvHeader: key, ourField: m.ourField } },
+      create: { csvHeader: key, ourField: m.ourField, usageCount: 1 },
+      update: { usageCount: { increment: 1 } },
+    });
+  }
+}
+
+const LEAD_STRING_FIELDS = new Set([
+  'firstName', 'lastName', 'email', 'phone', 'homePhone', 'workPhone', 'dob',
+  'coFirstName', 'coLastName', 'coEmail', 'coPhone', 'coHomePhone', 'coWorkPhone', 'coDob',
+  'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip', 'mailingCounty',
+  'propertyAddress', 'propertyCity', 'propertyState', 'propertyZip', 'propertyCounty',
+  'purchasePrice', 'propertyValue', 'propertyType', 'propertyUse', 'propertyAcquired', 'propertyLtv',
+  'employer', 'jobTitle', 'employmentLength', 'selfEmployed', 'income', 'bankruptcy', 'homeowner',
+  'coEmployer', 'coJobTitle', 'coEmploymentLength', 'coSelfEmployed', 'coIncome',
+  'loanPurpose', 'loanAmount', 'loanTerm', 'loanType', 'loanRate',
+  'downPayment', 'cashOut', 'creditRating',
+  'currentLender', 'currentBalance', 'currentRate', 'currentPayment', 'currentTerm', 'currentType',
+  'otherBalance', 'otherPayment', 'targetRate',
+  'vaStatus', 'vaLoan', 'isMilitary', 'fhaLoan', 'sourceUrl', 'price',
+]);
+
+export async function bulkCreateLeadsFromCsv(
+  rows: Array<Record<string, string | null>>
+) {
+  const vendor = await getOrCreateCsvVendor();
+  const now = new Date();
+
+  let created = 0;
+  const batchSize = 50;
+
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    const creates: Prisma.LeadCreateManyInput[] = batch.map((row) => {
+      const data: Record<string, unknown> = {
+        vendorId: vendor.id,
+        status: LeadStatus.UNASSIGNED,
+        source: 'CSV Upload',
+        rawPayload: row as unknown as Prisma.InputJsonValue,
+        receivedAt: now,
+      };
+      for (const [field, value] of Object.entries(row)) {
+        if (LEAD_STRING_FIELDS.has(field) && value != null && value !== '') {
+          data[field] = value;
+        }
+      }
+      return data as Prisma.LeadCreateManyInput;
+    });
+
+    const result = await prisma.lead.createMany({ data: creates });
+    created += result.count;
+  }
+
+  revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/pool');
+  return { created };
 }

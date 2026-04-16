@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
-import { Inbox, Megaphone, Globe, ArrowRight, Users, UserCog } from 'lucide-react';
+import { Inbox, Megaphone, Globe, ArrowRight, Users, UserCog, Upload } from 'lucide-react';
+import { CsvUploadModal } from './CsvUploadModal';
 
 type DashboardStats = {
   totalToday: number;
@@ -29,10 +30,31 @@ const STATUS_COLORS: Record<string, string> = {
   UNASSIGNED: 'border-orange-200 bg-orange-50 text-orange-700',
 };
 
-export function LeadDashboard({ stats }: { stats: DashboardStats }) {
+type SavedMapping = { csvHeader: string; ourField: string; usageCount: number };
+
+export function LeadDashboard({
+  stats,
+  csvMappings = [],
+}: {
+  stats: DashboardStats;
+  csvMappings?: SavedMapping[];
+}) {
+  const [csvOpen, setCsvOpen] = useState(false);
+
   return (
     <div className="space-y-6">
-      {/* Stat cards */}
+      {/* Stat cards + Upload button */}
+      <div className="flex items-center justify-between">
+        <div />
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+          onClick={() => setCsvOpen(true)}
+        >
+          <Upload className="h-4 w-4" />
+          Upload CSV
+        </button>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
           <div className="flex items-center gap-3">
@@ -160,6 +182,12 @@ export function LeadDashboard({ stats }: { stats: DashboardStats }) {
           </div>
         )}
       </div>
+
+      <CsvUploadModal
+        open={csvOpen}
+        onClose={() => setCsvOpen(false)}
+        savedMappings={csvMappings}
+      />
     </div>
   );
 }
