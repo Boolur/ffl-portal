@@ -289,7 +289,7 @@ function buildTaskNotificationHtml(input: {
   `;
 }
 
-type EmailAudience = 'LO' | 'DISCLOSURE' | 'QC' | 'VA';
+type EmailAudience = 'LO' | 'DISCLOSURE' | 'QC' | 'VA' | 'JR';
 type DeskType = 'DISCLOSURE' | 'QC' | 'VA' | 'JR';
 type NotificationDeliveryMode = 'sync' | 'dual' | 'async';
 const INLINE_OUTBOX_DRAIN_BATCH_SIZE = 3;
@@ -1101,12 +1101,20 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     const teamRole =
       deskType === 'QC'
         ? UserRole.QC
+        : deskType === 'JR'
+        ? UserRole.PROCESSOR_JR
         : deskType === 'VA'
         ? vaRole
         : UserRole.DISCLOSURE_SPECIALIST;
-    if (deskType === 'VA' && !teamRole) return false;
+    if ((deskType === 'VA' || deskType === 'JR') && !teamRole) return false;
     const teamAudience: EmailAudience =
-      deskType === 'QC' ? 'QC' : deskType === 'VA' ? 'VA' : 'DISCLOSURE';
+      deskType === 'QC'
+        ? 'QC'
+        : deskType === 'JR'
+        ? 'JR'
+        : deskType === 'VA'
+        ? 'VA'
+        : 'DISCLOSURE';
 
     const [loan, teamUsers, managerUsers] = await Promise.all([
       prisma.loan.findUnique({
