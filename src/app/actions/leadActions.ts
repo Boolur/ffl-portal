@@ -588,7 +588,7 @@ export async function updateLeadFields(
   if (!session?.user?.id) throw new Error('Unauthorized');
 
   const allowedFields = new Set([
-    'firstName', 'lastName', 'email', 'phone', 'homePhone', 'workPhone', 'dob', 'ssn',
+    'firstName', 'lastName', 'email', 'phone', 'homePhone', 'workPhone', 'dob',
     'coFirstName', 'coLastName', 'coEmail', 'coPhone', 'coHomePhone', 'coWorkPhone', 'coDob',
     'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip', 'mailingCounty',
     'propertyAddress', 'propertyCity', 'propertyState', 'propertyZip', 'propertyCounty',
@@ -599,7 +599,7 @@ export async function updateLeadFields(
     'downPayment', 'cashOut', 'creditRating',
     'currentLender', 'currentBalance', 'currentRate', 'currentPayment', 'currentTerm', 'currentType',
     'otherBalance', 'otherPayment', 'targetRate',
-    'vaStatus', 'vaLoan', 'isMilitary', 'fhaLoan', 'sourceUrl', 'source', 'leadCreated', 'price',
+    'vaStatus', 'vaLoan', 'isMilitary', 'fhaLoan', 'sourceUrl', 'source', 'price',
   ]);
 
   const data: Record<string, string | null> = {};

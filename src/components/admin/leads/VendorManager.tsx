@@ -21,7 +21,7 @@ type Vendor = {
 };
 
 const NORMALIZED_FIELDS = [
-  'firstName','lastName','email','phone','homePhone','workPhone','dob','ssn',
+  'firstName','lastName','email','phone','homePhone','workPhone','dob',
   'coFirstName','coLastName','coEmail','coPhone','coHomePhone','coWorkPhone','coDob',
   'propertyAddress','propertyCity','propertyState','propertyZip','propertyCounty',
   'purchasePrice','propertyValue','propertyType','propertyUse','propertyAcquired','propertyLtv',
@@ -31,7 +31,7 @@ const NORMALIZED_FIELDS = [
   'downPayment','cashOut','creditRating',
   'currentLender','currentBalance','currentRate','currentPayment','currentTerm','currentType',
   'otherBalance','otherPayment','targetRate',
-  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','leadCreated','price',
+  'vaStatus','vaLoan','isMilitary','fhaLoan','sourceUrl','price',
 ];
 
 function InfoTip({ text }: { text: string }) {
