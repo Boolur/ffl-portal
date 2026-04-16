@@ -153,7 +153,7 @@ export function LeadDashboard({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h2 className="text-lg font-semibold text-slate-900">Recent Leads</h2>
           <Link href="/admin/leads/pool" className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors">
-            View Pool &rarr;
+            View Unassigned Pool &rarr;
           </Link>
         </div>
         {stats.recentLeads.length === 0 ? (
