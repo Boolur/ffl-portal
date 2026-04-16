@@ -368,14 +368,19 @@ function UserDetailPanel({
               </div>
             )}
 
-            {availableCampaigns.length > 0 && !addingCampaign && (
+            {!addingCampaign && (
               <button
                 type="button"
-                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 py-3 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-400 hover:bg-blue-50/40 hover:text-blue-700"
-                onClick={() => setAddingCampaign(true)}
+                className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-semibold transition-colors ${
+                  availableCampaigns.length > 0
+                    ? 'border-blue-300 bg-blue-50/30 text-blue-600 hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700'
+                    : 'border-slate-200 bg-slate-50/30 text-slate-400 cursor-not-allowed'
+                }`}
+                onClick={() => availableCampaigns.length > 0 && setAddingCampaign(true)}
+                disabled={availableCampaigns.length === 0}
               >
                 <Plus className="h-4 w-4" />
-                Add Campaign
+                {availableCampaigns.length > 0 ? 'Add Campaign' : 'Already in all campaigns'}
               </button>
             )}
 
