@@ -492,6 +492,69 @@ export async function getLeads(filters?: {
   return { leads, total };
 }
 
+export async function getAllLeadIds(filters?: {
+  status?: LeadStatus;
+  assignedUserId?: string;
+  unassigned?: boolean;
+  campaignId?: string;
+  vendorId?: string;
+  propertyState?: string;
+  source?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  search?: string;
+}) {
+  const where: Record<string, unknown> = {};
+  if (filters?.status) where.status = filters.status;
+  if (filters?.unassigned) where.assignedUserId = null;
+  else if (filters?.assignedUserId) where.assignedUserId = filters.assignedUserId;
+  if (filters?.campaignId) where.campaignId = filters.campaignId;
+  if (filters?.vendorId) where.vendorId = filters.vendorId;
+  if (filters?.propertyState) {
+    where.propertyState = { contains: filters.propertyState, mode: 'insensitive' };
+  }
+  if (filters?.source) {
+    where.source = { contains: filters.source, mode: 'insensitive' };
+  }
+  if (filters?.dateFrom || filters?.dateTo) {
+    const receivedAt: Record<string, Date> = {};
+    if (filters.dateFrom) receivedAt.gte = new Date(filters.dateFrom);
+    if (filters.dateTo) {
+      const end = new Date(filters.dateTo);
+      end.setHours(23, 59, 59, 999);
+      receivedAt.lte = end;
+    }
+    where.receivedAt = receivedAt;
+  }
+  if (filters?.search) {
+    where.OR = [
+      { firstName: { contains: filters.search, mode: 'insensitive' } },
+      { lastName: { contains: filters.search, mode: 'insensitive' } },
+      { email: { contains: filters.search, mode: 'insensitive' } },
+      { phone: { contains: filters.search, mode: 'insensitive' } },
+    ];
+  }
+  const rows = await prisma.lead.findMany({
+    where,
+    select: { id: true },
+    orderBy: { receivedAt: 'desc' },
+  });
+  return rows.map((r) => r.id);
+}
+
+export async function getLeadsForExport(leadIds: string[]) {
+  if (leadIds.length === 0) return [];
+  return prisma.lead.findMany({
+    where: { id: { in: leadIds } },
+    include: {
+      vendor: { select: { name: true } },
+      campaign: { select: { name: true } },
+      assignedUser: { select: { name: true } },
+    },
+    orderBy: { receivedAt: 'desc' },
+  });
+}
+
 export async function getLead(id: string) {
   return prisma.lead.findUnique({
     where: { id },

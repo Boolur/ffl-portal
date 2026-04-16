@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Globe,
   Megaphone,
+  Download,
 } from 'lucide-react';
 import { LeadStatusBadge } from '@/components/leads/LeadStatusBadge';
 import { LeadDetailModal } from './LeadDetailModal';
@@ -28,6 +29,8 @@ import {
   bulkAssignLeads,
   bulkUpdateLeadStatus,
   bulkDeleteLeads,
+  getAllLeadIds,
+  getLeadsForExport,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 
@@ -131,11 +134,14 @@ export function LeadsCRM({
   );
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectAllGlobal, setSelectAllGlobal] = useState(false);
+  const [globalIds, setGlobalIds] = useState<string[] | null>(null);
   const [detailLead, setDetailLead] = useState<LeadDetailData | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusChangeOpen, setStatusChangeOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -412,6 +418,8 @@ export function LeadsCRM({
   );
 
   const toggleSelect = (id: string) => {
+    setSelectAllGlobal(false);
+    setGlobalIds(null);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -421,9 +429,107 @@ export function LeadsCRM({
   };
 
   const toggleAll = () => {
-    if (selected.size === leads.length) setSelected(new Set());
-    else setSelected(new Set(leads.map((l) => l.id)));
+    if (selected.size === leads.length) {
+      setSelected(new Set());
+      setSelectAllGlobal(false);
+      setGlobalIds(null);
+    } else {
+      setSelected(new Set(leads.map((l) => l.id)));
+      setSelectAllGlobal(false);
+      setGlobalIds(null);
+    }
   };
+
+  const selectAllMatching = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      const filters = buildFilters(0);
+      delete filters.take;
+      delete filters.skip;
+      const ids = await getAllLeadIds(filters as never);
+      setGlobalIds(ids);
+      setSelected(new Set(ids));
+      setSelectAllGlobal(true);
+    } finally {
+      setActionLoading(false);
+    }
+  }, [buildFilters]);
+
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+    setSelectAllGlobal(false);
+    setGlobalIds(null);
+  }, []);
+
+  const getEffectiveIds = useCallback((): string[] => {
+    if (selectAllGlobal && globalIds) return globalIds;
+    return [...selected];
+  }, [selected, selectAllGlobal, globalIds]);
+
+  const handleExportCsv = useCallback(async () => {
+    const ids = getEffectiveIds();
+    if (ids.length === 0) return;
+    setExportLoading(true);
+    try {
+      const exportLeads = await getLeadsForExport(ids);
+      const headers = [
+        'First Name',
+        'Last Name',
+        'Email',
+        'Phone',
+        'Property State',
+        'Loan Purpose',
+        'Loan Amount',
+        'Credit Score',
+        'Status',
+        'Source',
+        'Vendor',
+        'Campaign',
+        'Assigned To',
+        'Received At',
+      ];
+
+      const escCsv = (val: string | null | undefined) => {
+        if (val == null || val === '') return '';
+        const s = String(val);
+        if (s.includes(',') || s.includes('"') || s.includes('\n'))
+          return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      };
+
+      const rows = exportLeads.map((l) =>
+        [
+          escCsv(l.firstName),
+          escCsv(l.lastName),
+          escCsv(l.email),
+          escCsv(l.phone),
+          escCsv(l.propertyState),
+          escCsv(l.loanPurpose),
+          escCsv(l.loanAmount),
+          escCsv(l.creditRating),
+          escCsv(l.status),
+          escCsv(l.source),
+          escCsv(l.vendor?.name),
+          escCsv(l.campaign?.name),
+          escCsv(l.assignedUser?.name),
+          escCsv(l.receivedAt.toISOString()),
+        ].join(',')
+      );
+
+      const csvContent = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `leads-export-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } finally {
+      setExportLoading(false);
+    }
+  }, [getEffectiveIds]);
 
   const openLeadDetail = useCallback(async (leadId: string) => {
     setDetailLoading(true);
@@ -447,48 +553,54 @@ export function LeadsCRM({
 
   const handleBulkAssign = useCallback(
     async (userId: string) => {
-      if (selected.size === 0) return;
+      const ids = getEffectiveIds();
+      if (ids.length === 0) return;
       setActionLoading(true);
       try {
-        await bulkAssignLeads([...selected], userId);
+        await bulkAssignLeads(ids, userId);
         setAssignOpen(false);
+        clearSelection();
         router.refresh();
         await fetchLeads();
       } finally {
         setActionLoading(false);
       }
     },
-    [selected, fetchLeads, router]
+    [getEffectiveIds, clearSelection, fetchLeads, router]
   );
 
   const handleBulkStatus = useCallback(
     async (status: string) => {
-      if (selected.size === 0) return;
+      const ids = getEffectiveIds();
+      if (ids.length === 0) return;
       setActionLoading(true);
       try {
-        await bulkUpdateLeadStatus([...selected], status as never);
+        await bulkUpdateLeadStatus(ids, status as never);
         setStatusChangeOpen(false);
+        clearSelection();
         router.refresh();
         await fetchLeads();
       } finally {
         setActionLoading(false);
       }
     },
-    [selected, fetchLeads, router]
+    [getEffectiveIds, clearSelection, fetchLeads, router]
   );
 
   const handleBulkDelete = useCallback(async () => {
-    if (selected.size === 0) return;
+    const ids = getEffectiveIds();
+    if (ids.length === 0) return;
     setActionLoading(true);
     try {
-      await bulkDeleteLeads([...selected]);
+      await bulkDeleteLeads(ids);
       setDeleteConfirm(false);
+      clearSelection();
       router.refresh();
       await fetchLeads();
     } finally {
       setActionLoading(false);
     }
-  }, [selected, fetchLeads, router]);
+  }, [getEffectiveIds, clearSelection, fetchLeads, router]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const startIdx = page * PAGE_SIZE + 1;
@@ -919,11 +1031,52 @@ export function LeadsCRM({
         )}
       </div>
 
+      {/* "Select all matching" banner */}
+      {selected.size === leads.length &&
+        leads.length > 0 &&
+        !selectAllGlobal &&
+        total > leads.length && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 text-sm">
+            <span className="text-amber-800">
+              All <span className="font-bold">{leads.length}</span> leads on
+              this page are selected.
+            </span>
+            <button
+              type="button"
+              className="font-bold text-amber-700 underline underline-offset-2 hover:text-amber-900 transition-colors"
+              onClick={() => void selectAllMatching()}
+            >
+              Select all {total.toLocaleString()} matching leads
+            </button>
+          </div>
+        )}
+
+      {selectAllGlobal && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 text-sm">
+          <span className="text-emerald-800">
+            All{' '}
+            <span className="font-bold">
+              {(globalIds?.length ?? total).toLocaleString()}
+            </span>{' '}
+            matching leads are selected.
+          </span>
+          <button
+            type="button"
+            className="font-bold text-emerald-700 underline underline-offset-2 hover:text-emerald-900 transition-colors"
+            onClick={clearSelection}
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Batch action toolbar */}
       {selected.size > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
           <span className="text-sm font-bold text-blue-800">
-            {selected.size} lead{selected.size !== 1 ? 's' : ''} selected
+            {selectAllGlobal
+              ? `${(globalIds?.length ?? total).toLocaleString()} leads selected`
+              : `${selected.size} lead${selected.size !== 1 ? 's' : ''} selected`}
           </span>
           <div className="h-5 w-px bg-blue-200" />
 
@@ -993,6 +1146,20 @@ export function LeadsCRM({
             Push to Service
           </button>
 
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-emerald-300 px-3 py-1.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 transition-colors"
+            onClick={() => void handleExportCsv()}
+            disabled={exportLoading}
+          >
+            {exportLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            Export to CSV
+          </button>
+
           <div className="relative ml-auto">
             {!deleteConfirm ? (
               <button
@@ -1010,8 +1177,17 @@ export function LeadsCRM({
             ) : (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-red-700">
-                  Delete {selected.size} lead
-                  {selected.size !== 1 ? 's' : ''}?
+                  Delete{' '}
+                  {selectAllGlobal
+                    ? (globalIds?.length ?? total).toLocaleString()
+                    : selected.size}{' '}
+                  lead
+                  {(selectAllGlobal
+                    ? (globalIds?.length ?? total)
+                    : selected.size) !== 1
+                    ? 's'
+                    : ''}
+                  ?
                 </span>
                 <button
                   type="button"
