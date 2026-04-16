@@ -1713,11 +1713,12 @@ export async function updateTaskStatus(
     const isSubmissionWorkflowTask = isSubmissionTask(existing);
     const normalizedNoteMessage = String(options?.noteMessage ?? '').trim();
     const skipProofRequirement = Boolean(options?.skipProofRequirement);
-    const canSkipProofForAppraisal =
+    const canSkipProofForNotNeeded =
       skipProofRequirement &&
-      existing.kind === TaskKind.VA_APPRAISAL &&
+      (existing.kind === TaskKind.VA_APPRAISAL || existing.kind === TaskKind.VA_PAYOFF) &&
       (role === UserRole.VA ||
         role === UserRole.VA_APPRAISAL ||
+        role === UserRole.VA_PAYOFF ||
         role === UserRole.MANAGER ||
         role === UserRole.ADMIN);
 
@@ -1740,7 +1741,7 @@ export async function updateTaskStatus(
       const proofCount = await prisma.taskAttachment.count({
         where: { taskId, purpose: 'PROOF' },
       });
-      if (proofCount < 1 && !canSkipProofForAppraisal) {
+      if (proofCount < 1 && !canSkipProofForNotNeeded) {
         return {
           success: false,
           error: 'Upload proof (PDF/Image) before completing this task.',
@@ -1851,18 +1852,49 @@ export async function updateTaskStatus(
       note: normalizedNoteMessage || null,
     }) as Prisma.JsonObject;
 
-    await prisma.task.update({
-      where: { id: taskId },
-      data: {
-        status: newStatus,
-        ...(shouldClaimVaTask ? { assignedUserId: userId } : {}),
-        workflowState: nextWorkflowState,
-        completedAt: newStatus === 'COMPLETED' ? new Date() : null,
-        ...(submissionDataWithTimeline
-          ? { submissionData: submissionDataWithTimeline }
-          : {}),
-      },
-    });
+    if (shouldClaimVaTask) {
+      const claimResult = await prisma.task.updateMany({
+        where: {
+          id: taskId,
+          assignedUserId: null,
+        },
+        data: {
+          status: newStatus,
+          assignedUserId: userId,
+          workflowState: nextWorkflowState,
+          completedAt: null,
+          ...(submissionDataWithTimeline
+            ? { submissionData: submissionDataWithTimeline }
+            : {}),
+        },
+      });
+      if (claimResult.count === 0) {
+        const freshTask = await prisma.task.findUnique({
+          where: { id: taskId },
+          select: { assignedUser: { select: { name: true } } },
+        });
+        const starterName = freshTask?.assignedUser?.name?.trim() || 'another team member';
+        return {
+          success: false,
+          error: `This task has already been started by ${starterName}.`,
+        };
+      }
+    } else {
+      await prisma.task.update({
+        where: { id: taskId },
+        data: {
+          status: newStatus,
+          workflowState: nextWorkflowState,
+          completedAt: newStatus === 'COMPLETED' ? new Date() : null,
+          ...(canSkipProofForNotNeeded && newStatus === 'COMPLETED'
+            ? { disclosureReason: DisclosureDecisionReason.OTHER }
+            : {}),
+          ...(submissionDataWithTimeline
+            ? { submissionData: submissionDataWithTimeline }
+            : {}),
+        },
+      });
+    }
 
     // LO response completion -> unpause parent disclosure task
     if (
@@ -2562,6 +2594,63 @@ function appendSubmissionHistoryEntry(
   });
   dataObj.notesHistory = notes;
   return dataObj as Prisma.JsonObject;
+}
+
+export async function addTaskNote(taskId: string, message: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) return { success: false, error: 'Not authenticated.' };
+
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const isDeskRole =
+      role === UserRole.DISCLOSURE_SPECIALIST ||
+      role === UserRole.QC ||
+      role === UserRole.VA ||
+      role === UserRole.VA_TITLE ||
+      role === UserRole.VA_PAYOFF ||
+      role === UserRole.VA_APPRAISAL ||
+      role === UserRole.PROCESSOR_JR;
+    if (!canManageAll && !isDeskRole) {
+      return { success: false, error: 'Not authorized to add notes to this task.' };
+    }
+
+    const trimmed = message.trim();
+    if (!trimmed) return { success: false, error: 'Note cannot be empty.' };
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        status: true,
+        submissionData: true,
+      },
+    });
+    if (!task) return { success: false, error: 'Task not found.' };
+    if (task.status === TaskStatus.COMPLETED) {
+      return { success: false, error: 'Cannot add notes to a completed task.' };
+    }
+
+    const actorName = session?.user?.name || 'Unknown';
+    const updatedData = appendSubmissionHistoryEntry(task.submissionData, {
+      author: actorName,
+      role,
+      message: trimmed,
+      entryType: 'note',
+    });
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { submissionData: updatedData as Prisma.JsonObject },
+    });
+
+    revalidatePath('/tasks');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to add task note:', error);
+    return { success: false, error: 'Failed to add note.' };
+  }
 }
 
 type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
@@ -3465,8 +3554,13 @@ export async function startDisclosureRequest(taskId: string) {
       note: 'Disclosure request started.',
     }) as Prisma.JsonObject;
 
-    await prisma.task.update({
-      where: { id: taskId },
+    const updateResult = await prisma.task.updateMany({
+      where: {
+        id: taskId,
+        status: { not: TaskStatus.COMPLETED },
+        workflowState: TaskWorkflowState.NONE,
+        OR: [{ assignedUserId: null }, { assignedUserId: userId }],
+      },
       data: {
         assignedUserId: userId,
         assignedRole: UserRole.DISCLOSURE_SPECIALIST,
@@ -3474,6 +3568,18 @@ export async function startDisclosureRequest(taskId: string) {
         submissionData: updatedSubmissionData,
       },
     });
+
+    if (updateResult.count === 0) {
+      const freshTask = await prisma.task.findUnique({
+        where: { id: taskId },
+        select: { assignedUser: { select: { name: true } } },
+      });
+      const starterName = freshTask?.assignedUser?.name?.trim() || 'another specialist';
+      return {
+        success: false,
+        error: `This request was already started by ${starterName}.`,
+      };
+    }
 
     await dispatchTaskWorkflowNotification({
       taskId,
@@ -3576,8 +3682,13 @@ export async function startQcRequest(taskId: string) {
       note: 'QC request started.',
     }) as Prisma.JsonObject;
 
-    await prisma.task.update({
-      where: { id: taskId },
+    const updateResult = await prisma.task.updateMany({
+      where: {
+        id: taskId,
+        status: { not: TaskStatus.COMPLETED },
+        workflowState: TaskWorkflowState.NONE,
+        OR: [{ assignedUserId: null }, { assignedUserId: userId }],
+      },
       data: {
         assignedUserId: userId,
         assignedRole: UserRole.QC,
@@ -3585,6 +3696,18 @@ export async function startQcRequest(taskId: string) {
         submissionData: updatedSubmissionData,
       },
     });
+
+    if (updateResult.count === 0) {
+      const freshTask = await prisma.task.findUnique({
+        where: { id: taskId },
+        select: { assignedUser: { select: { name: true } } },
+      });
+      const starterName = freshTask?.assignedUser?.name?.trim() || 'another specialist';
+      return {
+        success: false,
+        error: `This request was already started by ${starterName}.`,
+      };
+    }
 
     await dispatchTaskWorkflowNotification({
       taskId,

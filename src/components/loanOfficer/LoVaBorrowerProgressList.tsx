@@ -63,25 +63,39 @@ const chipMeta: Record<
     label: 'Completed',
     className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
   },
+  not_needed: {
+    label: 'Not Needed',
+    className: 'border-slate-300 bg-slate-100 text-slate-500',
+  },
 };
 
 function StatusChip({ label, state }: { label: string; state: VaChipState }) {
-  const completed = state === 'completed';
+  const isDone = state === 'completed' || state === 'not_needed';
+  const statusLabel = state === 'not_needed' ? 'Not Needed' : isDone ? 'Completed' : 'Incomplete';
+  const chipClass = state === 'not_needed'
+    ? 'border-slate-300 bg-slate-100 text-slate-500'
+    : isDone
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : 'border-rose-200 bg-rose-50 text-rose-700';
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-        completed
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          : 'border-rose-200 bg-rose-50 text-rose-700'
-      }`}
-      title={`${label}: ${completed ? 'Completed' : 'Incomplete'}`}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${chipClass}`}
+      title={`${label}: ${statusLabel}`}
     >
-      {label}: {completed ? 'Completed' : 'Incomplete'}
+      {label}: {statusLabel}
     </span>
   );
 }
 
 function getVaStageStatusDisplay(state: VaChipState) {
+  if (state === 'not_needed') {
+    return {
+      panelClass: 'border-slate-200 bg-slate-50',
+      iconClass: 'bg-slate-200 text-slate-500',
+      pillClass: 'border-slate-300 bg-slate-100 text-slate-600',
+      statusLabel: 'Not Needed',
+    };
+  }
   if (state === 'completed') {
     return {
       panelClass: 'border-emerald-200 bg-emerald-50',

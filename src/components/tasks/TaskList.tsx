@@ -26,6 +26,7 @@ import {
 import { useRouter } from 'next/navigation';
 import {
   addJrProcessorNote,
+  addTaskNote,
   deleteTask,
   reassignJrTask,
   reopenCompletedVaTaskToNew,
@@ -1206,7 +1207,7 @@ function getLifecycleBucketBubbleClass(
   ) {
     return 'border-amber-300 bg-amber-100 text-amber-800';
   }
-  if (normalizedKey === 'IN_PROGRESS' || normalizedLabel.includes('in progress') || normalizedLabel.includes('started by')) {
+  if (normalizedKey === 'STARTED' || normalizedKey === 'IN_PROGRESS' || normalizedLabel.includes('in progress') || normalizedLabel.includes('started by')) {
     return 'border-blue-300 bg-blue-100 text-blue-800';
   }
   if (
@@ -1338,6 +1339,7 @@ function mapLifecycleRowToBucketLabel(
     if (normalizedKey === 'READY_TO_COMPLETE') return profile.reviewLabel;
     if (normalizedKey === 'WAITING_ON_LO_APPROVAL') return profile.approvalLabel;
     if (normalizedKey === 'WAITING_ON_LO') return profile.waitingLabel;
+    if (normalizedKey === 'STARTED') return profile.startedLabel;
     return profile.newLabel;
   }
 
@@ -1370,21 +1372,35 @@ function collectLifecycleActorsForRow(
     return raw;
   };
 
+  const isStartedRow = rowKey === 'STARTED' && isWorkflowRows;
+  const isStartedStateComposite = (wf: string | null | undefined, st: string | null | undefined) =>
+    (wf === TaskWorkflowState.NONE || !wf) && st === TaskStatus.IN_PROGRESS;
+
   for (const event of breakdown.events) {
-    const toKey = isWorkflowRows ? event.toWorkflow || null : event.toStatus || null;
-    const fromKey = isWorkflowRows ? event.fromWorkflow || null : event.fromStatus || null;
-    if (
-      normalizeComparableKey(toKey) !== normalizeComparableKey(rowKey) &&
-      normalizeComparableKey(fromKey) !== normalizeComparableKey(rowKey)
-    ) {
-      continue;
+    if (isStartedRow) {
+      const toMatches = isStartedStateComposite(event.toWorkflow, event.toStatus);
+      const fromMatches = isStartedStateComposite(event.fromWorkflow, event.fromStatus);
+      if (!toMatches && !fromMatches) continue;
+    } else {
+      const toKey = isWorkflowRows ? event.toWorkflow || null : event.toStatus || null;
+      const fromKey = isWorkflowRows ? event.fromWorkflow || null : event.fromStatus || null;
+      if (
+        normalizeComparableKey(toKey) !== normalizeComparableKey(rowKey) &&
+        normalizeComparableKey(fromKey) !== normalizeComparableKey(rowKey)
+      ) {
+        continue;
+      }
     }
     addActor(event.actorName, event.actorRole || null);
   }
 
   for (const segment of breakdown.segments) {
-    const targetKey = isWorkflowRows ? segment.workflowState || 'NONE' : segment.status || 'UNKNOWN';
-    if (targetKey !== rowKey) continue;
+    if (isStartedRow) {
+      if (!isStartedStateComposite(segment.workflowState, segment.status)) continue;
+    } else {
+      const targetKey = isWorkflowRows ? segment.workflowState || 'NONE' : segment.status || 'UNKNOWN';
+      if (targetKey !== rowKey) continue;
+    }
     addActor(segment.assignedUserName, segment.assignedRole || null);
   }
 
@@ -1412,16 +1428,32 @@ function getOrderedLifecycleRows(
   const hasWorkflowBuckets = breakdown.workflowDurations.some((row) => row.key !== TaskWorkflowState.NONE);
   const isWorkflowRows =
     prefersWorkflowBuckets || hasWorkflowBuckets || breakdown.statusDurations.length === 0;
-  const rowKeyFromSegment = (segment: TaskLifecycleBreakdown['segments'][number]) =>
-    isWorkflowRows ? segment.workflowState || TaskWorkflowState.NONE : segment.status || TaskStatus.PENDING;
-  const rowKeyFromEventFrom = (event: TaskLifecycleBreakdown['events'][number]) =>
-    isWorkflowRows ? event.fromWorkflow || null : event.fromStatus || null;
-  const rowKeyFromEventTo = (event: TaskLifecycleBreakdown['events'][number]) =>
-    isWorkflowRows
-      ? event.toStatus === TaskStatus.COMPLETED
-        ? '__COMPLETED__'
-        : event.toWorkflow || null
-      : event.toStatus || null;
+  const STARTED_KEY = 'STARTED';
+  const isStartedComposite = (wf: string | null, st: string | null) =>
+    (wf === TaskWorkflowState.NONE || !wf) && st === TaskStatus.IN_PROGRESS;
+  const rowKeyFromSegment = (segment: TaskLifecycleBreakdown['segments'][number]) => {
+    if (isWorkflowRows) {
+      const wf = segment.workflowState || TaskWorkflowState.NONE;
+      if (isStartedComposite(wf, segment.status)) return STARTED_KEY;
+      return wf;
+    }
+    return segment.status || TaskStatus.PENDING;
+  };
+  const rowKeyFromEventFrom = (event: TaskLifecycleBreakdown['events'][number]) => {
+    if (isWorkflowRows) {
+      if (isStartedComposite(event.fromWorkflow, event.fromStatus)) return STARTED_KEY;
+      return event.fromWorkflow || null;
+    }
+    return event.fromStatus || null;
+  };
+  const rowKeyFromEventTo = (event: TaskLifecycleBreakdown['events'][number]) => {
+    if (isWorkflowRows) {
+      if (event.toStatus === TaskStatus.COMPLETED) return '__COMPLETED__';
+      if (isStartedComposite(event.toWorkflow, event.toStatus)) return STARTED_KEY;
+      return event.toWorkflow || null;
+    }
+    return event.toStatus || null;
+  };
 
   const rowsFromSegments: LifecycleDisplayRow[] = [];
   for (const segment of breakdown.segments) {
@@ -1878,6 +1910,8 @@ export function TaskList({
     Record<string, string>
   >({});
   const [vaNoteByTask, setVaNoteByTask] = React.useState<Record<string, string>>({});
+  const [waitingNoteByTask, setWaitingNoteByTask] = React.useState<Record<string, string>>({});
+  const [savingNoteId, setSavingNoteId] = React.useState<string | null>(null);
   const [qcChecklistByTask, setQcChecklistByTask] = React.useState<
     Record<string, QcChecklistDraftItem[]>
   >({});
@@ -2440,7 +2474,11 @@ export function TaskList({
     // In a real app, we'd use optimistic UI here
     const result = await updateTaskStatus(taskId, newStatus, options);
     if (!result.success) {
-      alert(result.error || 'Failed to update task.');
+      const errorMessage = result.error || 'Failed to update task.';
+      alert(errorMessage);
+      if (errorMessage.includes('already been started by')) {
+        router.refresh();
+      }
       setUpdatingId(null);
       return;
     }
@@ -2942,15 +2980,13 @@ export function TaskList({
     const result = await startDisclosureRequest(taskId);
     if (!result.success) {
       const errorMessage = result.error || 'Failed to start disclosure request.';
-      const shouldRefreshStaleStartState =
+      const isStaleState =
         errorMessage.includes('already moved beyond the new-request queue') ||
         errorMessage.includes('already started by');
-      if (shouldRefreshStaleStartState) {
-        router.refresh();
-        setStartingDisclosureId(null);
-        return;
-      }
       alert(errorMessage);
+      if (isStaleState) {
+        router.refresh();
+      }
       setStartingDisclosureId(null);
       return;
     }
@@ -2968,15 +3004,13 @@ export function TaskList({
     const result = await startQcRequest(taskId);
     if (!result.success) {
       const errorMessage = result.error || 'Failed to start QC request.';
-      const shouldRefreshStaleStartState =
+      const isStaleState =
         errorMessage.includes('already moved beyond the new-request queue') ||
         errorMessage.includes('already started by');
-      if (shouldRefreshStaleStartState) {
-        router.refresh();
-        setStartingQcId(null);
-        return;
-      }
       alert(errorMessage);
+      if (isStaleState) {
+        router.refresh();
+      }
       setStartingQcId(null);
       return;
     }
@@ -3002,6 +3036,25 @@ export function TaskList({
     }
 
     await handleStatusChange(task.id, 'IN_PROGRESS');
+  };
+
+  const handleAddWaitingNote = async (taskId: string) => {
+    if (savingNoteId) return;
+    const note = (waitingNoteByTask[taskId] || '').trim();
+    if (!note) {
+      alert('Please enter a note before saving.');
+      return;
+    }
+    setSavingNoteId(taskId);
+    const result = await addTaskNote(taskId, note);
+    if (!result.success) {
+      alert(result.error || 'Failed to save note.');
+      setSavingNoteId(null);
+      return;
+    }
+    setWaitingNoteByTask((prev) => ({ ...prev, [taskId]: '' }));
+    router.refresh();
+    setSavingNoteId(null);
   };
 
   const handleLoanOfficerResponse = async (task: Task) => {
@@ -3153,7 +3206,7 @@ export function TaskList({
           disclosureReasonByTask[task.id] ||
           DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
         const isVaPiwSelected =
-          task.kind === TaskKind.VA_APPRAISAL &&
+          (task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF) &&
           selectedVaReason === DisclosureDecisionReason.OTHER;
         const qcChecklistRows = getQcChecklistRows(task.id);
         const jrChecklistRows = getJrChecklistRows(task.id);
@@ -3465,6 +3518,11 @@ export function TaskList({
         const deskStartOverlayMessage = deskStartLockedByAnother
           ? `This task was already started by ${assignedSpecialistName || 'another specialist'}.`
           : 'Click Start to claim this task before editing this form.';
+        const canAddWaitingNote =
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.WAITING_ON_LO &&
+          ((canManageDisclosureDesk && isDisclosureSubmissionTask(task)) ||
+            (canManageQcDesk && isQcSubmissionTask(task)));
         const disclosureFooterMessage = (disclosureMessageByTask[task.id] || '').trim();
         const loFooterResponse = (loResponseByTask[task.id] || '').trim();
         const parsedSubmissionData =
@@ -4260,6 +4318,37 @@ export function TaskList({
                           );
                         })}
                       </div>
+                      {canAddWaitingNote && (
+                        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+                          <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                            Add Note
+                          </label>
+                          <textarea
+                            value={waitingNoteByTask[task.id] || ''}
+                            onChange={(event) =>
+                              setWaitingNoteByTask((prev) => ({
+                                ...prev,
+                                [task.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Add additional notes or context while waiting on LO..."
+                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm min-h-[80px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                          />
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => void handleAddWaitingNote(task.id)}
+                              disabled={savingNoteId === task.id || !(waitingNoteByTask[task.id] || '').trim()}
+                              className="inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {savingNoteId === task.id && (
+                                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                              )}
+                              {savingNoteId === task.id ? 'Saving...' : 'Save Note'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -4636,6 +4725,11 @@ export function TaskList({
                               Appraisal Not Need/PIW
                             </option>
                           )}
+                          {task.kind === TaskKind.VA_PAYOFF && (
+                            <option value={DisclosureDecisionReason.OTHER}>
+                              No Payoff Needed
+                            </option>
+                          )}
                         </select>
                       </div>
                       {!isVaCompleteAction && (
@@ -4678,7 +4772,9 @@ export function TaskList({
                       {isVaPiwAction && (
                         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                           <p className="text-xs font-semibold text-emerald-700">
-                            Appraisal Not Need/PIW selected: proof is optional for completion.
+                            {task.kind === TaskKind.VA_PAYOFF
+                              ? 'No Payoff Needed selected: proof is optional for completion.'
+                              : 'Appraisal Not Need/PIW selected: proof is optional for completion.'}
                           </p>
                         </div>
                       )}

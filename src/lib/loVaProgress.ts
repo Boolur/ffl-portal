@@ -1,4 +1,4 @@
-import { TaskKind, TaskStatus, TaskWorkflowState, UserRole } from '@prisma/client';
+import { DisclosureDecisionReason, TaskKind, TaskStatus, TaskWorkflowState, UserRole } from '@prisma/client';
 import {
   buildTaskLifecycleBreakdown,
   type TaskLifecycleBreakdown,
@@ -14,6 +14,7 @@ export type LoVaProgressTaskInput = {
   kind: TaskKind | null;
   status: TaskStatus;
   workflowState: TaskWorkflowState;
+  disclosureReason?: DisclosureDecisionReason | null;
   assignedRole?: UserRole | null;
   assignedUser?: { id?: string | null; name?: string | null; role?: UserRole | null } | null;
   createdAt?: Date | string | null;
@@ -35,7 +36,7 @@ export type LoVaProgressTaskInput = {
 type VaKindKey = 'title' | 'payoff' | 'appraisal';
 type JrKindKey = 'hoi';
 type StageKey = VaKindKey | JrKindKey;
-export type VaChipState = 'not_started' | 'new' | 'working' | 'waiting' | 'review' | 'completed';
+export type VaChipState = 'not_started' | 'new' | 'working' | 'waiting' | 'review' | 'completed' | 'not_needed';
 type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
 type JrProcessorAssignedValue =
   | 'CARRIE_JOHNSON'
@@ -209,7 +210,15 @@ function toDate(value?: Date | string | null) {
 }
 
 function getChipState(task: LoVaProgressTaskInput): VaChipState {
-  if (task.status === TaskStatus.COMPLETED) return 'completed';
+  if (task.status === TaskStatus.COMPLETED) {
+    if (
+      task.disclosureReason === DisclosureDecisionReason.OTHER &&
+      (task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF)
+    ) {
+      return 'not_needed';
+    }
+    return 'completed';
+  }
   if (task.workflowState === TaskWorkflowState.WAITING_ON_LO) return 'waiting';
   if (task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL) return 'waiting';
   if (task.workflowState === TaskWorkflowState.READY_TO_COMPLETE) return 'review';
@@ -692,9 +701,10 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       jrChips[definition.key] = getChipState(task);
     }
 
-    const vaCompletedCount = Object.values(vaChips).filter((chip) => chip === 'completed').length;
+    const isChipDone = (chip: VaChipState) => chip === 'completed' || chip === 'not_needed';
+    const vaCompletedCount = Object.values(vaChips).filter(isChipDone).length;
     const hasIncompleteVa =
-      hasAnyVaTask && Object.values(vaChips).some((chip) => chip !== 'completed');
+      hasAnyVaTask && Object.values(vaChips).some((chip) => !isChipDone(chip));
     const vaStageDetails: LoVaBorrowerProgressItem['vaStageDetails'] = {
       title: {
         taskId: null,
@@ -878,14 +888,14 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
             (row) =>
               row.status === 'COMPLETED' || (row.id === JR_VOE_ROW_ID && row.status === 'NOT_REQUIRED')
           )
-        : Object.values(jrChips).every((chip) => chip === 'completed');
+        : Object.values(jrChips).every(isChipDone);
     const jrTotalCount = jrChecklistRows.length > 0 ? jrChecklistRows.length : 1;
     const jrCompletedCount =
       jrChecklistRows.length > 0
         ? jrChecklistRows.filter(
             (row) => row.status === 'COMPLETED' || (row.id === JR_VOE_ROW_ID && row.status === 'NOT_REQUIRED')
           ).length
-        : Object.values(jrChips).filter((chip) => chip === 'completed').length;
+        : Object.values(jrChips).filter(isChipDone).length;
     const hasIncompleteJr =
       hasAnyJrTask &&
       (!jrTaskMarkedCompleted || !jrChecklistSatisfied);
