@@ -2434,12 +2434,16 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         changedBy: session?.user?.name || loanOfficerName || null,
       });
     } catch (notificationError) {
-      // Do not fail successful submissions due to notification delivery issues.
       console.error('Submission created but notification dispatch failed:', notificationError);
     }
 
-    revalidatePath('/tasks');
-    revalidatePath('/');
+    try {
+      revalidatePath('/tasks');
+      revalidatePath('/');
+    } catch (revalidateError) {
+      console.error('Submission created but cache revalidation failed:', revalidateError);
+    }
+
     return { success: true, taskId: createdTask.id, loanId: loan.id };
   } catch (error) {
     console.error('Failed to create submission task:', error);

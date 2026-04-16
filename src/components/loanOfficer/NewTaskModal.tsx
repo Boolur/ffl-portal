@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Loader2, FileText, Upload } from 'lucide-react';
+import { X, Loader2, FileText, Upload, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createSubmissionTask } from '@/app/actions/taskActions';
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
@@ -74,19 +74,24 @@ export function NewTaskModal({
     resolveAvailableType(initialType)
   );
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [submissionOverlay, setSubmissionOverlay] = useState<
+    null | 'submitting' | 'success'
+  >(null);
   const router = useRouter();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const handleClose = useCallback(() => {
+    if (submissionOverlay) return;
     setType(resolveAvailableType('DISCLOSURES'));
     setCurrentStep(1);
     onClose();
-  }, [onClose, resolveAvailableType]);
+  }, [onClose, resolveAvailableType, submissionOverlay]);
 
   useEffect(() => {
     if (!open) return;
 
     setType(resolveAvailableType(initialType));
     setCurrentStep(1);
+    setSubmissionOverlay(null);
 
     closeButtonRef.current?.focus();
   }, [open, initialType, resolveAvailableType]);
@@ -94,6 +99,7 @@ export function NewTaskModal({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (submissionOverlay) return;
       if (event.key === 'Escape') {
         handleClose();
       }
@@ -101,18 +107,52 @@ export function NewTaskModal({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, handleClose]);
+  }, [open, handleClose, submissionOverlay]);
+
+  useEffect(() => {
+    if (submissionOverlay !== 'success') return;
+    const timeout = window.setTimeout(() => {
+      setSubmissionOverlay(null);
+      setType(resolveAvailableType('DISCLOSURES'));
+      setCurrentStep(1);
+      onClose();
+      router.refresh();
+    }, 1500);
+    return () => window.clearTimeout(timeout);
+  }, [submissionOverlay, onClose, router, resolveAvailableType]);
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
-      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={handleClose} />
+      <div
+        className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm"
+        onClick={submissionOverlay ? undefined : handleClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
         className="relative w-full max-w-3xl bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-h-[85vh] overflow-hidden flex flex-col"
       >
+        {submissionOverlay && (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-2xl bg-white/90 backdrop-blur-sm">
+            {submissionOverlay === 'submitting' ? (
+              <>
+                <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+                <p className="mt-4 text-lg font-semibold text-slate-700">
+                  Submitting your request&hellip;
+                </p>
+              </>
+            ) : (
+              <>
+                <CheckCircle className="h-14 w-14 text-emerald-500" />
+                <p className="mt-4 text-lg font-semibold text-slate-700">
+                  Submitted successfully!
+                </p>
+              </>
+            )}
+          </div>
+        )}
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-xl font-bold text-slate-900">New Task Submission</h2>
@@ -124,6 +164,7 @@ export function NewTaskModal({
             ref={closeButtonRef}
             className="app-icon-btn"
             onClick={handleClose}
+            disabled={!!submissionOverlay}
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />
@@ -150,9 +191,9 @@ export function NewTaskModal({
               loanOfficerOptions={loanOfficerOptions}
               onStepChange={setCurrentStep}
               currentStep={currentStep}
+              onSubmissionOverlay={setSubmissionOverlay}
               onSubmitted={() => {
-                handleClose();
-                router.refresh();
+                setSubmissionOverlay('success');
               }}
             />
           ) : (
@@ -161,9 +202,9 @@ export function NewTaskModal({
               loanOfficerOptions={loanOfficerOptions}
               onStepChange={setCurrentStep}
               currentStep={currentStep}
+              onSubmissionOverlay={setSubmissionOverlay}
               onSubmitted={() => {
-                handleClose();
-                router.refresh();
+                setSubmissionOverlay('success');
               }}
             />
           )}
@@ -693,12 +734,14 @@ function DisclosuresForm({
   onSubmitted,
   onStepChange,
   currentStep,
+  onSubmissionOverlay,
 }: {
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
   onSubmitted: () => void;
   onStepChange: (step: 1 | 2) => void;
   currentStep: 1 | 2;
+  onSubmissionOverlay: (phase: null | 'submitting' | 'success') => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(true);
@@ -948,8 +991,10 @@ function DisclosuresForm({
     }
 
     setIsSubmitting(true);
+    onSubmissionOverlay('submitting');
+    let res: Awaited<ReturnType<typeof createSubmissionTask>>;
     try {
-      const res = await createSubmissionTask({
+      res = await createSubmissionTask({
         submissionType: 'DISCLOSURES',
         loanOfficerName: form.loanOfficer,
         loanOfficerId: form.loanOfficerId || undefined,
@@ -973,43 +1018,54 @@ function DisclosuresForm({
             }
           : undefined,
       });
+    } catch {
+      setSubmitError('Could not submit this disclosure request.');
+      setIsSubmitting(false);
+      onSubmissionOverlay(null);
+      return;
+    }
 
-      if (res.success) {
-        if (isButtonInvestor && res.taskId) {
-          if (!buttonFiles.avm || !buttonFiles.titleSheet || !buttonFiles.pricingSheet) {
-            throw new Error('Missing required Button attachment(s).');
-          }
+    if (!res.success) {
+      const failureMessage = res.error || 'Could not submit this disclosure request.';
+      setSubmitError(failureMessage);
+      if (isMismoValidationErrorMessage(failureMessage)) {
+        mimoRequiredFieldsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        window.alert(failureMessage);
+      }
+      setIsSubmitting(false);
+      onSubmissionOverlay(null);
+      return;
+    }
+
+    if (isButtonInvestor && res.taskId) {
+      try {
+        if (buttonFiles.avm) {
           await uploadDisclosureAttachment(
             res.taskId,
             buttonFiles.avm,
             `Attach AVM - ${buttonFiles.avm.name}`
           );
+        }
+        if (buttonFiles.titleSheet) {
           await uploadDisclosureAttachment(
             res.taskId,
             buttonFiles.titleSheet,
             `Attach Title Sheet - ${buttonFiles.titleSheet.name}`
           );
+        }
+        if (buttonFiles.pricingSheet) {
           await uploadDisclosureAttachment(
             res.taskId,
             buttonFiles.pricingSheet,
             `Attach Pricing Sheet - ${buttonFiles.pricingSheet.name}`
           );
         }
-        setIsSubmitting(false);
-        onSubmitted();
-      } else {
-        const failureMessage = res.error || 'Could not submit this disclosure request.';
-        setSubmitError(failureMessage);
-        if (isMismoValidationErrorMessage(failureMessage)) {
-          mimoRequiredFieldsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          window.alert(failureMessage);
-        }
-        setIsSubmitting(false);
+      } catch (attachError) {
+        console.error('Button attachment upload failed after task was created:', attachError);
       }
-    } catch {
-      setSubmitError('Could not submit this disclosure request.');
-      setIsSubmitting(false);
     }
+
+    onSubmitted();
   };
 
   const handleFileUpload = async (file: File | null) => {
@@ -1384,12 +1440,14 @@ function QcForm({
   onSubmitted,
   onStepChange,
   currentStep,
+  onSubmissionOverlay,
 }: {
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
   onSubmitted: () => void;
   onStepChange: (step: 1 | 2) => void;
   currentStep: 1 | 2;
+  onSubmissionOverlay: (phase: null | 'submitting' | 'success') => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
@@ -1497,9 +1555,11 @@ function QcForm({
     }
 
     setIsSubmitting(true);
+    onSubmissionOverlay('submitting');
 
+    let res: Awaited<ReturnType<typeof createSubmissionTask>>;
     try {
-      const res = await createSubmissionTask({
+      res = await createSubmissionTask({
         submissionType: 'QC',
         loanOfficerName: form.loanOfficer,
         loanOfficerId: form.loanOfficerId || undefined,
@@ -1516,20 +1576,22 @@ function QcForm({
         notes: form.notesGoals,
         submissionData: form,
       });
-
-      if (!res.success) {
-        setSubmitError(res.error || 'Failed to submit QC task.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      setIsSubmitting(false);
-      onSubmitted();
     } catch (error) {
       console.error(error);
       setSubmitError('Failed to submit QC task.');
       setIsSubmitting(false);
+      onSubmissionOverlay(null);
+      return;
     }
+
+    if (!res.success) {
+      setSubmitError(res.error || 'Failed to submit QC task.');
+      setIsSubmitting(false);
+      onSubmissionOverlay(null);
+      return;
+    }
+
+    onSubmitted();
   };
 
   const handleFileUpload = async (file: File | null) => {
