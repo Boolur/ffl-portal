@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users, Check,
+  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users, Check, Link2, HelpCircle,
 } from 'lucide-react';
 import {
   updateUserLeadSettings,
@@ -32,6 +32,7 @@ type LeadUser = {
   role: string;
   leadsEnabled: boolean;
   licensedStates: string[];
+  bonzoWebhookUrl: string;
   globalDailyQuota: number;
   globalWeeklyQuota: number;
   globalMonthlyQuota: number;
@@ -166,6 +167,8 @@ function UserDetailPanel({
   const [leadsEnabled, setLeadsEnabled] = useState(user.leadsEnabled);
   const [stateInput, setStateInput] = useState('');
   const [licensedStates, setLicensedStates] = useState<string[]>(user.licensedStates);
+  const [bonzoWebhookUrl, setBonzoWebhookUrl] = useState(user.bonzoWebhookUrl || '');
+  const [bonzoError, setBonzoError] = useState<string | null>(null);
   const [globalDaily, setGlobalDaily] = useState(user.globalDailyQuota);
   const [globalWeekly, setGlobalWeekly] = useState(user.globalWeeklyQuota);
   const [globalMonthly, setGlobalMonthly] = useState(user.globalMonthlyQuota);
@@ -178,11 +181,26 @@ function UserDetailPanel({
   }, [allCampaigns, user.memberships]);
 
   const saveGlobalSettings = useCallback(async () => {
+    const trimmed = bonzoWebhookUrl.trim();
+    if (trimmed) {
+      try {
+        const parsed = new URL(trimmed);
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+          setBonzoError('URL must start with http:// or https://');
+          return;
+        }
+      } catch {
+        setBonzoError('Please enter a valid URL.');
+        return;
+      }
+    }
+    setBonzoError(null);
     setSaving(true);
     try {
       await updateUserLeadSettings(user.id, {
         leadsEnabled,
         licensedStates,
+        bonzoWebhookUrl: trimmed || null,
         globalDailyQuota: globalDaily,
         globalWeeklyQuota: globalWeekly,
         globalMonthlyQuota: globalMonthly,
@@ -191,7 +209,7 @@ function UserDetailPanel({
     } finally {
       setSaving(false);
     }
-  }, [user.id, leadsEnabled, licensedStates, globalDaily, globalWeekly, globalMonthly, onRefresh]);
+  }, [user.id, leadsEnabled, licensedStates, bonzoWebhookUrl, globalDaily, globalWeekly, globalMonthly, onRefresh]);
 
   const addState = () => {
     const s = stateInput.trim().toUpperCase();
@@ -231,6 +249,7 @@ function UserDetailPanel({
   const isDirty =
     leadsEnabled !== user.leadsEnabled ||
     JSON.stringify(licensedStates) !== JSON.stringify(user.licensedStates) ||
+    bonzoWebhookUrl.trim() !== (user.bonzoWebhookUrl || '').trim() ||
     globalDaily !== user.globalDailyQuota ||
     globalWeekly !== user.globalWeeklyQuota ||
     globalMonthly !== user.globalMonthlyQuota;
@@ -276,6 +295,40 @@ function UserDetailPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          {/* Bonzo Webhook URL */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Bonzo Webhook URL</p>
+              <span className="group relative inline-flex">
+                <HelpCircle className="h-3.5 w-3.5 text-slate-400 cursor-help" />
+                <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 w-64 rounded-md border border-slate-200 bg-slate-800 px-3 py-2 text-[11px] font-normal normal-case tracking-normal leading-relaxed text-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-[1] whitespace-normal">
+                  Every lead assigned to this user will be POSTed to this Bonzo webhook as JSON. Paste the full URL from Bonzo (e.g. https://api.getbonzo.com/...).
+                </span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mb-2">Forwards each newly-assigned lead into this user&apos;s Bonzo CRM.</p>
+            <div className="relative">
+              <Link2 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="url"
+                className={`w-full rounded-lg border bg-white pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                  bonzoError
+                    ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
+                    : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+                }`}
+                placeholder="https://app.getbonzo.com/webhook/..."
+                value={bonzoWebhookUrl}
+                onChange={(e) => {
+                  setBonzoWebhookUrl(e.target.value);
+                  if (bonzoError) setBonzoError(null);
+                }}
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </div>
+            {bonzoError && <p className="mt-1 text-xs text-red-600">{bonzoError}</p>}
+          </div>
+
           {/* Licensed States */}
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Licensed States</p>

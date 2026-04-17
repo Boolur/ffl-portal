@@ -43,6 +43,7 @@ export default async function LeadUsersPage() {
           role: u.role,
           leadsEnabled: u.leadQuota?.leadsEnabled ?? true,
           licensedStates: u.leadQuota?.licensedStates ?? [],
+          bonzoWebhookUrl: u.leadQuota?.bonzoWebhookUrl ?? '',
           globalDailyQuota: u.leadQuota?.globalDailyQuota ?? 0,
           globalWeeklyQuota: u.leadQuota?.globalWeeklyQuota ?? 0,
           globalMonthlyQuota: u.leadQuota?.globalMonthlyQuota ?? 0,

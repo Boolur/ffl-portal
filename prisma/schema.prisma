@@ -600,6 +600,7 @@ model UserLeadQuota {
 
   leadsEnabled          Boolean  @default(true)
   licensedStates        String[] @default([])
+  bonzoWebhookUrl       String?
 
   globalDailyQuota      Int      @default(0)
   globalWeeklyQuota     Int      @default(0)

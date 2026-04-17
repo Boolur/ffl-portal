@@ -5,6 +5,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { LeadStatus, UserRole, type Prisma } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { forwardLeadToBonzo } from '@/lib/bonzoForward';
 
 const CSV_VENDOR_SLUG = 'csv-upload';
 
@@ -41,6 +42,7 @@ export async function distributeLead(leadId: string) {
         },
       });
       await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
+      void forwardLeadToBonzo(leadId, campaign.defaultUserId);
     }
     return;
   }
@@ -116,6 +118,7 @@ export async function distributeLead(leadId: string) {
     ]);
 
     await createLeadNotification(member.userId, lead, campaign.name);
+    void forwardLeadToBonzo(leadId, member.userId);
     return;
   }
 
@@ -129,6 +132,7 @@ export async function distributeLead(leadId: string) {
       },
     });
     await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
+    void forwardLeadToBonzo(leadId, campaign.defaultUserId);
   }
 }
 
@@ -665,6 +669,7 @@ export async function assignLead(leadId: string, userId: string) {
     },
   });
   await createLeadNotification(userId, { id: leadId }, 'Manual Assignment');
+  void forwardLeadToBonzo(leadId, userId);
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
   revalidatePath('/admin/leads/all');
@@ -679,6 +684,9 @@ export async function bulkAssignLeads(leadIds: string[], userId: string) {
       status: LeadStatus.NEW,
     },
   });
+  for (const leadId of leadIds) {
+    void forwardLeadToBonzo(leadId, userId);
+  }
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
   revalidatePath('/admin/leads/all');
@@ -955,17 +963,26 @@ export async function updateUserLeadSettings(
   data: {
     leadsEnabled?: boolean;
     licensedStates?: string[];
+    bonzoWebhookUrl?: string | null;
     globalDailyQuota?: number;
     globalWeeklyQuota?: number;
     globalMonthlyQuota?: number;
   }
 ) {
+  const normalizedBonzoUrl =
+    data.bonzoWebhookUrl === undefined
+      ? undefined
+      : data.bonzoWebhookUrl && data.bonzoWebhookUrl.trim()
+      ? data.bonzoWebhookUrl.trim()
+      : null;
+
   await prisma.userLeadQuota.upsert({
     where: { userId },
     create: {
       userId,
       leadsEnabled: data.leadsEnabled ?? true,
       licensedStates: data.licensedStates ?? [],
+      bonzoWebhookUrl: normalizedBonzoUrl ?? null,
       globalDailyQuota: data.globalDailyQuota ?? 0,
       globalWeeklyQuota: data.globalWeeklyQuota ?? 0,
       globalMonthlyQuota: data.globalMonthlyQuota ?? 0,
@@ -973,6 +990,7 @@ export async function updateUserLeadSettings(
     update: {
       ...(data.leadsEnabled !== undefined && { leadsEnabled: data.leadsEnabled }),
       ...(data.licensedStates !== undefined && { licensedStates: data.licensedStates }),
+      ...(normalizedBonzoUrl !== undefined && { bonzoWebhookUrl: normalizedBonzoUrl }),
       ...(data.globalDailyQuota !== undefined && { globalDailyQuota: data.globalDailyQuota }),
       ...(data.globalWeeklyQuota !== undefined && { globalWeeklyQuota: data.globalWeeklyQuota }),
       ...(data.globalMonthlyQuota !== undefined && { globalMonthlyQuota: data.globalMonthlyQuota }),
