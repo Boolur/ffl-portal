@@ -2,8 +2,9 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users, Check, Link2, HelpCircle,
+  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users, Check, Link2,
 } from 'lucide-react';
+import { InfoTip } from '@/components/ui/InfoTip';
 import {
   updateUserLeadSettings,
   updateMemberSettings,
@@ -297,14 +298,9 @@ function UserDetailPanel({
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
           {/* Bonzo Webhook URL */}
           <div>
-            <div className="flex items-center gap-1.5 mb-2">
+            <div className="flex items-center mb-2">
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Bonzo Webhook URL</p>
-              <span className="group relative inline-flex">
-                <HelpCircle className="h-3.5 w-3.5 text-slate-400 cursor-help" />
-                <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 w-64 rounded-md border border-slate-200 bg-slate-800 px-3 py-2 text-[11px] font-normal normal-case tracking-normal leading-relaxed text-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-[1] whitespace-normal">
-                  Every lead assigned to this user will be POSTed to this Bonzo webhook as JSON. Paste the full URL from Bonzo (e.g. https://api.getbonzo.com/...).
-                </span>
-              </span>
+              <InfoTip text="Every lead assigned to this user will be POSTed to this Bonzo webhook as JSON. Paste the full URL from Bonzo (e.g. https://api.getbonzo.com/...)." width={256} />
             </div>
             <p className="text-xs text-slate-400 mb-2">Forwards each newly-assigned lead into this user&apos;s Bonzo CRM.</p>
             <div className="relative">
