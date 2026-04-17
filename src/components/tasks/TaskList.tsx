@@ -1235,8 +1235,8 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   if (isLoanOfficerLikeRole && isLoResponse) {
     return {
       newLabel: 'Action Required (Approve Figures / Missing Info)',
-      startedLabel: 'Action Required (Approve Figures / Missing Info)',
-      waitingLabel: 'Action Required (Approve Figures / Missing Info)',
+      startedLabel: 'Started by LO',
+      waitingLabel: 'Waiting on Specialist',
       reviewLabel: 'Action Required (Approve Figures / Missing Info)',
       approvalLabel: 'Action Required (Approve Figures / Missing Info)',
       completedLabel: 'Disclosures Sent / Completed',
@@ -1247,10 +1247,10 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
     if (isLoanOfficerLikeRole) {
       return {
         newLabel: 'Submitted for Disclosures',
-        startedLabel: 'Submitted for Disclosures',
-        waitingLabel: 'Submitted for Disclosures',
+        startedLabel: 'Started by Specialist',
+        waitingLabel: 'Waiting on LO',
         reviewLabel: 'Returned to Disclosure',
-        approvalLabel: 'Submitted for Disclosures',
+        approvalLabel: 'Waiting for Approval',
         completedLabel: 'Disclosures Sent / Completed',
       };
     }
@@ -1424,6 +1424,9 @@ function getOrderedLifecycleRows(
     taskKind === TaskKind.SUBMIT_DISCLOSURES ||
     taskKind === TaskKind.SUBMIT_QC ||
     taskKind === TaskKind.VA_APPRAISAL ||
+    taskKind === TaskKind.VA_TITLE ||
+    taskKind === TaskKind.VA_PAYOFF ||
+    taskKind === TaskKind.VA_HOI ||
     taskKind === TaskKind.LO_NEEDS_INFO;
   const hasWorkflowBuckets = breakdown.workflowDurations.some((row) => row.key !== TaskWorkflowState.NONE);
   const isWorkflowRows =
