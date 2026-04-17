@@ -2470,7 +2470,11 @@ export function TaskList({
   const handleStatusChange = async (
     taskId: string,
     newStatus: TaskStatus,
-    options?: { noteMessage?: string; skipProofRequirement?: boolean }
+    options?: {
+      noteMessage?: string;
+      skipProofRequirement?: boolean;
+      markNotNeeded?: boolean;
+    }
   ) => {
     if (updatingId) return;
     setUpdatingId(taskId);
@@ -3211,6 +3215,9 @@ export function TaskList({
         const isVaPiwSelected =
           (task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF) &&
           selectedVaReason === DisclosureDecisionReason.OTHER;
+        const isVaSkipProofSelected =
+          task.kind === TaskKind.VA_PAYOFF &&
+          selectedVaReason === DisclosureDecisionReason.OTHER;
         const qcChecklistRows = getQcChecklistRows(task.id);
         const jrChecklistRows = getJrChecklistRows(task.id);
         const isJrChecklistTask = task.kind === TaskKind.VA_HOI;
@@ -3279,7 +3286,7 @@ export function TaskList({
           task.status === TaskStatus.PENDING &&
           task.workflowState === TaskWorkflowState.NONE;
         const requiresProofForCompletion =
-          (isVaTaskKind(task.kind) && !isVaPiwSelected) ||
+          (isVaTaskKind(task.kind) && !isVaSkipProofSelected) ||
           isDisclosureSubmissionTask(task);
         const isVaLoResponseRouteTask =
           task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF;
@@ -3356,6 +3363,7 @@ export function TaskList({
           isVaRouteState &&
           selectedVaReason === DisclosureDecisionReason.MISSING_ITEMS;
         const isVaPiwAction = isVaRouteState && isVaPiwSelected;
+        const isVaSkipProofAction = isVaRouteState && isVaSkipProofSelected;
         const isVaCompleteAction =
           isVaRouteState &&
           (selectedVaReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES || isVaPiwAction);
@@ -3399,7 +3407,7 @@ export function TaskList({
         const isVaRequiredProofBadge =
           isVaAttachmentSection &&
           !isVaMissingItemsNoProofFlow &&
-          !isVaPiwAction &&
+          !isVaSkipProofAction &&
           !isQcAttachmentSection;
         const hasVaProofUploaded = proofCount > 0;
         const requiresProofForRouting =
@@ -4769,7 +4777,7 @@ export function TaskList({
                           </option>
                           {task.kind === TaskKind.VA_APPRAISAL && (
                             <option value={DisclosureDecisionReason.OTHER}>
-                              Appraisal Not Need/PIW
+                              Appraisal Not Needed/PIW
                             </option>
                           )}
                           {task.kind === TaskKind.VA_PAYOFF && (
@@ -4827,7 +4835,7 @@ export function TaskList({
                           <p className="text-xs font-semibold text-slate-600">
                             {task.kind === TaskKind.VA_PAYOFF
                               ? 'No Payoff Needed selected: proof is optional for completion.'
-                              : 'Appraisal Not Need/PIW selected: proof is optional for completion.'}
+                              : 'Appraisal Not Needed/PIW selected: proof is still required for completion.'}
                           </p>
                         </div>
                       )}
@@ -6052,7 +6060,8 @@ export function TaskList({
                               onClick={() =>
                                 handleStatusChange(task.id, 'COMPLETED', {
                                   noteMessage: vaOptionalNote || undefined,
-                                  skipProofRequirement: isVaPiwAction,
+                                  skipProofRequirement: isVaSkipProofAction,
+                                  markNotNeeded: isVaPiwAction,
                                 })
                               }
                               disabled={disableRouteButton || !!updatingId}

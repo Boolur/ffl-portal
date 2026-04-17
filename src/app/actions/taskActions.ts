@@ -1636,7 +1636,11 @@ export async function requeueFailedNotificationOutbox(limit = 100) {
 export async function updateTaskStatus(
   taskId: string,
   newStatus: TaskStatus,
-  options?: { noteMessage?: string; skipProofRequirement?: boolean }
+  options?: {
+    noteMessage?: string;
+    skipProofRequirement?: boolean;
+    markNotNeeded?: boolean;
+  }
 ) {
   const perfStartedAt = Date.now();
   try {
@@ -1721,9 +1725,13 @@ export async function updateTaskStatus(
     const isSubmissionWorkflowTask = isSubmissionTask(existing);
     const normalizedNoteMessage = String(options?.noteMessage ?? '').trim();
     const skipProofRequirement = Boolean(options?.skipProofRequirement);
+    const markNotNeeded = Boolean(options?.markNotNeeded);
+    const canMarkNotNeeded =
+      markNotNeeded &&
+      (existing.kind === TaskKind.VA_APPRAISAL || existing.kind === TaskKind.VA_PAYOFF);
     const canSkipProofForNotNeeded =
       skipProofRequirement &&
-      (existing.kind === TaskKind.VA_APPRAISAL || existing.kind === TaskKind.VA_PAYOFF) &&
+      existing.kind === TaskKind.VA_PAYOFF &&
       (role === UserRole.VA ||
         role === UserRole.VA_APPRAISAL ||
         role === UserRole.VA_PAYOFF ||
@@ -1894,7 +1902,7 @@ export async function updateTaskStatus(
           status: newStatus,
           workflowState: nextWorkflowState,
           completedAt: newStatus === 'COMPLETED' ? new Date() : null,
-          ...(canSkipProofForNotNeeded && newStatus === 'COMPLETED'
+          ...((canSkipProofForNotNeeded || canMarkNotNeeded) && newStatus === 'COMPLETED'
             ? { disclosureReason: DisclosureDecisionReason.OTHER }
             : {}),
           ...(submissionDataWithTimeline
