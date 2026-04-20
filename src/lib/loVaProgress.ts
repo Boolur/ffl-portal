@@ -578,8 +578,18 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     UserRole.VA_TITLE,
     UserRole.VA_PAYOFF,
     UserRole.VA_APPRAISAL,
+    UserRole.LOAN_OFFICER,
+    UserRole.LOA,
+    UserRole.MANAGER,
+    UserRole.ADMIN,
   ]);
-  const jrNoteRoles = new Set<UserRole>([UserRole.PROCESSOR_JR]);
+  const jrNoteRoles = new Set<UserRole>([
+    UserRole.PROCESSOR_JR,
+    UserRole.LOAN_OFFICER,
+    UserRole.LOA,
+    UserRole.MANAGER,
+    UserRole.ADMIN,
+  ]);
   const workedByRoles = new Set<UserRole>([
     UserRole.QC,
     UserRole.MANAGER,
