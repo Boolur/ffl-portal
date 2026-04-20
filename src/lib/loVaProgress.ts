@@ -89,6 +89,8 @@ export type LoVaBorrowerProgressItem = {
   actionTaskId: string | null;
   detailTaskId: string | null;
   earliestCreatedAt: Date | null;
+  vaEarliestCreatedAt: Date | null;
+  jrEarliestCreatedAt: Date | null;
   latestUpdatedAt: Date | null;
   vaStageDetails: Record<
     VaKindKey,
@@ -599,6 +601,8 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       appraisalActionTaskId: string | null;
       detailTaskId: string | null;
       earliestCreatedAt: Date | null;
+      vaEarliestCreatedAt: Date | null;
+      jrEarliestCreatedAt: Date | null;
       latestUpdatedAt: Date | null;
       submissionData: unknown;
     }
@@ -615,6 +619,8 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       appraisalActionTaskId: null,
       detailTaskId: null,
       earliestCreatedAt: null,
+      vaEarliestCreatedAt: null,
+      jrEarliestCreatedAt: null,
       latestUpdatedAt: null,
       submissionData: null,
     };
@@ -645,12 +651,26 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       if (!existing.submissionData && task.submissionData) {
         existing.submissionData = task.submissionData;
       }
+      if (
+        createdAt &&
+        (!existing.vaEarliestCreatedAt ||
+          createdAt.getTime() < existing.vaEarliestCreatedAt.getTime())
+      ) {
+        existing.vaEarliestCreatedAt = createdAt;
+      }
     }
     const mappedJrKind = JR_KIND_MAP.find((entry) => entry.kind === task.kind);
     if (mappedJrKind) {
       existing.jrByKind[mappedJrKind.key] = task;
       if (!existing.submissionData && task.submissionData) {
         existing.submissionData = task.submissionData;
+      }
+      if (
+        createdAt &&
+        (!existing.jrEarliestCreatedAt ||
+          createdAt.getTime() < existing.jrEarliestCreatedAt.getTime())
+      ) {
+        existing.jrEarliestCreatedAt = createdAt;
       }
     }
 
@@ -922,6 +942,8 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       actionTaskId: value.appraisalActionTaskId,
       detailTaskId: value.appraisalActionTaskId || value.detailTaskId,
       earliestCreatedAt: value.earliestCreatedAt,
+      vaEarliestCreatedAt: value.vaEarliestCreatedAt,
+      jrEarliestCreatedAt: value.jrEarliestCreatedAt,
       latestUpdatedAt: value.latestUpdatedAt,
       vaStageDetails,
       jrStageDetails,

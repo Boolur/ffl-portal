@@ -1066,18 +1066,18 @@ export function LoVaBorrowerProgressList({
                             {item.borrowerName}
                           </p>
                           <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
-                          {item.earliestCreatedAt && (
+                          {item.vaEarliestCreatedAt && (
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => openLifecycleFromCard(item, 'va')}
                                 className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${getTimerClassName(
-                                  Date.now() - item.earliestCreatedAt.getTime()
+                                  Date.now() - item.vaEarliestCreatedAt.getTime()
                                 )}`}
-                                title="Total time from first VA task creation (click for lifecycle timeline)"
+                                title="Time since entering the VA bucket (click for lifecycle timeline)"
                               >
                                 <Clock3 className="mr-1 h-2.5 w-2.5" />
-                                Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
+                                Total {formatElapsedTimerLabel(Date.now() - item.vaEarliestCreatedAt.getTime())}
                               </button>
                             </div>
                           )}
@@ -1309,18 +1309,18 @@ export function LoVaBorrowerProgressList({
                             {item.borrowerName}
                           </p>
                           <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
-                          {item.earliestCreatedAt && (
+                          {item.jrEarliestCreatedAt && (
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => openLifecycleFromCard(item, 'jr')}
                                 className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${getTimerClassName(
-                                  Date.now() - item.earliestCreatedAt.getTime()
+                                  Date.now() - item.jrEarliestCreatedAt.getTime()
                                 )}`}
-                                title="Total time from first VA/JR task creation (click for lifecycle timeline)"
+                                title="Time since entering the JR Processor bucket (click for lifecycle timeline)"
                               >
                                 <Clock3 className="mr-1 h-2.5 w-2.5" />
-                                Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
+                                Total {formatElapsedTimerLabel(Date.now() - item.jrEarliestCreatedAt.getTime())}
                               </button>
                             </div>
                           )}
@@ -1520,21 +1520,31 @@ export function LoVaBorrowerProgressList({
                               {item.borrowerName}
                             </p>
                             <p className="text-xs font-medium text-slate-500 truncate">{item.loanNumber}</p>
-                            {item.earliestCreatedAt && (
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => openLifecycleFromCard(item, 'completed')}
-                                  className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${getTimerClassName(
-                                    Date.now() - item.earliestCreatedAt.getTime()
-                                  )}`}
-                                  title="Total time from first VA/JR task creation (click for lifecycle timeline)"
-                                >
-                                  <Clock3 className="mr-1 h-2.5 w-2.5" />
-                                  Total {formatElapsedTimerLabel(Date.now() - item.earliestCreatedAt.getTime())}
-                                </button>
-                              </div>
-                            )}
+                            {(() => {
+                              const vaCreated = item.vaEarliestCreatedAt?.getTime() ?? null;
+                              const jrCreated = item.jrEarliestCreatedAt?.getTime() ?? null;
+                              const combinedStart =
+                                vaCreated !== null && jrCreated !== null
+                                  ? Math.min(vaCreated, jrCreated)
+                                  : vaCreated ?? jrCreated;
+                              if (combinedStart === null) return null;
+                              const elapsedMs = Date.now() - combinedStart;
+                              return (
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => openLifecycleFromCard(item, 'completed')}
+                                    className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${getTimerClassName(
+                                      elapsedMs
+                                    )}`}
+                                    title="Total VA/JR processing time (click for lifecycle timeline)"
+                                  >
+                                    <Clock3 className="mr-1 h-2.5 w-2.5" />
+                                    Total {formatElapsedTimerLabel(elapsedMs)}
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </div>
                           <div className="inline-flex items-start gap-1.5 shrink-0">
                             <div className="flex w-[230px] flex-col gap-1">
