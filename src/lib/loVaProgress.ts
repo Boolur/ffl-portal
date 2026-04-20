@@ -7,6 +7,8 @@ import {
 type LoanRef = {
   loanNumber: string;
   borrowerName: string;
+  loanOfficer?: { name: string | null } | null;
+  secondaryLoanOfficer?: { name: string | null } | null;
 };
 
 export type LoVaProgressTaskInput = {
@@ -591,8 +593,12 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
     UserRole.ADMIN,
   ]);
   const workedByRoles = new Set<UserRole>([
+    UserRole.LOAN_OFFICER,
+    UserRole.LOA,
     UserRole.QC,
+    UserRole.DISCLOSURE_SPECIALIST,
     UserRole.MANAGER,
+    UserRole.ADMIN,
     UserRole.VA,
     UserRole.VA_TITLE,
     UserRole.VA_PAYOFF,
@@ -615,6 +621,8 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       jrEarliestCreatedAt: Date | null;
       latestUpdatedAt: Date | null;
       submissionData: unknown;
+      loanOfficerName: string | null;
+      secondaryLoanOfficerName: string | null;
     }
   >();
 
@@ -633,7 +641,16 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       jrEarliestCreatedAt: null,
       latestUpdatedAt: null,
       submissionData: null,
+      loanOfficerName: null,
+      secondaryLoanOfficerName: null,
     };
+
+    if (!existing.loanOfficerName && task.loan.loanOfficer?.name) {
+      existing.loanOfficerName = task.loan.loanOfficer.name;
+    }
+    if (!existing.secondaryLoanOfficerName && task.loan.secondaryLoanOfficer?.name) {
+      existing.secondaryLoanOfficerName = task.loan.secondaryLoanOfficer.name;
+    }
 
     if (!existing.detailTaskId) {
       existing.detailTaskId = task.id;
@@ -933,6 +950,19 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       (!jrTaskMarkedCompleted || !jrChecklistSatisfied);
 
     const notesTimeline = dedupeTimelineEntries(Array.from(timelineById.values()));
+    const ensureContributor = (name: string | null | undefined, role: UserRole) => {
+      const trimmed = (name || '').trim();
+      if (!trimmed) return;
+      const contributorKey = trimmed.toLowerCase();
+      if (workedByLatestByName.has(contributorKey)) return;
+      workedByLatestByName.set(contributorKey, {
+        name: trimmed,
+        role,
+        dateMs: 0,
+      });
+    };
+    ensureContributor(value.loanOfficerName, UserRole.LOAN_OFFICER);
+    ensureContributor(value.secondaryLoanOfficerName, UserRole.LOAN_OFFICER);
     const workedByContributors = Array.from(workedByLatestByName.values())
       .sort((a, b) => b.dateMs - a.dateMs)
       .map((entry) => ({ name: entry.name, role: entry.role }));

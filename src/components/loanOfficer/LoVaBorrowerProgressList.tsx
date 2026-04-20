@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ClipboardCheck,
+  Briefcase,
+  CheckCircle,
   Calendar,
   CheckCircle2,
   ChevronDown,
@@ -13,6 +15,8 @@ import {
   DollarSign,
   FileText,
   FileCheck2,
+  Fingerprint,
+  Hash,
   Home,
   Paperclip,
   Search,
@@ -505,6 +509,34 @@ function groupSubmissionSnapshot(
         .filter((row): row is { key: string; label: string; value: string } => Boolean(row)),
     }))
     .filter((group) => group.rows.length > 0);
+}
+
+const submissionGroupIcons: Record<string, React.ElementType> = {
+  'Borrower Details': User,
+  'Property Details': Home,
+  'Loan Details': DollarSign,
+  'Loan Identity': Fingerprint,
+  'Loan Terms': DollarSign,
+  'Borrower': User,
+  'Employment': Briefcase,
+  'Origination & Underwriting': Briefcase,
+  'Loan Officer & Notes': FileText,
+  'Additional Details': Hash,
+  'Qualification': CheckCircle,
+};
+
+function formatSubmissionValue(key: string, value: string) {
+  if ((key === 'loanAmount' || key === 'homeValue' || key === 'originalCost') && value) {
+    const numeric = Number(String(value).replace(/[^0-9.\-]/g, ''));
+    if (!Number.isNaN(numeric) && numeric !== 0) {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 0,
+      }).format(numeric);
+    }
+  }
+  return value;
 }
 
 const stageLabelByKey: Record<'title' | 'hoi' | 'payoff' | 'appraisal', string> = {
@@ -1696,28 +1728,45 @@ export function LoVaBorrowerProgressList({
             </div>
 
             {focusedSubmissionGroups.length > 0 && (
-              <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
-                <h4 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-700">
-                  QC Submission Snapshot
+              <div className="mt-6">
+                <h4 className="mb-5 flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  Submission Details
                 </h4>
-                <div className="space-y-4">
-                  {focusedSubmissionGroups.map((group) => (
-                    <div key={group.title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-700">
-                        {group.title}
-                      </p>
-                      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                        {group.rows.map((row) => (
-                          <div key={row.key} className="flex flex-col">
-                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                              {row.label}
-                            </span>
-                            <span className="text-sm font-semibold text-slate-900">{row.value}</span>
+                <div className="space-y-5">
+                  {focusedSubmissionGroups.map((group) => {
+                    const Icon = submissionGroupIcons[group.title] || FileText;
+                    return (
+                      <div
+                        key={group.title}
+                        className="relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200/60"
+                      >
+                        <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-slate-50 opacity-50 blur-2xl"></div>
+                        <div className="relative">
+                          <div className="mb-5 flex items-center gap-3 border-b border-slate-100 pb-4">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-50 text-slate-500 ring-1 ring-slate-200/50">
+                              <Icon className="h-4 w-4" />
+                            </div>
+                            <h5 className="text-sm font-bold text-slate-900">{group.title}</h5>
                           </div>
-                        ))}
+                          <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
+                            {group.rows.map((row) => (
+                              <div key={row.key} className="flex flex-col">
+                                <span className="mb-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                                  {row.label}
+                                </span>
+                                <span className="text-[15px] font-semibold text-slate-900 break-words">
+                                  {formatSubmissionValue(row.key, row.value)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -2228,6 +2277,37 @@ export function LoVaBorrowerProgressList({
                   )}
                 </div>
               </div>
+
+              {focusedItem && (
+                <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
+                  <h4 className="mb-4 flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+                      <User className="h-4 w-4" />
+                    </div>
+                    Worked By
+                  </h4>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(focusedItem.workedByContributors.length > 0
+                      ? focusedItem.workedByContributors
+                      : [{ name: 'Unassigned', role: null as UserRole | null }]
+                    ).map((contributor) => (
+                      <span
+                        key={`${contributor.name}-${contributor.role ?? 'none'}`}
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${getRoleBubbleClass(
+                          contributor.role
+                        )}`}
+                      >
+                        {contributor.name}
+                        {contributor.role && (
+                          <span className="text-[10px] font-bold uppercase tracking-wide opacity-80">
+                            • {formatRoleLabel(contributor.role)}
+                          </span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
             </div>
           </div>
