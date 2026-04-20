@@ -2688,6 +2688,7 @@ type JrChecklistItemInput = {
 };
 
 type JrProcessorAssignedValue =
+  | 'BEN_WANG'
   | 'CARRIE_JOHNSON'
   | 'CHRISTY_HORSTMAN'
   | 'DEREK_SOUCIE'
@@ -2725,6 +2726,7 @@ const JR_CHECKLIST_STATUS_SET = new Set<JrChecklistStatus>([
 const JR_VOE_ROW_ID = 'ordered-voe';
 const JR_UNDERWRITING_ROW_ID = 'submitted-underwriting';
 const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>([
+  'BEN_WANG',
   'CARRIE_JOHNSON',
   'CHRISTY_HORSTMAN',
   'DEREK_SOUCIE',

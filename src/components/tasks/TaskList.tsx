@@ -170,6 +170,7 @@ type QcChecklistDraftItem = {
 
 type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
 type JrProcessorAssignedValue =
+  | 'BEN_WANG'
   | 'CARRIE_JOHNSON'
   | 'CHRISTY_HORSTMAN'
   | 'DEREK_SOUCIE'
@@ -278,6 +279,7 @@ const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string 
 const jrVoeChecklistRowId = 'ordered-voe';
 const jrUnderwritingChecklistRowId = 'submitted-underwriting';
 const jrProcessorAssignedOptions: Array<{ value: JrProcessorAssignedValue; label: string }> = [
+  { value: 'BEN_WANG', label: 'Ben Wang' },
   { value: 'CARRIE_JOHNSON', label: 'Carrie Johnson' },
   { value: 'CHRISTY_HORSTMAN', label: 'Christy Horstman' },
   { value: 'DEREK_SOUCIE', label: 'Derek Soucie' },

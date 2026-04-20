@@ -39,6 +39,7 @@ type StageKey = VaKindKey | JrKindKey;
 export type VaChipState = 'not_started' | 'new' | 'working' | 'waiting' | 'review' | 'completed' | 'not_needed';
 type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
 type JrProcessorAssignedValue =
+  | 'BEN_WANG'
   | 'CARRIE_JOHNSON'
   | 'CHRISTY_HORSTMAN'
   | 'DEREK_SOUCIE'
@@ -157,6 +158,7 @@ const JR_PROCESSOR_ASSIGNED_OPTIONS: Array<{
   value: JrProcessorAssignedValue;
   label: string;
 }> = [
+  { value: 'BEN_WANG', label: 'Ben Wang' },
   { value: 'CARRIE_JOHNSON', label: 'Carrie Johnson' },
   { value: 'CHRISTY_HORSTMAN', label: 'Christy Horstman' },
   { value: 'DEREK_SOUCIE', label: 'Derek Soucie' },
