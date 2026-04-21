@@ -44,6 +44,7 @@ type LeadDetail = {
   income: string | null;
   selfEmployed: string | null;
   bankruptcy: string | null;
+  foreclosure: string | null;
   homeowner: string | null;
   coEmployer: string | null;
   coJobTitle: string | null;
@@ -73,7 +74,7 @@ type LeadDetail = {
     id: string;
     content: string;
     createdAt: string;
-    author: { id: string; name: string };
+    author: { id: string; name: string } | null;
   }>;
 };
 
@@ -229,6 +230,7 @@ export function LeadDetailPanel({
             <Field label="Income" value={lead.income} />
             <Field label="Self Employed" value={lead.selfEmployed} />
             <Field label="Bankruptcy" value={lead.bankruptcy} />
+            <Field label="Foreclosure" value={lead.foreclosure} />
             <Field label="Homeowner" value={lead.homeowner} />
             {(lead.coEmployer || lead.coIncome) && (
               <>
@@ -284,7 +286,7 @@ export function LeadDetailPanel({
                 {lead.notes.map((note) => (
                   <div key={note.id} className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-semibold text-slate-700">{note.author.name}</span>
+                      <span className="text-xs font-semibold text-slate-700">{note.author?.name ?? 'Lead Mailbox'}</span>
                       <span className="text-[10px] text-slate-400">
                         <FormatDate date={note.createdAt} mode="datetime" />
                       </span>

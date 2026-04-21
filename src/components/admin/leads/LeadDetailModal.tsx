@@ -65,6 +65,7 @@ type LeadDetail = {
   income: string | null;
   selfEmployed: string | null;
   bankruptcy: string | null;
+  foreclosure: string | null;
   homeowner: string | null;
   coEmployer: string | null;
   coJobTitle: string | null;
@@ -103,7 +104,7 @@ type LeadDetail = {
     id: string;
     content: string;
     createdAt: string;
-    author: { id: string; name: string };
+    author: { id: string; name: string } | null;
   }>;
 };
 
@@ -183,6 +184,7 @@ const EDITABLE_FIELDS: Array<{ key: string; label: string }> = [
   { key: 'income', label: 'Income' },
   { key: 'selfEmployed', label: 'Self Employed' },
   { key: 'bankruptcy', label: 'Bankruptcy' },
+  { key: 'foreclosure', label: 'Foreclosure' },
   { key: 'homeowner', label: 'Homeowner' },
   { key: 'coEmployer', label: 'Co Employer' },
   { key: 'coJobTitle', label: 'Co Job Title' },
@@ -613,6 +615,7 @@ export function LeadDetailModal({
             <FieldRow label="Income" value={lead.income} fieldKey="income" {...fp} />
             <FieldRow label="Self Employed" value={lead.selfEmployed} fieldKey="selfEmployed" {...fp} />
             <FieldRow label="Bankruptcy" value={lead.bankruptcy} fieldKey="bankruptcy" {...fp} />
+            <FieldRow label="Foreclosure" value={lead.foreclosure} fieldKey="foreclosure" {...fp} />
             <FieldRow label="Homeowner" value={lead.homeowner} fieldKey="homeowner" {...fp} />
           </Section>
 
@@ -708,7 +711,7 @@ export function LeadDetailModal({
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-slate-700">
-                          {note.author.name}
+                          {note.author?.name ?? 'Lead Mailbox'}
                         </span>
                         <span className="text-[10px] text-slate-400">
                           <FormatDate date={note.createdAt} mode="datetime" />

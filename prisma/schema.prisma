@@ -667,6 +667,7 @@ model Lead {
   selfEmployed     String?
   income           String?
   bankruptcy       String?
+  foreclosure      String?
   homeowner        String?
 
   // Employer (co-borrower)
@@ -733,8 +734,12 @@ model LeadNote {
   id        String   @id @default(uuid())
   leadId    String
   lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  // authorId is nullable so system-generated notes (e.g. from the Lead
+  // Mailbox bridge, which ingests vendor-side notes before a user is in
+  // the loop) can be persisted without a real author. UI treats null
+  // author as "Lead Mailbox" / "System".
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: Cascade)
   content   String
   createdAt DateTime @default(now())
 

@@ -29,7 +29,7 @@ const NORMALIZED_FIELDS = [
   'coFirstName','coLastName','coEmail','coPhone','coHomePhone','coWorkPhone','coDob',
   'propertyAddress','propertyCity','propertyState','propertyZip','propertyCounty',
   'purchasePrice','propertyValue','propertyType','propertyUse','propertyAcquired','propertyLtv',
-  'employer','jobTitle','employmentLength','selfEmployed','income','bankruptcy','homeowner',
+  'employer','jobTitle','employmentLength','selfEmployed','income','bankruptcy','foreclosure','homeowner',
   'coEmployer','coJobTitle','coEmploymentLength','coSelfEmployed','coIncome',
   'loanPurpose','loanAmount','loanTerm','loanType','loanRate',
   'downPayment','cashOut','creditRating',

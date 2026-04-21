@@ -5,6 +5,7 @@ import { distributeLead } from '@/app/actions/leadActions';
 import {
   LEAD_MAILBOX_FIELD_MAP,
   LEAD_MAILBOX_TARGET_FIELDS,
+  extractBridgeNotes,
 } from '@/lib/leadMailboxBridge';
 
 /**
@@ -116,6 +117,26 @@ export async function POST(
   }
 
   const lead = await prisma.lead.create({ data: createData });
+
+  const noteContents = extractBridgeNotes(payload);
+  if (noteContents.length > 0) {
+    try {
+      await prisma.leadNote.createMany({
+        data: noteContents.map((content) => ({
+          leadId: lead.id,
+          authorId: null,
+          content,
+        })),
+      });
+    } catch (err) {
+      // Non-fatal: notes failing should never block lead distribution.
+      console.warn(
+        '[lead-mailbox-bridge] failed to persist vendor notes for lead',
+        lead.id,
+        err
+      );
+    }
+  }
 
   try {
     await distributeLead(lead.id);

@@ -89,6 +89,7 @@ type LeadLike = {
   selfEmployed: string | null;
   income: string | null;
   bankruptcy: string | null;
+  foreclosure: string | null;
   homeowner: string | null;
   coEmployer: string | null;
   coJobTitle: string | null;
@@ -173,6 +174,7 @@ function buildBonzoPayload(lead: LeadLike) {
     self_employed: lead.selfEmployed,
     income: lead.income,
     bankruptcy: lead.bankruptcy,
+    foreclosure: lead.foreclosure,
     homeowner: lead.homeowner,
 
     // Employer (co-borrower)

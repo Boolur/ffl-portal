@@ -89,6 +89,8 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   income: 'income',
   bankruptcy: 'bankruptcy',
   bankruptcy_details: 'bankruptcy',
+  foreclosure: 'foreclosure',
+  foreclosure_details: 'foreclosure',
   homeowner: 'homeowner',
 
   // Employer (co-borrower)
@@ -124,6 +126,10 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   va_loan: 'vaLoan',
   is_military: 'isMilitary',
   custom_ismilitary: 'isMilitary',
+  // Veteran status is tracked on the same yes/no column as isMilitary
+  // (per product decision — we don't have a separate Lead.veteran field).
+  veteran: 'isMilitary',
+  custom_veteran: 'isMilitary',
   fha_loan: 'fhaLoan',
   source_url: 'sourceUrl',
 
@@ -190,6 +196,7 @@ export function buildLeadMailboxJsonTemplate(): string {
 
       employer: '{employer}',
       bankruptcy: '{bankruptcy}',
+      foreclosure: '{foreclosure}',
       is_military: '{Ismilitary}',
 
       loan_purpose: '{loan purpose}',
@@ -206,8 +213,52 @@ export function buildLeadMailboxJsonTemplate(): string {
       current_rate: '{current rate}',
 
       lead_created: '{createddash}',
+
+      notes: ['From Lead Mailbox', '{lastnote}'],
     },
     null,
     2
   );
+}
+
+/**
+ * Pulls vendor-supplied note strings out of a Lead Mailbox payload.
+ *
+ * Accepts any of:
+ *   - `notes`: string or string[]
+ *   - `vendor_notes`: string or string[]
+ *   - `lastnote` / `last_note`: string
+ *
+ * Filters out empty strings and unsubstituted `{Placeholder}` tokens so we
+ * never persist literal template text as a note. Also de-duplicates within
+ * a single payload.
+ */
+const UNSUBSTITUTED_PLACEHOLDER_NOTE = /^\{[A-Za-z0-9_ ]+\}$/;
+
+export function extractBridgeNotes(payload: Record<string, unknown>): string[] {
+  const collected: string[] = [];
+
+  const push = (v: unknown) => {
+    if (v === null || v === undefined) return;
+    if (Array.isArray(v)) {
+      for (const item of v) push(item);
+      return;
+    }
+    const s = String(v).trim();
+    if (!s) return;
+    if (UNSUBSTITUTED_PLACEHOLDER_NOTE.test(s)) return;
+    collected.push(s);
+  };
+
+  push(payload.notes);
+  push(payload.vendor_notes);
+  push(payload.lastnote);
+  push(payload.last_note);
+
+  const seen = new Set<string>();
+  return collected.filter((n) => {
+    if (seen.has(n)) return false;
+    seen.add(n);
+    return true;
+  });
 }
