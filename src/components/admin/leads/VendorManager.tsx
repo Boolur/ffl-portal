@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Globe, HelpCircle, ArrowUp, ArrowDown, Search } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Globe, HelpCircle, ArrowUp, ArrowDown, Search, Mailbox } from 'lucide-react';
 import {
   createLeadVendor,
   updateLeadVendor,
@@ -9,6 +9,7 @@ import {
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 import { FormatDate } from '@/components/ui/FormatDate';
+import { buildLeadMailboxJsonTemplate } from '@/lib/leadMailboxBridge';
 
 type Vendor = {
   id: string;
@@ -241,6 +242,21 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
     navigator.clipboard.writeText(url);
     setCopiedId(slug);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const [bridgeCopied, setBridgeCopied] = useState<'url' | 'template' | null>(null);
+
+  const copyBridgeUrl = (slug: string) => {
+    const url = `${window.location.origin}/api/webhooks/lead-mailbox/${slug}`;
+    navigator.clipboard.writeText(url);
+    setBridgeCopied('url');
+    setTimeout(() => setBridgeCopied(null), 2000);
+  };
+
+  const copyBridgeTemplate = () => {
+    navigator.clipboard.writeText(buildLeadMailboxJsonTemplate());
+    setBridgeCopied('template');
+    setTimeout(() => setBridgeCopied(null), 2000);
   };
 
   const [mappingError, setMappingError] = useState('');
@@ -480,6 +496,51 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                       {copiedId === editingVendor.slug ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
                       <span className="ml-1.5">{copiedId === editingVendor.slug ? 'Copied' : 'Copy'}</span>
                     </button>
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    Direct integration. Vendors post here once you&apos;ve configured their native field mapping below.
+                  </p>
+                </div>
+              )}
+
+              {!isCreating && editingVendor && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Mailbox className="h-4 w-4 text-amber-700" />
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700">Lead Mailbox Bridge</p>
+                    <InfoTip text="Point a Lead Mailbox Service at this URL to bridge existing LM traffic into the portal without changing your vendors. Leads flow LM → Portal → Distribution → Bonzo." />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-mono text-slate-700 break-all">
+                      {typeof window !== 'undefined'
+                        ? `${window.location.origin}/api/webhooks/lead-mailbox/${editingVendor.slug}`
+                        : `/api/webhooks/lead-mailbox/${editingVendor.slug}`}
+                    </code>
+                    <button
+                      className="app-btn-secondary h-9 px-3 text-xs"
+                      onClick={() => copyBridgeUrl(editingVendor.slug)}
+                    >
+                      {bridgeCopied === 'url' ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                      <span className="ml-1.5">{bridgeCopied === 'url' ? 'Copied' : 'Copy URL'}</span>
+                    </button>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="app-btn-secondary h-9 px-3 text-xs"
+                      onClick={copyBridgeTemplate}
+                    >
+                      {bridgeCopied === 'template' ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                      <span className="ml-1.5">{bridgeCopied === 'template' ? 'Copied' : 'Copy JSON Template'}</span>
+                    </button>
+                    <span className="text-[11px] text-slate-500">
+                      Paste into the Lead Mailbox Service&apos;s Content field, then fill in <code className="font-mono">routing_tag</code> with the campaign&apos;s tag.
+                    </span>
+                  </div>
+                  <div className="mt-3 rounded-lg bg-white/70 border border-amber-200/70 p-3 text-[11px] leading-relaxed text-slate-600 space-y-1">
+                    <p><span className="font-semibold text-slate-700">How it works:</span> Lead Mailbox fires its Service → POSTs to the bridge URL → portal creates a <code className="font-mono">Lead</code> tagged <code className="font-mono">Lead Mailbox ({editingVendor.name})</code> → runs the same round-robin, quotas, and Bonzo forwarding as direct vendors.</p>
+                    <p><span className="font-semibold text-slate-700">No vendor mapping required:</span> the bridge uses a built-in Lead Mailbox field map, so your configurable Field Mapping below stays reserved for the eventual direct cutover.</p>
+                    <p><span className="font-semibold text-slate-700">Routing:</span> set <code className="font-mono">routing_tag</code> in the template to a campaign&apos;s routing tag. Leave it blank to land the lead in the Unassigned Pool.</p>
                   </div>
                 </div>
               )}
