@@ -1731,7 +1731,7 @@ export async function updateTaskStatus(
       (existing.kind === TaskKind.VA_APPRAISAL || existing.kind === TaskKind.VA_PAYOFF);
     const canSkipProofForNotNeeded =
       skipProofRequirement &&
-      existing.kind === TaskKind.VA_PAYOFF &&
+      (existing.kind === TaskKind.VA_PAYOFF || existing.kind === TaskKind.VA_APPRAISAL) &&
       (role === UserRole.VA ||
         role === UserRole.VA_APPRAISAL ||
         role === UserRole.VA_PAYOFF ||

@@ -3218,7 +3218,7 @@ export function TaskList({
           (task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF) &&
           selectedVaReason === DisclosureDecisionReason.OTHER;
         const isVaSkipProofSelected =
-          task.kind === TaskKind.VA_PAYOFF &&
+          (task.kind === TaskKind.VA_PAYOFF || task.kind === TaskKind.VA_APPRAISAL) &&
           selectedVaReason === DisclosureDecisionReason.OTHER;
         const qcChecklistRows = getQcChecklistRows(task.id);
         const jrChecklistRows = getJrChecklistRows(task.id);
@@ -4837,7 +4837,7 @@ export function TaskList({
                           <p className="text-xs font-semibold text-slate-600">
                             {task.kind === TaskKind.VA_PAYOFF
                               ? 'No Payoff Needed selected: proof is optional for completion.'
-                              : 'Appraisal Not Needed/PIW selected: proof is still required for completion.'}
+                              : 'Appraisal Not Needed/PIW selected: proof is optional for completion.'}
                           </p>
                         </div>
                       )}
