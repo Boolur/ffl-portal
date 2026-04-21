@@ -541,6 +541,8 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                     <p><span className="font-semibold text-slate-700">How it works:</span> Lead Mailbox fires its Service → POSTs to the bridge URL → portal creates a <code className="font-mono">Lead</code> tagged <code className="font-mono">Lead Mailbox ({editingVendor.name})</code> → runs the same round-robin, quotas, and Bonzo forwarding as direct vendors.</p>
                     <p><span className="font-semibold text-slate-700">No vendor mapping required:</span> the bridge uses a built-in Lead Mailbox field map, so your configurable Field Mapping below stays reserved for the eventual direct cutover.</p>
                     <p><span className="font-semibold text-slate-700">Routing:</span> set <code className="font-mono">routing_tag</code> in the template to a campaign&apos;s routing tag. Leave it blank to land the lead in the Unassigned Pool.</p>
+                    <p><span className="font-semibold text-slate-700">Numbered fields:</span> the template uses <code className="font-mono">{'{Field_NNN}'}</code> placeholders for property / loan / credit values — those numbers are set in Lead Mailbox&apos;s admin and are already mapped to our current schema. To add fields (DOB, SSN, employment, co-borrower, etc.), find the matching <code className="font-mono">{'{Field_NNN}'}</code> in your LM admin and add a line to the Service&apos;s Content.</p>
+                    <p><span className="font-semibold text-slate-700">Success string:</span> the bridge responds with <code className="font-mono">{'"status":"ok"'}</code>, so Lead Mailbox&apos;s default Success String works unchanged.</p>
                   </div>
                 </div>
               )}

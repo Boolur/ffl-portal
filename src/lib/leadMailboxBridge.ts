@@ -124,81 +124,56 @@ export const LEAD_MAILBOX_TARGET_FIELDS: Set<string> = new Set(
 );
 
 /**
- * Canonical JSON template for Lead Mailbox's "Content" field. Lead Mailbox
- * substitutes {Placeholder} tokens at send time, so the resulting POST body
- * matches `LEAD_MAILBOX_FIELD_MAP` exactly.
+ * Canonical JSON template for Lead Mailbox's "Content" field. Mirrors the
+ * placeholder scheme proven to resolve correctly in this org's LM instance:
  *
- * Users paste this into each Service, then fill in the `routing_tag` with
- * the matching portal Campaign's routing tag. Unused lines can be removed
- * safely; missing fields simply don't get set.
+ * - Standard contact + address fields use named placeholders ({FirstName},
+ *   {Mail_Address}, etc.).
+ * - Lead identifier is `{LeadID}` (no underscore).
+ * - Property, loan, and credit details are NOT exposed as named placeholders
+ *   in this LM config — they come through as numbered custom fields
+ *   ({Field_007}, {Field_041}, etc.) whose IDs are assigned per-customer in
+ *   LM's admin. The numbers below match the mapping in use today; if the LM
+ *   admin renumbers a field, update it here and the Copy JSON Template button
+ *   will hand out the corrected version.
+ *
+ * Users paste this into each Service, then fill in `routing_tag` with the
+ * portal campaign's routing tag. Unused lines can be removed safely; missing
+ * fields simply don't get set. Any placeholder LM doesn't recognize passes
+ * through as its literal {Token} string and is filtered out by the bridge.
  */
 export function buildLeadMailboxJsonTemplate(): string {
   return JSON.stringify(
     {
-      lead_id: '{Lead_ID}',
+      lead_id: '{LeadID}',
       routing_tag: '',
+
       first_name: '{FirstName}',
       last_name: '{LastName}',
       email: '{Email}',
       number1: '{MobilePhone}',
       number2: '{HomePhone}',
       number3: '{WorkPhone}',
-      dob: '{DateOfBirth}',
-      ssn: '{SSN}',
-      co_first_name: '{CoFirstName}',
-      co_last_name: '{CoLastName}',
-      co_email: '{CoEmail}',
-      co_phone: '{CoMobilePhone}',
-      co_home_phone: '{CoHomePhone}',
-      co_work_phone: '{CoWorkPhone}',
-      co_dob: '{CoDateOfBirth}',
+
       street: '{Mail_Address}',
       city: '{Mail_City}',
       state: '{Mail_State}',
       zip: '{Mail_Zip}',
-      county: '{Mail_County}',
-      property_value: '{PropertyValue}',
-      property_type: '{PropertyType}',
-      property_use: '{PropertyUse}',
-      property_acquired: '{PropertyAcquired}',
-      purchase_price: '{PurchasePrice}',
-      property_ltv: '{LTV}',
-      employer: '{Employer}',
-      job_title: '{JobTitle}',
-      employment_length: '{EmploymentLength}',
-      self_employed: '{SelfEmployed}',
-      income: '{Income}',
-      bankruptcy: '{Bankruptcy}',
-      homeowner: '{Homeowner}',
-      co_employer: '{CoEmployer}',
-      co_job_title: '{CoJobTitle}',
-      co_employment_length: '{CoEmploymentLength}',
-      co_self_employed: '{CoSelfEmployed}',
-      co_income: '{CoIncome}',
-      loan_purpose: '{LoanPurpose}',
-      loan_amount: '{LoanAmount}',
-      loan_term: '{LoanTerm}',
-      loan_type: '{LoanType}',
-      loan_rate: '{InterestRate}',
-      down_payment: '{DownPayment}',
-      cash_out: '{CashOut}',
-      credit_rating: '{CreditRating}',
-      current_lender: '{CurrentLender}',
-      current_balance: '{CurrentBalance}',
-      current_rate: '{CurrentRate}',
-      current_payment: '{CurrentPayment}',
-      current_term: '{CurrentTerm}',
-      current_type: '{CurrentType}',
-      other_balance: '{OtherBalance}',
-      other_payment: '{OtherPayment}',
-      target_rate: '{TargetRate}',
-      va_status: '{VAStatus}',
-      va_loan: '{VALoan}',
-      is_military: '{Military}',
-      fha_loan: '{FHALoan}',
-      source_url: '{SourceURL}',
-      lead_created: '{LeadCreated}',
-      price: '{LeadPrice}',
+
+      property_value: '{Field_007}',
+      property_type: '{Field_008}',
+      property_use: '{Field_009}',
+      property_ltv: '{Field_011}',
+
+      loan_amount: '{Field_036}',
+      loan_rate: '{Field_037}',
+      loan_term: '{Field_038}',
+      cash_out: '{Field_039}',
+
+      credit_rating: '{Field_041}',
+      current_balance: '{Field_044}',
+      current_payment: '{Field_045}',
+      current_rate: '{Field_046}',
     },
     null,
     2
