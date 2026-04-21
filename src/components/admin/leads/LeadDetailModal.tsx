@@ -29,6 +29,8 @@ import { FormatDate } from '@/components/ui/FormatDate';
 
 type LeadDetail = {
   id: string;
+  vendorLeadId: string | null;
+  vendorUserId: string | null;
   status: string;
   firstName: string | null;
   lastName: string | null;
@@ -251,6 +253,35 @@ function FieldRow({
           {value || '—'}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * Read-only row for vendor-assigned metadata that users should never edit
+ * (e.g. Vendor Lead ID, Vendor User ID). Visually matches FieldRow's display
+ * state so the Source / Meta section stays consistent whether the modal is
+ * in view or edit mode.
+ */
+function ReadOnlyRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string | null;
+  mono?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[140px_1fr] gap-3 py-2 border-b border-slate-50 last:border-b-0">
+      <span className="text-xs font-medium text-slate-400 uppercase tracking-wide pt-1.5">
+        {label}
+      </span>
+      <span
+        className={`text-sm break-all pt-0.5 ${value ? 'text-slate-800' : 'text-slate-300 italic'} ${mono && value ? 'font-mono text-[13px]' : ''}`}
+      >
+        {value || '—'}
+      </span>
     </div>
   );
 }
@@ -660,6 +691,8 @@ export function LeadDetailModal({
             <FieldRow label="Source URL" value={lead.sourceUrl} fieldKey="sourceUrl" {...fp} />
             <FieldRow label="Created Date" value={lead.leadCreated} fieldKey="leadCreated" {...fp} />
             <FieldRow label="Price" value={lead.price} fieldKey="price" {...fp} />
+            <ReadOnlyRow label="Vendor Lead ID" value={lead.vendorLeadId} mono />
+            <ReadOnlyRow label="Vendor User ID" value={lead.vendorUserId} mono />
           </Section>
 
           {/* Notes */}

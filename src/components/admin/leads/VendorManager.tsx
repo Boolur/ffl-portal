@@ -461,13 +461,43 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <label className="space-y-1 text-sm">
-                  <span className="font-medium text-slate-700">Webhook Secret<InfoTip text="An optional password the vendor includes in their request header to prove they're authorized. If set, any request without this secret will be rejected." /></span>
-                  <input
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    value={form.webhookSecret}
-                    onChange={(e) => setForm((p) => ({ ...p, webhookSecret: e.target.value }))}
-                    placeholder="Optional — for signature verification"
-                  />
+                  <span className="font-medium text-slate-700">Webhook Secret<InfoTip text="An optional password the vendor includes in their request header to prove they're authorized. If set, any request without this secret will be rejected. Use the Clear button to remove a saved secret — browsers sometimes re-fill this field from password managers, so Clear writes null directly." /></span>
+                  <div className="flex items-stretch gap-2">
+                    <input
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      type="text"
+                      name={`vendor-webhook-secret-${editingVendor?.id ?? 'new'}`}
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore=""
+                      data-form-type="other"
+                      value={form.webhookSecret}
+                      onChange={(e) => setForm((p) => ({ ...p, webhookSecret: e.target.value }))}
+                      placeholder="Optional — for signature verification"
+                    />
+                    {!isCreating && editingVendor?.webhookSecret && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!editingVendor) return;
+                          if (!window.confirm('Clear the webhook secret for this vendor? Requests will no longer require a secret header.')) return;
+                          setSaving(true);
+                          setLoading(true);
+                          try {
+                            await updateLeadVendor(editingVendor.id, { webhookSecret: null });
+                            setForm((p) => ({ ...p, webhookSecret: '' }));
+                            router.refresh();
+                          } finally {
+                            setSaving(false);
+                            setLoading(false);
+                          }
+                        }}
+                        className="shrink-0 rounded-lg border border-red-200 bg-white px-3 text-xs font-medium text-red-600 hover:border-red-300 hover:bg-red-50"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-medium text-slate-700">Routing Tag Field<InfoTip text="The field name in the vendor's payload that contains the campaign/routing identifier. This tells the system which campaign the lead belongs to. Default is 'routing_tag'." /></span>

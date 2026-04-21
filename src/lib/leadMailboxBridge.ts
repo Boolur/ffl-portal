@@ -138,6 +138,13 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   created: 'leadCreated',
   price: 'price',
   lead_price: 'price',
+
+  // Lead Mailbox cross-reference IDs. These aren't editable lead data —
+  // they're the IDs LM assigns so the portal can link back to LM's record
+  // for audit / reconciliation when a vendor reports an issue.
+  user_id: 'vendorUserId',
+  lm_user_id: 'vendorUserId',
+  mailbox_user_id: 'vendorUserId',
 };
 
 /**
@@ -213,6 +220,7 @@ export function buildLeadMailboxJsonTemplate(): string {
       current_rate: '{current rate}',
 
       lead_created: '{createddash}',
+      user_id: '{user_002}',
 
       notes: ['From Lead Mailbox', '{lastnote}'],
     },

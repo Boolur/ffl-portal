@@ -9,6 +9,8 @@ import { FormatDate } from '@/components/ui/FormatDate';
 
 type LeadDetail = {
   id: string;
+  vendorLeadId: string | null;
+  vendorUserId: string | null;
   status: string;
   firstName: string | null;
   lastName: string | null;
@@ -298,9 +300,21 @@ export function LeadDetailPanel({
             )}
           </Section>
 
-          <div className="mt-4 text-[10px] text-slate-400">
+          <div className="mt-4 space-y-0.5 text-[10px] text-slate-400">
             <p>Source: {lead.source || '—'}</p>
             <p>Received: <FormatDate date={lead.receivedAt} mode="datetime" /></p>
+            {lead.vendorLeadId && (
+              <p>
+                Vendor Lead ID:{' '}
+                <span className="font-mono text-slate-500">{lead.vendorLeadId}</span>
+              </p>
+            )}
+            {lead.vendorUserId && (
+              <p>
+                Vendor User ID:{' '}
+                <span className="font-mono text-slate-500">{lead.vendorUserId}</span>
+              </p>
+            )}
           </div>
         </div>
       </div>

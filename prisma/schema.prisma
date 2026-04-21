@@ -616,6 +616,7 @@ model UserLeadQuota {
 model Lead {
   id            String      @id @default(uuid())
   vendorLeadId  String?
+  vendorUserId  String?
   vendorId      String
   vendor        LeadVendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
