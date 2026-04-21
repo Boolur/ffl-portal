@@ -7,10 +7,20 @@ import {
   LEAD_MAILBOX_TARGET_FIELDS,
 } from '@/lib/leadMailboxBridge';
 
+/**
+ * Matches an unsubstituted Lead Mailbox placeholder, e.g. "{FirstName}" or
+ * "{Co_DateOfBirth}". When LM doesn't recognize a placeholder in the Service's
+ * Content template, it passes the literal token through — we must not write
+ * those strings onto real Lead fields.
+ */
+const UNSUBSTITUTED_PLACEHOLDER = /^\{[A-Za-z0-9_]+\}$/;
+
 function normalizeStringValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const str = String(value).trim();
-  return str.length > 0 ? str : null;
+  if (str.length === 0) return null;
+  if (UNSUBSTITUTED_PLACEHOLDER.test(str)) return null;
+  return str;
 }
 
 export async function POST(
@@ -116,8 +126,13 @@ export async function POST(
     );
   }
 
+  // `status: "ok"` is intentional: Lead Mailbox's default Success String is
+  // `"status":"ok"` and it matches against the raw response body. Keeping this
+  // field stable means every LM Service pointed at the bridge reports success
+  // without per-Service config changes.
   return NextResponse.json(
     {
+      status: 'ok',
       success: true,
       leadId: lead.id,
       source: 'lead-mailbox-bridge',
