@@ -70,6 +70,7 @@ export async function POST(
   const vendorLeadId =
     normalizeStringValue(payload.lead_id) ??
     normalizeStringValue(payload.leadId) ??
+    normalizeStringValue(payload.leadid) ??
     normalizeStringValue(payload.id);
 
   if (campaign?.duplicateHandling === 'REJECT' && vendorLeadId) {

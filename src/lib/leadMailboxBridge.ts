@@ -30,7 +30,9 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   work_phone: 'workPhone',
   dob: 'dob',
   date_of_birth: 'dob',
+  birthday: 'dob',
   ssn: 'ssn',
+  social: 'ssn',
 
   // Co-borrower contact
   co_first_name: 'coFirstName',
@@ -60,6 +62,17 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   property_county: 'propertyCounty',
   mailing_county: 'propertyCounty',
 
+  // Physical / property address aliases (LM emits {phys_*} placeholders).
+  // These take precedence over the mail_* aliases above when both are
+  // supplied, because callers list property_* keys first in the canonical
+  // template (see buildLeadMailboxJsonTemplate) and the bridge uses
+  // first-match-wins for any target field.
+  phys_address: 'propertyAddress',
+  phys_city: 'propertyCity',
+  phys_state: 'propertyState',
+  phys_zip: 'propertyZip',
+  phys_county: 'propertyCounty',
+
   // Property details
   purchase_price: 'purchasePrice',
   property_value: 'propertyValue',
@@ -75,6 +88,7 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   self_employed: 'selfEmployed',
   income: 'income',
   bankruptcy: 'bankruptcy',
+  bankruptcy_details: 'bankruptcy',
   homeowner: 'homeowner',
 
   // Employer (co-borrower)
@@ -90,11 +104,15 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   loan_term: 'loanTerm',
   loan_type: 'loanType',
   loan_rate: 'loanRate',
+  interest_rate: 'loanRate',
   down_payment: 'downPayment',
   cash_out: 'cashOut',
+  cash_out_amount: 'cashOut',
   credit_rating: 'creditRating',
+  credit_score: 'creditRating',
   current_lender: 'currentLender',
   current_balance: 'currentBalance',
+  loan_balance: 'currentBalance',
   current_rate: 'currentRate',
   current_payment: 'currentPayment',
   current_term: 'currentTerm',
@@ -105,6 +123,7 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   va_status: 'vaStatus',
   va_loan: 'vaLoan',
   is_military: 'isMilitary',
+  custom_ismilitary: 'isMilitary',
   fha_loan: 'fhaLoan',
   source_url: 'sourceUrl',
 
@@ -145,35 +164,48 @@ export const LEAD_MAILBOX_TARGET_FIELDS: Set<string> = new Set(
 export function buildLeadMailboxJsonTemplate(): string {
   return JSON.stringify(
     {
-      lead_id: '{LeadID}',
+      lead_id: '{leadid}',
       routing_tag: '',
 
-      first_name: '{FirstName}',
-      last_name: '{LastName}',
-      email: '{Email}',
-      number1: '{MobilePhone}',
+      first_name: '{firstname}',
+      last_name: '{lastname}',
+      email: '{email}',
+      number1: '{phonenumeric}',
       number2: '{HomePhone}',
       number3: '{WorkPhone}',
+      dob: '{dob}',
+      ssn: '{social}',
 
-      street: '{Mail_Address}',
-      city: '{Mail_City}',
-      state: '{Mail_State}',
-      zip: '{Mail_Zip}',
+      property_address: '{phys_address}',
+      property_city: '{phys_city}',
+      property_state: '{phys_state}',
+      property_zip: '{phys_zip}',
+      property_county: '{phys_county}',
 
-      property_value: '{Field_007}',
-      property_type: '{Field_008}',
-      property_use: '{Field_009}',
+      property_value: '{property value}',
+      property_type: '{property type}',
+      property_use: '{property use}',
+      purchase_price: '{purchase price}',
       property_ltv: '{Field_011}',
 
-      loan_amount: '{Field_036}',
-      loan_rate: '{Field_037}',
-      loan_term: '{Field_038}',
-      cash_out: '{Field_039}',
+      employer: '{employer}',
+      bankruptcy: '{bankruptcy}',
+      is_military: '{Ismilitary}',
 
-      credit_rating: '{Field_041}',
-      current_balance: '{Field_044}',
-      current_payment: '{Field_045}',
-      current_rate: '{Field_046}',
+      loan_purpose: '{loan purpose}',
+      loan_amount: '{loan amount}',
+      loan_term: '{loan term}',
+      loan_type: '{loan type}',
+      loan_rate: '{Field_037}',
+      down_payment: '{down payment}',
+      cash_out: '{cash out}',
+
+      credit_rating: '{credit rating}',
+      current_balance: '{current balance}',
+      current_payment: '{current payment}',
+      current_rate: '{current rate}',
+
+      lead_created: '{createddash}',
     },
     null,
     2
