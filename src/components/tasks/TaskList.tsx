@@ -3072,6 +3072,25 @@ export function TaskList({
     setSavingNoteId(null);
   };
 
+  const handleSendVaWaitingNote = async (taskId: string) => {
+    if (savingNoteId) return;
+    const note = (vaNoteByTask[taskId] || '').trim();
+    if (!note) {
+      alert('Please enter a note before sending.');
+      return;
+    }
+    setSavingNoteId(taskId);
+    const result = await addTaskNote(taskId, note);
+    if (!result.success) {
+      alert(result.error || 'Failed to send note.');
+      setSavingNoteId(null);
+      return;
+    }
+    setVaNoteByTask((prev) => ({ ...prev, [taskId]: '' }));
+    router.refresh();
+    setSavingNoteId(null);
+  };
+
   const handleLoanOfficerResponse = async (task: Task) => {
     if (respondingId) return;
     const response = (loResponseByTask[task.id] || '').trim();
@@ -3375,6 +3394,8 @@ export function TaskList({
         const isVaCompleteAction =
           isVaRouteState &&
           (selectedVaReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES || isVaPiwAction);
+        const canBypassVaStartForRouting =
+          isManagerRole || currentRole === UserRole.ADMIN;
         const shouldRouteFromFooter =
           task.status !== TaskStatus.COMPLETED &&
           ((isDisclosureInitialRoutingState ||
@@ -3382,7 +3403,8 @@ export function TaskList({
             (canManageQcDesk && isQcSubmissionTask(task)) ||
             (isVaRouteState &&
               (task.status !== TaskStatus.PENDING ||
-                task.workflowState === TaskWorkflowState.READY_TO_COMPLETE)));
+                task.workflowState === TaskWorkflowState.READY_TO_COMPLETE ||
+                canBypassVaStartForRouting)));
         const isDisclosureMissingItemsRoute =
           canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
@@ -4935,27 +4957,50 @@ export function TaskList({
                           </div>
                         </div>
                       )}
-                      {!canManagerRespondAsLoOnVaParent && (
+                      {!canManagerRespondAsLoOnVaParent && (() => {
+                        const isVaWaitingOnLo =
+                          task.workflowState === TaskWorkflowState.WAITING_ON_LO;
+                        const vaNoteValue = vaNoteByTask[task.id] || '';
+                        const vaNoteHasContent = vaNoteValue.trim().length > 0;
+                        return (
                       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4 shadow-sm space-y-2">
                         <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
-                          Optional VA Notes
+                          {isVaWaitingOnLo ? 'Additional VA Note' : 'Optional VA Notes'}
                         </label>
                         <textarea
-                          value={vaNoteByTask[task.id] || ''}
+                          value={vaNoteValue}
                           onChange={(event) =>
                             setVaNoteByTask((prev) => ({
                               ...prev,
                               [task.id]: event.target.value,
                             }))
                           }
-                          placeholder="Add optional notes for this VA request."
+                          placeholder={
+                            isVaWaitingOnLo
+                              ? 'Add an update for the LO while waiting on their response.'
+                              : 'Add optional notes for this VA request.'
+                          }
                           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm min-h-[88px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                         />
-                        <p className="text-xs font-medium text-slate-500">
-                          Saved to task history when you complete this request.
-                        </p>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-medium text-slate-500">
+                            Send now to stack in Notes & Attachments, or it will be saved with the task when you complete it.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void handleSendVaWaitingNote(task.id)}
+                            disabled={savingNoteId === task.id || !vaNoteHasContent}
+                            className="inline-flex h-8 items-center rounded-lg border border-blue-300 bg-white px-3 text-xs font-semibold text-blue-700 shadow-sm hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {savingNoteId === task.id && (
+                              <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                            )}
+                            {savingNoteId === task.id ? 'Sending...' : 'Send Note to LO'}
+                          </button>
+                        </div>
                       </div>
-                      )}
+                        );
+                      })()}
                       </>
                     )}
 
