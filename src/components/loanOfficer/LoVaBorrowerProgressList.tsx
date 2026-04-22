@@ -612,6 +612,7 @@ function getProcessorAssignedLabel(value: string | null | undefined) {
     { value: 'KIM_GORDON', label: 'Kim Gordon' },
     { value: 'KIM_MARTIN', label: 'Kim Martin' },
     { value: 'MONICA_VINEY', label: 'Monica Viney' },
+    { value: 'NANCY_CALIGARIS', label: 'Nancy Caligaris' },
     { value: 'ROMI_HIRAYAMA', label: 'Romi Hirayama' },
     { value: 'RYAN_KATAOKA', label: 'Ryan Kataoka' },
     { value: 'SARABETH_DUONG', label: 'Sarabeth Duong' },

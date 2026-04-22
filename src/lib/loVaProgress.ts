@@ -55,6 +55,7 @@ type JrProcessorAssignedValue =
   | 'KIM_GORDON'
   | 'KIM_MARTIN'
   | 'MONICA_VINEY'
+  | 'NANCY_CALIGARIS'
   | 'ROMI_HIRAYAMA'
   | 'RYAN_KATAOKA'
   | 'SARABETH_DUONG'
@@ -177,6 +178,7 @@ const JR_PROCESSOR_ASSIGNED_OPTIONS: Array<{
   { value: 'KIM_GORDON', label: 'Kim Gordon' },
   { value: 'KIM_MARTIN', label: 'Kim Martin' },
   { value: 'MONICA_VINEY', label: 'Monica Viney' },
+  { value: 'NANCY_CALIGARIS', label: 'Nancy Caligaris' },
   { value: 'ROMI_HIRAYAMA', label: 'Romi Hirayama' },
   { value: 'RYAN_KATAOKA', label: 'Ryan Kataoka' },
   { value: 'SARABETH_DUONG', label: 'Sarabeth Duong' },
