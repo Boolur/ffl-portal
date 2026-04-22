@@ -1,11 +1,16 @@
 'use client';
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle, ArrowUp, ArrowDown, GripVertical, Archive, ArchiveRestore, AlertTriangle } from 'lucide-react';
 import {
   createLeadCampaign,
   updateLeadCampaign,
-  deleteLeadCampaign,
+  archiveLeadCampaign,
+  restoreLeadCampaign,
+  hardDeleteLeadCampaign,
+  reassignCampaignLeads,
+  deleteAllCampaignLeads,
+  getCampaignDependencyCounts,
   setCampaignMembers,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
@@ -129,6 +134,7 @@ function InfoTip({ text }: { text: string }) {
 export function CampaignManager({ campaigns, vendors, users }: Props) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingCampaign, setDeletingCampaign] = useState<Campaign | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -137,6 +143,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
   const [userSearch, setUserSearch] = useState('');
   const [filterVendor, setFilterVendor] = useState('');
   const [campaignSearch, setCampaignSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [sortCol, setSortCol] = useState<string>('created');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
@@ -181,8 +188,14 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
     };
   }, []);
 
+  const archivedCount = useMemo(
+    () => campaigns.filter((c) => !c.active).length,
+    [campaigns]
+  );
+
   const filtered = useMemo(() => {
     let list = campaigns;
+    if (!showArchived) list = list.filter((c) => c.active);
     if (filterVendor) list = list.filter((c) => c.vendorId === filterVendor);
     if (campaignSearch) {
       const q = campaignSearch.toLowerCase();
@@ -213,7 +226,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [campaigns, filterVendor, campaignSearch, sortCol, sortDir]);
+  }, [campaigns, filterVendor, campaignSearch, sortCol, sortDir, showArchived]);
 
   const filteredUsers = useMemo(() => {
     if (!userSearch) return users;
@@ -291,26 +304,34 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this campaign? This cannot be undone.')) return;
+  const handleArchive = async (c: Campaign) => {
+    if (
+      !window.confirm(
+        `Archive campaign "${c.name}"? Incoming leads tagged with its routing tag will fall to the Unassigned Pool. Fully reversible — click Restore to bring it back. No data is lost.`
+      )
+    )
+      return;
     setLoading(true);
     try {
-      await deleteLeadCampaign(id);
+      await archiveLeadCampaign(c.id);
       router.refresh();
     } finally {
       setLoading(false);
     }
   };
 
-  const handleToggleActive = async (c: Campaign) => {
+  const handleRestore = async (c: Campaign) => {
     setLoading(true);
     try {
-      await updateLeadCampaign(c.id, { active: !c.active });
+      await restoreLeadCampaign(c.id);
       router.refresh();
     } finally {
       setLoading(false);
     }
   };
+
+  const openDeleteDialog = (c: Campaign) => setDeletingCampaign(c);
+  const closeDeleteDialog = () => setDeletingCampaign(null);
 
   const toggleMember = (userId: string) => {
     setForm((prev) => ({
@@ -365,6 +386,21 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
             {filtered.length} campaign{filtered.length !== 1 ? 's' : ''}
           </span>
+          {archivedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowArchived((p) => !p)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                showArchived
+                  ? 'border-amber-300 bg-amber-50 text-amber-700'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+              title="Archived campaigns are hidden from the default list but their data and members are preserved."
+            >
+              <Archive className="h-3.5 w-3.5" />
+              {showArchived ? 'Hide' : 'Show'} archived ({archivedCount})
+            </button>
+          )}
         </div>
         {vendors.length === 0 ? (
           <span className="text-xs text-amber-600 font-medium" title="You need at least one vendor before creating a campaign">
@@ -433,18 +469,22 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filtered.map((c) => (
-                <tr key={c.id} className="align-middle hover:bg-slate-50/70">
+                <tr
+                  key={c.id}
+                  className={`align-middle hover:bg-slate-50/70 ${
+                    c.active ? '' : 'bg-amber-50/30'
+                  }`}
+                >
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => void handleToggleActive(c)}
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors ${
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                         c.active
                           ? 'border border-blue-200 bg-blue-50 text-blue-700'
-                          : 'border border-slate-200 bg-white text-slate-500'
+                          : 'border border-amber-200 bg-amber-50 text-amber-700'
                       }`}
                     >
-                      {c.active ? 'Enabled' : 'Disabled'}
-                    </button>
+                      {c.active ? 'Active' : 'Archived'}
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-900">{c.name}</p>
@@ -470,9 +510,32 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                       <button className="app-icon-btn" onClick={() => void openEdit(c)} title="Edit">
                         <Pencil className="h-4 w-4" />
                       </button>
-                      <button className="app-icon-btn app-icon-btn-danger" onClick={() => void handleDelete(c.id)} title="Delete">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {c.active ? (
+                        <button
+                          className="app-icon-btn text-amber-600 hover:bg-amber-50"
+                          onClick={() => void handleArchive(c)}
+                          title="Archive campaign"
+                        >
+                          <Archive className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            className="app-icon-btn text-emerald-600 hover:bg-emerald-50"
+                            onClick={() => void handleRestore(c)}
+                            title="Restore campaign"
+                          >
+                            <ArchiveRestore className="h-4 w-4" />
+                          </button>
+                          <button
+                            className="app-icon-btn app-icon-btn-danger"
+                            onClick={() => openDeleteDialog(c)}
+                            title="Permanently delete…"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -686,6 +749,260 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
           </div>
         </div>
       )}
+
+      {deletingCampaign && (
+        <CampaignDeleteDialog
+          campaign={deletingCampaign}
+          siblingCampaigns={campaigns.filter(
+            (c) =>
+              c.id !== deletingCampaign.id &&
+              c.vendorId === deletingCampaign.vendorId &&
+              c.active
+          )}
+          onClose={closeDeleteDialog}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Permanent-delete dialog for a single archived campaign. Leads on the
+ * campaign must either be reassigned to a sibling (same-vendor) campaign
+ * or bulk-deleted before the campaign row itself can be removed. The
+ * "same vendor" constraint prevents leads from ending up with a
+ * vendorId that disagrees with their campaign's vendorId.
+ */
+function CampaignDeleteDialog({
+  campaign,
+  siblingCampaigns,
+  onClose,
+}: {
+  campaign: Campaign;
+  siblingCampaigns: Campaign[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [leadCount, setLeadCount] = useState(campaign._count.leads);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [targetCampaignId, setTargetCampaignId] = useState('');
+  const [confirmName, setConfirmName] = useState('');
+
+  const refreshCounts = useCallback(async () => {
+    try {
+      const c = await getCampaignDependencyCounts(campaign.id);
+      setLeadCount(c.leads);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [campaign.id]);
+
+  const runAction = useCallback(
+    async (fn: () => Promise<void>) => {
+      setBusy(true);
+      setError(null);
+      try {
+        await fn();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    []
+  );
+
+  const handleReassign = () =>
+    runAction(async () => {
+      if (!targetCampaignId) {
+        setError('Pick a target campaign first.');
+        return;
+      }
+      await reassignCampaignLeads(campaign.id, targetCampaignId);
+      await refreshCounts();
+      router.refresh();
+    });
+
+  const handleDeleteLeads = () =>
+    runAction(async () => {
+      if (
+        !window.confirm(
+          `Delete all ${leadCount} lead(s) on "${campaign.name}"? This cannot be undone.`
+        )
+      )
+        return;
+      await deleteAllCampaignLeads(campaign.id);
+      await refreshCounts();
+      router.refresh();
+    });
+
+  const handleFinalDelete = () =>
+    runAction(async () => {
+      await hardDeleteLeadCampaign(campaign.id, confirmName);
+      onClose();
+      router.refresh();
+    });
+
+  const dependenciesCleared = leadCount === 0;
+  const confirmMatches = confirmName.trim() === campaign.name;
+  const canFinalDelete = dependenciesCleared && confirmMatches && !busy;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      onClick={busy ? undefined : onClose}
+    >
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative w-full max-w-xl rounded-xl border border-red-200 bg-white shadow-2xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-red-100 bg-red-50/60 px-6 py-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-full bg-red-100 p-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Permanently delete &quot;{campaign.name}&quot;
+              </h2>
+              <p className="mt-1 text-xs text-slate-600">
+                Clear the campaign&apos;s leads, then confirm by typing the campaign name.
+              </p>
+            </div>
+          </div>
+          <button
+            className="app-icon-btn"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          <div className={`rounded-xl border p-3 ${leadCount === 0 ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/40'}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Leads on this campaign
+              </span>
+              {leadCount === 0 ? (
+                <Check className="h-4 w-4 text-emerald-600" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+              )}
+            </div>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{leadCount}</p>
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {error}
+            </div>
+          )}
+
+          {leadCount > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                Step 1 — Handle Leads
+              </p>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-700">
+                  Reassign all {leadCount} lead{leadCount !== 1 ? 's' : ''} to another campaign on the same vendor:
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={targetCampaignId}
+                    onChange={(e) => setTargetCampaignId(e.target.value)}
+                    disabled={busy || siblingCampaigns.length === 0}
+                  >
+                    <option value="">
+                      {siblingCampaigns.length === 0
+                        ? 'No other active campaigns for this vendor'
+                        : 'Select target campaign…'}
+                    </option>
+                    {siblingCampaigns.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.routingTag})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="app-btn-secondary"
+                    onClick={handleReassign}
+                    disabled={!targetCampaignId || busy}
+                  >
+                    Reassign
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  OR
+                </span>
+                <div className="h-px flex-1 bg-slate-200" />
+              </div>
+
+              <button
+                type="button"
+                className="w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60"
+                onClick={handleDeleteLeads}
+                disabled={busy}
+              >
+                Delete all {leadCount} lead{leadCount !== 1 ? 's' : ''}
+              </button>
+            </div>
+          )}
+
+          <div
+            className={`rounded-xl border p-4 space-y-3 ${
+              dependenciesCleared ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-slate-50/40 opacity-60'
+            }`}
+          >
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+              Final confirmation
+            </p>
+            <label className="block space-y-1 text-xs">
+              <span className="font-medium text-slate-700">
+                Type <code className="rounded bg-white border border-slate-200 px-1.5 py-0.5 font-mono text-[11px]">{campaign.name}</code> to confirm:
+              </span>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                disabled={!dependenciesCleared || busy}
+                autoComplete="off"
+                data-lpignore="true"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50/60 px-6 py-4">
+          <button className="app-btn-secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleFinalDelete}
+            disabled={!canFinalDelete}
+          >
+            {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Delete Permanently
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

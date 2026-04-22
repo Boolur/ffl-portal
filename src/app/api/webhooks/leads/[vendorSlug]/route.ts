@@ -74,9 +74,10 @@ export async function POST(
 
   let campaign = null;
   if (routingTag) {
-    campaign = await prisma.leadCampaign.findUnique({
+    const match = await prisma.leadCampaign.findUnique({
       where: { vendorId_routingTag: { vendorId: vendor.id, routingTag } },
     });
+    if (match?.active) campaign = match;
   }
 
   const vendorLeadId =

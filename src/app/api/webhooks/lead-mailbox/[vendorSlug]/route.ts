@@ -61,11 +61,17 @@ export async function POST(
 
   let campaign = null;
   if (routingTag) {
-    campaign = await prisma.leadCampaign.findUnique({
+    // Archived campaigns must not route new leads — otherwise archiving
+    // a campaign is meaningless and un-archiving can resurface partial
+    // traffic unexpectedly. Falling through to `null` sends the lead to
+    // the Unassigned Pool, which is the correct behavior for "this
+    // campaign is paused."
+    const match = await prisma.leadCampaign.findUnique({
       where: {
         vendorId_routingTag: { vendorId: vendor.id, routingTag },
       },
     });
+    if (match?.active) campaign = match;
   }
 
   const vendorLeadId =

@@ -244,11 +244,247 @@ export async function updateLeadVendor(
   return vendor;
 }
 
-export async function deleteLeadVendor(id: string) {
+/**
+ * Returns the current campaign + lead counts for a vendor. Used by the
+ * permanent-delete dialog to refresh live counts after each destructive
+ * action without waiting for a full page revalidation.
+ */
+export async function getVendorDependencyCounts(id: string) {
+  const vendor = await prisma.leadVendor.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      active: true,
+      _count: { select: { campaigns: true, leads: true } },
+    },
+  });
+  if (!vendor) throw new Error('Vendor not found');
+  return {
+    active: vendor.active,
+    campaigns: vendor._count.campaigns,
+    leads: vendor._count.leads,
+  };
+}
+
+/**
+ * Returns the current lead count for a campaign. Mirror of
+ * {@link getVendorDependencyCounts} for the campaign permanent-delete UI.
+ */
+export async function getCampaignDependencyCounts(id: string) {
+  const campaign = await prisma.leadCampaign.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      active: true,
+      _count: { select: { leads: true } },
+    },
+  });
+  if (!campaign) throw new Error('Campaign not found');
+  return {
+    active: campaign.active,
+    leads: campaign._count.leads,
+  };
+}
+
+/**
+ * Soft-archives a vendor (sets active=false). Archiving is the default,
+ * reversible deletion path — nothing is lost. New webhook deliveries are
+ * rejected (the bridge / direct routes already 404 inactive vendors),
+ * the vendor hides from the default UI list, and all historical leads
+ * and campaigns are preserved. Use {@link restoreLeadVendor} to undo, or
+ * {@link hardDeleteLeadVendor} to permanently remove once dependencies
+ * are cleared.
+ */
+export async function archiveLeadVendor(id: string) {
+  const vendor = await prisma.leadVendor.update({
+    where: { id },
+    data: { active: false },
+  });
+  revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
+  return vendor;
+}
+
+/**
+ * Reverses an archive. Vendor becomes active again and resumes accepting
+ * webhook deliveries.
+ */
+export async function restoreLeadVendor(id: string) {
+  const vendor = await prisma.leadVendor.update({
+    where: { id },
+    data: { active: true },
+  });
+  revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
+  return vendor;
+}
+
+/**
+ * Permanently deletes a vendor. This is the only path that actually
+ * removes the row and cascades the FK deletes to its remaining campaigns
+ * and leads.
+ *
+ * Three guards prevent accidents:
+ *   1. The vendor must already be archived (active === false) — no
+ *      one-click destruction of a live vendor.
+ *   2. The vendor must have zero campaigns AND zero leads — the caller
+ *      must explicitly reassign or delete dependencies first via
+ *      {@link reassignVendorCampaigns}, {@link deleteAllVendorCampaigns},
+ *      and {@link deleteAllVendorLeads}.
+ *   3. The caller must pass the vendor name as `confirmName`, proving
+ *      they read what they're deleting.
+ */
+export async function hardDeleteLeadVendor(id: string, confirmName: string) {
+  const vendor = await prisma.leadVendor.findUnique({
+    where: { id },
+    include: { _count: { select: { campaigns: true, leads: true } } },
+  });
+  if (!vendor) throw new Error('Vendor not found');
+  if (vendor.active) {
+    throw new Error('Vendor must be archived before it can be permanently deleted');
+  }
+  if (vendor._count.campaigns > 0 || vendor._count.leads > 0) {
+    throw new Error(
+      `Vendor still has ${vendor._count.campaigns} campaign(s) and ${vendor._count.leads} lead(s). Reassign or delete them first.`
+    );
+  }
+  if (confirmName.trim() !== vendor.name) {
+    throw new Error('Confirmation name does not match vendor name');
+  }
   await prisma.leadVendor.delete({ where: { id } });
   revalidatePath('/admin/leads/vendors');
   revalidatePath('/admin/leads/campaigns');
   revalidatePath('/admin/leads');
+}
+
+/**
+ * Moves all campaigns (and their leads) from `sourceVendorId` to
+ * `targetVendorId` in a single transaction. Supports `routingTagRenames`
+ * to resolve the case where the target vendor already owns a campaign
+ * with a colliding `(vendorId, routingTag)` unique key — callers pass
+ * `{ [campaignId]: newRoutingTag }` for each campaign that needs to be
+ * renamed during the move.
+ *
+ * Returns a `collisions` list when a caller dry-runs without renames so
+ * the UI can prompt for resolution; throws if renames are supplied but
+ * still leave unresolved collisions.
+ */
+export async function reassignVendorCampaigns(
+  sourceVendorId: string,
+  targetVendorId: string,
+  routingTagRenames: Record<string, string> = {}
+): Promise<{
+  moved: number;
+  collisions: Array<{ campaignId: string; campaignName: string; routingTag: string }>;
+}> {
+  if (sourceVendorId === targetVendorId) {
+    throw new Error('Source and target vendor must be different');
+  }
+
+  const [sourceCampaigns, targetCampaigns] = await Promise.all([
+    prisma.leadCampaign.findMany({
+      where: { vendorId: sourceVendorId },
+      select: { id: true, name: true, routingTag: true },
+    }),
+    prisma.leadCampaign.findMany({
+      where: { vendorId: targetVendorId },
+      select: { routingTag: true },
+    }),
+  ]);
+
+  const targetTags = new Set(targetCampaigns.map((c) => c.routingTag));
+
+  const collisions: Array<{
+    campaignId: string;
+    campaignName: string;
+    routingTag: string;
+  }> = [];
+  const moves: Array<{ id: string; newRoutingTag: string }> = [];
+
+  for (const c of sourceCampaigns) {
+    const requestedTag = routingTagRenames[c.id]?.trim() || c.routingTag;
+    if (targetTags.has(requestedTag)) {
+      collisions.push({
+        campaignId: c.id,
+        campaignName: c.name,
+        routingTag: requestedTag,
+      });
+      continue;
+    }
+    if (moves.some((m) => m.newRoutingTag === requestedTag)) {
+      collisions.push({
+        campaignId: c.id,
+        campaignName: c.name,
+        routingTag: requestedTag,
+      });
+      continue;
+    }
+    moves.push({ id: c.id, newRoutingTag: requestedTag });
+  }
+
+  if (collisions.length > 0) {
+    return { moved: 0, collisions };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const m of moves) {
+      await tx.leadCampaign.update({
+        where: { id: m.id },
+        data: { vendorId: targetVendorId, routingTag: m.newRoutingTag },
+      });
+      await tx.lead.updateMany({
+        where: { campaignId: m.id },
+        data: { vendorId: targetVendorId },
+      });
+    }
+    await tx.lead.updateMany({
+      where: { vendorId: sourceVendorId, campaignId: null },
+      data: { vendorId: targetVendorId },
+    });
+  });
+
+  revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
+  return { moved: moves.length, collisions: [] };
+}
+
+/**
+ * Deletes all campaigns belonging to an archived vendor (and, by FK
+ * cascade, their leads). Requires the vendor to be archived as a safety
+ * measure — a live vendor can't have its history blasted by one call.
+ */
+export async function deleteAllVendorCampaigns(vendorId: string) {
+  const vendor = await prisma.leadVendor.findUnique({ where: { id: vendorId } });
+  if (!vendor) throw new Error('Vendor not found');
+  if (vendor.active) {
+    throw new Error('Vendor must be archived before bulk-deleting its campaigns');
+  }
+  const result = await prisma.leadCampaign.deleteMany({ where: { vendorId } });
+  revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
+  return { deleted: result.count };
+}
+
+/**
+ * Deletes all leads belonging to an archived vendor without touching the
+ * vendor's campaigns. Useful when you want to wipe the data but keep the
+ * routing config so the vendor could later be restored.
+ */
+export async function deleteAllVendorLeads(vendorId: string) {
+  const vendor = await prisma.leadVendor.findUnique({ where: { id: vendorId } });
+  if (!vendor) throw new Error('Vendor not found');
+  if (vendor.active) {
+    throw new Error('Vendor must be archived before bulk-deleting its leads');
+  }
+  const result = await prisma.lead.deleteMany({ where: { vendorId } });
+  revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
+  return { deleted: result.count };
 }
 
 // ---------------------------------------------------------------------------
@@ -375,9 +611,118 @@ export async function updateLeadCampaign(
   return campaign;
 }
 
-export async function deleteLeadCampaign(id: string) {
+/**
+ * Soft-archives a campaign (sets active=false). Archived campaigns keep
+ * their members, routing tag, and lead history, but no longer match
+ * incoming `routing_tag` lookups in the webhook routes — so new leads
+ * that used to route through this campaign will now fall to the
+ * Unassigned Pool instead. Reversible via {@link restoreLeadCampaign}.
+ */
+export async function archiveLeadCampaign(id: string) {
+  const campaign = await prisma.leadCampaign.update({
+    where: { id },
+    data: { active: false },
+  });
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads');
+  return campaign;
+}
+
+/**
+ * Un-archives a campaign. It becomes routable again and visible in the
+ * default campaign list.
+ */
+export async function restoreLeadCampaign(id: string) {
+  const campaign = await prisma.leadCampaign.update({
+    where: { id },
+    data: { active: true },
+  });
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads');
+  return campaign;
+}
+
+/**
+ * Permanently deletes a campaign. Guarded by:
+ *   1. Campaign must be archived (active === false).
+ *   2. Campaign must have zero leads (reassign or delete them first).
+ *   3. Caller must pass the campaign name as `confirmName`.
+ */
+export async function hardDeleteLeadCampaign(id: string, confirmName: string) {
+  const campaign = await prisma.leadCampaign.findUnique({
+    where: { id },
+    include: { _count: { select: { leads: true } } },
+  });
+  if (!campaign) throw new Error('Campaign not found');
+  if (campaign.active) {
+    throw new Error('Campaign must be archived before it can be permanently deleted');
+  }
+  if (campaign._count.leads > 0) {
+    throw new Error(
+      `Campaign still has ${campaign._count.leads} lead(s). Reassign or delete them first.`
+    );
+  }
+  if (confirmName.trim() !== campaign.name) {
+    throw new Error('Confirmation name does not match campaign name');
+  }
   await prisma.leadCampaign.delete({ where: { id } });
   revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads/vendors');
+  revalidatePath('/admin/leads');
+}
+
+/**
+ * Moves every lead from `sourceCampaignId` to `targetCampaignId`. Both
+ * campaigns must belong to the same vendor — otherwise the lead's
+ * vendorId and campaign.vendorId would disagree and downstream reports
+ * would show impossible pairs.
+ */
+export async function reassignCampaignLeads(
+  sourceCampaignId: string,
+  targetCampaignId: string
+) {
+  if (sourceCampaignId === targetCampaignId) {
+    throw new Error('Source and target campaign must be different');
+  }
+  const [source, target] = await Promise.all([
+    prisma.leadCampaign.findUnique({
+      where: { id: sourceCampaignId },
+      select: { id: true, vendorId: true },
+    }),
+    prisma.leadCampaign.findUnique({
+      where: { id: targetCampaignId },
+      select: { id: true, vendorId: true },
+    }),
+  ]);
+  if (!source || !target) throw new Error('Campaign not found');
+  if (source.vendorId !== target.vendorId) {
+    throw new Error('Target campaign must belong to the same vendor as the source');
+  }
+  const result = await prisma.lead.updateMany({
+    where: { campaignId: sourceCampaignId },
+    data: { campaignId: targetCampaignId },
+  });
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
+  return { moved: result.count };
+}
+
+/**
+ * Deletes all leads belonging to an archived campaign. Requires the
+ * campaign to be archived first.
+ */
+export async function deleteAllCampaignLeads(campaignId: string) {
+  const campaign = await prisma.leadCampaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) throw new Error('Campaign not found');
+  if (campaign.active) {
+    throw new Error('Campaign must be archived before bulk-deleting its leads');
+  }
+  const result = await prisma.lead.deleteMany({ where: { campaignId } });
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads');
+  return { deleted: result.count };
 }
 
 // ---------------------------------------------------------------------------

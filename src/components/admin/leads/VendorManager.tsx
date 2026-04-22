@@ -1,11 +1,17 @@
 'use client';
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Globe, HelpCircle, ArrowUp, ArrowDown, Search, Mailbox } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Globe, HelpCircle, ArrowUp, ArrowDown, Search, Mailbox, Archive, ArchiveRestore, AlertTriangle } from 'lucide-react';
 import {
   createLeadVendor,
   updateLeadVendor,
-  deleteLeadVendor,
+  archiveLeadVendor,
+  restoreLeadVendor,
+  hardDeleteLeadVendor,
+  reassignVendorCampaigns,
+  deleteAllVendorCampaigns,
+  deleteAllVendorLeads,
+  getVendorDependencyCounts,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 import { FormatDate } from '@/components/ui/FormatDate';
@@ -77,11 +83,13 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
   const router = useRouter();
   const [vendors] = useState(initialVendors);
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
+  const [deletingVendor, setDeletingVendor] = useState<Vendor | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [vendorSearch, setVendorSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [sortCol, setSortCol] = useState<string>('created');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -127,8 +135,16 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
     };
   }, []);
 
+  const archivedCount = useMemo(
+    () => vendors.filter((v) => !v.active).length,
+    [vendors]
+  );
+
   const filteredVendors = useMemo(() => {
     let list = vendors;
+    if (!showArchived) {
+      list = list.filter((v) => v.active);
+    }
     if (vendorSearch) {
       const q = vendorSearch.toLowerCase();
       list = list.filter(
@@ -149,7 +165,7 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [vendors, vendorSearch, sortCol, sortDir]);
+  }, [vendors, vendorSearch, sortCol, sortDir, showArchived]);
 
   const [form, setForm] = useState({
     name: '',
@@ -216,25 +232,38 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this vendor and all its campaigns? This cannot be undone.')) return;
+  const handleArchive = async (v: Vendor) => {
+    if (
+      !window.confirm(
+        `Archive "${v.name}"? Webhooks stop accepting leads and it'll hide from the default list. Fully reversible — click Restore to bring it back. No data is lost.`
+      )
+    )
+      return;
     setLoading(true);
     try {
-      await deleteLeadVendor(id);
+      await archiveLeadVendor(v.id);
       router.refresh();
     } finally {
       setLoading(false);
     }
   };
 
-  const handleToggleActive = async (v: Vendor) => {
+  const handleRestore = async (v: Vendor) => {
     setLoading(true);
     try {
-      await updateLeadVendor(v.id, { active: !v.active });
+      await restoreLeadVendor(v.id);
       router.refresh();
     } finally {
       setLoading(false);
     }
+  };
+
+  const openDeleteDialog = (v: Vendor) => {
+    setDeletingVendor(v);
+  };
+
+  const closeDeleteDialog = () => {
+    setDeletingVendor(null);
   };
 
   const copyWebhookUrl = (slug: string) => {
@@ -318,6 +347,21 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
               className="rounded-lg border border-slate-200 py-1.5 pl-8 pr-3 text-xs focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none w-56"
             />
           </div>
+          {archivedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowArchived((p) => !p)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                showArchived
+                  ? 'border-amber-300 bg-amber-50 text-amber-700'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+              title="Archived vendors are hidden from the default list but their data is preserved."
+            >
+              <Archive className="h-3.5 w-3.5" />
+              {showArchived ? 'Hide' : 'Show'} archived ({archivedCount})
+            </button>
+          )}
         </div>
         <button className="app-btn-primary" onClick={openCreate}>
           <Plus className="mr-1.5 h-4 w-4" />
@@ -370,20 +414,26 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredVendors.map((v) => (
-                <tr key={v.id} className="align-middle hover:bg-slate-50/70">
-                  <td className="px-4 py-3 font-semibold text-slate-900">{v.name}</td>
+                <tr
+                  key={v.id}
+                  className={`align-middle hover:bg-slate-50/70 ${
+                    v.active ? '' : 'bg-amber-50/30 text-slate-500'
+                  }`}
+                >
+                  <td className="px-4 py-3 font-semibold text-slate-900">
+                    <span className={v.active ? '' : 'opacity-70'}>{v.name}</span>
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{v.slug}</td>
                   <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={() => void handleToggleActive(v)}
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors ${
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                         v.active
                           ? 'border border-blue-200 bg-blue-50 text-blue-700'
-                          : 'border border-slate-200 bg-white text-slate-500'
+                          : 'border border-amber-200 bg-amber-50 text-amber-700'
                       }`}
                     >
-                      {v.active ? 'Active' : 'Inactive'}
-                    </button>
+                      {v.active ? 'Active' : 'Archived'}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-center text-slate-700">{v._count.campaigns}</td>
                   <td className="px-4 py-3 text-center text-slate-700">{v._count.leads}</td>
@@ -407,9 +457,32 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
                       <button className="app-icon-btn" onClick={() => openEdit(v)} title="Edit">
                         <Pencil className="h-4 w-4" />
                       </button>
-                      <button className="app-icon-btn app-icon-btn-danger" onClick={() => void handleDelete(v.id)} title="Delete">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {v.active ? (
+                        <button
+                          className="app-icon-btn text-amber-600 hover:bg-amber-50"
+                          onClick={() => void handleArchive(v)}
+                          title="Archive vendor"
+                        >
+                          <Archive className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            className="app-icon-btn text-emerald-600 hover:bg-emerald-50"
+                            onClick={() => void handleRestore(v)}
+                            title="Restore vendor"
+                          >
+                            <ArchiveRestore className="h-4 w-4" />
+                          </button>
+                          <button
+                            className="app-icon-btn app-icon-btn-danger"
+                            onClick={() => openDeleteDialog(v)}
+                            title="Permanently delete…"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -659,6 +732,356 @@ export function VendorManager({ vendors: initialVendors }: { vendors: Vendor[] }
           </div>
         </div>
       )}
+
+      {deletingVendor && (
+        <VendorDeleteDialog
+          vendor={deletingVendor}
+          otherVendors={vendors.filter(
+            (v) => v.id !== deletingVendor.id && v.active
+          )}
+          onClose={closeDeleteDialog}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Permanent-delete dialog. Opens for archived vendors only. Walks the
+ * admin through clearing dependencies (reassign campaigns or bulk-delete
+ * them, bulk-delete any remaining leads) and then requires typing the
+ * vendor name to unlock the final delete. Every destructive step calls a
+ * dedicated server action that re-validates on the server — the client
+ * can't bypass the "must be archived" / "zero dependencies" / "name
+ * matches" gates even if it tries.
+ */
+function VendorDeleteDialog({
+  vendor,
+  otherVendors,
+  onClose,
+}: {
+  vendor: Vendor;
+  otherVendors: Vendor[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [counts, setCounts] = useState({
+    campaigns: vendor._count.campaigns,
+    leads: vendor._count.leads,
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [targetVendorId, setTargetVendorId] = useState('');
+  const [collisions, setCollisions] = useState<
+    Array<{ campaignId: string; campaignName: string; routingTag: string }>
+  >([]);
+  const [renames, setRenames] = useState<Record<string, string>>({});
+  const [confirmName, setConfirmName] = useState('');
+
+  const refreshCounts = useCallback(async () => {
+    try {
+      const c = await getVendorDependencyCounts(vendor.id);
+      setCounts({ campaigns: c.campaigns, leads: c.leads });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [vendor.id]);
+
+  const runAction = useCallback(
+    async (fn: () => Promise<void>) => {
+      setBusy(true);
+      setError(null);
+      try {
+        await fn();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    []
+  );
+
+  const handleReassignCampaigns = () =>
+    runAction(async () => {
+      if (!targetVendorId) {
+        setError('Pick a target vendor first.');
+        return;
+      }
+      const result = await reassignVendorCampaigns(
+        vendor.id,
+        targetVendorId,
+        renames
+      );
+      if (result.collisions.length > 0) {
+        setCollisions(result.collisions);
+        setError(
+          'Some campaigns have routing_tag conflicts with the target vendor. Rename them below to proceed.'
+        );
+        return;
+      }
+      setCollisions([]);
+      setRenames({});
+      await refreshCounts();
+      router.refresh();
+    });
+
+  const handleDeleteAllCampaigns = () =>
+    runAction(async () => {
+      if (
+        !window.confirm(
+          `Delete all ${counts.campaigns} campaign(s) AND their leads for "${vendor.name}"? This cannot be undone.`
+        )
+      )
+        return;
+      await deleteAllVendorCampaigns(vendor.id);
+      await refreshCounts();
+      router.refresh();
+    });
+
+  const handleDeleteAllLeads = () =>
+    runAction(async () => {
+      if (
+        !window.confirm(
+          `Delete all ${counts.leads} remaining lead(s) for "${vendor.name}"? This cannot be undone.`
+        )
+      )
+        return;
+      await deleteAllVendorLeads(vendor.id);
+      await refreshCounts();
+      router.refresh();
+    });
+
+  const handleFinalDelete = () =>
+    runAction(async () => {
+      await hardDeleteLeadVendor(vendor.id, confirmName);
+      onClose();
+      router.refresh();
+    });
+
+  const dependenciesCleared = counts.campaigns === 0 && counts.leads === 0;
+  const confirmMatches = confirmName.trim() === vendor.name;
+  const canFinalDelete = dependenciesCleared && confirmMatches && !busy;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      onClick={busy ? undefined : onClose}
+    >
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative w-full max-w-2xl rounded-xl border border-red-200 bg-white shadow-2xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-red-100 bg-red-50/60 px-6 py-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-full bg-red-100 p-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Permanently delete &quot;{vendor.name}&quot;
+              </h2>
+              <p className="mt-1 text-xs text-slate-600">
+                This is destructive and cannot be undone. Clear dependencies below, then confirm by typing the vendor name.
+              </p>
+            </div>
+          </div>
+          <button
+            className="app-icon-btn"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          <div className="grid grid-cols-2 gap-3">
+            <div className={`rounded-xl border p-3 ${counts.campaigns === 0 ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/40'}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Campaigns
+                </span>
+                {counts.campaigns === 0 ? (
+                  <Check className="h-4 w-4 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                )}
+              </div>
+              <p className="mt-1 text-2xl font-bold text-slate-900">{counts.campaigns}</p>
+            </div>
+            <div className={`rounded-xl border p-3 ${counts.leads === 0 ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/40'}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Leads
+                </span>
+                {counts.leads === 0 ? (
+                  <Check className="h-4 w-4 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                )}
+              </div>
+              <p className="mt-1 text-2xl font-bold text-slate-900">{counts.leads}</p>
+            </div>
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {error}
+            </div>
+          )}
+
+          {counts.campaigns > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                Step 1 — Handle Campaigns
+              </p>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-700">
+                  Reassign all {counts.campaigns} campaign{counts.campaigns !== 1 ? 's' : ''} (and their leads) to:
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={targetVendorId}
+                    onChange={(e) => setTargetVendorId(e.target.value)}
+                    disabled={busy || otherVendors.length === 0}
+                  >
+                    <option value="">
+                      {otherVendors.length === 0
+                        ? 'No other active vendors available'
+                        : 'Select target vendor…'}
+                    </option>
+                    {otherVendors.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.slug})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="app-btn-secondary"
+                    onClick={handleReassignCampaigns}
+                    disabled={!targetVendorId || busy}
+                  >
+                    Reassign
+                  </button>
+                </div>
+
+                {collisions.length > 0 && (
+                  <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+                    <p className="text-[11px] font-semibold text-amber-800">
+                      Rename the following campaigns to avoid routing_tag collisions with the target vendor:
+                    </p>
+                    {collisions.map((c) => (
+                      <div key={c.campaignId} className="flex items-center gap-2 text-xs">
+                        <span className="flex-1 font-medium text-slate-700 truncate">
+                          {c.campaignName}
+                        </span>
+                        <span className="font-mono text-slate-500 line-through">
+                          {c.routingTag}
+                        </span>
+                        <span className="text-slate-400">→</span>
+                        <input
+                          className="w-40 rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-xs"
+                          placeholder="new-routing-tag"
+                          value={renames[c.campaignId] ?? ''}
+                          onChange={(e) =>
+                            setRenames((p) => ({
+                              ...p,
+                              [c.campaignId]: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  OR
+                </span>
+                <div className="h-px flex-1 bg-slate-200" />
+              </div>
+
+              <button
+                type="button"
+                className="w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60"
+                onClick={handleDeleteAllCampaigns}
+                disabled={busy}
+              >
+                Delete all {counts.campaigns} campaign{counts.campaigns !== 1 ? 's' : ''} (and their leads)
+              </button>
+            </div>
+          )}
+
+          {counts.campaigns === 0 && counts.leads > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                Step 2 — Handle Remaining Leads
+              </p>
+              <p className="text-xs text-slate-600">
+                {counts.leads} lead{counts.leads !== 1 ? 's' : ''} are not attached to any campaign. They must be cleared before the vendor can be deleted.
+              </p>
+              <button
+                type="button"
+                className="w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60"
+                onClick={handleDeleteAllLeads}
+                disabled={busy}
+              >
+                Delete all {counts.leads} remaining lead{counts.leads !== 1 ? 's' : ''}
+              </button>
+            </div>
+          )}
+
+          <div
+            className={`rounded-xl border p-4 space-y-3 ${
+              dependenciesCleared ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-slate-50/40 opacity-60'
+            }`}
+          >
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+              Final confirmation
+            </p>
+            <label className="block space-y-1 text-xs">
+              <span className="font-medium text-slate-700">
+                Type <code className="rounded bg-white border border-slate-200 px-1.5 py-0.5 font-mono text-[11px]">{vendor.name}</code> to confirm:
+              </span>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                disabled={!dependenciesCleared || busy}
+                autoComplete="off"
+                data-lpignore="true"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50/60 px-6 py-4">
+          <button className="app-btn-secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleFinalDelete}
+            disabled={!canFinalDelete}
+          >
+            {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Delete Permanently
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
