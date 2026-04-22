@@ -61,6 +61,7 @@ type JrProcessorAssignedValue =
   | 'SHAILI_RYAN'
   | 'TERRI_WITTE'
   | 'THAO_NGUYEN'
+  | 'TIANA_TORRES'
   | 'TIMOTHY_CRUZ'
   | 'TYLER_HANCOCK';
 type JrChecklistRow = {
@@ -182,6 +183,7 @@ const JR_PROCESSOR_ASSIGNED_OPTIONS: Array<{
   { value: 'SHAILI_RYAN', label: 'Shaili Ryan' },
   { value: 'TERRI_WITTE', label: 'Terri Witte' },
   { value: 'THAO_NGUYEN', label: 'Thao Nguyen' },
+  { value: 'TIANA_TORRES', label: 'Tiana Torres' },
   { value: 'TIMOTHY_CRUZ', label: 'Timothy Cruz' },
   { value: 'TYLER_HANCOCK', label: 'Tyler Hancock' },
 ];

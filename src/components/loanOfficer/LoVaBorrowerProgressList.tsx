@@ -618,6 +618,7 @@ function getProcessorAssignedLabel(value: string | null | undefined) {
     { value: 'SHAILI_RYAN', label: 'Shaili Ryan' },
     { value: 'TERRI_WITTE', label: 'Terri Witte' },
     { value: 'THAO_NGUYEN', label: 'Thao Nguyen' },
+    { value: 'TIANA_TORRES', label: 'Tiana Torres' },
     { value: 'TIMOTHY_CRUZ', label: 'Timothy Cruz' },
     { value: 'TYLER_HANCOCK', label: 'Tyler Hancock' },
   ];

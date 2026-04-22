@@ -2708,6 +2708,7 @@ type JrProcessorAssignedValue =
   | 'SHAILI_RYAN'
   | 'TERRI_WITTE'
   | 'THAO_NGUYEN'
+  | 'TIANA_TORRES'
   | 'TIMOTHY_CRUZ'
   | 'TYLER_HANCOCK';
 
@@ -2746,6 +2747,7 @@ const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>([
   'SHAILI_RYAN',
   'TERRI_WITTE',
   'THAO_NGUYEN',
+  'TIANA_TORRES',
   'TIMOTHY_CRUZ',
   'TYLER_HANCOCK',
 ]);
