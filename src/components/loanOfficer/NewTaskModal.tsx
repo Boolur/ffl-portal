@@ -31,6 +31,8 @@ const investorOptions = [
   'Freedom',
   'Loan United',
   'PennyMac',
+  'Figure',
+  'NFTY',
 ];
 const investorOptionSet = new Set(investorOptions.map((option) => option.trim().toUpperCase()));
 const qcInvestorOptions = [...investorOptions, 'Other'];

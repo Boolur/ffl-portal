@@ -78,8 +78,12 @@ const QC_INVESTOR_ALLOWED_VALUES = new Set([
   'FREEDOM',
   'LOAN UNITED',
   'PENNYMAC',
+  'FIGURE',
+  'NFTY',
   'OTHER',
 ]);
+
+const QC_ONLY_INVESTORS = new Set(['FIGURE', 'NFTY']);
 
 function isVaTaskKind(kind: TaskKind | null) {
   return (
@@ -779,6 +783,15 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: s
       loanFallbackSubmissionData
     );
     const qcSubmissionData = stripDeskHistoryFromSubmissionData(qcSubmissionDataRaw);
+
+    const qcInvestorValue = String(
+      (qcSubmissionData as Record<string, unknown>)?.investor ?? ''
+    )
+      .trim()
+      .toUpperCase();
+    if (QC_ONLY_INVESTORS.has(qcInvestorValue)) {
+      return [] as TaskKind[];
+    }
 
     const existingKinds = await tx.task.findMany({
       where: { loanId },
@@ -2703,6 +2716,7 @@ type JrProcessorAssignedValue =
   | 'KIM_MARTIN'
   | 'MONICA_VINEY'
   | 'NANCY_CALIGARIS'
+  | 'RACHEL_HANCOCK'
   | 'ROMI_HIRAYAMA'
   | 'RYAN_KATAOKA'
   | 'SARABETH_DUONG'
@@ -2743,6 +2757,7 @@ const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>([
   'KIM_MARTIN',
   'MONICA_VINEY',
   'NANCY_CALIGARIS',
+  'RACHEL_HANCOCK',
   'ROMI_HIRAYAMA',
   'RYAN_KATAOKA',
   'SARABETH_DUONG',
