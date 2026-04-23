@@ -3327,6 +3327,121 @@ export async function releaseJrTaskToQueue(taskId: string) {
   }
 }
 
+export async function releaseVaSpecialistTaskToQueue(taskId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) {
+      return { success: false, error: 'Not authenticated.' };
+    }
+
+    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const isVaSpecialistRole =
+      role === UserRole.VA_TITLE ||
+      role === UserRole.VA_PAYOFF ||
+      role === UserRole.VA_APPRAISAL ||
+      role === UserRole.VA;
+    if (!canManageAll && !isVaSpecialistRole) {
+      return { success: false, error: 'Not authorized to release VA tasks.' };
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        workflowState: true,
+        assignedUserId: true,
+        assignedUser: { select: { name: true } },
+        assignedRole: true,
+        submissionData: true,
+      },
+    });
+    if (!task) return { success: false, error: 'Task not found.' };
+
+    const isVaSpecialistKind =
+      task.kind === TaskKind.VA_TITLE ||
+      task.kind === TaskKind.VA_PAYOFF ||
+      task.kind === TaskKind.VA_APPRAISAL;
+    if (!isVaSpecialistKind) {
+      return { success: false, error: 'Only VA specialist tasks can be released.' };
+    }
+    if (task.status === TaskStatus.COMPLETED) {
+      return { success: false, error: 'Completed VA tasks cannot be released.' };
+    }
+    if (task.workflowState !== TaskWorkflowState.NONE) {
+      return {
+        success: false,
+        error:
+          'Cannot release a VA task once it has been sent to the LO. Reset the workflow first.',
+      };
+    }
+    if (!canManageAll && task.assignedUserId !== userId) {
+      return { success: false, error: 'Only the assigned VA can release this task.' };
+    }
+    if (task.assignedUserId === null && task.status === TaskStatus.PENDING) {
+      return { success: true };
+    }
+
+    const actorName = session?.user?.name || 'Team Member';
+    let updatedSubmissionData = appendLifecycleHistoryEvent(task.submissionData, {
+      actorName,
+      actorRole: role,
+      eventType: 'ASSIGNMENT_CHANGED',
+      fromStatus: task.status,
+      toStatus: TaskStatus.PENDING,
+      fromWorkflow: task.workflowState,
+      toWorkflow: TaskWorkflowState.NONE,
+      fromAssignedUserId: task.assignedUserId,
+      toAssignedUserId: null,
+      fromAssignedUserName: task.assignedUser?.name || null,
+      toAssignedUserName: null,
+      fromAssignedRole: task.assignedRole,
+      toAssignedRole: task.assignedRole,
+      note: 'Released VA task back to public queue.',
+    });
+    updatedSubmissionData = appendSubmissionHistoryEntry(
+      updatedSubmissionData as Prisma.JsonValue,
+      {
+        author: actorName,
+        role,
+        message: 'Released this VA task back to the New queue.',
+        entryType: 'status',
+      }
+    );
+
+    const updateResult = await prisma.task.updateMany({
+      where: {
+        id: taskId,
+        assignedUserId: { not: null },
+        workflowState: TaskWorkflowState.NONE,
+        status: { not: TaskStatus.COMPLETED },
+      },
+      data: {
+        status: TaskStatus.PENDING,
+        workflowState: TaskWorkflowState.NONE,
+        assignedUserId: null,
+        submissionData: updatedSubmissionData as Prisma.InputJsonValue,
+      },
+    });
+    if (updateResult.count === 0) {
+      return {
+        success: false,
+        error: 'Task state changed; refresh and try again.',
+      };
+    }
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to release VA task:', error);
+    return { success: false, error: 'Failed to release VA task.' };
+  }
+}
+
 export async function reopenCompletedVaTaskToNew(taskId: string) {
   try {
     const session = await getServerSession(authOptions);

@@ -31,6 +31,7 @@ import {
   reassignJrTask,
   reopenCompletedVaTaskToNew,
   releaseJrTaskToQueue,
+  releaseVaSpecialistTaskToQueue,
   reviewInitialDisclosureFigures,
   requestInfoFromLoanOfficer,
   respondToDisclosureRequest,
@@ -2525,6 +2526,25 @@ export function TaskList({
     setUpdatingId(null);
   };
 
+  const handleReleaseVaTask = async (taskId: string) => {
+    if (updatingId) return;
+    const confirmed = window.confirm(
+      'Release this VA task back to the public New queue and clear its current assignment?'
+    );
+    if (!confirmed) return;
+
+    setUpdatingId(taskId);
+    const result = await releaseVaSpecialistTaskToQueue(taskId);
+    if (!result.success) {
+      alert(result.error || 'Failed to release VA task.');
+      setUpdatingId(null);
+      return;
+    }
+    lockTaskActionUntilRefresh(taskId);
+    router.refresh();
+    setUpdatingId(null);
+  };
+
   const handleReopenCompletedVaTask = async (taskId: string) => {
     if (updatingId) return;
     const confirmed = window.confirm(
@@ -3477,6 +3497,21 @@ export function TaskList({
             (currentRole === UserRole.PROCESSOR_JR && isAssignedToCurrentUser));
         const canReassignJrTask =
           isJrTask && task.status !== TaskStatus.COMPLETED && canManageAllJrTasks;
+        const isVaSpecialistTaskForRelease =
+          task.kind === TaskKind.VA_TITLE ||
+          task.kind === TaskKind.VA_PAYOFF ||
+          task.kind === TaskKind.VA_APPRAISAL;
+        const canReleaseVaTask =
+          isVaSpecialistTaskForRelease &&
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.NONE &&
+          Boolean(task.assignedUser?.id) &&
+          (canManageAllJrTasks ||
+            ((currentRole === UserRole.VA_TITLE ||
+              currentRole === UserRole.VA_PAYOFF ||
+              currentRole === UserRole.VA_APPRAISAL ||
+              currentRole === UserRole.VA) &&
+              isAssignedToCurrentUser));
         const selectedJrReassignTarget = jrReassignTargetByTask[task.id] || '';
         const jrReassignOptionsForTask = task.assignedUser?.id
           ? jrAssigneeOptions.some((option) => option.id === task.assignedUser?.id)
@@ -4714,6 +4749,30 @@ export function TaskList({
                           </div>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {canReleaseVaTask && (
+                    <div className="mt-8 rounded-xl border border-sky-200 bg-sky-50/60 px-3 py-2.5 shadow-sm">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-sky-800">
+                        VA Queue Controls
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleReleaseVaTask(task.id)}
+                          disabled={!!updatingId || isTaskActionLocked}
+                          className="inline-flex h-8 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {updatingId === task.id ? (
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          Release to New Queue
+                        </button>
+                        <p className="text-[11px] font-medium text-sky-900/80">
+                          Unclaims this task and returns it to the public New bucket.
+                        </p>
+                      </div>
                     </div>
                   )}
 
