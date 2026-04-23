@@ -2508,7 +2508,28 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     return { success: true, taskId: createdTask.id, loanId: loan.id };
   } catch (error) {
     console.error('Failed to create submission task:', error);
-    return { success: false, error: 'Failed to submit task' };
+    let detail = '';
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        detail = 'A record with that Arrive loan number is already associated with conflicting data.';
+      } else if (error.code === 'P2003') {
+        detail = 'One of the selected users (Primary or Secondary Loan Officer) is no longer valid. Please refresh and re-select.';
+      } else if (error.code === 'P2025') {
+        detail = 'The loan record was not found or was modified. Please refresh and try again.';
+      } else {
+        detail = `Database error (${error.code}).`;
+      }
+    } else if (error instanceof Prisma.PrismaClientValidationError) {
+      detail = 'Invalid data format was submitted. Please refresh and re-import your MISMO 3.4 file.';
+    } else if (error instanceof Error) {
+      detail = error.message ? `Details: ${error.message}` : '';
+    }
+    return {
+      success: false,
+      error: detail
+        ? `Failed to submit task. ${detail}`
+        : 'Failed to submit task. Please try again, or refresh and re-import your MISMO 3.4 file.',
+    };
   } finally {
     recordPerfMetric('action.createSubmissionTask', Date.now() - perfStartedAt, {
       submissionType: payload.submissionType,
