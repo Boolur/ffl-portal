@@ -111,6 +111,13 @@ export type LoVaBorrowerProgressItem = {
         author: string;
         role: UserRole | null;
       } | null;
+      notes: Array<{
+        id: string;
+        message: string;
+        date: string;
+        author: string;
+        role: UserRole | null;
+      }>;
       lifecycleBreakdown: TaskLifecycleBreakdown | null;
     }
   >;
@@ -130,6 +137,13 @@ export type LoVaBorrowerProgressItem = {
         author: string;
         role: UserRole | null;
       } | null;
+      notes: Array<{
+        id: string;
+        message: string;
+        date: string;
+        author: string;
+        role: UserRole | null;
+      }>;
       lifecycleBreakdown: TaskLifecycleBreakdown | null;
     }
   >;
@@ -768,6 +782,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         updatedAt: null,
         proofAttachments: [],
         latestNote: null,
+        notes: [],
         lifecycleBreakdown: null,
       },
       payoff: {
@@ -777,6 +792,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         updatedAt: null,
         proofAttachments: [],
         latestNote: null,
+        notes: [],
         lifecycleBreakdown: null,
       },
       appraisal: {
@@ -786,6 +802,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         updatedAt: null,
         proofAttachments: [],
         latestNote: null,
+        notes: [],
         lifecycleBreakdown: null,
       },
     };
@@ -799,6 +816,7 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         processorAssigned: null,
         proofAttachments: [],
         latestNote: null,
+        notes: [],
         lifecycleBreakdown: null,
       },
     };
@@ -823,10 +841,13 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
         task.id,
         vaNoteRoles
       );
-      const latestNote =
-        stageNotes.length > 0
-          ? stageNotes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-          : null;
+      const sortedStageNotesDesc = [...stageNotes].sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      const sortedStageNotesAsc = [...stageNotes].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+      const latestNote = sortedStageNotesDesc.length > 0 ? sortedStageNotesDesc[0] : null;
       vaStageDetails[definition.key] = {
         taskId: task.id,
         completed: task.status === TaskStatus.COMPLETED,
@@ -843,6 +864,13 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
               role: latestNote.role,
             }
           : null,
+        notes: sortedStageNotesAsc.map((note) => ({
+          id: note.id,
+          message: note.message,
+          date: note.date,
+          author: note.author,
+          role: note.role,
+        })),
         lifecycleBreakdown: buildTaskLifecycleBreakdown({
           createdAt: task.createdAt || null,
           updatedAt: task.updatedAt || null,
@@ -883,10 +911,13 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
       const savedJrChecklist = getJrChecklistFromSubmissionData(task.submissionData);
       const jrChecklist =
         savedJrChecklist.length > 0 ? savedJrChecklist : getDefaultJrChecklistRows(task);
-      const latestNote =
-        stageNotes.length > 0
-          ? stageNotes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-          : null;
+      const sortedJrStageNotesDesc = [...stageNotes].sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      const sortedJrStageNotesAsc = [...stageNotes].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+      const latestNote = sortedJrStageNotesDesc.length > 0 ? sortedJrStageNotesDesc[0] : null;
       jrStageDetails[definition.key] = {
         taskId: task.id,
         completed: task.status === TaskStatus.COMPLETED,
@@ -905,6 +936,13 @@ export function buildLoVaBorrowerProgress(tasks: LoVaProgressTaskInput[]): LoVaB
               role: latestNote.role,
             }
           : null,
+        notes: sortedJrStageNotesAsc.map((note) => ({
+          id: note.id,
+          message: note.message,
+          date: note.date,
+          author: note.author,
+          role: note.role,
+        })),
         lifecycleBreakdown: buildTaskLifecycleBreakdown({
           createdAt: task.createdAt || null,
           updatedAt: task.updatedAt || null,

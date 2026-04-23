@@ -21,6 +21,7 @@ import {
   Paperclip,
   Search,
   Loader2,
+  MessageSquare,
   Trash2,
   User,
   UserCog,
@@ -1803,16 +1804,10 @@ export function LoVaBorrowerProgressList({
                     ].map(({ key, icon: Icon }) => {
                     const label = stageLabelByKey[key];
                     const detail = focusedItem.vaStageDetails[key];
-                    const latestNote = detail.latestNote;
                     const stageNoteKey = `${focusedItem.loanNumber}-${key}`;
                     const stageDetailKey = `${focusedItem.loanNumber}-${key}-detail`;
                     const stageDetailsExpanded = expandedTaskDetails.has(stageDetailKey);
                     const stageNoteExpanded = expandedStageNotes.has(stageNoteKey);
-                    const notePreview = latestNote?.message || '';
-                    const canToggleStageNote = notePreview.length > 180;
-                    const visibleNote = canToggleStageNote && !stageNoteExpanded
-                      ? `${notePreview.slice(0, 180)}...`
-                      : notePreview;
                     const stageElapsedMs = getStageElapsedMs(
                       detail.createdAt,
                       detail.updatedAt,
@@ -1919,52 +1914,79 @@ export function LoVaBorrowerProgressList({
 
                             <div className="mt-2 rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
                               <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                                  Latest Note
+                                <p className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                  <MessageSquare className="h-3 w-3" />
+                                  Message History
                                 </p>
-                                {latestNote && (
+                                {detail.notes.length > 0 && (
                                   <span className="text-[11px] font-medium text-slate-500">
-                                    {formatNoteDateTime(latestNote.date)}
+                                    {detail.notes.length}{' '}
+                                    {detail.notes.length === 1 ? 'message' : 'messages'}
                                   </span>
                                 )}
                               </div>
-                              {!latestNote ? (
+                              {detail.notes.length === 0 ? (
                                 <p className="mt-1 text-xs font-medium text-slate-500">
-                                  No stage note yet.
+                                  No messages yet.
                                 </p>
                               ) : (
-                                <>
-                                  <p className="mt-1 text-xs font-semibold text-slate-700">
-                                    {visibleNote}
-                                  </p>
-                                  <p className="mt-1 text-[11px] text-slate-500">
-                                    {latestNote.author} • {formatRoleLabel(latestNote.role)}
-                                  </p>
-                                  {canToggleStageNote && (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setExpandedStageNotes((prev) => {
-                                          const next = new Set(prev);
-                                          if (next.has(stageNoteKey)) next.delete(stageNoteKey);
-                                          else next.add(stageNoteKey);
-                                          return next;
-                                        })
-                                      }
-                                      className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                                <ol className="mt-2 space-y-2">
+                                  {(stageNoteExpanded
+                                    ? detail.notes
+                                    : detail.notes.slice(-3)
+                                  ).map((note) => (
+                                    <li
+                                      key={note.id}
+                                      className="rounded-md border border-slate-200 bg-white p-2.5 shadow-sm"
                                     >
-                                      {stageNoteExpanded ? (
-                                        <>
-                                          Show Less <ChevronUp className="h-3 w-3" />
-                                        </>
-                                      ) : (
-                                        <>
-                                          Show More <ChevronDown className="h-3 w-3" />
-                                        </>
-                                      )}
-                                    </button>
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <span
+                                          className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
+                                            note.role
+                                          )}`}
+                                        >
+                                          {note.author}
+                                          {note.role && (
+                                            <span className="text-[9px] font-bold uppercase tracking-wide opacity-80">
+                                              • {formatRoleLabel(note.role)}
+                                            </span>
+                                          )}
+                                        </span>
+                                        <span className="text-[11px] font-medium text-slate-500">
+                                          {formatNoteDateTime(note.date)}
+                                        </span>
+                                      </div>
+                                      <p className="mt-1.5 whitespace-pre-wrap text-xs font-semibold text-slate-700">
+                                        {note.message}
+                                      </p>
+                                    </li>
+                                  ))}
+                                </ol>
+                              )}
+                              {detail.notes.length > 3 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedStageNotes((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(stageNoteKey)) next.delete(stageNoteKey);
+                                      else next.add(stageNoteKey);
+                                      return next;
+                                    })
+                                  }
+                                  className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                                >
+                                  {stageNoteExpanded ? (
+                                    <>
+                                      Show Recent Only <ChevronUp className="h-3 w-3" />
+                                    </>
+                                  ) : (
+                                    <>
+                                      Show Full History ({detail.notes.length}){' '}
+                                      <ChevronDown className="h-3 w-3" />
+                                    </>
                                   )}
-                                </>
+                                </button>
                               )}
                             </div>
                             {canLoRespondToVa && vaResponseActionTaskId && (
@@ -2083,8 +2105,12 @@ export function LoVaBorrowerProgressList({
                           detail.completed,
                           timerNowMs
                         );
+                        const jrHistoryKey = `${focusedItem.loanNumber}-${key}-history`;
+                        const jrHistoryExpanded = expandedStageNotes.has(jrHistoryKey);
 
-                        return jrRows.map((row) => {
+                        return (
+                          <React.Fragment key={key}>
+                            {jrRows.map((row) => {
                           const rowComplete = row.status === 'COMPLETED';
                           const rowIsOrdered = row.status === 'ORDERED';
                           const rowIsPending = rowIsOrdered && isUnderwritingChecklistRow(row.id, row.label);
@@ -2274,7 +2300,86 @@ export function LoVaBorrowerProgressList({
                               )}
                             </div>
                           );
-                        });
+                            })}
+                            <div className="rounded-xl border border-slate-200 bg-white/80 p-3.5 shadow-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                  <MessageSquare className="h-3 w-3" />
+                                  Message History
+                                </p>
+                                {detail.notes.length > 0 && (
+                                  <span className="text-[11px] font-medium text-slate-500">
+                                    {detail.notes.length}{' '}
+                                    {detail.notes.length === 1 ? 'message' : 'messages'}
+                                  </span>
+                                )}
+                              </div>
+                              {detail.notes.length === 0 ? (
+                                <p className="mt-1 text-xs font-medium text-slate-500">
+                                  No messages yet.
+                                </p>
+                              ) : (
+                                <ol className="mt-2 space-y-2">
+                                  {(jrHistoryExpanded
+                                    ? detail.notes
+                                    : detail.notes.slice(-3)
+                                  ).map((note) => (
+                                    <li
+                                      key={note.id}
+                                      className="rounded-md border border-slate-200 bg-white p-2.5 shadow-sm"
+                                    >
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <span
+                                          className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getRoleBubbleClass(
+                                            note.role
+                                          )}`}
+                                        >
+                                          {note.author}
+                                          {note.role && (
+                                            <span className="text-[9px] font-bold uppercase tracking-wide opacity-80">
+                                              • {formatRoleLabel(note.role)}
+                                            </span>
+                                          )}
+                                        </span>
+                                        <span className="text-[11px] font-medium text-slate-500">
+                                          {formatNoteDateTime(note.date)}
+                                        </span>
+                                      </div>
+                                      <p className="mt-1.5 whitespace-pre-wrap text-xs font-semibold text-slate-700">
+                                        {note.message}
+                                      </p>
+                                    </li>
+                                  ))}
+                                </ol>
+                              )}
+                              {detail.notes.length > 3 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedStageNotes((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(jrHistoryKey)) next.delete(jrHistoryKey);
+                                      else next.add(jrHistoryKey);
+                                      return next;
+                                    })
+                                  }
+                                  className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                                >
+                                  {jrHistoryExpanded ? (
+                                    <>
+                                      Show Recent Only <ChevronUp className="h-3 w-3" />
+                                    </>
+                                  ) : (
+                                    <>
+                                      Show Full History ({detail.notes.length}){' '}
+                                      <ChevronDown className="h-3 w-3" />
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </React.Fragment>
+                        );
                       })}
                     </div>
                   )}

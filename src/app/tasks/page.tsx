@@ -67,12 +67,15 @@ type TaskBucketFilter =
   | 'qc-completed-requests'
   | 'va-new-request'
   | 'jr-my-requests'
+  | 'va-title-started'
   | 'va-completed-requests'
   | 'va-payoff-new'
+  | 'va-payoff-started'
   | 'va-payoff-waiting-missing'
   | 'va-payoff-lo-responded'
   | 'va-payoff-completed'
   | 'va-appraisal-new'
+  | 'va-appraisal-started'
   | 'va-appraisal-waiting-missing'
   | 'va-appraisal-lo-responded'
   | 'va-appraisal-completed';
@@ -102,12 +105,15 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
     value === 'qc-completed-requests' ||
     value === 'va-new-request' ||
     value === 'jr-my-requests' ||
+    value === 'va-title-started' ||
     value === 'va-completed-requests' ||
     value === 'va-payoff-new' ||
+    value === 'va-payoff-started' ||
     value === 'va-payoff-waiting-missing' ||
     value === 'va-payoff-lo-responded' ||
     value === 'va-payoff-completed' ||
     value === 'va-appraisal-new' ||
+    value === 'va-appraisal-started' ||
     value === 'va-appraisal-waiting-missing' ||
     value === 'va-appraisal-lo-responded' ||
     value === 'va-appraisal-completed'
@@ -242,6 +248,39 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     } else {
       where.OR = [{ kind: TaskKind.VA_HOI }];
     }
+  } else if (
+    (role === UserRole.VA_TITLE ||
+      role === UserRole.VA_PAYOFF ||
+      role === UserRole.VA_APPRAISAL) &&
+    userId
+  ) {
+    // VA specialist scoping mirrors the JR pattern:
+    // - Public New: unassigned + pending + initial workflow
+    // - Private middle buckets: assigned to current VA (not completed)
+    // - Completed: visible for reporting/history
+    const specialistKind =
+      role === UserRole.VA_TITLE
+        ? TaskKind.VA_TITLE
+        : role === UserRole.VA_PAYOFF
+        ? TaskKind.VA_PAYOFF
+        : TaskKind.VA_APPRAISAL;
+    where.OR = [
+      {
+        kind: specialistKind,
+        status: TaskStatus.PENDING,
+        workflowState: TaskWorkflowState.NONE,
+        assignedUserId: null,
+      },
+      {
+        kind: specialistKind,
+        status: { not: TaskStatus.COMPLETED },
+        assignedUserId: userId,
+      },
+      {
+        kind: specialistKind,
+        status: TaskStatus.COMPLETED,
+      },
+    ];
   } else {
     where.OR = [
       { assignedRole: role as UserRole },
@@ -869,7 +908,27 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         label: 'New VA Title Requests',
         chipLabel: 'New',
         chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
-        tasks: vaTitleTasks.filter((task) => task.status !== TaskStatus.COMPLETED),
+        tasks: vaTitleTasks.filter(
+          (task) =>
+            task.status === TaskStatus.PENDING &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !task.assignedUser?.id
+        ),
+      },
+      {
+        id: 'va-title-started',
+        label: 'Started / Ordered VA Title Requests',
+        chipLabel: 'In Progress',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaTitleTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            !(
+              task.status === TaskStatus.PENDING &&
+              task.workflowState === TaskWorkflowState.NONE &&
+              !task.assignedUser?.id
+            )
+        ),
       },
       {
         id: 'va-completed-requests',
@@ -934,8 +993,24 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
         tasks: vaPayoffTasks.filter(
           (task) =>
+            task.status === TaskStatus.PENDING &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !task.assignedUser?.id
+        ),
+      },
+      {
+        id: 'va-payoff-started',
+        label: 'Started / Ordered VA Payoff Requests',
+        chipLabel: 'In Progress',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaPayoffTasks.filter(
+          (task) =>
             task.status !== TaskStatus.COMPLETED &&
-            task.workflowState === TaskWorkflowState.NONE
+            task.workflowState === TaskWorkflowState.NONE &&
+            !(
+              task.status === TaskStatus.PENDING &&
+              !task.assignedUser?.id
+            )
         ),
       },
       {
@@ -981,8 +1056,24 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
         chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
         tasks: vaAppraisalTasks.filter(
           (task) =>
+            task.status === TaskStatus.PENDING &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !task.assignedUser?.id
+        ),
+      },
+      {
+        id: 'va-appraisal-started',
+        label: 'Started / Ordered Appraisal Requests',
+        chipLabel: 'In Progress',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaAppraisalTasks.filter(
+          (task) =>
             task.status !== TaskStatus.COMPLETED &&
-            task.workflowState === TaskWorkflowState.NONE
+            task.workflowState === TaskWorkflowState.NONE &&
+            !(
+              task.status === TaskStatus.PENDING &&
+              !task.assignedUser?.id
+            )
         ),
       },
       {
