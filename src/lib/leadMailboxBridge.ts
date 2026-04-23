@@ -168,11 +168,17 @@ export const LEAD_MAILBOX_TARGET_FIELDS: Set<string> = new Set(
  *   LM's admin. The numbers below match the mapping in use today; if the LM
  *   admin renumbers a field, update it here and the Copy JSON Template button
  *   will hand out the corrected version.
+ * - The `notes` array enriches the persisted lead with LO assignment
+ *   metadata and the LM campaign name. Those placeholders have no
+ *   column on the `Lead` model, but `extractBridgeNotes` preserves them
+ *   as notes and filters out any tokens LM doesn't substitute.
  *
  * Users paste this into each Service, then fill in `routing_tag` with the
  * portal campaign's routing tag. Unused lines can be removed safely; missing
  * fields simply don't get set. Any placeholder LM doesn't recognize passes
  * through as its literal {Token} string and is filtered out by the bridge.
+ *
+ * Keep this in sync with `docs/lead-mailbox-service-setup.md` section 1.
  */
 export function buildLeadMailboxJsonTemplate(): string {
   return JSON.stringify(
@@ -205,6 +211,7 @@ export function buildLeadMailboxJsonTemplate(): string {
       bankruptcy: '{bankruptcy}',
       foreclosure: '{foreclosure}',
       is_military: '{Ismilitary}',
+      custom_veteran: '{Veteran}',
 
       loan_purpose: '{loan purpose}',
       loan_amount: '{loan amount}',
@@ -222,7 +229,12 @@ export function buildLeadMailboxJsonTemplate(): string {
       lead_created: '{createddash}',
       user_id: '{user_002}',
 
-      notes: ['From Lead Mailbox', '{lastnote}'],
+      notes: [
+        'From Lead Mailbox',
+        'Assigned LO: {User_Name} ({User_Email}) NMLS {User_License} — {User_Phone}',
+        'Source campaign: {campaign_name}',
+        '{lastnote}',
+      ],
     },
     null,
     2
