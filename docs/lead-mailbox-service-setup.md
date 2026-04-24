@@ -266,3 +266,147 @@ Full map lives in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts
 | `routing_tag` | used to look up the target campaign, not stored |
 
 Any key in the JSON that isn't in `LEAD_MAILBOX_FIELD_MAP` is silently ignored — this is by design so that future placeholder additions don't need code changes to be safe. If you notice data appearing in LMB that's missing from the portal, check whether the payload key is in the map above.
+
+---
+
+# Bonzo forwarding (per-loan-officer outbound webhooks)
+
+Once a lead lands in the portal and gets assigned to a loan officer, the portal immediately forwards that lead to the assigned LO's Bonzo account so it shows up in their Bonzo pipeline within seconds. Each LO owns their own Bonzo webhook URL; the URL is the routing key, there's no user_id to configure in the payload.
+
+- **Forwarder:** [src/lib/bonzoForward.ts](../src/lib/bonzoForward.ts) (`forwardLeadToBonzo`)
+- **Per-user URL:** `UserLeadQuota.bonzoWebhookUrl`, edited in Admin → Lead Users
+- **Fire-and-forget:** a Bonzo outage or a bad URL never blocks lead distribution. Failures are logged server-side as `[bonzo] Forward error for lead <id> -> user <id>: ...`.
+- **Timeout:** 10 s per POST.
+
+## 8. How to install a Bonzo webhook URL for an LO
+
+1. In Bonzo, go to **Account Settings → Event Hooks** (or create a Campaign and pull its inbound webhook URL from the Zapier/API tab — whichever your Bonzo plan exposes).
+2. Copy the full URL, e.g. `https://app.getbonzo.com/webhook/abc123-def456`.
+3. In the FFL Portal, go to **Admin → Lead Users → (the LO) → Edit**.
+4. Paste the URL into the **Bonzo Webhook URL** field and click **Save**.
+5. Click **Send test** next to the URL. You should see a green `200 OK - Bonzo accepted the test prospect "Test Bonzo"` badge within a second or two, and a test prospect named "Test Bonzo" should appear in that LO's Bonzo account. You can safely delete the test prospect in Bonzo.
+6. If you see a red badge instead, the URL is wrong or Bonzo rejected the payload. The badge shows the HTTP status and a short excerpt from Bonzo's response body to help debug. Common causes:
+   - **404 Not Found** — URL was truncated or the webhook was deleted in Bonzo. Re-copy it.
+   - **401/403** — the URL works but requires an auth token Bonzo didn't embed. Regenerate the URL in Bonzo.
+   - **Network error** — URL is malformed or behind a firewall.
+
+Once **Send test** is green, real leads will route to that LO's Bonzo the instant they're assigned by the portal. No additional configuration.
+
+## 9. Canonical JSON we POST to Bonzo
+
+Every POST to a Bonzo webhook has this shape (built by `buildBonzoPayload` in `src/lib/bonzoForward.ts`). Fields with no data on the Lead come through as `null`; Bonzo ignores nulls.
+
+```json
+{
+  "lead_id": "<portal Lead.id>",
+  "lead_source": "<campaign name>",
+  "application_date": "YYYY-MM-DD",
+  "1_Status": "NEW",
+
+  "first_name": "...",
+  "last_name": "...",
+  "email": "...",
+  "phone": "...",
+  "work_phone": "...",
+  "birthday": "...",
+  "ssn": "...",
+
+  "address": "<borrower mailing street>",
+  "city": "<borrower mailing city>",
+  "state": "<borrower mailing state>",
+  "zip": "<borrower mailing zip>",
+
+  "property_address": "<subject property street>",
+  "property_city": "...",
+  "property_state": "...",
+  "property_zip": "...",
+  "property_county": "...",
+  "property_type": "...",
+  "property_use": "...",
+  "property_value": "...",
+  "purchase_price": "...",
+
+  "loan_purpose": "...",
+  "loan_amount": "...",
+  "loan_type": "...",
+  "loan_program": "<loan term>",
+  "loan_balance": "<current balance>",
+  "interest_rate": "<current rate>",
+  "down_payment": "...",
+  "cash_out_amount": "...",
+  "credit_score": "...",
+
+  "bankruptcy_details": "...",
+  "foreclosure_details": "...",
+  "custom_ismilitary": "...",
+  "custom_veteran": "...",
+
+  "prospect_company": "<employer>",
+  "company_name": "<employer>",
+  "occupation": "<job title>",
+  "income": "...",
+  "household_income": "...",
+
+  "co_first_name": "...",
+  "co_last_name": "...",
+  "co_email": "...",
+  "co_phone": "...",
+  "co_birthday": "...",
+
+  "notes": [
+    "From FFL Portal",
+    "Vendor: <vendor name>",
+    "Campaign: <campaign name> (routing_tag: <tag>)",
+    "Assigned LO: <user name> <user@email>",
+    "...any LeadNote entries..."
+  ]
+}
+```
+
+## 10. Lead -> Bonzo field mapping
+
+| Portal `Lead` column | Bonzo key | Notes |
+|---|---|---|
+| `id` | `lead_id` | |
+| `campaign.name` | `lead_source` | Falls back to `vendor.name` if no campaign matched |
+| `receivedAt` (UTC) | `application_date` | Formatted as `YYYY-MM-DD` |
+| `status` | `1_Status` | Custom Bonzo field (prefix-numbered for sorting) |
+| `firstName` / `lastName` / `email` / `phone` | `first_name` / `last_name` / `email` / `phone` | |
+| `workPhone` | `work_phone` | |
+| `dob` | `birthday` | Bonzo uses "birthday", not "dob" |
+| `ssn` | `ssn` | |
+| `mailingAddress` / `mailingCity` / `mailingState` / `mailingZip` | `address` / `city` / `state` / `zip` | Borrower mailing address |
+| `propertyAddress` / `propertyCity` / `propertyState` / `propertyZip` / `propertyCounty` | `property_address` / `property_city` / `property_state` / `property_zip` / `property_county` | Subject property |
+| `propertyType` / `propertyUse` / `propertyValue` / `purchasePrice` | `property_type` / `property_use` / `property_value` / `purchase_price` | |
+| `loanPurpose` / `loanAmount` / `loanType` / `downPayment` | `loan_purpose` / `loan_amount` / `loan_type` / `down_payment` | |
+| `loanTerm` | `loan_program` | Bonzo reuses "loan_program" for the term/product |
+| `currentBalance` | `loan_balance` | |
+| `currentRate` | `interest_rate` | |
+| `cashOut` | `cash_out_amount` | |
+| `creditRating` | `credit_score` | |
+| `bankruptcy` | `bankruptcy_details` | |
+| `foreclosure` | `foreclosure_details` | |
+| `isMilitary` | `custom_ismilitary` | Bonzo custom field |
+| `vaStatus` | `custom_veteran` | Bonzo custom field |
+| `employer` | `prospect_company`, `company_name` | Mirrored to both keys since Bonzo admins sometimes surface one vs. the other |
+| `jobTitle` | `occupation` | |
+| `income` | `income`, `household_income` | Mirrored until we capture a separate household figure |
+| `coFirstName` / `coLastName` / `coEmail` / `coPhone` | `co_first_name` / `co_last_name` / `co_email` / `co_phone` | |
+| `coDob` | `co_birthday` | |
+| `LeadNote.content` + routing meta | `notes` (array) | First entry is always `"From FFL Portal"`, followed by vendor/campaign/LO breadcrumbs, then up to 10 recent `LeadNote` entries |
+
+**Not forwarded** (no Bonzo-native key; would pollute the prospect view in Bonzo): `propertyLtv`, `otherBalance`, `otherPayment`, `targetRate`, `vaLoan`, `fhaLoan`, `currentLender`, `currentPayment`, `currentTerm`, `currentType`, `propertyAcquired`, `homeowner`, `sourceUrl`, `price`. Some of these do get surfaced in the `notes[]` array (LTV, loan term, source URL, lead price) so nothing critical is lost.
+
+**`user_id` is intentionally not sent.** Each LO has their own Bonzo webhook URL, and the URL itself identifies the destination Bonzo sub-user. Sending `user_id` would be redundant and risks overriding Bonzo's URL-based routing.
+
+## 11. When does forwarding happen?
+
+`forwardLeadToBonzo` is called from exactly the spots in [src/app/actions/leadActions.ts](../src/app/actions/leadActions.ts) where a lead picks up (or changes) an `assignedUserId`:
+
+- Default-user fallback (no eligible round-robin members).
+- Round-robin assignment to the next active member.
+- Manual assign from the Unassigned Pool.
+- Manual reassign (one lead or bulk).
+- Default-user reassign (admin override).
+
+Each call fires after the DB write commits, so if the assignment fails, Bonzo isn't hit. If Bonzo is slow or down, the forward aborts at 10 s but the lead stays assigned in the portal — admins can retry later by reassigning the lead, which triggers the forward again.

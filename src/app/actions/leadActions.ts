@@ -5,7 +5,12 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { LeadStatus, UserRole, type Prisma } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
-import { forwardLeadToBonzo } from '@/lib/bonzoForward';
+import {
+  forwardLeadToBonzo,
+  buildBonzoPayload,
+  postBonzoPayload,
+  type BonzoLeadLike,
+} from '@/lib/bonzoForward';
 
 const CSV_VENDOR_SLUG = 'csv-upload';
 
@@ -1728,6 +1733,145 @@ export async function updateUserLeadSettings(
     },
   });
   revalidatePath('/admin/leads/users');
+}
+
+/**
+ * Sends a synthetic "test prospect" to the given user's Bonzo webhook URL
+ * so admins can verify the URL is correct right after pasting it, without
+ * waiting for a real lead to land. Uses {@link buildBonzoPayload} against
+ * a hardcoded demo lead so the test body matches exactly what a real lead
+ * would POST (same field names, same shape) - if this succeeds, real
+ * leads will too.
+ *
+ * Returns the HTTP status and a body excerpt instead of fire-and-forget,
+ * so the UI can show a clear success/error message.
+ */
+export async function sendBonzoTestForUser(
+  userId: string
+): Promise<{
+  ok: boolean;
+  status: number;
+  statusText: string;
+  bodyExcerpt: string;
+}> {
+  const [settings, user] = await Promise.all([
+    prisma.userLeadQuota.findUnique({
+      where: { userId },
+      select: { bonzoWebhookUrl: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    }),
+  ]);
+  const url = settings?.bonzoWebhookUrl?.trim();
+  if (!url) {
+    throw new Error(
+      'This user has no Bonzo webhook URL saved. Paste it and click Save first.'
+    );
+  }
+  if (!user) throw new Error('User not found');
+
+  const now = new Date();
+  const demo: BonzoLeadLike = {
+    id: `test-${now.getTime()}`,
+    firstName: 'Test',
+    lastName: 'Bonzo',
+    email: 'test.bonzo@ffl-portal.test',
+    phone: '5551234567',
+    homePhone: null,
+    workPhone: '5557654321',
+    dob: '1985-06-15',
+    ssn: null,
+    coFirstName: null,
+    coLastName: null,
+    coEmail: null,
+    coPhone: null,
+    coHomePhone: null,
+    coWorkPhone: null,
+    coDob: null,
+    mailingAddress: '123 Borrower Lane',
+    mailingCity: 'Seattle',
+    mailingState: 'WA',
+    mailingZip: '98101',
+    mailingCounty: 'King',
+    propertyAddress: '456 Subject Property Way',
+    propertyCity: 'Bellevue',
+    propertyState: 'WA',
+    propertyZip: '98004',
+    propertyCounty: 'King',
+    purchasePrice: '550000',
+    propertyValue: '575000',
+    propertyType: 'Single Family',
+    propertyUse: 'Primary Residence',
+    propertyAcquired: null,
+    propertyLtv: '80',
+    employer: 'FFL Portal QA',
+    jobTitle: 'Test Borrower',
+    employmentLength: null,
+    selfEmployed: 'No',
+    income: '120000',
+    bankruptcy: 'None',
+    foreclosure: 'None',
+    homeowner: 'Yes',
+    coEmployer: null,
+    coJobTitle: null,
+    coEmploymentLength: null,
+    coSelfEmployed: null,
+    coIncome: null,
+    loanPurpose: 'Refinance',
+    loanAmount: '440000',
+    loanTerm: '30',
+    loanType: 'Conventional',
+    loanRate: null,
+    downPayment: '110000',
+    cashOut: '0',
+    creditRating: '740',
+    currentLender: null,
+    currentBalance: '320000',
+    currentRate: '6.875',
+    currentPayment: null,
+    currentTerm: null,
+    currentType: null,
+    otherBalance: null,
+    otherPayment: null,
+    targetRate: null,
+    vaStatus: 'No',
+    vaLoan: 'No',
+    isMilitary: 'No',
+    fhaLoan: 'No',
+    sourceUrl: null,
+    leadCreated: now.toISOString(),
+    price: null,
+    status: 'NEW',
+    assignedAt: now,
+    receivedAt: now,
+    vendor: { name: 'FFL Portal Test', slug: 'ffl-test' },
+    campaign: { name: 'Bonzo Webhook Test', routingTag: 'test' },
+    assignedUser: { name: user.name ?? 'Test LO', email: user.email ?? '' },
+    notes: [
+      {
+        content:
+          'This is a synthetic test prospect posted from the FFL Portal admin UI. You can safely delete it in Bonzo.',
+        createdAt: now,
+      },
+    ],
+  };
+
+  const payload = buildBonzoPayload(demo);
+  try {
+    return await postBonzoPayload(url, payload);
+  } catch (err) {
+    // Network-level failure: normalize to the same result shape the UI
+    // already handles so the badge can display "Network error - ...".
+    return {
+      ok: false,
+      status: 0,
+      statusText:
+        err instanceof Error ? err.message : 'Network error sending to Bonzo',
+      bodyExcerpt: '',
+    };
+  }
 }
 
 export async function updateMemberSettings(

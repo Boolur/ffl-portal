@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
-  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users, Check, Link2,
+  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users, Check, Link2, Send, AlertTriangle,
 } from 'lucide-react';
 import { InfoTip } from '@/components/ui/InfoTip';
 import {
@@ -10,6 +10,7 @@ import {
   updateMemberSettings,
   addUserToCampaign,
   removeUserFromCampaign,
+  sendBonzoTestForUser,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 
@@ -170,6 +171,69 @@ function UserDetailPanel({
   const [licensedStates, setLicensedStates] = useState<string[]>(user.licensedStates);
   const [bonzoWebhookUrl, setBonzoWebhookUrl] = useState(user.bonzoWebhookUrl || '');
   const [bonzoError, setBonzoError] = useState<string | null>(null);
+  const [bonzoTesting, setBonzoTesting] = useState(false);
+  // Inline "Send test" result badge. null = no badge; ok/error drive the
+  // styling and get auto-dismissed after a few seconds.
+  const [bonzoTestResult, setBonzoTestResult] = useState<
+    | { kind: 'ok'; message: string }
+    | { kind: 'error'; message: string }
+    | null
+  >(null);
+  const bonzoTestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (bonzoTestTimer.current) clearTimeout(bonzoTestTimer.current);
+    };
+  }, []);
+
+  const handleSendBonzoTest = useCallback(async () => {
+    if (bonzoTestTimer.current) clearTimeout(bonzoTestTimer.current);
+    setBonzoTestResult(null);
+    const trimmed = bonzoWebhookUrl.trim();
+    const savedTrimmed = (user.bonzoWebhookUrl || '').trim();
+    if (!trimmed) {
+      setBonzoTestResult({ kind: 'error', message: 'Paste a Bonzo webhook URL first.' });
+      return;
+    }
+    // The test action always hits the URL currently saved in the DB. If
+    // the admin edited the field without saving yet, the test would use
+    // the stale value - nudge them to save first rather than silently
+    // test the wrong URL.
+    if (trimmed !== savedTrimmed) {
+      setBonzoTestResult({
+        kind: 'error',
+        message: 'Save the URL first, then click Send test.',
+      });
+      return;
+    }
+    setBonzoTesting(true);
+    try {
+      const res = await sendBonzoTestForUser(user.id);
+      if (res.ok) {
+        setBonzoTestResult({
+          kind: 'ok',
+          message: `${res.status} ${res.statusText || 'OK'} - Bonzo accepted the test prospect "Test Bonzo"`,
+        });
+      } else {
+        const detail = res.bodyExcerpt?.trim()
+          ? ` - ${res.bodyExcerpt.slice(0, 140)}`
+          : '';
+        setBonzoTestResult({
+          kind: 'error',
+          message: `${res.status || 'Network'} ${res.statusText || 'error'}${detail}`,
+        });
+      }
+    } catch (err) {
+      setBonzoTestResult({
+        kind: 'error',
+        message: err instanceof Error ? err.message : 'Could not send test',
+      });
+    } finally {
+      setBonzoTesting(false);
+      bonzoTestTimer.current = setTimeout(() => setBonzoTestResult(null), 10_000);
+    }
+  }, [bonzoWebhookUrl, user.bonzoWebhookUrl, user.id]);
   const [globalDaily, setGlobalDaily] = useState(user.globalDailyQuota);
   const [globalWeekly, setGlobalWeekly] = useState(user.globalWeeklyQuota);
   const [globalMonthly, setGlobalMonthly] = useState(user.globalMonthlyQuota);
@@ -324,26 +388,67 @@ function UserDetailPanel({
               <InfoTip text="Every lead assigned to this user will be POSTed to this Bonzo webhook as JSON. Paste the full URL from Bonzo (e.g. https://api.getbonzo.com/...)." width={256} />
             </div>
             <p className="text-xs text-slate-400 mb-2">Forwards each newly-assigned lead into this user&apos;s Bonzo CRM.</p>
-            <div className="relative">
-              <Link2 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input
-                type="url"
-                className={`w-full rounded-lg border bg-white pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 ${
-                  bonzoError
-                    ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
-                    : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
-                }`}
-                placeholder="https://app.getbonzo.com/webhook/..."
-                value={bonzoWebhookUrl}
-                onChange={(e) => {
-                  setBonzoWebhookUrl(e.target.value);
-                  if (bonzoError) setBonzoError(null);
-                }}
-                spellCheck={false}
-                autoComplete="off"
-              />
+            <div className="flex items-stretch gap-2">
+              <div className="relative flex-1">
+                <Link2 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="url"
+                  className={`w-full rounded-lg border bg-white pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                    bonzoError
+                      ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
+                      : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+                  }`}
+                  placeholder="https://app.getbonzo.com/webhook/..."
+                  value={bonzoWebhookUrl}
+                  onChange={(e) => {
+                    setBonzoWebhookUrl(e.target.value);
+                    if (bonzoError) setBonzoError(null);
+                  }}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSendBonzoTest()}
+                disabled={bonzoTesting || !bonzoWebhookUrl.trim()}
+                title="Post a synthetic test prospect to this URL so you can confirm Bonzo receives it"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {bonzoTesting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                Send test
+              </button>
             </div>
             {bonzoError && <p className="mt-1 text-xs text-red-600">{bonzoError}</p>}
+            {bonzoTestResult && (
+              <div
+                className={`mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+                  bonzoTestResult.kind === 'ok'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                    : 'border-rose-200 bg-rose-50 text-rose-800'
+                }`}
+                role="status"
+              >
+                {bonzoTestResult.kind === 'ok' ? (
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="flex-1 break-words">{bonzoTestResult.message}</span>
+                <button
+                  type="button"
+                  onClick={() => setBonzoTestResult(null)}
+                  className="text-current opacity-60 hover:opacity-100"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Licensed States */}
