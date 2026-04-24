@@ -88,7 +88,10 @@ type VendorGroup = {
 
 export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
   const [roster, setRoster] = useState<CampaignNextUpRow[]>(initialRoster);
-  const [collapsed, setCollapsed] = useState<boolean>(false);
+  // Default to collapsed so first-time visitors see a compact header and
+  // have to expand the panel intentionally. Returning visitors get their
+  // last choice hydrated from localStorage below.
+  const [collapsed, setCollapsed] = useState<boolean>(true);
   // Map of vendorSlug -> whether the vendor section is open. Vendors
   // default to collapsed so the panel never stretches down the screen
   // the moment the top-level is expanded. Admin opens the vendor they
@@ -101,9 +104,11 @@ export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
     try {
       const rawCollapsed = window.localStorage.getItem(STORAGE_KEY_COLLAPSED);
       const rawVendors = window.localStorage.getItem(STORAGE_KEY_VENDORS);
-      if (rawCollapsed === '1') {
+      // Only un-collapse if the user has previously explicitly expanded
+      // the panel ('0'). Missing key or '1' both leave it collapsed.
+      if (rawCollapsed === '0') {
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setCollapsed(true);
+        setCollapsed(false);
       }
       if (rawVendors) {
         try {
