@@ -4,13 +4,12 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   useTransition,
 } from 'react';
 import {
   ChevronDown,
-  ChevronUp,
+  ChevronRight,
   Crown,
   Hand,
   RefreshCw,
@@ -26,46 +25,46 @@ type Props = {
   filterGroupId: string | null;
 };
 
-const STORAGE_KEY = 'ffl.campaignNextUp.collapsed';
+const STORAGE_KEY_COLLAPSED = 'ffl.campaignNextUp.collapsed';
+const STORAGE_KEY_VENDORS = 'ffl.campaignNextUp.vendorOpen';
 const REFRESH_MS = 30_000;
 const NONE_GROUP = '__none__';
 
 // Keyed on lowercased vendor slug. Unknown vendors fall through to slate.
-// Adding a new vendor? Add it here + keep the palette in the docs in sync.
 const VENDOR_COLORS: Record<
   string,
-  { rail: string; bg: string; pill: string; ring: string }
+  { dot: string; bg: string; pill: string; text: string }
 > = {
   lendingtree: {
-    rail: 'bg-emerald-500',
-    bg: 'bg-emerald-50/60',
+    dot: 'bg-emerald-500',
+    bg: 'bg-emerald-50/50',
     pill: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
-    ring: 'ring-emerald-100',
+    text: 'text-emerald-700',
   },
   freerateupdate: {
-    rail: 'bg-blue-500',
-    bg: 'bg-blue-50/60',
+    dot: 'bg-blue-500',
+    bg: 'bg-blue-50/50',
     pill: 'bg-blue-100 text-blue-800 ring-blue-200',
-    ring: 'ring-blue-100',
+    text: 'text-blue-700',
   },
   leadpoint: {
-    rail: 'bg-amber-500',
-    bg: 'bg-amber-50/60',
+    dot: 'bg-amber-500',
+    bg: 'bg-amber-50/50',
     pill: 'bg-amber-100 text-amber-800 ring-amber-200',
-    ring: 'ring-amber-100',
+    text: 'text-amber-700',
   },
   lendgo: {
-    rail: 'bg-violet-500',
-    bg: 'bg-violet-50/60',
+    dot: 'bg-violet-500',
+    bg: 'bg-violet-50/50',
     pill: 'bg-violet-100 text-violet-800 ring-violet-200',
-    ring: 'ring-violet-100',
+    text: 'text-violet-700',
   },
 };
 const VENDOR_FALLBACK = {
-  rail: 'bg-slate-400',
+  dot: 'bg-slate-400',
   bg: 'bg-slate-50',
   pill: 'bg-slate-100 text-slate-700 ring-slate-200',
-  ring: 'ring-slate-100',
+  text: 'text-slate-600',
 };
 
 function vendorColor(slug: string) {
@@ -79,41 +78,67 @@ function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+type VendorGroup = {
+  slug: string;
+  name: string;
+  rows: CampaignNextUpRow[];
+  readyCount: number;
+  fallbackCount: number;
+};
+
 export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
   const [roster, setRoster] = useState<CampaignNextUpRow[]>(initialRoster);
   const [collapsed, setCollapsed] = useState<boolean>(false);
+  // Map of vendorSlug -> whether the vendor section is open. Vendors
+  // default to collapsed so the panel never stretches down the screen
+  // the moment the top-level is expanded. Admin opens the vendor they
+  // care about.
+  const [vendorOpen, setVendorOpen] = useState<Record<string, boolean>>({});
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
   const [isPending, startTransition] = useTransition();
-  // Track whether we've hydrated collapsed state from localStorage yet so
-  // SSR markup and the first client paint stay in sync.
-  const hydratedRef = useRef(false);
 
   useEffect(() => {
-    // Hydrate collapsed state from localStorage once on mount. We can't
-    // read localStorage during useState init because the first paint is
-    // SSR where `window` is undefined, so this is the canonical React
-    // pattern for persisting a UI toggle - the cascading-renders lint
-    // doesn't really apply when we're syncing state FROM an external
-    // store rather than doing derived-state calculations.
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw === '1') {
+      const rawCollapsed = window.localStorage.getItem(STORAGE_KEY_COLLAPSED);
+      const rawVendors = window.localStorage.getItem(STORAGE_KEY_VENDORS);
+      if (rawCollapsed === '1') {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setCollapsed(true);
+      }
+      if (rawVendors) {
+        try {
+          const parsed = JSON.parse(rawVendors);
+          if (parsed && typeof parsed === 'object') {
+            setVendorOpen(parsed as Record<string, boolean>);
+          }
+        } catch {
+          // ignore malformed
+        }
       }
     } catch {
       // localStorage can throw in private mode; ignore.
     }
-    hydratedRef.current = true;
   }, []);
 
-  const setCollapsedPersisted = useCallback((next: boolean) => {
+  const persistCollapsed = useCallback((next: boolean) => {
     setCollapsed(next);
     try {
-      window.localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
+      window.localStorage.setItem(STORAGE_KEY_COLLAPSED, next ? '1' : '0');
     } catch {
-      // ignore
+      /* ignore */
     }
+  }, []);
+
+  const toggleVendor = useCallback((slug: string) => {
+    setVendorOpen((prev) => {
+      const next = { ...prev, [slug]: !prev[slug] };
+      try {
+        window.localStorage.setItem(STORAGE_KEY_VENDORS, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   }, []);
 
   const refresh = useCallback(() => {
@@ -123,15 +148,11 @@ export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
         setRoster(next);
         setLastRefreshedAt(new Date());
       } catch (err) {
-        // Surface to console only; stale data is safer than tearing the
-        // panel down mid-session.
         console.warn('[CampaignNextUpPanel] refresh failed:', err);
       }
     });
   }, []);
 
-  // Poll every REFRESH_MS while the tab is visible. Also refresh the
-  // moment the tab regains focus so admins don't see hour-old data.
   useEffect(() => {
     const id = window.setInterval(() => {
       if (document.visibilityState === 'visible') refresh();
@@ -154,19 +175,64 @@ export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
     return roster.filter((r) => r.groupId === filterGroupId);
   }, [roster, filterGroupId]);
 
-  const readyCount = useMemo(
+  // Group filtered rows by vendor slug. Vendors appear in first-seen
+  // order (the roster is already sorted by vendor.name asc server-side).
+  const vendorGroups: VendorGroup[] = useMemo(() => {
+    const map = new Map<string, VendorGroup>();
+    for (const row of filtered) {
+      const existing = map.get(row.vendorSlug);
+      if (existing) {
+        existing.rows.push(row);
+        if (row.upNext.kind === 'MEMBER') existing.readyCount++;
+        else existing.fallbackCount++;
+      } else {
+        map.set(row.vendorSlug, {
+          slug: row.vendorSlug,
+          name: row.vendorName,
+          rows: [row],
+          readyCount: row.upNext.kind === 'MEMBER' ? 1 : 0,
+          fallbackCount: row.upNext.kind === 'MEMBER' ? 0 : 1,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [filtered]);
+
+  const totalReady = useMemo(
     () => filtered.filter((r) => r.upNext.kind === 'MEMBER').length,
     [filtered]
   );
+
+  const anyVendorOpen = vendorGroups.some((g) => vendorOpen[g.slug]);
+
+  const expandAll = useCallback(() => {
+    const next: Record<string, boolean> = {};
+    for (const g of vendorGroups) next[g.slug] = true;
+    setVendorOpen(next);
+    try {
+      window.localStorage.setItem(STORAGE_KEY_VENDORS, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  }, [vendorGroups]);
+
+  const collapseAll = useCallback(() => {
+    setVendorOpen({});
+    try {
+      window.localStorage.setItem(STORAGE_KEY_VENDORS, JSON.stringify({}));
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
       <button
         type="button"
-        onClick={() => setCollapsedPersisted(!collapsed)}
+        onClick={() => persistCollapsed(!collapsed)}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 rounded-t-xl transition-colors"
         aria-expanded={!collapsed}
-        aria-controls="campaign-next-up-grid"
+        aria-controls="campaign-next-up-body"
       >
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
           <Crown className="h-4 w-4" />
@@ -179,16 +245,15 @@ export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
               {filtered.length > 0 && (
                 <>
                   {' '}
-                  &middot; {readyCount} ready &middot;{' '}
-                  {filtered.length - readyCount} fallback
+                  &middot; {totalReady} ready &middot;{' '}
+                  {filtered.length - totalReady} fallback
                 </>
               )}
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            The loan officer who&apos;d get the next lead on each active
-            campaign right now, honoring receive-days, quotas, and global
-            flags.
+            Click a vendor to reveal its campaigns and the LO who&apos;d get
+            the next lead right now.
           </p>
         </div>
         <span
@@ -209,28 +274,51 @@ export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
             minute: '2-digit',
           })}
         </span>
-        {collapsed ? (
-          <ChevronDown className="h-4 w-4 text-slate-400" />
-        ) : (
-          <ChevronUp className="h-4 w-4 text-slate-400" />
-        )}
+        <ChevronDown
+          className={`h-4 w-4 text-slate-400 transition-transform ${
+            collapsed ? '' : 'rotate-180'
+          }`}
+        />
       </button>
 
       {!collapsed && (
-        <div
-          id="campaign-next-up-grid"
-          className="border-t border-slate-100 px-4 py-4"
-        >
+        <div id="campaign-next-up-body" className="border-t border-slate-100">
           {filtered.length === 0 ? (
             <div className="py-6 text-center text-sm text-slate-500">
               No active campaigns match this filter.
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {filtered.map((row) => (
-                <NextUpCard key={row.campaignId} row={row} />
-              ))}
-            </div>
+            <>
+              <div className="flex items-center justify-end gap-1 border-b border-slate-100 px-4 py-1.5 text-[11px] font-medium text-slate-500">
+                <button
+                  type="button"
+                  onClick={expandAll}
+                  disabled={vendorGroups.every((g) => vendorOpen[g.slug])}
+                  className="rounded px-2 py-1 hover:bg-slate-100 hover:text-slate-700 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  Expand all
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  type="button"
+                  onClick={collapseAll}
+                  disabled={!anyVendorOpen}
+                  className="rounded px-2 py-1 hover:bg-slate-100 hover:text-slate-700 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  Collapse all
+                </button>
+              </div>
+              <ul className="divide-y divide-slate-100">
+                {vendorGroups.map((group) => (
+                  <VendorSection
+                    key={group.slug}
+                    group={group}
+                    open={!!vendorOpen[group.slug]}
+                    onToggle={() => toggleVendor(group.slug)}
+                  />
+                ))}
+              </ul>
+            </>
           )}
         </div>
       )}
@@ -238,131 +326,147 @@ export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
   );
 }
 
-function NextUpCard({ row }: { row: CampaignNextUpRow }) {
-  const palette = vendorColor(row.vendorSlug);
-  const { upNext } = row;
-
+function VendorSection({
+  group,
+  open,
+  onToggle,
+}: {
+  group: VendorGroup;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const palette = vendorColor(group.slug);
   return (
-    <div
-      className={`relative overflow-hidden rounded-lg border border-slate-200 ${palette.bg} pl-3 pr-3 py-3 transition-shadow hover:shadow-sm`}
-    >
-      <span
-        className={`absolute inset-y-0 left-0 w-1 ${palette.rail}`}
-        aria-hidden="true"
-      />
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="min-w-0 flex-1">
-          <h3
-            className="text-sm font-semibold text-slate-900 truncate"
-            title={row.campaignName}
-          >
-            {row.campaignName}
-          </h3>
-          <div className="mt-0.5 flex items-center gap-1.5">
-            <span
-              className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ${palette.pill}`}
-            >
-              {row.vendorName}
-            </span>
-            <span className="text-[10px] text-slate-400">
-              {row.memberCount} LO{row.memberCount === 1 ? '' : 's'}
-            </span>
-          </div>
-        </div>
-      </div>
+    <li>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors ${
+          open ? palette.bg : ''
+        }`}
+        aria-expanded={open}
+      >
+        <ChevronRight
+          className={`h-4 w-4 text-slate-400 transition-transform ${
+            open ? 'rotate-90' : ''
+          }`}
+        />
+        <span
+          className={`inline-block h-2.5 w-2.5 rounded-full ${palette.dot}`}
+          aria-hidden="true"
+        />
+        <span className="text-sm font-semibold text-slate-900 flex-1 min-w-0 truncate">
+          {group.name}
+        </span>
+        <span className={`text-[11px] font-medium ${palette.text}`}>
+          {group.rows.length} campaign{group.rows.length === 1 ? '' : 's'}
+        </span>
+        <span className="text-[11px] text-slate-400">
+          &middot; {group.readyCount} ready
+          {group.fallbackCount > 0 && (
+            <>
+              {' '}
+              &middot;{' '}
+              <span className="text-amber-600">
+                {group.fallbackCount} fallback
+              </span>
+            </>
+          )}
+        </span>
+      </button>
 
-      <UpNextBody upNext={upNext} />
-    </div>
+      {open && (
+        <ul className="divide-y divide-slate-100 border-t border-slate-100 bg-white">
+          {group.rows.map((row) => (
+            <CampaignRow key={row.campaignId} row={row} palette={palette} />
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }
 
-function UpNextBody({ upNext }: { upNext: CampaignNextUpRow['upNext'] }) {
+function CampaignRow({
+  row,
+  palette,
+}: {
+  row: CampaignNextUpRow;
+  palette: ReturnType<typeof vendorColor>;
+}) {
+  return (
+    <li className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 transition-colors">
+      <span
+        className={`inline-block h-1.5 w-1.5 rounded-full ${palette.dot} ml-5 shrink-0`}
+        aria-hidden="true"
+      />
+      <span
+        className="text-sm text-slate-800 flex-1 min-w-0 truncate"
+        title={row.campaignName}
+      >
+        {row.campaignName}
+      </span>
+      <span className="text-[10px] text-slate-400 hidden sm:inline-block shrink-0">
+        {row.memberCount} LO{row.memberCount === 1 ? '' : 's'}
+      </span>
+      <UpNextInline upNext={row.upNext} />
+    </li>
+  );
+}
+
+function UpNextInline({ upNext }: { upNext: CampaignNextUpRow['upNext'] }) {
   if (upNext.kind === 'MEMBER') {
     return (
-      <div className="flex items-center gap-2.5 rounded-md border border-white/60 bg-white/70 px-2 py-1.5">
-        <Avatar name={upNext.name} tone="blue" />
-        <div className="min-w-0 flex-1">
-          <p
-            className="text-[11px] font-medium uppercase tracking-wider text-slate-500 leading-tight"
-          >
-            Up Next
-          </p>
-          <p
-            className="text-sm font-semibold text-slate-900 truncate"
-            title={upNext.name}
-          >
-            {upNext.name}
-          </p>
-        </div>
-      </div>
+      <span className="inline-flex items-center gap-2 shrink-0">
+        <span
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700 ring-1 ring-blue-200"
+          aria-hidden="true"
+        >
+          {initialsOf(upNext.name)}
+        </span>
+        <span className="text-sm font-medium text-slate-900 max-w-[160px] truncate">
+          {upNext.name}
+        </span>
+      </span>
     );
   }
 
   if (upNext.kind === 'DEFAULT') {
     return (
-      <div className="flex items-center gap-2.5 rounded-md border border-amber-200 bg-amber-50/80 px-2 py-1.5">
-        <Avatar name={upNext.name} tone="amber" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-amber-700 leading-tight">
-            Default fallback
-          </p>
-          <p
-            className="text-sm font-semibold text-slate-900 truncate"
-            title={upNext.name}
-          >
-            {upNext.name}
-          </p>
-          <p className="text-[10px] text-amber-700">
-            {upNext.reason === 'NO_MEMBERS'
-              ? 'No members assigned'
-              : 'All members gated out'}
-          </p>
-        </div>
-      </div>
+      <span
+        className="inline-flex items-center gap-2 shrink-0"
+        title={
+          upNext.reason === 'NO_MEMBERS'
+            ? 'No members assigned - falling back to default user'
+            : 'All members gated out - falling back to default user'
+        }
+      >
+        <span
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-700 ring-1 ring-amber-200"
+          aria-hidden="true"
+        >
+          {initialsOf(upNext.name)}
+        </span>
+        <span className="text-sm font-medium text-slate-900 max-w-[160px] truncate">
+          {upNext.name}
+        </span>
+        <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200">
+          Fallback
+        </span>
+      </span>
     );
   }
 
-  // UNASSIGNED
-  const icon = upNext.reason === 'MANUAL' ? Hand : UserX;
+  const Icon = upNext.reason === 'MANUAL' ? Hand : UserX;
   const label =
     upNext.reason === 'MANUAL'
-      ? 'Manual assignment'
+      ? 'Manual'
       : upNext.reason === 'NO_MEMBERS_NO_DEFAULT'
-      ? 'No members, no default'
-      : 'All gated, no default';
-  const Icon = icon;
+      ? 'No members'
+      : 'All gated';
   return (
-    <div className="flex items-center gap-2.5 rounded-md border border-slate-200 bg-white/70 px-2 py-1.5">
-      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-        <Icon className="h-3.5 w-3.5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500 leading-tight">
-          {upNext.reason === 'MANUAL' ? 'Not auto-assigned' : 'Unassigned Pool'}
-        </p>
-        <p className="text-sm font-medium text-slate-700 truncate">{label}</p>
-      </div>
-    </div>
-  );
-}
-
-function Avatar({
-  name,
-  tone,
-}: {
-  name: string;
-  tone: 'blue' | 'amber';
-}) {
-  const cls =
-    tone === 'blue'
-      ? 'bg-blue-100 text-blue-700 ring-blue-200'
-      : 'bg-amber-100 text-amber-700 ring-amber-200';
-  return (
-    <div
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ring-1 ${cls}`}
-      aria-hidden="true"
-    >
-      {initialsOf(name)}
-    </div>
+    <span className="inline-flex items-center gap-1.5 shrink-0 text-slate-500">
+      <Icon className="h-3.5 w-3.5" />
+      <span className="text-[11px] font-medium">{label}</span>
+    </span>
   );
 }
