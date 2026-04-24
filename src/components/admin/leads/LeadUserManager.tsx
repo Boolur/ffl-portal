@@ -97,7 +97,8 @@ const USER_COLUMNS: Array<{
     minWidth: 90,
     align: 'center',
     sortable: true,
-    title: 'Daily / Weekly / Monthly global quotas. "—" = unlimited.',
+    title:
+      'Daily / Weekly / Monthly effective caps. Uses the global cap when set; otherwise sums the user\'s campaign quotas. "—" = unlimited.',
   },
   { id: 'today', label: 'Today', defaultWidth: 72, minWidth: 60, align: 'right', sortable: true },
   { id: 'week', label: 'Week', defaultWidth: 72, minWidth: 60, align: 'right', sortable: true },
@@ -111,10 +112,41 @@ const LOCKED_FIRST_USER_COL: UserColumnId = 'name';
 
 const USER_DEFAULT_ORDER: UserColumnId[] = USER_COLUMNS.map((c) => c.id);
 
-function formatQuotaPart(n: number): string {
-  // 0 = unlimited by product convention; show em-dash so the row still
-  // visually aligns with columns that do have a value.
-  return n > 0 ? String(n) : '—';
+/**
+ * Effective per-user cap for one time window (daily / weekly / monthly).
+ *
+ * Mirrors the distributor's precedence rules:
+ *   1. If the user has a global cap set (> 0), that wins — it's enforced
+ *      across all campaigns so it's the real ceiling.
+ *   2. Otherwise we fall back to the sum of the user's per-campaign
+ *      quotas. If *any* campaign is unlimited (0), the aggregate is
+ *      unlimited too.
+ *   3. With no campaigns at all, "unlimited" is the neutral answer.
+ */
+function computeEffectiveQuota(
+  globalQuota: number,
+  memberships: Membership[],
+  pick: (m: Membership) => number
+): number | 'unlimited' {
+  if (globalQuota > 0) return globalQuota;
+  if (memberships.length === 0) return 'unlimited';
+  let total = 0;
+  for (const m of memberships) {
+    const q = pick(m);
+    if (q === 0) return 'unlimited';
+    total += q;
+  }
+  return total;
+}
+
+function formatQuotaPart(q: number | 'unlimited'): string {
+  return q === 'unlimited' ? '—' : String(q);
+}
+
+// Numeric representation used for sorting the Quotas column. Unlimited
+// bubbles to the top when sorted desc (matches "biggest cap wins" intuition).
+function quotaSortValue(q: number | 'unlimited'): number {
+  return q === 'unlimited' ? Number.MAX_SAFE_INTEGER : q;
 }
 
 function getUserColumnSortValue(u: LeadUser, id: UserSortKey): string | number {
@@ -132,9 +164,11 @@ function getUserColumnSortValue(u: LeadUser, id: UserSortKey): string | number {
     case 'campaigns':
       return u.campaignCount;
     case 'quotas':
-      // Sort by daily quota; treat 0 (unlimited) as a very large number so
-      // unlimited users bubble to the top when sorted desc.
-      return u.globalDailyQuota > 0 ? u.globalDailyQuota : Number.MAX_SAFE_INTEGER;
+      // Sort by effective daily cap (global if set, else sum of
+      // campaign quotas; unlimited floats to the top when desc).
+      return quotaSortValue(
+        computeEffectiveQuota(u.globalDailyQuota, u.memberships, (m) => m.dailyQuota)
+      );
     case 'today':
       return u.leadsToday;
     case 'week':
@@ -483,16 +517,32 @@ function renderUserCell(id: UserColumnId, u: LeadUser): React.ReactNode {
       return u.licensedStates.length > 0 ? u.licensedStates.join(', ') : 'All';
     case 'campaigns':
       return u.campaignCount;
-    case 'quotas':
+    case 'quotas': {
+      const daily = computeEffectiveQuota(
+        u.globalDailyQuota,
+        u.memberships,
+        (m) => m.dailyQuota
+      );
+      const weekly = computeEffectiveQuota(
+        u.globalWeeklyQuota,
+        u.memberships,
+        (m) => m.weeklyQuota
+      );
+      const monthly = computeEffectiveQuota(
+        u.globalMonthlyQuota,
+        u.memberships,
+        (m) => m.monthlyQuota
+      );
       return (
         <span className="whitespace-nowrap">
-          {formatQuotaPart(u.globalDailyQuota)}
+          {formatQuotaPart(daily)}
           <span className="text-slate-300 mx-0.5">/</span>
-          {formatQuotaPart(u.globalWeeklyQuota)}
+          {formatQuotaPart(weekly)}
           <span className="text-slate-300 mx-0.5">/</span>
-          {formatQuotaPart(u.globalMonthlyQuota)}
+          {formatQuotaPart(monthly)}
         </span>
       );
+    }
     case 'today':
       return <UserCountCell value={u.leadsToday} />;
     case 'week':
