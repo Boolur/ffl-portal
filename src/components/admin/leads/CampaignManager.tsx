@@ -18,6 +18,8 @@ import { FormatDate } from '@/components/ui/FormatDate';
 
 type Vendor = { id: string; name: string; slug: string };
 type EligibleUser = { id: string; name: string; email: string; role: string };
+type GroupRef = { id: string; name: string; color: string };
+type GroupOption = { id: string; name: string; color: string; active: boolean };
 type Campaign = {
   id: string;
   name: string;
@@ -35,6 +37,8 @@ type Campaign = {
   loanTypeFilter: string[];
   vendor: { id: string; name: string; slug: string };
   defaultUser: { id: string; name: string } | null;
+  group?: GroupRef | null;
+  groupId?: string | null;
   _count: { members: number; leads: number };
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -61,6 +65,9 @@ type Props = {
   campaigns: Campaign[];
   vendors: Vendor[];
   users: EligibleUser[];
+  groups?: GroupOption[];
+  filterGroupId?: string | null;
+  onChangeFilterGroupId?: (id: string | null) => void;
   campaignDetail?: CampaignDetail | null;
 };
 
@@ -78,6 +85,7 @@ type FormState = {
   stateFilter: string;
   loanTypeFilter: string;
   memberUserIds: string[];
+  groupId: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -94,7 +102,26 @@ const EMPTY_FORM: FormState = {
   stateFilter: '',
   loanTypeFilter: '',
   memberUserIds: [],
+  groupId: '',
 };
+
+// Palette for the Group column dot. Kept in sync with GROUP_COLOR_CLASSES
+// in CampaignGroupManager; this small map avoids pulling the full client
+// component just to render a 0.5rem dot.
+const GROUP_DOT_COLOR: Record<string, string> = {
+  blue: 'bg-blue-500',
+  violet: 'bg-violet-500',
+  emerald: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  rose: 'bg-rose-500',
+  cyan: 'bg-cyan-500',
+  fuchsia: 'bg-fuchsia-500',
+  slate: 'bg-slate-500',
+};
+function groupDotClass(color?: string | null) {
+  if (!color) return 'bg-slate-300';
+  return GROUP_DOT_COLOR[color] ?? 'bg-slate-400';
+}
 
 function InfoTip({ text }: { text: string }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -131,7 +158,14 @@ function InfoTip({ text }: { text: string }) {
   );
 }
 
-export function CampaignManager({ campaigns, vendors, users }: Props) {
+export function CampaignManager({
+  campaigns,
+  vendors,
+  users,
+  groups = [],
+  filterGroupId = null,
+  onChangeFilterGroupId,
+}: Props) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingCampaign, setDeletingCampaign] = useState<Campaign | null>(null);
@@ -197,6 +231,15 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
     let list = campaigns;
     if (!showArchived) list = list.filter((c) => c.active);
     if (filterVendor) list = list.filter((c) => c.vendorId === filterVendor);
+    if (filterGroupId !== null) {
+      // "__none__" is the sentinel for "campaigns with no group". Any
+      // other id means match that specific group only.
+      if (filterGroupId === '__none__') {
+        list = list.filter((c) => !c.groupId);
+      } else {
+        list = list.filter((c) => c.groupId === filterGroupId);
+      }
+    }
     if (campaignSearch) {
       const q = campaignSearch.toLowerCase();
       list = list.filter(
@@ -204,7 +247,8 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
           c.name.toLowerCase().includes(q) ||
           c.routingTag.toLowerCase().includes(q) ||
           c.vendor.name.toLowerCase().includes(q) ||
-          (c.description && c.description.toLowerCase().includes(q))
+          (c.description && c.description.toLowerCase().includes(q)) ||
+          (c.group?.name && c.group.name.toLowerCase().includes(q))
       );
     }
 
@@ -213,6 +257,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
       switch (sortCol) {
         case 'name': cmp = a.name.localeCompare(b.name); break;
         case 'vendor': cmp = a.vendor.name.localeCompare(b.vendor.name); break;
+        case 'group': cmp = (a.group?.name || '').localeCompare(b.group?.name || ''); break;
         case 'tag': cmp = a.routingTag.localeCompare(b.routingTag); break;
         case 'members': cmp = a._count.members - b._count.members; break;
         case 'leads': cmp = a._count.leads - b._count.leads; break;
@@ -226,7 +271,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [campaigns, filterVendor, campaignSearch, sortCol, sortDir, showArchived]);
+  }, [campaigns, filterVendor, filterGroupId, campaignSearch, sortCol, sortDir, showArchived]);
 
   const filteredUsers = useMemo(() => {
     if (!userSearch) return users;
@@ -257,6 +302,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
       stateFilter: c.stateFilter.join(', '),
       loanTypeFilter: c.loanTypeFilter.join(', '),
       memberUserIds: detail?.members.map((m) => m.userId) || [],
+      groupId: c.groupId || '',
     });
     setEditingId(c.id);
     setIsCreating(false);
@@ -285,6 +331,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
         defaultUserId: form.defaultUserId || undefined,
         stateFilter: form.stateFilter ? form.stateFilter.split(',').map((s) => s.trim()).filter(Boolean) : [],
         loanTypeFilter: form.loanTypeFilter ? form.loanTypeFilter.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        groupId: form.groupId ? form.groupId : null,
       };
 
       if (isCreating) {
@@ -383,6 +430,24 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
               <option key={v.id} value={v.id}>{v.name}</option>
             ))}
           </select>
+          {groups.length > 0 && onChangeFilterGroupId && (
+            <select
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              value={filterGroupId ?? ''}
+              onChange={(e) => onChangeFilterGroupId(e.target.value || null)}
+              title="Filter by group"
+            >
+              <option value="">All Groups</option>
+              <option value="__none__">No group</option>
+              {groups
+                .filter((g) => g.active)
+                .map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+            </select>
+          )}
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
             {filtered.length} campaign{filtered.length !== 1 ? 's' : ''}
           </span>
@@ -433,6 +498,7 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                   { key: 'status', label: 'Status', align: 'left' },
                   { key: 'name', label: 'Campaign', align: 'left' },
                   { key: 'vendor', label: 'Vendor', align: 'left' },
+                  { key: 'group', label: 'Group', align: 'left' },
                   { key: 'tag', label: 'Routing Tag', align: 'left' },
                   { key: 'members', label: 'Members', align: 'center' },
                   { key: 'leads', label: 'Leads', align: 'center' },
@@ -491,6 +557,16 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                     {c.description && <p className="text-xs text-slate-500 mt-0.5 max-w-xs truncate">{c.description}</p>}
                   </td>
                   <td className="px-4 py-3 text-slate-600">{c.vendor.name}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {c.group ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className={`inline-block h-2 w-2 rounded-full ${groupDotClass(c.group.color)}`} />
+                        <span className="truncate">{c.group.name}</span>
+                      </span>
+                    ) : (
+                      <span className="text-slate-300">&mdash;</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.routingTag}</td>
                   <td className="px-4 py-3 text-center text-slate-700">{c._count.members}</td>
                   <td className="px-4 py-3 text-center text-slate-700">{c._count.leads}</td>
@@ -606,6 +682,25 @@ export function CampaignManager({ campaigns, vendors, users }: Props) {
                       onChange={(e) => setForm((p) => ({ ...p, routingTag: e.target.value }))}
                       placeholder="927726"
                     />
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <label className="space-y-1 text-sm">
+                    <span className="font-medium text-slate-700">Group<InfoTip text="Optional. Bundles this campaign with related ones so admins can filter, sort, and bulk-assign users at the group level." /></span>
+                    <select
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      value={form.groupId}
+                      onChange={(e) => setForm((p) => ({ ...p, groupId: e.target.value }))}
+                    >
+                      <option value="">(no group)</option>
+                      {groups
+                        .filter((g) => g.active)
+                        .map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name}
+                          </option>
+                        ))}
+                    </select>
                   </label>
                 </div>
               </div>

@@ -512,6 +512,7 @@ export async function getLeadCampaigns() {
       include: {
         vendor: { select: { id: true, name: true, slug: true } },
         defaultUser: { select: { id: true, name: true } },
+        group: { select: { id: true, name: true, color: true } },
         _count: { select: { members: true, leads: true } },
       },
     }),
@@ -567,6 +568,7 @@ export async function createLeadCampaign(data: {
   defaultUserId?: string;
   stateFilter?: string[];
   loanTypeFilter?: string[];
+  groupId?: string | null;
 }) {
   const campaign = await prisma.leadCampaign.create({
     data: {
@@ -582,6 +584,7 @@ export async function createLeadCampaign(data: {
       defaultUserId: data.defaultUserId || null,
       stateFilter: data.stateFilter || [],
       loanTypeFilter: data.loanTypeFilter || [],
+      groupId: data.groupId ?? null,
     },
   });
   revalidatePath('/admin/leads/campaigns');
@@ -604,6 +607,7 @@ export async function updateLeadCampaign(
     defaultUserId?: string | null;
     stateFilter?: string[];
     loanTypeFilter?: string[];
+    groupId?: string | null;
   }
 ) {
   const campaign = await prisma.leadCampaign.update({ where: { id }, data });
@@ -809,6 +813,273 @@ export async function setCampaignMembers(
 
   revalidatePath('/admin/leads/campaigns');
   revalidatePath('/admin/leads/users');
+}
+
+// ---------------------------------------------------------------------------
+// Lead Campaign Groups
+// ---------------------------------------------------------------------------
+
+// Palette keys accepted for a group's accent color. Keep in sync with the
+// chip palette rendered by CampaignGroupManager. Unknown values fall back
+// to 'blue' at render time.
+const ALLOWED_GROUP_COLORS = [
+  'blue',
+  'violet',
+  'emerald',
+  'amber',
+  'rose',
+  'cyan',
+  'fuchsia',
+  'slate',
+] as const;
+type LeadCampaignGroupColor = (typeof ALLOWED_GROUP_COLORS)[number];
+
+function normalizeGroupColor(color: string | undefined | null): LeadCampaignGroupColor {
+  if (color && (ALLOWED_GROUP_COLORS as readonly string[]).includes(color)) {
+    return color as LeadCampaignGroupColor;
+  }
+  return 'blue';
+}
+
+export async function getLeadCampaignGroups() {
+  const groups = await prisma.leadCampaignGroup.findMany({
+    orderBy: [{ active: 'desc' }, { name: 'asc' }],
+    include: {
+      _count: { select: { campaigns: true } },
+      campaigns: {
+        where: { active: true },
+        select: { id: true, _count: { select: { members: true } } },
+      },
+    },
+  });
+  // memberAssignments = total CampaignMember rows across the group's active
+  // campaigns. Not deduped on userId because Prisma can't easily count
+  // distinct joined users without a raw query; the chip label makes the
+  // semantics clear ("N assignments") so dupes are acceptable.
+  return groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    description: g.description,
+    color: g.color,
+    active: g.active,
+    createdAt: g.createdAt,
+    updatedAt: g.updatedAt,
+    campaignCount: g._count.campaigns,
+    memberAssignments: g.campaigns.reduce(
+      (sum, c) => sum + c._count.members,
+      0
+    ),
+  }));
+}
+
+export async function getLeadCampaignGroup(id: string) {
+  return prisma.leadCampaignGroup.findUnique({
+    where: { id },
+    include: {
+      campaigns: {
+        orderBy: [{ active: 'desc' }, { name: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          active: true,
+          routingTag: true,
+          vendor: { select: { id: true, name: true } },
+          _count: { select: { members: true, leads: true } },
+        },
+      },
+    },
+  });
+}
+
+export async function createLeadCampaignGroup(data: {
+  name: string;
+  description?: string | null;
+  color?: string;
+}) {
+  const name = data.name.trim();
+  if (!name) throw new Error('Group name is required');
+  const group = await prisma.leadCampaignGroup.create({
+    data: {
+      name,
+      description: data.description?.trim() || null,
+      color: normalizeGroupColor(data.color),
+    },
+  });
+  revalidatePath('/admin/leads/campaigns');
+  return group;
+}
+
+export async function updateLeadCampaignGroup(
+  id: string,
+  data: { name?: string; description?: string | null; color?: string }
+) {
+  const patch: Record<string, unknown> = {};
+  if (typeof data.name === 'string') {
+    const trimmed = data.name.trim();
+    if (!trimmed) throw new Error('Group name cannot be empty');
+    patch.name = trimmed;
+  }
+  if (data.description !== undefined) {
+    patch.description = data.description?.trim() || null;
+  }
+  if (typeof data.color === 'string') {
+    patch.color = normalizeGroupColor(data.color);
+  }
+  const group = await prisma.leadCampaignGroup.update({ where: { id }, data: patch });
+  revalidatePath('/admin/leads/campaigns');
+  return group;
+}
+
+export async function archiveLeadCampaignGroup(id: string) {
+  const group = await prisma.leadCampaignGroup.update({
+    where: { id },
+    data: { active: false },
+  });
+  revalidatePath('/admin/leads/campaigns');
+  return group;
+}
+
+export async function restoreLeadCampaignGroup(id: string) {
+  const group = await prisma.leadCampaignGroup.update({
+    where: { id },
+    data: { active: true },
+  });
+  revalidatePath('/admin/leads/campaigns');
+  return group;
+}
+
+/**
+ * Hard-deletes a group. Campaigns that were in this group are preserved
+ * (FK is ON DELETE SET NULL). Requires the caller to pass the exact name
+ * as a typo guard, mirroring hardDeleteLeadCampaign.
+ */
+export async function hardDeleteLeadCampaignGroup(id: string, confirmName: string) {
+  const group = await prisma.leadCampaignGroup.findUnique({ where: { id } });
+  if (!group) throw new Error('Group not found');
+  if (confirmName.trim() !== group.name) {
+    throw new Error('Confirmation name does not match group name');
+  }
+  await prisma.leadCampaignGroup.delete({ where: { id } });
+  revalidatePath('/admin/leads/campaigns');
+}
+
+/**
+ * Sets the exact set of campaigns that belong to a group. Any campaign
+ * previously in the group that isn't in `campaignIds` has its groupId
+ * cleared; any campaign in `campaignIds` has its groupId set to this
+ * group. Runs as a single transaction so the group membership is never
+ * half-applied.
+ */
+export async function setGroupCampaigns(
+  groupId: string,
+  campaignIds: string[]
+) {
+  const group = await prisma.leadCampaignGroup.findUnique({
+    where: { id: groupId },
+    select: { id: true },
+  });
+  if (!group) throw new Error('Group not found');
+
+  const targetIds = Array.from(new Set(campaignIds));
+
+  await prisma.$transaction([
+    // Clear any campaigns currently in this group that aren't in the new set.
+    prisma.leadCampaign.updateMany({
+      where: {
+        groupId,
+        ...(targetIds.length > 0 ? { id: { notIn: targetIds } } : {}),
+      },
+      data: { groupId: null },
+    }),
+    // Assign the new set to this group. Safe to set groupId unconditionally;
+    // even campaigns already in this group are a no-op.
+    ...(targetIds.length > 0
+      ? [
+          prisma.leadCampaign.updateMany({
+            where: { id: { in: targetIds } },
+            data: { groupId },
+          }),
+        ]
+      : []),
+  ]);
+
+  revalidatePath('/admin/leads/campaigns');
+}
+
+/**
+ * Merge-only bulk user add. For every campaign in the group, adds each
+ * `userId` as a CampaignMember if they aren't already a member. Existing
+ * members, quotas, and roundRobinPosition are left untouched. Duplicate
+ * inserts are prevented by the unique (campaignId, userId) constraint
+ * plus a pre-check per campaign.
+ *
+ * Returns a summary so the UI can tell the admin how many new assignments
+ * were created.
+ */
+export async function addUsersToGroupCampaigns(
+  groupId: string,
+  userIds: string[]
+): Promise<{
+  campaignCount: number;
+  userCount: number;
+  totalAdded: number;
+  skippedAlreadyMember: number;
+}> {
+  if (userIds.length === 0) {
+    return { campaignCount: 0, userCount: 0, totalAdded: 0, skippedAlreadyMember: 0 };
+  }
+  const group = await prisma.leadCampaignGroup.findUnique({
+    where: { id: groupId },
+    include: {
+      campaigns: {
+        select: {
+          id: true,
+          members: { select: { userId: true, roundRobinPosition: true } },
+        },
+      },
+    },
+  });
+  if (!group) throw new Error('Group not found');
+
+  const uniqueUserIds = Array.from(new Set(userIds));
+  const operations: Array<ReturnType<typeof prisma.campaignMember.create>> = [];
+  let totalAdded = 0;
+  let skipped = 0;
+
+  for (const campaign of group.campaigns) {
+    const existingUserIds = new Set(campaign.members.map((m) => m.userId));
+    let maxPos = campaign.members.reduce(
+      (max, m) => Math.max(max, m.roundRobinPosition),
+      -1
+    );
+    for (const userId of uniqueUserIds) {
+      if (existingUserIds.has(userId)) {
+        skipped += 1;
+        continue;
+      }
+      maxPos += 1;
+      operations.push(
+        prisma.campaignMember.create({
+          data: { campaignId: campaign.id, userId, roundRobinPosition: maxPos },
+        })
+      );
+      totalAdded += 1;
+    }
+  }
+
+  if (operations.length > 0) {
+    await prisma.$transaction(operations);
+  }
+
+  revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/leads/users');
+
+  return {
+    campaignCount: group.campaigns.length,
+    userCount: uniqueUserIds.length,
+    totalAdded,
+    skippedAlreadyMember: skipped,
+  };
 }
 
 // ---------------------------------------------------------------------------

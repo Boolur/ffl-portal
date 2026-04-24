@@ -2,17 +2,23 @@ import React from 'react';
 import Link from 'next/link';
 import { Megaphone } from 'lucide-react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
-import { CampaignManager } from '@/components/admin/leads/CampaignManager';
+import { CampaignsPageClient } from '@/components/admin/leads/CampaignsPageClient';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getLeadCampaigns, getLeadVendors, getLeadEligibleUsers } from '@/app/actions/leadActions';
+import {
+  getLeadCampaigns,
+  getLeadVendors,
+  getLeadEligibleUsers,
+  getLeadCampaignGroups,
+} from '@/app/actions/leadActions';
 
 export default async function CampaignsPage() {
   const session = await getServerSession(authOptions);
-  const [campaigns, vendors, users] = await Promise.all([
+  const [campaigns, vendors, users, groups] = await Promise.all([
     getLeadCampaigns(),
     getLeadVendors(),
     getLeadEligibleUsers(),
+    getLeadCampaignGroups(),
   ]);
 
   const user = {
@@ -36,12 +42,11 @@ export default async function CampaignsPage() {
           </div>
         </div>
       </div>
-      <CampaignManager
-        campaigns={campaigns.map((c) => ({
-          ...c,
-        }))}
+      <CampaignsPageClient
+        campaigns={campaigns.map((c) => ({ ...c }))}
         vendors={vendors.map((v) => ({ id: v.id, name: v.name, slug: v.slug }))}
         users={users}
+        groups={groups}
       />
     </DashboardShell>
   );

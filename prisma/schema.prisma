@@ -552,6 +552,9 @@ model LeadCampaign {
   defaultUserId       String?
   defaultUser         User?                  @relation("CampaignDefaultUser", fields: [defaultUserId], references: [id], onDelete: SetNull)
 
+  groupId             String?
+  group               LeadCampaignGroup?     @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
   stateFilter         String[]               @default([])
   loanTypeFilter      String[]               @default([])
 
@@ -563,6 +566,22 @@ model LeadCampaign {
 
   @@unique([vendorId, routingTag])
   @@index([vendorId])
+  @@index([active])
+  @@index([groupId])
+}
+
+model LeadCampaignGroup {
+  id          String         @id @default(uuid())
+  name        String
+  description String?
+  color       String         @default("blue")
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  campaigns   LeadCampaign[]
+
+  @@unique([name])
   @@index([active])
 }
 
