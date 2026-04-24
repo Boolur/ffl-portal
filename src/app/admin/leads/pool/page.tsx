@@ -5,13 +5,18 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LeadPool } from '@/components/admin/leads/LeadPool';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getLeads, getLeadEligibleUsers } from '@/app/actions/leadActions';
+import {
+  getLeads,
+  getLeadEligibleUsers,
+  getAllCampaignsForUserAdd,
+} from '@/app/actions/leadActions';
 
 export default async function PoolPage() {
   const session = await getServerSession(authOptions);
-  const [{ leads }, users] = await Promise.all([
+  const [{ leads }, users, campaigns] = await Promise.all([
     getLeads({ status: 'UNASSIGNED' as never, take: 200 }),
     getLeadEligibleUsers(),
+    getAllCampaignsForUserAdd(),
   ]);
 
   const user = {
@@ -41,6 +46,11 @@ export default async function PoolPage() {
           receivedAt: l.receivedAt.toISOString(),
         }))}
         users={users.map((u) => ({ id: u.id, name: u.name }))}
+        campaigns={campaigns.map((c) => ({
+          id: c.id,
+          name: c.name,
+          vendorName: c.vendor.name,
+        }))}
       />
     </DashboardShell>
   );

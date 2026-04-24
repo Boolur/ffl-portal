@@ -1559,6 +1559,77 @@ export async function bulkAssignLeads(leadIds: string[], userId: string) {
   revalidatePath('/admin/leads/all');
 }
 
+/**
+ * Move a batch of unassigned leads onto a different vendor/campaign.
+ *
+ * Used from the Unassigned Lead Pool when an admin realizes a lead was
+ * ingested under the wrong routing (e.g. wrong webhook URL) and wants
+ * to redirect it before distribution happens.
+ *
+ * Picking a campaign is enough to set both fields - the chosen campaign's
+ * vendor is what we write to `lead.vendorId`, keeping the pair
+ * internally consistent (same rule `reassignCampaignLeads` already
+ * relies on).
+ *
+ * Scope is intentionally limited to `UNASSIGNED` leads:
+ *   - prevents accidentally rewriting routing on leads that already went
+ *     out to a loan officer / Bonzo,
+ *   - avoids having to re-forward to Bonzo or re-run quota counters.
+ */
+export async function bulkReassignLeadsToCampaign(
+  leadIds: string[],
+  campaignId: string
+): Promise<{ count: number; vendorName: string; campaignName: string }> {
+  if (leadIds.length === 0) {
+    throw new Error('No leads selected');
+  }
+  if (!campaignId) {
+    throw new Error('No campaign selected');
+  }
+
+  const campaign = await prisma.leadCampaign.findUnique({
+    where: { id: campaignId },
+    select: {
+      id: true,
+      name: true,
+      active: true,
+      vendor: { select: { id: true, name: true } },
+    },
+  });
+
+  if (!campaign) {
+    throw new Error('Selected campaign not found');
+  }
+  if (!campaign.active) {
+    // Let the admin reroute to archived campaigns in case they're
+    // rebuilding history, but surface the intent explicitly so the
+    // frontend can confirm.
+    // (Soft-block omitted: the pool UI never shows archived campaigns
+    // in its picker, so reaching this branch implies a direct API call.)
+  }
+
+  const result = await prisma.lead.updateMany({
+    where: {
+      id: { in: leadIds },
+      status: LeadStatus.UNASSIGNED,
+    },
+    data: {
+      vendorId: campaign.vendor.id,
+      campaignId: campaign.id,
+    },
+  });
+
+  revalidatePath('/admin/leads/pool');
+  revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/all');
+
+  return {
+    count: result.count,
+    vendorName: campaign.vendor.name,
+    campaignName: campaign.name,
+  };
+}
+
 export async function bulkUpdateLeadStatus(
   leadIds: string[],
   status: LeadStatus

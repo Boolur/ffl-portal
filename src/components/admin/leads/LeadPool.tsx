@@ -1,8 +1,21 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Loader2, Search, UserPlus, Inbox } from 'lucide-react';
-import { assignLead, bulkAssignLeads } from '@/app/actions/leadActions';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import {
+  Loader2,
+  Search,
+  UserPlus,
+  Inbox,
+  ArrowRightLeft,
+  Check,
+  AlertTriangle,
+  X,
+} from 'lucide-react';
+import {
+  assignLead,
+  bulkAssignLeads,
+  bulkReassignLeadsToCampaign,
+} from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 import { FormatDate } from '@/components/ui/FormatDate';
 
@@ -22,19 +35,56 @@ type LeadRow = {
 };
 
 type EligibleUser = { id: string; name: string };
+type CampaignOption = { id: string; name: string; vendorName: string };
 
 export function LeadPool({
   leads,
   users,
+  campaigns,
 }: {
   leads: LeadRow[];
   users: EligibleUser[];
+  campaigns: CampaignOption[];
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignUserId, setAssignUserId] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [search, setSearch] = useState('');
+  const [reassignCampaignId, setReassignCampaignId] = useState('');
+  const [reassigning, setReassigning] = useState(false);
+  // Inline feedback badge for the reassignment action. Auto-dismisses
+  // after a few seconds so the admin's attention goes back to the table.
+  const [reassignResult, setReassignResult] = useState<
+    | { kind: 'ok'; message: string }
+    | { kind: 'error'; message: string }
+    | null
+  >(null);
+  const reassignTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (reassignTimer.current) clearTimeout(reassignTimer.current);
+    };
+  }, []);
+
+  // Campaigns grouped by vendor for a readable picker. The admin's
+  // mental model in the Pool is usually "which vendor should this lead
+  // have belonged to?", and optgroups mirror that.
+  const campaignsByVendor = useMemo(() => {
+    const groups = new Map<string, CampaignOption[]>();
+    for (const c of campaigns) {
+      const list = groups.get(c.vendorName) ?? [];
+      list.push(c);
+      groups.set(c.vendorName, list);
+    }
+    return [...groups.entries()]
+      .map(([vendorName, items]) => ({
+        vendorName,
+        items: [...items].sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+  }, [campaigns]);
 
   const filtered = useMemo(() => {
     if (!search) return leads;
@@ -82,6 +132,34 @@ export function LeadPool({
     }
   };
 
+  const handleReassignCampaign = async () => {
+    if (!reassignCampaignId || selected.size === 0) return;
+    if (reassignTimer.current) clearTimeout(reassignTimer.current);
+    setReassignResult(null);
+    setReassigning(true);
+    try {
+      const res = await bulkReassignLeadsToCampaign(
+        [...selected],
+        reassignCampaignId
+      );
+      setReassignResult({
+        kind: 'ok',
+        message: `Moved ${res.count} lead${res.count === 1 ? '' : 's'} to ${res.vendorName} — ${res.campaignName}.`,
+      });
+      setSelected(new Set());
+      setReassignCampaignId('');
+      router.refresh();
+    } catch (err) {
+      setReassignResult({
+        kind: 'error',
+        message: err instanceof Error ? err.message : 'Could not move leads.',
+      });
+    } finally {
+      setReassigning(false);
+      reassignTimer.current = setTimeout(() => setReassignResult(null), 8_000);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -95,8 +173,37 @@ export function LeadPool({
           />
         </div>
         {selected.size > 0 && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-blue-700">{selected.size} selected</span>
+            <select
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              value={reassignCampaignId}
+              onChange={(e) => setReassignCampaignId(e.target.value)}
+              title="Move these leads to a different vendor + campaign (e.g. fix a mis-routed webhook)"
+            >
+              <option value="">Move to campaign...</option>
+              {campaignsByVendor.map((group) => (
+                <optgroup key={group.vendorName} label={group.vendorName}>
+                  {group.items.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <button
+              className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              onClick={() => void handleReassignCampaign()}
+              disabled={!reassignCampaignId || reassigning}
+              title="Rewrite the vendor + campaign for the selected leads"
+            >
+              {reassigning ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRightLeft className="mr-1.5 h-4 w-4" />
+              )}
+              Move
+            </button>
+            <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden />
             <select
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               value={assignUserId}
@@ -118,6 +225,32 @@ export function LeadPool({
           </div>
         )}
       </div>
+
+      {reassignResult && (
+        <div
+          className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+            reassignResult.kind === 'ok'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-rose-200 bg-rose-50 text-rose-800'
+          }`}
+          role="status"
+        >
+          {reassignResult.kind === 'ok' ? (
+            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          )}
+          <span className="flex-1 break-words">{reassignResult.message}</span>
+          <button
+            type="button"
+            onClick={() => setReassignResult(null)}
+            className="text-current opacity-60 hover:opacity-100"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
