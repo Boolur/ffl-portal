@@ -11,6 +11,14 @@ import {
   postBonzoPayload,
   type BonzoLeadLike,
 } from '@/lib/bonzoForward';
+import {
+  evaluateMember,
+  findNextEligibleMember,
+  type GauntletCampaign,
+  type GauntletGlobalQuota,
+  type GauntletMember,
+  type NextUpResult,
+} from '@/lib/leadDistribution';
 
 const CSV_VENDOR_SLUG = 'csv-upload';
 
@@ -53,38 +61,55 @@ export async function distributeLead(leadId: string) {
   }
 
   const leadState = (lead.propertyState || '').trim().toUpperCase();
-
   const currentDayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon...6=Sat
 
+  // Batch-load the global quotas for every candidate so the gauntlet
+  // helper can run without per-iteration DB hits.
+  const userIds = members.map((m) => m.userId);
+  const globalQuotaRows = await prisma.userLeadQuota.findMany({
+    where: { userId: { in: userIds } },
+  });
+  const globalQuotaByUserId = new Map(globalQuotaRows.map((q) => [q.userId, q]));
+
+  const gauntletCampaign: GauntletCampaign = {
+    distributionMethod: campaign.distributionMethod,
+    enableUserQuotas: campaign.enableUserQuotas,
+    defaultUserId: campaign.defaultUserId,
+    defaultUserName: null,
+  };
+  const ctx = { leadState, dayOfWeek: currentDayOfWeek };
+
   for (const member of members) {
-    const globalQuota = await prisma.userLeadQuota.findUnique({
-      where: { userId: member.userId },
-    });
-
-    if (globalQuota && !globalQuota.leadsEnabled) continue;
-
-    if (globalQuota && globalQuota.licensedStates.length > 0 && leadState) {
-      const globalStates = globalQuota.licensedStates.map((s) => s.trim().toUpperCase());
-      if (!globalStates.includes(leadState)) continue;
-    }
-
-    if (member.licensedStates.length > 0 && leadState) {
-      const upperStates = member.licensedStates.map((s) => s.trim().toUpperCase());
-      if (!upperStates.includes(leadState)) continue;
-    }
-
-    if (member.receiveDays.length > 0 && !member.receiveDays.includes(currentDayOfWeek)) continue;
-
-    if (campaign.enableUserQuotas) {
-      if (member.dailyQuota > 0 && member.leadsReceivedToday >= member.dailyQuota) continue;
-      if (member.weeklyQuota > 0 && member.leadsReceivedThisWeek >= member.weeklyQuota) continue;
-      if (member.monthlyQuota > 0 && member.leadsReceivedThisMonth >= member.monthlyQuota) continue;
-    }
-
-    if (globalQuota) {
-      if (globalQuota.globalDailyQuota > 0 && globalQuota.leadsReceivedToday >= globalQuota.globalDailyQuota) continue;
-      if (globalQuota.globalWeeklyQuota > 0 && globalQuota.leadsReceivedThisWeek >= globalQuota.globalWeeklyQuota) continue;
-      if (globalQuota.globalMonthlyQuota > 0 && globalQuota.leadsReceivedThisMonth >= globalQuota.globalMonthlyQuota) continue;
+    const globalQuota = globalQuotaByUserId.get(member.userId) ?? null;
+    const gauntletMember: GauntletMember = {
+      id: member.id,
+      userId: member.userId,
+      userName: '',
+      roundRobinPosition: member.roundRobinPosition,
+      active: member.active,
+      licensedStates: member.licensedStates,
+      receiveDays: member.receiveDays,
+      dailyQuota: member.dailyQuota,
+      weeklyQuota: member.weeklyQuota,
+      monthlyQuota: member.monthlyQuota,
+      leadsReceivedToday: member.leadsReceivedToday,
+      leadsReceivedThisWeek: member.leadsReceivedThisWeek,
+      leadsReceivedThisMonth: member.leadsReceivedThisMonth,
+    };
+    const gauntletQuota: GauntletGlobalQuota | null = globalQuota
+      ? {
+          leadsEnabled: globalQuota.leadsEnabled,
+          licensedStates: globalQuota.licensedStates,
+          globalDailyQuota: globalQuota.globalDailyQuota,
+          globalWeeklyQuota: globalQuota.globalWeeklyQuota,
+          globalMonthlyQuota: globalQuota.globalMonthlyQuota,
+          leadsReceivedToday: globalQuota.leadsReceivedToday,
+          leadsReceivedThisWeek: globalQuota.leadsReceivedThisWeek,
+          leadsReceivedThisMonth: globalQuota.leadsReceivedThisMonth,
+        }
+      : null;
+    if (evaluateMember(gauntletCampaign, gauntletMember, gauntletQuota, ctx) !== null) {
+      continue;
     }
 
     const maxPos = members.reduce((max, m) => Math.max(max, m.roundRobinPosition), 0);
@@ -544,6 +569,114 @@ export async function getLeadCampaigns() {
     totalDailyQuota: quotaMap.get(c.id) ?? 0,
     avgLeads5bd: Math.round(((recentMap.get(c.id) ?? 0) / 5) * 10) / 10,
   }));
+}
+
+export type CampaignNextUpRow = {
+  campaignId: string;
+  campaignName: string;
+  vendorId: string;
+  vendorSlug: string;
+  vendorName: string;
+  groupId: string | null;
+  distributionMethod: string;
+  active: boolean;
+  memberCount: number;
+  upNext: NextUpResult;
+};
+
+/**
+ * Builds the "Up Next" roster shown on /admin/leads/campaigns. For every
+ * active campaign, runs the same eligibility gauntlet distributeLead uses,
+ * except with leadState=null (we're forecasting without a specific lead).
+ *
+ * Two Prisma queries total regardless of campaign count, so this is safe
+ * to poll every 30s from the client.
+ */
+export async function getCampaignNextUpRoster(): Promise<CampaignNextUpRow[]> {
+  const campaigns = await prisma.leadCampaign.findMany({
+    where: { active: true },
+    orderBy: [{ vendor: { name: 'asc' } }, { name: 'asc' }],
+    include: {
+      vendor: { select: { id: true, name: true, slug: true } },
+      defaultUser: { select: { id: true, name: true } },
+      members: {
+        where: { active: true },
+        orderBy: { roundRobinPosition: 'asc' },
+        include: { user: { select: { id: true, name: true } } },
+      },
+    },
+  });
+
+  const userIds = Array.from(
+    new Set(campaigns.flatMap((c) => c.members.map((m) => m.userId)))
+  );
+
+  const quotaRows = userIds.length
+    ? await prisma.userLeadQuota.findMany({
+        where: { userId: { in: userIds } },
+      })
+    : [];
+  const quotaByUserId = new Map(
+    quotaRows.map(
+      (q) =>
+        [
+          q.userId,
+          {
+            leadsEnabled: q.leadsEnabled,
+            licensedStates: q.licensedStates,
+            globalDailyQuota: q.globalDailyQuota,
+            globalWeeklyQuota: q.globalWeeklyQuota,
+            globalMonthlyQuota: q.globalMonthlyQuota,
+            leadsReceivedToday: q.leadsReceivedToday,
+            leadsReceivedThisWeek: q.leadsReceivedThisWeek,
+            leadsReceivedThisMonth: q.leadsReceivedThisMonth,
+          } satisfies GauntletGlobalQuota,
+        ] as const
+    )
+  );
+
+  const dayOfWeek = new Date().getDay();
+
+  return campaigns.map((c) => {
+    const gMembers: GauntletMember[] = c.members.map((m) => ({
+      id: m.id,
+      userId: m.userId,
+      userName: m.user?.name ?? 'Unknown user',
+      roundRobinPosition: m.roundRobinPosition,
+      active: m.active,
+      licensedStates: m.licensedStates,
+      receiveDays: m.receiveDays,
+      dailyQuota: m.dailyQuota,
+      weeklyQuota: m.weeklyQuota,
+      monthlyQuota: m.monthlyQuota,
+      leadsReceivedToday: m.leadsReceivedToday,
+      leadsReceivedThisWeek: m.leadsReceivedThisWeek,
+      leadsReceivedThisMonth: m.leadsReceivedThisMonth,
+    }));
+    const gCampaign: GauntletCampaign = {
+      distributionMethod: c.distributionMethod,
+      enableUserQuotas: c.enableUserQuotas,
+      defaultUserId: c.defaultUserId,
+      defaultUserName: c.defaultUser?.name ?? null,
+    };
+    const upNext = findNextEligibleMember(gCampaign, gMembers, quotaByUserId, {
+      leadState: null,
+      dayOfWeek,
+    });
+
+    return {
+      campaignId: c.id,
+      campaignName: c.name,
+      vendorId: c.vendor.id,
+      vendorSlug: c.vendor.slug,
+      vendorName: c.vendor.name,
+      groupId: c.groupId ?? null,
+      distributionMethod: c.distributionMethod,
+      active: c.active,
+      memberCount: c.members.length,
+      upNext,
+    };
+  });
 }
 
 export async function getLeadCampaign(id: string) {

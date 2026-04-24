@@ -10,15 +10,17 @@ import {
   getLeadVendors,
   getLeadEligibleUsers,
   getLeadCampaignGroups,
+  getCampaignNextUpRoster,
 } from '@/app/actions/leadActions';
 
 export default async function CampaignsPage() {
   const session = await getServerSession(authOptions);
-  const [campaigns, vendors, users, groups] = await Promise.all([
+  const [campaigns, vendors, users, groups, nextUpRoster] = await Promise.all([
     getLeadCampaigns(),
     getLeadVendors(),
     getLeadEligibleUsers(),
     getLeadCampaignGroups(),
+    getCampaignNextUpRoster(),
   ]);
 
   const user = {
@@ -47,6 +49,7 @@ export default async function CampaignsPage() {
         vendors={vendors.map((v) => ({ id: v.id, name: v.name, slug: v.slug }))}
         users={users}
         groups={groups}
+        nextUpRoster={nextUpRoster}
       />
     </DashboardShell>
   );

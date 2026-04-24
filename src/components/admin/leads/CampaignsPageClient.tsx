@@ -7,6 +7,8 @@ import {
   type GroupPickerCampaign,
 } from './CampaignGroupManager';
 import { CampaignManager } from './CampaignManager';
+import { CampaignNextUpPanel } from './CampaignNextUpPanel';
+import type { CampaignNextUpRow } from '@/app/actions/leadActions';
 
 type Vendor = { id: string; name: string; slug: string };
 type EligibleUser = { id: string; name: string; email: string; role: string };
@@ -45,9 +47,10 @@ type Props = {
   vendors: Vendor[];
   users: EligibleUser[];
   groups: CampaignGroupSummary[];
+  nextUpRoster: CampaignNextUpRow[];
 };
 
-export function CampaignsPageClient({ campaigns, vendors, users, groups }: Props) {
+export function CampaignsPageClient({ campaigns, vendors, users, groups, nextUpRoster }: Props) {
   // `null` means "no group filter"; '__none__' is a sentinel meaning
   // "only show campaigns that don't belong to any group".
   const [filterGroupId, setFilterGroupId] = useState<string | null>(null);
@@ -85,6 +88,10 @@ export function CampaignsPageClient({ campaigns, vendors, users, groups }: Props
         users={users}
         selectedGroupId={filterGroupId}
         onSelectGroup={setFilterGroupId}
+      />
+      <CampaignNextUpPanel
+        initialRoster={nextUpRoster}
+        filterGroupId={filterGroupId}
       />
       <CampaignManager
         campaigns={campaigns}
