@@ -98,7 +98,7 @@ const USER_COLUMNS: Array<{
     align: 'center',
     sortable: true,
     title:
-      'Daily / Weekly / Monthly effective caps. Uses the global cap when set; otherwise sums the user\'s campaign quotas. "—" = unlimited.',
+      'Daily / Weekly / Monthly effective caps. Uses the global cap when set; otherwise sums the user\'s campaign quotas. ∞ = no limit.',
   },
   { id: 'today', label: 'Today', defaultWidth: 72, minWidth: 60, align: 'right', sortable: true },
   { id: 'week', label: 'Week', defaultWidth: 72, minWidth: 60, align: 'right', sortable: true },
@@ -140,7 +140,9 @@ function computeEffectiveQuota(
 }
 
 function formatQuotaPart(q: number | 'unlimited'): string {
-  return q === 'unlimited' ? '—' : String(q);
+  // Infinity sign reads as "no limit" at a glance; em-dash felt like
+  // "missing data" which is the wrong signal.
+  return q === 'unlimited' ? '∞' : String(q);
 }
 
 // Numeric representation used for sorting the Quotas column. Unlimited
