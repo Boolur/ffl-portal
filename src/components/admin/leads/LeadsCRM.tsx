@@ -312,7 +312,7 @@ function getLeadCellClassName(id: LeadColumnId): string {
 // in whatever order the user has configured without branching in JSX.
 function renderLeadCell(
   id: LeadColumnId,
-  l: LeadSummary,
+  l: LeadRow,
   ctx: { selected: Set<string>; toggleSelect: (id: string) => void }
 ): React.ReactNode {
   switch (id) {
