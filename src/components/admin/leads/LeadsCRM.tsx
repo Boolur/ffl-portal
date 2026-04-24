@@ -112,6 +112,14 @@ function SortableHeader({
   align = 'left',
   onStartResize,
   isResizing,
+  draggable,
+  isDragging,
+  dropIndicator,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }: {
   label: string;
   columnKey: SortKey;
@@ -121,6 +129,14 @@ function SortableHeader({
   align?: 'left' | 'right';
   onStartResize?: (e: React.MouseEvent) => void;
   isResizing?: boolean;
+  draggable?: boolean;
+  isDragging?: boolean;
+  dropIndicator?: 'left' | 'right' | null;
+  onDragStart?: (e: React.DragEvent<HTMLButtonElement>) => void;
+  onDragOver?: (e: React.DragEvent<HTMLTableCellElement>) => void;
+  onDragLeave?: (e: React.DragEvent<HTMLTableCellElement>) => void;
+  onDrop?: (e: React.DragEvent<HTMLTableCellElement>) => void;
+  onDragEnd?: (e: React.DragEvent<HTMLButtonElement>) => void;
 }) {
   const isActive = activeKey === columnKey;
   const justify = align === 'right' ? 'justify-end' : 'justify-start';
@@ -129,14 +145,20 @@ function SortableHeader({
       scope="col"
       className={`relative px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 overflow-hidden ${
         align === 'right' ? 'text-right' : 'text-left'
-      }`}
+      } ${isDragging ? 'opacity-40' : ''}`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
     >
       <button
         type="button"
         onClick={() => onSort(columnKey)}
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
         className={`inline-flex items-center gap-1.5 ${justify} w-full select-none rounded-md px-1.5 py-1 -mx-1.5 transition-colors hover:bg-slate-100 ${
-          isActive ? 'text-slate-900' : 'text-slate-500'
-        }`}
+          draggable ? 'cursor-grab active:cursor-grabbing' : ''
+        } ${isActive ? 'text-slate-900' : 'text-slate-500'}`}
         aria-label={`Sort by ${label}`}
       >
         <span className="truncate">{label}</span>
@@ -150,6 +172,13 @@ function SortableHeader({
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-slate-300" />
         )}
       </button>
+      {dropIndicator && (
+        <div
+          className={`absolute top-0 bottom-0 w-0.5 bg-blue-500 pointer-events-none ${
+            dropIndicator === 'left' ? 'left-0' : 'right-0'
+          }`}
+        />
+      )}
       {onStartResize && (
         <ResizeHandle
           label={label}
@@ -231,6 +260,11 @@ const LEAD_COLUMNS: Array<{
 ];
 
 const LEAD_COLUMN_WIDTHS_KEY = 'ffl:leads-column-widths:v1';
+const LEAD_COLUMN_ORDER_KEY = 'ffl:leads-column-order:v1';
+
+// 'select' is locked to the first position; it holds the row checkbox and
+// should never be reordered by the user.
+const LOCKED_FIRST_COLUMN: LeadColumnId = 'select';
 
 function buildDefaultColumnWidths(): Record<LeadColumnId, number> {
   return LEAD_COLUMNS.reduce(
@@ -240,6 +274,88 @@ function buildDefaultColumnWidths(): Record<LeadColumnId, number> {
     },
     {} as Record<LeadColumnId, number>
   );
+}
+
+function buildDefaultColumnOrder(): LeadColumnId[] {
+  return LEAD_COLUMNS.map((c) => c.id);
+}
+
+// Per-column cell class names. Kept in one place so ordering a column
+// re-uses its visual treatment (alignment, weight, muted text, etc.).
+function getLeadCellClassName(id: LeadColumnId): string {
+  const base = 'px-4 py-3 overflow-hidden';
+  switch (id) {
+    case 'select':
+      return base;
+    case 'status':
+      return base;
+    case 'name':
+      return `${base} font-semibold text-slate-900 truncate`;
+    case 'email':
+    case 'phone':
+    case 'state':
+    case 'vendor':
+    case 'campaign':
+      return `${base} text-slate-600 truncate`;
+    case 'assignedUser':
+      return `${base} truncate`;
+    case 'source':
+      return `${base} text-slate-500 text-xs truncate`;
+    case 'received':
+      return `${base} text-right text-xs text-slate-500 truncate`;
+    default:
+      return `${base} truncate`;
+  }
+}
+
+// Per-column cell renderer. Split out so the table body can render columns
+// in whatever order the user has configured without branching in JSX.
+function renderLeadCell(
+  id: LeadColumnId,
+  l: LeadSummary,
+  ctx: { selected: Set<string>; toggleSelect: (id: string) => void }
+): React.ReactNode {
+  switch (id) {
+    case 'select':
+      return (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          checked={ctx.selected.has(l.id)}
+          onChange={() => ctx.toggleSelect(l.id)}
+        />
+      );
+    case 'status':
+      return <LeadStatusBadge status={l.status} />;
+    case 'name':
+      return (
+        [l.firstName, l.lastName].filter(Boolean).join(' ') || '—'
+      );
+    case 'email':
+      return l.email || '—';
+    case 'phone':
+      return l.phone || '—';
+    case 'state':
+      return l.propertyState || '—';
+    case 'vendor':
+      return l.vendor?.name || '—';
+    case 'campaign':
+      return l.campaign?.name || '—';
+    case 'assignedUser':
+      return (
+        l.assignedUser?.name || (
+          <span className="text-orange-600 font-medium text-xs">
+            Unassigned
+          </span>
+        )
+      );
+    case 'source':
+      return l.source || '—';
+    case 'received':
+      return <FormatDate date={l.receivedAt} />;
+    default:
+      return null;
+  }
 }
 
 const VENDOR_COLORS = [
@@ -385,9 +501,142 @@ export function LeadsCRM({
     [columnWidths]
   );
 
+  // Column order: lazy-init from localStorage, validated to ensure every
+  // known column appears exactly once (drops unknown ids, appends missing
+  // ones in their default order). Keeps LOCKED_FIRST_COLUMN pinned to
+  // position 0 regardless of what was persisted.
+  const [columnOrder, setColumnOrder] = useState<LeadColumnId[]>(() => {
+    const defaults = buildDefaultColumnOrder();
+    if (typeof window === 'undefined') return defaults;
+    try {
+      const raw = window.localStorage.getItem(LEAD_COLUMN_ORDER_KEY);
+      if (!raw) return defaults;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return defaults;
+      const knownIds = new Set<LeadColumnId>(defaults);
+      const seen = new Set<LeadColumnId>();
+      const filtered: LeadColumnId[] = [];
+      for (const raw_id of parsed) {
+        if (typeof raw_id !== 'string') continue;
+        const id = raw_id as LeadColumnId;
+        if (!knownIds.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        filtered.push(id);
+      }
+      for (const id of defaults) if (!seen.has(id)) filtered.push(id);
+      const withoutLocked = filtered.filter(
+        (id) => id !== LOCKED_FIRST_COLUMN
+      );
+      return [LOCKED_FIRST_COLUMN, ...withoutLocked];
+    } catch {
+      return defaults;
+    }
+  });
+  const [draggingColId, setDraggingColId] = useState<LeadColumnId | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    colId: LeadColumnId;
+    side: 'left' | 'right';
+  } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(
+        LEAD_COLUMN_ORDER_KEY,
+        JSON.stringify(columnOrder)
+      );
+    } catch {
+      // Ignore quota errors
+    }
+  }, [columnOrder]);
+
+  const handleColDragStart = useCallback(
+    (colId: LeadColumnId) =>
+      (e: React.DragEvent<HTMLButtonElement>) => {
+        if (colId === LOCKED_FIRST_COLUMN) {
+          e.preventDefault();
+          return;
+        }
+        setDraggingColId(colId);
+        // Required for Firefox drag to actually fire.
+        e.dataTransfer.effectAllowed = 'move';
+        try {
+          e.dataTransfer.setData('text/plain', colId);
+        } catch {
+          // Some browsers throw in certain sandboxed contexts; ignore.
+        }
+      },
+    []
+  );
+
+  const handleColDragOver = useCallback(
+    (colId: LeadColumnId) =>
+      (e: React.DragEvent<HTMLTableCellElement>) => {
+        if (!draggingColId || draggingColId === colId) return;
+        if (colId === LOCKED_FIRST_COLUMN) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const rect = e.currentTarget.getBoundingClientRect();
+        const isLeftHalf = e.clientX < rect.left + rect.width / 2;
+        const side: 'left' | 'right' = isLeftHalf ? 'left' : 'right';
+        setDropTarget((prev) =>
+          prev && prev.colId === colId && prev.side === side
+            ? prev
+            : { colId, side }
+        );
+      },
+    [draggingColId]
+  );
+
+  const handleColDragLeave = useCallback(
+    (colId: LeadColumnId) =>
+      (_e: React.DragEvent<HTMLTableCellElement>) => {
+        setDropTarget((prev) => (prev?.colId === colId ? null : prev));
+      },
+    []
+  );
+
+  const handleColDrop = useCallback(
+    (colId: LeadColumnId) =>
+      (e: React.DragEvent<HTMLTableCellElement>) => {
+        e.preventDefault();
+        const src = draggingColId;
+        const tgt = dropTarget;
+        setDraggingColId(null);
+        setDropTarget(null);
+        if (!src || src === colId || colId === LOCKED_FIRST_COLUMN) return;
+        setColumnOrder((prev) => {
+          const next = prev.filter((id) => id !== src);
+          const tgtIdx = next.indexOf(colId);
+          if (tgtIdx < 0) return prev;
+          const insertIdx =
+            tgt && tgt.colId === colId && tgt.side === 'right'
+              ? tgtIdx + 1
+              : tgtIdx;
+          next.splice(insertIdx, 0, src);
+          return next;
+        });
+      },
+    [draggingColId, dropTarget]
+  );
+
+  const handleColDragEnd = useCallback(() => {
+    setDraggingColId(null);
+    setDropTarget(null);
+  }, []);
+
   const resetColumnWidths = useCallback(() => {
     setColumnWidths(buildDefaultColumnWidths());
+    setColumnOrder(buildDefaultColumnOrder());
   }, []);
+
+  const orderedColumns = useMemo(
+    () =>
+      columnOrder
+        .map((id) => LEAD_COLUMNS.find((c) => c.id === id))
+        .filter((c): c is (typeof LEAD_COLUMNS)[number] => Boolean(c)),
+    [columnOrder]
+  );
 
   const tableMinWidth = useMemo(
     () => Object.values(columnWidths).reduce((sum, w) => sum + w, 0),
@@ -1797,40 +2046,63 @@ export function LeadsCRM({
               style={{ width: tableMinWidth, minWidth: tableMinWidth }}
             >
               <colgroup>
-                {LEAD_COLUMNS.map((c) => (
+                {orderedColumns.map((c) => (
                   <col key={c.id} style={{ width: columnWidths[c.id] }} />
                 ))}
               </colgroup>
               <thead className="sticky top-0 z-[1] bg-slate-50">
                 <tr className="border-b border-slate-200">
-                  <th className="relative px-4 py-3 text-left overflow-hidden">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      checked={
-                        selected.size === leads.length && leads.length > 0
-                      }
-                      onChange={toggleAll}
-                    />
-                    <ResizeHandle
-                      label="selection"
-                      onStartResize={handleStartResize('select', 40)}
-                      isResizing={resizingCol === 'select'}
-                    />
-                  </th>
-                  {LEAD_COLUMNS.filter((c) => c.id !== 'select').map((c) => (
-                    <SortableHeader
-                      key={c.id}
-                      label={c.label}
-                      columnKey={c.sortKey as SortKey}
-                      activeKey={sortBy}
-                      activeDir={sortDir}
-                      onSort={handleSort}
-                      align={c.align}
-                      onStartResize={handleStartResize(c.id, c.minWidth)}
-                      isResizing={resizingCol === c.id}
-                    />
-                  ))}
+                  {orderedColumns.map((c) => {
+                    if (c.id === 'select') {
+                      return (
+                        <th
+                          key={c.id}
+                          className="relative px-4 py-3 text-left overflow-hidden"
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            checked={
+                              selected.size === leads.length &&
+                              leads.length > 0
+                            }
+                            onChange={toggleAll}
+                          />
+                          <ResizeHandle
+                            label="selection"
+                            onStartResize={handleStartResize('select', 40)}
+                            isResizing={resizingCol === 'select'}
+                          />
+                        </th>
+                      );
+                    }
+                    const isDragSource = draggingColId === c.id;
+                    const indicator =
+                      dropTarget && dropTarget.colId === c.id
+                        ? dropTarget.side
+                        : null;
+                    return (
+                      <SortableHeader
+                        key={c.id}
+                        label={c.label}
+                        columnKey={c.sortKey as SortKey}
+                        activeKey={sortBy}
+                        activeDir={sortDir}
+                        onSort={handleSort}
+                        align={c.align}
+                        onStartResize={handleStartResize(c.id, c.minWidth)}
+                        isResizing={resizingCol === c.id}
+                        draggable={true}
+                        isDragging={isDragSource}
+                        dropIndicator={indicator}
+                        onDragStart={handleColDragStart(c.id)}
+                        onDragOver={handleColDragOver(c.id)}
+                        onDragLeave={handleColDragLeave(c.id)}
+                        onDrop={handleColDrop(c.id)}
+                        onDragEnd={handleColDragEnd}
+                      />
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1844,52 +2116,22 @@ export function LeadsCRM({
                     }`}
                     onClick={() => void openLeadDetail(l.id)}
                   >
-                    <td
-                      className="px-4 py-3 overflow-hidden"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        checked={selected.has(l.id)}
-                        onChange={() => toggleSelect(l.id)}
-                      />
-                    </td>
-                    <td className="px-4 py-3 overflow-hidden">
-                      <LeadStatusBadge status={l.status} />
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-slate-900 truncate">
-                      {[l.firstName, l.lastName].filter(Boolean).join(' ') ||
-                        '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 truncate">
-                      {l.email || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 truncate">
-                      {l.phone || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 truncate">
-                      {l.propertyState || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 truncate">
-                      {l.vendor?.name || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 truncate">
-                      {l.campaign?.name || '—'}
-                    </td>
-                    <td className="px-4 py-3 truncate">
-                      {l.assignedUser?.name || (
-                        <span className="text-orange-600 font-medium text-xs">
-                          Unassigned
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500 text-xs truncate">
-                      {l.source || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right text-xs text-slate-500 truncate">
-                      <FormatDate date={l.receivedAt} />
-                    </td>
+                    {orderedColumns.map((c) => (
+                      <td
+                        key={c.id}
+                        className={getLeadCellClassName(c.id)}
+                        onClick={
+                          c.id === 'select'
+                            ? (e) => e.stopPropagation()
+                            : undefined
+                        }
+                      >
+                        {renderLeadCell(c.id, l, {
+                          selected,
+                          toggleSelect,
+                        })}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
