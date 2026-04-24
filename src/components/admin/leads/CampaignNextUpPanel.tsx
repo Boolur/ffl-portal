@@ -25,7 +25,10 @@ type Props = {
   filterGroupId: string | null;
 };
 
-const STORAGE_KEY_COLLAPSED = 'ffl.campaignNextUp.collapsed';
+// NOTE: The panel's top-level collapsed state is intentionally NOT
+// persisted - it always starts collapsed on page load / refresh / return
+// so the Campaigns screen stays compact by default. Only the per-vendor
+// open state (after the admin expands the panel) is persisted.
 const STORAGE_KEY_VENDORS = 'ffl.campaignNextUp.vendorOpen';
 const REFRESH_MS = 30_000;
 const NONE_GROUP = '__none__';
@@ -88,51 +91,32 @@ type VendorGroup = {
 
 export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
   const [roster, setRoster] = useState<CampaignNextUpRow[]>(initialRoster);
-  // Default to collapsed so first-time visitors see a compact header and
-  // have to expand the panel intentionally. Returning visitors get their
-  // last choice hydrated from localStorage below.
+  // Always start collapsed on mount / refresh / navigation. The
+  // top-level state is session-only by design (see note above the
+  // STORAGE_KEY_VENDORS constant).
   const [collapsed, setCollapsed] = useState<boolean>(true);
   // Map of vendorSlug -> whether the vendor section is open. Vendors
   // default to collapsed so the panel never stretches down the screen
   // the moment the top-level is expanded. Admin opens the vendor they
-  // care about.
-  const [vendorOpen, setVendorOpen] = useState<Record<string, boolean>>({});
+  // care about. Hydrated lazily from localStorage so the preference
+  // survives refreshes even though the top-level collapsed state does
+  // not.
+  const [vendorOpen, setVendorOpen] = useState<Record<string, boolean>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY_VENDORS);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, boolean>;
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  });
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    try {
-      const rawCollapsed = window.localStorage.getItem(STORAGE_KEY_COLLAPSED);
-      const rawVendors = window.localStorage.getItem(STORAGE_KEY_VENDORS);
-      // Only un-collapse if the user has previously explicitly expanded
-      // the panel ('0'). Missing key or '1' both leave it collapsed.
-      if (rawCollapsed === '0') {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setCollapsed(false);
-      }
-      if (rawVendors) {
-        try {
-          const parsed = JSON.parse(rawVendors);
-          if (parsed && typeof parsed === 'object') {
-            setVendorOpen(parsed as Record<string, boolean>);
-          }
-        } catch {
-          // ignore malformed
-        }
-      }
-    } catch {
-      // localStorage can throw in private mode; ignore.
-    }
-  }, []);
-
-  const persistCollapsed = useCallback((next: boolean) => {
-    setCollapsed(next);
-    try {
-      window.localStorage.setItem(STORAGE_KEY_COLLAPSED, next ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   const toggleVendor = useCallback((slug: string) => {
     setVendorOpen((prev) => {
@@ -237,7 +221,7 @@ export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm max-w-3xl">
       <button
         type="button"
-        onClick={() => persistCollapsed(!collapsed)}
+        onClick={() => setCollapsed((c) => !c)}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 rounded-t-xl transition-colors"
         aria-expanded={!collapsed}
         aria-controls="campaign-next-up-body"
