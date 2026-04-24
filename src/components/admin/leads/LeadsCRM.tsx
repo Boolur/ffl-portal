@@ -81,7 +81,7 @@ type CrmStats = {
   newThisMonth: number;
   unassigned: number;
   byVendor: Array<{ vendorId: string; vendorName: string; count: number }>;
-  byCampaignToday: Array<{
+  byCampaign: Array<{
     campaignId: string;
     campaignName: string;
     vendorName: string;
@@ -835,6 +835,10 @@ export function LeadsCRM({
     ? Math.max(...stats.byVendor.map((v) => v.count), 1)
     : 1;
 
+  const maxCampaignCount = stats
+    ? Math.max(...stats.byCampaign.map((c) => c.count), 1)
+    : 1;
+
   const STAT_CARDS = stats
     ? [
         {
@@ -1036,55 +1040,66 @@ export function LeadsCRM({
               </div>
             )}
 
-            {/* Campaign Daily Volume */}
+            {/* Leads by Campaign */}
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
               <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
                 <Megaphone className="h-4 w-4 text-slate-400" />
                 <h3 className="text-sm font-bold text-slate-900">
-                  Today&apos;s Campaign Volume
+                  Leads by Campaign
                 </h3>
                 <span className="text-[11px] text-slate-400 ml-auto">
-                  Today
+                  All time
                 </span>
               </div>
               <div className="px-5 py-3">
-                {stats.byCampaignToday.length === 0 ? (
+                {stats.byCampaign.length === 0 ? (
                   <p className="text-sm text-slate-400 text-center py-4">
-                    No campaign leads received today
+                    No campaign leads yet
                   </p>
                 ) : (
-                  <div className="space-y-1">
-                    {stats.byCampaignToday.map((c) => {
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
+                    {stats.byCampaign.map((c, i) => {
+                      const pct = Math.round(
+                        (c.count / maxCampaignCount) * 100
+                      );
                       const isActiveCampaign =
                         campaignFilter === c.campaignId;
                       return (
                         <button
                           key={c.campaignId}
                           type="button"
-                          onClick={() =>
-                            applyCampaignFilter(c.campaignId)
-                          }
-                          className={`w-full text-left flex items-center justify-between rounded-lg px-3 py-2.5 -mx-1 transition-colors ${
+                          onClick={() => applyCampaignFilter(c.campaignId)}
+                          className={`w-full text-left group/row rounded-lg px-2 py-1.5 -mx-2 transition-colors ${
                             isActiveCampaign
                               ? 'bg-blue-50'
                               : 'hover:bg-slate-50'
                           }`}
                         >
-                          <div className="min-w-0">
-                            <p
-                              className={`text-sm font-medium truncate ${isActiveCampaign ? 'text-blue-700' : 'text-slate-800'}`}
+                          <div className="flex items-center justify-between mb-1 gap-3">
+                            <div className="min-w-0">
+                              <p
+                                className={`text-sm font-medium truncate ${isActiveCampaign ? 'text-blue-700' : 'text-slate-700'}`}
+                              >
+                                {c.campaignName}
+                              </p>
+                              <p className="text-[11px] text-slate-400 truncate">
+                                {c.vendorName}
+                              </p>
+                            </div>
+                            <span
+                              className={`text-sm font-bold shrink-0 ${isActiveCampaign ? 'text-blue-700' : 'text-slate-900'}`}
                             >
-                              {c.campaignName}
-                            </p>
-                            <p className="text-[11px] text-slate-400">
-                              {c.vendorName}
-                            </p>
+                              <FormatNumber value={c.count} />
+                            </span>
                           </div>
-                          <span
-                            className={`text-lg font-bold shrink-0 ml-4 ${isActiveCampaign ? 'text-blue-700' : 'text-slate-900'}`}
-                          >
-                            {c.count}
-                          </span>
+                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                VENDOR_COLORS[i % VENDOR_COLORS.length]
+                              }`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
                         </button>
                       );
                     })}

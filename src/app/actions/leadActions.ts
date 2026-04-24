@@ -1260,7 +1260,7 @@ export async function getLeadCrmStats() {
     newThisMonth,
     unassigned,
     vendorGroupsAll,
-    campaignGroupsToday,
+    campaignGroupsAll,
   ] = await prisma.$transaction([
     prisma.lead.count(),
     prisma.lead.count({ where: { receivedAt: { gte: todayStart } } }),
@@ -1272,10 +1272,12 @@ export async function getLeadCrmStats() {
       _count: { id: true },
       orderBy: { _count: { id: 'desc' } },
     }),
+    // All-time campaign volume (mirrors byVendor window) so every active
+    // campaign surfaces regardless of whether it received a lead today.
     prisma.lead.groupBy({
       by: ['campaignId'],
       _count: { id: true },
-      where: { receivedAt: { gte: todayStart }, campaignId: { not: null } },
+      where: { campaignId: { not: null } },
       orderBy: { _count: { id: 'desc' } },
     }),
   ]);
@@ -1287,7 +1289,7 @@ export async function getLeadCrmStats() {
   });
   const vendorMap = new Map(vendors.map((v) => [v.id, v.name]));
 
-  const campaignIds = campaignGroupsToday
+  const campaignIds = campaignGroupsAll
     .map((c) => c.campaignId)
     .filter(Boolean) as string[];
   const campaigns = await prisma.leadCampaign.findMany({
@@ -1312,7 +1314,7 @@ export async function getLeadCrmStats() {
         count: typeof cnt === 'object' && cnt !== null ? (cnt.id ?? 0) : 0,
       };
     }),
-    byCampaignToday: campaignGroupsToday
+    byCampaign: campaignGroupsAll
       .filter((c) => c.campaignId)
       .map((c) => {
         const cnt = c._count;
