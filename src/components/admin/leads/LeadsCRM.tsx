@@ -151,24 +151,45 @@ function SortableHeader({
         )}
       </button>
       {onStartResize && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={`Resize ${label} column`}
-          onMouseDown={onStartResize}
-          onClick={(e) => e.stopPropagation()}
-          className={`absolute top-0 right-0 h-full w-1.5 cursor-col-resize select-none group/resize ${
-            isResizing ? 'bg-blue-500/60' : 'hover:bg-blue-500/40'
-          }`}
-        >
-          <div
-            className={`absolute top-1/2 right-0 h-5 w-px -translate-y-1/2 ${
-              isResizing ? 'bg-blue-500' : 'bg-slate-200 group-hover/resize:bg-blue-400'
-            }`}
-          />
-        </div>
+        <ResizeHandle
+          label={label}
+          onStartResize={onStartResize}
+          isResizing={!!isResizing}
+        />
       )}
     </th>
+  );
+}
+
+// Visible, discoverable column resize handle. Renders a persistent thin
+// divider at the column boundary (spreadsheet-style) plus a wider invisible
+// grab zone so the handle is easy to target with the mouse.
+function ResizeHandle({
+  label,
+  onStartResize,
+  isResizing,
+}: {
+  label: string;
+  onStartResize: (e: React.MouseEvent) => void;
+  isResizing: boolean;
+}) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`Resize ${label} column`}
+      onMouseDown={onStartResize}
+      onClick={(e) => e.stopPropagation()}
+      className="group/resize absolute top-0 right-0 bottom-0 w-3 flex items-center justify-end cursor-col-resize select-none z-10"
+    >
+      <div
+        className={`h-full transition-all ${
+          isResizing
+            ? 'w-[3px] bg-blue-500'
+            : 'w-px bg-slate-200 group-hover/resize:w-[3px] group-hover/resize:bg-blue-400'
+        }`}
+      />
+    </div>
   );
 }
 
@@ -1782,7 +1803,7 @@ export function LeadsCRM({
               </colgroup>
               <thead className="sticky top-0 z-[1] bg-slate-50">
                 <tr className="border-b border-slate-200">
-                  <th className="relative px-4 py-3 text-left">
+                  <th className="relative px-4 py-3 text-left overflow-hidden">
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
@@ -1791,26 +1812,11 @@ export function LeadsCRM({
                       }
                       onChange={toggleAll}
                     />
-                    <div
-                      role="separator"
-                      aria-orientation="vertical"
-                      aria-label="Resize selection column"
-                      onMouseDown={handleStartResize('select', 40)}
-                      onClick={(e) => e.stopPropagation()}
-                      className={`absolute top-0 right-0 h-full w-1.5 cursor-col-resize select-none group/resize ${
-                        resizingCol === 'select'
-                          ? 'bg-blue-500/60'
-                          : 'hover:bg-blue-500/40'
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-1/2 right-0 h-5 w-px -translate-y-1/2 ${
-                          resizingCol === 'select'
-                            ? 'bg-blue-500'
-                            : 'bg-slate-200 group-hover/resize:bg-blue-400'
-                        }`}
-                      />
-                    </div>
+                    <ResizeHandle
+                      label="selection"
+                      onStartResize={handleStartResize('select', 40)}
+                      isResizing={resizingCol === 'select'}
+                    />
                   </th>
                   {LEAD_COLUMNS.filter((c) => c.id !== 'select').map((c) => (
                     <SortableHeader
