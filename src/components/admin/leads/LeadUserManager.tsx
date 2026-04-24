@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
-  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users, Check, Link2, Send, AlertTriangle,
+  Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown, Users, Check, Link2, Send, AlertTriangle, RotateCcw,
 } from 'lucide-react';
 import { InfoTip } from '@/components/ui/InfoTip';
 import {
@@ -13,6 +13,13 @@ import {
   sendBonzoTestForUser,
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
+import {
+  ResizeHandle,
+  useColumnWidths,
+  useColumnOrder,
+  type ColumnDragHandlers,
+  type DropIndicator,
+} from '@/components/admin/leads/shared/columnCustomization';
 
 type Membership = {
   id: string;
@@ -39,6 +46,9 @@ type LeadUser = {
   globalWeeklyQuota: number;
   globalMonthlyQuota: number;
   leadsToday: number;
+  leadsWeek: number;
+  leadsMonth: number;
+  leadsYtd: number;
   campaignCount: number;
   memberships: Membership[];
 };
@@ -46,6 +56,97 @@ type LeadUser = {
 type CampaignOption = { id: string; name: string; vendorName: string };
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// ---------------------------------------------------------------------------
+// Users table column config
+// ---------------------------------------------------------------------------
+
+type UserColumnId =
+  | 'name'
+  | 'email'
+  | 'status'
+  | 'states'
+  | 'campaigns'
+  | 'quotas'
+  | 'today'
+  | 'week'
+  | 'month'
+  | 'ytd';
+
+type UserSortKey = UserColumnId;
+type SortDir = 'asc' | 'desc';
+
+const USER_COLUMNS: Array<{
+  id: UserColumnId;
+  label: string;
+  defaultWidth: number;
+  minWidth: number;
+  align?: 'left' | 'right' | 'center';
+  sortable: boolean;
+  title?: string;
+}> = [
+  { id: 'name', label: 'Name', defaultWidth: 180, minWidth: 120, align: 'left', sortable: true },
+  { id: 'email', label: 'Email', defaultWidth: 220, minWidth: 140, align: 'left', sortable: true },
+  { id: 'status', label: 'Status', defaultWidth: 90, minWidth: 70, align: 'center', sortable: true },
+  { id: 'states', label: 'States', defaultWidth: 120, minWidth: 80, align: 'center', sortable: true },
+  { id: 'campaigns', label: 'Campaigns', defaultWidth: 100, minWidth: 80, align: 'center', sortable: true },
+  {
+    id: 'quotas',
+    label: 'Quotas',
+    defaultWidth: 110,
+    minWidth: 90,
+    align: 'center',
+    sortable: true,
+    title: 'Daily / Weekly / Monthly global quotas. "—" = unlimited.',
+  },
+  { id: 'today', label: 'Today', defaultWidth: 72, minWidth: 60, align: 'right', sortable: true },
+  { id: 'week', label: 'Week', defaultWidth: 72, minWidth: 60, align: 'right', sortable: true },
+  { id: 'month', label: 'Month', defaultWidth: 76, minWidth: 60, align: 'right', sortable: true },
+  { id: 'ytd', label: 'YTD', defaultWidth: 80, minWidth: 60, align: 'right', sortable: true },
+];
+
+const USER_COLUMN_WIDTHS_KEY = 'ffl:lead-users-column-widths:v1';
+const USER_COLUMN_ORDER_KEY = 'ffl:lead-users-column-order:v1';
+const LOCKED_FIRST_USER_COL: UserColumnId = 'name';
+
+const USER_DEFAULT_ORDER: UserColumnId[] = USER_COLUMNS.map((c) => c.id);
+
+function formatQuotaPart(n: number): string {
+  // 0 = unlimited by product convention; show em-dash so the row still
+  // visually aligns with columns that do have a value.
+  return n > 0 ? String(n) : '—';
+}
+
+function getUserColumnSortValue(u: LeadUser, id: UserSortKey): string | number {
+  switch (id) {
+    case 'name':
+      return (u.name || '').toLowerCase();
+    case 'email':
+      return (u.email || '').toLowerCase();
+    case 'status':
+      // enabled first when sorted asc, disabled first when desc
+      return u.leadsEnabled ? 1 : 0;
+    case 'states':
+      // "All" (empty licensedStates) sorts before any specific-state user
+      return u.licensedStates.length === 0 ? -1 : u.licensedStates.length;
+    case 'campaigns':
+      return u.campaignCount;
+    case 'quotas':
+      // Sort by daily quota; treat 0 (unlimited) as a very large number so
+      // unlimited users bubble to the top when sorted desc.
+      return u.globalDailyQuota > 0 ? u.globalDailyQuota : Number.MAX_SAFE_INTEGER;
+    case 'today':
+      return u.leadsToday;
+    case 'week':
+      return u.leadsWeek;
+    case 'month':
+      return u.leadsMonth;
+    case 'ytd':
+      return u.leadsYtd;
+    default:
+      return 0;
+  }
+}
 
 export function LeadUserManager({
   users,
@@ -57,6 +158,41 @@ export function LeadUserManager({
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<UserSortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const {
+    widths: columnWidths,
+    resizingCol,
+    startResize,
+    reset: resetWidths,
+  } = useColumnWidths<UserColumnId>(USER_COLUMNS, USER_COLUMN_WIDTHS_KEY);
+
+  const {
+    order: columnOrder,
+    draggingColId,
+    getHandlers: getColHandlers,
+    getDropIndicator,
+    reset: resetOrder,
+  } = useColumnOrder<UserColumnId>({
+    defaultOrder: USER_DEFAULT_ORDER,
+    storageKey: USER_COLUMN_ORDER_KEY,
+    lockedFirstId: LOCKED_FIRST_USER_COL,
+  });
+
+  const columnMap = useMemo(() => {
+    const m = new Map<UserColumnId, (typeof USER_COLUMNS)[number]>();
+    for (const c of USER_COLUMNS) m.set(c.id, c);
+    return m;
+  }, []);
+
+  const orderedColumns = useMemo(
+    () =>
+      columnOrder
+        .map((id) => columnMap.get(id))
+        .filter((c): c is (typeof USER_COLUMNS)[number] => !!c),
+    [columnOrder, columnMap]
+  );
 
   const filtered = useMemo(() => {
     if (!search) return users;
@@ -66,10 +202,45 @@ export function LeadUserManager({
     );
   }, [users, search]);
 
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    arr.sort((a, b) => {
+      const av = getUserColumnSortValue(a, sortBy);
+      const bv = getUserColumnSortValue(b, sortBy);
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return (av - bv) * dir;
+      }
+      const as = String(av);
+      const bs = String(bv);
+      if (as < bs) return -1 * dir;
+      if (as > bs) return 1 * dir;
+      return 0;
+    });
+    return arr;
+  }, [filtered, sortBy, sortDir]);
+
   const selectedUser = useMemo(
     () => users.find((u) => u.id === selectedUserId) ?? null,
     [users, selectedUserId]
   );
+
+  const handleSort = useCallback(
+    (key: UserSortKey) => {
+      if (sortBy === key) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setSortBy(key);
+        setSortDir('asc');
+      }
+    },
+    [sortBy]
+  );
+
+  const resetColumns = useCallback(() => {
+    resetWidths();
+    resetOrder();
+  }, [resetWidths, resetOrder]);
 
   return (
     <div className="space-y-4">
@@ -83,31 +254,56 @@ export function LeadUserManager({
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <button
+          type="button"
+          onClick={resetColumns}
+          title="Reset column widths and order"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Reset columns
+        </button>
         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-          {filtered.length} user{filtered.length !== 1 ? 's' : ''}
+          {sorted.length} user{sorted.length !== 1 ? 's' : ''}
         </span>
       </div>
 
-      {filtered.length === 0 ? (
+      {sorted.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
           <Users className="mx-auto h-10 w-10 text-slate-300" />
           <p className="mt-3 text-sm font-semibold text-slate-700">No users found</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+            <colgroup>
+              {orderedColumns.map((c) => (
+                <col key={c.id} style={{ width: `${columnWidths[c.id]}px` }} />
+              ))}
+            </colgroup>
             <thead className="sticky top-0 z-[1] bg-slate-50">
               <tr className="border-b border-slate-200">
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Name</th>
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Email</th>
-                <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Status</th>
-                <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">States</th>
-                <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Campaigns</th>
-                <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">Today</th>
+                {orderedColumns.map((c) => (
+                  <UserSortableHeader
+                    key={c.id}
+                    colId={c.id}
+                    label={c.label}
+                    align={c.align}
+                    title={c.title}
+                    activeKey={sortBy}
+                    activeDir={sortDir}
+                    onSort={handleSort}
+                    onStartResize={startResize(c.id, c.minWidth)}
+                    isResizing={resizingCol === c.id}
+                    isDragging={draggingColId === c.id}
+                    dropIndicator={getDropIndicator(c.id)}
+                    dragHandlers={getColHandlers(c.id)}
+                  />
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filtered.map((u) => (
+              {sorted.map((u) => (
                 <tr
                   key={u.id}
                   className={`align-middle cursor-pointer transition-colors ${
@@ -115,22 +311,15 @@ export function LeadUserManager({
                   }`}
                   onClick={() => setSelectedUserId(u.id)}
                 >
-                  <td className="px-4 py-3 font-semibold text-slate-900">{u.name}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{u.email}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                      u.leadsEnabled
-                        ? 'border border-green-200 bg-green-50 text-green-700'
-                        : 'border border-red-200 bg-red-50 text-red-600'
-                    }`}>
-                      {u.leadsEnabled ? 'On' : 'Off'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-center text-xs text-slate-600">
-                    {u.licensedStates.length > 0 ? u.licensedStates.join(', ') : 'All'}
-                  </td>
-                  <td className="px-4 py-3 text-center text-slate-700">{u.campaignCount}</td>
-                  <td className="px-4 py-3 text-center text-slate-700">{u.leadsToday}</td>
+                  {orderedColumns.map((c) => (
+                    <td
+                      key={c.id}
+                      className={getUserCellClassName(c.id)}
+                      title={c.id === 'quotas' ? c.title : undefined}
+                    >
+                      {renderUserCell(c.id, u)}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -147,6 +336,181 @@ export function LeadUserManager({
         />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sortable header (table-column aware of resize + drag-reorder)
+// ---------------------------------------------------------------------------
+
+function UserSortableHeader({
+  colId,
+  label,
+  align = 'left',
+  title,
+  activeKey,
+  activeDir,
+  onSort,
+  onStartResize,
+  isResizing,
+  isDragging,
+  dropIndicator,
+  dragHandlers,
+}: {
+  colId: UserColumnId;
+  label: string;
+  align?: 'left' | 'right' | 'center';
+  title?: string;
+  activeKey: UserSortKey;
+  activeDir: SortDir;
+  onSort: (key: UserSortKey) => void;
+  onStartResize: (e: React.MouseEvent) => void;
+  isResizing: boolean;
+  isDragging: boolean;
+  dropIndicator: DropIndicator;
+  dragHandlers: ColumnDragHandlers;
+}) {
+  const isActive = activeKey === colId;
+  const justify =
+    align === 'right'
+      ? 'justify-end'
+      : align === 'center'
+      ? 'justify-center'
+      : 'justify-start';
+  const textAlign =
+    align === 'right'
+      ? 'text-right'
+      : align === 'center'
+      ? 'text-center'
+      : 'text-left';
+  return (
+    <th
+      scope="col"
+      className={`relative px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 overflow-hidden ${textAlign} ${
+        isDragging ? 'opacity-40' : ''
+      }`}
+      onDragOver={dragHandlers.onDragOver}
+      onDragLeave={dragHandlers.onDragLeave}
+      onDrop={dragHandlers.onDrop}
+      title={title}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(colId)}
+        draggable={dragHandlers.draggable}
+        onDragStart={dragHandlers.onDragStart}
+        onDragEnd={dragHandlers.onDragEnd}
+        className={`inline-flex items-center gap-1.5 ${justify} w-full select-none rounded-md px-1.5 py-1 -mx-1.5 transition-colors hover:bg-slate-100 ${
+          dragHandlers.draggable ? 'cursor-grab active:cursor-grabbing' : ''
+        } ${isActive ? 'text-slate-900' : 'text-slate-500'}`}
+        aria-label={`Sort by ${label}`}
+      >
+        <span className="truncate">{label}</span>
+        {isActive ? (
+          activeDir === 'asc' ? (
+            <ChevronUp className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+          )
+        ) : (
+          <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+        )}
+      </button>
+      {dropIndicator && (
+        <div
+          className={`absolute top-0 bottom-0 w-0.5 bg-blue-500 pointer-events-none ${
+            dropIndicator === 'left' ? 'left-0' : 'right-0'
+          }`}
+        />
+      )}
+      <ResizeHandle
+        label={label}
+        onStartResize={onStartResize}
+        isResizing={isResizing}
+      />
+    </th>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per-column classNames / renderers for the users table
+// ---------------------------------------------------------------------------
+
+function getUserCellClassName(id: UserColumnId): string {
+  const base = 'px-4 py-3 overflow-hidden';
+  switch (id) {
+    case 'name':
+      return `${base} font-semibold text-slate-900 truncate`;
+    case 'email':
+      return `${base} text-slate-500 text-xs truncate`;
+    case 'status':
+      return `${base} text-center`;
+    case 'states':
+      return `${base} text-center text-xs text-slate-600 truncate`;
+    case 'campaigns':
+      return `${base} text-center text-slate-700`;
+    case 'quotas':
+      return `${base} text-center text-slate-700 tabular-nums text-xs font-medium`;
+    case 'today':
+    case 'week':
+    case 'month':
+    case 'ytd':
+      return `${base} text-right tabular-nums`;
+    default:
+      return base;
+  }
+}
+
+function renderUserCell(id: UserColumnId, u: LeadUser): React.ReactNode {
+  switch (id) {
+    case 'name':
+      return u.name;
+    case 'email':
+      return u.email;
+    case 'status':
+      return (
+        <span
+          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+            u.leadsEnabled
+              ? 'border border-green-200 bg-green-50 text-green-700'
+              : 'border border-red-200 bg-red-50 text-red-600'
+          }`}
+        >
+          {u.leadsEnabled ? 'On' : 'Off'}
+        </span>
+      );
+    case 'states':
+      return u.licensedStates.length > 0 ? u.licensedStates.join(', ') : 'All';
+    case 'campaigns':
+      return u.campaignCount;
+    case 'quotas':
+      return (
+        <span className="whitespace-nowrap">
+          {formatQuotaPart(u.globalDailyQuota)}
+          <span className="text-slate-300 mx-0.5">/</span>
+          {formatQuotaPart(u.globalWeeklyQuota)}
+          <span className="text-slate-300 mx-0.5">/</span>
+          {formatQuotaPart(u.globalMonthlyQuota)}
+        </span>
+      );
+    case 'today':
+      return <UserCountCell value={u.leadsToday} />;
+    case 'week':
+      return <UserCountCell value={u.leadsWeek} />;
+    case 'month':
+      return <UserCountCell value={u.leadsMonth} />;
+    case 'ytd':
+      return <UserCountCell value={u.leadsYtd} />;
+    default:
+      return null;
+  }
+}
+
+function UserCountCell({ value }: { value: number }) {
+  return (
+    <span className={value > 0 ? 'text-slate-800 font-medium' : 'text-slate-300'}>
+      {value}
+    </span>
   );
 }
 

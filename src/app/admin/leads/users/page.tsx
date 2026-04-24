@@ -48,6 +48,9 @@ export default async function LeadUsersPage() {
           globalWeeklyQuota: u.leadQuota?.globalWeeklyQuota ?? 0,
           globalMonthlyQuota: u.leadQuota?.globalMonthlyQuota ?? 0,
           leadsToday: u._count.leads,
+          leadsWeek: u.leadsWeek,
+          leadsMonth: u.leadsMonth,
+          leadsYtd: u.leadsYtd,
           campaignCount: u.campaignMemberships.length,
           memberships: u.campaignMemberships.map((m) => ({
             id: m.id,

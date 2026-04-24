@@ -1757,8 +1757,19 @@ export async function getLeadEligibleUsers() {
 // ---------------------------------------------------------------------------
 
 export async function getLeadUsers() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  // Week = Sunday 00:00 of the current week (local time)
+  const weekStart = new Date(todayStart);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+
+  // Month = 1st of current month, 00:00 (local time)
+  const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+
+  // Year = Jan 1 of current year, 00:00 (local time)
+  const yearStart = new Date(todayStart.getFullYear(), 0, 1);
 
   const users = await prisma.user.findMany({
     where: {
@@ -1780,14 +1791,68 @@ export async function getLeadUsers() {
       },
       _count: {
         select: {
-          leads: { where: { receivedAt: { gte: today } } },
+          leads: { where: { receivedAt: { gte: todayStart } } },
         },
       },
     },
     orderBy: { name: 'asc' },
   });
 
-  return users;
+  const userIds = users.map((u) => u.id);
+
+  const [weekGroups, monthGroups, ytdGroups] = await Promise.all([
+    userIds.length
+      ? prisma.lead.groupBy({
+          by: ['assignedUserId'],
+          _count: { _all: true },
+          where: {
+            assignedUserId: { in: userIds },
+            receivedAt: { gte: weekStart },
+          },
+        })
+      : Promise.resolve([] as Array<{ assignedUserId: string | null; _count: { _all: number } }>),
+    userIds.length
+      ? prisma.lead.groupBy({
+          by: ['assignedUserId'],
+          _count: { _all: true },
+          where: {
+            assignedUserId: { in: userIds },
+            receivedAt: { gte: monthStart },
+          },
+        })
+      : Promise.resolve([] as Array<{ assignedUserId: string | null; _count: { _all: number } }>),
+    userIds.length
+      ? prisma.lead.groupBy({
+          by: ['assignedUserId'],
+          _count: { _all: true },
+          where: {
+            assignedUserId: { in: userIds },
+            receivedAt: { gte: yearStart },
+          },
+        })
+      : Promise.resolve([] as Array<{ assignedUserId: string | null; _count: { _all: number } }>),
+  ]);
+
+  const toMap = (
+    rows: Array<{ assignedUserId: string | null; _count: { _all: number } }>
+  ) => {
+    const m = new Map<string, number>();
+    for (const row of rows) {
+      if (row.assignedUserId) m.set(row.assignedUserId, row._count._all);
+    }
+    return m;
+  };
+
+  const weekMap = toMap(weekGroups);
+  const monthMap = toMap(monthGroups);
+  const ytdMap = toMap(ytdGroups);
+
+  return users.map((u) => ({
+    ...u,
+    leadsWeek: weekMap.get(u.id) ?? 0,
+    leadsMonth: monthMap.get(u.id) ?? 0,
+    leadsYtd: ytdMap.get(u.id) ?? 0,
+  }));
 }
 
 export async function getLeadUser(userId: string) {
