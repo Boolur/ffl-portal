@@ -231,7 +231,10 @@ export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
   }, []);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+    // Cap the panel at ~half a standard laptop viewport so rows cluster
+    // close together and don't stretch out to a 1500px-wide line. Still
+    // responsive on narrower screens since max-w-3xl tops out at 768px.
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm max-w-3xl">
       <button
         type="button"
         onClick={() => persistCollapsed(!collapsed)}
