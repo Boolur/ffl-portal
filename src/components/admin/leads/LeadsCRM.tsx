@@ -110,7 +110,8 @@ function SortableHeader({
   activeDir,
   onSort,
   align = 'left',
-  width,
+  onStartResize,
+  isResizing,
 }: {
   label: string;
   columnKey: SortKey;
@@ -118,16 +119,17 @@ function SortableHeader({
   activeDir: SortDir;
   onSort: (key: SortKey) => void;
   align?: 'left' | 'right';
-  width?: string;
+  onStartResize?: (e: React.MouseEvent) => void;
+  isResizing?: boolean;
 }) {
   const isActive = activeKey === columnKey;
   const justify = align === 'right' ? 'justify-end' : 'justify-start';
   return (
     <th
       scope="col"
-      className={`px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 ${
+      className={`relative px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 overflow-hidden ${
         align === 'right' ? 'text-right' : 'text-left'
-      } ${width ?? ''}`}
+      }`}
     >
       <button
         type="button"
@@ -148,7 +150,74 @@ function SortableHeader({
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-slate-300" />
         )}
       </button>
+      {onStartResize && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`Resize ${label} column`}
+          onMouseDown={onStartResize}
+          onClick={(e) => e.stopPropagation()}
+          className={`absolute top-0 right-0 h-full w-1.5 cursor-col-resize select-none group/resize ${
+            isResizing ? 'bg-blue-500/60' : 'hover:bg-blue-500/40'
+          }`}
+        >
+          <div
+            className={`absolute top-1/2 right-0 h-5 w-px -translate-y-1/2 ${
+              isResizing ? 'bg-blue-500' : 'bg-slate-200 group-hover/resize:bg-blue-400'
+            }`}
+          />
+        </div>
+      )}
     </th>
+  );
+}
+
+// Leads table column definitions. `id` maps to the resize-widths record,
+// `sortKey` is the server-side sort key (undefined for the checkbox column).
+// `defaultWidth` is applied on first mount and when a user hasn't customised.
+type LeadColumnId =
+  | 'select'
+  | 'status'
+  | 'name'
+  | 'email'
+  | 'phone'
+  | 'state'
+  | 'vendor'
+  | 'campaign'
+  | 'assignedUser'
+  | 'source'
+  | 'received';
+
+const LEAD_COLUMNS: Array<{
+  id: LeadColumnId;
+  label: string;
+  sortKey?: SortKey;
+  defaultWidth: number;
+  minWidth: number;
+  align?: 'left' | 'right';
+}> = [
+  { id: 'select', label: '', defaultWidth: 48, minWidth: 40 },
+  { id: 'status', label: 'Status', sortKey: 'status', defaultWidth: 110, minWidth: 80 },
+  { id: 'name', label: 'Name', sortKey: 'firstName', defaultWidth: 180, minWidth: 100 },
+  { id: 'email', label: 'Email', sortKey: 'email', defaultWidth: 220, minWidth: 120 },
+  { id: 'phone', label: 'Phone', sortKey: 'phone', defaultWidth: 140, minWidth: 100 },
+  { id: 'state', label: 'State', sortKey: 'propertyState', defaultWidth: 90, minWidth: 60 },
+  { id: 'vendor', label: 'Vendor', sortKey: 'vendor', defaultWidth: 150, minWidth: 100 },
+  { id: 'campaign', label: 'Campaign', sortKey: 'campaign', defaultWidth: 240, minWidth: 120 },
+  { id: 'assignedUser', label: 'Assigned To', sortKey: 'assignedUser', defaultWidth: 150, minWidth: 100 },
+  { id: 'source', label: 'Source', sortKey: 'source', defaultWidth: 200, minWidth: 120 },
+  { id: 'received', label: 'Received', sortKey: 'receivedAt', defaultWidth: 140, minWidth: 100, align: 'right' },
+];
+
+const LEAD_COLUMN_WIDTHS_KEY = 'ffl:leads-column-widths:v1';
+
+function buildDefaultColumnWidths(): Record<LeadColumnId, number> {
+  return LEAD_COLUMNS.reduce(
+    (acc, c) => {
+      acc[c.id] = c.defaultWidth;
+      return acc;
+    },
+    {} as Record<LeadColumnId, number>
   );
 }
 
@@ -210,6 +279,99 @@ export function LeadsCRM({
   );
   const [sortBy, setSortBy] = useState<SortKey>('receivedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  // Column widths: lazy-init from localStorage so the user's custom layout
+  // survives page reloads. Keyed by column id; unknown ids are ignored so the
+  // storage schema stays forward-compatible as columns are added.
+  const [columnWidths, setColumnWidths] = useState<Record<LeadColumnId, number>>(
+    () => {
+      const defaults = buildDefaultColumnWidths();
+      if (typeof window === 'undefined') return defaults;
+      try {
+        const raw = window.localStorage.getItem(LEAD_COLUMN_WIDTHS_KEY);
+        if (!raw) return defaults;
+        const parsed = JSON.parse(raw) as Partial<
+          Record<LeadColumnId, number>
+        >;
+        const merged = { ...defaults };
+        for (const col of LEAD_COLUMNS) {
+          const v = parsed[col.id];
+          if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+            merged[col.id] = Math.max(col.minWidth, Math.round(v));
+          }
+        }
+        return merged;
+      } catch {
+        return defaults;
+      }
+    }
+  );
+  const [resizingCol, setResizingCol] = useState<LeadColumnId | null>(null);
+  const resizeStateRef = useRef<{
+    col: LeadColumnId;
+    startX: number;
+    startWidth: number;
+    minWidth: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(
+        LEAD_COLUMN_WIDTHS_KEY,
+        JSON.stringify(columnWidths)
+      );
+    } catch {
+      // Ignore quota / private-mode errors
+    }
+  }, [columnWidths]);
+
+  const handleStartResize = useCallback(
+    (colId: LeadColumnId, minWidth: number) =>
+      (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        resizeStateRef.current = {
+          col: colId,
+          startX: e.clientX,
+          startWidth: columnWidths[colId],
+          minWidth,
+        };
+        setResizingCol(colId);
+
+        const onMove = (ev: MouseEvent) => {
+          const st = resizeStateRef.current;
+          if (!st) return;
+          const delta = ev.clientX - st.startX;
+          const next = Math.max(st.minWidth, Math.round(st.startWidth + delta));
+          setColumnWidths((prev) =>
+            prev[st.col] === next ? prev : { ...prev, [st.col]: next }
+          );
+        };
+        const onUp = () => {
+          resizeStateRef.current = null;
+          setResizingCol(null);
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          document.body.style.removeProperty('cursor');
+          document.body.style.removeProperty('user-select');
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+      },
+    [columnWidths]
+  );
+
+  const resetColumnWidths = useCallback(() => {
+    setColumnWidths(buildDefaultColumnWidths());
+  }, []);
+
+  const tableMinWidth = useMemo(
+    () => Object.values(columnWidths).reduce((sum, w) => sum + w, 0),
+    [columnWidths]
+  );
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectAllGlobal, setSelectAllGlobal] = useState(false);
@@ -1578,9 +1740,19 @@ export function LeadsCRM({
               </span>
             )}
           </p>
-          {loading && (
-            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-          )}
+          <div className="flex items-center gap-3">
+            {loading && (
+              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            )}
+            <button
+              type="button"
+              onClick={resetColumnWidths}
+              className="text-xs font-medium text-slate-500 hover:text-blue-600 transition-colors"
+              title="Restore default column widths"
+            >
+              Reset columns
+            </button>
+          </div>
         </div>
 
         {leads.length === 0 ? (
@@ -1599,10 +1771,18 @@ export function LeadsCRM({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table
+              className="text-sm table-fixed"
+              style={{ width: tableMinWidth, minWidth: tableMinWidth }}
+            >
+              <colgroup>
+                {LEAD_COLUMNS.map((c) => (
+                  <col key={c.id} style={{ width: columnWidths[c.id] }} />
+                ))}
+              </colgroup>
               <thead className="sticky top-0 z-[1] bg-slate-50">
                 <tr className="border-b border-slate-200">
-                  <th className="px-4 py-3 text-left w-10">
+                  <th className="relative px-4 py-3 text-left">
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
@@ -1611,17 +1791,40 @@ export function LeadsCRM({
                       }
                       onChange={toggleAll}
                     />
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="Resize selection column"
+                      onMouseDown={handleStartResize('select', 40)}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`absolute top-0 right-0 h-full w-1.5 cursor-col-resize select-none group/resize ${
+                        resizingCol === 'select'
+                          ? 'bg-blue-500/60'
+                          : 'hover:bg-blue-500/40'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-1/2 right-0 h-5 w-px -translate-y-1/2 ${
+                          resizingCol === 'select'
+                            ? 'bg-blue-500'
+                            : 'bg-slate-200 group-hover/resize:bg-blue-400'
+                        }`}
+                      />
+                    </div>
                   </th>
-                  <SortableHeader label="Status" columnKey="status" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Name" columnKey="firstName" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Email" columnKey="email" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Phone" columnKey="phone" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="State" columnKey="propertyState" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Vendor" columnKey="vendor" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Campaign" columnKey="campaign" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Assigned To" columnKey="assignedUser" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Source" columnKey="source" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
-                  <SortableHeader label="Received" columnKey="receivedAt" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} align="right" />
+                  {LEAD_COLUMNS.filter((c) => c.id !== 'select').map((c) => (
+                    <SortableHeader
+                      key={c.id}
+                      label={c.label}
+                      columnKey={c.sortKey as SortKey}
+                      activeKey={sortBy}
+                      activeDir={sortDir}
+                      onSort={handleSort}
+                      align={c.align}
+                      onStartResize={handleStartResize(c.id, c.minWidth)}
+                      isResizing={resizingCol === c.id}
+                    />
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1636,7 +1839,7 @@ export function LeadsCRM({
                     onClick={() => void openLeadDetail(l.id)}
                   >
                     <td
-                      className="px-4 py-3"
+                      className="px-4 py-3 overflow-hidden"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
@@ -1646,39 +1849,39 @@ export function LeadsCRM({
                         onChange={() => toggleSelect(l.id)}
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 overflow-hidden">
                       <LeadStatusBadge status={l.status} />
                     </td>
-                    <td className="px-4 py-3 font-semibold text-slate-900 whitespace-nowrap">
+                    <td className="px-4 py-3 font-semibold text-slate-900 truncate">
                       {[l.firstName, l.lastName].filter(Boolean).join(' ') ||
                         '—'}
                     </td>
-                    <td className="px-4 py-3 text-slate-600 max-w-[180px] truncate">
+                    <td className="px-4 py-3 text-slate-600 truncate">
                       {l.email || '—'}
                     </td>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="px-4 py-3 text-slate-600 truncate">
                       {l.phone || '—'}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-slate-600 truncate">
                       {l.propertyState || '—'}
                     </td>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="px-4 py-3 text-slate-600 truncate">
                       {l.vendor?.name || '—'}
                     </td>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="px-4 py-3 text-slate-600 truncate">
                       {l.campaign?.name || '—'}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-4 py-3 truncate">
                       {l.assignedUser?.name || (
                         <span className="text-orange-600 font-medium text-xs">
                           Unassigned
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+                    <td className="px-4 py-3 text-slate-500 text-xs truncate">
                       {l.source || '—'}
                     </td>
-                    <td className="px-4 py-3 text-right text-xs text-slate-500 whitespace-nowrap">
+                    <td className="px-4 py-3 text-right text-xs text-slate-500 truncate">
                       <FormatDate date={l.receivedAt} />
                     </td>
                   </tr>
