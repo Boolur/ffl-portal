@@ -815,7 +815,11 @@ export async function setCampaignMembers(
 // Lead CRUD
 // ---------------------------------------------------------------------------
 
-export async function getLeads(filters?: {
+// ---------------------------------------------------------------------------
+// Shared lead list filter + sort helpers
+// ---------------------------------------------------------------------------
+
+export type LeadListFilters = {
   status?: LeadStatus;
   assignedUserId?: string;
   unassigned?: boolean;
@@ -826,22 +830,90 @@ export async function getLeads(filters?: {
   dateFrom?: string;
   dateTo?: string;
   search?: string;
-  take?: number;
-  skip?: number;
-}) {
+  // Extended filters (free-text contains on string columns)
+  loanPurpose?: string;
+  loanType?: string;
+  propertyType?: string;
+  propertyUse?: string;
+  propertyCity?: string;
+  propertyZip?: string;
+  employer?: string;
+};
+
+// Fields included in global free-text search. Because every lead field is
+// stored as a nullable String in the schema, substring matching works
+// uniformly across contact, property, loan, and employment data.
+const LEAD_SEARCH_FIELDS = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'homePhone',
+  'workPhone',
+  'coFirstName',
+  'coLastName',
+  'coEmail',
+  'coPhone',
+  'propertyAddress',
+  'propertyCity',
+  'propertyZip',
+  'propertyCounty',
+  'propertyType',
+  'propertyUse',
+  'propertyValue',
+  'purchasePrice',
+  'loanPurpose',
+  'loanAmount',
+  'loanType',
+  'loanRate',
+  'creditRating',
+  'downPayment',
+  'cashOut',
+  'currentLender',
+  'currentBalance',
+  'employer',
+  'jobTitle',
+  'source',
+  'vendorLeadId',
+  'vendorUserId',
+] as const;
+
+function buildLeadWhere(filters?: LeadListFilters): Record<string, unknown> {
   const where: Record<string, unknown> = {};
-  if (filters?.status) where.status = filters.status;
-  if (filters?.unassigned) where.assignedUserId = null;
-  else if (filters?.assignedUserId) where.assignedUserId = filters.assignedUserId;
-  if (filters?.campaignId) where.campaignId = filters.campaignId;
-  if (filters?.vendorId) where.vendorId = filters.vendorId;
-  if (filters?.propertyState) {
+  if (!filters) return where;
+  if (filters.status) where.status = filters.status;
+  if (filters.unassigned) where.assignedUserId = null;
+  else if (filters.assignedUserId) where.assignedUserId = filters.assignedUserId;
+  if (filters.campaignId) where.campaignId = filters.campaignId;
+  if (filters.vendorId) where.vendorId = filters.vendorId;
+  if (filters.propertyState) {
     where.propertyState = { contains: filters.propertyState, mode: 'insensitive' };
   }
-  if (filters?.source) {
+  if (filters.source) {
     where.source = { contains: filters.source, mode: 'insensitive' };
   }
-  if (filters?.dateFrom || filters?.dateTo) {
+  if (filters.loanPurpose) {
+    where.loanPurpose = { contains: filters.loanPurpose, mode: 'insensitive' };
+  }
+  if (filters.loanType) {
+    where.loanType = { contains: filters.loanType, mode: 'insensitive' };
+  }
+  if (filters.propertyType) {
+    where.propertyType = { contains: filters.propertyType, mode: 'insensitive' };
+  }
+  if (filters.propertyUse) {
+    where.propertyUse = { contains: filters.propertyUse, mode: 'insensitive' };
+  }
+  if (filters.propertyCity) {
+    where.propertyCity = { contains: filters.propertyCity, mode: 'insensitive' };
+  }
+  if (filters.propertyZip) {
+    where.propertyZip = { contains: filters.propertyZip, mode: 'insensitive' };
+  }
+  if (filters.employer) {
+    where.employer = { contains: filters.employer, mode: 'insensitive' };
+  }
+  if (filters.dateFrom || filters.dateTo) {
     const receivedAt: Record<string, Date> = {};
     if (filters.dateFrom) receivedAt.gte = new Date(filters.dateFrom);
     if (filters.dateTo) {
@@ -851,14 +923,89 @@ export async function getLeads(filters?: {
     }
     where.receivedAt = receivedAt;
   }
-  if (filters?.search) {
-    where.OR = [
-      { firstName: { contains: filters.search, mode: 'insensitive' } },
-      { lastName: { contains: filters.search, mode: 'insensitive' } },
-      { email: { contains: filters.search, mode: 'insensitive' } },
-      { phone: { contains: filters.search, mode: 'insensitive' } },
-    ];
+  const q = filters.search?.trim();
+  if (q) {
+    where.OR = LEAD_SEARCH_FIELDS.map((field) => ({
+      [field]: { contains: q, mode: 'insensitive' },
+    }));
   }
+  return where;
+}
+
+// Whitelisted sort keys exposed to the UI. Each maps to a Prisma orderBy
+// expression. Nested relation sorts translate into SQL joins.
+export type LeadSortKey =
+  | 'receivedAt'
+  | 'status'
+  | 'firstName'
+  | 'lastName'
+  | 'email'
+  | 'phone'
+  | 'propertyState'
+  | 'vendor'
+  | 'campaign'
+  | 'assignedUser'
+  | 'source'
+  | 'loanAmount'
+  | 'loanPurpose'
+  | 'loanType'
+  | 'propertyValue'
+  | 'propertyCity';
+
+export type LeadSortDirection = 'asc' | 'desc';
+
+function buildLeadOrderBy(
+  sortBy?: LeadSortKey,
+  sortDir?: LeadSortDirection
+): Record<string, unknown> | Array<Record<string, unknown>> {
+  const dir: LeadSortDirection = sortDir === 'asc' ? 'asc' : 'desc';
+  switch (sortBy) {
+    case 'firstName':
+      return [{ firstName: dir }, { lastName: dir }];
+    case 'lastName':
+      return [{ lastName: dir }, { firstName: dir }];
+    case 'email':
+      return { email: dir };
+    case 'phone':
+      return { phone: dir };
+    case 'status':
+      return { status: dir };
+    case 'propertyState':
+      return { propertyState: dir };
+    case 'vendor':
+      return { vendor: { name: dir } };
+    case 'campaign':
+      return { campaign: { name: dir } };
+    case 'assignedUser':
+      return { assignedUser: { name: dir } };
+    case 'source':
+      return { source: dir };
+    case 'loanAmount':
+      return { loanAmount: dir };
+    case 'loanPurpose':
+      return { loanPurpose: dir };
+    case 'loanType':
+      return { loanType: dir };
+    case 'propertyValue':
+      return { propertyValue: dir };
+    case 'propertyCity':
+      return { propertyCity: dir };
+    case 'receivedAt':
+    default:
+      return { receivedAt: dir };
+  }
+}
+
+export async function getLeads(
+  filters?: LeadListFilters & {
+    take?: number;
+    skip?: number;
+    sortBy?: LeadSortKey;
+    sortDir?: LeadSortDirection;
+  }
+) {
+  const where = buildLeadWhere(filters);
+  const orderBy = buildLeadOrderBy(filters?.sortBy, filters?.sortDir);
 
   const [leads, total] = await prisma.$transaction([
     prisma.lead.findMany({
@@ -869,7 +1016,7 @@ export async function getLeads(filters?: {
         assignedUser: { select: { id: true, name: true } },
         _count: { select: { notes: true } },
       },
-      orderBy: { receivedAt: 'desc' },
+      orderBy: orderBy as never,
       take: filters?.take ?? 100,
       skip: filters?.skip ?? 0,
     }),
@@ -879,52 +1026,18 @@ export async function getLeads(filters?: {
   return { leads, total };
 }
 
-export async function getAllLeadIds(filters?: {
-  status?: LeadStatus;
-  assignedUserId?: string;
-  unassigned?: boolean;
-  campaignId?: string;
-  vendorId?: string;
-  propertyState?: string;
-  source?: string;
-  dateFrom?: string;
-  dateTo?: string;
-  search?: string;
-}) {
-  const where: Record<string, unknown> = {};
-  if (filters?.status) where.status = filters.status;
-  if (filters?.unassigned) where.assignedUserId = null;
-  else if (filters?.assignedUserId) where.assignedUserId = filters.assignedUserId;
-  if (filters?.campaignId) where.campaignId = filters.campaignId;
-  if (filters?.vendorId) where.vendorId = filters.vendorId;
-  if (filters?.propertyState) {
-    where.propertyState = { contains: filters.propertyState, mode: 'insensitive' };
+export async function getAllLeadIds(
+  filters?: LeadListFilters & {
+    sortBy?: LeadSortKey;
+    sortDir?: LeadSortDirection;
   }
-  if (filters?.source) {
-    where.source = { contains: filters.source, mode: 'insensitive' };
-  }
-  if (filters?.dateFrom || filters?.dateTo) {
-    const receivedAt: Record<string, Date> = {};
-    if (filters.dateFrom) receivedAt.gte = new Date(filters.dateFrom);
-    if (filters.dateTo) {
-      const end = new Date(filters.dateTo);
-      end.setHours(23, 59, 59, 999);
-      receivedAt.lte = end;
-    }
-    where.receivedAt = receivedAt;
-  }
-  if (filters?.search) {
-    where.OR = [
-      { firstName: { contains: filters.search, mode: 'insensitive' } },
-      { lastName: { contains: filters.search, mode: 'insensitive' } },
-      { email: { contains: filters.search, mode: 'insensitive' } },
-      { phone: { contains: filters.search, mode: 'insensitive' } },
-    ];
-  }
+) {
+  const where = buildLeadWhere(filters);
+  const orderBy = buildLeadOrderBy(filters?.sortBy, filters?.sortDir);
   const rows = await prisma.lead.findMany({
     where,
     select: { id: true },
-    orderBy: { receivedAt: 'desc' },
+    orderBy: orderBy as never,
   });
   return rows.map((r) => r.id);
 }

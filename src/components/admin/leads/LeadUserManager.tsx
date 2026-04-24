@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Search, X, Plus, Trash2, Loader2, ChevronDown, ChevronRight, Users, Check, Link2,
 } from 'lucide-react';
@@ -175,11 +175,32 @@ function UserDetailPanel({
   const [globalMonthly, setGlobalMonthly] = useState(user.globalMonthlyQuota);
   const [addingCampaign, setAddingCampaign] = useState(false);
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<string>>(new Set());
+  const [campaignSearch, setCampaignSearch] = useState('');
+  const campaignSearchRef = useRef<HTMLInputElement>(null);
 
   const availableCampaigns = useMemo(() => {
     const memberCampaignIds = new Set(user.memberships.map((m) => m.campaignId));
     return allCampaigns.filter((c) => !memberCampaignIds.has(c.id));
   }, [allCampaigns, user.memberships]);
+
+  const filteredAvailableCampaigns = useMemo(() => {
+    const q = campaignSearch.trim().toLowerCase();
+    if (!q) return availableCampaigns;
+    return availableCampaigns.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.vendorName.toLowerCase().includes(q)
+    );
+  }, [availableCampaigns, campaignSearch]);
+
+  useEffect(() => {
+    if (addingCampaign) {
+      const t = window.setTimeout(() => campaignSearchRef.current?.focus(), 50);
+      return () => window.clearTimeout(t);
+    } else {
+      setCampaignSearch('');
+    }
+  }, [addingCampaign]);
 
   const saveGlobalSettings = useCallback(async () => {
     const trimmed = bonzoWebhookUrl.trim();
@@ -480,33 +501,68 @@ function UserDetailPanel({
             {addingCampaign && (
               <div className="mt-3 space-y-3">
                 <p className="text-xs font-medium text-slate-600">Select campaigns to add:</p>
-                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden divide-y divide-slate-100">
-                  {availableCampaigns.map((c) => {
-                    const checked = selectedCampaignIds.has(c.id);
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => toggleCampaignSelection(c.id)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                          checked ? 'bg-blue-50' : 'hover:bg-slate-50'
-                        }`}
-                      >
-                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs transition-colors ${
-                          checked
-                            ? 'border-blue-500 bg-blue-500 text-white'
-                            : 'border-slate-300 bg-white'
-                        }`}>
-                          {checked && <Check className="h-3.5 w-3.5" />}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-slate-900 truncate">{c.name}</p>
-                          <p className="text-[11px] text-slate-500">{c.vendorName}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                  <input
+                    ref={campaignSearchRef}
+                    type="text"
+                    value={campaignSearch}
+                    onChange={(e) => setCampaignSearch(e.target.value)}
+                    placeholder="Search campaigns by name or vendor..."
+                    className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-9 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  {campaignSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCampaignSearch('');
+                        campaignSearchRef.current?.focus();
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                      aria-label="Clear campaign search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
+                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                  {filteredAvailableCampaigns.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm text-slate-500">
+                      No campaigns match &ldquo;{campaignSearch}&rdquo;
+                    </div>
+                  ) : (
+                    filteredAvailableCampaigns.map((c) => {
+                      const checked = selectedCampaignIds.has(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => toggleCampaignSelection(c.id)}
+                          className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+                            checked ? 'bg-blue-50' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs transition-colors ${
+                            checked
+                              ? 'border-blue-500 bg-blue-500 text-white'
+                              : 'border-slate-300 bg-white'
+                          }`}>
+                            {checked && <Check className="h-3.5 w-3.5" />}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900 truncate">{c.name}</p>
+                            <p className="text-[11px] text-slate-500">{c.vendorName}</p>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                {campaignSearch && filteredAvailableCampaigns.length > 0 && (
+                  <p className="text-[11px] text-slate-500">
+                    Showing {filteredAvailableCampaigns.length} of {availableCampaigns.length} campaigns
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <button
                     type="button"

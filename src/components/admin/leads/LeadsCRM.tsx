@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Search,
   UserPlus,
@@ -8,6 +8,9 @@ import {
   Inbox,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
   Trash2,
   RefreshCw,
   Zap,
@@ -86,6 +89,69 @@ type CrmStats = {
   }>;
 };
 
+type SortKey =
+  | 'receivedAt'
+  | 'status'
+  | 'firstName'
+  | 'email'
+  | 'phone'
+  | 'propertyState'
+  | 'vendor'
+  | 'campaign'
+  | 'assignedUser'
+  | 'source';
+
+type SortDir = 'asc' | 'desc';
+
+function SortableHeader({
+  label,
+  columnKey,
+  activeKey,
+  activeDir,
+  onSort,
+  align = 'left',
+  width,
+}: {
+  label: string;
+  columnKey: SortKey;
+  activeKey: SortKey;
+  activeDir: SortDir;
+  onSort: (key: SortKey) => void;
+  align?: 'left' | 'right';
+  width?: string;
+}) {
+  const isActive = activeKey === columnKey;
+  const justify = align === 'right' ? 'justify-end' : 'justify-start';
+  return (
+    <th
+      scope="col"
+      className={`px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 ${
+        align === 'right' ? 'text-right' : 'text-left'
+      } ${width ?? ''}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(columnKey)}
+        className={`inline-flex items-center gap-1.5 ${justify} w-full select-none rounded-md px-1.5 py-1 -mx-1.5 transition-colors hover:bg-slate-100 ${
+          isActive ? 'text-slate-900' : 'text-slate-500'
+        }`}
+        aria-label={`Sort by ${label}`}
+      >
+        <span className="truncate">{label}</span>
+        {isActive ? (
+          activeDir === 'asc' ? (
+            <ChevronUp className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+          )
+        ) : (
+          <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+        )}
+      </button>
+    </th>
+  );
+}
+
 const VENDOR_COLORS = [
   'bg-blue-500',
   'bg-violet-500',
@@ -128,6 +194,13 @@ export function LeadsCRM({
   const [userFilter, setUserFilter] = useState('');
   const [stateFilter, setStateFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [loanPurposeFilter, setLoanPurposeFilter] = useState('');
+  const [loanTypeFilter, setLoanTypeFilter] = useState('');
+  const [propertyTypeFilter, setPropertyTypeFilter] = useState('');
+  const [propertyUseFilter, setPropertyUseFilter] = useState('');
+  const [propertyCityFilter, setPropertyCityFilter] = useState('');
+  const [propertyZipFilter, setPropertyZipFilter] = useState('');
+  const [employerFilter, setEmployerFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(0);
@@ -135,6 +208,8 @@ export function LeadsCRM({
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(
     null
   );
+  const [sortBy, setSortBy] = useState<SortKey>('receivedAt');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectAllGlobal, setSelectAllGlobal] = useState(false);
@@ -160,6 +235,13 @@ export function LeadsCRM({
     if (userFilter) count++;
     if (stateFilter) count++;
     if (sourceFilter) count++;
+    if (loanPurposeFilter) count++;
+    if (loanTypeFilter) count++;
+    if (propertyTypeFilter) count++;
+    if (propertyUseFilter) count++;
+    if (propertyCityFilter) count++;
+    if (propertyZipFilter) count++;
+    if (employerFilter) count++;
     if (dateFrom) count++;
     if (dateTo) count++;
     return count;
@@ -171,6 +253,13 @@ export function LeadsCRM({
     userFilter,
     stateFilter,
     sourceFilter,
+    loanPurposeFilter,
+    loanTypeFilter,
+    propertyTypeFilter,
+    propertyUseFilter,
+    propertyCityFilter,
+    propertyZipFilter,
+    employerFilter,
     dateFrom,
     dateTo,
   ]);
@@ -180,6 +269,8 @@ export function LeadsCRM({
       const f: Record<string, unknown> = {
         take: PAGE_SIZE,
         skip: (pageOverride ?? page) * PAGE_SIZE,
+        sortBy,
+        sortDir,
       };
       if (search) f.search = search;
       if (statusFilter) f.status = statusFilter;
@@ -189,6 +280,13 @@ export function LeadsCRM({
       else if (userFilter) f.assignedUserId = userFilter;
       if (stateFilter) f.propertyState = stateFilter;
       if (sourceFilter) f.source = sourceFilter;
+      if (loanPurposeFilter) f.loanPurpose = loanPurposeFilter;
+      if (loanTypeFilter) f.loanType = loanTypeFilter;
+      if (propertyTypeFilter) f.propertyType = propertyTypeFilter;
+      if (propertyUseFilter) f.propertyUse = propertyUseFilter;
+      if (propertyCityFilter) f.propertyCity = propertyCityFilter;
+      if (propertyZipFilter) f.propertyZip = propertyZipFilter;
+      if (employerFilter) f.employer = employerFilter;
       if (dateFrom) f.dateFrom = dateFrom;
       if (dateTo) f.dateTo = dateTo;
       return f;
@@ -202,8 +300,17 @@ export function LeadsCRM({
       userFilter,
       stateFilter,
       sourceFilter,
+      loanPurposeFilter,
+      loanTypeFilter,
+      propertyTypeFilter,
+      propertyUseFilter,
+      propertyCityFilter,
+      propertyZipFilter,
+      employerFilter,
       dateFrom,
       dateTo,
+      sortBy,
+      sortDir,
     ]
   );
 
@@ -232,6 +339,29 @@ export function LeadsCRM({
     void fetchLeads(0);
   }, [fetchLeads]);
 
+  const handleSort = useCallback(
+    (key: SortKey) => {
+      if (sortBy === key) {
+        setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setSortBy(key);
+        setSortDir('desc');
+      }
+    },
+    [sortBy]
+  );
+
+  // Refetch when sort changes (skip first render)
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    setPage(0);
+    void fetchLeads(0);
+  }, [sortBy, sortDir, fetchLeads]);
+
   const handlePageChange = useCallback(
     (newPage: number) => {
       setPage(newPage);
@@ -248,12 +378,19 @@ export function LeadsCRM({
     setUserFilter('');
     setStateFilter('');
     setSourceFilter('');
+    setLoanPurposeFilter('');
+    setLoanTypeFilter('');
+    setPropertyTypeFilter('');
+    setPropertyUseFilter('');
+    setPropertyCityFilter('');
+    setPropertyZipFilter('');
+    setEmployerFilter('');
     setDateFrom('');
     setDateTo('');
     setPage(0);
     setActiveQuickFilter(null);
     setLoading(true);
-    getLeads({ take: PAGE_SIZE, skip: 0 } as never).then((result) => {
+    getLeads({ take: PAGE_SIZE, skip: 0, sortBy, sortDir } as never).then((result) => {
       setLeads(
         result.leads.map((l) => ({
           ...l,
@@ -264,7 +401,7 @@ export function LeadsCRM({
       setSelected(new Set());
       setLoading(false);
     });
-  }, []);
+  }, [sortBy, sortDir]);
 
   // Quick filter from stat cards
   const applyQuickFilter = useCallback(
@@ -276,6 +413,13 @@ export function LeadsCRM({
       setUserFilter('');
       setStateFilter('');
       setSourceFilter('');
+      setLoanPurposeFilter('');
+      setLoanTypeFilter('');
+      setPropertyTypeFilter('');
+      setPropertyUseFilter('');
+      setPropertyCityFilter('');
+      setPropertyZipFilter('');
+      setEmployerFilter('');
 
       const now = new Date();
       const todayStr = now.toISOString().split('T')[0];
@@ -293,7 +437,7 @@ export function LeadsCRM({
         setActiveQuickFilter(null);
         setPage(0);
         setLoading(true);
-        getLeads({ take: PAGE_SIZE, skip: 0 } as never).then((result) => {
+        getLeads({ take: PAGE_SIZE, skip: 0, sortBy, sortDir } as never).then((result) => {
           setLeads(
             result.leads.map((l) => ({
               ...l,
@@ -312,6 +456,8 @@ export function LeadsCRM({
       let filters: Record<string, unknown> = {
         take: PAGE_SIZE,
         skip: 0,
+        sortBy,
+        sortDir,
       };
 
       switch (key) {
@@ -356,7 +502,7 @@ export function LeadsCRM({
         setLoading(false);
       });
     },
-    [activeQuickFilter]
+    [activeQuickFilter, sortBy, sortDir]
   );
 
   const applyVendorFilter = useCallback(
@@ -367,6 +513,13 @@ export function LeadsCRM({
       setUserFilter('');
       setStateFilter('');
       setSourceFilter('');
+      setLoanPurposeFilter('');
+      setLoanTypeFilter('');
+      setPropertyTypeFilter('');
+      setPropertyUseFilter('');
+      setPropertyCityFilter('');
+      setPropertyZipFilter('');
+      setEmployerFilter('');
       setDateFrom('');
       setDateTo('');
       setVendorFilter(vendorId);
@@ -377,6 +530,8 @@ export function LeadsCRM({
         take: PAGE_SIZE,
         skip: 0,
         vendorId,
+        sortBy,
+        sortDir,
       } as never).then((result) => {
         setLeads(
           result.leads.map((l) => ({
@@ -389,7 +544,7 @@ export function LeadsCRM({
         setLoading(false);
       });
     },
-    []
+    [sortBy, sortDir]
   );
 
   const applyCampaignFilter = useCallback(
@@ -400,6 +555,13 @@ export function LeadsCRM({
       setUserFilter('');
       setStateFilter('');
       setSourceFilter('');
+      setLoanPurposeFilter('');
+      setLoanTypeFilter('');
+      setPropertyTypeFilter('');
+      setPropertyUseFilter('');
+      setPropertyCityFilter('');
+      setPropertyZipFilter('');
+      setEmployerFilter('');
       setDateFrom('');
       setDateTo('');
       setCampaignFilter(campaignId);
@@ -410,6 +572,8 @@ export function LeadsCRM({
         take: PAGE_SIZE,
         skip: 0,
         campaignId,
+        sortBy,
+        sortDir,
       } as never).then((result) => {
         setLeads(
           result.leads.map((l) => ({
@@ -422,7 +586,7 @@ export function LeadsCRM({
         setLoading(false);
       });
     },
-    []
+    [sortBy, sortDir]
   );
 
   const toggleSelect = (id: string) => {
@@ -1105,6 +1269,83 @@ export function LeadsCRM({
                   onChange={(e) => setDateTo(e.target.value)}
                 />
               </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Loan Purpose
+                </label>
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="e.g. Refinance"
+                  value={loanPurposeFilter}
+                  onChange={(e) => setLoanPurposeFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Loan Type
+                </label>
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="e.g. Conventional"
+                  value={loanTypeFilter}
+                  onChange={(e) => setLoanTypeFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Property Type
+                </label>
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="e.g. Single Family"
+                  value={propertyTypeFilter}
+                  onChange={(e) => setPropertyTypeFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Property Use
+                </label>
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="e.g. Primary"
+                  value={propertyUseFilter}
+                  onChange={(e) => setPropertyUseFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Property City
+                </label>
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="City name"
+                  value={propertyCityFilter}
+                  onChange={(e) => setPropertyCityFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Property Zip
+                </label>
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="Zip code"
+                  value={propertyZipFilter}
+                  onChange={(e) => setPropertyZipFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Employer
+                </label>
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="Employer name"
+                  value={employerFilter}
+                  onChange={(e) => setEmployerFilter(e.target.value)}
+                />
+              </div>
             </div>
             <div className="mt-3 flex items-center gap-2">
               <button
@@ -1356,36 +1597,16 @@ export function LeadsCRM({
                       onChange={toggleAll}
                     />
                   </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Name
-                  </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Email
-                  </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Phone
-                  </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    State
-                  </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Vendor
-                  </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Campaign
-                  </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Assigned To
-                  </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Source
-                  </th>
-                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Received
-                  </th>
+                  <SortableHeader label="Status" columnKey="status" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Name" columnKey="firstName" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Email" columnKey="email" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Phone" columnKey="phone" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="State" columnKey="propertyState" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Vendor" columnKey="vendor" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Campaign" columnKey="campaign" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Assigned To" columnKey="assignedUser" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Source" columnKey="source" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} />
+                  <SortableHeader label="Received" columnKey="receivedAt" activeKey={sortBy} activeDir={sortDir} onSort={handleSort} align="right" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
