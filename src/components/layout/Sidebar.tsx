@@ -105,8 +105,11 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       name: 'Leads',
       icon: Inbox,
       href: '/leads',
+      // LO-only bucket. Admins have "Lead Distribution" (/admin/leads)
+      // for the same data; letting admins into the LO page routed them
+      // through a proxy guard that logged Admin I/II out. Only LO and
+      // LOA accounts need this screen.
       roles: [UserRole.LOAN_OFFICER, UserRole.LOA] as UserRole[],
-      visible: () => isAdmin(activeRole),
     },
     {
       name: 'Lenders',
