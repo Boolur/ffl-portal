@@ -2925,11 +2925,11 @@ export async function createIntegrationService(
   const base = buildServiceUpdateData(data, { forCreate: true });
   const created = await prisma.integrationService.create({
     data: {
+      ...(base as Prisma.IntegrationServiceUncheckedCreateInput),
       slug,
       name: (base.name as string) ?? data.name.trim(),
       description: (base.description as string | null | undefined) ?? null,
       type: (base.type as string) ?? 'custom',
-      ...(base as Prisma.IntegrationServiceUncheckedCreateInput),
       credentialFields:
         data.credentialFields && data.credentialFields.length > 0
           ? {
