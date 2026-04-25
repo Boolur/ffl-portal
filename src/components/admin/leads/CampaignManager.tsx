@@ -889,9 +889,9 @@ export function CampaignManager({
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">Assignment</p>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 items-stretch">
                   {/* Left box: Available (unassigned) users */}
-                  <div className="space-y-2">
+                  <div className="flex flex-col space-y-2">
                     <div className="flex items-center justify-between min-h-[22px]">
                       <span className="text-xs font-medium text-slate-700">
                         Available Users ({availableUsers.length})
@@ -907,7 +907,7 @@ export function CampaignManager({
                         onChange={(e) => setAvailableSearch(e.target.value)}
                       />
                     </div>
-                    <div className="h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                    <div className="flex-1 min-h-[192px] overflow-y-auto rounded-lg border border-slate-200 bg-white">
                       {availableUsers.length === 0 ? (
                         <div className="flex h-full items-center justify-center px-3 py-6 text-center text-xs text-slate-400">
                           {availableSearch
@@ -944,7 +944,7 @@ export function CampaignManager({
                   </div>
 
                   {/* Right box: Assigned users */}
-                  <div className="space-y-2">
+                  <div className="flex flex-col space-y-2">
                     <div className="flex items-center justify-between min-h-[22px]">
                       <span className="text-xs font-medium text-slate-700">
                         Assigned Users ({form.memberUserIds.length})
@@ -998,7 +998,7 @@ export function CampaignManager({
                         onChange={(e) => setAssignedSearch(e.target.value)}
                       />
                     </div>
-                    <div className="h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                    <div className="flex-1 min-h-[192px] overflow-y-auto rounded-lg border border-slate-200 bg-white">
                       {assignedUsers.length === 0 ? (
                         <div className="flex h-full items-center justify-center px-3 py-6 text-center text-xs text-slate-400">
                           {form.memberUserIds.length === 0
