@@ -1,4 +1,8 @@
 import { prisma } from '@/lib/prisma';
+import {
+  coalesceMilitaryFlag,
+  normalizeMilitaryFlagToBool,
+} from '@/lib/militaryFlag';
 
 /**
  * Forwards a newly-assigned lead to the assigned user's Bonzo webhook URL.
@@ -190,11 +194,18 @@ type LeadLike = {
  *   creditRating        -> credit_score
  *   bankruptcy          -> bankruptcy_details
  *   foreclosure         -> foreclosure_details
- *   isMilitary          -> veteran (Bonzo-native, drives VA campaigns)
- *                          also mirrored to custom_ismilitary + custom_veteran
- *                          for admins whose existing Bonzo triggers are keyed
- *                          on the legacy LMB field names. Falls back to
- *                          vaStatus when isMilitary is null.
+ *   isMilitary          -> veteran (Bonzo-native boolean, drives VA
+ *                          campaigns). Sent as a real `true`/`false`/`null`
+ *                          JSON value — Bonzo's boolean-strict triggers
+ *                          ignore the string "True"/"Yes". Normalized
+ *                          through src/lib/militaryFlag.ts so every
+ *                          vendor's shape ("True"/"Yes"/"1"/etc.)
+ *                          resolves the same way. Also mirrored to
+ *                          custom_ismilitary + custom_veteran as
+ *                          "Yes"/"No" strings for admins whose existing
+ *                          Bonzo triggers are keyed on the legacy LMB
+ *                          field names. Falls back to vaStatus when
+ *                          isMilitary is null or empty.
  *   employer            -> prospect_company, company_name
  *   jobTitle            -> occupation
  *   income              -> income, household_income
@@ -217,6 +228,23 @@ type LeadLike = {
 function buildBonzoPayload(lead: LeadLike) {
   const applicationDate = toYmd(lead.receivedAt);
   const notes = buildNotesArray(lead);
+
+  // Derive a canonical veteran signal once, then project it into the three
+  // keys Bonzo and its legacy-LMB users expect:
+  //   - `veteran`:           real JS boolean for Bonzo's native field, so
+  //                          campaign conditionals like `veteran == true`
+  //                          fire reliably regardless of what the source
+  //                          vendor sent ("True", "Yes", "1", etc.).
+  //   - `custom_ismilitary`: "Yes"/"No" string for LMB-era triggers that
+  //                          were built before Bonzo added the native key.
+  //   - `custom_veteran`:    same "Yes"/"No" mirror, keyed the way some
+  //                          admins prefer for their custom workflows.
+  // `coalesceMilitaryFlag` also guards against empty-string values (which
+  // LM substitutes when the source field is blank) — plain `??` would
+  // keep the empty string and leave Bonzo seeing `veteran: ""`.
+  const veteranFlag = coalesceMilitaryFlag(lead.isMilitary, lead.vaStatus);
+  const veteranBool = normalizeMilitaryFlagToBool(veteranFlag);
+  const veteranYesNo = veteranFlag; // 'Yes' | 'No' | null
 
   return {
     // Identity
@@ -267,15 +295,16 @@ function buildBonzoPayload(lead: LeadLike) {
     // Bonzo-native risk / custom flags (match the LMB sample exactly)
     bankruptcy_details: lead.bankruptcy,
     foreclosure_details: lead.foreclosure,
-    // Bonzo's first-class "Veteran" field. LOs run VA-loan campaigns off
-    // this, so we populate it from the portal's Is Military flag (the
-    // same yes/no that vendors post as isMilitary). Falls back to vaStatus
-    // if the vendor only sends the VA-eligibility flag. Keep the custom_*
-    // mirrors for admins whose existing Bonzo triggers are keyed on the
-    // legacy LMB field names.
-    veteran: lead.isMilitary ?? lead.vaStatus,
-    custom_ismilitary: lead.isMilitary,
-    custom_veteran: lead.isMilitary ?? lead.vaStatus,
+    // Bonzo's first-class "Veteran" field is a real boolean in their
+    // "Create Prospect" API. LOs run VA-loan campaigns off this, so the
+    // boolean form is required — sending the string "True" or "Yes"
+    // silently fails boolean-strict triggers. Falls back to vaStatus
+    // when isMilitary is absent, and to `null` if neither is known
+    // (prevents defaulting a lead to "not a veteran" on missing data,
+    // which would suppress a legitimately eligible borrower).
+    veteran: veteranBool,
+    custom_ismilitary: veteranYesNo,
+    custom_veteran: veteranYesNo,
 
     // Employment / company
     prospect_company: lead.employer,

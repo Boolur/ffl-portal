@@ -614,9 +614,14 @@ function ServiceBuilderModal({
             '  "credit_score": "{{lead.creditRating}}",',
             '  "bankruptcy_details": "{{lead.bankruptcy}}",',
             '  "foreclosure_details": "{{lead.foreclosure}}",',
-            '  "veteran": "{{lead.isMilitary}}",',
-            '  "custom_ismilitary": "{{lead.isMilitary}}",',
-            '  "custom_veteran": "{{lead.isMilitary}}",',
+            // `veteran` is Bonzo-native and expects a JSON boolean, so
+            // use the computed `{{lead.veteranBool}}` token UNQUOTED —
+            // it renders to the literal `true`, `false`, or `null`. The
+            // `custom_*` mirrors stay as "Yes"/"No" strings for admins
+            // whose legacy LMB triggers match on string form.
+            '  "veteran": {{lead.veteranBool}},',
+            '  "custom_ismilitary": "{{lead.veteranYesNo}}",',
+            '  "custom_veteran": "{{lead.veteranYesNo}}",',
             '  "prospect_company": "{{lead.employer}}",',
             '  "company_name": "{{lead.employer}}",',
             '  "occupation": "{{lead.jobTitle}}",',

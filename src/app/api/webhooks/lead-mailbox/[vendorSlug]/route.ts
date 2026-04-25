@@ -12,6 +12,7 @@ import {
   LEAD_MAILBOX_TARGET_FIELDS,
   extractBridgeNotes,
 } from '@/lib/leadMailboxBridge';
+import { normalizeMilitaryFlag } from '@/lib/militaryFlag';
 
 /**
  * Matches an unsubstituted Lead Mailbox placeholder, e.g. "{FirstName}" or
@@ -105,6 +106,18 @@ export async function POST(
     const value = normalizeStringValue(rawValue);
     if (value === null) continue;
     if (leadFields[target]) continue;
+    if (target === 'isMilitary') {
+      // LM substitutes `{Ismilitary}` / `{Veteran}` tokens with whatever the
+      // upstream vendor sent — the same field reaches us as "True", "Yes",
+      // "no", "1", etc. across LendingTree / HomeBuyer Marketing / etc.
+      // Collapse to the canonical "Yes"/"No" at ingest so downstream Bonzo
+      // veteran-campaign triggers (and the portal's own filters) see a
+      // stable value. Unknown inputs still pass through so admins can see
+      // what the vendor actually sent in the detail panel.
+      const canonical = normalizeMilitaryFlag(value);
+      leadFields[target] = canonical ?? value;
+      continue;
+    }
     leadFields[target] = value;
   }
 

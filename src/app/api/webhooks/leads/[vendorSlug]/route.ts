@@ -4,6 +4,7 @@ import { LeadStatus, type Prisma } from '@prisma/client';
 import { distributeLead } from '@/app/actions/leadActions';
 import { runServiceTriggers } from '@/lib/services';
 import { IntegrationServiceTrigger } from '@prisma/client';
+import { normalizeMilitaryFlag } from '@/lib/militaryFlag';
 
 type FieldMapping = Record<string, string>;
 
@@ -30,17 +31,24 @@ function applyFieldMapping(
 
 const LEAD_FIELDS = new Set([
   'firstName', 'lastName', 'email', 'phone', 'homePhone', 'workPhone', 'dob',
+  // SSN is a sensitive identity column but we *do* persist it — the leads
+  // UI shows it to admins and assigned LOs, and the Bonzo forwarder passes
+  // it through when the LO's destination CRM wants it. Dropping it here
+  // was the quiet reason LendingTree-style vendors that include SSN in
+  // their webhook payload never had the field populated on our side.
+  'ssn',
   'coFirstName', 'coLastName', 'coEmail', 'coPhone', 'coHomePhone', 'coWorkPhone', 'coDob',
   'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip', 'mailingCounty',
   'propertyAddress', 'propertyCity', 'propertyState', 'propertyZip', 'propertyCounty',
   'purchasePrice', 'propertyValue', 'propertyType', 'propertyUse', 'propertyAcquired', 'propertyLtv',
-  'employer', 'jobTitle', 'employmentLength', 'selfEmployed', 'income', 'bankruptcy', 'homeowner',
+  'employer', 'jobTitle', 'employmentLength', 'selfEmployed', 'income', 'bankruptcy', 'foreclosure', 'homeowner',
   'coEmployer', 'coJobTitle', 'coEmploymentLength', 'coSelfEmployed', 'coIncome',
   'loanPurpose', 'loanAmount', 'loanTerm', 'loanType', 'loanRate',
   'downPayment', 'cashOut', 'creditRating',
   'currentLender', 'currentBalance', 'currentRate', 'currentPayment', 'currentTerm', 'currentType',
   'otherBalance', 'otherPayment', 'targetRate',
   'vaStatus', 'vaLoan', 'isMilitary', 'fhaLoan', 'sourceUrl',
+  'leadCreated',
 ]);
 
 export async function POST(
@@ -102,9 +110,18 @@ export async function POST(
 
   const leadFields: Record<string, string> = {};
   for (const [key, value] of Object.entries(mapped)) {
-    if (LEAD_FIELDS.has(key) && value != null) {
-      leadFields[key] = value;
+    if (!LEAD_FIELDS.has(key) || value == null) continue;
+    if (key === 'isMilitary') {
+      // Canonicalize every vendor's True/Yes/1/etc. to the portal's
+      // "Yes"/"No" so reporting, filters, and Bonzo-native campaign
+      // triggers (which are boolean-strict on Bonzo's end) all see a
+      // stable value. Unknown values (typos, "maybe") pass through so
+      // admins can still triage them in the detail panel.
+      const canonical = normalizeMilitaryFlag(value);
+      leadFields[key] = canonical ?? value;
+      continue;
     }
+    leadFields[key] = value;
   }
 
   const statusStr = campaign?.defaultLeadStatus ?? 'UNASSIGNED';

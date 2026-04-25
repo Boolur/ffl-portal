@@ -16,6 +16,7 @@
  */
 
 import type { Lead, User, LeadCampaign, LeadVendor } from '@prisma/client';
+import { coalesceMilitaryFlag } from '@/lib/militaryFlag';
 
 // ---------------------------------------------------------------------------
 // Context shapes
@@ -220,7 +221,7 @@ const LEAD_FIELD_TOKENS: ReadonlyArray<{ key: keyof Lead; desc: string }> = [
   { key: 'income', desc: 'Borrower income' },
   { key: 'bankruptcy', desc: 'Bankruptcy flag / details' },
   { key: 'foreclosure', desc: 'Foreclosure flag / details' },
-  { key: 'isMilitary', desc: 'Military yes/no' },
+  { key: 'isMilitary', desc: 'Military yes/no (normalized: "Yes" / "No")' },
   { key: 'vaStatus', desc: 'VA / veteran status' },
   { key: 'status', desc: 'Portal lead status (NEW, CONTACTED, ...)' },
   { key: 'assignedUserId', desc: 'Assigned LO user id (internal)' },
@@ -244,11 +245,34 @@ const DATE_TOKENS: ReadonlyArray<{ path: string; desc: string }> = [
  * merge field" picker. Credential fields are appended by the caller once
  * the service's IntegrationServiceCredentialField rows are known.
  */
+// Computed virtual lead fields (resolved in readFromLead above, not present
+// on the Prisma Lead model). Surfaced separately from the generated list so
+// admins can see them in the merge-field picker without us having to widen
+// the `keyof Lead` constraint.
+const LEAD_COMPUTED_TOKENS: ReadonlyArray<{ key: string; desc: string }> = [
+  { key: 'fullName', desc: 'Borrower full name ("First Last")' },
+  {
+    key: 'veteranBool',
+    desc:
+      'Veteran as a JSON literal (true/false/null) — use UNQUOTED in a JSON body, e.g. "veteran": {{lead.veteranBool}}',
+  },
+  {
+    key: 'veteranYesNo',
+    desc:
+      'Veteran as a "Yes"/"No" string (falls back to vaStatus, empty if unknown)',
+  },
+];
+
 export function listAvailableTokens(
   extras: { credentialKeys?: string[] } = {}
 ): TokenSpec[] {
   const leadTokens: TokenSpec[] = LEAD_FIELD_TOKENS.map((f) => ({
     token: `{{lead.${String(f.key)}}}`,
+    group: 'Lead',
+    description: f.desc,
+  }));
+  const leadComputedTokens: TokenSpec[] = LEAD_COMPUTED_TOKENS.map((f) => ({
+    token: `{{lead.${f.key}}}`,
     group: 'Lead',
     description: f.desc,
   }));
@@ -279,6 +303,7 @@ export function listAvailableTokens(
 
   return [
     ...leadTokens,
+    ...leadComputedTokens,
     ...userTokens,
     ...credentialTokens,
     ...campaignTokens,
@@ -363,6 +388,27 @@ function readFromLead(path: string[], lead: TemplateLead): unknown {
   }
   if (key === 'lastNote') {
     return '';
+  }
+  // Computed veteran/military tokens. These let Bonzo body templates emit
+  // a real JSON literal (`true`/`false`/`null`) instead of a string, which
+  // is required for Bonzo-native veteran campaign triggers that check
+  // `veteran == true`. Stored `lead.isMilitary` is already normalized at
+  // ingest, but we defer to `coalesceMilitaryFlag` here so the fallback to
+  // `vaStatus` also fires when the lead only has VA eligibility set.
+  //
+  // Usage in an admin's body template (note the *missing* quotes so the
+  // rendered value becomes a JSON literal):
+  //     "veteran": {{lead.veteranBool}},        // -> true / false / null
+  //     "custom_veteran": "{{lead.veteranYesNo}}"   // -> "Yes" / "No" / ""
+  if (key === 'veteranBool') {
+    const flag = coalesceMilitaryFlag(lead.isMilitary, lead.vaStatus);
+    if (flag === 'Yes') return 'true';
+    if (flag === 'No') return 'false';
+    return 'null';
+  }
+  if (key === 'veteranYesNo') {
+    const flag = coalesceMilitaryFlag(lead.isMilitary, lead.vaStatus);
+    return flag ?? '';
   }
   if (key === 'receivedAt' || key === 'createdAt' || key === 'updatedAt' || key === 'assignedAt') {
     const val = (lead as unknown as Record<string, unknown>)[key];

@@ -27,6 +27,7 @@ import {
   canAccessLeadDistribution,
   isAdmin as isAdminRole,
 } from '@/lib/adminTiers';
+import { normalizeMilitaryFlag } from '@/lib/militaryFlag';
 import {
   evaluateMember,
   findNextEligibleMember,
@@ -1903,9 +1904,17 @@ export async function updateLeadFields(
 
   const data: Record<string, string | null> = {};
   for (const [key, value] of Object.entries(fields)) {
-    if (allowedFields.has(key)) {
-      data[key] = value && value.trim() !== '' ? value.trim() : null;
+    if (!allowedFields.has(key)) continue;
+    const trimmed = value && value.trim() !== '' ? value.trim() : null;
+    if (key === 'isMilitary' && trimmed !== null) {
+      // Admin/LO edits go through the same canonicalization as webhook
+      // ingest so a manual "yes" / "true" entry doesn't re-introduce
+      // the inconsistent-casing problem we normalize at the webhook /
+      // bridge / CSV import layer.
+      data[key] = normalizeMilitaryFlag(trimmed) ?? trimmed;
+      continue;
     }
+    data[key] = trimmed;
   }
 
   if (Object.keys(data).length === 0) return;
@@ -2666,6 +2675,12 @@ export async function saveCsvMappings(
 
 const LEAD_STRING_FIELDS = new Set([
   'firstName', 'lastName', 'email', 'phone', 'homePhone', 'workPhone', 'dob',
+  // SSN is mappable in the CSV upload UI (CsvUploadModal.tsx) and shown
+  // in the admin detail modal + LO detail panel. It was previously
+  // missing from this allow-list, which is why the 107k historical
+  // import stored zero SSNs even when the source CSV had the column
+  // populated. Keep it here.
+  'ssn',
   'coFirstName', 'coLastName', 'coEmail', 'coPhone', 'coHomePhone', 'coWorkPhone', 'coDob',
   'mailingAddress', 'mailingCity', 'mailingState', 'mailingZip', 'mailingCounty',
   'propertyAddress', 'propertyCity', 'propertyState', 'propertyZip', 'propertyCounty',
@@ -2677,6 +2692,10 @@ const LEAD_STRING_FIELDS = new Set([
   'currentLender', 'currentBalance', 'currentRate', 'currentPayment', 'currentTerm', 'currentType',
   'otherBalance', 'otherPayment', 'targetRate',
   'vaStatus', 'vaLoan', 'isMilitary', 'fhaLoan', 'sourceUrl', 'price',
+  // leadCreated is offered in the CsvUploadModal mapping UI and populated
+  // by vendor webhooks; include it here so historical imports preserve
+  // the vendor-provided creation timestamp instead of dropping it.
+  'leadCreated',
 ]);
 
 export async function bulkCreateLeadsFromCsv(
@@ -2699,9 +2718,12 @@ export async function bulkCreateLeadsFromCsv(
         receivedAt: now,
       };
       for (const [field, value] of Object.entries(row)) {
-        if (LEAD_STRING_FIELDS.has(field) && value != null && value !== '') {
-          data[field] = value;
+        if (!LEAD_STRING_FIELDS.has(field) || value == null || value === '') continue;
+        if (field === 'isMilitary') {
+          data[field] = normalizeMilitaryFlag(value) ?? value;
+          continue;
         }
+        data[field] = value;
       }
       return data as Prisma.LeadCreateManyInput;
     });
@@ -2756,9 +2778,12 @@ export async function bulkCreateLeadsBatch(
       receivedAt: now,
     };
     for (const [field, value] of Object.entries(row)) {
-      if (LEAD_STRING_FIELDS.has(field) && value != null && value !== '') {
-        data[field] = value;
+      if (!LEAD_STRING_FIELDS.has(field) || value == null || value === '') continue;
+      if (field === 'isMilitary') {
+        data[field] = normalizeMilitaryFlag(value) ?? value;
+        continue;
       }
+      data[field] = value;
     }
 
     let assignedUserId: string | null = null;

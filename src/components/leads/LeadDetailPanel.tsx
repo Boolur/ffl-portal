@@ -19,6 +19,7 @@ type LeadDetail = {
   homePhone: string | null;
   workPhone: string | null;
   dob: string | null;
+  ssn: string | null;
   coFirstName: string | null;
   coLastName: string | null;
   coEmail: string | null;
@@ -200,6 +201,7 @@ export function LeadDetailPanel({
             <Field label="Home Phone" value={lead.homePhone} />
             <Field label="Work Phone" value={lead.workPhone} />
             <Field label="DOB" value={lead.dob} />
+            <Field label="SSN" value={lead.ssn} />
             {(lead.coFirstName || lead.coLastName) && (
               <>
                 <div className="mt-2 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Co-Borrower</div>
