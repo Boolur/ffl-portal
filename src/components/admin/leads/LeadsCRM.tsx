@@ -256,7 +256,7 @@ const LEAD_COLUMNS: Array<{
   { id: 'campaign', label: 'Campaign', sortKey: 'campaign', defaultWidth: 240, minWidth: 120 },
   { id: 'assignedUser', label: 'Assigned To', sortKey: 'assignedUser', defaultWidth: 150, minWidth: 100 },
   { id: 'source', label: 'Source', sortKey: 'source', defaultWidth: 200, minWidth: 120 },
-  { id: 'received', label: 'Received', sortKey: 'receivedAt', defaultWidth: 140, minWidth: 100, align: 'right' },
+  { id: 'received', label: 'Received', sortKey: 'receivedAt', defaultWidth: 190, minWidth: 150, align: 'right' },
 ];
 
 const LEAD_COLUMN_WIDTHS_KEY = 'ffl:leads-column-widths:v1';
@@ -352,7 +352,7 @@ function renderLeadCell(
     case 'source':
       return l.source || '—';
     case 'received':
-      return <FormatDate date={l.receivedAt} />;
+      return <FormatDate date={l.receivedAt} mode="datetime" />;
     default:
       return null;
   }
