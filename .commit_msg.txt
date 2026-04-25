@@ -1,0 +1,13 @@
+fix: move INTEGRATION_SERVICE_TYPES out of "use server" file
+
+leadActions.ts is marked "use server" and Next.js forbids non-async
+value exports from such files. The recently-added
+INTEGRATION_SERVICE_TYPES const array tripped the production build:
+
+  Error: A "use server" file can only export async functions, found object.
+
+Move the const + associated types to a plain module at
+src/lib/integrationServices/types.ts. leadActions.ts now imports the
+value for its runtime validations and re-exports the types (type
+re-exports are erased by the compiler and therefore allowed).
+IntegrationServiceManager.tsx imports directly from the new module.

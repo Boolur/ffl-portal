@@ -20,9 +20,11 @@ import {
   archiveIntegrationService,
   restoreIntegrationService,
   deleteIntegrationService,
+} from '@/app/actions/leadActions';
+import {
   INTEGRATION_SERVICE_TYPES,
   type IntegrationServiceSummary,
-} from '@/app/actions/leadActions';
+} from '@/lib/integrationServices/types';
 
 type Props = {
   services: IntegrationServiceSummary[];

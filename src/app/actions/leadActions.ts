@@ -26,6 +26,15 @@ import {
   type NextUpResult,
 } from '@/lib/leadDistribution';
 import { normalizeUserName } from '@/lib/leadNameMatch';
+import {
+  INTEGRATION_SERVICE_TYPES,
+  type IntegrationServiceType,
+  type IntegrationServiceSummary,
+} from '@/lib/integrationServices/types';
+export type {
+  IntegrationServiceType,
+  IntegrationServiceSummary,
+} from '@/lib/integrationServices/types';
 
 const CSV_VENDOR_SLUG = 'csv-upload';
 
@@ -2615,20 +2624,9 @@ export async function revalidateLeadPaths() {
  * serviceHandlers registry in src/lib/services. Adding a new service means
  * (a) adding a handler there, and (b) adding the slug to this list.
  */
-export const INTEGRATION_SERVICE_TYPES = ['bonzo'] as const;
-export type IntegrationServiceType = (typeof INTEGRATION_SERVICE_TYPES)[number];
-
-export type IntegrationServiceSummary = {
-  id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  type: string;
-  active: boolean;
-  config: unknown;
-  createdAt: Date;
-  updatedAt: Date;
-};
+// Types + allow-list live in a plain module so they can be imported by
+// client components (and, critically, so we don't export a non-async
+// value from this "use server" file).
 
 function revalidateServicePaths() {
   revalidatePath('/admin/leads');
