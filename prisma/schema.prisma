@@ -613,6 +613,20 @@ model LeadUserTeamMember {
   @@index([userId])
 }
 
+model IntegrationService {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String?
+  type        String
+  active      Boolean  @default(true)
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active])
+}
+
 model CampaignMember {
   id                    String    @id @default(uuid())
   campaignId            String

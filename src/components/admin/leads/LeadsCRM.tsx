@@ -27,6 +27,10 @@ import {
 import { LeadStatusBadge } from '@/components/leads/LeadStatusBadge';
 import { LeadDetailModal } from './LeadDetailModal';
 import {
+  PushToServiceModal,
+  type ServiceSummary as PushToServiceSummary,
+} from './PushToServiceModal';
+import {
   getLeads,
   getLead,
   bulkAssignLeads,
@@ -377,6 +381,7 @@ export function LeadsCRM({
   users,
   sources,
   stats,
+  services = [],
 }: {
   initialLeads: LeadRow[];
   initialTotal: number;
@@ -385,6 +390,7 @@ export function LeadsCRM({
   users: FilterOption[];
   sources: string[];
   stats?: CrmStats;
+  services?: PushToServiceSummary[];
 }) {
   const router = useRouter();
 
@@ -651,6 +657,7 @@ export function LeadsCRM({
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusChangeOpen, setStatusChangeOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [pushServiceOpen, setPushServiceOpen] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [progressOverlay, setProgressOverlay] = useState<{
     label: string;
@@ -1925,9 +1932,20 @@ export function LeadsCRM({
 
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-400 cursor-not-allowed"
-            disabled
-            title="Coming soon — Services integration"
+            className={`inline-flex items-center gap-1.5 rounded-lg bg-white border px-3 py-1.5 text-sm font-semibold transition-colors ${
+              selected.size === 0 || services.length === 0
+                ? 'border-slate-200 text-slate-400 cursor-not-allowed'
+                : 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'
+            }`}
+            disabled={selected.size === 0 || services.length === 0}
+            onClick={() => setPushServiceOpen(true)}
+            title={
+              services.length === 0
+                ? 'No active services — add one in Integration Services'
+                : selected.size === 0
+                  ? 'Select leads first'
+                  : `Push ${selected.size} selected lead${selected.size === 1 ? '' : 's'} to a service`
+            }
           >
             <Zap className="h-3.5 w-3.5" />
             Push to Service
@@ -2173,6 +2191,14 @@ export function LeadsCRM({
           lead={detailLead}
           onClose={() => setDetailLead(null)}
           onUpdated={() => void fetchLeads()}
+        />
+      )}
+
+      {pushServiceOpen && (
+        <PushToServiceModal
+          leadIds={Array.from(selected)}
+          services={services}
+          onClose={() => setPushServiceOpen(false)}
         />
       )}
     </div>

@@ -10,6 +10,7 @@ import {
   Upload,
   Inbox,
   Loader2,
+  Zap,
 } from 'lucide-react';
 import { CsvUploadModal } from './CsvUploadModal';
 import { LeadDetailModal } from './LeadDetailModal';
@@ -43,6 +44,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 type SavedMapping = { csvHeader: string; ourField: string; usageCount: number };
+type EligibleUser = { id: string; name: string; email: string; role?: string };
 
 const NAV_CARDS = [
   {
@@ -89,15 +91,28 @@ const NAV_CARDS = [
     cta: 'bg-orange-50 text-orange-700 group-hover:bg-orange-500 group-hover:text-white',
     ctaLabel: 'Manage Users',
   },
+  {
+    title: 'Services',
+    subtitle: 'Outbound push targets like Bonzo. Used by the Leads Push to Service button.',
+    href: '/admin/leads/services',
+    Icon: Zap,
+    border: 'border-indigo-200 hover:border-indigo-300',
+    iconBg: 'bg-indigo-600',
+    watermark: 'text-indigo-600',
+    cta: 'bg-indigo-50 text-indigo-700 group-hover:bg-indigo-600 group-hover:text-white',
+    ctaLabel: 'Manage Services',
+  },
 ] as const;
 
 export function LeadDashboard({
   stats,
   csvMappings = [],
+  eligibleUsers = [],
   onOpenCsv,
 }: {
   stats: DashboardStats;
   csvMappings?: SavedMapping[];
+  eligibleUsers?: EligibleUser[];
   onOpenCsv?: () => void;
 }) {
   const [csvOpen, setCsvOpen] = useState(false);
@@ -132,7 +147,7 @@ export function LeadDashboard({
   return (
     <div className="space-y-8">
       {/* Primary Navigation Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
         {NAV_CARDS.map((card) => (
           <Link
             key={card.href}
@@ -296,6 +311,7 @@ export function LeadDashboard({
         open={csvOpen}
         onClose={() => setCsvOpen(false)}
         savedMappings={csvMappings}
+        eligibleUsers={eligibleUsers}
       />
     </div>
   );

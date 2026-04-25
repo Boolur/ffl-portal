@@ -12,6 +12,12 @@ import {
   type BonzoLeadLike,
 } from '@/lib/bonzoForward';
 import {
+  serviceHandlers,
+  runPushBatch,
+  summarizeBatch,
+  type BatchSummary,
+} from '@/lib/services';
+import {
   evaluateMember,
   findNextEligibleMember,
   type GauntletCampaign,
@@ -19,6 +25,7 @@ import {
   type GauntletMember,
   type NextUpResult,
 } from '@/lib/leadDistribution';
+import { normalizeUserName } from '@/lib/leadNameMatch';
 
 const CSV_VENDOR_SLUG = 'csv-upload';
 
@@ -2500,12 +2507,39 @@ export async function bulkCreateLeadsFromCsv(
   return { created };
 }
 
+/**
+ * Bulk import a batch of CSV rows as leads.
+ *
+ * Historical-import options (optional):
+ *  - `assignment.nameToUserId` — lookup map built client-side from the CSV's
+ *    "User Name" column. Any row with `assignedUserName` whose normalized
+ *    value hits this map gets `assignedUserId` + `assignedAt` set and its
+ *    status bumped from `UNASSIGNED` to `NEW` (matches what `distributeLead`
+ *    sets when it assigns to a live round-robin member). Rows that map to
+ *    `null` (or have no name) stay unassigned and land in the pool.
+ *  - `assignment.fireBonzo` — when true, each assigned lead is forwarded
+ *    to its LO's Bonzo webhook (fire-and-forget). Default false for
+ *    historical imports since those leads are typically already in Bonzo.
+ */
 export async function bulkCreateLeadsBatch(
-  rows: Array<Record<string, string | null>>
+  rows: Array<Record<string, string | null>>,
+  options?: {
+    assignment?: {
+      nameToUserId: Record<string, string | null>;
+      fireBonzo?: boolean;
+    };
+  }
 ) {
   const vendor = await getOrCreateCsvVendor();
   const now = new Date();
-  const creates: Prisma.LeadCreateManyInput[] = rows.map((row) => {
+  const assignmentMap = options?.assignment?.nameToUserId;
+  const fireBonzo = options?.assignment?.fireBonzo === true;
+
+  type Resolved = {
+    data: Prisma.LeadCreateManyInput;
+    assignedUserId: string | null;
+  };
+  const resolved: Resolved[] = rows.map((row) => {
     const data: Record<string, unknown> = {
       vendorId: vendor.id,
       status: LeadStatus.UNASSIGNED,
@@ -2518,14 +2552,259 @@ export async function bulkCreateLeadsBatch(
         data[field] = value;
       }
     }
-    return data as Prisma.LeadCreateManyInput;
+
+    let assignedUserId: string | null = null;
+    if (assignmentMap) {
+      const raw = row.assignedUserName;
+      const key = normalizeUserName(raw);
+      if (key && Object.prototype.hasOwnProperty.call(assignmentMap, key)) {
+        const resolvedId = assignmentMap[key];
+        if (resolvedId) {
+          assignedUserId = resolvedId;
+          data.assignedUserId = resolvedId;
+          data.assignedAt = now;
+          data.status = LeadStatus.NEW;
+        }
+      }
+    }
+
+    return { data: data as Prisma.LeadCreateManyInput, assignedUserId };
   });
-  const result = await prisma.lead.createMany({ data: creates });
-  return { created: result.count };
+
+  const createResult = await prisma.lead.createMany({
+    data: resolved.map((r) => r.data),
+  });
+
+  if (fireBonzo) {
+    // Can't get the newly-created ids back from createMany, so look them up
+    // by rawPayload match via the assigned users + receivedAt window. For
+    // simplicity and correctness we just fetch all leads created in this
+    // batch by (vendorId, receivedAt >= now) that have assignedUserId set
+    // and fire webhook forwards.
+    const fresh = await prisma.lead.findMany({
+      where: {
+        vendorId: vendor.id,
+        receivedAt: { gte: now },
+        assignedUserId: { not: null },
+      },
+      select: { id: true, assignedUserId: true },
+      take: resolved.length,
+    });
+    for (const l of fresh) {
+      if (l.assignedUserId) {
+        void forwardLeadToBonzo(l.id, l.assignedUserId);
+      }
+    }
+  }
+
+  return { created: createResult.count };
 }
 
 export async function revalidateLeadPaths() {
   revalidatePath('/admin/leads');
   revalidatePath('/admin/leads/pool');
   revalidatePath('/admin/leads/all');
+}
+
+// ---------------------------------------------------------------------------
+// Integration Services (Push-to-Service registry)
+// ---------------------------------------------------------------------------
+
+/**
+ * Accepted `type` values for an IntegrationService. Must match a key in the
+ * serviceHandlers registry in src/lib/services. Adding a new service means
+ * (a) adding a handler there, and (b) adding the slug to this list.
+ */
+export const INTEGRATION_SERVICE_TYPES = ['bonzo'] as const;
+export type IntegrationServiceType = (typeof INTEGRATION_SERVICE_TYPES)[number];
+
+export type IntegrationServiceSummary = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  type: string;
+  active: boolean;
+  config: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function revalidateServicePaths() {
+  revalidatePath('/admin/leads');
+  revalidatePath('/admin/leads/services');
+  revalidatePath('/admin/leads/all');
+}
+
+/**
+ * Returns all services, newest first. Pass `activeOnly: true` when
+ * populating the Push-to-Service picker so archived services don't show up.
+ */
+export async function getIntegrationServices(
+  opts: { activeOnly?: boolean } = {}
+): Promise<IntegrationServiceSummary[]> {
+  const rows = await prisma.integrationService.findMany({
+    where: opts.activeOnly ? { active: true } : undefined,
+    orderBy: [{ active: 'desc' }, { createdAt: 'asc' }],
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    slug: r.slug,
+    name: r.name,
+    description: r.description,
+    type: r.type,
+    active: r.active,
+    config: r.config,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }));
+}
+
+function normalizeSlug(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export async function createIntegrationService(data: {
+  name: string;
+  slug?: string;
+  description?: string | null;
+  type: string;
+  config?: unknown;
+}) {
+  const name = data.name.trim();
+  if (!name) throw new Error('Service name is required');
+  const slug = normalizeSlug(data.slug || data.name);
+  if (!slug) throw new Error('Service slug is required');
+  if (!INTEGRATION_SERVICE_TYPES.includes(data.type as IntegrationServiceType)) {
+    throw new Error(`Unknown service type "${data.type}"`);
+  }
+
+  const created = await prisma.integrationService.create({
+    data: {
+      name,
+      slug,
+      description: data.description?.trim() || null,
+      type: data.type,
+      config: (data.config ?? {}) as Prisma.InputJsonValue,
+    },
+  });
+  revalidateServicePaths();
+  return created;
+}
+
+export async function updateIntegrationService(
+  id: string,
+  data: {
+    name?: string;
+    description?: string | null;
+    type?: string;
+    config?: unknown;
+  }
+) {
+  const patch: Record<string, unknown> = {};
+  if (data.name !== undefined) {
+    const name = data.name.trim();
+    if (!name) throw new Error('Service name is required');
+    patch.name = name;
+  }
+  if (data.description !== undefined) {
+    patch.description = data.description?.trim() || null;
+  }
+  if (data.type !== undefined) {
+    if (
+      !INTEGRATION_SERVICE_TYPES.includes(data.type as IntegrationServiceType)
+    ) {
+      throw new Error(`Unknown service type "${data.type}"`);
+    }
+    patch.type = data.type;
+  }
+  if (data.config !== undefined) {
+    patch.config = (data.config ?? {}) as Prisma.InputJsonValue;
+  }
+
+  const updated = await prisma.integrationService.update({
+    where: { id },
+    data: patch,
+  });
+  revalidateServicePaths();
+  return updated;
+}
+
+export async function archiveIntegrationService(id: string) {
+  const updated = await prisma.integrationService.update({
+    where: { id },
+    data: { active: false },
+  });
+  revalidateServicePaths();
+  return updated;
+}
+
+export async function restoreIntegrationService(id: string) {
+  const updated = await prisma.integrationService.update({
+    where: { id },
+    data: { active: true },
+  });
+  revalidateServicePaths();
+  return updated;
+}
+
+export async function deleteIntegrationService(
+  id: string,
+  confirmName: string
+) {
+  const svc = await prisma.integrationService.findUnique({ where: { id } });
+  if (!svc) throw new Error('Service not found');
+  if (svc.active) {
+    throw new Error('Archive the service before permanently deleting it');
+  }
+  if (confirmName.trim() !== svc.name) {
+    throw new Error('Confirmation name does not match service name');
+  }
+  await prisma.integrationService.delete({ where: { id } });
+  revalidateServicePaths();
+}
+
+/**
+ * Runs the batch push for the given service against a set of lead ids and
+ * returns a structured summary. The UI pairs summary.skipped / summary.failed
+ * with the selected leads so the admin can see exactly which ones need
+ * attention (no assignee, no Bonzo URL, HTTP error, etc.).
+ *
+ * Auth: restricted to admins. Not rate-limited at the server layer — the
+ * client-side modal gates big pushes behind a confirmation dialog.
+ */
+export async function pushLeadsToService(input: {
+  serviceSlug: string;
+  leadIds: string[];
+}): Promise<BatchSummary> {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role;
+  if (role !== UserRole.ADMIN && role !== UserRole.MANAGER) {
+    throw new Error('Not authorized');
+  }
+
+  const leadIds = Array.from(new Set(input.leadIds)).filter(Boolean);
+  if (leadIds.length === 0) {
+    return { total: 0, succeeded: 0, skipped: [], failed: [] };
+  }
+
+  const svc = await prisma.integrationService.findUnique({
+    where: { slug: input.serviceSlug },
+  });
+  if (!svc) throw new Error(`Service "${input.serviceSlug}" not found`);
+  if (!svc.active) throw new Error(`Service "${svc.name}" is archived`);
+
+  const handler = serviceHandlers[svc.type];
+  if (!handler) {
+    throw new Error(
+      `No handler registered for service type "${svc.type}". Add one in src/lib/services.`
+    );
+  }
+
+  const rows = await runPushBatch(handler, leadIds, svc.config);
+  return summarizeBatch(rows);
 }

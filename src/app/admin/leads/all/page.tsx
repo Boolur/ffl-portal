@@ -12,6 +12,7 @@ import {
   getLeadEligibleUsers,
   getDistinctLeadSources,
   getLeadCrmStats,
+  getIntegrationServices,
 } from '@/app/actions/leadActions';
 
 export default async function AllLeadsPage() {
@@ -24,6 +25,7 @@ export default async function AllLeadsPage() {
     eligibleUsers,
     sources,
     crmStats,
+    services,
   ] = await Promise.all([
     getLeads({ take: 200, skip: 0 }),
     getLeadVendors(true),
@@ -31,6 +33,7 @@ export default async function AllLeadsPage() {
     getLeadEligibleUsers(),
     getDistinctLeadSources(),
     getLeadCrmStats(),
+    getIntegrationServices({ activeOnly: true }),
   ]);
 
   const user = {
@@ -70,6 +73,13 @@ export default async function AllLeadsPage() {
         users={eligibleUsers.map((u) => ({ id: u.id, name: u.name }))}
         sources={sources}
         stats={crmStats}
+        services={services.map((s) => ({
+          id: s.id,
+          slug: s.slug,
+          name: s.name,
+          description: s.description,
+          type: s.type,
+        }))}
       />
     </DashboardShell>
   );
