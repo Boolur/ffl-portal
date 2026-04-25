@@ -420,6 +420,16 @@ export function LeadsCRM({
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
+  // Distinct from `loading` so we can render a blocking overlay only
+  // when the user is actively searching (the generic `loading` flag is
+  // also raised for sort/page/filter changes which don't need it).
+  const [searching, setSearching] = useState(false);
+  // Monotonically-increasing request id. Every fetch captures its id at
+  // dispatch time; when the response arrives we only commit the result
+  // if the id still matches the latest one. This kills the "old slow
+  // search overwrites new fast search" race that used to reshuffle the
+  // table mid-click.
+  const fetchSeqRef = useRef(0);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -781,24 +791,37 @@ export function LeadsCRM({
 
   const fetchLeads = useCallback(
     async (pageOverride?: number, opts?: { skipCount?: boolean }) => {
+      const seq = ++fetchSeqRef.current;
       setLoading(true);
+      const filters = buildFilters(pageOverride) as Record<string, unknown>;
+      if (opts?.skipCount) filters.skipCount = true;
+      const isSearchRequest =
+        typeof filters.search === 'string' &&
+        (filters.search as string).trim().length >= 2;
+      if (isSearchRequest) setSearching(true);
       try {
-        const filters = buildFilters(pageOverride) as Record<string, unknown>;
-        if (opts?.skipCount) filters.skipCount = true;
         const result = await getLeads(filters as never);
+        // Stale response guard: if another fetch was dispatched after
+        // this one, drop this result on the floor. Prevents the older
+        // slow query from clobbering a newer fast query.
+        if (seq !== fetchSeqRef.current) return;
         setLeads(
           result.leads.map((l) => ({
             ...l,
             receivedAt: l.receivedAt.toISOString(),
           })) as unknown as LeadRow[]
         );
-        // total === -1 is the sentinel returned when we asked the server
-        // to skip the COUNT(*); keep the previous total in that case so
-        // the footer pager ("1-200 of N") keeps working between pages.
-        if (!opts?.skipCount) setTotal(result.total);
+        // total === -1 is the sentinel returned when we asked the
+        // server to skip the COUNT(*) (either explicitly via skipCount
+        // during pagination, or implicitly when the server detects an
+        // active search). Keep the previous total in that case.
+        if (result.total !== -1) setTotal(result.total);
         setSelected(new Set());
       } finally {
-        setLoading(false);
+        if (seq === fetchSeqRef.current) {
+          setLoading(false);
+          setSearching(false);
+        }
       }
     },
     [buildFilters]
@@ -808,6 +831,34 @@ export function LeadsCRM({
     setPage(0);
     void fetchLeads(0);
   }, [fetchLeads]);
+
+  // Debounced search auto-fire. Triggers a fetch ~350ms after the user
+  // stops typing. Guards:
+  //   - Skips the very first render (no pointless initial fetch; the
+  //     server already returned initialLeads).
+  //   - Single-character queries aren't dispatched — they're too broad
+  //     to be useful and too expensive to scan (the server also rejects
+  //     <2 char queries, so this just saves the round-trip).
+  //   - Clearing the box (string -> '') is allowed through so the
+  //     unfiltered list + full total come back.
+  const searchMountRef = useRef(false);
+  const lastSearchFiredRef = useRef('');
+  useEffect(() => {
+    if (!searchMountRef.current) {
+      searchMountRef.current = true;
+      lastSearchFiredRef.current = search;
+      return;
+    }
+    const trimmed = search.trim();
+    if (trimmed.length === 1) return;
+    if (trimmed === lastSearchFiredRef.current.trim()) return;
+    const timer = window.setTimeout(() => {
+      lastSearchFiredRef.current = search;
+      setPage(0);
+      void fetchLeads(0);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [search, fetchLeads]);
 
   const handleSort = useCallback(
     (key: SortKey) => {
@@ -863,14 +914,17 @@ export function LeadsCRM({
     setPage(0);
     setActiveQuickFilter(null);
     setLoading(true);
+    setSearching(false);
+    const seq = ++fetchSeqRef.current;
     getLeads({ take: PAGE_SIZE, skip: 0, sortBy, sortDir } as never).then((result) => {
+      if (seq !== fetchSeqRef.current) return;
       setLeads(
         result.leads.map((l) => ({
           ...l,
           receivedAt: l.receivedAt.toISOString(),
         })) as unknown as LeadRow[]
       );
-      setTotal(result.total);
+      if (result.total !== -1) setTotal(result.total);
       setSelected(new Set());
       setLoading(false);
     });
@@ -910,14 +964,16 @@ export function LeadsCRM({
         setActiveQuickFilter(null);
         setPage(0);
         setLoading(true);
+        const seq = ++fetchSeqRef.current;
         getLeads({ take: PAGE_SIZE, skip: 0, sortBy, sortDir } as never).then((result) => {
+          if (seq !== fetchSeqRef.current) return;
           setLeads(
             result.leads.map((l) => ({
               ...l,
               receivedAt: l.receivedAt.toISOString(),
             })) as unknown as LeadRow[]
           );
-          setTotal(result.total);
+          if (result.total !== -1) setTotal(result.total);
           setSelected(new Set());
           setLoading(false);
         });
@@ -963,14 +1019,16 @@ export function LeadsCRM({
 
       setPage(0);
       setLoading(true);
+      const seq = ++fetchSeqRef.current;
       getLeads(filters as never).then((result) => {
+        if (seq !== fetchSeqRef.current) return;
         setLeads(
           result.leads.map((l) => ({
             ...l,
             receivedAt: l.receivedAt.toISOString(),
           })) as unknown as LeadRow[]
         );
-        setTotal(result.total);
+        if (result.total !== -1) setTotal(result.total);
         setSelected(new Set());
         setLoading(false);
       });
@@ -999,6 +1057,7 @@ export function LeadsCRM({
       setActiveQuickFilter(null);
       setPage(0);
       setLoading(true);
+      const seq = ++fetchSeqRef.current;
       getLeads({
         take: PAGE_SIZE,
         skip: 0,
@@ -1006,13 +1065,14 @@ export function LeadsCRM({
         sortBy,
         sortDir,
       } as never).then((result) => {
+        if (seq !== fetchSeqRef.current) return;
         setLeads(
           result.leads.map((l) => ({
             ...l,
             receivedAt: l.receivedAt.toISOString(),
           })) as unknown as LeadRow[]
         );
-        setTotal(result.total);
+        if (result.total !== -1) setTotal(result.total);
         setSelected(new Set());
         setLoading(false);
       });
@@ -1041,6 +1101,7 @@ export function LeadsCRM({
       setActiveQuickFilter(null);
       setPage(0);
       setLoading(true);
+      const seq = ++fetchSeqRef.current;
       getLeads({
         take: PAGE_SIZE,
         skip: 0,
@@ -1048,13 +1109,14 @@ export function LeadsCRM({
         sortBy,
         sortDir,
       } as never).then((result) => {
+        if (seq !== fetchSeqRef.current) return;
         setLeads(
           result.leads.map((l) => ({
             ...l,
             receivedAt: l.receivedAt.toISOString(),
           })) as unknown as LeadRow[]
         );
-        setTotal(result.total);
+        if (result.total !== -1) setTotal(result.total);
         setSelected(new Set());
         setLoading(false);
       });
@@ -1618,12 +1680,28 @@ export function LeadsCRM({
           <div className="relative w-full max-w-sm">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
-              className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               placeholder="Search by name, email, or phone..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleFilterChange()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  lastSearchFiredRef.current = search;
+                  handleFilterChange();
+                }
+              }}
             />
+            {search.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1.5 rounded-md p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                aria-label="Clear search"
+                title="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           <button
             type="button"
@@ -2076,7 +2154,27 @@ export function LeadsCRM({
       )}
 
       {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden relative">
+        {/* Blocking search overlay. While a search is in flight we dim
+            the whole table card and capture clicks so the user can't
+            fire row-opens on rows that are about to disappear when
+            results land. This kills the "misclick on a reshuffled row"
+            complaint. Uses z-20 so the sticky thead (z-1) is covered. */}
+        {searching && (
+          <div
+            className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-[1px]"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+              <span className="text-sm font-medium text-slate-700">
+                Searching{' '}
+                {total > 0 ? `${total.toLocaleString()} ` : ''}leads&hellip;
+              </span>
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <p className="text-sm text-slate-600">
             <span className="font-bold text-slate-900">
@@ -2121,13 +2219,20 @@ export function LeadsCRM({
         ) : (
           <div className="overflow-x-auto">
             <table
-              className="text-sm table-fixed"
-              style={{ width: tableMinWidth, minWidth: tableMinWidth }}
+              className="text-sm table-fixed w-full"
+              // Keep the sum of column widths as a floor so narrow viewports
+              // still scroll horizontally, but let the table stretch to the
+              // full container width on ultra-wide monitors. A trailing
+              // filler column with no fixed width absorbs the extra space
+              // so the real columns retain their stored widths exactly
+              // (important for the column-resize UX).
+              style={{ minWidth: tableMinWidth }}
             >
               <colgroup>
                 {orderedColumns.map((c) => (
                   <col key={c.id} style={{ width: columnWidths[c.id] }} />
                 ))}
+                <col aria-hidden="true" />
               </colgroup>
               <thead className="sticky top-0 z-[1] bg-slate-50">
                 <tr className="border-b border-slate-200">
@@ -2182,6 +2287,10 @@ export function LeadsCRM({
                       />
                     );
                   })}
+                  {/* Filler header cell — pairs with the trailing <col>
+                      so the extra space on ultra-wide monitors gets
+                      absorbed here instead of leaving a gutter. */}
+                  <th aria-hidden="true" className="px-0 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -2211,6 +2320,10 @@ export function LeadsCRM({
                         })}
                       </td>
                     ))}
+                    {/* Filler body cell — matches the trailing <col> so
+                        the row background stretches across the full
+                        table width on ultra-wide monitors. */}
+                    <td aria-hidden="true" />
                   </tr>
                 ))}
               </tbody>
