@@ -653,7 +653,35 @@ export function CampaignManager({
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
+        // Card chrome mirrors LeadsCRM's main list table:
+        //  - outer div owns the rounded border + shadow + white bg
+        //    with `overflow-hidden` so the corners stay round even
+        //    when the inner table overflows horizontally
+        //  - summary header strip shows "N campaigns · showing X" and
+        //    the Reset Columns affordance, matching the Leads card
+        //  - inner div does the horizontal scrolling so the card
+        //    border never moves, only the content inside it
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <p className="text-sm text-slate-600">
+              <span className="font-bold text-slate-900">{filtered.length}</span>{' '}
+              campaign{filtered.length !== 1 ? 's' : ''}
+              {showArchived && archivedCount > 0 && (
+                <span className="ml-1 text-slate-400">
+                  &middot; including {archivedCount} archived
+                </span>
+              )}
+            </p>
+            <button
+              type="button"
+              onClick={() => setColWidths({})}
+              className="text-xs font-medium text-slate-500 hover:text-blue-600 transition-colors"
+              title="Restore default column widths"
+            >
+              Reset columns
+            </button>
+          </div>
+          <div className="overflow-x-auto">
           <table ref={tableRef} className="w-full text-sm" style={{ tableLayout: Object.keys(colWidths).length ? 'fixed' : undefined }}>
             <thead className="sticky top-0 z-[1] bg-slate-50">
               <tr className="border-b border-slate-200">
@@ -715,7 +743,7 @@ export function CampaignManager({
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody className="divide-y divide-slate-100">
               {filtered.map((c) => (
                 <tr
                   key={c.id}
@@ -802,6 +830,7 @@ export function CampaignManager({
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
