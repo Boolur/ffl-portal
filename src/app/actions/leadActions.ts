@@ -7,7 +7,7 @@ import {
   LeadStatus,
   UserRole,
   IntegrationServiceTrigger,
-  type Prisma,
+  Prisma,
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import {
