@@ -695,15 +695,17 @@ export function CampaignManager({
                   </th>
                 ))}
                 {/*
-                  Actions column is fixed-width. The measurement effect
-                  above seeds colWidths from the first auto-layout pass,
-                  which switches the table to `tableLayout: 'fixed'` and
-                  makes this width authoritative — preventing the column
-                  from scrolling off-screen inside `overflow-x-auto`.
+                  Actions column is sticky to the right edge of the
+                  horizontal scroll container (`overflow-x-auto`). No
+                  matter the zoom level or viewport width, the edit /
+                  archive / delete buttons stay visible while the rest
+                  of the table scrolls underneath. The inset shadow on
+                  the left serves as a subtle separator between the
+                  sticky column and the scrolling content.
                 */}
                 <th
                   data-col-key="actions"
-                  className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap"
+                  className="sticky right-0 z-[2] bg-slate-50 px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap shadow-[inset_1px_0_0_rgb(226,232,240)]"
                   style={{
                     width: colWidths.actions ?? 140,
                     minWidth: 140,
@@ -717,7 +719,7 @@ export function CampaignManager({
               {filtered.map((c) => (
                 <tr
                   key={c.id}
-                  className={`align-middle hover:bg-slate-50/70 ${
+                  className={`group align-middle hover:bg-slate-50/70 ${
                     c.active ? '' : 'bg-amber-50/30'
                   }`}
                 >
@@ -758,7 +760,9 @@ export function CampaignManager({
                   <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
                     <FormatDate date={c.updatedAt} mode="datetime" />
                   </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                  <td
+                    className="sticky right-0 z-[1] bg-white px-4 py-3 text-right whitespace-nowrap shadow-[inset_1px_0_0_rgb(226,232,240)] transition-colors group-hover:bg-slate-50"
+                  >
                     <div className="flex items-center justify-end gap-1">
                       <button className="app-icon-btn" onClick={() => copyWebhookInfo(c)} title="Copy webhook info">
                         {copiedId === c.id ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
