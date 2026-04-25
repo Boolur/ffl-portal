@@ -20,6 +20,10 @@ import {
   type ColumnDragHandlers,
   type DropIndicator,
 } from '@/components/admin/leads/shared/columnCustomization';
+import {
+  LeadUserTeamManager,
+  type LeadUserTeamSummary,
+} from '@/components/admin/leads/LeadUserTeamManager';
 
 type Membership = {
   id: string;
@@ -187,9 +191,11 @@ function getUserColumnSortValue(u: LeadUser, id: UserSortKey): string | number {
 export function LeadUserManager({
   users,
   allCampaigns,
+  teams = [],
 }: {
   users: LeadUser[];
   allCampaigns: CampaignOption[];
+  teams?: LeadUserTeamSummary[];
 }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
@@ -280,6 +286,15 @@ export function LeadUserManager({
 
   return (
     <div className="space-y-4">
+      <LeadUserTeamManager
+        teams={teams}
+        users={users.map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+        }))}
+      />
       <div className="flex items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />

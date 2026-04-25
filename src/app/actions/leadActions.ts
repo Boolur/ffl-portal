@@ -1275,6 +1275,163 @@ export async function addUsersToGroupCampaigns(
 }
 
 // ---------------------------------------------------------------------------
+// Lead User Teams
+// ---------------------------------------------------------------------------
+//
+// Teams are a pure UX shortcut for Campaign assignment. Selecting a team
+// in the Campaign edit modal batch-toggles its users into the selection
+// list — it does NOT affect distribution, quotas, or routing. Membership
+// is many-to-many, and a user can sit on any number of teams.
+
+const ALLOWED_TEAM_COLORS = ALLOWED_GROUP_COLORS; // same palette as CampaignGroupManager
+type LeadUserTeamColor = (typeof ALLOWED_TEAM_COLORS)[number];
+
+function normalizeTeamColor(color: string | undefined | null): LeadUserTeamColor {
+  if (color && (ALLOWED_TEAM_COLORS as readonly string[]).includes(color)) {
+    return color as LeadUserTeamColor;
+  }
+  return 'blue';
+}
+
+function revalidateTeamPaths() {
+  revalidatePath('/admin/leads/users');
+  revalidatePath('/admin/leads/campaigns');
+}
+
+export type LeadUserTeamSummary = {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  memberCount: number;
+  memberIds: string[];
+};
+
+export async function getLeadUserTeams(): Promise<LeadUserTeamSummary[]> {
+  const teams = await prisma.leadUserTeam.findMany({
+    orderBy: [{ active: 'desc' }, { name: 'asc' }],
+    include: {
+      members: { select: { userId: true } },
+    },
+  });
+  return teams.map((t) => ({
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    color: t.color,
+    active: t.active,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    memberCount: t.members.length,
+    memberIds: t.members.map((m) => m.userId),
+  }));
+}
+
+export async function createLeadUserTeam(data: {
+  name: string;
+  description?: string | null;
+  color?: string;
+  memberUserIds?: string[];
+}) {
+  const name = data.name.trim();
+  if (!name) throw new Error('Team name is required');
+
+  const uniqueMemberIds = Array.from(new Set(data.memberUserIds ?? []));
+
+  const team = await prisma.leadUserTeam.create({
+    data: {
+      name,
+      description: data.description?.trim() || null,
+      color: normalizeTeamColor(data.color),
+      members:
+        uniqueMemberIds.length > 0
+          ? {
+              create: uniqueMemberIds.map((userId) => ({ userId })),
+            }
+          : undefined,
+    },
+  });
+  revalidateTeamPaths();
+  return team;
+}
+
+export async function updateLeadUserTeam(
+  id: string,
+  data: { name?: string; description?: string | null; color?: string }
+) {
+  const patch: Record<string, unknown> = {};
+  if (typeof data.name === 'string') {
+    const trimmed = data.name.trim();
+    if (!trimmed) throw new Error('Team name cannot be empty');
+    patch.name = trimmed;
+  }
+  if (data.description !== undefined) {
+    patch.description = data.description?.trim() || null;
+  }
+  if (typeof data.color === 'string') {
+    patch.color = normalizeTeamColor(data.color);
+  }
+  const team = await prisma.leadUserTeam.update({ where: { id }, data: patch });
+  revalidateTeamPaths();
+  return team;
+}
+
+/**
+ * Diff-based replacement of a team's members. Mirrors setCampaignMembers:
+ * compute add/remove sets and issue both operations in a single
+ * transaction so the team roster is never half-applied.
+ */
+export async function setLeadUserTeamMembers(teamId: string, userIds: string[]) {
+  const team = await prisma.leadUserTeam.findUnique({
+    where: { id: teamId },
+    select: { id: true },
+  });
+  if (!team) throw new Error('Team not found');
+
+  const targetUserIds = Array.from(new Set(userIds));
+  const existing = await prisma.leadUserTeamMember.findMany({
+    where: { teamId },
+    select: { id: true, userId: true },
+  });
+  const existingUserIds = new Set(existing.map((m) => m.userId));
+  const targetSet = new Set(targetUserIds);
+
+  const toRemove = existing.filter((m) => !targetSet.has(m.userId));
+  const toAdd = targetUserIds.filter((uid) => !existingUserIds.has(uid));
+
+  await prisma.$transaction([
+    ...(toRemove.length > 0
+      ? [
+          prisma.leadUserTeamMember.deleteMany({
+            where: { id: { in: toRemove.map((m) => m.id) } },
+          }),
+        ]
+      : []),
+    ...toAdd.map((userId) =>
+      prisma.leadUserTeamMember.create({ data: { teamId, userId } })
+    ),
+  ]);
+
+  revalidateTeamPaths();
+}
+
+/**
+ * Hard delete — teams are purely cosmetic, they don't own any
+ * distribution-affecting rows, so permanent deletion is safe. No typo
+ * guard (unlike hardDeleteLeadCampaignGroup) since there is no
+ * downstream data to lose.
+ */
+export async function deleteLeadUserTeam(id: string) {
+  const team = await prisma.leadUserTeam.findUnique({ where: { id } });
+  if (!team) throw new Error('Team not found');
+  await prisma.leadUserTeam.delete({ where: { id } });
+  revalidateTeamPaths();
+}
+
+// ---------------------------------------------------------------------------
 // Lead CRUD
 // ---------------------------------------------------------------------------
 

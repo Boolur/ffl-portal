@@ -11,17 +11,20 @@ import {
   getLeadEligibleUsers,
   getLeadCampaignGroups,
   getCampaignNextUpRoster,
+  getLeadUserTeams,
 } from '@/app/actions/leadActions';
 
 export default async function CampaignsPage() {
   const session = await getServerSession(authOptions);
-  const [campaigns, vendors, users, groups, nextUpRoster] = await Promise.all([
-    getLeadCampaigns(),
-    getLeadVendors(),
-    getLeadEligibleUsers(),
-    getLeadCampaignGroups(),
-    getCampaignNextUpRoster(),
-  ]);
+  const [campaigns, vendors, users, groups, nextUpRoster, teams] =
+    await Promise.all([
+      getLeadCampaigns(),
+      getLeadVendors(),
+      getLeadEligibleUsers(),
+      getLeadCampaignGroups(),
+      getCampaignNextUpRoster(),
+      getLeadUserTeams(),
+    ]);
 
   const user = {
     name: session?.user?.name || 'Admin',
@@ -50,6 +53,7 @@ export default async function CampaignsPage() {
         users={users}
         groups={groups}
         nextUpRoster={nextUpRoster}
+        teams={teams}
       />
     </DashboardShell>
   );

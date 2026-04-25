@@ -15,6 +15,10 @@ import {
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 import { FormatDate } from '@/components/ui/FormatDate';
+import {
+  teamColorClasses,
+  type LeadUserTeamSummary,
+} from './LeadUserTeamManager';
 
 type Vendor = { id: string; name: string; slug: string };
 type EligibleUser = { id: string; name: string; email: string; role: string };
@@ -66,6 +70,7 @@ type Props = {
   vendors: Vendor[];
   users: EligibleUser[];
   groups?: GroupOption[];
+  teams?: LeadUserTeamSummary[];
   filterGroupId?: string | null;
   onChangeFilterGroupId?: (id: string | null) => void;
   campaignDetail?: CampaignDetail | null;
@@ -168,6 +173,7 @@ export function CampaignManager({
   vendors,
   users,
   groups = [],
+  teams = [],
   filterGroupId = null,
   onChangeFilterGroupId,
 }: Props) {
@@ -420,6 +426,36 @@ export function CampaignManager({
       ...prev,
       memberQuotas: { ...prev.memberQuotas, [userId]: clamped },
     }));
+  };
+
+  // Batch-toggle a team's users in/out of the current selection. Toggle
+  // semantics (per product decision): if every team member is already
+  // selected, clicking removes all of them; otherwise clicking adds the
+  // missing ones. We intentionally only mutate memberUserIds +
+  // memberQuotas so the inline /day input logic behaves identically to a
+  // row of individual toggleMember clicks.
+  const toggleTeam = (team: LeadUserTeamSummary) => {
+    if (team.memberIds.length === 0) return;
+    setForm((prev) => {
+      const current = new Set(prev.memberUserIds);
+      const allIn = team.memberIds.every((id) => current.has(id));
+      const nextQuotas = { ...prev.memberQuotas };
+      if (allIn) {
+        for (const id of team.memberIds) current.delete(id);
+      } else {
+        for (const id of team.memberIds) {
+          if (!current.has(id)) {
+            current.add(id);
+            if (nextQuotas[id] === undefined) nextQuotas[id] = 0;
+          }
+        }
+      }
+      return {
+        ...prev,
+        memberUserIds: Array.from(current),
+        memberQuotas: nextQuotas,
+      };
+    });
   };
 
   const copyWebhookInfo = (c: Campaign) => {
@@ -744,6 +780,43 @@ export function CampaignManager({
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <span className="text-xs font-medium text-slate-700">Assigned Users ({form.memberUserIds.length})<InfoTip text="Loan officers who will receive leads from this campaign. Check/uncheck to add or remove users. Leads are distributed among these users based on the distribution method." /></span>
+                    {teams.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pb-1" aria-label="Teams">
+                        {teams.map((t) => {
+                          const memberIds = t.memberIds;
+                          const selectedCount = memberIds.filter((id) =>
+                            form.memberUserIds.includes(id)
+                          ).length;
+                          const total = memberIds.length;
+                          const allSelected = total > 0 && selectedCount === total;
+                          const cls = teamColorClasses(t.color);
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => toggleTeam(t)}
+                              disabled={total === 0}
+                              title={
+                                total === 0
+                                  ? `${t.name} has no members yet`
+                                  : allSelected
+                                    ? `Click to remove all ${total} ${t.name} members`
+                                    : `Click to add ${total - selectedCount} missing ${t.name} member${total - selectedCount === 1 ? '' : 's'}`
+                              }
+                              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                                allSelected ? cls.chipActive : cls.chipInactive
+                              } ${allSelected ? `ring-1 ${cls.ring}` : ''} ${total === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              <span className={`inline-block h-2 w-2 rounded-full ${cls.dot}`} />
+                              <span className="truncate max-w-[140px]">{t.name}</span>
+                              <span className="text-[10px] font-semibold opacity-70 tabular-nums">
+                                {selectedCount}/{total}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     <div className="relative">
                       <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                       <input

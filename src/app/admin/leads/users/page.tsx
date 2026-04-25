@@ -5,13 +5,18 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LeadUserManager } from '@/components/admin/leads/LeadUserManager';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getLeadUsers, getAllCampaignsForUserAdd } from '@/app/actions/leadActions';
+import {
+  getLeadUsers,
+  getAllCampaignsForUserAdd,
+  getLeadUserTeams,
+} from '@/app/actions/leadActions';
 
 export default async function LeadUsersPage() {
   const session = await getServerSession(authOptions);
-  const [users, campaigns] = await Promise.all([
+  const [users, campaigns, teams] = await Promise.all([
     getLeadUsers(),
     getAllCampaignsForUserAdd(),
+    getLeadUserTeams(),
   ]);
 
   const user = {
@@ -70,6 +75,7 @@ export default async function LeadUsersPage() {
           name: c.name,
           vendorName: c.vendor.name,
         }))}
+        teams={teams}
       />
     </DashboardShell>
   );
