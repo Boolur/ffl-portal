@@ -1932,20 +1932,9 @@ export function LeadsCRM({
 
           <button
             type="button"
-            className={`inline-flex items-center gap-1.5 rounded-lg bg-white border px-3 py-1.5 text-sm font-semibold transition-colors ${
-              selected.size === 0 || services.length === 0
-                ? 'border-slate-200 text-slate-400 cursor-not-allowed'
-                : 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'
-            }`}
-            disabled={selected.size === 0 || services.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-indigo-300 px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 transition-colors"
             onClick={() => setPushServiceOpen(true)}
-            title={
-              services.length === 0
-                ? 'No active services — add one in Integration Services'
-                : selected.size === 0
-                  ? 'Select leads first'
-                  : `Push ${selected.size} selected lead${selected.size === 1 ? '' : 's'} to a service`
-            }
+            title={`Push ${selected.size} selected lead${selected.size === 1 ? '' : 's'} to a service`}
           >
             <Zap className="h-3.5 w-3.5" />
             Push to Service

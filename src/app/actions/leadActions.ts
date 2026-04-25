@@ -3,7 +3,12 @@
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { LeadStatus, UserRole, type Prisma } from '@prisma/client';
+import {
+  LeadStatus,
+  UserRole,
+  IntegrationServiceTrigger,
+  type Prisma,
+} from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import {
   forwardLeadToBonzo,
@@ -12,9 +17,9 @@ import {
   type BonzoLeadLike,
 } from '@/lib/bonzoForward';
 import {
-  serviceHandlers,
-  runPushBatch,
+  runDispatchBatch,
   summarizeBatch,
+  runServiceTriggers,
   type BatchSummary,
 } from '@/lib/services';
 import {
@@ -28,12 +33,20 @@ import {
 import { normalizeUserName } from '@/lib/leadNameMatch';
 import {
   INTEGRATION_SERVICE_TYPES,
-  type IntegrationServiceType,
+  type IntegrationServiceInput,
   type IntegrationServiceSummary,
+  type IntegrationServiceCredentialFieldDTO,
+  type IntegrationServiceCaptureField,
+  type IntegrationServiceOAuthConfig,
+  type IntegrationServiceType,
 } from '@/lib/integrationServices/types';
 export type {
   IntegrationServiceType,
   IntegrationServiceSummary,
+  IntegrationServiceInput,
+  IntegrationServiceCredentialFieldDTO,
+  IntegrationServiceCaptureField,
+  IntegrationServiceOAuthConfig,
 } from '@/lib/integrationServices/types';
 
 const CSV_VENDOR_SLUG = 'csv-upload';
@@ -72,6 +85,11 @@ export async function distributeLead(leadId: string) {
       });
       await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
       void forwardLeadToBonzo(leadId, campaign.defaultUserId);
+      void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
+      void runServiceTriggers(
+        leadId,
+        IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+      );
     }
     return;
   }
@@ -165,6 +183,11 @@ export async function distributeLead(leadId: string) {
 
     await createLeadNotification(member.userId, lead, campaign.name);
     void forwardLeadToBonzo(leadId, member.userId);
+    void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
+    void runServiceTriggers(
+      leadId,
+      IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+    );
     return;
   }
 
@@ -179,6 +202,11 @@ export async function distributeLead(leadId: string) {
     });
     await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
     void forwardLeadToBonzo(leadId, campaign.defaultUserId);
+    void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
+    void runServiceTriggers(
+      leadId,
+      IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+    );
   }
 }
 
@@ -1710,7 +1738,17 @@ export async function updateLeadStatus(leadId: string, status: LeadStatus) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) throw new Error('Unauthorized');
 
+  const prev = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { status: true },
+  });
   await prisma.lead.update({ where: { id: leadId }, data: { status } });
+  if (prev && prev.status !== status) {
+    void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_STATUS_CHANGE, {
+      previousStatus: prev.status,
+      newStatus: status,
+    });
+  }
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
   revalidatePath('/admin/leads/all');
@@ -1764,6 +1802,11 @@ export async function assignLead(leadId: string, userId: string) {
   });
   await createLeadNotification(userId, { id: leadId }, 'Manual Assignment');
   void forwardLeadToBonzo(leadId, userId);
+  void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
+  void runServiceTriggers(
+    leadId,
+    IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+  );
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
   revalidatePath('/admin/leads/all');
@@ -1780,6 +1823,11 @@ export async function bulkAssignLeads(leadIds: string[], userId: string) {
   });
   for (const leadId of leadIds) {
     void forwardLeadToBonzo(leadId, userId);
+    void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
+    void runServiceTriggers(
+      leadId,
+      IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+    );
   }
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
@@ -2602,6 +2650,11 @@ export async function bulkCreateLeadsBatch(
     for (const l of fresh) {
       if (l.assignedUserId) {
         void forwardLeadToBonzo(l.id, l.assignedUserId);
+        void runServiceTriggers(l.id, IntegrationServiceTrigger.ON_ASSIGN);
+        void runServiceTriggers(
+          l.id,
+          IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+        );
       }
     }
   }
@@ -2616,46 +2669,14 @@ export async function revalidateLeadPaths() {
 }
 
 // ---------------------------------------------------------------------------
-// Integration Services (Push-to-Service registry)
+// Integration Services (admin service builder + push-to-service)
 // ---------------------------------------------------------------------------
-
-/**
- * Accepted `type` values for an IntegrationService. Must match a key in the
- * serviceHandlers registry in src/lib/services. Adding a new service means
- * (a) adding a handler there, and (b) adding the slug to this list.
- */
-// Types + allow-list live in a plain module so they can be imported by
-// client components (and, critically, so we don't export a non-async
-// value from this "use server" file).
 
 function revalidateServicePaths() {
   revalidatePath('/admin/leads');
   revalidatePath('/admin/leads/services');
   revalidatePath('/admin/leads/all');
-}
-
-/**
- * Returns all services, newest first. Pass `activeOnly: true` when
- * populating the Push-to-Service picker so archived services don't show up.
- */
-export async function getIntegrationServices(
-  opts: { activeOnly?: boolean } = {}
-): Promise<IntegrationServiceSummary[]> {
-  const rows = await prisma.integrationService.findMany({
-    where: opts.activeOnly ? { active: true } : undefined,
-    orderBy: [{ active: 'desc' }, { createdAt: 'asc' }],
-  });
-  return rows.map((r) => ({
-    id: r.id,
-    slug: r.slug,
-    name: r.name,
-    description: r.description,
-    type: r.type,
-    active: r.active,
-    config: r.config,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
-  }));
+  revalidatePath('/admin/leads/users');
 }
 
 function normalizeSlug(raw: string): string {
@@ -2666,46 +2687,156 @@ function normalizeSlug(raw: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-export async function createIntegrationService(data: {
-  name: string;
-  slug?: string;
-  description?: string | null;
-  type: string;
-  config?: unknown;
-}) {
-  const name = data.name.trim();
-  if (!name) throw new Error('Service name is required');
-  const slug = normalizeSlug(data.slug || data.name);
-  if (!slug) throw new Error('Service slug is required');
-  if (!INTEGRATION_SERVICE_TYPES.includes(data.type as IntegrationServiceType)) {
-    throw new Error(`Unknown service type "${data.type}"`);
-  }
+// Row shape returned by Prisma when we include credentialFields. Kept
+// private to this module so downstream callers stick to IntegrationServiceSummary.
+type ServiceRowWithFields = Prisma.IntegrationServiceGetPayload<{
+  include: { credentialFields: true };
+}>;
 
-  const created = await prisma.integrationService.create({
-    data: {
-      name,
-      slug,
-      description: data.description?.trim() || null,
-      type: data.type,
-      config: (data.config ?? {}) as Prisma.InputJsonValue,
-    },
-  });
-  revalidateServicePaths();
-  return created;
+function serializeService(row: ServiceRowWithFields): IntegrationServiceSummary {
+  const captureFields = parseCaptureFieldsJson(row.captureFields);
+  const oauthConfig = parseOAuthConfig(row.oauthConfig);
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    type: row.type,
+    active: row.active,
+    config: row.config,
+
+    kind: row.kind,
+    statusTrigger: row.statusTrigger,
+    triggerStatus: row.triggerStatus,
+    triggerDay: row.triggerDay,
+    triggerDelayMinutes: row.triggerDelayMinutes,
+
+    method: row.method,
+    urlTemplate: row.urlTemplate,
+    bodyTemplate: row.bodyTemplate,
+    headersTemplate: row.headersTemplate,
+
+    userScope: row.userScope,
+    userIds: row.userIds,
+    campaignScope: row.campaignScope,
+    campaignIds: row.campaignIds,
+    excludeSelected: row.excludeSelected,
+
+    successString: row.successString,
+    failNotifyEmail: row.failNotifyEmail,
+    dateOverride: row.dateOverride,
+    captureFields,
+
+    requiresBrandNew: row.requiresBrandNew,
+    requiresNotBrandNew: row.requiresNotBrandNew,
+    requiresAssignedUser: row.requiresAssignedUser,
+    requiresOAuth: row.requiresOAuth,
+    allowManualSend: row.allowManualSend,
+
+    oauthConfig,
+    credentialFields: row.credentialFields
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key))
+      .map(
+        (f): IntegrationServiceCredentialFieldDTO => ({
+          id: f.id,
+          serviceId: f.serviceId,
+          key: f.key,
+          label: f.label,
+          required: f.required,
+          secret: f.secret,
+          placeholder: f.placeholder,
+          helpText: f.helpText,
+          sortOrder: f.sortOrder,
+        })
+      ),
+
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
-export async function updateIntegrationService(
-  id: string,
-  data: {
-    name?: string;
-    description?: string | null;
-    type?: string;
-    config?: unknown;
+function parseCaptureFieldsJson(raw: unknown): IntegrationServiceCaptureField[] {
+  if (!Array.isArray(raw)) return [];
+  const out: IntegrationServiceCaptureField[] = [];
+  for (const row of raw) {
+    if (row && typeof row === 'object') {
+      const { path, target } = row as Record<string, unknown>;
+      if (typeof path === 'string' && typeof target === 'string' && path && target) {
+        out.push({ path, target });
+      }
+    }
   }
-) {
+  return out;
+}
+
+function parseOAuthConfig(raw: unknown): IntegrationServiceOAuthConfig | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const tokenUrl = typeof r.tokenUrl === 'string' ? r.tokenUrl : '';
+  const clientId = typeof r.clientId === 'string' ? r.clientId : '';
+  const clientSecret = typeof r.clientSecret === 'string' ? r.clientSecret : '';
+  if (!tokenUrl && !clientId && !clientSecret) return null;
+  return {
+    tokenUrl,
+    clientId,
+    clientSecret,
+    scope: typeof r.scope === 'string' ? r.scope : undefined,
+    grantType: typeof r.grantType === 'string' ? r.grantType : undefined,
+    accessToken: typeof r.accessToken === 'string' ? r.accessToken : undefined,
+    expiresAt: typeof r.expiresAt === 'string' ? r.expiresAt : undefined,
+  };
+}
+
+/**
+ * Returns every service (newest first), each with its credential-field
+ * definitions. Pass `activeOnly: true` when populating the Push-to-Service
+ * picker so archived services don't show up. Pass `manualOnly: true` to
+ * additionally filter by `allowManualSend` for the Leads screen picker.
+ */
+export async function getIntegrationServices(
+  opts: { activeOnly?: boolean; manualOnly?: boolean } = {}
+): Promise<IntegrationServiceSummary[]> {
+  const where: Prisma.IntegrationServiceWhereInput = {};
+  if (opts.activeOnly) where.active = true;
+  if (opts.manualOnly) where.allowManualSend = true;
+
+  const rows = await prisma.integrationService.findMany({
+    where,
+    include: { credentialFields: true },
+    orderBy: [{ active: 'desc' }, { createdAt: 'asc' }],
+  });
+  return rows.map(serializeService);
+}
+
+export async function getIntegrationService(
+  id: string
+): Promise<IntegrationServiceSummary | null> {
+  const row = await prisma.integrationService.findUnique({
+    where: { id },
+    include: { credentialFields: true },
+  });
+  return row ? serializeService(row) : null;
+}
+
+async function assertServiceAdmin() {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role;
+  if (role !== UserRole.ADMIN && role !== UserRole.MANAGER) {
+    throw new Error('Not authorized');
+  }
+}
+
+function buildServiceUpdateData(
+  data: IntegrationServiceInput,
+  { forCreate }: { forCreate: boolean }
+): Prisma.IntegrationServiceUncheckedUpdateInput &
+  Prisma.IntegrationServiceUncheckedCreateInput {
+  // `Partial`-ish patch; Prisma will ignore undefined fields.
   const patch: Record<string, unknown> = {};
-  if (data.name !== undefined) {
-    const name = data.name.trim();
+
+  if (forCreate || data.name !== undefined) {
+    const name = data.name?.trim() ?? '';
     if (!name) throw new Error('Service name is required');
     patch.name = name;
   }
@@ -2713,47 +2844,184 @@ export async function updateIntegrationService(
     patch.description = data.description?.trim() || null;
   }
   if (data.type !== undefined) {
-    if (
-      !INTEGRATION_SERVICE_TYPES.includes(data.type as IntegrationServiceType)
-    ) {
-      throw new Error(`Unknown service type "${data.type}"`);
+    if (!INTEGRATION_SERVICE_TYPES.includes(data.type as IntegrationServiceType)) {
+      // Accept unknown types as free-form strings — the dispatcher no
+      // longer routes by `type`. We just normalize to lowercase so the
+      // UI can still display them consistently.
+      patch.type = data.type.trim().toLowerCase() || 'custom';
+    } else {
+      patch.type = data.type;
     }
-    patch.type = data.type;
+  } else if (forCreate) {
+    patch.type = 'custom';
   }
-  if (data.config !== undefined) {
-    patch.config = (data.config ?? {}) as Prisma.InputJsonValue;
+  if (data.active !== undefined) patch.active = data.active;
+
+  if (data.kind !== undefined) patch.kind = data.kind;
+  if (data.statusTrigger !== undefined) patch.statusTrigger = data.statusTrigger;
+  if (data.triggerStatus !== undefined) {
+    patch.triggerStatus = data.triggerStatus?.trim() || null;
+  }
+  if (data.triggerDay !== undefined) patch.triggerDay = data.triggerDay;
+  if (data.triggerDelayMinutes !== undefined) {
+    patch.triggerDelayMinutes = data.triggerDelayMinutes;
+  }
+
+  if (data.method !== undefined) patch.method = data.method;
+  if (data.urlTemplate !== undefined) patch.urlTemplate = data.urlTemplate;
+  if (data.bodyTemplate !== undefined) patch.bodyTemplate = data.bodyTemplate;
+  if (data.headersTemplate !== undefined) patch.headersTemplate = data.headersTemplate;
+
+  if (data.userScope !== undefined) patch.userScope = data.userScope;
+  if (data.userIds !== undefined) patch.userIds = data.userIds;
+  if (data.campaignScope !== undefined) patch.campaignScope = data.campaignScope;
+  if (data.campaignIds !== undefined) patch.campaignIds = data.campaignIds;
+  if (data.excludeSelected !== undefined) patch.excludeSelected = data.excludeSelected;
+
+  if (data.successString !== undefined) {
+    patch.successString = data.successString?.trim() || null;
+  }
+  if (data.failNotifyEmail !== undefined) {
+    patch.failNotifyEmail = data.failNotifyEmail?.trim() || null;
+  }
+  if (data.dateOverride !== undefined) {
+    patch.dateOverride = data.dateOverride?.trim() || null;
+  }
+  if (data.captureFields !== undefined) {
+    patch.captureFields = data.captureFields as unknown as Prisma.InputJsonValue;
+  }
+
+  if (data.requiresBrandNew !== undefined) patch.requiresBrandNew = data.requiresBrandNew;
+  if (data.requiresNotBrandNew !== undefined) {
+    patch.requiresNotBrandNew = data.requiresNotBrandNew;
+  }
+  if (data.requiresAssignedUser !== undefined) {
+    patch.requiresAssignedUser = data.requiresAssignedUser;
+  }
+  if (data.requiresOAuth !== undefined) patch.requiresOAuth = data.requiresOAuth;
+  if (data.allowManualSend !== undefined) {
+    patch.allowManualSend = data.allowManualSend;
+  }
+
+  if (data.oauthConfig !== undefined) {
+    patch.oauthConfig =
+      data.oauthConfig === null
+        ? Prisma.DbNull
+        : (data.oauthConfig as unknown as Prisma.InputJsonValue);
+  }
+
+  return patch as Prisma.IntegrationServiceUncheckedUpdateInput &
+    Prisma.IntegrationServiceUncheckedCreateInput;
+}
+
+export async function createIntegrationService(
+  data: IntegrationServiceInput
+): Promise<IntegrationServiceSummary> {
+  await assertServiceAdmin();
+
+  const slug = normalizeSlug(data.slug || data.name);
+  if (!slug) throw new Error('Service slug is required');
+
+  const base = buildServiceUpdateData(data, { forCreate: true });
+  const created = await prisma.integrationService.create({
+    data: {
+      slug,
+      name: (base.name as string) ?? data.name.trim(),
+      description: (base.description as string | null | undefined) ?? null,
+      type: (base.type as string) ?? 'custom',
+      ...(base as Prisma.IntegrationServiceUncheckedCreateInput),
+      credentialFields:
+        data.credentialFields && data.credentialFields.length > 0
+          ? {
+              create: data.credentialFields.map((f, idx) => ({
+                key: f.key.trim(),
+                label: f.label.trim() || f.key.trim(),
+                required: !!f.required,
+                secret: !!f.secret,
+                placeholder: f.placeholder?.trim() || null,
+                helpText: f.helpText?.trim() || null,
+                sortOrder: f.sortOrder ?? idx,
+              })),
+            }
+          : undefined,
+    },
+    include: { credentialFields: true },
+  });
+  revalidateServicePaths();
+  return serializeService(created);
+}
+
+export async function updateIntegrationService(
+  id: string,
+  data: IntegrationServiceInput
+): Promise<IntegrationServiceSummary> {
+  await assertServiceAdmin();
+
+  const patch = buildServiceUpdateData(data, { forCreate: false });
+
+  // Re-sync credential field rows if the caller provided an explicit list.
+  // We replace-in-place so the admin UI can add / remove / reorder fields
+  // without juggling their ids.
+  if (data.credentialFields !== undefined) {
+    await prisma.$transaction([
+      prisma.integrationServiceCredentialField.deleteMany({
+        where: { serviceId: id },
+      }),
+      ...(data.credentialFields.length > 0
+        ? [
+            prisma.integrationServiceCredentialField.createMany({
+              data: data.credentialFields.map((f, idx) => ({
+                serviceId: id,
+                key: f.key.trim(),
+                label: f.label.trim() || f.key.trim(),
+                required: !!f.required,
+                secret: !!f.secret,
+                placeholder: f.placeholder?.trim() || null,
+                helpText: f.helpText?.trim() || null,
+                sortOrder: f.sortOrder ?? idx,
+              })),
+            }),
+          ]
+        : []),
+    ]);
   }
 
   const updated = await prisma.integrationService.update({
     where: { id },
     data: patch,
+    include: { credentialFields: true },
   });
   revalidateServicePaths();
-  return updated;
+  return serializeService(updated);
 }
 
 export async function archiveIntegrationService(id: string) {
+  await assertServiceAdmin();
   const updated = await prisma.integrationService.update({
     where: { id },
     data: { active: false },
+    include: { credentialFields: true },
   });
   revalidateServicePaths();
-  return updated;
+  return serializeService(updated);
 }
 
 export async function restoreIntegrationService(id: string) {
+  await assertServiceAdmin();
   const updated = await prisma.integrationService.update({
     where: { id },
     data: { active: true },
+    include: { credentialFields: true },
   });
   revalidateServicePaths();
-  return updated;
+  return serializeService(updated);
 }
 
 export async function deleteIntegrationService(
   id: string,
   confirmName: string
 ) {
+  await assertServiceAdmin();
   const svc = await prisma.integrationService.findUnique({ where: { id } });
   if (!svc) throw new Error('Service not found');
   if (svc.active) {
@@ -2766,24 +3034,80 @@ export async function deleteIntegrationService(
   revalidateServicePaths();
 }
 
+// ---------------------------------------------------------------------------
+// Per-user credentials (Lead Users row editor)
+// ---------------------------------------------------------------------------
+
+export type UserIntegrationCredentialDTO = {
+  serviceId: string;
+  userId: string;
+  values: Record<string, string>;
+};
+
+export async function getUserIntegrationCredentials(
+  userId: string
+): Promise<UserIntegrationCredentialDTO[]> {
+  await assertServiceAdmin();
+  const rows = await prisma.userIntegrationCredential.findMany({
+    where: { userId },
+  });
+  return rows.map((r) => {
+    const raw = r.values as unknown;
+    const out: Record<string, string> = {};
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+        if (v === null || v === undefined) continue;
+        out[k] = typeof v === 'string' ? v : String(v);
+      }
+    }
+    return { serviceId: r.serviceId, userId: r.userId, values: out };
+  });
+}
+
+export async function upsertUserIntegrationCredential(input: {
+  userId: string;
+  serviceId: string;
+  values: Record<string, string>;
+}): Promise<UserIntegrationCredentialDTO> {
+  await assertServiceAdmin();
+  const { userId, serviceId } = input;
+  const cleaned: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input.values ?? {})) {
+    if (typeof v !== 'string') continue;
+    const trimmed = v.trim();
+    if (!trimmed) continue;
+    cleaned[k] = trimmed;
+  }
+
+  const row = await prisma.userIntegrationCredential.upsert({
+    where: { userId_serviceId: { userId, serviceId } },
+    create: {
+      userId,
+      serviceId,
+      values: cleaned as unknown as Prisma.InputJsonValue,
+    },
+    update: {
+      values: cleaned as unknown as Prisma.InputJsonValue,
+    },
+  });
+  revalidateServicePaths();
+  return { serviceId: row.serviceId, userId: row.userId, values: cleaned };
+}
+
 /**
  * Runs the batch push for the given service against a set of lead ids and
  * returns a structured summary. The UI pairs summary.skipped / summary.failed
  * with the selected leads so the admin can see exactly which ones need
- * attention (no assignee, no Bonzo URL, HTTP error, etc.).
+ * attention (no assignee, missing credential, HTTP error, etc.).
  *
- * Auth: restricted to admins. Not rate-limited at the server layer — the
- * client-side modal gates big pushes behind a confirmation dialog.
+ * Auth: restricted to admins / managers. Services without
+ * `allowManualSend = true` are rejected before any HTTP work happens.
  */
 export async function pushLeadsToService(input: {
   serviceSlug: string;
   leadIds: string[];
 }): Promise<BatchSummary> {
-  const session = await getServerSession(authOptions);
-  const role = session?.user?.role;
-  if (role !== UserRole.ADMIN && role !== UserRole.MANAGER) {
-    throw new Error('Not authorized');
-  }
+  await assertServiceAdmin();
 
   const leadIds = Array.from(new Set(input.leadIds)).filter(Boolean);
   if (leadIds.length === 0) {
@@ -2792,17 +3116,16 @@ export async function pushLeadsToService(input: {
 
   const svc = await prisma.integrationService.findUnique({
     where: { slug: input.serviceSlug },
+    include: { credentialFields: true },
   });
   if (!svc) throw new Error(`Service "${input.serviceSlug}" not found`);
   if (!svc.active) throw new Error(`Service "${svc.name}" is archived`);
-
-  const handler = serviceHandlers[svc.type];
-  if (!handler) {
+  if (!svc.allowManualSend) {
     throw new Error(
-      `No handler registered for service type "${svc.type}". Add one in src/lib/services.`
+      `Service "${svc.name}" does not allow manual sends. Enable it in the service editor.`
     );
   }
 
-  const rows = await runPushBatch(handler, leadIds, svc.config);
+  const rows = await runDispatchBatch(svc, leadIds, { trigger: 'MANUAL' });
   return summarizeBatch(rows);
 }

@@ -11,7 +11,9 @@ import {
   addUserToCampaign,
   removeUserFromCampaign,
   sendBonzoTestForUser,
+  upsertUserIntegrationCredential,
 } from '@/app/actions/leadActions';
+import type { IntegrationServiceCredentialFieldDTO } from '@/lib/integrationServices/types';
 import { useRouter } from 'next/navigation';
 import {
   ResizeHandle,
@@ -55,9 +57,18 @@ type LeadUser = {
   leadsYtd: number;
   campaignCount: number;
   memberships: Membership[];
+  serviceCredentials?: Array<{ serviceId: string; values: Record<string, string> }>;
 };
 
 type CampaignOption = { id: string; name: string; vendorName: string };
+
+export type LeadUserServiceSummary = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  credentialFields: IntegrationServiceCredentialFieldDTO[];
+};
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -192,10 +203,12 @@ export function LeadUserManager({
   users,
   allCampaigns,
   teams = [],
+  services = [],
 }: {
   users: LeadUser[];
   allCampaigns: CampaignOption[];
   teams?: LeadUserTeamSummary[];
+  services?: LeadUserServiceSummary[];
 }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
@@ -412,6 +425,7 @@ export function LeadUserManager({
         <UserDetailPanel
           user={selectedUser}
           allCampaigns={allCampaigns}
+          services={services}
           onClose={() => setSelectedUserId(null)}
           onRefresh={() => router.refresh()}
         />
@@ -618,11 +632,13 @@ function UserCountCell({ value }: { value: number }) {
 function UserDetailPanel({
   user,
   allCampaigns,
+  services,
   onClose,
   onRefresh,
 }: {
   user: LeadUser;
   allCampaigns: CampaignOption[];
+  services: LeadUserServiceSummary[];
   onClose: () => void;
   onRefresh: () => void;
 }) {
@@ -1032,6 +1048,14 @@ function UserDetailPanel({
             </button>
           )}
 
+          {/* Integration Service credentials */}
+          <UserIntegrationCredentialsSection
+            userId={user.id}
+            services={services}
+            initialCredentials={user.serviceCredentials ?? []}
+            onRefresh={onRefresh}
+          />
+
           {/* Campaigns */}
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">
@@ -1339,6 +1363,210 @@ function MembershipRow({
               </button>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Integration service credentials (per-user secrets, webhook URLs, etc.)
+// ---------------------------------------------------------------------------
+
+function UserIntegrationCredentialsSection({
+  userId,
+  services,
+  initialCredentials,
+  onRefresh,
+}: {
+  userId: string;
+  services: LeadUserServiceSummary[];
+  initialCredentials: Array<{ serviceId: string; values: Record<string, string> }>;
+  onRefresh: () => void;
+}) {
+  const servicesWithFields = useMemo(
+    () => services.filter((s) => s.credentialFields.length > 0),
+    [services]
+  );
+
+  if (servicesWithFields.length === 0) return null;
+
+  return (
+    <div>
+      <div className="flex items-center mb-2">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          Services ({servicesWithFields.length})
+        </p>
+        <InfoTip
+          text="Per-user values for each integration service. Templates on the Service builder reference these via {{user.credentials.KEY}}."
+          width={300}
+        />
+      </div>
+      <p className="text-xs text-slate-400 mb-3">
+        Credentials this user supplies for outbound integrations.
+      </p>
+      <div className="space-y-2">
+        {servicesWithFields.map((svc) => {
+          const current =
+            initialCredentials.find((c) => c.serviceId === svc.id)?.values ?? {};
+          return (
+            <UserServiceCredentialRow
+              key={svc.id}
+              userId={userId}
+              service={svc}
+              initialValues={current}
+              onSaved={onRefresh}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function UserServiceCredentialRow({
+  userId,
+  service,
+  initialValues,
+  onSaved,
+}: {
+  userId: string;
+  service: LeadUserServiceSummary;
+  initialValues: Record<string, string>;
+  onSaved: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const f of service.credentialFields) {
+      out[f.key] = initialValues[f.key] ?? '';
+    }
+    return out;
+  });
+  const [expanded, setExpanded] = useState<boolean>(() =>
+    service.credentialFields.some((f) => f.required && !initialValues[f.key])
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isDirty = useMemo(() => {
+    for (const f of service.credentialFields) {
+      const cur = (values[f.key] ?? '').trim();
+      const prev = (initialValues[f.key] ?? '').trim();
+      if (cur !== prev) return true;
+    }
+    return false;
+  }, [initialValues, service.credentialFields, values]);
+
+  const handleSave = useCallback(async () => {
+    setError(null);
+    for (const f of service.credentialFields) {
+      if (f.required && !(values[f.key] ?? '').trim()) {
+        setError(`"${f.label}" is required.`);
+        return;
+      }
+    }
+    setSaving(true);
+    try {
+      await upsertUserIntegrationCredential({
+        userId,
+        serviceId: service.id,
+        values,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }, [onSaved, service.credentialFields, service.id, userId, values]);
+
+  const filledCount = service.credentialFields.filter((f) =>
+    (values[f.key] ?? '').trim()
+  ).length;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-slate-50"
+        aria-expanded={expanded}
+      >
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-sm text-slate-900 truncate">
+              {service.name}
+            </span>
+            <span className="text-[11px] font-mono text-slate-400">
+              {service.slug}
+            </span>
+          </div>
+          {service.description && (
+            <p className="text-xs text-slate-500 truncate">
+              {service.description}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span
+            className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+              filledCount === service.credentialFields.length
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : filledCount > 0
+                  ? 'border-amber-200 bg-amber-50 text-amber-700'
+                  : 'border-slate-200 bg-slate-50 text-slate-500'
+            }`}
+          >
+            {filledCount}/{service.credentialFields.length} filled
+          </span>
+          {expanded ? (
+            <ChevronUp className="h-4 w-4 text-slate-400" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-slate-400" />
+          )}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-slate-200 px-3 py-3 space-y-2">
+          {service.credentialFields.map((f) => (
+            <label key={f.id} className="block space-y-1 text-sm">
+              <span className="flex items-center gap-1 text-xs font-medium text-slate-600">
+                {f.label}
+                {f.required && <span className="text-rose-600">*</span>}
+                {f.helpText && <InfoTip text={f.helpText} width={260} />}
+              </span>
+              <input
+                type={f.secret ? 'password' : 'text'}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                value={values[f.key] ?? ''}
+                onChange={(e) =>
+                  setValues((v) => ({ ...v, [f.key]: e.target.value }))
+                }
+                placeholder={f.placeholder ?? ''}
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </label>
+          ))}
+          {error && (
+            <div className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700">
+              {error}
+            </div>
+          )}
+          {isDirty && (
+            <div className="flex items-center justify-end pt-1">
+              <button
+                type="button"
+                className="app-btn-primary h-8 px-4 text-xs disabled:opacity-70"
+                onClick={() => void handleSave()}
+                disabled={saving}
+              >
+                {saving && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                Save
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

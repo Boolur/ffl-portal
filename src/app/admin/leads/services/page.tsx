@@ -5,11 +5,19 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { IntegrationServiceManager } from '@/components/admin/leads/IntegrationServiceManager';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getIntegrationServices } from '@/app/actions/leadActions';
+import {
+  getIntegrationServices,
+  getLeadCampaigns,
+  getLeadEligibleUsers,
+} from '@/app/actions/leadActions';
 
 export default async function ServicesPage() {
   const session = await getServerSession(authOptions);
-  const services = await getIntegrationServices();
+  const [services, campaigns, eligibleUsers] = await Promise.all([
+    getIntegrationServices(),
+    getLeadCampaigns(),
+    getLeadEligibleUsers(),
+  ]);
 
   const user = {
     name: session?.user?.name || 'Admin',
@@ -38,7 +46,11 @@ export default async function ServicesPage() {
           </div>
         </div>
       </div>
-      <IntegrationServiceManager services={services} />
+      <IntegrationServiceManager
+        services={services}
+        users={eligibleUsers.map((u) => ({ id: u.id, name: u.name }))}
+        campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
+      />
     </DashboardShell>
   );
 }

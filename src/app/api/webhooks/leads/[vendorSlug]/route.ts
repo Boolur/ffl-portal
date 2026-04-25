@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { LeadStatus, type Prisma } from '@prisma/client';
 import { distributeLead } from '@/app/actions/leadActions';
+import { runServiceTriggers } from '@/lib/services';
+import { IntegrationServiceTrigger } from '@prisma/client';
 
 type FieldMapping = Record<string, string>;
 
@@ -125,6 +127,12 @@ export async function POST(
   }
 
   const lead = await prisma.lead.create({ data: createData });
+
+  void runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE);
+  void runServiceTriggers(
+    lead.id,
+    IntegrationServiceTrigger.DELAY_AFTER_RECEIVE
+  );
 
   try {
     await distributeLead(lead.id);

@@ -164,6 +164,7 @@ model User {
   defaultForCampaigns LeadCampaign[] @relation("CampaignDefaultUser")
   leadNotes          LeadNote[]
   leadTeams          LeadUserTeamMember[]
+  integrationCredentials UserIntegrationCredential[]
 }
 
 model Loan {
@@ -613,18 +614,147 @@ model LeadUserTeamMember {
   @@index([userId])
 }
 
+enum IntegrationServiceKind {
+  CLIENT
+  SERVER
+}
+
+enum IntegrationServiceTrigger {
+  MANUAL
+  ON_RECEIVE
+  ON_ASSIGN
+  ON_STATUS_CHANGE
+  DELAY_AFTER_RECEIVE
+  DELAY_AFTER_ASSIGN
+}
+
+enum IntegrationServiceMethod {
+  GET
+  POST_TEXT
+  POST_FORM
+  POST_JSON
+  POST_XML
+  POST_XML_TEXT
+  POST_XML_SOAP
+  PUT_JSON
+}
+
+enum IntegrationServiceScope {
+  ANY
+  SPECIFIC
+}
+
+enum ServiceDispatchStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 model IntegrationService {
-  id          String   @id @default(uuid())
-  slug        String   @unique
-  name        String
-  description String?
-  type        String
-  active      Boolean  @default(true)
-  config      Json     @default("{}")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                    String                    @id @default(uuid())
+  slug                  String                    @unique
+  name                  String
+  description           String?
+  type                  String
+  active                Boolean                   @default(true)
+  config                Json                      @default("{}")
+
+  kind                  IntegrationServiceKind    @default(CLIENT)
+  statusTrigger         IntegrationServiceTrigger @default(MANUAL)
+  triggerStatus         String?
+  triggerDay            Int?
+  triggerDelayMinutes   Int?
+
+  method                IntegrationServiceMethod  @default(POST_JSON)
+  urlTemplate           String                    @default("")
+  bodyTemplate          String                    @default("")
+  headersTemplate       String                    @default("")
+
+  userScope             IntegrationServiceScope   @default(ANY)
+  userIds               String[]                  @default([])
+  campaignScope         IntegrationServiceScope   @default(ANY)
+  campaignIds           String[]                  @default([])
+  excludeSelected       Boolean                   @default(false)
+
+  successString         String?
+  failNotifyEmail       String?
+  dateOverride          String?
+  captureFields         Json                      @default("[]")
+
+  requiresBrandNew      Boolean                   @default(false)
+  requiresNotBrandNew   Boolean                   @default(false)
+  requiresAssignedUser  Boolean                   @default(false)
+  requiresOAuth         Boolean                   @default(false)
+  allowManualSend       Boolean                   @default(true)
+
+  oauthConfig           Json?
+
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  credentialFields      IntegrationServiceCredentialField[]
+  userCredentials       UserIntegrationCredential[]
+  dispatches            ServiceDispatch[]
 
   @@index([active])
+  @@index([statusTrigger, active])
+}
+
+model IntegrationServiceCredentialField {
+  id          String             @id @default(uuid())
+  serviceId   String
+  service     IntegrationService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  key         String
+  label       String
+  required    Boolean            @default(false)
+  secret      Boolean            @default(false)
+  placeholder String?
+  helpText    String?
+  sortOrder   Int                @default(0)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([serviceId, key])
+  @@index([serviceId])
+}
+
+model UserIntegrationCredential {
+  id        String             @id @default(uuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   IntegrationService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  values    Json               @default("{}")
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@unique([userId, serviceId])
+  @@index([serviceId])
+}
+
+model ServiceDispatch {
+  id                String                @id @default(uuid())
+  serviceId         String
+  service           IntegrationService    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  leadId            String
+  lead              Lead                  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  trigger           IntegrationServiceTrigger
+  scheduledFor      DateTime              @default(now())
+  status            ServiceDispatchStatus @default(PENDING)
+  attempts          Int                   @default(0)
+  lastError         String?
+  skippedReason     String?
+  requestSnapshot   Json?
+  responseSnapshot  Json?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  completedAt       DateTime?
+
+  @@index([status, scheduledFor])
+  @@index([serviceId, status])
+  @@index([leadId, serviceId])
+  @@index([leadId, createdAt])
 }
 
 model CampaignMember {
@@ -782,6 +912,9 @@ model Lead {
   updatedAt      DateTime    @updatedAt
 
   notes          LeadNote[]
+  dispatches     ServiceDispatch[]
+
+  customData     Json        @default("{}")
 
   @@unique([vendorId, vendorLeadId])
   @@index([status])

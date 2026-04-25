@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { LeadStatus, type Prisma } from '@prisma/client';
+import {
+  LeadStatus,
+  IntegrationServiceTrigger,
+  type Prisma,
+} from '@prisma/client';
 import { distributeLead } from '@/app/actions/leadActions';
+import { runServiceTriggers } from '@/lib/services';
 import {
   LEAD_MAILBOX_FIELD_MAP,
   LEAD_MAILBOX_TARGET_FIELDS,
@@ -123,6 +128,12 @@ export async function POST(
   }
 
   const lead = await prisma.lead.create({ data: createData });
+
+  void runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE);
+  void runServiceTriggers(
+    lead.id,
+    IntegrationServiceTrigger.DELAY_AFTER_RECEIVE
+  );
 
   const noteContents = extractBridgeNotes(payload);
   if (noteContents.length > 0) {

@@ -49,9 +49,18 @@ type PushState =
 
 const REASON_LABELS: Record<string, string> = {
   no_assignee: 'No assigned LO',
-  no_webhook_url: 'Assigned LO has no Bonzo webhook URL configured',
+  no_webhook_url: 'Assigned LO has no webhook URL configured',
+  missing_credential: 'Assigned LO is missing a required credential',
+  missing_url: 'URL template resolved to empty (check merge fields)',
   lead_not_found: 'Lead not found',
+  service_disabled: 'Service disabled or does not allow manual sends',
+  requires_brand_new: 'Lead is no longer brand new (service requires NEW)',
+  requires_not_brand_new: 'Service excludes brand-new leads',
+  excluded_by_scope: 'Excluded by this service\u2019s user/campaign scope',
+  oauth_failed: 'OAuth token exchange failed',
   http_error: 'Integration returned an error',
+  success_string_not_found: 'Response was missing the configured success string',
+  capture_field_error: 'Capture fields could not be read from the response',
   exception: 'Network or server error',
 };
 

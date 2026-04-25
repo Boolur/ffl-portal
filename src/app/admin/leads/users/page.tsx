@@ -9,15 +9,33 @@ import {
   getLeadUsers,
   getAllCampaignsForUserAdd,
   getLeadUserTeams,
+  getIntegrationServices,
+  getUserIntegrationCredentials,
 } from '@/app/actions/leadActions';
 
 export default async function LeadUsersPage() {
   const session = await getServerSession(authOptions);
-  const [users, campaigns, teams] = await Promise.all([
+  const [users, campaigns, teams, services] = await Promise.all([
     getLeadUsers(),
     getAllCampaignsForUserAdd(),
     getLeadUserTeams(),
+    getIntegrationServices({ activeOnly: true }),
   ]);
+
+  // Pre-load per-user credentials so the detail panel opens instantly.
+  const credentialsByUser = new Map<
+    string,
+    Array<{ serviceId: string; values: Record<string, string> }>
+  >();
+  await Promise.all(
+    users.map(async (u) => {
+      const rows = await getUserIntegrationCredentials(u.id);
+      credentialsByUser.set(
+        u.id,
+        rows.map((r) => ({ serviceId: r.serviceId, values: r.values }))
+      );
+    })
+  );
 
   const user = {
     name: session?.user?.name || 'Admin',
@@ -57,6 +75,7 @@ export default async function LeadUsersPage() {
           leadsMonth: u.leadsMonth,
           leadsYtd: u.leadsYtd,
           campaignCount: u.campaignMemberships.length,
+          serviceCredentials: credentialsByUser.get(u.id) ?? [],
           memberships: u.campaignMemberships.map((m) => ({
             id: m.id,
             campaignId: m.campaign.id,
@@ -76,6 +95,13 @@ export default async function LeadUsersPage() {
           vendorName: c.vendor.name,
         }))}
         teams={teams}
+        services={services.map((s) => ({
+          id: s.id,
+          slug: s.slug,
+          name: s.name,
+          description: s.description,
+          credentialFields: s.credentialFields,
+        }))}
       />
     </DashboardShell>
   );

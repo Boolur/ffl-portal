@@ -33,7 +33,7 @@ export default async function AllLeadsPage() {
     getLeadEligibleUsers(),
     getDistinctLeadSources(),
     getLeadCrmStats(),
-    getIntegrationServices({ activeOnly: true }),
+    getIntegrationServices({ activeOnly: true, manualOnly: true }),
   ]);
 
   const user = {
