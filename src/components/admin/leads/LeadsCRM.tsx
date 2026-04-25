@@ -239,7 +239,6 @@ type LeadColumnId =
   | 'phone'
   | 'state'
   | 'vendor'
-  | 'campaign'
   | 'assignedUser'
   | 'source'
   | 'received';
@@ -259,7 +258,6 @@ const LEAD_COLUMNS: Array<{
   { id: 'phone', label: 'Phone', sortKey: 'phone', defaultWidth: 140, minWidth: 100 },
   { id: 'state', label: 'State', sortKey: 'propertyState', defaultWidth: 90, minWidth: 60 },
   { id: 'vendor', label: 'Vendor', sortKey: 'vendor', defaultWidth: 150, minWidth: 100 },
-  { id: 'campaign', label: 'Campaign', sortKey: 'campaign', defaultWidth: 240, minWidth: 120 },
   { id: 'assignedUser', label: 'Assigned To', sortKey: 'assignedUser', defaultWidth: 150, minWidth: 100 },
   { id: 'source', label: 'Source', sortKey: 'source', defaultWidth: 200, minWidth: 120 },
   { id: 'received', label: 'Received', sortKey: 'receivedAt', defaultWidth: 190, minWidth: 150, align: 'right' },
@@ -301,7 +299,6 @@ function getLeadCellClassName(id: LeadColumnId): string {
     case 'phone':
     case 'state':
     case 'vendor':
-    case 'campaign':
       return `${base} text-slate-600 truncate`;
     case 'assignedUser':
       return `${base} truncate`;
@@ -345,8 +342,6 @@ function renderLeadCell(
       return l.propertyState || '—';
     case 'vendor':
       return l.vendor?.name || '—';
-    case 'campaign':
-      return l.campaign?.name || '—';
     case 'assignedUser':
       return (
         l.assignedUser?.name || (
