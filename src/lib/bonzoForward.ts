@@ -190,8 +190,11 @@ type LeadLike = {
  *   creditRating        -> credit_score
  *   bankruptcy          -> bankruptcy_details
  *   foreclosure         -> foreclosure_details
- *   isMilitary          -> custom_ismilitary
- *   vaStatus            -> custom_veteran
+ *   isMilitary          -> veteran (Bonzo-native, drives VA campaigns)
+ *                          also mirrored to custom_ismilitary + custom_veteran
+ *                          for admins whose existing Bonzo triggers are keyed
+ *                          on the legacy LMB field names. Falls back to
+ *                          vaStatus when isMilitary is null.
  *   employer            -> prospect_company, company_name
  *   jobTitle            -> occupation
  *   income              -> income, household_income
@@ -264,8 +267,15 @@ function buildBonzoPayload(lead: LeadLike) {
     // Bonzo-native risk / custom flags (match the LMB sample exactly)
     bankruptcy_details: lead.bankruptcy,
     foreclosure_details: lead.foreclosure,
+    // Bonzo's first-class "Veteran" field. LOs run VA-loan campaigns off
+    // this, so we populate it from the portal's Is Military flag (the
+    // same yes/no that vendors post as isMilitary). Falls back to vaStatus
+    // if the vendor only sends the VA-eligibility flag. Keep the custom_*
+    // mirrors for admins whose existing Bonzo triggers are keyed on the
+    // legacy LMB field names.
+    veteran: lead.isMilitary ?? lead.vaStatus,
     custom_ismilitary: lead.isMilitary,
-    custom_veteran: lead.vaStatus,
+    custom_veteran: lead.isMilitary ?? lead.vaStatus,
 
     // Employment / company
     prospect_company: lead.employer,
