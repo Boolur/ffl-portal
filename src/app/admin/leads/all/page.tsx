@@ -13,6 +13,7 @@ import {
   getDistinctLeadSources,
   getLeadCrmStats,
   getIntegrationServices,
+  getSavedCsvMappings,
 } from '@/app/actions/leadActions';
 
 export default async function AllLeadsPage() {
@@ -26,6 +27,7 @@ export default async function AllLeadsPage() {
     sources,
     crmStats,
     services,
+    csvMappings,
   ] = await Promise.all([
     getLeads({ take: 200, skip: 0 }),
     getLeadVendors(true),
@@ -34,6 +36,7 @@ export default async function AllLeadsPage() {
     getDistinctLeadSources(),
     getLeadCrmStats(),
     getIntegrationServices({ activeOnly: true, manualOnly: true }),
+    getSavedCsvMappings(),
   ]);
 
   const user = {
@@ -79,6 +82,17 @@ export default async function AllLeadsPage() {
           name: s.name,
           description: s.description,
           type: s.type,
+        }))}
+        savedCsvMappings={csvMappings.map((m) => ({
+          csvHeader: m.csvHeader,
+          ourField: m.ourField,
+          usageCount: m.usageCount,
+        }))}
+        eligibleUsers={eligibleUsers.map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
         }))}
       />
     </DashboardShell>

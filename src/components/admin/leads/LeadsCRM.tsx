@@ -23,9 +23,12 @@ import {
   Globe,
   Megaphone,
   Download,
+  Upload,
 } from 'lucide-react';
+import Link from 'next/link';
 import { LeadStatusBadge } from '@/components/leads/LeadStatusBadge';
 import { LeadDetailModal } from './LeadDetailModal';
+import { CsvUploadModal } from './CsvUploadModal';
 import {
   PushToServiceModal,
   type ServiceSummary as PushToServiceSummary,
@@ -382,6 +385,8 @@ export function LeadsCRM({
   sources,
   stats,
   services = [],
+  savedCsvMappings = [],
+  eligibleUsers = [],
 }: {
   initialLeads: LeadRow[];
   initialTotal: number;
@@ -391,6 +396,17 @@ export function LeadsCRM({
   sources: string[];
   stats?: CrmStats;
   services?: PushToServiceSummary[];
+  savedCsvMappings?: Array<{
+    csvHeader: string;
+    ourField: string;
+    usageCount: number;
+  }>;
+  eligibleUsers?: Array<{
+    id: string;
+    name: string;
+    email: string;
+    role?: string;
+  }>;
 }) {
   const router = useRouter();
 
@@ -398,6 +414,7 @@ export function LeadsCRM({
   const [total, setTotal] = useState(initialTotal);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [csvOpen, setCsvOpen] = useState(false);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -1330,6 +1347,24 @@ export function LeadsCRM({
 
   return (
     <div className="space-y-5">
+      {/* Quick action toolbar (CSV import + jump to Unassigned Pool) */}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+          onClick={() => setCsvOpen(true)}
+        >
+          <Upload className="h-4 w-4" />
+          Upload CSV
+        </button>
+        <Link
+          href="/admin/leads/pool"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+        >
+          View Unassigned Pool &rarr;
+        </Link>
+      </div>
+
       {/* Full-screen progress overlay (export, delete, etc.) */}
       {progressOverlay && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
@@ -2190,6 +2225,13 @@ export function LeadsCRM({
           onClose={() => setPushServiceOpen(false)}
         />
       )}
+
+      <CsvUploadModal
+        open={csvOpen}
+        onClose={() => setCsvOpen(false)}
+        savedMappings={savedCsvMappings}
+        eligibleUsers={eligibleUsers}
+      />
     </div>
   );
 }

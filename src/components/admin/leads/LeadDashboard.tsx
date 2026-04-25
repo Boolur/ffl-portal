@@ -7,12 +7,10 @@ import {
   Globe,
   Megaphone,
   UserCog,
-  Upload,
   Inbox,
   Loader2,
   Zap,
 } from 'lucide-react';
-import { CsvUploadModal } from './CsvUploadModal';
 import { LeadDetailModal } from './LeadDetailModal';
 import { getLead } from '@/app/actions/leadActions';
 import { FormatDate } from '@/components/ui/FormatDate';
@@ -42,9 +40,6 @@ const STATUS_COLORS: Record<string, string> = {
   RETURNED: 'border-rose-200 bg-rose-50 text-rose-700',
   UNASSIGNED: 'border-orange-200 bg-orange-50 text-orange-700',
 };
-
-type SavedMapping = { csvHeader: string; ourField: string; usageCount: number };
-type EligibleUser = { id: string; name: string; email: string; role?: string };
 
 const NAV_CARDS = [
   {
@@ -106,23 +101,11 @@ const NAV_CARDS = [
 
 export function LeadDashboard({
   stats,
-  csvMappings = [],
-  eligibleUsers = [],
-  onOpenCsv,
 }: {
   stats: DashboardStats;
-  csvMappings?: SavedMapping[];
-  eligibleUsers?: EligibleUser[];
-  onOpenCsv?: () => void;
 }) {
-  const [csvOpen, setCsvOpen] = useState(false);
   const [detailLead, setDetailLead] = useState<React.ComponentProps<typeof LeadDetailModal>['lead'] | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-
-  const handleCsvOpen = () => {
-    if (onOpenCsv) onOpenCsv();
-    else setCsvOpen(true);
-  };
 
   const openLeadDetail = useCallback(async (leadId: string) => {
     setDetailLoading(true);
@@ -175,24 +158,6 @@ export function LeadDashboard({
             </div>
           </Link>
         ))}
-      </div>
-
-      {/* Quick Actions Bar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
-          onClick={handleCsvOpen}
-        >
-          <Upload className="h-4 w-4" />
-          Upload CSV
-        </button>
-        <Link
-          href="/admin/leads/pool"
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
-        >
-          View Unassigned Pool &rarr;
-        </Link>
       </div>
 
       {/* Recent Leads */}
@@ -306,13 +271,6 @@ export function LeadDashboard({
           onUpdated={() => {}}
         />
       )}
-
-      <CsvUploadModal
-        open={csvOpen}
-        onClose={() => setCsvOpen(false)}
-        savedMappings={csvMappings}
-        eligibleUsers={eligibleUsers}
-      />
     </div>
   );
 }
