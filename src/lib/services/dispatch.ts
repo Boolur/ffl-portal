@@ -654,7 +654,7 @@ export async function drainDueDispatches(
 
 function evaluateGate(
   service: ServiceWithCredentialFields,
-  lead: Awaited<ReturnType<typeof loadLeadForGate>>,
+  lead: NonNullable<Awaited<ReturnType<typeof loadLeadForGate>>>,
   trigger: IntegrationServiceTrigger
 ): DispatchOutcome | null {
   if (
