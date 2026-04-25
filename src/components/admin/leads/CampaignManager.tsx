@@ -944,23 +944,39 @@ export function CampaignManager({
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Left box: Available (unassigned) users */}
-                  <div className="space-y-2">
-                    <span className="text-xs font-medium text-slate-700">
-                      Available Users ({availableUsers.length})
+                {/*
+                  Dual-listbox styled to match the Leads table:
+                  - Single outer container with a rounded border + shadow
+                  - `divide-x` renders the vertical column rule between
+                    Available and Assigned
+                  - Each column has a `bg-slate-50` header bar, a search
+                    sub-row with its own bottom border, and a scroll body
+                    with `divide-y` row separators
+                  - Fixed `h-56` on the scroll body shows ~6 rows before
+                    scrolling, matching the requested density
+                */}
+                <div className="grid grid-cols-2 divide-x divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  {/* Left column: Available (unassigned) users */}
+                  <div className="flex flex-col">
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+                        Available Users{' '}
+                        <span className="font-medium normal-case tracking-normal text-slate-400">
+                          ({availableUsers.length})
+                        </span>
+                      </span>
                       <InfoTip text="Loan officers not yet assigned to this campaign. Click a user to add them to the Assigned list." />
-                    </span>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                    </div>
+                    <div className="relative border-b border-slate-100 bg-white">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                       <input
-                        className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        className="w-full border-0 bg-white pl-9 pr-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-0"
                         placeholder="Search available..."
                         value={availableSearch}
                         onChange={(e) => setAvailableSearch(e.target.value)}
                       />
                     </div>
-                    <div className="h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                    <div className="h-56 divide-y divide-slate-100 overflow-y-auto">
                       {availableUsers.length === 0 ? (
                         <div className="flex h-full items-center justify-center px-3 py-6 text-center text-xs text-slate-400">
                           {availableSearch
@@ -983,7 +999,7 @@ export function CampaignManager({
                                 toggleMember(u.id);
                               }
                             }}
-                            className="group w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition-colors cursor-pointer outline-none hover:bg-slate-50 focus-visible:bg-slate-100"
+                            className="group flex items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors cursor-pointer outline-none hover:bg-slate-50/70 focus-visible:bg-slate-100"
                           >
                             <span className="truncate">{u.name}</span>
                             <Plus
@@ -996,22 +1012,27 @@ export function CampaignManager({
                     </div>
                   </div>
 
-                  {/* Right box: Assigned users */}
-                  <div className="space-y-2">
-                    <span className="text-xs font-medium text-slate-700">
-                      Assigned Users ({form.memberUserIds.length})
+                  {/* Right column: Assigned users */}
+                  <div className="flex flex-col">
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+                        Assigned Users{' '}
+                        <span className="font-medium normal-case tracking-normal text-slate-400">
+                          ({form.memberUserIds.length})
+                        </span>
+                      </span>
                       <InfoTip text="Loan officers who will receive leads from this campaign. Click a user to remove them. Leads are distributed among these users based on the distribution method." />
-                    </span>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                    </div>
+                    <div className="relative border-b border-slate-100 bg-white">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                       <input
-                        className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        className="w-full border-0 bg-white pl-9 pr-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-0"
                         placeholder="Search assigned..."
                         value={assignedSearch}
                         onChange={(e) => setAssignedSearch(e.target.value)}
                       />
                     </div>
-                    <div className="h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                    <div className="h-56 divide-y divide-slate-100 overflow-y-auto">
                       {assignedUsers.length === 0 ? (
                         <div className="flex h-full items-center justify-center px-3 py-6 text-center text-xs text-slate-400">
                           {form.memberUserIds.length === 0
@@ -1032,7 +1053,7 @@ export function CampaignManager({
                                 toggleMember(u.id);
                               }
                             }}
-                            className="group w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-blue-800 bg-blue-50 transition-colors cursor-pointer outline-none hover:bg-blue-100 focus-visible:bg-blue-100"
+                            className="group flex items-center gap-2 bg-blue-50/40 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors cursor-pointer outline-none hover:bg-blue-50 focus-visible:bg-blue-100"
                           >
                             <span className="truncate">{u.name}</span>
                             <span
@@ -1058,7 +1079,7 @@ export function CampaignManager({
                               </span>
                             </span>
                             <X
-                              className="h-3.5 w-3.5 text-blue-300 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                              className="h-3.5 w-3.5 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
                               aria-hidden="true"
                             />
                           </div>
