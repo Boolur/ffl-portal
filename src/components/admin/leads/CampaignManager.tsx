@@ -893,15 +893,64 @@ export function CampaignManager({
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">Assignment</p>
 
-                <div className="grid grid-cols-2 gap-4 items-stretch">
-                  {/* Left box: Available (unassigned) users */}
-                  <div className="flex flex-col space-y-2">
-                    <div className="flex items-center justify-between min-h-[22px]">
-                      <span className="text-xs font-medium text-slate-700">
-                        Available Users ({availableUsers.length})
-                        <InfoTip text="Loan officers not yet assigned to this campaign. Click a user to add them to the Assigned list." />
-                      </span>
+                {/*
+                  Team bulk-add chip bar sits above the two boxes so the
+                  Available / Assigned labels align horizontally. Clicking
+                  a team toggles all its members into Assigned; removing
+                  an individual afterward moves only that person back to
+                  Available.
+                */}
+                {teams.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                      Bulk add by team
+                    </p>
+                    <div className="flex flex-wrap gap-1.5" aria-label="Teams">
+                      {teams.map((t) => {
+                        const memberIds = t.memberIds;
+                        const selectedCount = memberIds.filter((id) =>
+                          form.memberUserIds.includes(id)
+                        ).length;
+                        const total = memberIds.length;
+                        const allSelected = total > 0 && selectedCount === total;
+                        const accent = t.colors?.[0] ?? t.color;
+                        const cls = teamColorClasses(accent);
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => toggleTeam(t)}
+                            disabled={total === 0}
+                            title={
+                              total === 0
+                                ? `${t.name} has no members yet`
+                                : allSelected
+                                  ? `Click to remove all ${total} ${t.name} members`
+                                  : `Click to add ${total - selectedCount} missing ${t.name} member${total - selectedCount === 1 ? '' : 's'}`
+                            }
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                              allSelected ? cls.chipActive : cls.chipInactive
+                            } ${allSelected ? `ring-1 ${cls.ring}` : ''} ${total === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            {renderTeamChipDots(t.colors, accent)}
+                            <span className="truncate max-w-[140px]">{t.name}</span>
+                            <span className="text-[10px] font-semibold opacity-70 tabular-nums">
+                              {selectedCount}/{total}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Left box: Available (unassigned) users */}
+                  <div className="space-y-2">
+                    <span className="text-xs font-medium text-slate-700">
+                      Available Users ({availableUsers.length})
+                      <InfoTip text="Loan officers not yet assigned to this campaign. Click a user to add them to the Assigned list." />
+                    </span>
                     <div className="relative">
                       <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                       <input
@@ -911,7 +960,7 @@ export function CampaignManager({
                         onChange={(e) => setAvailableSearch(e.target.value)}
                       />
                     </div>
-                    <div className="flex-1 min-h-[192px] overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                    <div className="h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white">
                       {availableUsers.length === 0 ? (
                         <div className="flex h-full items-center justify-center px-3 py-6 text-center text-xs text-slate-400">
                           {availableSearch
@@ -948,51 +997,11 @@ export function CampaignManager({
                   </div>
 
                   {/* Right box: Assigned users */}
-                  <div className="flex flex-col space-y-2">
-                    <div className="flex items-center justify-between min-h-[22px]">
-                      <span className="text-xs font-medium text-slate-700">
-                        Assigned Users ({form.memberUserIds.length})
-                        <InfoTip text="Loan officers who will receive leads from this campaign. Click a user to remove them. Leads are distributed among these users based on the distribution method." />
-                      </span>
-                    </div>
-                    {teams.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pb-1" aria-label="Teams">
-                        {teams.map((t) => {
-                          const memberIds = t.memberIds;
-                          const selectedCount = memberIds.filter((id) =>
-                            form.memberUserIds.includes(id)
-                          ).length;
-                          const total = memberIds.length;
-                          const allSelected = total > 0 && selectedCount === total;
-                          const accent = t.colors?.[0] ?? t.color;
-                          const cls = teamColorClasses(accent);
-                          return (
-                            <button
-                              key={t.id}
-                              type="button"
-                              onClick={() => toggleTeam(t)}
-                              disabled={total === 0}
-                              title={
-                                total === 0
-                                  ? `${t.name} has no members yet`
-                                  : allSelected
-                                    ? `Click to remove all ${total} ${t.name} members`
-                                    : `Click to add ${total - selectedCount} missing ${t.name} member${total - selectedCount === 1 ? '' : 's'}`
-                              }
-                              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                                allSelected ? cls.chipActive : cls.chipInactive
-                              } ${allSelected ? `ring-1 ${cls.ring}` : ''} ${total === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                              {renderTeamChipDots(t.colors, accent)}
-                              <span className="truncate max-w-[140px]">{t.name}</span>
-                              <span className="text-[10px] font-semibold opacity-70 tabular-nums">
-                                {selectedCount}/{total}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+                  <div className="space-y-2">
+                    <span className="text-xs font-medium text-slate-700">
+                      Assigned Users ({form.memberUserIds.length})
+                      <InfoTip text="Loan officers who will receive leads from this campaign. Click a user to remove them. Leads are distributed among these users based on the distribution method." />
+                    </span>
                     <div className="relative">
                       <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                       <input
@@ -1002,7 +1011,7 @@ export function CampaignManager({
                         onChange={(e) => setAssignedSearch(e.target.value)}
                       />
                     </div>
-                    <div className="flex-1 min-h-[192px] overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                    <div className="h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white">
                       {assignedUsers.length === 0 ? (
                         <div className="flex h-full items-center justify-center px-3 py-6 text-center text-xs text-slate-400">
                           {form.memberUserIds.length === 0
