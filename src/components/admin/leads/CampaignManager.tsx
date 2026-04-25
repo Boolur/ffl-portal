@@ -228,7 +228,8 @@ export function CampaignManager({
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [userSearch, setUserSearch] = useState('');
+  const [availableSearch, setAvailableSearch] = useState('');
+  const [assignedSearch, setAssignedSearch] = useState('');
   const [filterVendor, setFilterVendor] = useState('');
   const [campaignSearch, setCampaignSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
@@ -327,11 +328,32 @@ export function CampaignManager({
     return sorted;
   }, [campaigns, filterVendor, filterGroupId, campaignSearch, sortCol, sortDir, showArchived]);
 
-  const filteredUsers = useMemo(() => {
-    if (!userSearch) return users;
-    const q = userSearch.toLowerCase();
-    return users.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
-  }, [users, userSearch]);
+  const memberIdSet = useMemo(
+    () => new Set(form.memberUserIds),
+    [form.memberUserIds]
+  );
+
+  const availableUsers = useMemo(() => {
+    const pool = users.filter((u) => !memberIdSet.has(u.id));
+    if (!availableSearch) return pool;
+    const q = availableSearch.toLowerCase();
+    return pool.filter(
+      (u) =>
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q)
+    );
+  }, [users, memberIdSet, availableSearch]);
+
+  const assignedUsers = useMemo(() => {
+    const pool = users.filter((u) => memberIdSet.has(u.id));
+    if (!assignedSearch) return pool;
+    const q = assignedSearch.toLowerCase();
+    return pool.filter(
+      (u) =>
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q)
+    );
+  }, [users, memberIdSet, assignedSearch]);
 
   const openCreate = useCallback(() => {
     setForm({ ...EMPTY_FORM, vendorId: vendors[0]?.id || '' });
@@ -368,7 +390,8 @@ export function CampaignManager({
   const closeModal = useCallback(() => {
     setEditingId(null);
     setIsCreating(false);
-    setUserSearch('');
+    setAvailableSearch('');
+    setAssignedSearch('');
   }, []);
 
   const handleSave = async () => {
@@ -833,9 +856,69 @@ export function CampaignManager({
               {/* Assignment */}
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">Assignment</p>
+
                 <div className="grid grid-cols-2 gap-4">
+                  {/* Left box: Available (unassigned) users */}
                   <div className="space-y-2">
-                    <span className="text-xs font-medium text-slate-700">Assigned Users ({form.memberUserIds.length})<InfoTip text="Loan officers who will receive leads from this campaign. Check/uncheck to add or remove users. Leads are distributed among these users based on the distribution method." /></span>
+                    <div className="flex items-center justify-between min-h-[22px]">
+                      <span className="text-xs font-medium text-slate-700">
+                        Available Users ({availableUsers.length})
+                        <InfoTip text="Loan officers not yet assigned to this campaign. Click a user to add them to the Assigned list." />
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                      <input
+                        className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="Search available..."
+                        value={availableSearch}
+                        onChange={(e) => setAvailableSearch(e.target.value)}
+                      />
+                    </div>
+                    <div className="h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                      {availableUsers.length === 0 ? (
+                        <div className="flex h-full items-center justify-center px-3 py-6 text-center text-xs text-slate-400">
+                          {availableSearch
+                            ? 'No users match your search.'
+                            : users.length === 0
+                              ? 'No users exist yet.'
+                              : 'Every user is already assigned.'}
+                        </div>
+                      ) : (
+                        availableUsers.map((u) => (
+                          <div
+                            key={u.id}
+                            role="button"
+                            aria-label={`Assign ${u.name} to this campaign`}
+                            tabIndex={0}
+                            onClick={() => toggleMember(u.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === ' ' || e.key === 'Enter') {
+                                e.preventDefault();
+                                toggleMember(u.id);
+                              }
+                            }}
+                            className="group w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition-colors cursor-pointer outline-none hover:bg-slate-50 focus-visible:bg-slate-100"
+                          >
+                            <span className="truncate">{u.name}</span>
+                            <Plus
+                              className="ml-auto h-3.5 w-3.5 text-slate-300 transition-colors group-hover:text-blue-500 group-focus-visible:text-blue-500"
+                              aria-hidden="true"
+                            />
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right box: Assigned users */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between min-h-[22px]">
+                      <span className="text-xs font-medium text-slate-700">
+                        Assigned Users ({form.memberUserIds.length})
+                        <InfoTip text="Loan officers who will receive leads from this campaign. Click a user to remove them. Leads are distributed among these users based on the distribution method." />
+                      </span>
+                    </div>
                     {teams.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 pb-1" aria-label="Teams">
                         {teams.map((t) => {
@@ -878,19 +961,24 @@ export function CampaignManager({
                       <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                       <input
                         className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                        placeholder="Search users..."
-                        value={userSearch}
-                        onChange={(e) => setUserSearch(e.target.value)}
+                        placeholder="Search assigned..."
+                        value={assignedSearch}
+                        onChange={(e) => setAssignedSearch(e.target.value)}
                       />
                     </div>
                     <div className="h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white">
-                      {filteredUsers.map((u) => {
-                        const isSelected = form.memberUserIds.includes(u.id);
-                        return (
+                      {assignedUsers.length === 0 ? (
+                        <div className="flex h-full items-center justify-center px-3 py-6 text-center text-xs text-slate-400">
+                          {form.memberUserIds.length === 0
+                            ? 'No users assigned yet. Click a user on the left to add them.'
+                            : 'No assigned users match your search.'}
+                        </div>
+                      ) : (
+                        assignedUsers.map((u) => (
                           <div
                             key={u.id}
-                            role="checkbox"
-                            aria-checked={isSelected}
+                            role="button"
+                            aria-label={`Remove ${u.name} from this campaign`}
                             tabIndex={0}
                             onClick={() => toggleMember(u.id)}
                             onKeyDown={(e) => {
@@ -899,46 +987,49 @@ export function CampaignManager({
                                 toggleMember(u.id);
                               }
                             }}
-                            className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors cursor-pointer outline-none focus-visible:bg-slate-100 ${
-                              isSelected ? 'bg-blue-50 text-blue-800' : 'text-slate-700 hover:bg-slate-50'
-                            }`}
+                            className="group w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-blue-800 bg-blue-50 transition-colors cursor-pointer outline-none hover:bg-blue-100 focus-visible:bg-blue-100"
                           >
-                            <span className={`h-4 w-4 shrink-0 rounded border flex items-center justify-center text-xs ${
-                              isSelected ? 'border-blue-500 bg-blue-500 text-white' : 'border-slate-300'
-                            }`}>
-                              {isSelected && <Check className="h-3 w-3" />}
-                            </span>
                             <span className="truncate">{u.name}</span>
-                            {isSelected && (
-                              <span
-                                className="ml-auto flex items-center gap-1"
+                            <span
+                              className="ml-auto flex items-center gap-1"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                type="number"
+                                min={0}
+                                value={form.memberQuotas[u.id] ?? 0}
+                                onChange={(e) =>
+                                  setMemberQuota(u.id, Number(e.target.value) || 0)
+                                }
                                 onClick={(e) => e.stopPropagation()}
-                              >
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={form.memberQuotas[u.id] ?? 0}
-                                  onChange={(e) =>
-                                    setMemberQuota(u.id, Number(e.target.value) || 0)
-                                  }
-                                  onClick={(e) => e.stopPropagation()}
-                                  onKeyDown={(e) => e.stopPropagation()}
-                                  onFocus={(e) => e.stopPropagation()}
-                                  className="w-14 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-center tabular-nums text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                  title="Daily cap for this LO on this campaign. 0 = unlimited. Mirrors the 'Daily Quota' in the Lead Users drawer."
-                                />
-                                <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
-                                  /day
-                                </span>
+                                onKeyDown={(e) => e.stopPropagation()}
+                                onFocus={(e) => e.stopPropagation()}
+                                className="w-14 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-center tabular-nums text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                title="Daily cap for this LO on this campaign. 0 = unlimited. Mirrors the 'Daily Quota' in the Lead Users drawer."
+                              />
+                              <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                                /day
                               </span>
-                            )}
+                            </span>
+                            <X
+                              className="h-3.5 w-3.5 text-blue-300 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                              aria-hidden="true"
+                            />
                           </div>
-                        );
-                      })}
+                        ))
+                      )}
                     </div>
                   </div>
+                </div>
+
+                {/* Config row: Default User (Fallback) + Distribution Method */}
+                <div className="mt-4 grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <span className="text-xs font-medium text-slate-700">Default User (Fallback)<InfoTip text="If no assigned user is eligible (all hit their quotas, wrong state, etc.), this person receives the lead as a safety net. Typically a manager." /></span>
+                    <span className="text-xs font-medium text-slate-700">
+                      Default User (Fallback)
+                      <InfoTip text="If no assigned user is eligible (all hit their quotas, wrong state, etc.), this person receives the lead as a safety net. Typically a manager." />
+                    </span>
                     <select
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.defaultUserId}
@@ -948,8 +1039,12 @@ export function CampaignManager({
                       {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
                     <p className="text-xs text-slate-500">Manager/fallback who receives unroutable leads and has oversight visibility.</p>
-
-                    <span className="text-xs font-medium text-slate-700 block mt-4">Distribution Method<InfoTip text="Round Robin automatically rotates leads evenly across assigned users in order. Manual means leads go to the Unassigned Pool for a manager to hand-assign." /></span>
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-xs font-medium text-slate-700">
+                      Distribution Method
+                      <InfoTip text="Round Robin automatically rotates leads evenly across assigned users in order. Manual means leads go to the Unassigned Pool for a manager to hand-assign." />
+                    </span>
                     <select
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={form.distributionMethod}
