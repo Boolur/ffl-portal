@@ -202,6 +202,10 @@ export function LeadUserManager({
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<UserSortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  // Team chip acts as a one-shot filter: null = show everyone. Clicking
+  // the active chip (or the "All" chip) clears it. Intentionally not
+  // persisted to localStorage so the table always opens wide.
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
 
   const {
     widths: columnWidths,
@@ -236,13 +240,29 @@ export function LeadUserManager({
     [columnOrder, columnMap]
   );
 
+  // Build a quick lookup of team member IDs so both the chip counter
+  // and the filter share the same source of truth. Only recomputes when
+  // the teams array identity changes.
+  const selectedTeamMemberIds = useMemo(() => {
+    if (!selectedTeamId) return null;
+    const team = teams.find((t) => t.id === selectedTeamId);
+    return team ? new Set(team.memberIds) : null;
+  }, [teams, selectedTeamId]);
+
   const filtered = useMemo(() => {
-    if (!search) return users;
-    const q = search.toLowerCase();
-    return users.filter(
-      (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
-    );
-  }, [users, search]);
+    let list = users;
+    if (selectedTeamMemberIds) {
+      list = list.filter((u) => selectedTeamMemberIds.has(u.id));
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (u) =>
+          u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [users, search, selectedTeamMemberIds]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -294,6 +314,8 @@ export function LeadUserManager({
           email: u.email,
           role: u.role,
         }))}
+        selectedTeamId={selectedTeamId}
+        onSelectTeam={setSelectedTeamId}
       />
       <div className="flex items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
@@ -316,6 +338,14 @@ export function LeadUserManager({
         </button>
         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
           {sorted.length} user{sorted.length !== 1 ? 's' : ''}
+          {selectedTeamId && (
+            <span className="ml-1 normal-case font-medium text-slate-400">
+              in{' '}
+              <span className="font-semibold text-slate-600">
+                {teams.find((t) => t.id === selectedTeamId)?.name ?? 'team'}
+              </span>
+            </span>
+          )}
         </span>
       </div>
 

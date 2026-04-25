@@ -37,6 +37,12 @@ type EligibleUser = { id: string; name: string; email: string; role: string };
 type Props = {
   teams: LeadUserTeamSummary[];
   users: EligibleUser[];
+  // When provided, chips act as a single-select filter over the parent's
+  // list (toggle semantics: clicking the active chip clears the filter).
+  // When omitted, chips fall back to "click to edit" — used anywhere the
+  // manager is purely for CRUD with no filterable list above it.
+  selectedTeamId?: string | null;
+  onSelectTeam?: (teamId: string | null) => void;
 };
 
 // Palette shared with CampaignGroupManager so teams and campaign groups
@@ -101,12 +107,23 @@ export function teamColorClasses(key: string) {
   return TEAM_COLOR_CLASSES[key] ?? TEAM_COLOR_CLASSES.blue;
 }
 
-export function LeadUserTeamManager({ teams, users }: Props) {
+export function LeadUserTeamManager({
+  teams,
+  users,
+  selectedTeamId = null,
+  onSelectTeam,
+}: Props) {
   const router = useRouter();
   const [editingTeam, setEditingTeam] = useState<LeadUserTeamSummary | null>(
     null
   );
   const [isCreating, setIsCreating] = useState(false);
+
+  // Filter mode is enabled when the parent passes a select handler.
+  // In filter mode the whole chip toggles the filter and a small pencil
+  // button on the chip opens the edit modal — mirrors the "All/chip/edit"
+  // pattern CampaignGroupManager uses.
+  const filterMode = typeof onSelectTeam === 'function';
 
   const openCreate = useCallback(() => {
     setIsCreating(true);
@@ -123,6 +140,17 @@ export function LeadUserTeamManager({ teams, users }: Props) {
     setIsCreating(false);
   }, []);
 
+  const handleChipClick = useCallback(
+    (team: LeadUserTeamSummary) => {
+      if (filterMode && onSelectTeam) {
+        onSelectTeam(selectedTeamId === team.id ? null : team.id);
+      } else {
+        openEdit(team);
+      }
+    },
+    [filterMode, onSelectTeam, selectedTeamId, openEdit]
+  );
+
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
@@ -130,6 +158,20 @@ export function LeadUserTeamManager({ teams, users }: Props) {
           <Users2 className="h-3.5 w-3.5" />
           Teams
         </div>
+
+        {filterMode && teams.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onSelectTeam?.(null)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+              selectedTeamId === null
+                ? 'border-slate-300 bg-slate-100 text-slate-800 ring-1 ring-slate-300'
+                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            All
+          </button>
+        )}
 
         {teams.length === 0 && (
           <span className="text-[11px] text-slate-400 italic">
@@ -139,13 +181,21 @@ export function LeadUserTeamManager({ teams, users }: Props) {
 
         {teams.map((t) => {
           const cls = teamColorClasses(t.color);
+          const isActive = filterMode && selectedTeamId === t.id;
+          const chipTitle = filterMode
+            ? isActive
+              ? `Showing ${t.memberCount} ${t.name} member${t.memberCount === 1 ? '' : 's'} — click to clear filter`
+              : `Filter to ${t.memberCount} ${t.name} member${t.memberCount === 1 ? '' : 's'}`
+            : t.description || `${t.memberCount} members • click to edit`;
           return (
             <div key={t.id} className="relative group/chip">
               <button
                 type="button"
-                onClick={() => openEdit(t)}
-                className={`inline-flex items-center gap-1.5 rounded-full border pl-2.5 pr-8 py-1.5 text-xs font-medium transition-colors ${cls.chipInactive}`}
-                title={t.description || `${t.memberCount} members • click to edit`}
+                onClick={() => handleChipClick(t)}
+                className={`inline-flex items-center gap-1.5 rounded-full border pl-2.5 pr-8 py-1.5 text-xs font-medium transition-colors ${
+                  isActive ? cls.chipActive : cls.chipInactive
+                } ${isActive ? `ring-1 ${cls.ring}` : ''}`}
+                title={chipTitle}
               >
                 <span className={`inline-block h-2 w-2 rounded-full ${cls.dot}`} />
                 <span className="truncate max-w-[160px]">{t.name}</span>
@@ -153,12 +203,24 @@ export function LeadUserTeamManager({ teams, users }: Props) {
                   {t.memberCount}
                 </span>
               </button>
-              <span
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-slate-400 pointer-events-none"
-                aria-hidden
-              >
-                <Pencil className="h-3 w-3" />
-              </span>
+              {filterMode ? (
+                <button
+                  type="button"
+                  onClick={() => openEdit(t)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-white/60"
+                  aria-label={`Edit ${t.name}`}
+                  title="Edit team"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              ) : (
+                <span
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-slate-400 pointer-events-none"
+                  aria-hidden
+                >
+                  <Pencil className="h-3 w-3" />
+                </span>
+              )}
             </div>
           );
         })}
