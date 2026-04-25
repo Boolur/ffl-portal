@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle, ArrowUp, ArrowDown, GripVertical, Archive, ArchiveRestore, AlertTriangle } from 'lucide-react';
 import {
   createLeadCampaign,
@@ -276,6 +276,34 @@ export function CampaignManager({
       window.removeEventListener('mouseup', onUp);
     };
   }, []);
+
+  // Seed colWidths from the browser's first auto-layout pass so the
+  // table immediately switches to `tableLayout: 'fixed'`. Without this,
+  // auto-layout can push the Actions column past the horizontal scroll
+  // container on first paint, leaving it invisible until the user
+  // resizes some other column. Re-runs when campaigns data first
+  // arrives (table may not be mounted on initial render because the
+  // empty-state is rendered instead). Becomes a no-op once widths are
+  // seeded.
+  useLayoutEffect(() => {
+    if (Object.keys(colWidths).length > 0) return;
+    const table = tableRef.current;
+    if (!table) return;
+    const headers = table.querySelectorAll<HTMLTableCellElement>(
+      'thead th[data-col-key]'
+    );
+    if (headers.length === 0) return;
+    const measured: Record<string, number> = {};
+    headers.forEach((th) => {
+      const key = th.dataset.colKey;
+      if (!key) return;
+      const w = th.offsetWidth;
+      if (w > 0) measured[key] = w;
+    });
+    if (Object.keys(measured).length > 0) {
+      setColWidths(measured);
+    }
+  }, [colWidths, campaigns.length]);
 
   const archivedCount = useMemo(
     () => campaigns.filter((c) => !c.active).length,
@@ -644,6 +672,7 @@ export function CampaignManager({
                 ] as const).map((col) => (
                   <th
                     key={col.key}
+                    data-col-key={col.key}
                     className={`relative px-4 py-3 text-${col.align} text-[11px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-slate-700 transition-colors group/th`}
                     style={colWidths[col.key] ? { width: colWidths[col.key] } : undefined}
                     onClick={() => toggleSort(col.key)}
@@ -666,16 +695,19 @@ export function CampaignManager({
                   </th>
                 ))}
                 {/*
-                  Fixed width + nowrap on the Actions column so auto-layout
-                  always reserves space for it. Without this, `whitespace-nowrap`
-                  on Created/Modified pushes the table past its container and
-                  the Actions column renders off-screen to the right on first
-                  paint — it only appears once a user-initiated resize flips
-                  the table to `tableLayout: fixed`.
+                  Actions column is fixed-width. The measurement effect
+                  above seeds colWidths from the first auto-layout pass,
+                  which switches the table to `tableLayout: 'fixed'` and
+                  makes this width authoritative — preventing the column
+                  from scrolling off-screen inside `overflow-x-auto`.
                 */}
                 <th
+                  data-col-key="actions"
                   className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap"
-                  style={{ width: 140, minWidth: 140 }}
+                  style={{
+                    width: colWidths.actions ?? 140,
+                    minWidth: 140,
+                  }}
                 >
                   Actions
                 </th>
