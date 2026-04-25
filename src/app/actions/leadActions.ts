@@ -1666,24 +1666,38 @@ export async function getLeads(
     skip?: number;
     sortBy?: LeadSortKey;
     sortDir?: LeadSortDirection;
+    // When true, skip the (potentially expensive) COUNT(*) and return
+    // total: -1. Callers that are just paging through an already-counted
+    // filter set (Next Page / Prev Page) should pass this to avoid a
+    // full-table count on each click now that the table is ~100k+ rows.
+    skipCount?: boolean;
   }
 ) {
   const where = buildLeadWhere(filters);
   const orderBy = buildLeadOrderBy(filters?.sortBy, filters?.sortDir);
 
+  // The notes _count include was forcing a LATERAL subquery per row even
+  // though the CRM never rendered it. At PAGE_SIZE=200 that's 200 extra
+  // round-trips per list load. Drop it from the default list payload.
+  const listArgs = {
+    where,
+    include: {
+      vendor: { select: { id: true, name: true } },
+      campaign: { select: { id: true, name: true } },
+      assignedUser: { select: { id: true, name: true } },
+    },
+    orderBy: orderBy as never,
+    take: filters?.take ?? 100,
+    skip: filters?.skip ?? 0,
+  };
+
+  if (filters?.skipCount) {
+    const leads = await prisma.lead.findMany(listArgs);
+    return { leads, total: -1 };
+  }
+
   const [leads, total] = await prisma.$transaction([
-    prisma.lead.findMany({
-      where,
-      include: {
-        vendor: { select: { id: true, name: true } },
-        campaign: { select: { id: true, name: true } },
-        assignedUser: { select: { id: true, name: true } },
-        _count: { select: { notes: true } },
-      },
-      orderBy: orderBy as never,
-      take: filters?.take ?? 100,
-      skip: filters?.skip ?? 0,
-    }),
+    prisma.lead.findMany(listArgs),
     prisma.lead.count({ where }),
   ]);
 
@@ -1696,7 +1710,15 @@ export async function getAllLeadIds(
     sortDir?: LeadSortDirection;
   }
 ) {
-  const where = buildLeadWhere(filters);
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role;
+  const userId = session?.user?.id;
+  if (!userId) throw new Error('Unauthorized');
+
+  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const where = buildLeadWhere(
+    isAdmin ? filters : { ...filters, assignedUserId: userId }
+  );
   const orderBy = buildLeadOrderBy(filters?.sortBy, filters?.sortDir);
   const rows = await prisma.lead.findMany({
     where,
@@ -1708,8 +1730,19 @@ export async function getAllLeadIds(
 
 export async function getLeadsForExport(leadIds: string[]) {
   if (leadIds.length === 0) return [];
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role;
+  const userId = session?.user?.id;
+  if (!userId) throw new Error('Unauthorized');
+
+  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  // LOs can only export their own leads — silently drop foreign ids so
+  // the CSV reflects exactly what they're allowed to see.
+  const ids = isAdmin ? leadIds : await filterLeadsOwnedByUser(leadIds, userId);
+  if (ids.length === 0) return [];
+
   return prisma.lead.findMany({
-    where: { id: { in: leadIds } },
+    where: { id: { in: ids } },
     include: {
       vendor: { select: { name: true } },
       campaign: { select: { name: true } },
@@ -1720,7 +1753,12 @@ export async function getLeadsForExport(leadIds: string[]) {
 }
 
 export async function getLead(id: string) {
-  return prisma.lead.findUnique({
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role;
+  const userId = session?.user?.id;
+  if (!userId) throw new Error('Unauthorized');
+
+  const lead = await prisma.lead.findUnique({
     where: { id },
     include: {
       vendor: { select: { id: true, name: true } },
@@ -1732,11 +1770,24 @@ export async function getLead(id: string) {
       },
     },
   });
+  if (!lead) return null;
+
+  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  if (!isAdmin && lead.assignedUserId !== userId) {
+    // Don't leak existence of the lead via a distinct error message.
+    return null;
+  }
+  return lead;
 }
 
 export async function updateLeadStatus(leadId: string, status: LeadStatus) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) throw new Error('Unauthorized');
+  const userId = session?.user?.id;
+  const role = session?.user?.role;
+  if (!userId) throw new Error('Unauthorized');
+
+  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  if (!isAdmin) await assertLeadBelongsTo(userId, leadId);
 
   const prev = await prisma.lead.findUnique({
     where: { id: leadId },
@@ -1759,7 +1810,12 @@ export async function updateLeadFields(
   fields: Record<string, string | null>
 ) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) throw new Error('Unauthorized');
+  const userId = session?.user?.id;
+  const role = session?.user?.role;
+  if (!userId) throw new Error('Unauthorized');
+
+  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  if (!isAdmin) await assertLeadBelongsTo(userId, leadId);
 
   const allowedFields = new Set([
     'firstName', 'lastName', 'email', 'phone', 'homePhone', 'workPhone', 'dob', 'ssn',
@@ -1908,14 +1964,26 @@ export async function bulkReassignLeadsToCampaign(
 export async function bulkUpdateLeadStatus(
   leadIds: string[],
   status: LeadStatus
-) {
-  await prisma.lead.updateMany({
-    where: { id: { in: leadIds } },
+): Promise<{ updated: number; requested: number }> {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role;
+  const userId = session?.user?.id;
+  if (!userId) throw new Error('Unauthorized');
+
+  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const ids = isAdmin ? leadIds : await filterLeadsOwnedByUser(leadIds, userId);
+  if (ids.length === 0) {
+    return { updated: 0, requested: leadIds.length };
+  }
+
+  const result = await prisma.lead.updateMany({
+    where: { id: { in: ids } },
     data: { status },
   });
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
   revalidatePath('/admin/leads/all');
+  return { updated: result.count, requested: leadIds.length };
 }
 
 export async function bulkDeleteLeads(leadIds: string[]) {
@@ -1937,9 +2005,11 @@ export async function bulkDeleteLeadsBatch(leadIds: string[]) {
   return { deleted: leadIds.length };
 }
 
-export async function getDistinctLeadSources() {
+export async function getDistinctLeadSources(opts: { assignedUserId?: string } = {}) {
+  const where: Prisma.LeadWhereInput = { source: { not: null } };
+  if (opts.assignedUserId) where.assignedUserId = opts.assignedUserId;
   const results = await prisma.lead.findMany({
-    where: { source: { not: null } },
+    where,
     select: { source: true },
     distinct: ['source'],
     orderBy: { source: 'asc' },
@@ -1995,7 +2065,7 @@ export async function getLeadDashboardStats() {
   return { totalToday, unassigned, byVendor, byCampaign, recentLeads };
 }
 
-export async function getLeadCrmStats() {
+export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
   const now = new Date();
 
   const todayStart = new Date(now);
@@ -2008,6 +2078,13 @@ export async function getLeadCrmStats() {
 
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
+  // LO scoping: every count and groupBy is narrowed to this user's leads
+  // so the stat cards and vendor/campaign breakdowns reflect only what
+  // they own. Admins pass no filter and get the company-wide numbers.
+  const scope: Prisma.LeadWhereInput = opts.assignedUserId
+    ? { assignedUserId: opts.assignedUserId }
+    : {};
+
   const [
     totalLeads,
     newToday,
@@ -2017,14 +2094,19 @@ export async function getLeadCrmStats() {
     vendorGroupsAll,
     campaignGroupsAll,
   ] = await prisma.$transaction([
-    prisma.lead.count(),
-    prisma.lead.count({ where: { receivedAt: { gte: todayStart } } }),
-    prisma.lead.count({ where: { receivedAt: { gte: weekStart } } }),
-    prisma.lead.count({ where: { receivedAt: { gte: monthStart } } }),
-    prisma.lead.count({ where: { status: LeadStatus.UNASSIGNED } }),
+    prisma.lead.count({ where: scope }),
+    prisma.lead.count({ where: { ...scope, receivedAt: { gte: todayStart } } }),
+    prisma.lead.count({ where: { ...scope, receivedAt: { gte: weekStart } } }),
+    prisma.lead.count({ where: { ...scope, receivedAt: { gte: monthStart } } }),
+    prisma.lead.count({
+      where: opts.assignedUserId
+        ? { assignedUserId: opts.assignedUserId, status: LeadStatus.UNASSIGNED }
+        : { status: LeadStatus.UNASSIGNED },
+    }),
     prisma.lead.groupBy({
       by: ['vendorId'],
       _count: { id: true },
+      where: scope,
       orderBy: { _count: { id: 'desc' } },
     }),
     // All-time campaign volume (mirrors byVendor window) so every active
@@ -2032,7 +2114,7 @@ export async function getLeadCrmStats() {
     prisma.lead.groupBy({
       by: ['campaignId'],
       _count: { id: true },
-      where: { campaignId: { not: null } },
+      where: { ...scope, campaignId: { not: null } },
       orderBy: { _count: { id: 'desc' } },
     }),
   ]);
@@ -3044,6 +3126,17 @@ export type UserIntegrationCredentialDTO = {
   values: Record<string, string>;
 };
 
+function normalizeCredentialValues(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (v === null || v === undefined) continue;
+      out[k] = typeof v === 'string' ? v : String(v);
+    }
+  }
+  return out;
+}
+
 export async function getUserIntegrationCredentials(
   userId: string
 ): Promise<UserIntegrationCredentialDTO[]> {
@@ -3051,17 +3144,76 @@ export async function getUserIntegrationCredentials(
   const rows = await prisma.userIntegrationCredential.findMany({
     where: { userId },
   });
-  return rows.map((r) => {
-    const raw = r.values as unknown;
-    const out: Record<string, string> = {};
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-        if (v === null || v === undefined) continue;
-        out[k] = typeof v === 'string' ? v : String(v);
-      }
-    }
-    return { serviceId: r.serviceId, userId: r.userId, values: out };
+  return rows.map((r) => ({
+    serviceId: r.serviceId,
+    userId: r.userId,
+    values: normalizeCredentialValues(r.values),
+  }));
+}
+
+/**
+ * Batched variant of getUserIntegrationCredentials. The /admin/leads/users
+ * page needs credentials for every user at once; calling the single-user
+ * action inside `Promise.all(users.map(...))` was firing one query and
+ * one session lookup per user, which at 30+ LOs + 100k+ leads in the
+ * same page render routinely blew past Prisma's connection pool and
+ * produced 500s. This collapses the whole thing into one query.
+ */
+export async function getUserIntegrationCredentialsBulk(
+  userIds: string[]
+): Promise<Map<string, UserIntegrationCredentialDTO[]>> {
+  await assertServiceAdmin();
+  const result = new Map<string, UserIntegrationCredentialDTO[]>();
+  for (const id of userIds) result.set(id, []);
+  if (userIds.length === 0) return result;
+  const rows = await prisma.userIntegrationCredential.findMany({
+    where: { userId: { in: userIds } },
   });
+  for (const r of rows) {
+    const bucket = result.get(r.userId) ?? [];
+    bucket.push({
+      serviceId: r.serviceId,
+      userId: r.userId,
+      values: normalizeCredentialValues(r.values),
+    });
+    result.set(r.userId, bucket);
+  }
+  return result;
+}
+
+/**
+ * Batched variant of getUserAllowedServiceIds. Same rationale as
+ * getUserIntegrationCredentialsBulk — collapses an N+1 at page render.
+ * Also wraps the query in a safe fallback so a stale deployment whose
+ * database migration hasn't landed yet still renders the page (every
+ * user just shows an empty allow list) instead of hard-500ing.
+ */
+export async function getUserAllowedServiceIdsBulk(
+  userIds: string[]
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  for (const id of userIds) result.set(id, []);
+  if (userIds.length === 0) return result;
+  try {
+    const rows = await prisma.userIntegrationServicePermission.findMany({
+      where: { userId: { in: userIds }, canPush: true },
+      select: { userId: true, serviceId: true },
+    });
+    for (const r of rows) {
+      const bucket = result.get(r.userId) ?? [];
+      bucket.push(r.serviceId);
+      result.set(r.userId, bucket);
+    }
+  } catch (err) {
+    // Likely cause: the UserIntegrationServicePermission migration hasn't
+    // been applied on this environment yet. Log and fall back to empty
+    // allow lists so the rest of /admin/leads/users can still render.
+    console.error(
+      '[getUserAllowedServiceIdsBulk] failed to load permissions; returning empty allow list',
+      err
+    );
+  }
+  return result;
 }
 
 export async function upsertUserIntegrationCredential(input: {
@@ -3107,9 +3259,14 @@ export async function pushLeadsToService(input: {
   serviceSlug: string;
   leadIds: string[];
 }): Promise<BatchSummary> {
-  await assertServiceAdmin();
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role;
+  const userId = session?.user?.id;
+  if (!userId) throw new Error('Unauthorized');
 
-  const leadIds = Array.from(new Set(input.leadIds)).filter(Boolean);
+  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+
+  let leadIds = Array.from(new Set(input.leadIds)).filter(Boolean);
   if (leadIds.length === 0) {
     return { total: 0, succeeded: 0, skipped: [], failed: [] };
   }
@@ -3126,6 +3283,156 @@ export async function pushLeadsToService(input: {
     );
   }
 
+  if (!isAdmin) {
+    // Non-admins can only push their own leads, and only to services on
+    // their per-user allow list. Both rules silently drop unauthorized
+    // ids / throw for unauthorized services so the dispatcher never sees
+    // cross-user bleed.
+    leadIds = await filterLeadsOwnedByUser(leadIds, userId);
+    if (leadIds.length === 0) {
+      return { total: 0, succeeded: 0, skipped: [], failed: [] };
+    }
+    const allowed = await getUserAllowedServiceIds(userId);
+    if (!allowed.has(svc.id)) {
+      throw new Error('You are not authorized to push to this service');
+    }
+  }
+
   const rows = await runDispatchBatch(svc, leadIds, { trigger: 'MANUAL' });
   return summarizeBatch(rows);
+}
+
+// ---------------------------------------------------------------------------
+// LO ownership + per-user service permissions
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the set of serviceIds an LO is permitted to manually push to.
+ * Empty set = no services. Admins typically don't call this (they bypass
+ * the allow list entirely in `pushLeadsToService`).
+ */
+export async function getUserAllowedServiceIds(
+  userId: string
+): Promise<Set<string>> {
+  try {
+    const rows = await prisma.userIntegrationServicePermission.findMany({
+      where: { userId, canPush: true },
+      select: { serviceId: true },
+    });
+    return new Set(rows.map((r) => r.serviceId));
+  } catch (err) {
+    // Defensive: if the permission table is missing (migration lag) or
+    // unreachable, treat the user as having no allow list entries rather
+    // than 500ing the entire page. pushLeadsToService will still block
+    // the push because the empty set won't include the service id.
+    console.error(
+      '[getUserAllowedServiceIds] falling back to empty set',
+      err
+    );
+    return new Set();
+  }
+}
+
+/**
+ * LO-facing replacement for `getIntegrationServices({ activeOnly: true,
+ * manualOnly: true })`. Inner-joins the permission table so only services
+ * the user has been explicitly granted show up in their "Push to Service"
+ * picker.
+ */
+export async function getAllowedIntegrationServicesForUser(
+  userId: string
+): Promise<IntegrationServiceSummary[]> {
+  try {
+    const rows = await prisma.integrationService.findMany({
+      where: {
+        active: true,
+        allowManualSend: true,
+        userPermissions: { some: { userId, canPush: true } },
+      },
+      include: { credentialFields: true },
+      orderBy: [{ active: 'desc' }, { createdAt: 'asc' }],
+    });
+    return rows.map(serializeService);
+  } catch (err) {
+    // Mirrors the defensive fallback in getUserAllowedServiceIds — keeps
+    // the LO /leads page rendering (with an empty Push-to-Service menu)
+    // even if the permission table isn't on this DB yet.
+    console.error(
+      '[getAllowedIntegrationServicesForUser] returning empty list',
+      err
+    );
+    return [];
+  }
+}
+
+/**
+ * Admin-only: replace-in-place the allow list for a user. An empty array
+ * clears every row, so the user ends up with zero services in their
+ * picker. We wrap delete+createMany in a transaction so the UI can never
+ * observe a half-updated state.
+ */
+export async function setUserIntegrationServicePermissions(
+  userId: string,
+  serviceIds: string[]
+): Promise<{ userId: string; serviceIds: string[] }> {
+  await assertServiceAdmin();
+  const unique = Array.from(new Set(serviceIds)).filter(Boolean);
+
+  await prisma.$transaction([
+    prisma.userIntegrationServicePermission.deleteMany({ where: { userId } }),
+    ...(unique.length > 0
+      ? [
+          prisma.userIntegrationServicePermission.createMany({
+            data: unique.map((serviceId) => ({
+              userId,
+              serviceId,
+              canPush: true,
+            })),
+            skipDuplicates: true,
+          }),
+        ]
+      : []),
+  ]);
+  revalidateServicePaths();
+  revalidatePath('/admin/leads/users');
+  revalidatePath('/leads');
+  return { userId, serviceIds: unique };
+}
+
+/**
+ * Throws when `userId` does not own `leadId`. Admins/managers bypass.
+ * Used to plug the IDOR that would otherwise let any logged-in user open
+ * `/leads/:id` (or drive any of the mutation actions) for leads belonging
+ * to another LO.
+ */
+export async function assertLeadBelongsTo(
+  userId: string,
+  leadId: string
+): Promise<void> {
+  const row = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { assignedUserId: true },
+  });
+  if (!row) throw new Error('Lead not found');
+  if (row.assignedUserId !== userId) {
+    throw new Error('You do not have access to this lead');
+  }
+}
+
+/**
+ * Narrows an arbitrary list of lead ids down to the subset actually
+ * assigned to `userId`. Keeps bulk actions safe for LOs: the UI can still
+ * report "N of M updated" because we return the filtered list rather
+ * than throwing on the first foreign id.
+ */
+async function filterLeadsOwnedByUser(
+  leadIds: string[],
+  userId: string
+): Promise<string[]> {
+  if (leadIds.length === 0) return [];
+  const rows = await prisma.lead.findMany({
+    where: { id: { in: leadIds }, assignedUserId: userId },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
 }

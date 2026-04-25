@@ -74,7 +74,6 @@ type LeadRow = {
   vendor: { id: string; name: string } | null;
   campaign: { id: string; name: string } | null;
   assignedUser: { id: string; name: string } | null;
-  _count: { notes: number };
 };
 
 type FilterOption = { id: string; name: string };
@@ -387,6 +386,7 @@ export function LeadsCRM({
   services = [],
   savedCsvMappings = [],
   eligibleUsers = [],
+  mode = 'admin',
 }: {
   initialLeads: LeadRow[];
   initialTotal: number;
@@ -407,7 +407,12 @@ export function LeadsCRM({
     email: string;
     role?: string;
   }>;
+  // `'lo'` hides admin-only surfaces (CSV upload, unassigned pool, assign
+  // controls, bulk delete, assignee column/filter). Default keeps the
+  // existing `/admin/leads/all` behavior unchanged.
+  mode?: 'admin' | 'lo';
 }) {
+  const isLoMode = mode === 'lo';
   const router = useRouter();
 
   const [leads, setLeads] = useState<LeadRow[]>(initialLeads);
@@ -657,8 +662,12 @@ export function LeadsCRM({
     () =>
       columnOrder
         .map((id) => LEAD_COLUMNS.find((c) => c.id === id))
-        .filter((c): c is (typeof LEAD_COLUMNS)[number] => Boolean(c)),
-    [columnOrder]
+        .filter((c): c is (typeof LEAD_COLUMNS)[number] => Boolean(c))
+        // In LO mode every row belongs to the signed-in user, so the
+        // Assigned To column is pure noise — drop it from both the
+        // header and every body row.
+        .filter((c) => !isLoMode || c.id !== 'assignedUser'),
+    [columnOrder, isLoMode]
   );
 
   const tableMinWidth = useMemo(
@@ -771,17 +780,22 @@ export function LeadsCRM({
   );
 
   const fetchLeads = useCallback(
-    async (pageOverride?: number) => {
+    async (pageOverride?: number, opts?: { skipCount?: boolean }) => {
       setLoading(true);
       try {
-        const result = await getLeads(buildFilters(pageOverride) as never);
+        const filters = buildFilters(pageOverride) as Record<string, unknown>;
+        if (opts?.skipCount) filters.skipCount = true;
+        const result = await getLeads(filters as never);
         setLeads(
           result.leads.map((l) => ({
             ...l,
             receivedAt: l.receivedAt.toISOString(),
           })) as unknown as LeadRow[]
         );
-        setTotal(result.total);
+        // total === -1 is the sentinel returned when we asked the server
+        // to skip the COUNT(*); keep the previous total in that case so
+        // the footer pager ("1-200 of N") keeps working between pages.
+        if (!opts?.skipCount) setTotal(result.total);
         setSelected(new Set());
       } finally {
         setLoading(false);
@@ -821,7 +835,10 @@ export function LeadsCRM({
   const handlePageChange = useCallback(
     (newPage: number) => {
       setPage(newPage);
-      void fetchLeads(newPage);
+      // Page-only navigation doesn't change the filter set, so there's
+      // no need to pay for another COUNT(*) across the full lead table
+      // — reuse the total we already have.
+      void fetchLeads(newPage, { skipCount: true });
     },
     [fetchLeads]
   );
@@ -1299,7 +1316,7 @@ export function LeadsCRM({
     ? [
         {
           key: 'total',
-          label: 'Total Leads',
+          label: isLoMode ? 'My Leads' : 'Total Leads',
           value: stats.totalLeads,
           Icon: Database,
           accent: 'text-slate-600',
@@ -1333,37 +1350,47 @@ export function LeadsCRM({
           bg: 'bg-violet-50',
           ring: 'ring-violet-300',
         },
-        {
-          key: 'unassigned',
-          label: 'Unassigned',
-          value: stats.unassigned,
-          Icon: AlertCircle,
-          accent: 'text-orange-600',
-          bg: 'bg-orange-50',
-          ring: 'ring-orange-300',
-        },
+        // LOs don't see the unassigned pool; hide the card + its quick
+        // filter entirely so clicking it can't drop them into an empty
+        // state.
+        ...(isLoMode
+          ? []
+          : [
+              {
+                key: 'unassigned',
+                label: 'Unassigned',
+                value: stats.unassigned,
+                Icon: AlertCircle,
+                accent: 'text-orange-600',
+                bg: 'bg-orange-50',
+                ring: 'ring-orange-300',
+              },
+            ]),
       ]
     : [];
 
   return (
     <div className="space-y-5">
-      {/* Quick action toolbar (CSV import + jump to Unassigned Pool) */}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
-          onClick={() => setCsvOpen(true)}
-        >
-          <Upload className="h-4 w-4" />
-          Upload CSV
-        </button>
-        <Link
-          href="/admin/leads/pool"
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
-        >
-          View Unassigned Pool &rarr;
-        </Link>
-      </div>
+      {/* Quick action toolbar (CSV import + jump to Unassigned Pool).
+          Admin-only: LOs can't ingest CSV batches or browse the pool. */}
+      {!isLoMode && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+            onClick={() => setCsvOpen(true)}
+          >
+            <Upload className="h-4 w-4" />
+            Upload CSV
+          </button>
+          <Link
+            href="/admin/leads/pool"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+          >
+            View Unassigned Pool &rarr;
+          </Link>
+        </div>
+      )}
 
       {/* Full-screen progress overlay (export, delete, etc.) */}
       {progressOverlay && (
@@ -1649,7 +1676,9 @@ export function LeadsCRM({
                   onChange={(e) => setStatusFilter(e.target.value)}
                 >
                   <option value="">All Statuses</option>
-                  {ALL_STATUSES.map((s) => (
+                  {ALL_STATUSES.filter(
+                    (s) => !isLoMode || s !== 'UNASSIGNED'
+                  ).map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
@@ -1690,24 +1719,26 @@ export function LeadsCRM({
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Assigned To
-                </label>
-                <select
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  value={userFilter}
-                  onChange={(e) => setUserFilter(e.target.value)}
-                >
-                  <option value="">All Users</option>
-                  <option value="__unassigned__">Unassigned</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {!isLoMode && (
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Assigned To
+                  </label>
+                  <select
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={userFilter}
+                    onChange={(e) => setUserFilter(e.target.value)}
+                  >
+                    <option value="">All Users</option>
+                    <option value="__unassigned__">Unassigned</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                   State
@@ -1909,33 +1940,35 @@ export function LeadsCRM({
           </span>
           <div className="h-5 w-px bg-blue-200" />
 
-          <div className="relative">
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
-              onClick={() => {
-                setAssignOpen(!assignOpen);
-                setStatusChangeOpen(false);
-                setDeleteConfirm(false);
-              }}
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              Assign
-            </button>
-            {assignOpen && (
-              <div className="absolute top-full left-0 mt-1 z-30 w-56 rounded-xl border border-slate-200 bg-white shadow-lg py-1 max-h-60 overflow-y-auto">
-                {users.map((u) => (
-                  <button
-                    key={u.id}
-                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
-                    onClick={() => void handleBulkAssign(u.id)}
-                  >
-                    {u.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {!isLoMode && (
+            <div className="relative">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+                onClick={() => {
+                  setAssignOpen(!assignOpen);
+                  setStatusChangeOpen(false);
+                  setDeleteConfirm(false);
+                }}
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                Assign
+              </button>
+              {assignOpen && (
+                <div className="absolute top-full left-0 mt-1 z-30 w-56 rounded-xl border border-slate-200 bg-white shadow-lg py-1 max-h-60 overflow-y-auto">
+                  {users.map((u) => (
+                    <button
+                      key={u.id}
+                      className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                      onClick={() => void handleBulkAssign(u.id)}
+                    >
+                      {u.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="relative">
             <button
@@ -1952,7 +1985,9 @@ export function LeadsCRM({
             </button>
             {statusChangeOpen && (
               <div className="absolute top-full left-0 mt-1 z-30 w-44 rounded-xl border border-slate-200 bg-white shadow-lg py-1">
-                {ALL_STATUSES.map((s) => (
+                {ALL_STATUSES.filter(
+                  (s) => !isLoMode || s !== 'UNASSIGNED'
+                ).map((s) => (
                   <button
                     key={s}
                     className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
@@ -1989,52 +2024,54 @@ export function LeadsCRM({
             Export to CSV
           </button>
 
-          <div className="relative ml-auto">
-            {!deleteConfirm ? (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors"
-                onClick={() => {
-                  setDeleteConfirm(true);
-                  setAssignOpen(false);
-                  setStatusChangeOpen(false);
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-red-700" suppressHydrationWarning>
-                  Delete{' '}
-                  {selectAllGlobal
-                    ? (globalIds?.length ?? total).toLocaleString()
-                    : selected.size}{' '}
-                  lead
-                  {(selectAllGlobal
-                    ? (globalIds?.length ?? total)
-                    : selected.size) !== 1
-                    ? 's'
-                    : ''}
-                  ?
-                </span>
+          {!isLoMode && (
+            <div className="relative ml-auto">
+              {!deleteConfirm ? (
                 <button
                   type="button"
-                  className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
-                  onClick={() => void handleBulkDelete()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors"
+                  onClick={() => {
+                    setDeleteConfirm(true);
+                    setAssignOpen(false);
+                    setStatusChangeOpen(false);
+                  }}
                 >
-                  Confirm
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
                 </button>
-                <button
-                  type="button"
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-                  onClick={() => setDeleteConfirm(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-red-700" suppressHydrationWarning>
+                    Delete{' '}
+                    {selectAllGlobal
+                      ? (globalIds?.length ?? total).toLocaleString()
+                      : selected.size}{' '}
+                    lead
+                    {(selectAllGlobal
+                      ? (globalIds?.length ?? total)
+                      : selected.size) !== 1
+                      ? 's'
+                      : ''}
+                    ?
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
+                    onClick={() => void handleBulkDelete()}
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                    onClick={() => setDeleteConfirm(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -2226,12 +2263,14 @@ export function LeadsCRM({
         />
       )}
 
-      <CsvUploadModal
-        open={csvOpen}
-        onClose={() => setCsvOpen(false)}
-        savedMappings={savedCsvMappings}
-        eligibleUsers={eligibleUsers}
-      />
+      {!isLoMode && (
+        <CsvUploadModal
+          open={csvOpen}
+          onClose={() => setCsvOpen(false)}
+          savedMappings={savedCsvMappings}
+          eligibleUsers={eligibleUsers}
+        />
+      )}
     </div>
   );
 }

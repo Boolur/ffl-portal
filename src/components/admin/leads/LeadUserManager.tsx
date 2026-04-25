@@ -12,6 +12,7 @@ import {
   removeUserFromCampaign,
   sendBonzoTestForUser,
   upsertUserIntegrationCredential,
+  setUserIntegrationServicePermissions,
 } from '@/app/actions/leadActions';
 import type { IntegrationServiceCredentialFieldDTO } from '@/lib/integrationServices/types';
 import { useRouter } from 'next/navigation';
@@ -58,6 +59,9 @@ type LeadUser = {
   campaignCount: number;
   memberships: Membership[];
   serviceCredentials?: Array<{ serviceId: string; values: Record<string, string> }>;
+  // IDs of IntegrationServices this user is permitted to manually push to.
+  // Empty array = no services visible in their LO "Push to Service" picker.
+  allowedServiceIds?: string[];
 };
 
 type CampaignOption = { id: string; name: string; vendorName: string };
@@ -204,11 +208,18 @@ export function LeadUserManager({
   allCampaigns,
   teams = [],
   services = [],
+  manualServices = [],
 }: {
   users: LeadUser[];
   allCampaigns: CampaignOption[];
   teams?: LeadUserTeamSummary[];
   services?: LeadUserServiceSummary[];
+  // Subset of active services with `allowManualSend = true`. Rendered in
+  // the per-user "Service permissions" checklist below the credentials
+  // section. Separate from `services` (which also drives the credentials
+  // rows) so the permissions UI doesn't list services that can never be
+  // manually pushed to anyway.
+  manualServices?: LeadUserServiceSummary[];
 }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
@@ -426,6 +437,7 @@ export function LeadUserManager({
           user={selectedUser}
           allCampaigns={allCampaigns}
           services={services}
+          manualServices={manualServices}
           onClose={() => setSelectedUserId(null)}
           onRefresh={() => router.refresh()}
         />
@@ -633,12 +645,14 @@ function UserDetailPanel({
   user,
   allCampaigns,
   services,
+  manualServices,
   onClose,
   onRefresh,
 }: {
   user: LeadUser;
   allCampaigns: CampaignOption[];
   services: LeadUserServiceSummary[];
+  manualServices: LeadUserServiceSummary[];
   onClose: () => void;
   onRefresh: () => void;
 }) {
@@ -1056,6 +1070,14 @@ function UserDetailPanel({
             onRefresh={onRefresh}
           />
 
+          {/* Per-user service permissions (LO "Push to Service" allow list) */}
+          <UserServicePermissionsSection
+            userId={user.id}
+            manualServices={manualServices}
+            initialAllowedIds={user.allowedServiceIds ?? []}
+            onRefresh={onRefresh}
+          />
+
           {/* Campaigns */}
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">
@@ -1419,6 +1441,144 @@ function UserIntegrationCredentialsSection({
             />
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Service permissions (LO "Push to Service" allow list)
+// ---------------------------------------------------------------------------
+
+function UserServicePermissionsSection({
+  userId,
+  manualServices,
+  initialAllowedIds,
+  onRefresh,
+}: {
+  userId: string;
+  manualServices: LeadUserServiceSummary[];
+  initialAllowedIds: string[];
+  onRefresh: () => void;
+}) {
+  const initialSet = useMemo(
+    () => new Set(initialAllowedIds),
+    [initialAllowedIds]
+  );
+  const [selected, setSelected] = useState<Set<string>>(initialSet);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Re-sync when a different user row is opened — otherwise the checklist
+  // would keep showing the previous user's selection.
+  useEffect(() => {
+    setSelected(new Set(initialAllowedIds));
+    setError(null);
+  }, [initialAllowedIds, userId]);
+
+  const isDirty = useMemo(() => {
+    if (selected.size !== initialSet.size) return true;
+    for (const id of selected) if (!initialSet.has(id)) return true;
+    return false;
+  }, [initialSet, selected]);
+
+  const toggle = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    setError(null);
+    setSaving(true);
+    try {
+      await setUserIntegrationServicePermissions(
+        userId,
+        Array.from(selected)
+      );
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }, [onRefresh, selected, userId]);
+
+  if (manualServices.length === 0) return null;
+
+  return (
+    <div>
+      <div className="flex items-center mb-2">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          Service permissions ({manualServices.length})
+        </p>
+        <InfoTip
+          text="Which services this user can manually send their leads to. Unchecked services won't appear in their Push to Service picker."
+          width={320}
+        />
+      </div>
+      <p className="text-xs text-slate-400 mb-3">
+        Check every service this user is allowed to push leads to.
+      </p>
+      <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+        {manualServices.map((svc) => {
+          const checked = selected.has(svc.id);
+          return (
+            <label
+              key={svc.id}
+              className="flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50"
+            >
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                checked={checked}
+                onChange={() => toggle(svc.id)}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-sm text-slate-900 truncate">
+                    {svc.name}
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {svc.slug}
+                  </span>
+                </div>
+                {svc.description && (
+                  <p className="text-xs text-slate-500 truncate">
+                    {svc.description}
+                  </p>
+                )}
+              </div>
+            </label>
+          );
+        })}
+      </div>
+      {error && (
+        <p className="mt-2 text-xs font-medium text-red-600">{error}</p>
+      )}
+      <div className="mt-3 flex items-center justify-end gap-2">
+        {isDirty && (
+          <button
+            type="button"
+            className="text-xs font-medium text-slate-500 hover:text-slate-700"
+            onClick={() => setSelected(new Set(initialAllowedIds))}
+            disabled={saving}
+          >
+            Reset
+          </button>
+        )}
+        <button
+          type="button"
+          className="app-btn-primary text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+          onClick={() => void handleSave()}
+          disabled={!isDirty || saving}
+        >
+          {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+          Save permissions
+        </button>
       </div>
     </div>
   );

@@ -843,19 +843,23 @@ export function CampaignManager({
                       {filteredUsers.map((u) => {
                         const isSelected = form.memberUserIds.includes(u.id);
                         return (
-                          <label
+                          <div
                             key={u.id}
-                            className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors cursor-pointer ${
+                            role="checkbox"
+                            aria-checked={isSelected}
+                            tabIndex={0}
+                            onClick={() => toggleMember(u.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === ' ' || e.key === 'Enter') {
+                                e.preventDefault();
+                                toggleMember(u.id);
+                              }
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors cursor-pointer outline-none focus-visible:bg-slate-100 ${
                               isSelected ? 'bg-blue-50 text-blue-800' : 'text-slate-700 hover:bg-slate-50'
                             }`}
                           >
-                            <input
-                              type="checkbox"
-                              className="sr-only"
-                              checked={isSelected}
-                              onChange={() => toggleMember(u.id)}
-                            />
-                            <span className={`h-4 w-4 rounded border flex items-center justify-center text-xs ${
+                            <span className={`h-4 w-4 shrink-0 rounded border flex items-center justify-center text-xs ${
                               isSelected ? 'border-blue-500 bg-blue-500 text-white' : 'border-slate-300'
                             }`}>
                               {isSelected && <Check className="h-3 w-3" />}
@@ -875,6 +879,7 @@ export function CampaignManager({
                                   }
                                   onClick={(e) => e.stopPropagation()}
                                   onKeyDown={(e) => e.stopPropagation()}
+                                  onFocus={(e) => e.stopPropagation()}
                                   className="w-14 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-center tabular-nums text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                                   title="Daily cap for this LO on this campaign. 0 = unlimited. Mirrors the 'Daily Quota' in the Lead Users drawer."
                                 />
@@ -883,7 +888,7 @@ export function CampaignManager({
                                 </span>
                               </span>
                             )}
-                          </label>
+                          </div>
                         );
                       })}
                     </div>

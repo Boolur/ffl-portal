@@ -165,6 +165,7 @@ model User {
   leadNotes          LeadNote[]
   leadTeams          LeadUserTeamMember[]
   integrationCredentials UserIntegrationCredential[]
+  integrationServicePermissions UserIntegrationServicePermission[]
 }
 
 model Loan {
@@ -695,6 +696,7 @@ model IntegrationService {
 
   credentialFields      IntegrationServiceCredentialField[]
   userCredentials       UserIntegrationCredential[]
+  userPermissions       UserIntegrationServicePermission[]
   dispatches            ServiceDispatch[]
 
   @@index([active])
@@ -728,6 +730,22 @@ model UserIntegrationCredential {
   values    Json               @default("{}")
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
+
+  @@unique([userId, serviceId])
+  @@index([serviceId])
+}
+
+// Per-user allow list: which IntegrationServices a non-admin user is
+// permitted to manually push leads through. Empty = no services visible
+// in the LO "Push to Service" picker. Admin/Manager bypass this table.
+model UserIntegrationServicePermission {
+  id        String             @id @default(uuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   IntegrationService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  canPush   Boolean            @default(true)
+  createdAt DateTime           @default(now())
 
   @@unique([userId, serviceId])
   @@index([serviceId])
@@ -923,6 +941,15 @@ model Lead {
   @@index([vendorId, receivedAt])
   @@index([propertyState])
   @@index([receivedAt])
+  // Pagination / list-view indexes. The CRM and LO "My Leads" pages sort
+  // by receivedAt DESC and page with large skip values; without covering
+  // indexes, Postgres otherwise has to sort the full 100k+ row set per
+  // page change. Source has its own index because the filter dropdown
+  // runs a DISTINCT across every row.
+  @@index([status, receivedAt(sort: Desc)])
+  @@index([assignedUserId, receivedAt(sort: Desc)])
+  @@index([campaignId, receivedAt(sort: Desc)])
+  @@index([source])
 }
 
 model LeadNote {
