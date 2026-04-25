@@ -599,7 +599,20 @@ export function CampaignManager({
                     </div>
                   </th>
                 ))}
-                <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">Actions</th>
+                {/*
+                  Fixed width + nowrap on the Actions column so auto-layout
+                  always reserves space for it. Without this, `whitespace-nowrap`
+                  on Created/Modified pushes the table past its container and
+                  the Actions column renders off-screen to the right on first
+                  paint — it only appears once a user-initiated resize flips
+                  the table to `tableLayout: fixed`.
+                */}
+                <th
+                  className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap"
+                  style={{ width: 140, minWidth: 140 }}
+                >
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -647,7 +660,7 @@ export function CampaignManager({
                   <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
                     <FormatDate date={c.updatedAt} mode="datetime" />
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1">
                       <button className="app-icon-btn" onClick={() => copyWebhookInfo(c)} title="Copy webhook info">
                         {copiedId === c.id ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
