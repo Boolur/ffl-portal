@@ -1,8 +1,29 @@
 import { withAuth } from 'next-auth/middleware';
 import { UserRole } from '@prisma/client';
 
+// Path allowlists for each admin tier. Admin III is '*' (super-admin).
+// Admin II gets: Overview, Tasks, Lead Distribution, Lender Mgmt,
+// User Management, plus the common /lenders and /resources pages.
+// Admin I gets: the same list MINUS Lead Distribution.
+// The legacy UserRole.ADMIN value is still mapped to the Admin III
+// allowlist so any stray rows behave like super admins.
+const ADMIN_III_PATHS = ['*'];
+const ADMIN_II_PATHS = [
+  '/',
+  '/tasks',
+  '/resources',
+  '/lenders',
+  '/admin/users',
+  '/admin/lenders',
+  '/admin/leads',
+];
+const ADMIN_I_PATHS = ADMIN_II_PATHS.filter((p) => !p.startsWith('/admin/leads'));
+
 const roleAllowedPaths: Record<UserRole, string[]> = {
-  [UserRole.ADMIN]: ['*'],
+  [UserRole.ADMIN]: ADMIN_III_PATHS,
+  [UserRole.ADMIN_III]: ADMIN_III_PATHS,
+  [UserRole.ADMIN_II]: ADMIN_II_PATHS,
+  [UserRole.ADMIN_I]: ADMIN_I_PATHS,
   [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders'],
   [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources', '/lenders', '/leads'],
   [UserRole.LOA]: ['/', '/tasks', '/resources', '/lenders', '/leads'],

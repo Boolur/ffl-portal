@@ -12,6 +12,7 @@ import {
   getSupabaseAdmin,
 } from '@/lib/supabaseAdmin';
 import { canAccessLendersDirectory } from '@/lib/lendersPilot';
+import { isAdmin } from '@/lib/adminTiers';
 
 type SessionUser = {
   id: string;
@@ -188,7 +189,7 @@ async function getSessionUser(): Promise<SessionUser | null> {
 }
 
 function canManageLenders(role: UserRole) {
-  return role === UserRole.ADMIN;
+  return isAdmin(role);
 }
 
 function canViewLenders(user: SessionUser) {

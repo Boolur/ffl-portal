@@ -20,6 +20,7 @@ import {
 } from '@/app/actions/clientFolderActions';
 import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
+import { isAdmin } from '@/lib/adminTiers';
 import { FormatDate, FormatNumber } from '@/components/ui/FormatDate';
 import {
   Plus,
@@ -477,7 +478,7 @@ export function PipelinePage() {
   };
 
   const showLoanOfficerSelector =
-    activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER;
+    isAdmin(activeRole) || activeRole === UserRole.MANAGER;
   const columnClass =
     density === 'compact' ? 'min-w-[158px] w-[158px]' : 'min-w-[176px] w-[176px]';
   const cardClass = density === 'compact' ? 'p-2' : 'p-2.5';

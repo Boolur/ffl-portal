@@ -23,6 +23,11 @@ import {
   type BatchSummary,
 } from '@/lib/services';
 import {
+  ADMIN_TIER_ROLES,
+  canAccessLeadDistribution,
+  isAdmin as isAdminRole,
+} from '@/lib/adminTiers';
+import {
   evaluateMember,
   findNextEligibleMember,
   type GauntletCampaign,
@@ -1711,11 +1716,11 @@ export async function getAllLeadIds(
   }
 ) {
   const session = await getServerSession(authOptions);
-  const role = session?.user?.role;
+  const role = session?.user?.role as UserRole | undefined;
   const userId = session?.user?.id;
   if (!userId) throw new Error('Unauthorized');
 
-  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
   const where = buildLeadWhere(
     isAdmin ? filters : { ...filters, assignedUserId: userId }
   );
@@ -1731,11 +1736,11 @@ export async function getAllLeadIds(
 export async function getLeadsForExport(leadIds: string[]) {
   if (leadIds.length === 0) return [];
   const session = await getServerSession(authOptions);
-  const role = session?.user?.role;
+  const role = session?.user?.role as UserRole | undefined;
   const userId = session?.user?.id;
   if (!userId) throw new Error('Unauthorized');
 
-  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
   // LOs can only export their own leads — silently drop foreign ids so
   // the CSV reflects exactly what they're allowed to see.
   const ids = isAdmin ? leadIds : await filterLeadsOwnedByUser(leadIds, userId);
@@ -1754,7 +1759,7 @@ export async function getLeadsForExport(leadIds: string[]) {
 
 export async function getLead(id: string) {
   const session = await getServerSession(authOptions);
-  const role = session?.user?.role;
+  const role = session?.user?.role as UserRole | undefined;
   const userId = session?.user?.id;
   if (!userId) throw new Error('Unauthorized');
 
@@ -1772,7 +1777,7 @@ export async function getLead(id: string) {
   });
   if (!lead) return null;
 
-  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
   if (!isAdmin && lead.assignedUserId !== userId) {
     // Don't leak existence of the lead via a distinct error message.
     return null;
@@ -1783,10 +1788,10 @@ export async function getLead(id: string) {
 export async function updateLeadStatus(leadId: string, status: LeadStatus) {
   const session = await getServerSession(authOptions);
   const userId = session?.user?.id;
-  const role = session?.user?.role;
+  const role = session?.user?.role as UserRole | undefined;
   if (!userId) throw new Error('Unauthorized');
 
-  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
   if (!isAdmin) await assertLeadBelongsTo(userId, leadId);
 
   const prev = await prisma.lead.findUnique({
@@ -1811,10 +1816,10 @@ export async function updateLeadFields(
 ) {
   const session = await getServerSession(authOptions);
   const userId = session?.user?.id;
-  const role = session?.user?.role;
+  const role = session?.user?.role as UserRole | undefined;
   if (!userId) throw new Error('Unauthorized');
 
-  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
   if (!isAdmin) await assertLeadBelongsTo(userId, leadId);
 
   const allowedFields = new Set([
@@ -1966,11 +1971,11 @@ export async function bulkUpdateLeadStatus(
   status: LeadStatus
 ): Promise<{ updated: number; requested: number }> {
   const session = await getServerSession(authOptions);
-  const role = session?.user?.role;
+  const role = session?.user?.role as UserRole | undefined;
   const userId = session?.user?.id;
   if (!userId) throw new Error('Unauthorized');
 
-  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
   const ids = isAdmin ? leadIds : await filterLeadsOwnedByUser(leadIds, userId);
   if (ids.length === 0) {
     return { updated: 0, requested: leadIds.length };
@@ -2903,8 +2908,12 @@ export async function getIntegrationService(
 
 async function assertServiceAdmin() {
   const session = await getServerSession(authOptions);
-  const role = session?.user?.role;
-  if (role !== UserRole.ADMIN && role !== UserRole.MANAGER) {
+  const role = session?.user?.role as UserRole | undefined;
+  // Lead Distribution (service / campaign CRUD) is Admin II, Admin III, or
+  // Manager. Admin I is explicitly excluded from Lead Distribution per spec.
+  const allowed =
+    canAccessLeadDistribution(role ? [role] : []) || role === UserRole.MANAGER;
+  if (!allowed) {
     throw new Error('Not authorized');
   }
 }
@@ -3260,11 +3269,11 @@ export async function pushLeadsToService(input: {
   leadIds: string[];
 }): Promise<BatchSummary> {
   const session = await getServerSession(authOptions);
-  const role = session?.user?.role;
+  const role = session?.user?.role as UserRole | undefined;
   const userId = session?.user?.id;
   if (!userId) throw new Error('Unauthorized');
 
-  const isAdmin = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
 
   let leadIds = Array.from(new Set(input.leadIds)).filter(Boolean);
   if (leadIds.length === 0) {

@@ -9,7 +9,13 @@ const PILOT_EMAILS = new Set([
   'mmahjoub@federalfirstlending.com',
 ]);
 
-const ADMIN_ROLES = new Set<string>([UserRole.ADMIN, UserRole.MANAGER]);
+const ADMIN_ROLES = new Set<string>([
+  UserRole.ADMIN,
+  UserRole.ADMIN_I,
+  UserRole.ADMIN_II,
+  UserRole.ADMIN_III,
+  UserRole.MANAGER,
+]);
 
 /**
  * Returns true if the user should see the /leads tab in the sidebar.

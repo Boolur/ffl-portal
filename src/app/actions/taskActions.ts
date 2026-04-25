@@ -18,6 +18,7 @@ import { authOptions } from '@/lib/auth';
 import { sendEmail } from '@/lib/email';
 import { randomUUID } from 'crypto';
 import { recordPerfMetric } from '@/lib/perf';
+import { isAdmin, canAccessEmailSettings } from '@/lib/adminTiers';
 import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
 import { canLoanOfficerViewLoan } from '@/lib/loanOfficerVisibility';
 
@@ -1581,6 +1582,19 @@ export async function drainNotificationOutboxBatch(input?: { batchSize?: number 
 }
 
 export async function getNotificationOutboxStats() {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role as UserRole | undefined;
+  // Email Settings is Admin III only per the admin tier spec.
+  if (!canAccessEmailSettings(role ? [role] : [])) {
+    return {
+      mode: 'unauthorized' as const,
+      pending: 0,
+      processing: 0,
+      retry: 0,
+      sent24h: 0,
+      failed: 0,
+    };
+  }
   const [pending, processing, retry, sent24h, failed] = await Promise.all([
     prisma.notificationOutbox.count({
       where: {
@@ -1622,7 +1636,7 @@ export async function getNotificationOutboxStats() {
 export async function requeueFailedNotificationOutbox(limit = 100) {
   const session = await getServerSession(authOptions);
   const role = session?.user?.role as UserRole | undefined;
-  if (!role || (role !== UserRole.ADMIN && role !== UserRole.MANAGER)) {
+  if (!canAccessEmailSettings(role ? [role] : [])) {
     return { success: false, error: 'Not authorized.' };
   }
   const take = Math.max(1, Math.min(500, Math.floor(limit)));
@@ -1696,7 +1710,7 @@ export async function updateTaskStatus(
 
     if (!existing) return { success: false, error: 'Task not found.' };
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const isAssignedToUser = existing.assignedUserId === userId;
     const isAssignedToRole =
       existing.assignedRole === role ||
@@ -1749,7 +1763,7 @@ export async function updateTaskStatus(
         role === UserRole.VA_APPRAISAL ||
         role === UserRole.VA_PAYOFF ||
         role === UserRole.MANAGER ||
-        role === UserRole.ADMIN);
+        isAdmin(role));
 
     // Loan Officers should not use generic status transitions for submission tasks.
     // Their workflow is controlled through disclosure/QC response actions instead.
@@ -2653,7 +2667,7 @@ export async function addTaskNote(taskId: string, message: string) {
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const isDeskRole =
       role === UserRole.DISCLOSURE_SPECIALIST ||
       role === UserRole.QC ||
@@ -2911,7 +2925,7 @@ function getSavedJrChecklistItemsFromSubmissionData(
 }
 
 function canBypassDeskStartLock(role: UserRole) {
-  return role === UserRole.ADMIN || role === UserRole.MANAGER;
+  return isAdmin(role) || role === UserRole.MANAGER;
 }
 
 function isStartLockedDeskTask(task: {
@@ -2974,7 +2988,7 @@ export async function saveJrProcessorChecklist(
     if (existing.kind !== TaskKind.VA_HOI) {
       return { success: false, error: 'Only JR Processor tasks support this checklist.' };
     }
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const canManageJrTask =
       (role === UserRole.PROCESSOR_JR &&
         !isJrTaskOwnedByDifferentUser(existing, userId)) ||
@@ -2999,7 +3013,7 @@ export async function saveJrProcessorChecklist(
 
     if (existing.status === TaskStatus.COMPLETED) {
       const canUpdateCompletedProcessorAssignment =
-        role === UserRole.PROCESSOR_JR || role === UserRole.MANAGER || role === UserRole.ADMIN;
+        role === UserRole.PROCESSOR_JR || role === UserRole.MANAGER || isAdmin(role);
       if (!canUpdateCompletedProcessorAssignment) {
         return {
           success: false,
@@ -3221,7 +3235,7 @@ export async function addJrProcessorNote(taskId: string, note: string) {
       };
     }
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const canManageJrTask =
       (role === UserRole.PROCESSOR_JR &&
         !isJrTaskOwnedByDifferentUser(existing, userId)) ||
@@ -3265,7 +3279,7 @@ export async function releaseJrTaskToQueue(taskId: string) {
       return { success: false, error: 'Not authenticated.' };
     }
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const canRelease = canManageAll || role === UserRole.PROCESSOR_JR;
     if (!canRelease) {
       return { success: false, error: 'Not authorized to release JR tasks.' };
@@ -3357,7 +3371,7 @@ export async function releaseVaSpecialistTaskToQueue(taskId: string) {
       return { success: false, error: 'Not authenticated.' };
     }
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const isVaSpecialistRole =
       role === UserRole.VA_TITLE ||
       role === UserRole.VA_PAYOFF ||
@@ -3471,7 +3485,7 @@ export async function reopenCompletedVaTaskToNew(taskId: string) {
       return { success: false, error: 'Not authenticated.' };
     }
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     if (!canManageAll) {
       return { success: false, error: 'Only Admin/Manager can reopen completed VA tasks.' };
     }
@@ -3560,7 +3574,7 @@ export async function reassignJrTask(taskId: string, nextAssignedUserId: string)
     if (!role) {
       return { success: false, error: 'Not authenticated.' };
     }
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     if (!canManageAll) {
       return { success: false, error: 'Only Admin/Manager can reassign JR tasks.' };
     }
@@ -3660,7 +3674,7 @@ export async function startDisclosureRequest(taskId: string) {
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
     const canStart =
-      role === UserRole.ADMIN ||
+      isAdmin(role) ||
       role === UserRole.MANAGER ||
       role === UserRole.DISCLOSURE_SPECIALIST;
     if (!canStart) {
@@ -3782,7 +3796,7 @@ export async function startQcRequest(taskId: string) {
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
     const canStart =
-      role === UserRole.ADMIN ||
+      isAdmin(role) ||
       role === UserRole.MANAGER ||
       role === UserRole.QC;
     if (!canStart) {
@@ -3910,7 +3924,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
     const canRequest =
-      role === UserRole.ADMIN ||
+      isAdmin(role) ||
       role === UserRole.MANAGER ||
       role === UserRole.QC ||
       role === UserRole.DISCLOSURE_SPECIALIST ||
@@ -4319,7 +4333,7 @@ export async function respondToDisclosureRequest(
     });
     if (!parentTask) return { success: false, error: 'Parent task not found.' };
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const isVisibleLoanOfficerResponder =
       role === UserRole.LOAN_OFFICER && task.loan && canLoanOfficerViewLoan(task.loan, userId);
     const isLoanOfficerAssistantResponder =
@@ -4475,7 +4489,7 @@ export async function reviewInitialDisclosureFigures(input: {
     });
     if (!parentTask) return { success: false, error: 'Parent task not found.' };
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const isVisibleLoanOfficerReviewer =
       role === UserRole.LOAN_OFFICER && task.loan && canLoanOfficerViewLoan(task.loan, userId);
     const isLoanOfficerAssistantReviewer =
@@ -4597,7 +4611,7 @@ export async function deleteTask(taskId: string) {
   try {
     const session = await getServerSession(authOptions);
     const role = session?.user?.role as UserRole | undefined;
-    if (!role || (role !== UserRole.ADMIN && role !== UserRole.MANAGER)) {
+    if (!role || (!isAdmin(role) && role !== UserRole.MANAGER)) {
       return { success: false, error: 'Not authorized to delete tasks.' };
     }
 

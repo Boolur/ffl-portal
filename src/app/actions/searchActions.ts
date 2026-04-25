@@ -5,6 +5,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
+import { isAdmin } from '@/lib/adminTiers';
 
 type SearchResultItem = {
   id: string;
@@ -21,7 +22,7 @@ type SearchResultItem = {
 function getRoleScopedTaskWhere(role: UserRole, userId?: string): Prisma.TaskWhereInput {
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const isAdminOrManager =
-    role === UserRole.ADMIN || role === UserRole.MANAGER || role === UserRole.LOA;
+    isAdmin(role) || role === UserRole.MANAGER || role === UserRole.LOA;
   const isGenericVa = role === UserRole.VA;
 
   if (isAdminOrManager) return {};

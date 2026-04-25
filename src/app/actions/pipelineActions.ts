@@ -5,6 +5,7 @@ import { LoanStage, UserRole } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { isAdmin } from '@/lib/adminTiers';
 
 const DEFAULT_PIPELINE_STAGES = [
   { name: 'New Lead', color: '#60A5FA' },
@@ -34,7 +35,7 @@ async function getSessionUser() {
 }
 
 function canViewAll(role?: UserRole | null) {
-  return role === UserRole.ADMIN || role === UserRole.MANAGER;
+  return isAdmin(role) || role === UserRole.MANAGER;
 }
 
 async function resolveLoanOfficerId(requestedId?: string | null) {

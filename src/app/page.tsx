@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { TaskKind, UserRole } from '@prisma/client';
 import { startPerfTimer, withPerfMetric } from '@/lib/perf';
 import { buildLoanOfficerLoanWhere, buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
+import { isAdmin } from '@/lib/adminTiers';
 
 const LO_DASHBOARD_TASK_KINDS: TaskKind[] = [
   TaskKind.SUBMIT_DISCLOSURES,
@@ -21,7 +22,7 @@ async function getLoans(role?: string | null, userId?: string | null) {
   const endPerf = startPerfTimer('page.dashboard.getLoans.total', {
     role: role || 'UNKNOWN',
   });
-  const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdminOrManager = isAdmin(role as UserRole) || role === UserRole.MANAGER;
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const isLoanOfficerAssistant = role === UserRole.LOA;
   if (isLoanOfficer || isLoanOfficerAssistant) {

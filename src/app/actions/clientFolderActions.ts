@@ -11,6 +11,7 @@ import {
   getSignedUrlExpirySeconds,
   getSupabaseAdmin,
 } from '@/lib/supabaseAdmin';
+import { isAdmin } from '@/lib/adminTiers';
 import {
   buildLoanOfficerLoanWhere,
   canLoanOfficerViewLoan,
@@ -113,7 +114,7 @@ export async function getClientFolderForLoan(loanId: string) {
     });
     if (!loan) return { success: false, error: 'Loan not found.' };
 
-    const canViewAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canViewAll = isAdmin(role) || role === UserRole.MANAGER;
     if (!canViewAll && !canLoanOfficerViewLoan(loan, userId)) {
       return { success: false, error: 'Not authorized.' };
     }
@@ -199,7 +200,7 @@ export async function attachClientDocumentsToTask(input: {
     });
     if (!task) return { success: false, error: 'Task not found.' };
 
-    const canViewAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canViewAll = isAdmin(role) || role === UserRole.MANAGER;
     const isLoanOwner =
       role === UserRole.LOAN_OFFICER &&
       canLoanOfficerViewLoan(task.loan, userId);
@@ -272,7 +273,7 @@ export async function createClientDocumentUploadUrl(input: {
     });
     if (!loan) return { success: false, error: 'Loan not found.' };
 
-    const canViewAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canViewAll = isAdmin(role) || role === UserRole.MANAGER;
     if (!canViewAll && !canLoanOfficerViewLoan(loan, userId)) {
       return { success: false, error: 'Not authorized.' };
     }
@@ -328,7 +329,7 @@ export async function finalizeClientDocument(input: {
     });
     if (!client) return { success: false, error: 'Client not found.' };
 
-    const canViewAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canViewAll = isAdmin(role) || role === UserRole.MANAGER;
     if (!canViewAll && client.ownerId !== userId) {
       return { success: false, error: 'Not authorized.' };
     }
@@ -371,7 +372,7 @@ export async function getClientDocumentDownloadUrl(documentId: string) {
     });
     if (!doc) return { success: false, error: 'Document not found.' };
 
-    const canViewAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canViewAll = isAdmin(role) || role === UserRole.MANAGER;
     if (!canViewAll && doc.client.ownerId !== userId) {
       return { success: false, error: 'Not authorized.' };
     }

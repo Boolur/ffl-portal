@@ -2,12 +2,29 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { UserRole } from '@prisma/client';
+import { canAccessLeadMailbox } from '@/lib/adminTiers';
 
 const PROVIDER = 'LEAD_MAILBOX';
 
+// Lead Mailbox configuration is Admin III only. Throws if the caller is not
+// authorized.
+async function assertLeadMailboxAdmin() {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role as UserRole | undefined;
+  if (!canAccessLeadMailbox(role ? [role] : [])) {
+    throw new Error('Not authorized');
+  }
+}
+
 async function resolveAdminActorId() {
   const admin = await prisma.user.findFirst({
-    where: { role: 'ADMIN', active: true },
+    where: {
+      active: true,
+      role: { in: ['ADMIN', 'ADMIN_I', 'ADMIN_II', 'ADMIN_III'] },
+    },
     orderBy: { createdAt: 'asc' },
     select: { id: true },
   });
@@ -15,6 +32,7 @@ async function resolveAdminActorId() {
 }
 
 export async function saveLeadMailboxMapping(externalId: string, userId: string) {
+  await assertLeadMailboxAdmin();
   const trimmedExternalId = externalId.trim();
   if (!trimmedExternalId || !userId) {
     return { success: false, error: 'External ID and user are required.' };
@@ -57,6 +75,7 @@ export async function saveLeadMailboxMapping(externalId: string, userId: string)
 }
 
 export async function deleteLeadMailboxMapping(mappingId: string) {
+  await assertLeadMailboxAdmin();
   const mapping = await prisma.externalUser.findUnique({
     where: { id: mappingId },
     select: { externalId: true, userId: true },
@@ -92,6 +111,7 @@ type BulkMappingRow = {
 };
 
 export async function bulkUpsertLeadMailboxMappings(rows: BulkMappingRow[]) {
+  await assertLeadMailboxAdmin();
   if (rows.length === 0) {
     return { success: false, error: 'No rows to import.' };
   }

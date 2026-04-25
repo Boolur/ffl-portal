@@ -3,15 +3,23 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { UserManagement } from '@/components/admin/UserManagement';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getAllUsers, getPendingInvites } from '@/app/actions/userActions';
+import {
+  getAllUsers,
+  getPendingInvites,
+  getUserManagementContext,
+} from '@/app/actions/userActions';
 
 export default async function UserManagementPage() {
   const session = await getServerSession(authOptions);
-  const [users, invites] = await Promise.all([getAllUsers(), getPendingInvites()]);
+  const [users, invites, ctx] = await Promise.all([
+    getAllUsers(),
+    getPendingInvites(),
+    getUserManagementContext(),
+  ]);
 
   const user = {
     name: session?.user?.name || 'Admin User',
-    role: session?.user?.activeRole || session?.user?.role || 'ADMIN',
+    role: session?.user?.activeRole || session?.user?.role || 'ADMIN_III',
   };
 
   return (
@@ -34,6 +42,8 @@ export default async function UserManagementPage() {
         }))}
         inviteEmails={invites.map((invite) => invite.email.toLowerCase())}
         currentUserId={session?.user?.id || ''}
+        actorRoles={ctx.actorRoles}
+        assignableRoles={ctx.assignableRoles}
       />
     </DashboardShell>
   );

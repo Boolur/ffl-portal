@@ -6,9 +6,21 @@ import { UserRole } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { sendEmail } from '@/lib/email';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
+import {
+  assignableRolesFor,
+  canAccessUserManagement,
+  canAssignRole,
+  canManageUser,
+} from '@/lib/adminTiers';
 
-const ALLOWED_ROLES = Object.values(UserRole);
+// The legacy `UserRole.ADMIN` value should never be assigned to new users;
+// admins must pick one of the explicit tiers instead.
+const ALLOWED_ROLES: UserRole[] = Object.values(UserRole).filter(
+  (role) => role !== UserRole.ADMIN,
+);
 const INVITE_TTL_DAYS = 7;
 const INVITE_TTL_HOURS = INVITE_TTL_DAYS * 24;
 const RESET_TTL_HOURS = 2;
@@ -17,6 +29,54 @@ const normalizeEmail = (email: string) => email.toLowerCase().trim();
 const getBaseUrl = () => process.env.NEXTAUTH_URL || 'http://localhost:3000';
 const normalizeRoleList = (roles: UserRole[]) =>
   Array.from(new Set(roles.filter((role) => ALLOWED_ROLES.includes(role))));
+
+// Returns the authenticated User Management actor, or null if the caller is
+// not logged in or lacks any admin-tier access. Every mutation below uses
+// this to short-circuit before touching the database.
+async function getUserManagementActor(): Promise<
+  | {
+      userId: string;
+      role: UserRole;
+      roles: UserRole[];
+    }
+  | null
+> {
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id as string | undefined;
+  const role = session?.user?.role as UserRole | undefined;
+  const sessionRoles = session?.user?.roles as UserRole[] | undefined;
+  const roles = sessionRoles && sessionRoles.length > 0 ? sessionRoles : role ? [role] : [];
+  if (!userId || roles.length === 0) return null;
+  if (!canAccessUserManagement(roles)) return null;
+  return { userId, role: role ?? roles[0], roles };
+}
+
+// Expose the actor + the list of roles they're allowed to assign. Read-only
+// helper consumed by the User Management page to hydrate UI dropdowns.
+export async function getUserManagementContext() {
+  const actor = await getUserManagementActor();
+  if (!actor) {
+    return { actorRoles: [] as UserRole[], assignableRoles: [] as UserRole[] };
+  }
+  return {
+    actorRoles: actor.roles,
+    assignableRoles: assignableRolesFor(actor.roles),
+  };
+}
+
+// Load the highest-tier role info for a target user so we can feed it to
+// canManageUser. Returns null if the user doesn't exist.
+async function loadTargetUserRoles(
+  userId: string,
+): Promise<UserRole[] | null> {
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, roles: true },
+  });
+  if (!target) return null;
+  const combined = new Set<UserRole>([target.role, ...(target.roles ?? [])]);
+  return Array.from(combined);
+}
 const formatRoleLabel = (role: UserRole) => getRoleDisplayLabel(role);
 const escapeHtml = (value: string) =>
   value
@@ -245,6 +305,9 @@ export async function createUser({
   roles: UserRole[];
   password: string;
 }) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
   const trimmedName = name.trim();
   const trimmedEmail = normalizeEmail(email);
   const trimmedPassword = password.trim();
@@ -256,6 +319,15 @@ export async function createUser({
   const normalizedRoles = normalizeRoleList(roles);
   if (normalizedRoles.length === 0) {
     return { success: false, error: 'Select at least one valid role.' };
+  }
+
+  for (const r of normalizedRoles) {
+    if (!canAssignRole(actor.roles, r)) {
+      return {
+        success: false,
+        error: `You cannot create a user with role ${getRoleDisplayLabel(r)}.`,
+      };
+    }
   }
 
   const existing = await prisma.user.findUnique({
@@ -316,6 +388,9 @@ export async function inviteUser({
   createdById: string;
 }) {
   try {
+    const actor = await getUserManagementActor();
+    if (!actor) return { success: false, error: 'Not authorized.' };
+
     const trimmedName = name.trim();
     const trimmedEmail = normalizeEmail(email);
 
@@ -325,6 +400,13 @@ export async function inviteUser({
 
     if (!ALLOWED_ROLES.includes(role)) {
       return { success: false, error: 'Invalid role selected.' };
+    }
+
+    if (!canAssignRole(actor.roles, role)) {
+      return {
+        success: false,
+        error: `You cannot invite a user with role ${getRoleDisplayLabel(role)}.`,
+      };
     }
 
     const existing = await prisma.user.findUnique({
@@ -377,8 +459,23 @@ export async function inviteUser({
 }
 
 export async function deleteInvite(inviteId: string) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
   if (!inviteId) {
     return { success: false, error: 'Missing invite ID.' };
+  }
+
+  // Don't let Admin II revoke an Admin III invite (or similar).
+  const invite = await prisma.inviteToken.findUnique({
+    where: { id: inviteId },
+    select: { role: true },
+  });
+  if (!invite) {
+    return { success: false, error: 'Invite not found.' };
+  }
+  if (!canAssignRole(actor.roles, invite.role)) {
+    return { success: false, error: 'You cannot manage invites for this role.' };
   }
 
   await prisma.inviteToken.delete({
@@ -390,6 +487,9 @@ export async function deleteInvite(inviteId: string) {
 }
 
 export async function resendInvite(inviteId: string) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
   if (!inviteId) {
     return { success: false, error: 'Missing invite ID.' };
   }
@@ -401,6 +501,10 @@ export async function resendInvite(inviteId: string) {
 
     if (!existing || existing.acceptedAt) {
       return { success: false, error: 'Invite is invalid or already accepted.' };
+    }
+
+    if (!canAssignRole(actor.roles, existing.role)) {
+      return { success: false, error: 'You cannot manage invites for this role.' };
     }
 
     const token = randomBytes(32).toString('hex');
@@ -617,9 +721,31 @@ export async function resetPasswordWithToken(token: string, password: string) {
 }
 
 export async function updateUserRoles(userId: string, roles: UserRole[]) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
   const normalizedRoles = normalizeRoleList(roles);
   if (normalizedRoles.length === 0) {
     return { success: false, error: 'Select at least one valid role.' };
+  }
+
+  const targetRoles = await loadTargetUserRoles(userId);
+  if (!targetRoles) {
+    return { success: false, error: 'User not found.' };
+  }
+  if (!canManageUser(actor.roles, targetRoles)) {
+    return {
+      success: false,
+      error: 'You cannot manage users at or above your own admin tier.',
+    };
+  }
+  for (const r of normalizedRoles) {
+    if (!canAssignRole(actor.roles, r)) {
+      return {
+        success: false,
+        error: `You cannot assign role ${getRoleDisplayLabel(r)}.`,
+      };
+    }
   }
 
   const includesLoaRole = normalizedRoles.includes(UserRole.LOA);
@@ -671,6 +797,18 @@ export async function updateUserRoles(userId: string, roles: UserRole[]) {
 }
 
 export async function updateUserStatus(userId: string, active: boolean) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
+  const targetRoles = await loadTargetUserRoles(userId);
+  if (!targetRoles) return { success: false, error: 'User not found.' };
+  if (!canManageUser(actor.roles, targetRoles)) {
+    return {
+      success: false,
+      error: 'You cannot manage users at or above your own admin tier.',
+    };
+  }
+
   await prisma.user.update({
     where: { id: userId },
     data: { active },
@@ -685,8 +823,20 @@ export async function updateUserDeskPermissions(input: {
   loDisclosureSubmissionEnabled: boolean;
   loQcSubmissionEnabled: boolean;
 }) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
   if (!input.userId) {
     return { success: false, error: 'Missing user ID.' };
+  }
+
+  const targetRoles = await loadTargetUserRoles(input.userId);
+  if (!targetRoles) return { success: false, error: 'User not found.' };
+  if (!canManageUser(actor.roles, targetRoles)) {
+    return {
+      success: false,
+      error: 'You cannot manage users at or above your own admin tier.',
+    };
   }
 
   await prisma.user.update({
@@ -702,12 +852,27 @@ export async function updateUserDeskPermissions(input: {
 }
 
 export async function updateUserName(userId: string, name: string) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
   const trimmedName = name.trim();
   if (!userId) {
     return { success: false, error: 'Missing user ID.' };
   }
   if (!trimmedName) {
     return { success: false, error: 'Name cannot be empty.' };
+  }
+
+  // Actors can always edit their own name even if the tier check is a no-op.
+  if (userId !== actor.userId) {
+    const targetRoles = await loadTargetUserRoles(userId);
+    if (!targetRoles) return { success: false, error: 'User not found.' };
+    if (!canManageUser(actor.roles, targetRoles)) {
+      return {
+        success: false,
+        error: 'You cannot manage users at or above your own admin tier.',
+      };
+    }
   }
 
   await prisma.user.update({
@@ -721,11 +886,26 @@ export async function updateUserName(userId: string, name: string) {
 
 export async function deleteUser(userId: string, currentUserId?: string) {
   try {
+    const actor = await getUserManagementActor();
+    if (!actor) return { success: false, error: 'Not authorized.' };
+
     if (!userId) {
       return { success: false, error: 'Missing user ID.' };
     }
     if (currentUserId && userId === currentUserId) {
       return { success: false, error: 'You cannot delete your own account.' };
+    }
+    if (userId === actor.userId) {
+      return { success: false, error: 'You cannot delete your own account.' };
+    }
+
+    const targetRoles = await loadTargetUserRoles(userId);
+    if (!targetRoles) return { success: false, error: 'User not found.' };
+    if (!canManageUser(actor.roles, targetRoles)) {
+      return {
+        success: false,
+        error: 'You cannot delete users at or above your own admin tier.',
+      };
     }
 
     const [
@@ -813,9 +993,21 @@ export async function deleteUser(userId: string, currentUserId?: string) {
 }
 
 export async function resetUserPassword(userId: string, password: string) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
   const trimmedPassword = password.trim();
   if (!trimmedPassword) {
     return { success: false, error: 'Password cannot be empty.' };
+  }
+
+  const targetRoles = await loadTargetUserRoles(userId);
+  if (!targetRoles) return { success: false, error: 'User not found.' };
+  if (!canManageUser(actor.roles, targetRoles)) {
+    return {
+      success: false,
+      error: 'You cannot reset passwords for users at or above your own admin tier.',
+    };
   }
 
   const passwordHash = await hash(trimmedPassword, 10);

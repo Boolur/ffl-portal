@@ -36,6 +36,7 @@ import {
   type TaskLifecycleBreakdown,
 } from '@/lib/taskLifecycleTimeline';
 import { UserRole } from '@prisma/client';
+import { isAdmin } from '@/lib/adminTiers';
 
 const chipMeta: Record<
   VaChipState,
@@ -783,7 +784,7 @@ export function LoVaBorrowerProgressList({
     Record<string, string | null>
   >({});
   const canDeleteCompletedRequests =
-    currentRole === UserRole.MANAGER || currentRole === UserRole.ADMIN;
+    currentRole === UserRole.MANAGER || isAdmin(currentRole);
   const focusedItem =
     focusedItemKey === null
       ? null

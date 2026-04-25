@@ -5,13 +5,14 @@ import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
 import { Eye, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
+import { isAdmin } from '@/lib/adminTiers';
 
 export function ImpersonationControls({ currentUserRole }: { currentUserRole: UserRole }) {
   const { activeRole, isImpersonating, startImpersonating, stopImpersonating } = useImpersonation();
   const [isOpen, setIsOpen] = useState(true);
 
-  // Only show if the REAL user is Admin or Manager
-  if (currentUserRole !== 'ADMIN' && currentUserRole !== 'MANAGER') {
+  // Only show if the REAL user is any Admin tier or Manager
+  if (!isAdmin(currentUserRole) && currentUserRole !== 'MANAGER') {
     return null;
   }
 
@@ -27,7 +28,9 @@ export function ImpersonationControls({ currentUserRole }: { currentUserRole: Us
     'PROCESSOR_JR',
     'PROCESSOR_SR',
     'MANAGER',
-    'ADMIN'
+    'ADMIN_I',
+    'ADMIN_II',
+    'ADMIN_III',
   ];
 
   const getRoleButtonClass = (role: UserRole) => {

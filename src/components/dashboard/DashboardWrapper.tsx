@@ -10,6 +10,7 @@ import type { VaRole } from '@/components/dashboard/VaOverview';
 import { DepartmentBoard } from '@/components/admin/DepartmentBoard';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useImpersonation } from '@/lib/impersonation';
+import { isAdmin } from '@/lib/adminTiers';
 import {
   DisclosureDecisionReason,
   Prisma,
@@ -119,6 +120,18 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
       title: 'Operations Overview',
       subtitle: 'Monitor teams, queues, and bottlenecks across the organization.',
     },
+    [UserRole.ADMIN_I]: {
+      title: 'Operations Overview',
+      subtitle: 'Monitor teams, queues, and bottlenecks across the organization.',
+    },
+    [UserRole.ADMIN_II]: {
+      title: 'Operations Overview',
+      subtitle: 'Monitor teams, queues, and bottlenecks across the organization.',
+    },
+    [UserRole.ADMIN_III]: {
+      title: 'Operations Overview',
+      subtitle: 'Monitor teams, queues, and bottlenecks across the organization.',
+    },
     [UserRole.MANAGER]: {
       title: 'Desk Overview',
       subtitle: 'Monitor both Disclosure and QC queues in one view.',
@@ -186,7 +199,7 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
         />
       )}
       
-      {activeRole === 'ADMIN' && (
+      {isAdmin(activeRole) && (
         <DepartmentBoard tasks={adminTasks} />
       )}
 

@@ -12,7 +12,10 @@ generator client {
 }
 
 enum UserRole {
-  ADMIN
+  ADMIN // @deprecated — retained for enum-value stability; existing rows backfilled to ADMIN_III. No new rows should use this.
+  ADMIN_I
+  ADMIN_II
+  ADMIN_III
   MANAGER
   LOAN_OFFICER
   LOA

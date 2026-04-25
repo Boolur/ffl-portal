@@ -22,7 +22,7 @@ async function main() {
     create: {
       email: adminEmail,
       name: adminName,
-      role: UserRole.ADMIN,
+      role: UserRole.ADMIN_III,
       passwordHash: adminPasswordHash,
     },
   });

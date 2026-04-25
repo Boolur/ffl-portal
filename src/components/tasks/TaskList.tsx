@@ -57,6 +57,7 @@ import {
 } from '@prisma/client';
 import { getRoleBubbleClass } from '@/lib/roleColors';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
+import { isAdmin } from '@/lib/adminTiers';
 import { FormatDate } from '@/components/ui/FormatDate';
 import {
   buildTaskLifecycleBreakdown,
@@ -3415,7 +3416,7 @@ export function TaskList({
           isVaRouteState &&
           (selectedVaReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES || isVaPiwAction);
         const canBypassVaStartForRouting =
-          isManagerRole || currentRole === UserRole.ADMIN;
+          isManagerRole || isAdmin(currentRole as UserRole);
         const shouldRouteFromFooter =
           task.status !== TaskStatus.COMPLETED &&
           ((isDisclosureInitialRoutingState ||
@@ -3483,7 +3484,7 @@ export function TaskList({
         const isAssignedToCurrentUser =
           Boolean(currentUserId) && task.assignedUser?.id === currentUserId;
         const isJrTask = task.kind === TaskKind.VA_HOI;
-        const canManageAllJrTasks = currentRole === UserRole.ADMIN || isManagerRole;
+        const canManageAllJrTasks = isAdmin(currentRole as UserRole) || isManagerRole;
         const isJrInPublicNewQueue =
           isJrTask &&
           task.status === TaskStatus.PENDING &&
@@ -3529,7 +3530,7 @@ export function TaskList({
           isQcSubmissionTask(task) &&
           task.status !== TaskStatus.COMPLETED &&
           task.workflowState === TaskWorkflowState.NONE;
-        const canBypassStartLock = isManagerRole || currentRole === UserRole.ADMIN;
+        const canBypassStartLock = isManagerRole || isAdmin(currentRole as UserRole);
         const isPendingDeskTask = task.status === TaskStatus.PENDING;
         const isDisclosureDeskStartLockTask =
           isPendingDeskTask &&

@@ -21,6 +21,16 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { canAccessLendersDirectory } from '@/lib/lendersPilot';
 import { canAccessLeadsTab } from '@/lib/leadsPilot';
+import {
+  canAccessEmailSettings,
+  canAccessLeadDistribution,
+  canAccessLeadMailbox,
+  canAccessLenderManagement,
+  canAccessReports,
+  canAccessTeamPage,
+  canAccessUserManagement,
+  isAdmin,
+} from '@/lib/adminTiers';
 
 type SidebarProps = {
   collapsed: boolean;
@@ -60,12 +70,17 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     [router]
   );
 
+  // A nav item is visible if its `roles` list matches the active role OR the
+  // item's `visible` predicate returns true for the active role. The
+  // predicate form is used for admin-tier items so Admin I/II/III each get
+  // the right subset without having to hardcode every tier into `roles`.
+  const activeRoleArr: UserRole[] = activeRole ? [activeRole] : [];
   const navItems = [
     {
       name: 'Overview',
       icon: LayoutGrid,
       href: '/',
-      roles: ['all'],
+      roles: ['all'] as const,
     },
     {
       name: 'Tasks',
@@ -82,80 +97,95 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
         UserRole.QC,
         UserRole.PROCESSOR_SR,
         UserRole.PROCESSOR_JR,
-        UserRole.ADMIN,
         UserRole.MANAGER,
-      ],
+      ] as UserRole[],
+      visible: () => isAdmin(activeRole),
     },
     {
       name: 'Leads',
       icon: Inbox,
       href: '/leads',
-      roles: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.ADMIN],
+      roles: [UserRole.LOAN_OFFICER, UserRole.LOA] as UserRole[],
+      visible: () => isAdmin(activeRole),
     },
     {
       name: 'Lenders',
       icon: Building2,
       href: '/lenders',
-      roles: ['all'],
+      roles: ['all'] as const,
     },
     {
       name: 'Team',
       icon: Users,
       href: '/team',
-      roles: [UserRole.ADMIN],
+      roles: [] as UserRole[],
+      visible: () => canAccessTeamPage(activeRoleArr),
     },
     {
       name: 'Reports',
       icon: BarChart,
       href: '/reports',
-      roles: [UserRole.ADMIN],
+      roles: [] as UserRole[],
+      visible: () => canAccessReports(activeRoleArr),
     },
     {
       name: 'User Management',
       icon: Shield,
       href: '/admin/users',
-      roles: [UserRole.ADMIN],
+      roles: [] as UserRole[],
+      visible: () => canAccessUserManagement(activeRoleArr),
     },
     {
       name: 'Email Settings',
       icon: Mail,
       href: '/admin/email',
-      roles: [UserRole.ADMIN],
+      roles: [] as UserRole[],
+      visible: () => canAccessEmailSettings(activeRoleArr),
     },
     {
       name: 'Lead Mailbox',
       icon: Mail,
       href: '/admin/lead-mailbox',
-      roles: [UserRole.ADMIN],
+      roles: [] as UserRole[],
+      visible: () => canAccessLeadMailbox(activeRoleArr),
     },
     {
       name: 'Lead Distribution',
       icon: Megaphone,
       href: '/admin/leads',
-      roles: [UserRole.ADMIN],
+      roles: [] as UserRole[],
+      visible: () => canAccessLeadDistribution(activeRoleArr),
     },
     {
       name: 'Lender Mgmt',
       icon: Building2,
       href: '/admin/lenders',
-      roles: [UserRole.ADMIN],
+      roles: [] as UserRole[],
+      visible: () => canAccessLenderManagement(activeRoleArr),
     },
     {
       name: 'Resources',
       icon: HelpCircle,
       href: '/resources',
-      roles: ['all'],
+      roles: ['all'] as const,
     },
   ];
 
+  type NavItem = (typeof navItems)[number];
+  const isVisible = (item: NavItem) => {
+    if ((item.roles as readonly string[]).includes('all')) return true;
+    if (activeRole && (item.roles as UserRole[]).includes(activeRole)) return true;
+    const v = (item as { visible?: () => boolean }).visible;
+    return v ? v() : false;
+  };
+
+  const MANAGEMENT_NAMES = ['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'];
   const mainNavItems = navItems.filter(
     (item) =>
-      (item.roles.includes('all') || item.roles.includes(activeRole)) &&
+      isVisible(item) &&
       (item.name !== 'Lenders' || canSeeLendersDirectory) &&
       (item.name !== 'Leads' || canSeeLeadsTab) &&
-      !['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'].includes(
-        item.name
-      )
+      !MANAGEMENT_NAMES.includes(item.name)
   );
 
   // Keep Tasks visible for LO/LOA even under role switching edge cases
@@ -172,11 +202,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   }
 
   const adminNavItems = navItems.filter(
-    (item) =>
-      (item.roles.includes('all') || item.roles.includes(activeRole)) &&
-      ['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'].includes(
-        item.name
-      )
+    (item) => isVisible(item) && MANAGEMENT_NAMES.includes(item.name)
   );
 
   const linkClasses = (isActive: boolean) =>

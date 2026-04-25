@@ -8,6 +8,7 @@ import { TasksRouteSyncGate } from '@/components/tasks/TasksRouteSyncGate';
 import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
 import { buildLoVaBorrowerProgress } from '@/lib/loVaProgress';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
+import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 import {
   DisclosureDecisionReason,
   TaskAttachmentPurpose,
@@ -196,7 +197,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   // For LOs, we want to see tasks for loans they own OR tasks assigned to them
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const isLoanOfficerAssistant = role === UserRole.LOA;
-  const isAdminOrManager = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const isAdminOrManager = isAdmin(role) || role === UserRole.MANAGER;
   const isGenericVa = role === UserRole.VA;
   
   const where: Prisma.TaskWhereInput = isAdminOrManager ? {} : {};
@@ -1160,7 +1161,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   ) || 'all';
   const allTasks = await getTasks(sessionRole, sessionUser.id);
   const jrAssigneeOptions =
-    sessionRole === UserRole.ADMIN ||
+    isAdmin(sessionRole) ||
     sessionRole === UserRole.MANAGER ||
     sessionRole === UserRole.PROCESSOR_JR
       ? await prisma.user.findMany({
@@ -1197,13 +1198,16 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const managerLoVaProgressItems =
     sessionRole === UserRole.MANAGER ? buildLoVaBorrowerProgress(allTasks) : [];
   const isDualDeskMode = Boolean(dualDeskRows);
-  const canDelete = sessionRole === UserRole.ADMIN;
+  const canDelete = isAdminIII(sessionRole);
   const roleTaskSubtitle: Record<string, string> = {
     [UserRole.LOAN_OFFICER]:
       'Manage submitted requests, complete LO actions, and track returns sent back to Disclosure.',
     [UserRole.LOA]:
       'Submit requests and monitor all loan officer workflows across Disclosure, QC, VA, and JR desks.',
-    [UserRole.ADMIN]: 'Manage and clean up tasks across all teams.',
+    ADMIN: 'Manage and clean up tasks across all teams.',
+    ADMIN_I: 'Manage and clean up tasks across all teams.',
+    ADMIN_II: 'Manage and clean up tasks across all teams.',
+    ADMIN_III: 'Manage and clean up tasks across all teams.',
     [UserRole.MANAGER]:
       'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
     [UserRole.DISCLOSURE_SPECIALIST]: 'Work disclosure tasks by due date and status.',

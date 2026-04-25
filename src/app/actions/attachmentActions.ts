@@ -18,6 +18,7 @@ import {
 } from '@/lib/supabaseAdmin';
 import { randomUUID } from 'crypto';
 import { canLoanOfficerViewLoan } from '@/lib/loanOfficerVisibility';
+import { isAdmin } from '@/lib/adminTiers';
 
 function sanitizeFilename(filename: string) {
   const trimmed = filename.trim();
@@ -26,7 +27,7 @@ function sanitizeFilename(filename: string) {
 }
 
 function canBypassDeskStartLock(role: UserRole) {
-  return role === UserRole.ADMIN || role === UserRole.MANAGER;
+  return isAdmin(role) || role === UserRole.MANAGER;
 }
 
 function isStartLockedDeskAttachmentTask(task: {
@@ -74,7 +75,7 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
 
   if (!task) return { ok: false as const, error: 'Task not found.' };
 
-  const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+  const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
   const isAssignedToUser = task.assignedUserId === userId;
   const isAssignedToRole =
     task.assignedRole === role ||
@@ -243,7 +244,7 @@ export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
     if (!attachment) return { success: false, error: 'Attachment not found.' };
 
     const canManageAll =
-      role === UserRole.ADMIN || role === UserRole.MANAGER || role === UserRole.LOA;
+      isAdmin(role) || role === UserRole.MANAGER || role === UserRole.LOA;
     const isAssignedToUser = attachment.task.assignedUserId === userId;
     const isAssignedToRole = attachment.task.assignedRole === role;
     const isLoanOwner =
@@ -321,7 +322,7 @@ export async function deleteTaskAttachment(attachmentId: string) {
 
     if (!attachment) return { success: false, error: 'Attachment not found.' };
 
-    const canManageAll = role === UserRole.ADMIN || role === UserRole.MANAGER;
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const isDisclosureUser = role === UserRole.DISCLOSURE_SPECIALIST;
     const isVaUser =
       role === UserRole.VA ||

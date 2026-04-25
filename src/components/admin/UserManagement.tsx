@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation';
 import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Mail } from 'lucide-react';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
 import { FormatDate } from '@/components/ui/FormatDate';
+import { canAssignRole, canManageUser, getAdminTier } from '@/lib/adminTiers';
 
 type UserRow = {
   id: string;
@@ -43,12 +44,38 @@ type UserManagementProps = {
   }>;
   inviteEmails: string[];
   currentUserId: string;
+  actorRoles: UserRole[];
+  assignableRoles: UserRole[];
 };
 
-const roleOptions = Object.values(UserRole);
+// The legacy UserRole.ADMIN value is intentionally hidden from every picker:
+// it exists only for enum stability and is backfilled to ADMIN_III at the DB
+// layer. All role filters below are role-tier aware.
+const ALL_ROLE_OPTIONS: UserRole[] = Object.values(UserRole).filter((r) => r !== UserRole.ADMIN);
 
-export function UserManagement({ users, invites, inviteEmails, currentUserId }: UserManagementProps) {
+export function UserManagement({
+  users,
+  invites,
+  inviteEmails,
+  currentUserId,
+  actorRoles,
+  assignableRoles,
+}: UserManagementProps) {
   const router = useRouter();
+  const assignableSet = useMemo(() => new Set(assignableRoles), [assignableRoles]);
+  // Create/Invite dropdowns are limited to roles this actor can actually
+  // assign. If they lack any assignable admin roles we still want to show
+  // non-admin roles in order.
+  const creatableRoles = useMemo(
+    () => ALL_ROLE_OPTIONS.filter((r) => assignableSet.has(r)),
+    [assignableSet],
+  );
+  // Filter dropdown can still show every role — it's a search tool, not a
+  // mutation surface.
+  const filterRoles = ALL_ROLE_OPTIONS;
+  const defaultCreatableRole = creatableRoles.includes(UserRole.LOAN_OFFICER)
+    ? UserRole.LOAN_OFFICER
+    : (creatableRoles[0] ?? UserRole.LOAN_OFFICER);
   const [search, setSearch] = useState('');
   const [selectedRoleFilters, setSelectedRoleFilters] = useState<UserRole[]>([]);
   const [createStatus, setCreateStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -65,7 +92,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
   }>({
     name: '',
     email: '',
-    roles: [UserRole.LOAN_OFFICER],
+    roles: [defaultCreatableRole],
     password: '',
   });
   const [inviteState, setInviteState] = useState<{
@@ -75,7 +102,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
   }>({
     name: '',
     email: '',
-    role: UserRole.LOAN_OFFICER,
+    role: defaultCreatableRole,
   });
 
   const filteredUsers = useMemo(() => {
@@ -124,7 +151,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
       setFormState({
         name: '',
         email: '',
-        roles: [UserRole.LOAN_OFFICER],
+        roles: [defaultCreatableRole],
         password: '',
       });
       setCreateStatus({ type: 'success', message: 'User created successfully.' });
@@ -153,7 +180,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
         setInviteStatus({ type: 'error', message: result.error || 'Failed to send invite.' });
         return;
       }
-      setInviteState({ name: '', email: '', role: UserRole.LOAN_OFFICER });
+      setInviteState({ name: '', email: '', role: defaultCreatableRole });
       setInviteStatus({ type: 'success', message: 'Invite sent successfully.' });
       router.refresh();
     } catch (error) {
@@ -364,7 +391,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                     Roles
                   </p>
                   <div className="max-h-36 overflow-y-auto space-y-1.5">
-                    {roleOptions.map((role) => (
+                    {creatableRoles.map((role) => (
                       <label key={role} className="flex items-center gap-2 text-xs text-slate-700">
                         <input
                           type="checkbox"
@@ -379,6 +406,11 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                         {getRoleDisplayLabel(role)}
                       </label>
                     ))}
+                    {creatableRoles.length === 0 && (
+                      <p className="text-[11px] text-slate-500">
+                        No roles available. Ask a higher-tier admin to provision.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <input
@@ -432,8 +464,9 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                     setInviteState({ ...inviteState, role: event.target.value as UserRole })
                   }
                   className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+                  disabled={creatableRoles.length === 0}
                 >
-                  {roleOptions.map((role) => (
+                  {creatableRoles.map((role) => (
                     <option key={role} value={role}>
                       {getRoleDisplayLabel(role)}
                     </option>
@@ -492,7 +525,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
               </button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {roleOptions.map((role) => {
+              {filterRoles.map((role) => {
                 const active = selectedRoleFilters.includes(role);
                 return (
                   <button
@@ -541,12 +574,44 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                   <tbody className="divide-y divide-slate-200">
                     {filteredUsers.map((user) => {
                       const roleList = user.roles?.length ? user.roles : [user.role];
+                      const targetRoles = Array.from(new Set([user.role, ...roleList]));
+                      const manageable = canManageUser(actorRoles, targetRoles);
+                      const isSelf = user.id === currentUserId;
+                      const tierBadge = (() => {
+                        const tier = getAdminTier(user.role);
+                        if (!tier) return null;
+                        const tone =
+                          tier === 3
+                            ? 'border-indigo-700 bg-indigo-700 text-white'
+                            : tier === 2
+                              ? 'border-indigo-500 bg-indigo-500 text-white'
+                              : 'border-indigo-300 bg-indigo-100 text-indigo-800';
+                        return (
+                          <span
+                            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tone}`}
+                          >
+                            Admin {tier === 1 ? 'I' : tier === 2 ? 'II' : 'III'}
+                          </span>
+                        );
+                      })();
+                      const rowRoleOptions = Array.from(
+                        new Set([
+                          ...roleList,
+                          ...ALL_ROLE_OPTIONS.filter((r) => assignableSet.has(r)),
+                        ]),
+                      ).sort(
+                        (a, b) => ALL_ROLE_OPTIONS.indexOf(a) - ALL_ROLE_OPTIONS.indexOf(b),
+                      );
+                      const disabledTitle = manageable
+                        ? undefined
+                        : "You can't manage users at or above your admin tier.";
                       return (
                         <tr key={user.id} className="align-top hover:bg-slate-50/70">
                           <td className="px-4 py-3.5">
                             <p className="text-sm font-semibold text-slate-900">{user.name}</p>
                             <p className="mt-0.5 text-xs text-slate-500">{user.email}</p>
                             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              {tierBadge}
                               {inviteEmails.includes(user.email.toLowerCase()) && (
                                 <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
                                   Invite Pending
@@ -559,16 +624,22 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                           </td>
                           <td className="px-4 py-3.5">
                             <div className="grid grid-cols-2 xl:grid-cols-3 gap-x-3 gap-y-1.5">
-                              {roleOptions.map((role) => {
+                              {rowRoleOptions.map((role) => {
                                 const checked = roleList.includes(role);
+                                const roleDisabled =
+                                  !manageable || !canAssignRole(actorRoles, role);
                                 return (
                                   <label
                                     key={`${user.id}-${role}`}
-                                    className="inline-flex items-center gap-1.5 text-[11px] text-slate-700"
+                                    className={`inline-flex items-center gap-1.5 text-[11px] ${
+                                      roleDisabled ? 'text-slate-400' : 'text-slate-700'
+                                    }`}
+                                    title={roleDisabled ? disabledTitle : undefined}
                                   >
                                     <input
                                       type="checkbox"
                                       checked={checked}
+                                      disabled={roleDisabled}
                                       onChange={() =>
                                         handleRoleChange(user.id, toggleRoleInList(roleList, role))
                                       }
@@ -585,6 +656,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                                 <input
                                   type="checkbox"
                                   checked={user.loDisclosureSubmissionEnabled}
+                                  disabled={!manageable}
                                   onChange={(event) =>
                                     handleDeskPermissionsChange(user.id, {
                                       loDisclosureSubmissionEnabled: event.target.checked,
@@ -598,6 +670,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                                 <input
                                   type="checkbox"
                                   checked={user.loQcSubmissionEnabled}
+                                  disabled={!manageable}
                                   onChange={(event) =>
                                     handleDeskPermissionsChange(user.id, {
                                       loDisclosureSubmissionEnabled:
@@ -614,10 +687,14 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                             </div>
                           </td>
                           <td className="px-4 py-3.5">
-                            <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+                            <label
+                              className="inline-flex items-center gap-2 text-xs text-slate-600"
+                              title={!manageable ? disabledTitle : undefined}
+                            >
                               <input
                                 type="checkbox"
                                 checked={user.active}
+                                disabled={!manageable || isSelf}
                                 onChange={(event) => handleStatusChange(user.id, event.target.checked)}
                               />
                               Active
@@ -627,25 +704,33 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                             <div className="flex flex-wrap gap-1.5">
                               <button
                                 onClick={() => handleEditUserName(user.id, user.name)}
-                                className="app-btn-secondary h-8 px-2.5 text-xs"
+                                disabled={!manageable && !isSelf}
+                                title={!manageable && !isSelf ? disabledTitle : undefined}
+                                className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 Edit
                               </button>
                               <button
                                 onClick={() => handleResetPassword(user.id)}
-                                className="app-btn-secondary h-8 px-2.5 text-xs"
+                                disabled={!manageable}
+                                title={!manageable ? disabledTitle : undefined}
+                                className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 Reset Password
                               </button>
                               <button
                                 onClick={() => handleSendResetEmail(user.email)}
-                                className="app-btn-secondary h-8 px-2.5 text-xs"
+                                disabled={!manageable}
+                                title={!manageable ? disabledTitle : undefined}
+                                className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 Send Reset Link
                               </button>
                               <button
                                 onClick={() => handleDeleteUser(user.id)}
-                                className="app-btn-danger h-8 px-2.5 text-xs"
+                                disabled={!manageable || isSelf}
+                                title={!manageable || isSelf ? disabledTitle : undefined}
+                                className="app-btn-danger h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 Delete Account
                               </button>
@@ -661,17 +746,46 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
               <div className="lg:hidden mt-3 space-y-2.5">
                 {filteredUsers.map((user) => {
                   const roleList = user.roles?.length ? user.roles : [user.role];
+                  const targetRoles = Array.from(new Set([user.role, ...roleList]));
+                  const manageable = canManageUser(actorRoles, targetRoles);
+                  const isSelf = user.id === currentUserId;
+                  const disabledTitle = manageable
+                    ? undefined
+                    : "You can't manage users at or above your admin tier.";
+                  const adminTier = getAdminTier(user.role);
+                  const rowRoleOptions = Array.from(
+                    new Set([
+                      ...roleList,
+                      ...ALL_ROLE_OPTIONS.filter((r) => assignableSet.has(r)),
+                    ]),
+                  ).sort(
+                    (a, b) => ALL_ROLE_OPTIONS.indexOf(a) - ALL_ROLE_OPTIONS.indexOf(b),
+                  );
                   return (
                     <div key={user.id} className="rounded-xl border border-slate-200 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-slate-900 truncate">{user.name}</p>
                           <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                          {adminTier && (
+                            <span
+                              className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                adminTier === 3
+                                  ? 'border-indigo-700 bg-indigo-700 text-white'
+                                  : adminTier === 2
+                                    ? 'border-indigo-500 bg-indigo-500 text-white'
+                                    : 'border-indigo-300 bg-indigo-100 text-indigo-800'
+                              }`}
+                            >
+                              Admin {adminTier === 1 ? 'I' : adminTier === 2 ? 'II' : 'III'}
+                            </span>
+                          )}
                         </div>
                         <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 shrink-0">
                           <input
                             type="checkbox"
                             checked={user.active}
+                            disabled={!manageable || isSelf}
                             onChange={(event) => handleStatusChange(user.id, event.target.checked)}
                           />
                           Active
@@ -679,16 +793,22 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                       </div>
 
                       <div className="mt-2.5 grid grid-cols-2 gap-x-2.5 gap-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                        {roleOptions.map((role) => {
+                        {rowRoleOptions.map((role) => {
                           const checked = roleList.includes(role);
+                          const roleDisabled =
+                            !manageable || !canAssignRole(actorRoles, role);
                           return (
                             <label
                               key={`${user.id}-mobile-${role}`}
-                              className="inline-flex items-center gap-1.5 text-[11px] text-slate-700"
+                              className={`inline-flex items-center gap-1.5 text-[11px] ${
+                                roleDisabled ? 'text-slate-400' : 'text-slate-700'
+                              }`}
+                              title={roleDisabled ? disabledTitle : undefined}
                             >
                               <input
                                 type="checkbox"
                                 checked={checked}
+                                disabled={roleDisabled}
                                 onChange={() =>
                                   handleRoleChange(user.id, toggleRoleInList(roleList, role))
                                 }
@@ -708,6 +828,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                             <input
                               type="checkbox"
                               checked={user.loDisclosureSubmissionEnabled}
+                              disabled={!manageable}
                               onChange={(event) =>
                                 handleDeskPermissionsChange(user.id, {
                                   loDisclosureSubmissionEnabled: event.target.checked,
@@ -721,6 +842,7 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                             <input
                               type="checkbox"
                               checked={user.loQcSubmissionEnabled}
+                              disabled={!manageable}
                               onChange={(event) =>
                                 handleDeskPermissionsChange(user.id, {
                                   loDisclosureSubmissionEnabled:
@@ -751,25 +873,33 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
                       <div className="mt-2.5 flex flex-wrap gap-1.5">
                         <button
                           onClick={() => handleEditUserName(user.id, user.name)}
-                          className="app-btn-secondary h-8 px-2.5 text-xs"
+                          disabled={!manageable && !isSelf}
+                          title={!manageable && !isSelf ? disabledTitle : undefined}
+                          className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => handleResetPassword(user.id)}
-                          className="app-btn-secondary h-8 px-2.5 text-xs"
+                          disabled={!manageable}
+                          title={!manageable ? disabledTitle : undefined}
+                          className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Reset Password
                         </button>
                         <button
                           onClick={() => handleSendResetEmail(user.email)}
-                          className="app-btn-secondary h-8 px-2.5 text-xs"
+                          disabled={!manageable}
+                          title={!manageable ? disabledTitle : undefined}
+                          className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Send Reset Link
                         </button>
                         <button
                           onClick={() => handleDeleteUser(user.id)}
-                          className="app-btn-danger h-8 px-2.5 text-xs"
+                          disabled={!manageable || isSelf}
+                          title={!manageable || isSelf ? disabledTitle : undefined}
+                          className="app-btn-danger h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Delete Account
                         </button>
@@ -791,37 +921,47 @@ export function UserManagement({ users, invites, inviteEmails, currentUserId }: 
           {invites.length === 0 && (
             <p className="text-sm text-slate-500">No pending invites.</p>
           )}
-          {invites.map((invite) => (
-            <div
-              key={invite.id}
-              className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border border-slate-200 rounded-lg px-4 py-2"
-            >
-              <div>
-                <p className="text-sm font-medium text-slate-900">{invite.email}</p>
-                <p className="text-xs text-slate-500">
-                  {getRoleDisplayLabel(invite.role)} • Expires{' '}
-                  <FormatDate date={invite.expiresAt} />
-                </p>
+          {invites.map((invite) => {
+            const inviteManageable = canAssignRole(actorRoles, invite.role);
+            const inviteDisabledTitle = inviteManageable
+              ? undefined
+              : "You can't manage invites for roles above your admin tier.";
+            return (
+              <div
+                key={invite.id}
+                className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border border-slate-200 rounded-lg px-4 py-2"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-900">{invite.email}</p>
+                  <p className="text-xs text-slate-500">
+                    {getRoleDisplayLabel(invite.role)} • Expires{' '}
+                    <FormatDate date={invite.expiresAt} />
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  <span className="text-slate-400">
+                    Sent <FormatDate date={invite.createdAt} />
+                  </span>
+                  <button
+                    onClick={() => handleResendInvite(invite.id)}
+                    disabled={!inviteManageable}
+                    title={inviteDisabledTitle}
+                    className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Resend
+                  </button>
+                  <button
+                    onClick={() => handleDeleteInvite(invite.id)}
+                    disabled={!inviteManageable}
+                    title={inviteDisabledTitle}
+                    className="app-btn-danger h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs">
-                <span className="text-slate-400">
-                  Sent <FormatDate date={invite.createdAt} />
-                </span>
-                <button
-                  onClick={() => handleResendInvite(invite.id)}
-                  className="app-btn-secondary h-8 px-2.5 text-xs"
-                >
-                  Resend
-                </button>
-                <button
-                  onClick={() => handleDeleteInvite(invite.id)}
-                  className="app-btn-danger h-8 px-2.5 text-xs"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
