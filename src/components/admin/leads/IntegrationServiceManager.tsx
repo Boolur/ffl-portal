@@ -573,6 +573,62 @@ function ServiceBuilderModal({
         if (!prev.headersTemplate) {
           next.headersTemplate = 'User-Agent: FFL-Portal/1.0 (+lead-distribution)';
         }
+        if (!prev.bodyTemplate) {
+          // Mirror of src/lib/bonzoForward.ts > buildBonzoPayload so manual
+          // pushes and the auto-on-assign forwarder send the same body.
+          // Keep these keys in sync with Bonzo's "Create Prospect" schema.
+          next.bodyTemplate = [
+            '{',
+            '  "lead_id": "{{lead.id}}",',
+            '  "lead_source": "{{campaign.name}}",',
+            '  "application_date": "{{now.date}}",',
+            '  "1_Status": "{{lead.status}}",',
+            '  "first_name": "{{lead.firstName}}",',
+            '  "last_name": "{{lead.lastName}}",',
+            '  "email": "{{lead.email}}",',
+            '  "phone": "{{lead.phone}}",',
+            '  "work_phone": "{{lead.workPhone}}",',
+            '  "birthday": "{{lead.dob}}",',
+            '  "ssn": "{{lead.ssn}}",',
+            '  "address": "{{lead.mailingAddress}}",',
+            '  "city": "{{lead.mailingCity}}",',
+            '  "state": "{{lead.mailingState}}",',
+            '  "zip": "{{lead.mailingZip}}",',
+            '  "property_address": "{{lead.propertyAddress}}",',
+            '  "property_city": "{{lead.propertyCity}}",',
+            '  "property_state": "{{lead.propertyState}}",',
+            '  "property_zip": "{{lead.propertyZip}}",',
+            '  "property_county": "{{lead.propertyCounty}}",',
+            '  "property_type": "{{lead.propertyType}}",',
+            '  "property_use": "{{lead.propertyUse}}",',
+            '  "property_value": "{{lead.propertyValue}}",',
+            '  "purchase_price": "{{lead.purchasePrice}}",',
+            '  "loan_purpose": "{{lead.loanPurpose}}",',
+            '  "loan_amount": "{{lead.loanAmount}}",',
+            '  "loan_type": "{{lead.loanType}}",',
+            '  "loan_program": "{{lead.loanTerm}}",',
+            '  "loan_balance": "{{lead.currentBalance}}",',
+            '  "interest_rate": "{{lead.currentRate}}",',
+            '  "down_payment": "{{lead.downPayment}}",',
+            '  "cash_out_amount": "{{lead.cashOut}}",',
+            '  "credit_score": "{{lead.creditRating}}",',
+            '  "bankruptcy_details": "{{lead.bankruptcy}}",',
+            '  "foreclosure_details": "{{lead.foreclosure}}",',
+            '  "custom_ismilitary": "{{lead.isMilitary}}",',
+            '  "custom_veteran": "{{lead.vaStatus}}",',
+            '  "prospect_company": "{{lead.employer}}",',
+            '  "company_name": "{{lead.employer}}",',
+            '  "occupation": "{{lead.jobTitle}}",',
+            '  "income": "{{lead.income}}",',
+            '  "household_income": "{{lead.income}}",',
+            '  "co_first_name": "{{lead.coFirstName}}",',
+            '  "co_last_name": "{{lead.coLastName}}",',
+            '  "co_email": "{{lead.coEmail}}",',
+            '  "co_phone": "{{lead.coPhone}}",',
+            '  "co_birthday": "{{lead.coDob}}"',
+            '}',
+          ].join('\n');
+        }
         if (prev.credentialFields.length === 0) {
           next.credentialFields = [
             {

@@ -23,6 +23,7 @@ import {
 
 import { prisma } from '@/lib/prisma';
 import { sendEmail } from '@/lib/email';
+import { buildBonzoPayload } from '@/lib/bonzoForward';
 import { render, renderString, type TemplateContext } from './template';
 
 // ---------------------------------------------------------------------------
@@ -218,10 +219,40 @@ export async function dispatchServiceToLead(
   const renderedHeaders = parseHeaderTemplate(
     renderString(service.headersTemplate, ctx)
   );
-  const renderedBody =
+  let renderedBody =
     service.method === IntegrationServiceMethod.GET
       ? null
       : renderString(service.bodyTemplate, ctx);
+
+  // Bonzo safety net: the "Bonzo" preset has always shipped with an empty
+  // bodyTemplate by default, which meant services created before the full
+  // merge-field template landed (or where the admin simply never pasted a
+  // body) would POST {} and Bonzo would reject with `first_name is
+  // required`. If we detect an empty body on a bonzo-preset POST, fall
+  // back to the canonical payload built by buildBonzoPayload — the exact
+  // same mapping the assignment-time Bonzo forwarder uses, so admin +
+  // manual pushes stay consistent.
+  if (
+    service.method !== IntegrationServiceMethod.GET &&
+    (service.type === 'bonzo' || service.slug === 'bonzo') &&
+    (!renderedBody || !renderedBody.trim())
+  ) {
+    renderedBody = JSON.stringify(
+      buildBonzoPayload({
+        ...lead,
+        vendor: { name: lead.vendor.name, slug: lead.vendor.slug },
+        campaign: lead.campaign
+          ? { name: lead.campaign.name, routingTag: lead.campaign.routingTag }
+          : null,
+        assignedUser: lead.assignedUser
+          ? {
+              name: lead.assignedUser.name ?? '',
+              email: lead.assignedUser.email ?? '',
+            }
+          : null,
+      })
+    );
+  }
 
   // 7. OAuth token fetch if the service requires it.
   if (service.requiresOAuth) {
