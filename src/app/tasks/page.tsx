@@ -1180,23 +1180,28 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         })
       : [];
   const roleBuckets = getRoleBuckets(sessionRole, allTasks);
+  // Admins (all tiers) share the Manager Tasks experience: dual Disclosure+QC
+  // desks, the four VA/JR desks, and the LO VA progress list. Anything that
+  // used to check "sessionRole === MANAGER" now also runs for admins.
+  const isManagerLike = sessionRole === UserRole.MANAGER || isAdmin(sessionRole);
   const dualDeskRows = sessionRole === UserRole.LOAN_OFFICER
     ? getLoPilotRows(allTasks)
     : sessionRole === UserRole.LOA
     ? getLoPilotRows(allTasks)
-    : sessionRole === UserRole.MANAGER
+    : isManagerLike
     ? getManagerDeskRows(allTasks)
     : null;
   const managerVaRows =
-    sessionRole === UserRole.MANAGER || sessionRole === UserRole.VA
+    isManagerLike || sessionRole === UserRole.VA
       ? getManagerVaDeskRows(allTasks)
       : null;
   const showLoVaPilot = sessionRole === UserRole.LOAN_OFFICER;
   const loVaProgressItems = showLoVaPilot ? buildLoVaBorrowerProgress(allTasks) : [];
   const loaVaProgressItems =
     sessionRole === UserRole.LOA ? buildLoVaBorrowerProgress(allTasks) : [];
-  const managerLoVaProgressItems =
-    sessionRole === UserRole.MANAGER ? buildLoVaBorrowerProgress(allTasks) : [];
+  const managerLoVaProgressItems = isManagerLike
+    ? buildLoVaBorrowerProgress(allTasks)
+    : [];
   const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete = isAdminIII(sessionRole);
   const roleTaskSubtitle: Record<string, string> = {
@@ -1204,10 +1209,12 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       'Manage submitted requests, complete LO actions, and track returns sent back to Disclosure.',
     [UserRole.LOA]:
       'Submit requests and monitor all loan officer workflows across Disclosure, QC, VA, and JR desks.',
-    ADMIN: 'Manage and clean up tasks across all teams.',
-    ADMIN_I: 'Manage and clean up tasks across all teams.',
-    ADMIN_II: 'Manage and clean up tasks across all teams.',
-    ADMIN_III: 'Manage and clean up tasks across all teams.',
+    // Admins (all tiers) mirror the Manager copy so the Tasks surface reads
+    // the same for every leadership role.
+    ADMIN: 'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
+    ADMIN_I: 'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
+    ADMIN_II: 'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
+    ADMIN_III: 'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
     [UserRole.MANAGER]:
       'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
     [UserRole.DISCLOSURE_SPECIALIST]: 'Work disclosure tasks by due date and status.',
@@ -1286,7 +1293,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           {sessionRole === UserRole.LOA && (
             <LoVaBorrowerProgressList items={loaVaProgressItems} currentRole={sessionRole} />
           )}
-          {sessionRole === UserRole.MANAGER && managerVaRows && (
+          {isManagerLike && managerVaRows && (
             <>
               <TaskDeskSection
                 title="Appraisal Requests"

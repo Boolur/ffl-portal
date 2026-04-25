@@ -7,7 +7,6 @@ import { DisclosureOverview } from '@/components/dashboard/DisclosureOverview';
 import { QcOverview } from '@/components/dashboard/QcOverview';
 import { VaOverview } from '@/components/dashboard/VaOverview';
 import type { VaRole } from '@/components/dashboard/VaOverview';
-import { DepartmentBoard } from '@/components/admin/DepartmentBoard';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useImpersonation } from '@/lib/impersonation';
 import { isAdmin } from '@/lib/adminTiers';
@@ -116,21 +115,23 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
       title: 'LO Assistant Overview',
       subtitle: 'Submit requests and monitor pipeline activity across all loan officers.',
     },
+    // Admins (all tiers) share the Manager overview verbatim so the Overview
+    // screen is one consistent experience for every leadership role.
     [UserRole.ADMIN]: {
-      title: 'Operations Overview',
-      subtitle: 'Monitor teams, queues, and bottlenecks across the organization.',
+      title: 'Desk Overview',
+      subtitle: 'Monitor both Disclosure and QC queues in one view.',
     },
     [UserRole.ADMIN_I]: {
-      title: 'Operations Overview',
-      subtitle: 'Monitor teams, queues, and bottlenecks across the organization.',
+      title: 'Desk Overview',
+      subtitle: 'Monitor both Disclosure and QC queues in one view.',
     },
     [UserRole.ADMIN_II]: {
-      title: 'Operations Overview',
-      subtitle: 'Monitor teams, queues, and bottlenecks across the organization.',
+      title: 'Desk Overview',
+      subtitle: 'Monitor both Disclosure and QC queues in one view.',
     },
     [UserRole.ADMIN_III]: {
-      title: 'Operations Overview',
-      subtitle: 'Monitor teams, queues, and bottlenecks across the organization.',
+      title: 'Desk Overview',
+      subtitle: 'Monitor both Disclosure and QC queues in one view.',
     },
     [UserRole.MANAGER]: {
       title: 'Desk Overview',
@@ -198,12 +199,8 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
           qcEnabled={user.loQcSubmissionEnabled ?? true}
         />
       )}
-      
-      {isAdmin(activeRole) && (
-        <DepartmentBoard tasks={adminTasks} />
-      )}
 
-      {activeRole === UserRole.MANAGER && (
+      {(activeRole === UserRole.MANAGER || isAdmin(activeRole)) && (
         <div className="space-y-8">
           <section className="space-y-4">
             <div className="app-page-header">
