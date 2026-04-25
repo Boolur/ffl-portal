@@ -255,18 +255,22 @@ const CAMPAIGN_COLUMNS: Array<{
   sortable: boolean;
   title?: string;
 }> = [
-  { id: 'status', label: 'Status', defaultWidth: 100, minWidth: 80, align: 'left', sortable: true },
-  { id: 'name', label: 'Campaign', defaultWidth: 200, minWidth: 140, align: 'left', sortable: true },
+  // Widths are sized so the uppercase bold label + sort chevron (14px) +
+  // padding (32px) actually fit on a default render. Columns with longer
+  // header text like "TOTAL QUOTAS" and "AVG / 5 BD" need meaningfully
+  // more room than their short numeric bodies suggest.
+  { id: 'status', label: 'Status', defaultWidth: 110, minWidth: 90, align: 'left', sortable: true },
+  { id: 'name', label: 'Campaign', defaultWidth: 220, minWidth: 150, align: 'left', sortable: true },
   { id: 'vendor', label: 'Vendor', defaultWidth: 140, minWidth: 100, align: 'left', sortable: true },
-  { id: 'group', label: 'Group', defaultWidth: 140, minWidth: 100, align: 'left', sortable: true },
-  { id: 'tag', label: 'Routing Tag', defaultWidth: 160, minWidth: 110, align: 'left', sortable: true },
-  { id: 'members', label: 'Members', defaultWidth: 100, minWidth: 80, align: 'center', sortable: true },
-  { id: 'leads', label: 'Leads', defaultWidth: 90, minWidth: 70, align: 'center', sortable: true },
+  { id: 'group', label: 'Group', defaultWidth: 150, minWidth: 110, align: 'left', sortable: true },
+  { id: 'tag', label: 'Routing Tag', defaultWidth: 160, minWidth: 120, align: 'left', sortable: true },
+  { id: 'members', label: 'Members', defaultWidth: 130, minWidth: 110, align: 'center', sortable: true },
+  { id: 'leads', label: 'Leads', defaultWidth: 110, minWidth: 90, align: 'center', sortable: true },
   {
     id: 'quota',
     label: 'Total Quotas',
-    defaultWidth: 120,
-    minWidth: 90,
+    defaultWidth: 150,
+    minWidth: 120,
     align: 'center',
     sortable: true,
     title: 'Sum of per-LO daily caps across everyone assigned to this campaign.',
@@ -274,19 +278,27 @@ const CAMPAIGN_COLUMNS: Array<{
   {
     id: 'avg5bd',
     label: 'Avg / 5 BD',
-    defaultWidth: 110,
-    minWidth: 80,
+    defaultWidth: 140,
+    minWidth: 110,
     align: 'center',
     sortable: true,
     title: 'Average daily leads over the last 5 business days.',
   },
-  { id: 'created', label: 'Created', defaultWidth: 160, minWidth: 120, align: 'left', sortable: true },
-  { id: 'modified', label: 'Modified', defaultWidth: 160, minWidth: 120, align: 'left', sortable: true },
+  { id: 'created', label: 'Created', defaultWidth: 170, minWidth: 130, align: 'left', sortable: true },
+  { id: 'modified', label: 'Modified', defaultWidth: 170, minWidth: 130, align: 'left', sortable: true },
 ];
 
-const CAMPAIGN_COLUMN_WIDTHS_KEY = 'ffl:lead-campaigns-column-widths:v1';
-const CAMPAIGN_COLUMN_ORDER_KEY = 'ffl:lead-campaigns-column-order:v1';
+// Bump the storage key version so the previous v1 layout (with too-narrow
+// defaults that truncated "MEMBERS"/"TOTAL QUOTAS"/etc. headers) is
+// discarded and every admin lands on the new sane defaults on next load.
+const CAMPAIGN_COLUMN_WIDTHS_KEY = 'ffl:lead-campaigns-column-widths:v2';
+const CAMPAIGN_COLUMN_ORDER_KEY = 'ffl:lead-campaigns-column-order:v2';
 const CAMPAIGN_DEFAULT_ORDER: CampaignColumnId[] = CAMPAIGN_COLUMNS.map((c) => c.id);
+
+// Actions is not part of the reorderable/resizable set — it's a pinned
+// sticky column anchored to the right edge of the card. Centralizing the
+// width here keeps the <col>, <th>, and <td> styling in lock-step.
+const ACTIONS_COLUMN_WIDTH = 160;
 
 function getCampaignColumnSortValue(c: Campaign, id: CampaignSortKey): string | number {
   switch (id) {
@@ -484,13 +496,14 @@ export function CampaignManager({
     resetOrder();
   }, [resetWidths, resetOrder]);
 
-  // Sum of visible column widths + the fixed 140px Actions column.
+  // Sum of visible column widths + the fixed Actions column width.
   // Acts as a floor for the horizontal scroll container so narrow
   // viewports scroll and wide viewports still let each column keep
   // its stored width.
   const tableMinWidth = useMemo(
     () =>
-      orderedColumns.reduce((sum, c) => sum + (columnWidths[c.id] ?? c.defaultWidth), 0) + 140,
+      orderedColumns.reduce((sum, c) => sum + (columnWidths[c.id] ?? c.defaultWidth), 0) +
+      ACTIONS_COLUMN_WIDTH,
     [orderedColumns, columnWidths]
   );
 
@@ -878,8 +891,15 @@ export function CampaignManager({
               {orderedColumns.map((c) => (
                 <col key={c.id} style={{ width: `${columnWidths[c.id]}px` }} />
               ))}
-              {/* Actions column — fixed 140px, sticky to the right edge */}
-              <col style={{ width: '140px' }} />
+              {/* Actions column — fixed width, sticky to the right edge.
+                  Width is pinned in three places (col + th + td) so the
+                  browser can't redistribute space into this column when
+                  `table-layout: fixed` + `w-full` hands out extra width
+                  across a wide viewport. Without the explicit th/td
+                  style, Chrome can widen the cell and the sticky column
+                  will visually overlap the scrollable content to the
+                  left of it. */}
+              <col style={{ width: `${ACTIONS_COLUMN_WIDTH}px` }} />
             </colgroup>
             <thead className="sticky top-0 z-[1] bg-slate-50">
               <tr className="border-b border-slate-200">
@@ -911,7 +931,8 @@ export function CampaignManager({
                 */}
                 <th
                   scope="col"
-                  className="sticky right-0 z-[2] bg-slate-50 px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap shadow-[inset_1px_0_0_rgb(226,232,240)]"
+                  style={{ width: ACTIONS_COLUMN_WIDTH, minWidth: ACTIONS_COLUMN_WIDTH }}
+                  className="sticky right-0 z-[2] bg-slate-50 px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap shadow-[-4px_0_6px_-3px_rgba(15,23,42,0.08)]"
                 >
                   Actions
                 </th>
@@ -931,7 +952,10 @@ export function CampaignManager({
                     </td>
                   ))}
                   <td
-                    className="sticky right-0 z-[1] bg-white px-4 py-3 text-right whitespace-nowrap shadow-[inset_1px_0_0_rgb(226,232,240)] transition-colors group-hover:bg-slate-50"
+                    style={{ width: ACTIONS_COLUMN_WIDTH, minWidth: ACTIONS_COLUMN_WIDTH }}
+                    className={`sticky right-0 z-[1] px-4 py-3 text-right whitespace-nowrap shadow-[-4px_0_6px_-3px_rgba(15,23,42,0.08)] transition-colors ${
+                      c.active ? 'bg-white' : 'bg-amber-50/30'
+                    } group-hover:bg-slate-50`}
                   >
                     <div className="flex items-center justify-end gap-1">
                       <button className="app-icon-btn" onClick={() => copyWebhookInfo(c)} title="Copy webhook info">
