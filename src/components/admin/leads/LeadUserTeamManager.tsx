@@ -24,7 +24,10 @@ export type LeadUserTeamSummary = {
   id: string;
   name: string;
   description: string | null;
+  // Legacy accent (mirror of colors[0]) kept for existing consumers.
   color: string;
+  // 1-3 palette keys. See CampaignGroupSummary.colors for semantics.
+  colors: string[];
   active: boolean;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -107,6 +110,24 @@ export function teamColorClasses(key: string) {
   return TEAM_COLOR_CLASSES[key] ?? TEAM_COLOR_CLASSES.blue;
 }
 
+// Renders 1-3 small dots for a team's palette. First entry is the accent
+// (matches the chip's active background/border); extras are overlapped so
+// two or three colors still read cleanly at chip scale.
+function renderTeamDots(colors: string[] | undefined, size: 'sm' | 'md' = 'md') {
+  const safe = (colors && colors.length > 0 ? colors : ['blue']).slice(0, 3);
+  const dim = size === 'sm' ? 'h-1.5 w-1.5' : 'h-2 w-2';
+  return (
+    <span className="inline-flex items-center -space-x-0.5 shrink-0">
+      {safe.map((c, i) => (
+        <span
+          key={`${c}-${i}`}
+          className={`inline-block ${dim} rounded-full ring-1 ring-white ${teamColorClasses(c).dot}`}
+        />
+      ))}
+    </span>
+  );
+}
+
 export function LeadUserTeamManager({
   teams,
   users,
@@ -180,7 +201,8 @@ export function LeadUserTeamManager({
         )}
 
         {teams.map((t) => {
-          const cls = teamColorClasses(t.color);
+          const accent = t.colors?.[0] ?? t.color;
+          const cls = teamColorClasses(accent);
           const isActive = filterMode && selectedTeamId === t.id;
           const chipTitle = filterMode
             ? isActive
@@ -197,7 +219,7 @@ export function LeadUserTeamManager({
                 } ${isActive ? `ring-1 ${cls.ring}` : ''}`}
                 title={chipTitle}
               >
-                <span className={`inline-block h-2 w-2 rounded-full ${cls.dot}`} />
+                {renderTeamDots(t.colors ?? [accent])}
                 <span className="truncate max-w-[160px]">{t.name}</span>
                 <span className="text-[10px] font-semibold opacity-70 tabular-nums">
                   {t.memberCount}
@@ -267,7 +289,25 @@ function TeamEditModal({
 }) {
   const [name, setName] = useState(team?.name || '');
   const [description, setDescription] = useState(team?.description || '');
-  const [color, setColor] = useState(team?.color || 'blue');
+  // Multi-select palette (1-3). First entry is the accent used by the
+  // chip's active fill/border; extras render as additional dots. Falls
+  // back to the legacy single `color` for teams created before the
+  // colors array existed.
+  const [colors, setColors] = useState<string[]>(() => {
+    const seed = team?.colors?.length ? team.colors : team?.color ? [team.color] : ['blue'];
+    return seed.slice(0, 3);
+  });
+
+  const toggleColor = useCallback((key: string) => {
+    setColors((prev) => {
+      if (prev.includes(key)) {
+        if (prev.length <= 1) return prev; // keep at least one accent
+        return prev.filter((c) => c !== key);
+      }
+      if (prev.length >= 3) return prev; // cap at three
+      return [...prev, key];
+    });
+  }, []);
 
   // Preselect the team's existing members so the modal opens with an
   // accurate checklist. New teams start empty.
@@ -331,14 +371,14 @@ function TeamEditModal({
         await createLeadUserTeam({
           name: trimmed,
           description: description || null,
-          color,
+          colors,
           memberUserIds: memberIds,
         });
       } else if (team) {
         await updateLeadUserTeam(team.id, {
           name: trimmed,
           description: description || null,
-          color,
+          colors,
         });
         await setLeadUserTeamMembers(team.id, memberIds);
       } else {
@@ -431,31 +471,55 @@ function TeamEditModal({
               </label>
             </div>
             <div className="mt-4">
-              <span className="text-sm font-medium text-slate-700 block mb-2">
-                Color
-              </span>
+              <div className="flex items-baseline justify-between mb-2">
+                <span className="text-sm font-medium text-slate-700">
+                  Colors{' '}
+                  <span className="text-xs font-normal text-slate-500">
+                    (pick 1-3)
+                  </span>
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  First color is the accent.
+                </span>
+              </div>
               <div className="flex flex-wrap gap-2">
                 {TEAM_COLOR_KEYS.map((key) => {
                   const cls = teamColorClasses(key);
-                  const picked = color === key;
+                  const pickedIndex = colors.indexOf(key);
+                  const picked = pickedIndex !== -1;
+                  const atMax = !picked && colors.length >= 3;
                   return (
                     <button
                       type="button"
                       key={key}
-                      onClick={() => setColor(key)}
+                      onClick={() => toggleColor(key)}
+                      disabled={atMax}
                       className={`relative h-8 w-8 rounded-full border transition-all ${
                         picked
                           ? 'border-slate-900 scale-110'
-                          : 'border-slate-200 hover:border-slate-400'
+                          : atMax
+                            ? 'border-slate-200 opacity-40 cursor-not-allowed'
+                            : 'border-slate-200 hover:border-slate-400'
                       }`}
-                      aria-label={`Color ${key}`}
-                      title={key}
+                      aria-label={`Color ${key}${picked ? ` (selected, position ${pickedIndex + 1})` : ''}`}
+                      aria-pressed={picked}
+                      title={
+                        picked
+                          ? pickedIndex === 0
+                            ? `${key} — accent (click to remove)`
+                            : `${key} — position ${pickedIndex + 1} (click to remove)`
+                          : atMax
+                            ? 'Maximum 3 colors'
+                            : key
+                      }
                     >
                       <span
                         className={`absolute inset-1 rounded-full ${cls.dot}`}
                       />
                       {picked && (
-                        <Check className="absolute inset-0 m-auto h-4 w-4 text-white drop-shadow" />
+                        <span className="absolute -right-1 -top-1 h-4 w-4 rounded-full bg-slate-900 text-white text-[10px] font-bold flex items-center justify-center shadow">
+                          {pickedIndex + 1}
+                        </span>
                       )}
                     </button>
                   );

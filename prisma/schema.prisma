@@ -580,7 +580,11 @@ model LeadCampaignGroup {
   id          String         @id @default(uuid())
   name        String
   description String?
+  // Legacy single-color column; kept as a mirror of colors[0] so in-flight
+  // reads during deploys can't crash on a missing column. New writes keep
+  // both in sync. Safe to drop in a future migration once nothing reads it.
   color       String         @default("blue")
+  colors      String[]       @default(["blue"])
   active      Boolean        @default(true)
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
@@ -595,7 +599,9 @@ model LeadUserTeam {
   id          String               @id @default(uuid())
   name        String
   description String?
+  // See LeadCampaignGroup.color for why we keep the legacy mirror column.
   color       String               @default("blue")
+  colors      String[]             @default(["blue"])
   active      Boolean              @default(true)
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt

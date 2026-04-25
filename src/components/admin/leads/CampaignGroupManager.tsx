@@ -25,12 +25,22 @@ import {
   setGroupCampaigns,
   addUsersToGroupCampaigns,
 } from '@/app/actions/leadActions';
+import {
+  teamColorClasses,
+  type LeadUserTeamSummary,
+} from './LeadUserTeamManager';
 
 export type CampaignGroupSummary = {
   id: string;
   name: string;
   description: string | null;
+  // Legacy single-color accent. Kept so components that only care about
+  // the primary accent (DB mirror of colors[0]) don't have to touch the
+  // new field.
   color: string;
+  // 1-3 palette keys. First entry is the accent (used for chip fill/border);
+  // remaining entries render as additional dots next to the name.
+  colors: string[];
   active: boolean;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -55,6 +65,7 @@ type Props = {
   groups: CampaignGroupSummary[];
   campaigns: GroupPickerCampaign[];
   users: EligibleUser[];
+  teams?: LeadUserTeamSummary[];
   selectedGroupId: string | null;
   onSelectGroup: (groupId: string | null) => void;
 };
@@ -122,10 +133,49 @@ function groupColorClasses(key: string) {
   return GROUP_COLOR_CLASSES[key] ?? GROUP_COLOR_CLASSES.blue;
 }
 
+// Renders 1-3 small dots for a group/team's palette. The first entry is the
+// "accent" (same color the chip's background/border uses when active);
+// additional entries render as slightly overlapped extra dots so two or
+// three colors stay readable at the chip's compact size. `sm` is used in
+// the dense selector tiles; omit for the default chip size.
+function renderGroupDots(colors: string[] | undefined, size: 'sm' | 'md' = 'md') {
+  const safe = (colors && colors.length > 0 ? colors : ['blue']).slice(0, 3);
+  const dim = size === 'sm' ? 'h-1.5 w-1.5' : 'h-2 w-2';
+  return (
+    <span className="inline-flex items-center -space-x-0.5 shrink-0">
+      {safe.map((c, i) => (
+        <span
+          key={`${c}-${i}`}
+          className={`inline-block ${dim} rounded-full ring-1 ring-white ${groupColorClasses(c).dot}`}
+        />
+      ))}
+    </span>
+  );
+}
+
+// Team equivalent of renderGroupDots. Kept here (rather than in the team
+// file) because CampaignGroupManager also renders team chips in its team
+// selector, and mirroring the helper avoids a circular import.
+function renderTeamDots(colors: string[] | undefined, size: 'sm' | 'md' = 'md') {
+  const safe = (colors && colors.length > 0 ? colors : ['blue']).slice(0, 3);
+  const dim = size === 'sm' ? 'h-1.5 w-1.5' : 'h-2 w-2';
+  return (
+    <span className="inline-flex items-center -space-x-0.5 shrink-0">
+      {safe.map((c, i) => (
+        <span
+          key={`${c}-${i}`}
+          className={`inline-block ${dim} rounded-full ring-1 ring-white ${teamColorClasses(c).dot}`}
+        />
+      ))}
+    </span>
+  );
+}
+
 export function CampaignGroupManager({
   groups,
   campaigns,
   users,
+  teams = [],
   selectedGroupId,
   onSelectGroup,
 }: Props) {
@@ -182,7 +232,11 @@ export function CampaignGroupManager({
         </button>
 
         {visibleGroups.map((g) => {
-          const cls = groupColorClasses(g.color);
+          // Use the accent (first) color for the chip's active fill/border
+          // look so single-color groups keep their original appearance and
+          // multi-color groups still get a readable highlight tint.
+          const accent = g.colors?.[0] ?? g.color;
+          const cls = groupColorClasses(accent);
           const isActive = selectedGroupId === g.id;
           const isArchivedLook = !g.active;
           return (
@@ -195,7 +249,7 @@ export function CampaignGroupManager({
                 } ${isActive ? `ring-1 ${cls.ring}` : ''} ${isArchivedLook ? 'opacity-60' : ''}`}
                 title={g.description || g.name}
               >
-                <span className={`inline-block h-2 w-2 rounded-full ${cls.dot}`} />
+                {renderGroupDots(g.colors ?? [accent])}
                 <span className="truncate max-w-[160px]">{g.name}</span>
                 <span className="text-[10px] font-semibold opacity-70">
                   {g.campaignCount}
@@ -249,6 +303,7 @@ export function CampaignGroupManager({
           isCreating={isCreating}
           campaigns={campaigns}
           users={users}
+          teams={teams}
           onClose={closeModal}
           onSaved={() => {
             closeModal();
@@ -265,6 +320,7 @@ function GroupEditModal({
   isCreating,
   campaigns,
   users,
+  teams,
   onClose,
   onSaved,
 }: {
@@ -272,13 +328,31 @@ function GroupEditModal({
   isCreating: boolean;
   campaigns: GroupPickerCampaign[];
   users: EligibleUser[];
+  teams: LeadUserTeamSummary[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const router = useRouter();
   const [name, setName] = useState(group?.name || '');
   const [description, setDescription] = useState(group?.description || '');
-  const [color, setColor] = useState(group?.color || 'blue');
+  // Multi-select palette. Legacy `color` is the fallback seed for groups
+  // created before the colors array existed. Server clamps to 1-3; we
+  // enforce the same bounds in the UI so users can't over- or under-select.
+  const [colors, setColors] = useState<string[]>(() => {
+    const seed = group?.colors?.length ? group.colors : group?.color ? [group.color] : ['blue'];
+    return seed.slice(0, 3);
+  });
+
+  const toggleColor = useCallback((key: string) => {
+    setColors((prev) => {
+      if (prev.includes(key)) {
+        if (prev.length <= 1) return prev; // keep at least one accent
+        return prev.filter((c) => c !== key);
+      }
+      if (prev.length >= 3) return prev; // cap at three
+      return [...prev, key];
+    });
+  }, []);
 
   // Preselect campaigns currently in this group so the checkbox list
   // reflects the existing membership.
@@ -347,6 +421,42 @@ function GroupEditModal({
     });
   }, []);
 
+  // Teams may list members who aren't eligible users for the bulk-add
+  // picker (e.g. archived or wrong-role). Restrict each team's roster to
+  // the `users` list we actually render so toggling a team never tries
+  // to add ids the server would ignore.
+  const eligibleUserIdSet = useMemo(
+    () => new Set(users.map((u) => u.id)),
+    [users]
+  );
+
+  const teamRosters = useMemo(
+    () =>
+      teams.map((t) => ({
+        team: t,
+        memberIds: t.memberIds.filter((id) => eligibleUserIdSet.has(id)),
+      })),
+    [teams, eligibleUserIdSet]
+  );
+
+  // Batch-toggle a team's users in the bulk-add selection. Mirrors the
+  // semantics used in CampaignManager: if every (eligible) member of the
+  // team is already selected, clicking the chip removes them; otherwise
+  // it adds any missing ones.
+  const toggleTeam = useCallback((memberIds: string[]) => {
+    if (memberIds.length === 0) return;
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev);
+      const allIn = memberIds.every((id) => next.has(id));
+      if (allIn) {
+        for (const id of memberIds) next.delete(id);
+      } else {
+        for (const id of memberIds) next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
   const handleSave = async () => {
     setError(null);
     setSaving(true);
@@ -356,14 +466,14 @@ function GroupEditModal({
         const created = await createLeadCampaignGroup({
           name,
           description: description || null,
-          color,
+          colors,
         });
         targetId = created.id;
       } else if (group) {
         await updateLeadCampaignGroup(group.id, {
           name,
           description: description || null,
-          color,
+          colors,
         });
         targetId = group.id;
       } else {
@@ -512,31 +622,55 @@ function GroupEditModal({
               </label>
             </div>
             <div className="mt-4">
-              <span className="text-sm font-medium text-slate-700 block mb-2">
-                Color
-              </span>
+              <div className="flex items-baseline justify-between mb-2">
+                <span className="text-sm font-medium text-slate-700">
+                  Colors{' '}
+                  <span className="text-xs font-normal text-slate-500">
+                    (pick 1-3)
+                  </span>
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  First color is the accent.
+                </span>
+              </div>
               <div className="flex flex-wrap gap-2">
                 {GROUP_COLOR_KEYS.map((key) => {
                   const cls = groupColorClasses(key);
-                  const picked = color === key;
+                  const pickedIndex = colors.indexOf(key);
+                  const picked = pickedIndex !== -1;
+                  const atMax = !picked && colors.length >= 3;
                   return (
                     <button
                       type="button"
                       key={key}
-                      onClick={() => setColor(key)}
+                      onClick={() => toggleColor(key)}
+                      disabled={atMax}
                       className={`relative h-8 w-8 rounded-full border transition-all ${
                         picked
                           ? 'border-slate-900 scale-110'
-                          : 'border-slate-200 hover:border-slate-400'
+                          : atMax
+                            ? 'border-slate-200 opacity-40 cursor-not-allowed'
+                            : 'border-slate-200 hover:border-slate-400'
                       }`}
-                      aria-label={`Color ${key}`}
-                      title={key}
+                      aria-label={`Color ${key}${picked ? ` (selected, position ${pickedIndex + 1})` : ''}`}
+                      aria-pressed={picked}
+                      title={
+                        picked
+                          ? pickedIndex === 0
+                            ? `${key} — accent (click to remove)`
+                            : `${key} — position ${pickedIndex + 1} (click to remove)`
+                          : atMax
+                            ? 'Maximum 3 colors'
+                            : key
+                      }
                     >
                       <span
                         className={`absolute inset-1 rounded-full ${cls.dot}`}
                       />
                       {picked && (
-                        <Check className="absolute inset-0 m-auto h-4 w-4 text-white drop-shadow" />
+                        <span className="absolute -right-1 -top-1 h-4 w-4 rounded-full bg-slate-900 text-white text-[10px] font-bold flex items-center justify-center shadow">
+                          {pickedIndex + 1}
+                        </span>
                       )}
                     </button>
                   );
@@ -636,6 +770,43 @@ function GroupEditModal({
                 group. Existing members and quotas are untouched. Users already
                 assigned to a campaign are skipped.
               </p>
+              {teamRosters.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2" aria-label="Teams">
+                  {teamRosters.map(({ team, memberIds }) => {
+                    const total = memberIds.length;
+                    const selectedCount = memberIds.filter((id) =>
+                      selectedUserIds.has(id)
+                    ).length;
+                    const allSelected = total > 0 && selectedCount === total;
+                    const accent = team.colors?.[0] ?? team.color;
+                    const cls = teamColorClasses(accent);
+                    return (
+                      <button
+                        key={team.id}
+                        type="button"
+                        onClick={() => toggleTeam(memberIds)}
+                        disabled={total === 0}
+                        title={
+                          total === 0
+                            ? `${team.name} has no eligible members`
+                            : allSelected
+                              ? `Click to remove all ${total} ${team.name} members`
+                              : `Click to add ${total - selectedCount} missing ${team.name} member${total - selectedCount === 1 ? '' : 's'}`
+                        }
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                          allSelected ? cls.chipActive : cls.chipInactive
+                        } ${allSelected ? `ring-1 ${cls.ring}` : ''} ${total === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        {renderTeamDots(team.colors ?? [accent])}
+                        <span className="truncate max-w-[140px]">{team.name}</span>
+                        <span className="text-[10px] font-semibold opacity-70 tabular-nums">
+                          {selectedCount}/{total}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className="relative mb-2">
                 <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
                 <input

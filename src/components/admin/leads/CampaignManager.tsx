@@ -22,8 +22,8 @@ import {
 
 type Vendor = { id: string; name: string; slug: string };
 type EligibleUser = { id: string; name: string; email: string; role: string };
-type GroupRef = { id: string; name: string; color: string };
-type GroupOption = { id: string; name: string; color: string; active: boolean };
+type GroupRef = { id: string; name: string; color: string; colors?: string[] };
+type GroupOption = { id: string; name: string; color: string; colors?: string[]; active: boolean };
 type Campaign = {
   id: string;
   name: string;
@@ -131,6 +131,49 @@ const GROUP_DOT_COLOR: Record<string, string> = {
 function groupDotClass(color?: string | null) {
   if (!color) return 'bg-slate-300';
   return GROUP_DOT_COLOR[color] ?? 'bg-slate-400';
+}
+
+// Renders 1-3 small dots for the Group column in the campaigns table.
+// Falls back to the legacy single `color` when the row came back before
+// the colors array was threaded through.
+function renderGroupColDots(colors: string[] | undefined | null, fallback?: string | null) {
+  const safe = (colors && colors.length > 0
+    ? colors
+    : fallback
+      ? [fallback]
+      : ['blue']
+  ).slice(0, 3);
+  return (
+    <span className="inline-flex items-center -space-x-0.5 shrink-0">
+      {safe.map((c, i) => (
+        <span
+          key={`${c}-${i}`}
+          className={`inline-block h-2 w-2 rounded-full ring-1 ring-white ${groupDotClass(c)}`}
+        />
+      ))}
+    </span>
+  );
+}
+
+// Team-chip dot renderer. Teams use teamColorClasses (imported), not the
+// local GROUP_DOT_COLOR map.
+function renderTeamChipDots(colors: string[] | undefined, fallback?: string) {
+  const safe = (colors && colors.length > 0
+    ? colors
+    : fallback
+      ? [fallback]
+      : ['blue']
+  ).slice(0, 3);
+  return (
+    <span className="inline-flex items-center -space-x-0.5 shrink-0">
+      {safe.map((c, i) => (
+        <span
+          key={`${c}-${i}`}
+          className={`inline-block h-2 w-2 rounded-full ring-1 ring-white ${teamColorClasses(c).dot}`}
+        />
+      ))}
+    </span>
+  );
 }
 
 function InfoTip({ text }: { text: string }) {
@@ -642,7 +685,7 @@ export function CampaignManager({
                   <td className="px-4 py-3 text-slate-600">
                     {c.group ? (
                       <span className="inline-flex items-center gap-1.5">
-                        <span className={`inline-block h-2 w-2 rounded-full ${groupDotClass(c.group.color)}`} />
+                        {renderGroupColDots(c.group.colors, c.group.color)}
                         <span className="truncate">{c.group.name}</span>
                       </span>
                     ) : (
@@ -802,7 +845,8 @@ export function CampaignManager({
                           ).length;
                           const total = memberIds.length;
                           const allSelected = total > 0 && selectedCount === total;
-                          const cls = teamColorClasses(t.color);
+                          const accent = t.colors?.[0] ?? t.color;
+                          const cls = teamColorClasses(accent);
                           return (
                             <button
                               key={t.id}
@@ -820,7 +864,7 @@ export function CampaignManager({
                                 allSelected ? cls.chipActive : cls.chipInactive
                               } ${allSelected ? `ring-1 ${cls.ring}` : ''} ${total === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
-                              <span className={`inline-block h-2 w-2 rounded-full ${cls.dot}`} />
+                              {renderTeamChipDots(t.colors, accent)}
                               <span className="truncate max-w-[140px]">{t.name}</span>
                               <span className="text-[10px] font-semibold opacity-70 tabular-nums">
                                 {selectedCount}/{total}

@@ -591,7 +591,7 @@ export async function getLeadCampaigns() {
       include: {
         vendor: { select: { id: true, name: true, slug: true } },
         defaultUser: { select: { id: true, name: true } },
-        group: { select: { id: true, name: true, color: true } },
+        group: { select: { id: true, name: true, color: true, colors: true } },
         _count: { select: { members: true, leads: true } },
       },
     }),
@@ -1082,6 +1082,28 @@ function normalizeGroupColor(color: string | undefined | null): LeadCampaignGrou
   return 'blue';
 }
 
+// Accepts legacy single-color input or the new multi-color array and
+// produces a de-duped, palette-filtered list clamped to 1-3 entries.
+// The first entry is the accent color (used for chip fill/border); the
+// rest render as additional dots next to the name. Falls back to ['blue']
+// when nothing valid was provided so the UI always has something to show.
+function normalizeGroupColors(
+  input: string | string[] | undefined | null
+): LeadCampaignGroupColor[] {
+  const raw = Array.isArray(input) ? input : input ? [input] : [];
+  const seen = new Set<string>();
+  const out: LeadCampaignGroupColor[] = [];
+  for (const c of raw) {
+    if (typeof c !== 'string') continue;
+    if (!(ALLOWED_GROUP_COLORS as readonly string[]).includes(c)) continue;
+    if (seen.has(c)) continue;
+    seen.add(c);
+    out.push(c as LeadCampaignGroupColor);
+    if (out.length === 3) break;
+  }
+  return out.length > 0 ? out : ['blue'];
+}
+
 export async function getLeadCampaignGroups() {
   const groups = await prisma.leadCampaignGroup.findMany({
     orderBy: [{ active: 'desc' }, { name: 'asc' }],
@@ -1102,6 +1124,7 @@ export async function getLeadCampaignGroups() {
     name: g.name,
     description: g.description,
     color: g.color,
+    colors: (g.colors?.length ? g.colors : [g.color]) as string[],
     active: g.active,
     createdAt: g.createdAt,
     updatedAt: g.updatedAt,
@@ -1136,14 +1159,17 @@ export async function createLeadCampaignGroup(data: {
   name: string;
   description?: string | null;
   color?: string;
+  colors?: string[];
 }) {
   const name = data.name.trim();
   if (!name) throw new Error('Group name is required');
+  const colors = normalizeGroupColors(data.colors ?? data.color);
   const group = await prisma.leadCampaignGroup.create({
     data: {
       name,
       description: data.description?.trim() || null,
-      color: normalizeGroupColor(data.color),
+      color: colors[0],
+      colors,
     },
   });
   revalidatePath('/admin/leads/campaigns');
@@ -1152,7 +1178,7 @@ export async function createLeadCampaignGroup(data: {
 
 export async function updateLeadCampaignGroup(
   id: string,
-  data: { name?: string; description?: string | null; color?: string }
+  data: { name?: string; description?: string | null; color?: string; colors?: string[] }
 ) {
   const patch: Record<string, unknown> = {};
   if (typeof data.name === 'string') {
@@ -1163,8 +1189,14 @@ export async function updateLeadCampaignGroup(
   if (data.description !== undefined) {
     patch.description = data.description?.trim() || null;
   }
-  if (typeof data.color === 'string') {
-    patch.color = normalizeGroupColor(data.color);
+  // When either colors or color is provided, treat it as a full replacement
+  // of the accent palette. `colors` wins over `color` if both are sent; the
+  // legacy `color` column is kept in sync with colors[0] for safe rolling
+  // deploys.
+  if (data.colors !== undefined || typeof data.color === 'string') {
+    const colors = normalizeGroupColors(data.colors ?? data.color);
+    patch.colors = colors;
+    patch.color = colors[0];
   }
   const group = await prisma.leadCampaignGroup.update({ where: { id }, data: patch });
   revalidatePath('/admin/leads/campaigns');
@@ -1342,6 +1374,24 @@ function normalizeTeamColor(color: string | undefined | null): LeadUserTeamColor
   return 'blue';
 }
 
+// See normalizeGroupColors — same rules, same palette, different alias.
+function normalizeTeamColors(
+  input: string | string[] | undefined | null
+): LeadUserTeamColor[] {
+  const raw = Array.isArray(input) ? input : input ? [input] : [];
+  const seen = new Set<string>();
+  const out: LeadUserTeamColor[] = [];
+  for (const c of raw) {
+    if (typeof c !== 'string') continue;
+    if (!(ALLOWED_TEAM_COLORS as readonly string[]).includes(c)) continue;
+    if (seen.has(c)) continue;
+    seen.add(c);
+    out.push(c as LeadUserTeamColor);
+    if (out.length === 3) break;
+  }
+  return out.length > 0 ? out : ['blue'];
+}
+
 function revalidateTeamPaths() {
   revalidatePath('/admin/leads/users');
   revalidatePath('/admin/leads/campaigns');
@@ -1352,6 +1402,7 @@ export type LeadUserTeamSummary = {
   name: string;
   description: string | null;
   color: string;
+  colors: string[];
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -1371,6 +1422,7 @@ export async function getLeadUserTeams(): Promise<LeadUserTeamSummary[]> {
     name: t.name,
     description: t.description,
     color: t.color,
+    colors: (t.colors?.length ? t.colors : [t.color]) as string[],
     active: t.active,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
@@ -1383,18 +1435,21 @@ export async function createLeadUserTeam(data: {
   name: string;
   description?: string | null;
   color?: string;
+  colors?: string[];
   memberUserIds?: string[];
 }) {
   const name = data.name.trim();
   if (!name) throw new Error('Team name is required');
 
   const uniqueMemberIds = Array.from(new Set(data.memberUserIds ?? []));
+  const colors = normalizeTeamColors(data.colors ?? data.color);
 
   const team = await prisma.leadUserTeam.create({
     data: {
       name,
       description: data.description?.trim() || null,
-      color: normalizeTeamColor(data.color),
+      color: colors[0],
+      colors,
       members:
         uniqueMemberIds.length > 0
           ? {
@@ -1409,7 +1464,7 @@ export async function createLeadUserTeam(data: {
 
 export async function updateLeadUserTeam(
   id: string,
-  data: { name?: string; description?: string | null; color?: string }
+  data: { name?: string; description?: string | null; color?: string; colors?: string[] }
 ) {
   const patch: Record<string, unknown> = {};
   if (typeof data.name === 'string') {
@@ -1420,8 +1475,10 @@ export async function updateLeadUserTeam(
   if (data.description !== undefined) {
     patch.description = data.description?.trim() || null;
   }
-  if (typeof data.color === 'string') {
-    patch.color = normalizeTeamColor(data.color);
+  if (data.colors !== undefined || typeof data.color === 'string') {
+    const colors = normalizeTeamColors(data.colors ?? data.color);
+    patch.colors = colors;
+    patch.color = colors[0];
   }
   const team = await prisma.leadUserTeam.update({ where: { id }, data: patch });
   revalidateTeamPaths();
@@ -1509,16 +1566,21 @@ export type LeadListFilters = {
   employer?: string;
 };
 
-// Fields included in global free-text search. Because every lead field is
-// stored as a nullable String in the schema, substring matching works
-// uniformly across contact, property, loan, and employment data.
+// Fields included in the global free-text search. Previously this scanned
+// 33 columns (loan amount, employer, credit rating, vendor url, etc.)
+// which forced Postgres into a sequential full-table scan with 33 ILIKE
+// comparisons per row. The bar's placeholder only promises "name, email,
+// or phone" and the lead list already has dedicated filter dropdowns for
+// everything else, so we tightened it to 13 identity columns that all
+// have GIN trigram indexes (see the 20260425240000_add_lead_search_trgm_indexes
+// migration). With indexes in place these queries return sub-second even
+// on 100k+ rows.
 const LEAD_SEARCH_FIELDS = [
   'firstName',
   'lastName',
   'email',
   'phone',
   'homePhone',
-  'workPhone',
   'coFirstName',
   'coLastName',
   'coEmail',
@@ -1526,25 +1588,7 @@ const LEAD_SEARCH_FIELDS = [
   'propertyAddress',
   'propertyCity',
   'propertyZip',
-  'propertyCounty',
-  'propertyType',
-  'propertyUse',
-  'propertyValue',
-  'purchasePrice',
-  'loanPurpose',
-  'loanAmount',
-  'loanType',
-  'loanRate',
-  'creditRating',
-  'downPayment',
-  'cashOut',
-  'currentLender',
-  'currentBalance',
-  'employer',
-  'jobTitle',
-  'source',
   'vendorLeadId',
-  'vendorUserId',
 ] as const;
 
 function buildLeadWhere(filters?: LeadListFilters): Record<string, unknown> {
@@ -1593,10 +1637,23 @@ function buildLeadWhere(filters?: LeadListFilters): Record<string, unknown> {
     where.receivedAt = receivedAt;
   }
   const q = filters.search?.trim();
-  if (q) {
-    where.OR = LEAD_SEARCH_FIELDS.map((field) => ({
-      [field]: { contains: q, mode: 'insensitive' },
-    }));
+  if (q && q.length >= 2) {
+    // Split on whitespace so a query like "John Smith" resolves to
+    //   (<any identity field> contains "john")
+    //   AND (<any identity field> contains "smith")
+    // which narrows results much faster than a single OR scan, and lets
+    // each per-token OR-clause use the per-column gin_trgm_ops indexes.
+    // Single-character tokens are dropped because trigram indexes need
+    // at least 2 chars to be useful and one-letter substrings would
+    // match almost every row anyway.
+    const tokens = q.split(/\s+/).filter((t) => t.length >= 2);
+    if (tokens.length > 0) {
+      where.AND = tokens.map((tok) => ({
+        OR: LEAD_SEARCH_FIELDS.map((field) => ({
+          [field]: { contains: tok, mode: 'insensitive' },
+        })),
+      }));
+    }
   }
   return where;
 }
@@ -1696,7 +1753,14 @@ export async function getLeads(
     skip: filters?.skip ?? 0,
   };
 
-  if (filters?.skipCount) {
+  // Free-text search always runs without COUNT(*): even with trigram
+  // indexes the exact total is far more expensive than the findMany
+  // itself, and the client only needs to show "Showing 1-200 of many"
+  // while the user is refining a query. The footer total reappears as
+  // soon as the search is cleared (the client refetches without
+  // skipCount in that case).
+  const searchActive = typeof filters?.search === 'string' && filters.search.trim().length >= 2;
+  if (filters?.skipCount || searchActive) {
     const leads = await prisma.lead.findMany(listArgs);
     return { leads, total: -1 };
   }

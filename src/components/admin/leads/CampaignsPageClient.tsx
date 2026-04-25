@@ -34,7 +34,7 @@ type Campaign = {
   loanTypeFilter: string[];
   vendor: { id: string; name: string; slug: string };
   defaultUser: { id: string; name: string } | null;
-  group?: { id: string; name: string; color: string } | null;
+  group?: { id: string; name: string; color: string; colors?: string[] } | null;
   groupId?: string | null;
   _count: { members: number; leads: number };
   createdAt: Date | string;
@@ -77,6 +77,7 @@ export function CampaignsPageClient({ campaigns, vendors, users, groups, nextUpR
         id: g.id,
         name: g.name,
         color: g.color,
+        colors: g.colors,
         active: g.active,
       })),
     [groups]
@@ -88,6 +89,7 @@ export function CampaignsPageClient({ campaigns, vendors, users, groups, nextUpR
         groups={groups}
         campaigns={pickerCampaigns}
         users={users}
+        teams={teams}
         selectedGroupId={filterGroupId}
         onSelectGroup={setFilterGroupId}
       />
