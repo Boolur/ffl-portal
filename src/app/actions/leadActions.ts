@@ -921,32 +921,86 @@ export async function removeCampaignMember(memberId: string) {
   revalidatePath('/admin/leads/campaigns');
 }
 
+/**
+ * Input shape for setCampaignMembers. Callers can pass either a bare
+ * array of userIds (legacy) or an array of richer objects when they
+ * want to set per-member fields like `dailyQuota` at the same time
+ * as syncing membership.
+ */
+export type CampaignMemberInput = {
+  userId: string;
+  dailyQuota?: number;
+};
+
 export async function setCampaignMembers(
   campaignId: string,
-  userIds: string[]
+  members: string[] | CampaignMemberInput[]
 ) {
+  // Normalize both input shapes to CampaignMemberInput[] once so the
+  // diff logic below never has to branch on the shape.
+  const normalized: CampaignMemberInput[] = members.map((m) =>
+    typeof m === 'string' ? { userId: m } : m
+  );
+
   const existing = await prisma.campaignMember.findMany({
     where: { campaignId },
-    select: { id: true, userId: true, roundRobinPosition: true },
+    select: {
+      id: true,
+      userId: true,
+      roundRobinPosition: true,
+      dailyQuota: true,
+    },
   });
-  const existingUserIds = new Set(existing.map((m) => m.userId));
-  const targetUserIds = new Set(userIds);
+  const existingByUserId = new Map(existing.map((m) => [m.userId, m]));
+  const targetUserIds = new Set(normalized.map((m) => m.userId));
 
   const toRemove = existing.filter((m) => !targetUserIds.has(m.userId));
-  const toAdd = userIds.filter((uid) => !existingUserIds.has(uid));
+  const toAdd = normalized.filter((m) => !existingByUserId.has(m.userId));
+  // Rows we keep — update dailyQuota only when the caller supplied a
+  // value that actually differs. Skipping no-op writes keeps the
+  // transaction lean.
+  const toUpdate = normalized.flatMap((m) => {
+    const prev = existingByUserId.get(m.userId);
+    if (!prev) return [];
+    if (m.dailyQuota === undefined) return [];
+    const next = Math.max(0, Math.trunc(m.dailyQuota));
+    if (prev.dailyQuota === next) return [];
+    return [{ memberId: prev.id, dailyQuota: next }];
+  });
 
-  let maxPos = existing.reduce((max, m) => Math.max(max, m.roundRobinPosition), -1);
+  let maxPos = existing.reduce(
+    (max, m) => Math.max(max, m.roundRobinPosition),
+    -1
+  );
 
   await prisma.$transaction([
     ...(toRemove.length > 0
-      ? [prisma.campaignMember.deleteMany({ where: { id: { in: toRemove.map((m) => m.id) } } })]
+      ? [
+          prisma.campaignMember.deleteMany({
+            where: { id: { in: toRemove.map((m) => m.id) } },
+          }),
+        ]
       : []),
-    ...toAdd.map((userId) => {
+    ...toAdd.map((m) => {
       maxPos += 1;
       return prisma.campaignMember.create({
-        data: { campaignId, userId, roundRobinPosition: maxPos },
+        data: {
+          campaignId,
+          userId: m.userId,
+          roundRobinPosition: maxPos,
+          dailyQuota:
+            m.dailyQuota === undefined
+              ? 0
+              : Math.max(0, Math.trunc(m.dailyQuota)),
+        },
       });
     }),
+    ...toUpdate.map((u) =>
+      prisma.campaignMember.update({
+        where: { id: u.memberId },
+        data: { dailyQuota: u.dailyQuota },
+      })
+    ),
   ]);
 
   revalidatePath('/admin/leads/campaigns');

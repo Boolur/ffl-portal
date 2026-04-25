@@ -85,6 +85,10 @@ type FormState = {
   stateFilter: string;
   loanTypeFilter: string;
   memberUserIds: string[];
+  // Per-selected-LO daily cap for this campaign. Same column that
+  // LeadUserManager's drawer writes to (CampaignMember.dailyQuota), so
+  // both UIs stay perfectly in sync. 0 = unlimited by product convention.
+  memberQuotas: Record<string, number>;
   groupId: string;
 };
 
@@ -102,6 +106,7 @@ const EMPTY_FORM: FormState = {
   stateFilter: '',
   loanTypeFilter: '',
   memberUserIds: [],
+  memberQuotas: {},
   groupId: '',
 };
 
@@ -302,6 +307,9 @@ export function CampaignManager({
       stateFilter: c.stateFilter.join(', '),
       loanTypeFilter: c.loanTypeFilter.join(', '),
       memberUserIds: detail?.members.map((m) => m.userId) || [],
+      memberQuotas: Object.fromEntries(
+        (detail?.members ?? []).map((m) => [m.userId, m.dailyQuota ?? 0])
+      ),
       groupId: c.groupId || '',
     });
     setEditingId(c.id);
@@ -334,14 +342,23 @@ export function CampaignManager({
         groupId: form.groupId ? form.groupId : null,
       };
 
+      // Build the rich members payload once — each entry carries the
+      // per-LO daily cap that lives on CampaignMember.dailyQuota. Same
+      // column the Lead Users drawer writes to, so the two UIs are a
+      // single source of truth.
+      const memberPayload = form.memberUserIds.map((userId) => ({
+        userId,
+        dailyQuota: form.memberQuotas[userId] ?? 0,
+      }));
+
       if (isCreating) {
         const campaign = await createLeadCampaign(payload);
-        if (form.memberUserIds.length > 0) {
-          await setCampaignMembers(campaign.id, form.memberUserIds);
+        if (memberPayload.length > 0) {
+          await setCampaignMembers(campaign.id, memberPayload);
         }
       } else if (editingId) {
         await updateLeadCampaign(editingId, payload);
-        await setCampaignMembers(editingId, form.memberUserIds);
+        await setCampaignMembers(editingId, memberPayload);
       }
       closeModal();
       router.refresh();
@@ -381,11 +398,27 @@ export function CampaignManager({
   const closeDeleteDialog = () => setDeletingCampaign(null);
 
   const toggleMember = (userId: string) => {
+    setForm((prev) => {
+      const isOn = prev.memberUserIds.includes(userId);
+      const nextIds = isOn
+        ? prev.memberUserIds.filter((id) => id !== userId)
+        : [...prev.memberUserIds, userId];
+      // Seed a default of 0 (unlimited) when adding; leave existing
+      // entries alone on remove so re-selecting the LO restores the
+      // number they had before.
+      const nextQuotas = { ...prev.memberQuotas };
+      if (!isOn && nextQuotas[userId] === undefined) {
+        nextQuotas[userId] = 0;
+      }
+      return { ...prev, memberUserIds: nextIds, memberQuotas: nextQuotas };
+    });
+  };
+
+  const setMemberQuota = (userId: string, value: number) => {
+    const clamped = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
     setForm((prev) => ({
       ...prev,
-      memberUserIds: prev.memberUserIds.includes(userId)
-        ? prev.memberUserIds.filter((id) => id !== userId)
-        : [...prev.memberUserIds, userId],
+      memberQuotas: { ...prev.memberQuotas, [userId]: clamped },
     }));
   };
 
@@ -724,21 +757,47 @@ export function CampaignManager({
                       {filteredUsers.map((u) => {
                         const isSelected = form.memberUserIds.includes(u.id);
                         return (
-                          <button
+                          <label
                             key={u.id}
-                            type="button"
-                            onClick={() => toggleMember(u.id)}
-                            className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors cursor-pointer ${
                               isSelected ? 'bg-blue-50 text-blue-800' : 'text-slate-700 hover:bg-slate-50'
                             }`}
                           >
+                            <input
+                              type="checkbox"
+                              className="sr-only"
+                              checked={isSelected}
+                              onChange={() => toggleMember(u.id)}
+                            />
                             <span className={`h-4 w-4 rounded border flex items-center justify-center text-xs ${
                               isSelected ? 'border-blue-500 bg-blue-500 text-white' : 'border-slate-300'
                             }`}>
                               {isSelected && <Check className="h-3 w-3" />}
                             </span>
                             <span className="truncate">{u.name}</span>
-                          </button>
+                            {isSelected && (
+                              <span
+                                className="ml-auto flex items-center gap-1"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={form.memberQuotas[u.id] ?? 0}
+                                  onChange={(e) =>
+                                    setMemberQuota(u.id, Number(e.target.value) || 0)
+                                  }
+                                  onClick={(e) => e.stopPropagation()}
+                                  onKeyDown={(e) => e.stopPropagation()}
+                                  className="w-14 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-center tabular-nums text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                  title="Daily cap for this LO on this campaign. 0 = unlimited. Mirrors the 'Daily Quota' in the Lead Users drawer."
+                                />
+                                <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                                  /day
+                                </span>
+                              </span>
+                            )}
+                          </label>
                         );
                       })}
                     </div>
