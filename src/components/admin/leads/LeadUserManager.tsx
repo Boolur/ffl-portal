@@ -117,7 +117,7 @@ const USER_COLUMNS: Array<{
     align: 'center',
     sortable: true,
     title:
-      'Daily / Weekly / Monthly effective caps. Uses the global cap when set; otherwise sums the user\'s campaign quotas. ∞ = no limit.',
+      'Daily / Weekly / Monthly effective caps. Uses the global cap when set; otherwise sums only the campaigns that have an explicit quota (unlimited campaigns are skipped). ∞ = no explicit limits anywhere.',
   },
   { id: 'today', label: 'Today', defaultWidth: 72, minWidth: 60, align: 'right', sortable: true },
   { id: 'week', label: 'Week', defaultWidth: 72, minWidth: 60, align: 'right', sortable: true },
@@ -134,13 +134,19 @@ const USER_DEFAULT_ORDER: UserColumnId[] = USER_COLUMNS.map((c) => c.id);
 /**
  * Effective per-user cap for one time window (daily / weekly / monthly).
  *
- * Mirrors the distributor's precedence rules:
- *   1. If the user has a global cap set (> 0), that wins — it's enforced
- *      across all campaigns so it's the real ceiling.
+ * Mirrors the distributor's enforcement rules (src/lib/leadDistribution.ts):
+ *   1. If the user has a global cap set (> 0), that's the overall ceiling
+ *      and wins — the distributor enforces it across all campaigns.
  *   2. Otherwise we fall back to the sum of the user's per-campaign
- *      quotas. If *any* campaign is unlimited (0), the aggregate is
- *      unlimited too.
- *   3. With no campaigns at all, "unlimited" is the neutral answer.
+ *      quotas, counting ONLY campaigns that have an explicit quota.
+ *      Campaigns with quota 0 are unlimited *for that campaign* but
+ *      don't make the user globally unlimited — the distributor still
+ *      caps the specific-quota campaigns individually. Treating any
+ *      single unlimited campaign as "infinite" in the UI was
+ *      misleading (and actively hid the real caps for LOs on multiple
+ *      campaigns).
+ *   3. If no campaign has an explicit quota (all zero, or no
+ *      memberships), "unlimited" is the correct neutral answer.
  */
 function computeEffectiveQuota(
   globalQuota: number,
@@ -150,12 +156,15 @@ function computeEffectiveQuota(
   if (globalQuota > 0) return globalQuota;
   if (memberships.length === 0) return 'unlimited';
   let total = 0;
+  let hasExplicit = false;
   for (const m of memberships) {
     const q = pick(m);
-    if (q === 0) return 'unlimited';
-    total += q;
+    if (q > 0) {
+      total += q;
+      hasExplicit = true;
+    }
   }
-  return total;
+  return hasExplicit ? total : 'unlimited';
 }
 
 function formatQuotaPart(q: number | 'unlimited'): string {
@@ -1015,9 +1024,11 @@ function UserDetailPanel({
             </div>
 
             {user.memberships.length > 0 && (() => {
-              const totalCampaignDaily = user.memberships.reduce((sum, m) => sum + m.dailyQuota, 0);
-              const hasUnlimited = user.memberships.some((m) => m.dailyQuota === 0);
-              const overGlobal = globalDaily > 0 && !hasUnlimited && totalCampaignDaily > globalDaily;
+              const explicit = user.memberships.filter((m) => m.dailyQuota > 0);
+              const unlimitedCount = user.memberships.length - explicit.length;
+              const totalCampaignDaily = explicit.reduce((sum, m) => sum + m.dailyQuota, 0);
+              const hasExplicit = explicit.length > 0;
+              const overGlobal = globalDaily > 0 && hasExplicit && totalCampaignDaily > globalDaily;
               return (
                 <div className={`mt-3 rounded-lg px-3 py-2.5 text-xs ${
                   overGlobal
@@ -1027,15 +1038,20 @@ function UserDetailPanel({
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-slate-600">Campaign Daily Quota Total</span>
                     <span className={`font-bold ${overGlobal ? 'text-amber-700' : 'text-slate-800'}`}>
-                      {hasUnlimited ? (
-                        <span className="text-slate-400 font-medium italic">Includes unlimited</span>
-                      ) : (
+                      {hasExplicit ? (
                         <>
                           {totalCampaignDaily}
                           {globalDaily > 0 && (
                             <span className="text-slate-400 font-normal ml-1">/ {globalDaily} global</span>
                           )}
+                          {unlimitedCount > 0 && (
+                            <span className="text-slate-400 font-normal ml-1" title="Unlimited campaigns are not added to the total — their caps are handled per-campaign by the distributor.">
+                              (+{unlimitedCount} unlimited)
+                            </span>
+                          )}
                         </>
+                      ) : (
+                        <span className="text-slate-500 font-medium italic">All campaigns unlimited</span>
                       )}
                     </span>
                   </div>
