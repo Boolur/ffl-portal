@@ -1,7 +1,10 @@
 'use client';
 
-import React, { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
-import { Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle, ArrowUp, ArrowDown, GripVertical, Archive, ArchiveRestore, AlertTriangle } from 'lucide-react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import {
+  Loader2, Plus, Pencil, Trash2, Copy, Check, X, Megaphone, Search, HelpCircle,
+  ChevronUp, ChevronDown, ChevronsUpDown, RotateCcw, Archive, ArchiveRestore, AlertTriangle,
+} from 'lucide-react';
 import {
   createLeadCampaign,
   updateLeadCampaign,
@@ -19,6 +22,13 @@ import {
   teamColorClasses,
   type LeadUserTeamSummary,
 } from './LeadUserTeamManager';
+import {
+  ResizeHandle,
+  useColumnWidths,
+  useColumnOrder,
+  type ColumnDragHandlers,
+  type DropIndicator,
+} from '@/components/admin/leads/shared/columnCustomization';
 
 type Vendor = { id: string; name: string; slug: string };
 type EligibleUser = { id: string; name: string; email: string; role: string };
@@ -211,6 +221,191 @@ function InfoTip({ text }: { text: string }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Campaigns table column config
+// ---------------------------------------------------------------------------
+//
+// Same shape the Users table uses (LeadUserManager) so both tables share
+// the same resize / reorder / localStorage-persisted column UX via the
+// shared columnCustomization module. Widths are in pixels; minWidth
+// prevents the resize handle from squashing a column into illegibility.
+
+type CampaignColumnId =
+  | 'status'
+  | 'name'
+  | 'vendor'
+  | 'group'
+  | 'tag'
+  | 'members'
+  | 'leads'
+  | 'quota'
+  | 'avg5bd'
+  | 'created'
+  | 'modified';
+
+type CampaignSortKey = CampaignColumnId;
+type SortDir = 'asc' | 'desc';
+
+const CAMPAIGN_COLUMNS: Array<{
+  id: CampaignColumnId;
+  label: string;
+  defaultWidth: number;
+  minWidth: number;
+  align?: 'left' | 'right' | 'center';
+  sortable: boolean;
+  title?: string;
+}> = [
+  { id: 'status', label: 'Status', defaultWidth: 100, minWidth: 80, align: 'left', sortable: true },
+  { id: 'name', label: 'Campaign', defaultWidth: 200, minWidth: 140, align: 'left', sortable: true },
+  { id: 'vendor', label: 'Vendor', defaultWidth: 140, minWidth: 100, align: 'left', sortable: true },
+  { id: 'group', label: 'Group', defaultWidth: 140, minWidth: 100, align: 'left', sortable: true },
+  { id: 'tag', label: 'Routing Tag', defaultWidth: 160, minWidth: 110, align: 'left', sortable: true },
+  { id: 'members', label: 'Members', defaultWidth: 100, minWidth: 80, align: 'center', sortable: true },
+  { id: 'leads', label: 'Leads', defaultWidth: 90, minWidth: 70, align: 'center', sortable: true },
+  {
+    id: 'quota',
+    label: 'Total Quotas',
+    defaultWidth: 120,
+    minWidth: 90,
+    align: 'center',
+    sortable: true,
+    title: 'Sum of per-LO daily caps across everyone assigned to this campaign.',
+  },
+  {
+    id: 'avg5bd',
+    label: 'Avg / 5 BD',
+    defaultWidth: 110,
+    minWidth: 80,
+    align: 'center',
+    sortable: true,
+    title: 'Average daily leads over the last 5 business days.',
+  },
+  { id: 'created', label: 'Created', defaultWidth: 160, minWidth: 120, align: 'left', sortable: true },
+  { id: 'modified', label: 'Modified', defaultWidth: 160, minWidth: 120, align: 'left', sortable: true },
+];
+
+const CAMPAIGN_COLUMN_WIDTHS_KEY = 'ffl:lead-campaigns-column-widths:v1';
+const CAMPAIGN_COLUMN_ORDER_KEY = 'ffl:lead-campaigns-column-order:v1';
+const CAMPAIGN_DEFAULT_ORDER: CampaignColumnId[] = CAMPAIGN_COLUMNS.map((c) => c.id);
+
+function getCampaignColumnSortValue(c: Campaign, id: CampaignSortKey): string | number {
+  switch (id) {
+    case 'status':
+      return c.active ? 1 : 0;
+    case 'name':
+      return (c.name || '').toLowerCase();
+    case 'vendor':
+      return (c.vendor.name || '').toLowerCase();
+    case 'group':
+      return (c.group?.name || '').toLowerCase();
+    case 'tag':
+      return (c.routingTag || '').toLowerCase();
+    case 'members':
+      return c._count.members;
+    case 'leads':
+      return c._count.leads;
+    case 'quota':
+      return c.totalDailyQuota;
+    case 'avg5bd':
+      return c.avgLeads5bd;
+    case 'created':
+      return typeof c.createdAt === 'string'
+        ? c.createdAt
+        : c.createdAt.toISOString();
+    case 'modified':
+      return typeof c.updatedAt === 'string'
+        ? c.updatedAt
+        : c.updatedAt.toISOString();
+    default:
+      return 0;
+  }
+}
+
+function getCampaignCellClassName(id: CampaignColumnId): string {
+  const base = 'px-4 py-3 overflow-hidden align-middle';
+  switch (id) {
+    case 'status':
+      return `${base}`;
+    case 'name':
+      return `${base}`;
+    case 'vendor':
+      return `${base} text-slate-600 truncate`;
+    case 'group':
+      return `${base} text-slate-600 truncate`;
+    case 'tag':
+      return `${base} font-mono text-xs text-slate-500 truncate`;
+    case 'members':
+      return `${base} text-center text-slate-700 tabular-nums`;
+    case 'leads':
+      return `${base} text-center text-slate-700 tabular-nums`;
+    case 'quota':
+      return `${base} text-center text-slate-700 tabular-nums`;
+    case 'avg5bd':
+      return `${base} text-center text-slate-700 tabular-nums`;
+    case 'created':
+      return `${base} text-xs text-slate-500 whitespace-nowrap`;
+    case 'modified':
+      return `${base} text-xs text-slate-500 whitespace-nowrap`;
+    default:
+      return base;
+  }
+}
+
+function renderCampaignCell(id: CampaignColumnId, c: Campaign): React.ReactNode {
+  switch (id) {
+    case 'status':
+      return (
+        <span
+          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+            c.active
+              ? 'border border-blue-200 bg-blue-50 text-blue-700'
+              : 'border border-amber-200 bg-amber-50 text-amber-700'
+          }`}
+        >
+          {c.active ? 'Active' : 'Archived'}
+        </span>
+      );
+    case 'name':
+      return (
+        <>
+          <p className="font-semibold text-slate-900 truncate">{c.name}</p>
+          {c.description && (
+            <p className="text-xs text-slate-500 mt-0.5 truncate">
+              {c.description}
+            </p>
+          )}
+        </>
+      );
+    case 'vendor':
+      return c.vendor.name;
+    case 'group':
+      return c.group ? (
+        <span className="inline-flex items-center gap-1.5">
+          {renderGroupColDots(c.group.colors, c.group.color)}
+          <span className="truncate">{c.group.name}</span>
+        </span>
+      ) : (
+        <span className="text-slate-300">&mdash;</span>
+      );
+    case 'tag':
+      return c.routingTag;
+    case 'members':
+      return c._count.members;
+    case 'leads':
+      return c._count.leads;
+    case 'quota':
+      return c.totalDailyQuota;
+    case 'avg5bd':
+      return c.avgLeads5bd;
+    case 'created':
+      return <FormatDate date={c.createdAt} mode="datetime" />;
+    case 'modified':
+      return <FormatDate date={c.updatedAt} mode="datetime" />;
+    default:
+      return null;
+  }
+}
+
 export function CampaignManager({
   campaigns,
   vendors,
@@ -233,77 +428,71 @@ export function CampaignManager({
   const [filterVendor, setFilterVendor] = useState('');
   const [campaignSearch, setCampaignSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
-  const [sortCol, setSortCol] = useState<string>('created');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [colWidths, setColWidths] = useState<Record<string, number>>({});
-  const resizingCol = useRef<string | null>(null);
-  const resizeStartX = useRef(0);
-  const resizeStartW = useRef(0);
-  const tableRef = useRef<HTMLTableElement>(null);
+  const [sortBy, setSortBy] = useState<CampaignSortKey>('created');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  const toggleSort = useCallback((col: string) => {
-    setSortCol((prev) => {
-      if (prev === col) {
+  // Shared column-customization hooks — same machinery that powers the
+  // Leads and Users tables (src/components/admin/leads/shared/columnCustomization).
+  // Widths and order both persist to localStorage so each admin's layout
+  // preferences follow them across refreshes.
+  const {
+    widths: columnWidths,
+    resizingCol,
+    startResize,
+    reset: resetWidths,
+  } = useColumnWidths<CampaignColumnId>(CAMPAIGN_COLUMNS, CAMPAIGN_COLUMN_WIDTHS_KEY);
+
+  const {
+    order: columnOrder,
+    draggingColId,
+    getHandlers: getColHandlers,
+    getDropIndicator,
+    reset: resetOrder,
+  } = useColumnOrder<CampaignColumnId>({
+    defaultOrder: CAMPAIGN_DEFAULT_ORDER,
+    storageKey: CAMPAIGN_COLUMN_ORDER_KEY,
+  });
+
+  const columnMap = useMemo(() => {
+    const m = new Map<CampaignColumnId, (typeof CAMPAIGN_COLUMNS)[number]>();
+    for (const col of CAMPAIGN_COLUMNS) m.set(col.id, col);
+    return m;
+  }, []);
+
+  const orderedColumns = useMemo(
+    () =>
+      columnOrder
+        .map((id) => columnMap.get(id))
+        .filter((col): col is (typeof CAMPAIGN_COLUMNS)[number] => !!col),
+    [columnOrder, columnMap]
+  );
+
+  const handleSort = useCallback(
+    (key: CampaignSortKey) => {
+      if (sortBy === key) {
         setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-        return col;
+      } else {
+        setSortBy(key);
+        setSortDir('asc');
       }
-      setSortDir('asc');
-      return col;
-    });
-  }, []);
+    },
+    [sortBy]
+  );
 
-  const onResizeStart = useCallback((col: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    resizingCol.current = col;
-    resizeStartX.current = e.clientX;
-    const th = (e.target as HTMLElement).closest('th');
-    resizeStartW.current = th?.offsetWidth ?? 120;
-  }, []);
+  const resetColumns = useCallback(() => {
+    resetWidths();
+    resetOrder();
+  }, [resetWidths, resetOrder]);
 
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!resizingCol.current) return;
-      const diff = e.clientX - resizeStartX.current;
-      const newW = Math.max(60, resizeStartW.current + diff);
-      setColWidths((prev) => ({ ...prev, [resizingCol.current!]: newW }));
-    };
-    const onUp = () => { resizingCol.current = null; };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, []);
-
-  // Seed colWidths from the browser's first auto-layout pass so the
-  // table immediately switches to `tableLayout: 'fixed'`. Without this,
-  // auto-layout can push the Actions column past the horizontal scroll
-  // container on first paint, leaving it invisible until the user
-  // resizes some other column. Re-runs when campaigns data first
-  // arrives (table may not be mounted on initial render because the
-  // empty-state is rendered instead). Becomes a no-op once widths are
-  // seeded.
-  useLayoutEffect(() => {
-    if (Object.keys(colWidths).length > 0) return;
-    const table = tableRef.current;
-    if (!table) return;
-    const headers = table.querySelectorAll<HTMLTableCellElement>(
-      'thead th[data-col-key]'
-    );
-    if (headers.length === 0) return;
-    const measured: Record<string, number> = {};
-    headers.forEach((th) => {
-      const key = th.dataset.colKey;
-      if (!key) return;
-      const w = th.offsetWidth;
-      if (w > 0) measured[key] = w;
-    });
-    if (Object.keys(measured).length > 0) {
-      setColWidths(measured);
-    }
-  }, [colWidths, campaigns.length]);
+  // Sum of visible column widths + the fixed 140px Actions column.
+  // Acts as a floor for the horizontal scroll container so narrow
+  // viewports scroll and wide viewports still let each column keep
+  // its stored width.
+  const tableMinWidth = useMemo(
+    () =>
+      orderedColumns.reduce((sum, c) => sum + (columnWidths[c.id] ?? c.defaultWidth), 0) + 140,
+    [orderedColumns, columnWidths]
+  );
 
   const archivedCount = useMemo(
     () => campaigns.filter((c) => !c.active).length,
@@ -335,26 +524,21 @@ export function CampaignManager({
       );
     }
 
+    const dir = sortDir === 'asc' ? 1 : -1;
     const sorted = [...list].sort((a, b) => {
-      let cmp = 0;
-      switch (sortCol) {
-        case 'name': cmp = a.name.localeCompare(b.name); break;
-        case 'vendor': cmp = a.vendor.name.localeCompare(b.vendor.name); break;
-        case 'group': cmp = (a.group?.name || '').localeCompare(b.group?.name || ''); break;
-        case 'tag': cmp = a.routingTag.localeCompare(b.routingTag); break;
-        case 'members': cmp = a._count.members - b._count.members; break;
-        case 'leads': cmp = a._count.leads - b._count.leads; break;
-        case 'status': cmp = (a.active === b.active ? 0 : a.active ? -1 : 1); break;
-        case 'created': cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break;
-        case 'modified': cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime(); break;
-        case 'quota': cmp = a.totalDailyQuota - b.totalDailyQuota; break;
-        case 'avg5bd': cmp = a.avgLeads5bd - b.avgLeads5bd; break;
-        default: cmp = 0;
+      const av = getCampaignColumnSortValue(a, sortBy);
+      const bv = getCampaignColumnSortValue(b, sortBy);
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return (av - bv) * dir;
       }
-      return sortDir === 'asc' ? cmp : -cmp;
+      const as = String(av);
+      const bs = String(bv);
+      if (as < bs) return -1 * dir;
+      if (as > bs) return 1 * dir;
+      return 0;
     });
     return sorted;
-  }, [campaigns, filterVendor, filterGroupId, campaignSearch, sortCol, sortDir, showArchived]);
+  }, [campaigns, filterVendor, filterGroupId, campaignSearch, sortBy, sortDir, showArchived]);
 
   const memberIdSet = useMemo(
     () => new Set(form.memberUserIds),
@@ -661,6 +845,12 @@ export function CampaignManager({
         //    the Reset Columns affordance, matching the Leads card
         //  - inner div does the horizontal scrolling so the card
         //    border never moves, only the content inside it
+        // Card chrome mirrors LeadsCRM / LeadUserManager — same bordered
+        // card with summary strip + Reset Columns link, same sticky
+        // `bg-slate-50` thead, same `divide-y divide-slate-100` tbody.
+        // Column widths, order (drag-to-reorder), and sort state all run
+        // through the shared columnCustomization hooks so any tweaks to
+        // that module automatically pick up here too.
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <p className="text-sm text-slate-600">
@@ -674,70 +864,54 @@ export function CampaignManager({
             </p>
             <button
               type="button"
-              onClick={() => setColWidths({})}
-              className="text-xs font-medium text-slate-500 hover:text-blue-600 transition-colors"
-              title="Restore default column widths"
+              onClick={resetColumns}
+              title="Reset column widths and order"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
             >
+              <RotateCcw className="h-3.5 w-3.5" />
               Reset columns
             </button>
           </div>
           <div className="overflow-x-auto">
-          <table ref={tableRef} className="w-full text-sm" style={{ tableLayout: Object.keys(colWidths).length ? 'fixed' : undefined }}>
+          <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: tableMinWidth }}>
+            <colgroup>
+              {orderedColumns.map((c) => (
+                <col key={c.id} style={{ width: `${columnWidths[c.id]}px` }} />
+              ))}
+              {/* Actions column — fixed 140px, sticky to the right edge */}
+              <col style={{ width: '140px' }} />
+            </colgroup>
             <thead className="sticky top-0 z-[1] bg-slate-50">
               <tr className="border-b border-slate-200">
-                {([
-                  { key: 'status', label: 'Status', align: 'left' },
-                  { key: 'name', label: 'Campaign', align: 'left' },
-                  { key: 'vendor', label: 'Vendor', align: 'left' },
-                  { key: 'group', label: 'Group', align: 'left' },
-                  { key: 'tag', label: 'Routing Tag', align: 'left' },
-                  { key: 'members', label: 'Members', align: 'center' },
-                  { key: 'leads', label: 'Leads', align: 'center' },
-                  { key: 'quota', label: 'Total Quotas', align: 'center' },
-                  { key: 'avg5bd', label: 'Avg / 5 BD', align: 'center' },
-                  { key: 'created', label: 'Created', align: 'left' },
-                  { key: 'modified', label: 'Modified', align: 'left' },
-                ] as const).map((col) => (
-                  <th
-                    key={col.key}
-                    data-col-key={col.key}
-                    className={`relative px-4 py-3 text-${col.align} text-[11px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-slate-700 transition-colors group/th`}
-                    style={colWidths[col.key] ? { width: colWidths[col.key] } : undefined}
-                    onClick={() => toggleSort(col.key)}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {col.label}
-                      {sortCol === col.key && (
-                        sortDir === 'asc'
-                          ? <ArrowUp className="h-3 w-3 text-blue-600" />
-                          : <ArrowDown className="h-3 w-3 text-blue-600" />
-                      )}
-                    </span>
-                    <div
-                      className="absolute right-0 top-0 bottom-0 w-[5px] cursor-col-resize flex items-center justify-center opacity-0 group-hover/th:opacity-100 hover:!opacity-100 transition-opacity z-[2]"
-                      onMouseDown={(e) => onResizeStart(col.key, e)}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="h-4 w-[3px] rounded-sm border-x border-slate-300" />
-                    </div>
-                  </th>
+                {orderedColumns.map((c) => (
+                  <CampaignSortableHeader
+                    key={c.id}
+                    colId={c.id}
+                    label={c.label}
+                    align={c.align}
+                    title={c.title}
+                    activeKey={sortBy}
+                    activeDir={sortDir}
+                    onSort={handleSort}
+                    onStartResize={startResize(c.id, c.minWidth)}
+                    isResizing={resizingCol === c.id}
+                    isDragging={draggingColId === c.id}
+                    dropIndicator={getDropIndicator(c.id)}
+                    dragHandlers={getColHandlers(c.id)}
+                  />
                 ))}
                 {/*
                   Actions column is sticky to the right edge of the
-                  horizontal scroll container (`overflow-x-auto`). No
-                  matter the zoom level or viewport width, the edit /
-                  archive / delete buttons stay visible while the rest
-                  of the table scrolls underneath. The inset shadow on
-                  the left serves as a subtle separator between the
-                  sticky column and the scrolling content.
+                  horizontal scroll container. Not part of the
+                  draggable / resizable set — the edit / archive /
+                  delete buttons always stay visible while the rest
+                  of the table scrolls underneath. The inset shadow
+                  on the left serves as a subtle separator between
+                  the sticky column and the scrolling content.
                 */}
                 <th
-                  data-col-key="actions"
+                  scope="col"
                   className="sticky right-0 z-[2] bg-slate-50 px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap shadow-[inset_1px_0_0_rgb(226,232,240)]"
-                  style={{
-                    width: colWidths.actions ?? 140,
-                    minWidth: 140,
-                  }}
                 >
                   Actions
                 </th>
@@ -751,43 +925,11 @@ export function CampaignManager({
                     c.active ? '' : 'bg-amber-50/30'
                   }`}
                 >
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                        c.active
-                          ? 'border border-blue-200 bg-blue-50 text-blue-700'
-                          : 'border border-amber-200 bg-amber-50 text-amber-700'
-                      }`}
-                    >
-                      {c.active ? 'Active' : 'Archived'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-900">{c.name}</p>
-                    {c.description && <p className="text-xs text-slate-500 mt-0.5 max-w-xs truncate">{c.description}</p>}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{c.vendor.name}</td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {c.group ? (
-                      <span className="inline-flex items-center gap-1.5">
-                        {renderGroupColDots(c.group.colors, c.group.color)}
-                        <span className="truncate">{c.group.name}</span>
-                      </span>
-                    ) : (
-                      <span className="text-slate-300">&mdash;</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.routingTag}</td>
-                  <td className="px-4 py-3 text-center text-slate-700">{c._count.members}</td>
-                  <td className="px-4 py-3 text-center text-slate-700">{c._count.leads}</td>
-                  <td className="px-4 py-3 text-center text-slate-700">{c.totalDailyQuota}</td>
-                  <td className="px-4 py-3 text-center text-slate-700">{c.avgLeads5bd}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                    <FormatDate date={c.createdAt} mode="datetime" />
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                    <FormatDate date={c.updatedAt} mode="datetime" />
-                  </td>
+                  {orderedColumns.map((col) => (
+                    <td key={col.id} className={getCampaignCellClassName(col.id)}>
+                      {renderCampaignCell(col.id, c)}
+                    </td>
+                  ))}
                   <td
                     className="sticky right-0 z-[1] bg-white px-4 py-3 text-right whitespace-nowrap shadow-[inset_1px_0_0_rgb(226,232,240)] transition-colors group-hover:bg-slate-50"
                   >
@@ -1462,5 +1604,103 @@ function CampaignDeleteDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sortable + draggable + resizable column header for the Campaigns table
+// ---------------------------------------------------------------------------
+//
+// Mirrors UserSortableHeader in LeadUserManager so both admin tables ship
+// the same interaction: the whole header is a sort button, it's
+// grab-draggable for reordering (with a vertical drop indicator bar), and
+// hosts the shared ResizeHandle on its right edge.
+
+function CampaignSortableHeader({
+  colId,
+  label,
+  align = 'left',
+  title,
+  activeKey,
+  activeDir,
+  onSort,
+  onStartResize,
+  isResizing,
+  isDragging,
+  dropIndicator,
+  dragHandlers,
+}: {
+  colId: CampaignColumnId;
+  label: string;
+  align?: 'left' | 'right' | 'center';
+  title?: string;
+  activeKey: CampaignSortKey;
+  activeDir: SortDir;
+  onSort: (key: CampaignSortKey) => void;
+  onStartResize: (e: React.MouseEvent) => void;
+  isResizing: boolean;
+  isDragging: boolean;
+  dropIndicator: DropIndicator;
+  dragHandlers: ColumnDragHandlers;
+}) {
+  const isActive = activeKey === colId;
+  const justify =
+    align === 'right'
+      ? 'justify-end'
+      : align === 'center'
+        ? 'justify-center'
+        : 'justify-start';
+  const textAlign =
+    align === 'right'
+      ? 'text-right'
+      : align === 'center'
+        ? 'text-center'
+        : 'text-left';
+  return (
+    <th
+      scope="col"
+      className={`relative px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 overflow-hidden ${textAlign} ${
+        isDragging ? 'opacity-40' : ''
+      }`}
+      onDragOver={dragHandlers.onDragOver}
+      onDragLeave={dragHandlers.onDragLeave}
+      onDrop={dragHandlers.onDrop}
+      title={title}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(colId)}
+        draggable={dragHandlers.draggable}
+        onDragStart={dragHandlers.onDragStart}
+        onDragEnd={dragHandlers.onDragEnd}
+        className={`inline-flex items-center gap-1.5 ${justify} w-full select-none rounded-md px-1.5 py-1 -mx-1.5 transition-colors hover:bg-slate-100 ${
+          dragHandlers.draggable ? 'cursor-grab active:cursor-grabbing' : ''
+        } ${isActive ? 'text-slate-900' : 'text-slate-500'}`}
+        aria-label={`Sort by ${label}`}
+      >
+        <span className="truncate">{label}</span>
+        {isActive ? (
+          activeDir === 'asc' ? (
+            <ChevronUp className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+          )
+        ) : (
+          <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+        )}
+      </button>
+      {dropIndicator && (
+        <div
+          className={`absolute top-0 bottom-0 w-0.5 bg-blue-500 pointer-events-none ${
+            dropIndicator === 'left' ? 'left-0' : 'right-0'
+          }`}
+        />
+      )}
+      <ResizeHandle
+        label={label}
+        onStartResize={onStartResize}
+        isResizing={isResizing}
+      />
+    </th>
   );
 }
