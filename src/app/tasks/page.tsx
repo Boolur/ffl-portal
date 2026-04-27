@@ -1271,7 +1271,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
             bucketScrollMode="fixed"
-            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+            fixedScrollClassName="h-[540px] overflow-y-auto pr-1"
           />
           <TaskDeskSection
             title="QC Requests"
@@ -1285,7 +1285,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
             bucketScrollMode="fixed"
-            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+            fixedScrollClassName="h-[540px] overflow-y-auto pr-1"
           />
           {sessionRole === UserRole.LOAN_OFFICER && showLoVaPilot && (
             <LoVaBorrowerProgressList items={loVaProgressItems} currentRole={sessionRole} />
@@ -1430,7 +1430,25 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           currentUserId={sessionUser.id}
           jrAssigneeOptions={jrAssigneeOptions}
           initialFocusedTaskId={focusedTaskId}
-          bucketScrollMode="auto"
+          // Disclosure Specialists and QC role users land here (they're not
+          // manager-like, so they skip the dual-desk path above). Cap their
+          // bucket columns the same way admins/managers now see them —
+          // otherwise "Completed QC Requests" grows unbounded and stretches
+          // the whole page. Keep `auto` for every other fallback consumer
+          // (LOAN_OFFICER, LOA, PROCESSOR_JR, etc.) so their task views
+          // remain unchanged.
+          bucketScrollMode={
+            sessionRole === UserRole.DISCLOSURE_SPECIALIST ||
+            sessionRole === UserRole.QC
+              ? 'fixed'
+              : 'auto'
+          }
+          fixedScrollClassName={
+            sessionRole === UserRole.DISCLOSURE_SPECIALIST ||
+            sessionRole === UserRole.QC
+              ? 'h-[540px] overflow-y-auto pr-1'
+              : undefined
+          }
         />
       )}
 
