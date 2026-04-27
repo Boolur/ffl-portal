@@ -131,6 +131,16 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       roles: [] as UserRole[],
       visible: () => canAccessReports(activeRoleArr),
     },
+    // Lead Distribution lives in the Management section, immediately
+    // above User Management. The order of entries in this array
+    // directly drives the render order of the Management group below.
+    {
+      name: 'Lead Distribution',
+      icon: Megaphone,
+      href: '/admin/leads',
+      roles: [] as UserRole[],
+      visible: () => canAccessLeadDistribution(activeRoleArr),
+    },
     {
       name: 'User Management',
       icon: Shield,
@@ -151,13 +161,6 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       href: '/admin/lead-mailbox',
       roles: [] as UserRole[],
       visible: () => canAccessLeadMailbox(activeRoleArr),
-    },
-    {
-      name: 'Lead Distribution',
-      icon: Megaphone,
-      href: '/admin/leads',
-      roles: [] as UserRole[],
-      visible: () => canAccessLeadDistribution(activeRoleArr),
     },
     {
       name: 'Lender Mgmt',
@@ -182,7 +185,13 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     return v ? v() : false;
   };
 
-  const MANAGEMENT_NAMES = ['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'];
+  const MANAGEMENT_NAMES = [
+    'Lead Distribution',
+    'User Management',
+    'Email Settings',
+    'Lead Mailbox',
+    'Lender Mgmt',
+  ];
   const mainNavItems = navItems.filter(
     (item) =>
       isVisible(item) &&
