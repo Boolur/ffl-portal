@@ -2163,6 +2163,24 @@ export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
     ? { assignedUserId: opts.assignedUserId }
     : {};
 
+  // CSV Upload is a *system* vendor used only for bulk historical
+  // imports — a single 100k-row upload would otherwise dominate the
+  // "Leads by Vendor" chart and make it impossible to read how the
+  // real, trickle-in vendors (LendingTree, LeadPoint, FreeRateUpdate,
+  // etc.) are splitting. We still count CSV leads in the stat cards
+  // above (they're real leads), but we exclude the csv-upload vendor
+  // row from the vendor breakdown so the chart reflects true ongoing
+  // acquisition mix. Look up the id once (cheap — slug is unique) so
+  // we can use a scalar-only groupBy `where` and avoid relation
+  // filters in the aggregation.
+  const csvVendor = await prisma.leadVendor.findUnique({
+    where: { slug: CSV_VENDOR_SLUG },
+    select: { id: true },
+  });
+  const vendorScope: Prisma.LeadWhereInput = csvVendor
+    ? { ...scope, vendorId: { not: csvVendor.id } }
+    : scope;
+
   const [
     totalLeads,
     newToday,
@@ -2184,7 +2202,7 @@ export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
     prisma.lead.groupBy({
       by: ['vendorId'],
       _count: { id: true },
-      where: scope,
+      where: vendorScope,
       orderBy: { _count: { id: 'desc' } },
     }),
     // All-time campaign volume (mirrors byVendor window) so every active
