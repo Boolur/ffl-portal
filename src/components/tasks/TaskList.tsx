@@ -3868,7 +3868,17 @@ export function TaskList({
             task.kind === TaskKind.VA_PAYOFF ||
             task.kind === TaskKind.VA_APPRAISAL);
         const shouldShowQueueTimer =
-          (isDisclosureRole || isLoanOfficerRole || isQcRole || isManagerRole || isVaSubRole) &&
+          // Admin tiers get manager-equivalent timer visibility so SLA badges
+          // show up on their Tasks view for reporting/oversight — admins
+          // don't work tasks themselves but they need to see queue age at
+          // a glance. Matches the isAdmin-parity pattern already used for
+          // canBypassVaStartForRouting / canBypassStartLock in this file.
+          (isDisclosureRole ||
+            isLoanOfficerRole ||
+            isQcRole ||
+            isManagerRole ||
+            isVaSubRole ||
+            isAdmin(currentRole as UserRole)) &&
           (isDisclosureSubmissionTask(task) ||
             isQcSubmissionTask(task) ||
             isQcLinkedLoResponseTask ||
