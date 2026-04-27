@@ -6,10 +6,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { TaskKind, UserRole } from '@prisma/client';
 import { startPerfTimer, withPerfMetric } from '@/lib/perf';
-import {
-  buildLoanOfficerLoanWhere,
-  resolveLoanOfficerTaskWhere,
-} from '@/lib/loanOfficerVisibility';
+import { buildLoanOfficerLoanWhere, buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import { isAdmin } from '@/lib/adminTiers';
 
 const LO_DASHBOARD_TASK_KINDS: TaskKind[] = [
@@ -79,10 +76,12 @@ async function getDashboardTasks(role: UserRole, userId?: string) {
     );
   }
 
-  const loScope = await resolveLoanOfficerTaskWhere(userId);
   const where = isLoanOfficer
     ? {
-        AND: [loScope, { kind: { in: LO_DASHBOARD_TASK_KINDS } }],
+        AND: [
+          buildLoanOfficerTaskWhere(userId),
+          { kind: { in: LO_DASHBOARD_TASK_KINDS } },
+        ],
       }
     : {
         kind: { in: LO_DASHBOARD_TASK_KINDS },

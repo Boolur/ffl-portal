@@ -7,7 +7,7 @@ import { TaskDeskSection } from '@/components/tasks/TaskDeskSection';
 import { TasksRouteSyncGate } from '@/components/tasks/TasksRouteSyncGate';
 import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
 import { buildLoVaBorrowerProgress } from '@/lib/loVaProgress';
-import { resolveLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
+import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 import {
   DisclosureDecisionReason,
@@ -205,16 +205,8 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   if (isAdminOrManager || isLoanOfficerAssistant) {
     // no-op: managers/admins can review all queues
   } else if (isLoanOfficer && userId) {
-    // LO scope: primary, secondary, and submitter-fallback visibility.
-    // Uses the async resolver so Prisma runs a plain `loanId IN (...)`
-    // lookup instead of a correlated EXISTS against Loan -- the latter
-    // was the dominant cost (13s p95) once the Loan table grew to 100k+.
-    const loScope = await withPerfMetric(
-      'query.tasks.loanIds.loanOfficer',
-      () => resolveLoanOfficerTaskWhere(userId),
-      { role, hasUserId: true }
-    );
-    Object.assign(where, loScope);
+    // LO scope includes primary, secondary, and submitter fallback visibility.
+    Object.assign(where, buildLoanOfficerTaskWhere(userId));
   } else if (role === UserRole.DISCLOSURE_SPECIALIST) {
     where.OR = [
       { assignedRole: role as UserRole },
