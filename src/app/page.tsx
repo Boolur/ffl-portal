@@ -141,15 +141,26 @@ export default async function Home() {
   const sessionUserId = session?.user?.id || '';
   const sessionRole = (session?.user?.activeRole || session?.user?.role || 'LOAN_OFFICER') as UserRole;
   const sessionRoles = ((session?.user?.roles as UserRole[] | undefined) || [sessionRole]);
+  // Defensive: the Supabase pooler has been returning occasional
+  // connection-pool timeouts under load. If this lookup fails we
+  // still want the rest of the dashboard to render rather than
+  // surfacing the generic "Server Components render" error to the
+  // user. The pilot flags just disable UI affordances when missing,
+  // so null is a safe fallback.
   const userFlags = sessionUserId
-    ? await prisma.user.findUnique({
-        where: { id: sessionUserId },
-        select: {
-          loQcTwoRowPilot: true,
-          loDisclosureSubmissionEnabled: true,
-          loQcSubmissionEnabled: true,
-        },
-      })
+    ? await prisma.user
+        .findUnique({
+          where: { id: sessionUserId },
+          select: {
+            loQcTwoRowPilot: true,
+            loDisclosureSubmissionEnabled: true,
+            loQcSubmissionEnabled: true,
+          },
+        })
+        .catch((err) => {
+          console.error('[dashboard] user flags lookup failed', err);
+          return null;
+        })
     : null;
   const user = {
     name: session?.user?.name || 'User',
@@ -163,27 +174,43 @@ export default async function Home() {
       userFlags?.loDisclosureSubmissionEnabled ?? true,
     loQcSubmissionEnabled: userFlags?.loQcSubmissionEnabled ?? true,
   };
-  const [loans, adminTasks] = await Promise.all([
-    getLoans(user.role, user.id),
-    getDashboardTasks(user.role as UserRole, user.id),
-  ]);
-  const loanOfficerOptions =
+  // Run the three dashboard queries in parallel but isolate failures
+  // so one slow/timing-out query does not blow up the whole render.
+  // This is what was causing admins to see the opaque Server
+  // Components render error under pool-exhaustion: the `adminTasks`
+  // query would throw a Prisma pool-timeout and the entire route
+  // returned 500, locking admins out of the portal.
+  const [loans, adminTasks, loanOfficerOptions] = await Promise.all([
+    getLoans(user.role, user.id).catch((err) => {
+      console.error('[dashboard] getLoans failed', err);
+      return [] as Awaited<ReturnType<typeof getLoans>>;
+    }),
+    getDashboardTasks(user.role as UserRole, user.id).catch((err) => {
+      console.error('[dashboard] getDashboardTasks failed', err);
+      return [] as Awaited<ReturnType<typeof getDashboardTasks>>;
+    }),
     user.role === UserRole.LOA || user.role === UserRole.LOAN_OFFICER
-      ? await prisma.user.findMany({
-          where: {
-            active: true,
-            OR: [
-              { role: UserRole.LOAN_OFFICER },
-              { roles: { has: UserRole.LOAN_OFFICER } },
-            ],
-          },
-          select: {
-            id: true,
-            name: true,
-          },
-          orderBy: { name: 'asc' },
-        })
-      : [];
+      ? prisma.user
+          .findMany({
+            where: {
+              active: true,
+              OR: [
+                { role: UserRole.LOAN_OFFICER },
+                { roles: { has: UserRole.LOAN_OFFICER } },
+              ],
+            },
+            select: {
+              id: true,
+              name: true,
+            },
+            orderBy: { name: 'asc' },
+          })
+          .catch((err) => {
+            console.error('[dashboard] loanOfficerOptions lookup failed', err);
+            return [] as Array<{ id: string; name: string }>;
+          })
+      : Promise.resolve([] as Array<{ id: string; name: string }>),
+  ]);
 
   const pageOutput = (
     <DashboardWrapper
