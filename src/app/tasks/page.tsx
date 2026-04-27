@@ -289,83 +289,63 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
     ];
   }
 
-  // Narrow projection: Task has ~30 scalar columns and we only need
-  // about half of them downstream. `include` forces Prisma to pull
-  // every column; `select` lets us drop `priority`, `completedAt`,
-  // the bare `assignedUserId` scalar, and the stray `assignedUser.role`
-  // that was fetched but never rendered. At tens of thousands of
-  // rows, that's real network + serialization work removed.
   const tasks = await withPerfMetric(
     'query.tasks.findMany.primary',
     () =>
       prisma.task.findMany({
-        where,
+    where,
+    include: {
+      loan: {
         select: {
-          id: true,
-          loanId: true,
-          title: true,
-          description: true,
-          status: true,
-          kind: true,
-          submissionData: true,
-          disclosureReason: true,
-          workflowState: true,
-          loanOfficerApprovedAt: true,
-          parentTaskId: true,
-          assignedRole: true,
-          dueDate: true,
-          createdAt: true,
-          updatedAt: true,
-          loan: {
+          loanNumber: true,
+          borrowerName: true,
+          stage: true, // Include stage
+          loanOfficer: {
             select: {
-              loanNumber: true,
-              borrowerName: true,
-              stage: true,
-              loanOfficer: {
-                select: {
-                  name: true,
-                },
-              },
-              secondaryLoanOfficer: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          },
-          attachments: {
-            select: {
-              id: true,
-              filename: true,
-              purpose: true,
-              createdAt: true,
-              uploadedBy: {
-                select: {
-                  name: true,
-                  role: true,
-                },
-              },
-            },
-            orderBy: { createdAt: 'desc' },
-          },
-          assignedUser: {
-            select: {
-              id: true,
               name: true,
             },
           },
-          parentTask: {
+          secondaryLoanOfficer: {
             select: {
-              kind: true,
-              assignedRole: true,
-              title: true,
-              submissionData: true,
+              name: true,
             },
           },
         },
-        orderBy: {
-          dueDate: 'asc',
+      },
+      attachments: {
+        select: {
+          id: true,
+          filename: true,
+          purpose: true,
+          createdAt: true,
+          uploadedBy: {
+            select: {
+              name: true,
+              role: true,
+            },
+          },
         },
+        orderBy: { createdAt: 'desc' },
+      },
+      assignedUser: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+        },
+      },
+      parentTask: {
+        select: {
+          kind: true,
+          assignedRole: true,
+          title: true,
+          submissionData: true,
+        },
+      },
+    },
+    orderBy: {
+      dueDate: 'asc', // Urgent first
+    },
       }),
     {
       role,

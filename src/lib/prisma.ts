@@ -39,20 +39,6 @@ function resolveDatabaseUrl(): string | undefined {
     if (!params.has('connect_timeout')) {
       params.set('connect_timeout', '15');
     }
-    // Safety valve: kill any single query that tries to run longer
-    // than 25s. Without this, a slow tasks.findMany (we've logged 10-
-    // 18s p50 and occasional 30s+ outliers) can hold a pool slot the
-    // full Postgres-idle-transaction-timeout, starving every other
-    // request on the same lambda. 25s is long enough for the fat
-    // admin dashboard queries to succeed but short enough to recycle
-    // the slot before the 30s pool_timeout other requests are waiting
-    // on.
-    if (!params.has('statement_timeout')) {
-      params.set('statement_timeout', '25000');
-    }
-    if (!params.has('socket_timeout')) {
-      params.set('socket_timeout', '30000');
-    }
 
     return url.toString();
   } catch {

@@ -259,10 +259,6 @@ model Task {
   @@index([loanId, dueDate])
   @@index([status, dueDate])
   @@index([loanId, updatedAt])
-  // Bare dueDate index so admin/manager Tasks views (which have no
-  // `where` filter and order by dueDate ASC) can do an index-ordered
-  // scan instead of sorting the entire Task table on every request.
-  @@index([dueDate])
 }
 
 model Lender {
