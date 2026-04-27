@@ -1,0 +1,14 @@
+-- Reconcile production DB with the reverted codebase.
+--
+-- Migration `20260427180000_add_task_dueDate_index` was applied to
+-- production before the performance-optimization commit that
+-- introduced it was reverted. The index itself is harmless but the
+-- reverted schema.prisma no longer declares it, so Prisma's
+-- `_prisma_migrations` table reported drift and `migrate deploy`
+-- needs a matching migration to re-sync.
+--
+-- Dropping the index returns the database to its pre-perf-attempt
+-- state. `IF EXISTS` keeps the migration idempotent and safe to run
+-- on environments (local/dev) where the original migration never
+-- applied.
+DROP INDEX IF EXISTS "Task_dueDate_idx";
