@@ -30,15 +30,15 @@ function resolveDatabaseUrl(): string | undefined {
     if (!params.has('pgbouncer') && url.hostname.includes('pooler.supabase.com')) {
       params.set('pgbouncer', 'true');
     }
-    if (!params.has('connection_limit')) {
-      params.set('connection_limit', '20');
-    }
-    if (!params.has('pool_timeout')) {
-      params.set('pool_timeout', '30');
-    }
-    if (!params.has('connect_timeout')) {
-      params.set('connect_timeout', '15');
-    }
+    // Force-override pool sizing. The earlier version only set these
+    // when absent, which meant if DATABASE_URL already contained
+    // `?connection_limit=5` (Prisma's default, baked into the URL in
+    // Vercel at some point) our tuning was silently ignored and the
+    // production logs kept reporting "connection limit: 5". Always
+    // overwrite so every deploy gets the values we actually want.
+    params.set('connection_limit', '20');
+    params.set('pool_timeout', '30');
+    params.set('connect_timeout', '15');
     // Safety valve: kill any single query that tries to run longer
     // than 25s. Without this, a slow tasks.findMany (we've logged 10-
     // 18s p50 and occasional 30s+ outliers) can hold a pool slot the
@@ -47,12 +47,8 @@ function resolveDatabaseUrl(): string | undefined {
     // admin dashboard queries to succeed but short enough to recycle
     // the slot before the 30s pool_timeout other requests are waiting
     // on.
-    if (!params.has('statement_timeout')) {
-      params.set('statement_timeout', '25000');
-    }
-    if (!params.has('socket_timeout')) {
-      params.set('socket_timeout', '30000');
-    }
+    params.set('statement_timeout', '25000');
+    params.set('socket_timeout', '30000');
 
     return url.toString();
   } catch {
@@ -60,13 +56,35 @@ function resolveDatabaseUrl(): string | undefined {
   }
 }
 
+function logPrismaBoot(url: string | undefined) {
+  if (!url) return;
+  // Emit one line on lambda cold start so we can verify in Vercel
+  // logs that our pool + timeout params are actually live, without
+  // leaking the password or host.
+  try {
+    const parsed = new URL(url);
+    const params = parsed.searchParams;
+    console.info('[prisma] boot', {
+      host: parsed.hostname,
+      pgbouncer: params.get('pgbouncer'),
+      connection_limit: params.get('connection_limit'),
+      pool_timeout: params.get('pool_timeout'),
+      connect_timeout: params.get('connect_timeout'),
+      statement_timeout: params.get('statement_timeout'),
+      socket_timeout: params.get('socket_timeout'),
+    });
+  } catch {
+    // URL parse already failed upstream; nothing to log.
+  }
+}
+
 const DATABASE_URL = resolveDatabaseUrl();
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-export const prisma =
-  globalForPrisma.prisma ||
-  new PrismaClient({
+function createPrismaClient() {
+  logPrismaBoot(DATABASE_URL);
+  return new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['query'] : ['error', 'warn'],
     datasources: DATABASE_URL
       ? {
@@ -74,5 +92,8 @@ export const prisma =
         }
       : undefined,
   });
+}
+
+export const prisma = globalForPrisma.prisma || createPrismaClient();
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;

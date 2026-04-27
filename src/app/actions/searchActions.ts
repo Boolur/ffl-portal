@@ -4,7 +4,7 @@ import { Prisma, TaskKind, TaskStatus, UserRole } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
+import { resolveLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import { isAdmin } from '@/lib/adminTiers';
 
 type SearchResultItem = {
@@ -19,7 +19,10 @@ type SearchResultItem = {
   href: string;
 };
 
-function getRoleScopedTaskWhere(role: UserRole, userId?: string): Prisma.TaskWhereInput {
+async function getRoleScopedTaskWhere(
+  role: UserRole,
+  userId?: string
+): Promise<Prisma.TaskWhereInput> {
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const isAdminOrManager =
     isAdmin(role) || role === UserRole.MANAGER || role === UserRole.LOA;
@@ -28,7 +31,7 @@ function getRoleScopedTaskWhere(role: UserRole, userId?: string): Prisma.TaskWhe
   if (isAdminOrManager) return {};
 
   if (isLoanOfficer && userId) {
-    return buildLoanOfficerTaskWhere(userId);
+    return resolveLoanOfficerTaskWhere(userId);
   }
 
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
@@ -77,7 +80,7 @@ export async function searchPortal(query: string): Promise<{
     const role = (session?.user?.activeRole || session?.user?.role || UserRole.LOAN_OFFICER) as UserRole;
     const userId = session?.user?.id || undefined;
 
-    const scopedWhere = getRoleScopedTaskWhere(role, userId);
+    const scopedWhere = await getRoleScopedTaskWhere(role, userId);
     const searchWhere: Prisma.TaskWhereInput = {
       AND: [
         scopedWhere,
