@@ -1,34 +1,12 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 import {
-  LeadStatus,
-  IntegrationServiceTrigger,
-  type Prisma,
-} from '@prisma/client';
-import { distributeLead } from '@/app/actions/leadActions';
-import { runServiceTriggers } from '@/lib/services';
-import {
-  LEAD_MAILBOX_FIELD_MAP,
-  LEAD_MAILBOX_TARGET_FIELDS,
-  extractBridgeNotes,
-} from '@/lib/leadMailboxBridge';
-import { normalizeMilitaryFlag } from '@/lib/militaryFlag';
-
-/**
- * Matches an unsubstituted Lead Mailbox placeholder, e.g. "{FirstName}" or
- * "{Co_DateOfBirth}". When LM doesn't recognize a placeholder in the Service's
- * Content template, it passes the literal token through — we must not write
- * those strings onto real Lead fields.
- */
-const UNSUBSTITUTED_PLACEHOLDER = /^\{[A-Za-z0-9_]+\}$/;
-
-function normalizeStringValue(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  const str = String(value).trim();
-  if (str.length === 0) return null;
-  if (UNSUBSTITUTED_PLACEHOLDER.test(str)) return null;
-  return str;
-}
+  captureHeaders,
+  markFailed,
+  markProcessed,
+  markSkipped,
+  recordInbound,
+} from '@/lib/webhookInbox';
+import { ingestLeadMailboxWebhook } from '@/lib/webhookIngest';
 
 export async function POST(
   request: Request,
@@ -36,161 +14,87 @@ export async function POST(
 ) {
   const { vendorSlug } = await params;
 
-  const vendor = await prisma.leadVendor.findUnique({
-    where: { slug: vendorSlug },
+  // Read the request body as text first so we can capture the exact
+  // bytes that arrived — even if JSON parsing fails. The inbox row is
+  // the source of truth for everything that follows.
+  const bodyText = await request.text();
+
+  let payload: Record<string, unknown> | null = null;
+  let parseError: string | null = null;
+  try {
+    payload = bodyText ? (JSON.parse(bodyText) as Record<string, unknown>) : {};
+  } catch (err) {
+    parseError =
+      err instanceof Error ? err.message : 'Unknown JSON parse error';
+  }
+
+  const headers = captureHeaders(request.headers);
+
+  // Capture the raw event BEFORE any vendor lookup or processing. If
+  // this insert fails the database is unreachable — we respond 503 so
+  // Lead Mailbox's retry logic kicks in instead of the payload being
+  // silently dropped.
+  const inboxEventId = await recordInbound({
+    source: 'lead-mailbox',
+    vendorSlug,
+    headers,
+    body: payload ?? { _raw: bodyText, _parseError: true, error: parseError },
   });
 
-  if (!vendor || !vendor.active) {
+  if (!inboxEventId) {
     return NextResponse.json(
-      { error: 'Unknown or inactive vendor' },
-      { status: 404 }
+      {
+        error: 'Service temporarily unavailable — please retry',
+        source: 'lead-mailbox-bridge',
+      },
+      { status: 503 }
     );
   }
 
-  let payload: Record<string, unknown>;
-  try {
-    payload = await request.json();
-  } catch {
+  if (payload === null) {
+    await markSkipped(inboxEventId, `Invalid JSON body: ${parseError ?? ''}`);
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  if (vendor.webhookSecret) {
-    const sig =
-      request.headers.get('x-webhook-secret') ||
-      request.headers.get('authorization');
-    if (sig !== vendor.webhookSecret && sig !== `Bearer ${vendor.webhookSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-  }
-
-  const routingTag = normalizeStringValue(payload.routing_tag);
-
-  let campaign = null;
-  if (routingTag) {
-    // Archived campaigns must not route new leads — otherwise archiving
-    // a campaign is meaningless and un-archiving can resurface partial
-    // traffic unexpectedly. Falling through to `null` sends the lead to
-    // the Unassigned Pool, which is the correct behavior for "this
-    // campaign is paused."
-    const match = await prisma.leadCampaign.findUnique({
-      where: {
-        vendorId_routingTag: { vendorId: vendor.id, routingTag },
-      },
-    });
-    if (match?.active) campaign = match;
-  }
-
-  const vendorLeadId =
-    normalizeStringValue(payload.lead_id) ??
-    normalizeStringValue(payload.leadId) ??
-    normalizeStringValue(payload.leadid) ??
-    normalizeStringValue(payload.id);
-
-  if (campaign?.duplicateHandling === 'REJECT' && vendorLeadId) {
-    const existing = await prisma.lead.findFirst({
-      where: { vendorId: vendor.id, vendorLeadId },
-    });
-    if (existing) {
-      return NextResponse.json(
-        { error: 'Duplicate lead rejected', leadId: existing.id },
-        { status: 409 }
-      );
-    }
-  }
-
-  const leadFields: Record<string, string> = {};
-  for (const [payloadKey, rawValue] of Object.entries(payload)) {
-    const target = LEAD_MAILBOX_FIELD_MAP[payloadKey];
-    if (!target) continue;
-    if (!LEAD_MAILBOX_TARGET_FIELDS.has(target)) continue;
-    const value = normalizeStringValue(rawValue);
-    if (value === null) continue;
-    if (leadFields[target]) continue;
-    if (target === 'isMilitary') {
-      // LM substitutes `{Ismilitary}` / `{Veteran}` tokens with whatever the
-      // upstream vendor sent — the same field reaches us as "True", "Yes",
-      // "no", "1", etc. across LendingTree / HomeBuyer Marketing / etc.
-      // Collapse to the canonical "Yes"/"No" at ingest so downstream Bonzo
-      // veteran-campaign triggers (and the portal's own filters) see a
-      // stable value. Unknown inputs still pass through so admins can see
-      // what the vendor actually sent in the detail panel.
-      const canonical = normalizeMilitaryFlag(value);
-      leadFields[target] = canonical ?? value;
-      continue;
-    }
-    leadFields[target] = value;
-  }
-
-  const statusStr = campaign?.defaultLeadStatus ?? 'UNASSIGNED';
-  const status = (Object.values(LeadStatus) as string[]).includes(statusStr)
-    ? (statusStr as LeadStatus)
-    : LeadStatus.UNASSIGNED;
-
-  const createData: Prisma.LeadUncheckedCreateInput = {
-    vendorLeadId,
-    vendorId: vendor.id,
-    campaignId: campaign?.id ?? null,
-    status,
-    source: `Lead Mailbox (${vendor.name})`,
-    rawPayload: payload as Prisma.InputJsonValue,
-    receivedAt: new Date(),
-  };
-
-  for (const [k, v] of Object.entries(leadFields)) {
-    (createData as Record<string, unknown>)[k] = v;
-  }
-
-  const lead = await prisma.lead.create({ data: createData });
-
-  void runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE);
-  void runServiceTriggers(
-    lead.id,
-    IntegrationServiceTrigger.DELAY_AFTER_RECEIVE
-  );
-
-  const noteContents = extractBridgeNotes(payload);
-  if (noteContents.length > 0) {
-    try {
-      await prisma.leadNote.createMany({
-        data: noteContents.map((content) => ({
-          leadId: lead.id,
-          authorId: null,
-          content,
-        })),
-      });
-    } catch (err) {
-      // Non-fatal: notes failing should never block lead distribution.
-      console.warn(
-        '[lead-mailbox-bridge] failed to persist vendor notes for lead',
-        lead.id,
-        err
-      );
-    }
-  }
+  const signatureHeader =
+    request.headers.get('x-webhook-secret') ||
+    request.headers.get('authorization');
 
   try {
-    await distributeLead(lead.id);
+    const result = await ingestLeadMailboxWebhook({
+      vendorSlug,
+      payload,
+      signatureHeader,
+    });
+
+    if (result.status === 'processed') {
+      await markProcessed(inboxEventId, result.leadId);
+    } else {
+      await markSkipped(
+        inboxEventId,
+        result.skipReason ?? 'Skipped',
+        result.leadId
+      );
+    }
+
+    return NextResponse.json(result.body, { status: result.code });
   } catch (err) {
+    // Any exception past the inbox write is an in-portal processing
+    // failure. The raw payload is already persisted — admins can replay
+    // from Lead Distribution → Webhook Inbox once the root cause is fixed.
+    await markFailed(inboxEventId, err);
     console.error(
-      '[lead-mailbox-bridge] distribution failed for lead',
-      lead.id,
+      '[lead-mailbox-bridge] ingestion failed for inbox event',
+      inboxEventId,
       err
     );
+    return NextResponse.json(
+      {
+        error: 'Internal processing error — event captured for replay',
+        inboxEventId,
+        source: 'lead-mailbox-bridge',
+      },
+      { status: 500 }
+    );
   }
-
-  // `status: "ok"` is intentional: Lead Mailbox's default Success String is
-  // `"status":"ok"` and it matches against the raw response body. Keeping this
-  // field stable means every LM Service pointed at the bridge reports success
-  // without per-Service config changes.
-  return NextResponse.json(
-    {
-      status: 'ok',
-      success: true,
-      leadId: lead.id,
-      source: 'lead-mailbox-bridge',
-      vendor: vendor.slug,
-      campaign: campaign?.routingTag ?? null,
-    },
-    { status: 201 }
-  );
 }

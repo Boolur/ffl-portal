@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { LeadDetailModal } from './LeadDetailModal';
+import { WebhookInboxPanel } from './WebhookInboxPanel';
 import { getLead } from '@/app/actions/leadActions';
 import { FormatDate } from '@/components/ui/FormatDate';
 
@@ -129,6 +130,11 @@ export function LeadDashboard({
 
   return (
     <div className="space-y-8">
+      {/* Webhook inbox health — visible whenever there are failed or
+          pending inbound webhook events so admins can replay after any
+          downstream outage. Renders a compact healthy indicator otherwise. */}
+      <WebhookInboxPanel />
+
       {/* Primary Navigation Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
         {NAV_CARDS.map((card) => (

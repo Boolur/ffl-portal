@@ -988,3 +988,67 @@ model CsvColumnMapping {
   @@unique([csvHeader, ourField])
   @@index([csvHeader])
 }
+
+enum WebhookInboxStatus {
+  // Captured, not yet attempted.
+  PENDING
+  // Captured and successfully turned into a Lead (or an intentional no-op
+  // like a REJECT-on-duplicate that the sender should treat as success).
+  PROCESSED
+  // Processing was attempted and threw. Eligible for replay.
+  FAILED
+  // Captured but intentionally not processed (unknown vendor, invalid
+  // signature, invalid JSON body). Kept for audit; replay would usually
+  // just skip again, but the raw payload is preserved either way.
+  SKIPPED
+}
+
+// Durable capture-first inbox for every inbound webhook. Populated as the
+// very first step of each handler — before any vendor lookup, signature
+// check, or Lead creation — so that if any downstream step fails (bad
+// payload shape, schema drift, a transient DB error inside distribution
+// or service triggers) we never lose the raw payload. Admins can then
+// replay failed events from the Lead Distribution UI once the underlying
+// issue is resolved.
+//
+// Note: this protects against *in-portal* failures during processing. A
+// total Supabase outage that prevents even the initial inbox insert is
+// not something this table can catch on its own; senders (Lead Mailbox)
+// retry those on their side.
+model WebhookInboxEvent {
+  id           String             @id @default(uuid())
+  // Logical source of the webhook, e.g. "lead-mailbox" or "leads".
+  // Matches the URL segment under /api/webhooks/<source>/...
+  source       String
+  // Vendor slug from the URL path param. Nullable because future sources
+  // may not be vendor-scoped.
+  vendorSlug   String?
+  // HTTP method, almost always "POST". Captured for completeness so
+  // replay can dispatch through the same code path.
+  method       String             @default("POST")
+  // Captured request headers with sensitive values redacted
+  // (authorization, cookie, x-webhook-secret). Used so replay can
+  // reconstruct vendor context if a handler ever needs more than the body.
+  headers      Json
+  // The raw parsed JSON body. If JSON parsing failed at capture time we
+  // store `{ _raw: "<text>", _parseError: true }` so the payload is
+  // still inspectable.
+  body         Json
+  status       WebhookInboxStatus @default(PENDING)
+  attempts     Int                @default(0)
+  errorMessage String?
+  // Set to the created Lead.id once a Lead has been successfully
+  // persisted from this event. Nullable because SKIPPED / FAILED events
+  // may never yield a Lead.
+  leadId       String?
+  receivedAt   DateTime           @default(now())
+  processedAt  DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  // Admin UI queries by status (failed + pending) ordered by receivedAt
+  // DESC so the failure list is cheap even as the table grows.
+  @@index([status, receivedAt(sort: Desc)])
+  @@index([source, vendorSlug, receivedAt(sort: Desc)])
+  @@index([leadId])
+}
