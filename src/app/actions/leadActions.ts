@@ -2167,17 +2167,21 @@ export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
   // imports — a single 100k-row upload would otherwise dominate the
   // "Leads by Vendor" chart and make it impossible to read how the
   // real, trickle-in vendors (LendingTree, LeadPoint, FreeRateUpdate,
-  // etc.) are splitting. We still count CSV leads in the stat cards
-  // above (they're real leads), but we exclude the csv-upload vendor
-  // row from the vendor breakdown so the chart reflects true ongoing
-  // acquisition mix. Look up the id once (cheap — slug is unique) so
-  // we can use a scalar-only groupBy `where` and avoid relation
-  // filters in the aggregation.
+  // etc.) are splitting. Same story for the "This Month" stat card:
+  // if a bulk CSV import lands in the current month it spikes the
+  // month count to ~100% of total-leads, drowning out the real
+  // month-over-month trend. We still count CSV leads in the
+  // all-time / daily / weekly / unassigned cards so day-of-import
+  // reporting stays accurate, but we exclude the csv-upload vendor
+  // from both the monthly tracker and the vendor breakdown so those
+  // surfaces reflect true ongoing acquisition mix. Look up the id
+  // once (cheap — slug is unique) so we can use a scalar-only
+  // `where` and avoid relation filters in the aggregation.
   const csvVendor = await prisma.leadVendor.findUnique({
     where: { slug: CSV_VENDOR_SLUG },
     select: { id: true },
   });
-  const vendorScope: Prisma.LeadWhereInput = csvVendor
+  const nonCsvScope: Prisma.LeadWhereInput = csvVendor
     ? { ...scope, vendorId: { not: csvVendor.id } }
     : scope;
 
@@ -2193,7 +2197,13 @@ export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
     prisma.lead.count({ where: scope }),
     prisma.lead.count({ where: { ...scope, receivedAt: { gte: todayStart } } }),
     prisma.lead.count({ where: { ...scope, receivedAt: { gte: weekStart } } }),
-    prisma.lead.count({ where: { ...scope, receivedAt: { gte: monthStart } } }),
+    // Month excludes CSV-uploaded leads so a one-off historical
+    // import doesn't inflate the ongoing monthly trend. CSV imports
+    // remain queryable via the CSV_VENDOR_SLUG vendor for any future
+    // dedicated "leads added via CSV" report.
+    prisma.lead.count({
+      where: { ...nonCsvScope, receivedAt: { gte: monthStart } },
+    }),
     prisma.lead.count({
       where: opts.assignedUserId
         ? { assignedUserId: opts.assignedUserId, status: LeadStatus.UNASSIGNED }
@@ -2202,7 +2212,7 @@ export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
     prisma.lead.groupBy({
       by: ['vendorId'],
       _count: { id: true },
-      where: vendorScope,
+      where: nonCsvScope,
       orderBy: { _count: { id: 'desc' } },
     }),
     // All-time campaign volume (mirrors byVendor window) so every active
