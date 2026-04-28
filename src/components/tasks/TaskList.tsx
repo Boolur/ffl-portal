@@ -30,6 +30,7 @@ import {
   deleteTask,
   reassignJrTask,
   reopenCompletedVaTaskToNew,
+  returnCompletedJrTaskToAssigned,
   releaseJrTaskToQueue,
   releaseVaSpecialistTaskToQueue,
   reviewInitialDisclosureFigures,
@@ -2566,6 +2567,28 @@ export function TaskList({
     setUpdatingId(null);
   };
 
+  const handleReturnCompletedJrTask = async (taskId: string) => {
+    if (updatingId) return;
+    const reason = window.prompt(
+      'Return this completed JR task back to the assigned JR?\n\n(Optional) Add a short reason so the JR knows what to fix:'
+    );
+    if (reason === null) return;
+    setUpdatingId(taskId);
+    const result = await returnCompletedJrTaskToAssigned(
+      taskId,
+      reason.trim() || undefined
+    );
+    if (!result.success) {
+      alert(result.error || 'Failed to return JR task.');
+      setUpdatingId(null);
+      return;
+    }
+    lockTaskActionUntilRefresh(taskId);
+    setFocusedTaskId(null);
+    router.refresh();
+    setUpdatingId(null);
+  };
+
   const handleReassignJrTask = async (taskId: string) => {
     if (updatingId) return;
     const nextAssignedUserId = (jrReassignTargetByTask[taskId] || '').trim();
@@ -3867,6 +3890,10 @@ export function TaskList({
           (task.kind === TaskKind.VA_TITLE ||
             task.kind === TaskKind.VA_PAYOFF ||
             task.kind === TaskKind.VA_APPRAISAL);
+        const canManagerReturnCompletedJrTaskToAssigned =
+          isManagerRole &&
+          task.status === TaskStatus.COMPLETED &&
+          task.kind === TaskKind.VA_HOI;
         const shouldShowQueueTimer =
           // Admin tiers get manager-equivalent timer visibility so SLA badges
           // show up on their Tasks view for reporting/oversight — admins
@@ -6321,6 +6348,21 @@ export function TaskList({
                           <RotateCcw className="mr-1.5 h-4 w-4" />
                         )}
                         {updatingId === task.id ? 'Returning...' : 'Return to New'}
+                      </button>
+                    )}
+                    {canManagerReturnCompletedJrTaskToAssigned && (
+                      <button
+                        type="button"
+                        onClick={() => void handleReturnCompletedJrTask(task.id)}
+                        disabled={updatingId === task.id || isTaskActionLocked}
+                        className="inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800 shadow-sm hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {updatingId === task.id ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="mr-1.5 h-4 w-4" />
+                        )}
+                        {updatingId === task.id ? 'Returning...' : 'Return to Assigned'}
                       </button>
                     )}
                     <button

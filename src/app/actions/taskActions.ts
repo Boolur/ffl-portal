@@ -3567,6 +3567,120 @@ export async function reopenCompletedVaTaskToNew(taskId: string) {
   }
 }
 
+export async function returnCompletedJrTaskToAssigned(
+  taskId: string,
+  note?: string
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role as UserRole | undefined;
+    if (!role) {
+      return { success: false, error: 'Not authenticated.' };
+    }
+
+    const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
+    if (!canManageAll) {
+      return {
+        success: false,
+        error: 'Only Admin/Manager can return completed JR tasks.',
+      };
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        workflowState: true,
+        assignedUserId: true,
+        assignedUser: { select: { name: true } },
+        assignedRole: true,
+        submissionData: true,
+      },
+    });
+    if (!task) return { success: false, error: 'Task not found.' };
+    if (task.kind !== TaskKind.VA_HOI) {
+      return {
+        success: false,
+        error: 'Only JR Processor tasks can be returned to Assigned.',
+      };
+    }
+    if (task.status !== TaskStatus.COMPLETED) {
+      return {
+        success: false,
+        error: 'Only completed JR tasks can be returned to Assigned.',
+      };
+    }
+    if (!task.assignedUserId) {
+      return {
+        success: false,
+        error:
+          'This completed JR task has no assignee. Reassign it to a JR processor before returning it.',
+      };
+    }
+
+    const actorName = session?.user?.name || 'Team Member';
+    const trimmedNote = (note || '').trim();
+    const defaultReason = 'Manager returned completed JR task for revisions.';
+    const lifecycleNote = trimmedNote
+      ? `${defaultReason} Reason: ${trimmedNote}`
+      : defaultReason;
+    const historyMessage = trimmedNote
+      ? `Manager returned this completed JR task to Assigned for revisions. Reason: ${trimmedNote}`
+      : 'Manager returned this completed JR task to Assigned for revisions.';
+
+    let updatedSubmissionData = appendLifecycleHistoryEvent(task.submissionData, {
+      actorName,
+      actorRole: role,
+      eventType: 'STATUS_CHANGED',
+      fromStatus: task.status,
+      toStatus: TaskStatus.IN_PROGRESS,
+      fromWorkflow: task.workflowState,
+      toWorkflow: TaskWorkflowState.NONE,
+      fromAssignedUserId: task.assignedUserId,
+      toAssignedUserId: task.assignedUserId,
+      fromAssignedUserName: task.assignedUser?.name || null,
+      toAssignedUserName: task.assignedUser?.name || null,
+      fromAssignedRole: task.assignedRole,
+      toAssignedRole: task.assignedRole,
+      note: lifecycleNote,
+    });
+    updatedSubmissionData = appendSubmissionHistoryEntry(
+      updatedSubmissionData as Prisma.JsonValue,
+      {
+        author: actorName,
+        role,
+        message: historyMessage,
+        entryType: 'status',
+      }
+    );
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        status: TaskStatus.IN_PROGRESS,
+        workflowState: TaskWorkflowState.NONE,
+        completedAt: null,
+        submissionData: updatedSubmissionData as Prisma.InputJsonValue,
+      },
+    });
+
+    await dispatchTaskWorkflowNotification({
+      taskId,
+      eventLabel: 'JR Task Returned to Assigned',
+      changedBy: actorName,
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to return completed JR task:', error);
+    return { success: false, error: 'Failed to return JR task.' };
+  }
+}
+
 export async function reassignJrTask(taskId: string, nextAssignedUserId: string) {
   try {
     const session = await getServerSession(authOptions);
