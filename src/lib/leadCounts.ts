@@ -17,14 +17,32 @@
  * bounded by the business-day helpers in dateBounds.ts. That makes the
  * engine self-correcting (no cron dependency), timezone-correct
  * (business day = midnight Pacific), and immune to the drift above.
+ *
+ * Performance note: both helpers execute exactly ONE raw SQL query each
+ * using Postgres `FILTER` conditional aggregation, instead of the 3-4
+ * parallel `groupBy` calls this module used to fire. That matters on a
+ * Supabase pgbouncer-pooled setup with a tight connection limit — the
+ * earlier pattern starved the pool under launch-day traffic and took
+ * the whole portal down. One query per helper keeps us well inside the
+ * pool budget even when getCampaignNextUpRoster polls every 30 s.
  */
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import {
   startOfBusinessDay,
   startOfBusinessMonth,
   startOfBusinessWeek,
   startOfBusinessYear,
 } from '@/lib/dateBounds';
+
+// Builds a safe comma-separated IN-list of string params. We need this
+// because `IN` clauses in raw SQL can't take a JS array as a single
+// parameter — Prisma's tagged template expands scalars only. Using
+// Prisma.join keeps the values fully parameterized (no SQL injection
+// risk) while producing the `$1, $2, $3, ...` shape Postgres expects.
+function inListString(ids: string[]) {
+  return Prisma.join(ids.map((id) => Prisma.sql`${id}`));
+}
 
 export type LiveCampaignMemberCounts = {
   today: number;
@@ -39,9 +57,7 @@ const keyOf = (userId: string, campaignId: string) => `${userId}::${campaignId}`
 /**
  * For each (userId, campaignId) pair, counts Lead rows where that user
  * is the assignee on that campaign and assignedAt falls in the current
- * day/week/month in the business timezone.
- *
- * One groupBy per window (3 queries total), regardless of roster size.
+ * day/week/month in the business timezone. One SQL query total.
  */
 export async function getLiveCampaignMemberCounts(
   pairs: Array<{ userId: string; campaignId: string }>
@@ -55,49 +71,48 @@ export async function getLiveCampaignMemberCounts(
   const weekStart = startOfBusinessWeek(now);
   const monthStart = startOfBusinessMonth(now);
 
-  const sharedWhere = {
-    assignedUserId: { in: userIds },
-    campaignId: { in: campaignIds },
-  } as const;
-
-  // groupBy returns one row per (assignedUserId, campaignId) pair with
-  // activity in the window. Missing pairs default to 0 in the map.
-  const [dayRows, weekRows, monthRows] = await Promise.all([
-    prisma.lead.groupBy({
-      by: ['assignedUserId', 'campaignId'],
-      where: { ...sharedWhere, assignedAt: { gte: dayStart } },
-      _count: { _all: true },
-    }),
-    prisma.lead.groupBy({
-      by: ['assignedUserId', 'campaignId'],
-      where: { ...sharedWhere, assignedAt: { gte: weekStart } },
-      _count: { _all: true },
-    }),
-    prisma.lead.groupBy({
-      by: ['assignedUserId', 'campaignId'],
-      where: { ...sharedWhere, assignedAt: { gte: monthStart } },
-      _count: { _all: true },
-    }),
-  ]);
+  // $queryRaw with a single FILTER aggregate is ~3x cheaper than firing
+  // three separate groupBy queries in Promise.all — both in Postgres
+  // CPU and, crucially, in connection-pool checkouts. The latter is the
+  // constraint on Vercel + Supabase pgbouncer; every parallel query
+  // grabs a separate slot from the ~5-per-lambda budget.
+  const userList = inListString(userIds);
+  const campaignList = inListString(campaignIds);
+  const rows = await prisma.$queryRaw<
+    Array<{
+      user_id: string;
+      campaign_id: string;
+      today_count: bigint;
+      week_count: bigint;
+      month_count: bigint;
+    }>
+  >(Prisma.sql`
+    SELECT
+      "assignedUserId" AS user_id,
+      "campaignId" AS campaign_id,
+      COUNT(*) FILTER (WHERE "assignedAt" >= ${dayStart}) AS today_count,
+      COUNT(*) FILTER (WHERE "assignedAt" >= ${weekStart}) AS week_count,
+      COUNT(*) FILTER (WHERE "assignedAt" >= ${monthStart}) AS month_count
+    FROM "Lead"
+    WHERE
+      "assignedUserId" IN (${userList})
+      AND "campaignId" IN (${campaignList})
+      AND "assignedAt" >= ${monthStart}
+    GROUP BY "assignedUserId", "campaignId"
+  `);
 
   const result = new Map<string, LiveCampaignMemberCounts>();
   for (const p of pairs) {
     result.set(keyOf(p.userId, p.campaignId), { today: 0, week: 0, month: 0 });
   }
-  for (const row of dayRows) {
-    if (!row.assignedUserId || !row.campaignId) continue;
-    const bucket = result.get(keyOf(row.assignedUserId, row.campaignId));
-    if (bucket) bucket.today = row._count._all;
-  }
-  for (const row of weekRows) {
-    if (!row.assignedUserId || !row.campaignId) continue;
-    const bucket = result.get(keyOf(row.assignedUserId, row.campaignId));
-    if (bucket) bucket.week = row._count._all;
-  }
-  for (const row of monthRows) {
-    if (!row.assignedUserId || !row.campaignId) continue;
-    const bucket = result.get(keyOf(row.assignedUserId, row.campaignId));
-    if (bucket) bucket.month = row._count._all;
+  for (const row of rows) {
+    const key = keyOf(row.user_id, row.campaign_id);
+    if (!result.has(key)) continue;
+    result.set(key, {
+      today: Number(row.today_count),
+      week: Number(row.week_count),
+      month: Number(row.month_count),
+    });
   }
   return result;
 }
@@ -106,6 +121,7 @@ export async function getLiveCampaignMemberCounts(
  * Global per-user counts across every campaign. Drives the
  * UserLeadQuota gate (globalDaily/Weekly/Monthly) and the
  * "Leads Day/Week/Month/YTD" columns on the Lead Users screen.
+ * Single SQL query regardless of userIds size.
  */
 export async function getLiveUserCounts(
   userIds: string[]
@@ -118,54 +134,41 @@ export async function getLiveUserCounts(
   const monthStart = startOfBusinessMonth(now);
   const yearStart = startOfBusinessYear(now);
 
-  const sharedWhere = { assignedUserId: { in: userIds } } as const;
-
-  const [dayRows, weekRows, monthRows, yearRows] = await Promise.all([
-    prisma.lead.groupBy({
-      by: ['assignedUserId'],
-      where: { ...sharedWhere, assignedAt: { gte: dayStart } },
-      _count: { _all: true },
-    }),
-    prisma.lead.groupBy({
-      by: ['assignedUserId'],
-      where: { ...sharedWhere, assignedAt: { gte: weekStart } },
-      _count: { _all: true },
-    }),
-    prisma.lead.groupBy({
-      by: ['assignedUserId'],
-      where: { ...sharedWhere, assignedAt: { gte: monthStart } },
-      _count: { _all: true },
-    }),
-    prisma.lead.groupBy({
-      by: ['assignedUserId'],
-      where: { ...sharedWhere, assignedAt: { gte: yearStart } },
-      _count: { _all: true },
-    }),
-  ]);
+  const userList = inListString(userIds);
+  const rows = await prisma.$queryRaw<
+    Array<{
+      user_id: string;
+      today_count: bigint;
+      week_count: bigint;
+      month_count: bigint;
+      year_count: bigint;
+    }>
+  >(Prisma.sql`
+    SELECT
+      "assignedUserId" AS user_id,
+      COUNT(*) FILTER (WHERE "assignedAt" >= ${dayStart}) AS today_count,
+      COUNT(*) FILTER (WHERE "assignedAt" >= ${weekStart}) AS week_count,
+      COUNT(*) FILTER (WHERE "assignedAt" >= ${monthStart}) AS month_count,
+      COUNT(*) FILTER (WHERE "assignedAt" >= ${yearStart}) AS year_count
+    FROM "Lead"
+    WHERE
+      "assignedUserId" IN (${userList})
+      AND "assignedAt" >= ${yearStart}
+    GROUP BY "assignedUserId"
+  `);
 
   const result = new Map<string, LiveUserCounts>();
   for (const id of userIds) {
     result.set(id, { today: 0, week: 0, month: 0, year: 0 });
   }
-  for (const row of dayRows) {
-    if (!row.assignedUserId) continue;
-    const b = result.get(row.assignedUserId);
-    if (b) b.today = row._count._all;
-  }
-  for (const row of weekRows) {
-    if (!row.assignedUserId) continue;
-    const b = result.get(row.assignedUserId);
-    if (b) b.week = row._count._all;
-  }
-  for (const row of monthRows) {
-    if (!row.assignedUserId) continue;
-    const b = result.get(row.assignedUserId);
-    if (b) b.month = row._count._all;
-  }
-  for (const row of yearRows) {
-    if (!row.assignedUserId) continue;
-    const b = result.get(row.assignedUserId);
-    if (b) b.year = row._count._all;
+  for (const row of rows) {
+    if (!result.has(row.user_id)) continue;
+    result.set(row.user_id, {
+      today: Number(row.today_count),
+      week: Number(row.week_count),
+      month: Number(row.month_count),
+      year: Number(row.year_count),
+    });
   }
   return result;
 }

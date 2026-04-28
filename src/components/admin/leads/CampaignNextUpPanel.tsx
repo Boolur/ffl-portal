@@ -31,7 +31,13 @@ type Props = {
 // so the Campaigns screen stays compact by default. Only the per-vendor
 // open state (after the admin expands the panel) is persisted.
 const STORAGE_KEY_VENDORS = 'ffl.campaignNextUp.vendorOpen';
-const REFRESH_MS = 30_000;
+// 60s instead of 30s: the panel's refresh drives a groupBy-heavy server
+// action (getCampaignNextUpRoster). On Supabase pgbouncer with a tight
+// per-lambda Prisma connection budget, a 30-second cadence from every
+// open admin session compounds fast and can starve the pool under real
+// launch-day traffic. 60s is still responsive enough for "who is up
+// next" context and halves the query load at the source.
+const REFRESH_MS = 60_000;
 const NONE_GROUP = '__none__';
 
 // Keyed on lowercased vendor slug. Unknown vendors fall through to slate.

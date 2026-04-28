@@ -246,10 +246,10 @@ export function IntegrationServiceManager({
                       </div>
                       <div className="min-w-0">
                         <div className="font-semibold text-slate-900 truncate">
-                          {s.name}
-                        </div>
+                        {s.name}
+                    </div>
                         <div className="text-xs font-mono text-slate-500 truncate">
-                          {s.slug}
+                    {s.slug}
                         </div>
                       </div>
                     </div>
@@ -820,10 +820,10 @@ function ServiceBuilderModal({
       if (body.trim() && !hasTokens) {
         try {
           JSON.parse(body);
-        } catch {
+    } catch {
           setError('Body template is JSON but not valid JSON.');
-          return;
-        }
+      return;
+    }
       }
     }
     if (
@@ -889,9 +889,9 @@ function ServiceBuilderModal({
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
                 <Zap className="h-4 w-4" />
               </div>
-              <h2 className="text-lg font-semibold text-slate-900">
+          <h2 className="text-lg font-semibold text-slate-900">
                 {target.mode === 'create' ? 'New Integration Service' : `Edit: ${existing?.name}`}
-              </h2>
+          </h2>
             </div>
             <p className="mt-1 text-sm text-slate-500">
               Configure how this service pushes leads out. Every field below
@@ -937,9 +937,9 @@ function ServiceBuilderModal({
             </div>
           )}
           <div className="flex items-center justify-end gap-2">
-            <button
+          <button
               type="button"
-              onClick={onClose}
+            onClick={onClose}
               className="app-btn-secondary"
               disabled={saving}
             >
@@ -957,8 +957,8 @@ function ServiceBuilderModal({
                 <Save className="h-4 w-4" />
               )}
               {target.mode === 'create' ? 'Create service' : 'Save changes'}
-            </button>
-          </div>
+          </button>
+        </div>
         </div>
       </div>
     </div>
@@ -1023,8 +1023,8 @@ function HeaderSection({
           value={state.name}
           onChange={(v) => update('name', v)}
           inputRef={nameRef}
-          placeholder="Bonzo"
-        />
+              placeholder="Bonzo"
+            />
         <LabeledInput
           label="Slug *"
           help="Stable machine name. Auto-generated from the name; slug is locked after create."
@@ -1146,7 +1146,7 @@ function UrlPayloadSection({
             <div className="flex items-center justify-between gap-2">
               <label className="text-sm font-medium text-slate-700">
                 Body / content
-              </label>
+          </label>
               <TokenPicker
                 tokens={tokens}
                 onInsert={(t) => insertAtCursor(bodyRef.current, t, (next) => update('bodyTemplate', next))}
@@ -1502,7 +1502,7 @@ function CaptureFieldsEditor({
               key={idx}
               className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2"
             >
-              <input
+            <input
                 className="flex-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-mono focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 value={row.path}
                 onChange={(e) => patch(idx, { path: e.target.value })}
@@ -1512,7 +1512,7 @@ function CaptureFieldsEditor({
               <select
                 className="flex-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 value={CAPTURE_FIELD_TARGETS.some((t) => t.value === row.target) ? row.target : 'customData.*'}
-                onChange={(e) => {
+              onChange={(e) => {
                   const v = e.target.value;
                   if (v === 'customData.*') {
                     patch(idx, { target: 'customData.' });
@@ -1727,7 +1727,7 @@ function LabeledInput({
         placeholder={placeholder}
         disabled={disabled}
       />
-    </label>
+          </label>
   );
 }
 
@@ -1745,23 +1745,23 @@ function LabeledSelect({
   help?: string;
 }) {
   return (
-    <label className="space-y-1 block text-sm">
+          <label className="space-y-1 block text-sm">
       <span className="flex items-center gap-1 font-medium text-slate-700">
         {label}
         {help && <InfoDot help={help} />}
       </span>
-      <select
-        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            <select
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >
         {options.map((o) => (
           <option key={o.value || 'blank'} value={o.value}>
             {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+                </option>
+              ))}
+            </select>
+          </label>
   );
 }
 
@@ -1788,7 +1788,7 @@ function Toggle({
         {label}
         {help && <InfoDot help={help} />}
       </span>
-    </label>
+          </label>
   );
 }
 
@@ -1796,7 +1796,7 @@ function InfoDot({ help }: { help: string }) {
   return (
     <span title={help} className="inline-flex items-center text-slate-400">
       <Info className="h-3.5 w-3.5" />
-    </span>
+            </span>
   );
 }
 
@@ -1850,7 +1850,7 @@ function MultiCheckboxList({
           </label>
         );
       })}
-    </div>
+            </div>
   );
 }
 
@@ -1889,14 +1889,14 @@ function TokenPicker({
 
   return (
     <div className="relative" ref={ref}>
-      <button
-        type="button"
+          <button
+            type="button"
         className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
         onClick={() => setOpen((v) => !v)}
-      >
+          >
         Insert merge field
         <ChevronDown className="h-3 w-3" />
-      </button>
+          </button>
       {open && (
         <div className="absolute right-0 z-30 mt-1 w-80 max-h-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
           <input
@@ -1916,9 +1916,9 @@ function TokenPicker({
               </div>
               <div className="space-y-0.5">
                 {items.map((t) => (
-                  <button
+          <button
                     key={t.token}
-                    type="button"
+            type="button"
                     className="flex w-full flex-col items-start rounded px-2 py-1 text-left hover:bg-slate-50"
                     onClick={() => {
                       onInsert(t.token);
@@ -1931,10 +1931,10 @@ function TokenPicker({
                     <span className="text-[11px] text-slate-500">
                       {t.description}
                     </span>
-                  </button>
+          </button>
                 ))}
-              </div>
-            </div>
+        </div>
+      </div>
           ))}
         </div>
       )}
@@ -2040,8 +2040,8 @@ function ServiceDeleteDialog({
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <>
-                <Trash2 className="h-4 w-4" />
-                Delete permanently
+            <Trash2 className="h-4 w-4" />
+            Delete permanently
               </>
             )}
           </button>
