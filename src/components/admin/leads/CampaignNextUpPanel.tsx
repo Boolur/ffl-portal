@@ -386,12 +386,11 @@ function CampaignRow({
   row: CampaignNextUpRow;
   palette: ReturnType<typeof vendorColor>;
 }) {
-  const roster = row.upNext.roster;
-  // Every campaign with a roster is expandable now — clicking reveals
-  // the full lineup with per-member quota status, not just the members
-  // who were gated out. Before the live-count fix this was implicitly
-  // only the skip list, which vanished once quotas started behaving.
-  const canExpand = roster.length > 0;
+  const skipped = row.upNext.skipped;
+  // Only offer expansion when there's something worth reading - i.e.
+  // at least one member was evaluated and skipped. MANUAL campaigns and
+  // empty rosters have nothing to show.
+  const canExpand = skipped.length > 0;
   const [open, setOpen] = useState(false);
 
   return (
@@ -427,111 +426,45 @@ function CampaignRow({
         </span>
         <UpNextInline upNext={row.upNext} />
       </div>
-      {canExpand && open && <RosterBreakdown roster={roster} />}
+      {canExpand && open && <SkipReasonsList skipped={skipped} />}
     </li>
   );
 }
 
-function RosterBreakdown({
-  roster,
+function SkipReasonsList({
+  skipped,
 }: {
-  roster: CampaignNextUpRow['upNext']['roster'];
+  skipped: CampaignNextUpRow['upNext']['skipped'];
 }) {
-  // Sort: UP_NEXT first, then QUEUED by rotation position, then SKIPPED,
-  // then INACTIVE. This mirrors how an admin mentally reads the lineup:
-  // "who's up, who's on deck, who's benched and why".
-  const order: Record<string, number> = {
-    UP_NEXT: 0, QUEUED: 1, SKIPPED: 2, INACTIVE: 3,
-  };
-  const sorted = [...roster].sort((a, b) => {
-    const s = (order[a.status] ?? 99) - (order[b.status] ?? 99);
-    if (s !== 0) return s;
-    return a.roundRobinPosition - b.roundRobinPosition;
-  });
   return (
     <div className="bg-slate-50/60 border-t border-slate-100 px-4 py-3">
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
         <Info className="h-3 w-3" />
-        Roster &amp; quota status
+        Why these members were skipped
       </div>
-      <ul className="space-y-1">
-        {sorted.map((m) => (
-          <RosterItem key={m.memberId} member={m} />
+      <ul className="space-y-1.5">
+        {skipped.map((s) => (
+          <li
+            key={s.memberId}
+            className="flex items-center gap-2 text-sm text-slate-700"
+          >
+            <span
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[9px] font-bold text-slate-600"
+              aria-hidden="true"
+            >
+              {initialsOf(s.name)}
+            </span>
+            <span className="font-medium text-slate-900 shrink-0">
+              {s.name}
+            </span>
+            <span className="text-slate-400">&mdash;</span>
+            <span className="text-slate-600">
+              {s.detail ?? describeReasonFallback(s.reason)}
+            </span>
+          </li>
         ))}
       </ul>
     </div>
-  );
-}
-
-function RosterItem({
-  member: m,
-}: {
-  member: CampaignNextUpRow['upNext']['roster'][number];
-}) {
-  // The right-side status copy changes based on why the member is where
-  // they are. For eligible members we show "Ready · 1/2 today" so the
-  // admin can eyeball remaining capacity; for skipped we surface the
-  // human-readable detail from the server; inactive is just a label.
-  const statusLabel = (() => {
-    if (m.status === 'INACTIVE') return 'Inactive';
-    if (m.status === 'SKIPPED') {
-      return m.skipDetail ?? (m.skipReason ? describeReasonFallback(m.skipReason) : 'Skipped');
-    }
-    const bits: string[] = [];
-    if (m.dailyQuota > 0) bits.push(`${m.dailyCount}/${m.dailyQuota} today`);
-    else if (m.dailyCount > 0) bits.push(`${m.dailyCount} today`);
-    if (m.weeklyQuota > 0) bits.push(`${m.weeklyCount}/${m.weeklyQuota} wk`);
-    if (m.monthlyQuota > 0) bits.push(`${m.monthlyCount}/${m.monthlyQuota} mo`);
-    return bits.length > 0 ? bits.join(' · ') : 'No caps set';
-  })();
-
-  const statusColor = (() => {
-    switch (m.status) {
-      case 'UP_NEXT': return 'bg-blue-100 text-blue-800 ring-blue-200';
-      case 'QUEUED': return 'bg-slate-100 text-slate-700 ring-slate-200';
-      case 'SKIPPED': return 'bg-amber-100 text-amber-800 ring-amber-200';
-      case 'INACTIVE': return 'bg-slate-100 text-slate-500 ring-slate-200';
-    }
-  })();
-
-  const statusBadge = (() => {
-    switch (m.status) {
-      case 'UP_NEXT': return 'Up next';
-      case 'QUEUED': return 'Queued';
-      case 'SKIPPED': return 'Skipped';
-      case 'INACTIVE': return 'Inactive';
-    }
-  })();
-
-  return (
-    <li className="flex items-center gap-2 text-sm text-slate-700 py-0.5">
-      <span
-        className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
-          m.status === 'UP_NEXT'
-            ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200'
-            : 'bg-slate-200 text-slate-600'
-        }`}
-        aria-hidden="true"
-      >
-        {initialsOf(m.name)}
-      </span>
-      <span
-        className={`font-medium shrink-0 ${
-          m.status === 'INACTIVE' ? 'text-slate-500' : 'text-slate-900'
-        }`}
-      >
-        {m.name}
-      </span>
-      <span
-        className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 shrink-0 ${statusColor}`}
-      >
-        {statusBadge}
-      </span>
-      <span className="text-slate-400 shrink-0">&mdash;</span>
-      <span className="text-slate-600 text-xs truncate" title={statusLabel}>
-        {statusLabel}
-      </span>
-    </li>
   );
 }
 

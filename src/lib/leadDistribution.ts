@@ -81,41 +81,6 @@ export type SkippedMember = {
   detail?: string;
 };
 
-/**
- * Per-member roster snapshot. Unlike `SkippedMember` which only captures
- * users the gauntlet passed over, this covers every member so the admin
- * Up Next panel can always show the full roster state at a glance:
- *
- *   - UP_NEXT: the member the gauntlet picked (first eligible in
- *     rotation order)
- *   - QUEUED:  active, eligible members positioned behind UP_NEXT — the
- *     "bench" that'll rotate in on subsequent leads
- *   - SKIPPED: active members gated out by a SkipReason (quota cap,
- *     licensing mismatch, leads disabled, etc.)
- *   - INACTIVE: members flagged inactive on the campaign (don't rotate)
- *
- * Each entry carries the live daily/weekly/monthly cap snapshot so the
- * UI can render "Ready · 1/2 today" / "Daily cap hit (2/2)" without
- * another round-trip.
- */
-export type RosterStatus = 'UP_NEXT' | 'QUEUED' | 'SKIPPED' | 'INACTIVE';
-
-export type RosterMember = {
-  memberId: string;
-  userId: string;
-  name: string;
-  roundRobinPosition: number;
-  status: RosterStatus;
-  skipReason: SkipReason | null;
-  skipDetail: string | null;
-  dailyCount: number;
-  dailyQuota: number;
-  weeklyCount: number;
-  weeklyQuota: number;
-  monthlyCount: number;
-  monthlyQuota: number;
-};
-
 export type NextUpResult = (
   | { kind: 'MEMBER'; memberId: string; userId: string; name: string }
   | {
@@ -135,12 +100,7 @@ export type NextUpResult = (
         | 'ALL_SKIPPED'
         | 'MANUAL';
     }
-) & {
-  skipped: SkippedMember[];
-  // Full roster snapshot for the expandable breakdown. See
-  // `RosterMember` for the semantics of each status.
-  roster: RosterMember[];
-};
+) & { skipped: SkippedMember[] };
 
 /**
  * Pure gauntlet check for a single member against a campaign + context.
@@ -273,12 +233,7 @@ export function findNextEligibleMember(
   ctx: GauntletContext
 ): NextUpResult {
   if (campaign.distributionMethod === 'MANUAL') {
-    return {
-      kind: 'UNASSIGNED',
-      reason: 'MANUAL',
-      skipped: [],
-      roster: buildRosterSnapshot(members, null, null, globalQuotasByUserId, campaign, ctx),
-    };
+    return { kind: 'UNASSIGNED', reason: 'MANUAL', skipped: [] };
   }
 
   if (members.length === 0) {
@@ -289,48 +244,29 @@ export function findNextEligibleMember(
         name: campaign.defaultUserName ?? 'Default user',
         reason: 'NO_MEMBERS',
         skipped: [],
-        roster: [],
       };
     }
     return {
       kind: 'UNASSIGNED',
       reason: 'NO_MEMBERS_NO_DEFAULT',
       skipped: [],
-      roster: [],
     };
   }
 
   const skipped: SkippedMember[] = [];
-  // We record which member got picked (if any) and the reason per member
-  // in a side map so buildRosterSnapshot below can flag UP_NEXT / QUEUED
-  // / SKIPPED without re-running the gauntlet.
-  const skipByUserId = new Map<string, SkipReason>();
-  let upNextUserId: string | null = null;
-
   for (const member of members) {
     if (!member.active) continue;
     const globalQuota = globalQuotasByUserId.get(member.userId) ?? null;
     const skip = evaluateMember(campaign, member, globalQuota, ctx);
     if (skip === null) {
-      upNextUserId = member.userId;
-      const roster = buildRosterSnapshot(
-        members,
-        member.userId,
-        skipByUserId,
-        globalQuotasByUserId,
-        campaign,
-        ctx
-      );
       return {
         kind: 'MEMBER',
         memberId: member.id,
         userId: member.userId,
         name: member.userName,
         skipped,
-        roster,
       };
     }
-    skipByUserId.set(member.userId, skip);
     skipped.push({
       memberId: member.id,
       userId: member.userId,
@@ -342,64 +278,5 @@ export function findNextEligibleMember(
 
   // All members failed the gauntlet. Route to the Unassigned Pool
   // unconditionally — never to defaultUserId — to preserve rotation.
-  return {
-    kind: 'UNASSIGNED',
-    reason: 'ALL_SKIPPED',
-    skipped,
-    roster: buildRosterSnapshot(
-      members,
-      upNextUserId,
-      skipByUserId,
-      globalQuotasByUserId,
-      campaign,
-      ctx
-    ),
-  };
-}
-
-/**
- * Snapshot every member of the roster with their current status + live
- * quota counts. Runs after the gauntlet loop so `upNextUserId` and
- * `skipByUserId` are already settled; a null `skipByUserId` means we
- * haven't evaluated anyone (e.g. MANUAL campaigns) and every active
- * member gets QUEUED.
- */
-function buildRosterSnapshot(
-  members: GauntletMember[],
-  upNextUserId: string | null,
-  skipByUserId: Map<string, SkipReason> | null,
-  globalQuotasByUserId: Map<string, GauntletGlobalQuota>,
-  campaign: GauntletCampaign,
-  ctx: GauntletContext
-): RosterMember[] {
-  return members.map((m) => {
-    const globalQuota = globalQuotasByUserId.get(m.userId) ?? null;
-    let status: RosterStatus;
-    let reason: SkipReason | null = null;
-    if (!m.active) {
-      status = 'INACTIVE';
-    } else if (m.userId === upNextUserId) {
-      status = 'UP_NEXT';
-    } else if (skipByUserId && skipByUserId.has(m.userId)) {
-      status = 'SKIPPED';
-      reason = skipByUserId.get(m.userId) ?? null;
-    } else {
-      status = 'QUEUED';
-    }
-    return {
-      memberId: m.id,
-      userId: m.userId,
-      name: m.userName,
-      roundRobinPosition: m.roundRobinPosition,
-      status,
-      skipReason: reason,
-      skipDetail: reason ? describeSkip(reason, m, globalQuota, ctx) ?? null : null,
-      dailyCount: m.leadsReceivedToday,
-      dailyQuota: m.dailyQuota,
-      weeklyCount: m.leadsReceivedThisWeek,
-      weeklyQuota: m.weeklyQuota,
-      monthlyCount: m.leadsReceivedThisMonth,
-      monthlyQuota: m.monthlyQuota,
-    };
-  });
+  return { kind: 'UNASSIGNED', reason: 'ALL_SKIPPED', skipped };
 }
