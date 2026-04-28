@@ -950,15 +950,38 @@ export function LeadsCRM({
       setPropertyZipFilter('');
       setEmployerFilter('');
 
+      // Quick filters ("Today", "This Week", "This Month") are anchored
+      // to Pacific Time so the buckets align with the gauntlet and the
+      // dashboard cards no matter what timezone the admin's browser is
+      // in. We compute the YYYY-MM-DD string in PT by asking Intl to
+      // format the current instant as en-CA (which yields ISO-shaped
+      // dates: "2026-04-28"). No Date-offset math needed.
+      const ptDate = (d: Date) =>
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Los_Angeles',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(d);
+
       const now = new Date();
-      const todayStr = now.toISOString().split('T')[0];
+      const todayStr = ptDate(now);
 
-      const weekStart = new Date(now);
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
-      if (weekStart > now) weekStart.setDate(weekStart.getDate() - 7);
-      const weekStr = weekStart.toISOString().split('T')[0];
+      // Monday-anchored week in PT: grab the PT weekday, step back that
+      // many days, and re-format. Keeps all math in PT wall-clock.
+      const weekdayShort = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        weekday: 'short',
+      }).format(now);
+      const weekdayMap: Record<string, number> = {
+        Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+      };
+      const daysSinceMonday = ((weekdayMap[weekdayShort] ?? 0) + 6) % 7;
+      const weekStart = new Date(now.getTime() - daysSinceMonday * 86400000);
+      const weekStr = ptDate(weekStart);
 
-      const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      const [yStr, mStr] = todayStr.split('-');
+      const monthStr = `${yStr}-${mStr}-01`;
 
       if (key === activeQuickFilter) {
         setDateFrom('');

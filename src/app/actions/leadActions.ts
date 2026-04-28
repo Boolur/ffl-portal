@@ -39,6 +39,17 @@ import {
 import { normalizeUserName } from '@/lib/leadNameMatch';
 import { LEAD_MAILBOX_FIELD_MAP } from '@/lib/leadMailboxBridge';
 import {
+  getLiveCampaignMemberCounts,
+  getLiveUserCounts,
+} from '@/lib/leadCounts';
+import {
+  businessDayOfWeek,
+  startOfBusinessDay,
+  startOfBusinessMonth,
+  startOfBusinessWeek,
+  startOfLastNBusinessDays,
+} from '@/lib/dateBounds';
+import {
   INTEGRATION_SERVICE_TYPES,
   type IntegrationServiceInput,
   type IntegrationServiceSummary,
@@ -105,15 +116,31 @@ export async function distributeLead(leadId: string) {
   }
 
   const leadState = (lead.propertyState || '').trim().toUpperCase();
-  const currentDayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon...6=Sat
+  // Use the business timezone for the weekday gate: a server running in
+  // UTC would roll Friday -> Saturday at 5 PM PT, skipping any LO whose
+  // receiveDays exclude Saturday even though it is still Friday for the
+  // team.
+  const currentDayOfWeek = businessDayOfWeek(); // 0=Sun..6=Sat in PT
 
-  // Batch-load the global quotas for every candidate so the gauntlet
-  // helper can run without per-iteration DB hits.
+  // Batch-load the global quotas and live counts for every candidate so
+  // the gauntlet helper can run without per-iteration DB hits.
   const userIds = members.map((m) => m.userId);
   const globalQuotaRows = await prisma.userLeadQuota.findMany({
     where: { userId: { in: userIds } },
   });
   const globalQuotaByUserId = new Map(globalQuotaRows.map((q) => [q.userId, q]));
+
+  // Live-count the leads each member has received today / this week /
+  // this month. This replaces the stored counters on CampaignMember /
+  // UserLeadQuota for the purposes of quota gating. Source of truth is
+  // always Lead.assignedAt bounded by the business timezone, so the
+  // gauntlet is self-correcting and never drifts.
+  const [campaignCounts, userCounts] = await Promise.all([
+    getLiveCampaignMemberCounts(
+      members.map((m) => ({ userId: m.userId, campaignId: campaign.id }))
+    ),
+    getLiveUserCounts(userIds),
+  ]);
 
   const gauntletCampaign: GauntletCampaign = {
     distributionMethod: campaign.distributionMethod,
@@ -125,6 +152,17 @@ export async function distributeLead(leadId: string) {
 
   for (const member of members) {
     const globalQuota = globalQuotaByUserId.get(member.userId) ?? null;
+    const liveMember = campaignCounts.get(`${member.userId}::${campaign.id}`) ?? {
+      today: 0,
+      week: 0,
+      month: 0,
+    };
+    const liveUser = userCounts.get(member.userId) ?? {
+      today: 0,
+      week: 0,
+      month: 0,
+      year: 0,
+    };
     const gauntletMember: GauntletMember = {
       id: member.id,
       userId: member.userId,
@@ -136,9 +174,11 @@ export async function distributeLead(leadId: string) {
       dailyQuota: member.dailyQuota,
       weeklyQuota: member.weeklyQuota,
       monthlyQuota: member.monthlyQuota,
-      leadsReceivedToday: member.leadsReceivedToday,
-      leadsReceivedThisWeek: member.leadsReceivedThisWeek,
-      leadsReceivedThisMonth: member.leadsReceivedThisMonth,
+      // Live counts replace stored counters so quota gating is always
+      // driven by the actual Lead table, not by a drift-prone tally.
+      leadsReceivedToday: liveMember.today,
+      leadsReceivedThisWeek: liveMember.week,
+      leadsReceivedThisMonth: liveMember.month,
     };
     const gauntletQuota: GauntletGlobalQuota | null = globalQuota
       ? {
@@ -147,9 +187,9 @@ export async function distributeLead(leadId: string) {
           globalDailyQuota: globalQuota.globalDailyQuota,
           globalWeeklyQuota: globalQuota.globalWeeklyQuota,
           globalMonthlyQuota: globalQuota.globalMonthlyQuota,
-          leadsReceivedToday: globalQuota.leadsReceivedToday,
-          leadsReceivedThisWeek: globalQuota.leadsReceivedThisWeek,
-          leadsReceivedThisMonth: globalQuota.leadsReceivedThisMonth,
+          leadsReceivedToday: liveUser.today,
+          leadsReceivedThisWeek: liveUser.week,
+          leadsReceivedThisMonth: liveUser.month,
         }
       : null;
     if (evaluateMember(gauntletCampaign, gauntletMember, gauntletQuota, ctx) !== null) {
@@ -568,20 +608,11 @@ export async function deleteAllVendorLeads(vendorId: string) {
 // Campaign CRUD
 // ---------------------------------------------------------------------------
 
-function getLastNBusinessDaysStart(n: number): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  let count = 0;
-  while (count < n) {
-    d.setDate(d.getDate() - 1);
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) count++;
-  }
-  return d;
-}
-
 export async function getLeadCampaigns() {
-  const fiveBdAgo = getLastNBusinessDaysStart(5);
+  // "Last 5 business days" window in Pacific time so the rotation
+  // preview shows the same data an admin would see glancing at a PT
+  // calendar on the wall.
+  const fiveBdAgo = startOfLastNBusinessDays(5);
 
   const [campaigns, quotaSums, recentLeadCounts] = await Promise.all([
     prisma.leadCampaign.findMany({
@@ -658,15 +689,26 @@ export async function getCampaignNextUpRoster(): Promise<CampaignNextUpRow[]> {
     new Set(campaigns.flatMap((c) => c.members.map((m) => m.userId)))
   );
 
-  const quotaRows = userIds.length
-    ? await prisma.userLeadQuota.findMany({
-        where: { userId: { in: userIds } },
-      })
-    : [];
+  // Live counts (both campaign-scoped and global) so the Up Next panel
+  // reflects the same truth the gauntlet will use when the next lead
+  // lands — no lag, no drift.
+  const memberPairs = campaigns.flatMap((c) =>
+    c.members.map((m) => ({ userId: m.userId, campaignId: c.id }))
+  );
+
+  const [quotaRows, campaignCounts, userCounts] = await Promise.all([
+    userIds.length
+      ? prisma.userLeadQuota.findMany({ where: { userId: { in: userIds } } })
+      : Promise.resolve([] as Awaited<ReturnType<typeof prisma.userLeadQuota.findMany>>),
+    getLiveCampaignMemberCounts(memberPairs),
+    getLiveUserCounts(userIds),
+  ]);
+
   const quotaByUserId = new Map(
     quotaRows.map(
-      (q) =>
-        [
+      (q) => {
+        const live = userCounts.get(q.userId) ?? { today: 0, week: 0, month: 0, year: 0 };
+        return [
           q.userId,
           {
             leadsEnabled: q.leadsEnabled,
@@ -674,32 +716,40 @@ export async function getCampaignNextUpRoster(): Promise<CampaignNextUpRow[]> {
             globalDailyQuota: q.globalDailyQuota,
             globalWeeklyQuota: q.globalWeeklyQuota,
             globalMonthlyQuota: q.globalMonthlyQuota,
-            leadsReceivedToday: q.leadsReceivedToday,
-            leadsReceivedThisWeek: q.leadsReceivedThisWeek,
-            leadsReceivedThisMonth: q.leadsReceivedThisMonth,
+            leadsReceivedToday: live.today,
+            leadsReceivedThisWeek: live.week,
+            leadsReceivedThisMonth: live.month,
           } satisfies GauntletGlobalQuota,
-        ] as const
+        ] as const;
+      }
     )
   );
 
-  const dayOfWeek = new Date().getDay();
+  const dayOfWeek = businessDayOfWeek();
 
   return campaigns.map((c) => {
-    const gMembers: GauntletMember[] = c.members.map((m) => ({
-      id: m.id,
-      userId: m.userId,
-      userName: m.user?.name ?? 'Unknown user',
-      roundRobinPosition: m.roundRobinPosition,
-      active: m.active,
-      licensedStates: m.licensedStates,
-      receiveDays: m.receiveDays,
-      dailyQuota: m.dailyQuota,
-      weeklyQuota: m.weeklyQuota,
-      monthlyQuota: m.monthlyQuota,
-      leadsReceivedToday: m.leadsReceivedToday,
-      leadsReceivedThisWeek: m.leadsReceivedThisWeek,
-      leadsReceivedThisMonth: m.leadsReceivedThisMonth,
-    }));
+    const gMembers: GauntletMember[] = c.members.map((m) => {
+      const live = campaignCounts.get(`${m.userId}::${c.id}`) ?? {
+        today: 0,
+        week: 0,
+        month: 0,
+      };
+      return {
+        id: m.id,
+        userId: m.userId,
+        userName: m.user?.name ?? 'Unknown user',
+        roundRobinPosition: m.roundRobinPosition,
+        active: m.active,
+        licensedStates: m.licensedStates,
+        receiveDays: m.receiveDays,
+        dailyQuota: m.dailyQuota,
+        weeklyQuota: m.weeklyQuota,
+        monthlyQuota: m.monthlyQuota,
+        leadsReceivedToday: live.today,
+        leadsReceivedThisWeek: live.week,
+        leadsReceivedThisMonth: live.month,
+      };
+    });
     const gCampaign: GauntletCampaign = {
       distributionMethod: c.distributionMethod,
       enableUserQuotas: c.enableUserQuotas,
@@ -1625,13 +1675,19 @@ function buildLeadWhere(filters?: LeadListFilters): Record<string, unknown> {
     where.employer = { contains: filters.employer, mode: 'insensitive' };
   }
   if (filters.dateFrom || filters.dateTo) {
+    // dateFrom / dateTo arrive as "YYYY-MM-DD" (no timezone). Interpret
+    // them as Pacific-wall-clock dates so a "Today" filter picks up
+    // leads that arrived after midnight PT, not after midnight UTC
+    // (which would be 5 PM PT the day before).
+    const parsePtDayStart = (ymd: string) =>
+      startOfBusinessDay(new Date(`${ymd}T12:00:00Z`));
+    const parsePtDayEnd = (ymd: string) => {
+      const start = parsePtDayStart(ymd);
+      return new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+    };
     const receivedAt: Record<string, Date> = {};
-    if (filters.dateFrom) receivedAt.gte = new Date(filters.dateFrom);
-    if (filters.dateTo) {
-      const end = new Date(filters.dateTo);
-      end.setHours(23, 59, 59, 999);
-      receivedAt.lte = end;
-    }
+    if (filters.dateFrom) receivedAt.gte = parsePtDayStart(filters.dateFrom);
+    if (filters.dateTo) receivedAt.lte = parsePtDayEnd(filters.dateTo);
     where.receivedAt = receivedAt;
   }
   const q = filters.search?.trim();
@@ -2143,8 +2199,9 @@ export async function addLeadNote(leadId: string, content: string) {
 // ---------------------------------------------------------------------------
 
 export async function getLeadDashboardStats() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Business-day boundary in PT so "Leads today" rolls over at midnight
+  // Pacific, not midnight UTC (which would be 5 PM PT the prior day).
+  const today = startOfBusinessDay();
 
   const [totalToday, unassigned, byVendor, byCampaign, recentLeads] = await prisma.$transaction([
     prisma.lead.count({ where: { receivedAt: { gte: today } } }),
@@ -2188,17 +2245,11 @@ export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
   const effectiveAssignedUserId = isAdmin ? opts.assignedUserId : userId;
   opts = { assignedUserId: effectiveAssignedUserId };
 
-  const now = new Date();
-
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-
-  const weekStart = new Date(now);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
-  weekStart.setHours(0, 0, 0, 0);
-  if (weekStart > now) weekStart.setDate(weekStart.getDate() - 7);
-
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  // All three windows use the business timezone (PT) so the dashboard
+  // numbers line up with the admin's wall-clock day/week/month.
+  const todayStart = startOfBusinessDay();
+  const weekStart = startOfBusinessWeek();
+  const monthStart = startOfBusinessMonth();
 
   // LO scoping: every count and groupBy is narrowed to this user's leads
   // so the stat cards and vendor/campaign breakdowns reflect only what
@@ -2335,20 +2386,6 @@ export async function getLeadEligibleUsers() {
 // ---------------------------------------------------------------------------
 
 export async function getLeadUsers() {
-  const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-
-  // Week = Sunday 00:00 of the current week (local time)
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-
-  // Month = 1st of current month, 00:00 (local time)
-  const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
-
-  // Year = Jan 1 of current year, 00:00 (local time)
-  const yearStart = new Date(todayStart.getFullYear(), 0, 1);
-
   const users = await prisma.user.findMany({
     where: {
       active: true,
@@ -2367,75 +2404,57 @@ export async function getLeadUsers() {
           },
         },
       },
-      _count: {
-        select: {
-          leads: { where: { receivedAt: { gte: todayStart } } },
-        },
-      },
     },
     orderBy: { name: 'asc' },
   });
 
   const userIds = users.map((u) => u.id);
 
-  const [weekGroups, monthGroups, ytdGroups] = await Promise.all([
-    userIds.length
-      ? prisma.lead.groupBy({
-          by: ['assignedUserId'],
-          _count: { _all: true },
-          where: {
-            assignedUserId: { in: userIds },
-            receivedAt: { gte: weekStart },
-          },
-        })
-      : Promise.resolve([] as Array<{ assignedUserId: string | null; _count: { _all: number } }>),
-    userIds.length
-      ? prisma.lead.groupBy({
-          by: ['assignedUserId'],
-          _count: { _all: true },
-          where: {
-            assignedUserId: { in: userIds },
-            receivedAt: { gte: monthStart },
-          },
-        })
-      : Promise.resolve([] as Array<{ assignedUserId: string | null; _count: { _all: number } }>),
-    userIds.length
-      ? prisma.lead.groupBy({
-          by: ['assignedUserId'],
-          _count: { _all: true },
-          where: {
-            assignedUserId: { in: userIds },
-            receivedAt: { gte: yearStart },
-          },
-        })
-      : Promise.resolve([] as Array<{ assignedUserId: string | null; _count: { _all: number } }>),
+  // Live counts (assignedAt, PT business windows) — same source of
+  // truth the gauntlet uses, so the Day / Week / Month / YTD columns
+  // always match what the distribution engine sees. No stored counter
+  // or cron involvement, so the numbers can't drift.
+  const [userLiveCounts, membershipCounts] = await Promise.all([
+    getLiveUserCounts(userIds),
+    getLiveCampaignMemberCounts(
+      users.flatMap((u) =>
+        u.campaignMemberships.map((m) => ({
+          userId: u.id,
+          campaignId: m.campaign.id,
+        }))
+      )
+    ),
   ]);
 
-  const toMap = (
-    rows: Array<{ assignedUserId: string | null; _count: { _all: number } }>
-  ) => {
-    const m = new Map<string, number>();
-    for (const row of rows) {
-      if (row.assignedUserId) m.set(row.assignedUserId, row._count._all);
-    }
-    return m;
-  };
-
-  const weekMap = toMap(weekGroups);
-  const monthMap = toMap(monthGroups);
-  const ytdMap = toMap(ytdGroups);
-
-  return users.map((u) => ({
-    ...u,
-    leadsWeek: weekMap.get(u.id) ?? 0,
-    leadsMonth: monthMap.get(u.id) ?? 0,
-    leadsYtd: ytdMap.get(u.id) ?? 0,
-  }));
+  return users.map((u) => {
+    const live = userLiveCounts.get(u.id) ?? { today: 0, week: 0, month: 0, year: 0 };
+    return {
+      ...u,
+      leadsToday: live.today,
+      leadsWeek: live.week,
+      leadsMonth: live.month,
+      leadsYtd: live.year,
+      campaignMemberships: u.campaignMemberships.map((m) => {
+        const memberLive =
+          membershipCounts.get(`${u.id}::${m.campaign.id}`) ??
+          { today: 0, week: 0, month: 0 };
+        return {
+          ...m,
+          // `leadsReceivedToday` is overridden here with a live value
+          // so the per-campaign row in the user drawer never shows a
+          // stale "N/cap" display while the gauntlet sees something
+          // different.
+          leadsReceivedToday: memberLive.today,
+        };
+      }),
+    };
+  });
 }
 
 export async function getLeadUser(userId: string) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // "today" for the per-user drawer is PT so it matches the Lead Users
+  // list and the gauntlet's idea of today.
+  const today = startOfBusinessDay();
 
   const user = await prisma.user.findUnique({
     where: { id: userId },

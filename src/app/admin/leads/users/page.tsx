@@ -67,7 +67,7 @@ export default async function LeadUsersPage() {
           globalDailyQuota: u.leadQuota?.globalDailyQuota ?? 0,
           globalWeeklyQuota: u.leadQuota?.globalWeeklyQuota ?? 0,
           globalMonthlyQuota: u.leadQuota?.globalMonthlyQuota ?? 0,
-          leadsToday: u._count.leads,
+          leadsToday: u.leadsToday,
           leadsWeek: u.leadsWeek,
           leadsMonth: u.leadsMonth,
           leadsYtd: u.leadsYtd,
