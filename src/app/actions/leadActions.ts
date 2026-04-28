@@ -1733,8 +1733,31 @@ export async function getLeads(
     skipCount?: boolean;
   }
 ) {
-  const where = buildLeadWhere(filters);
-  const orderBy = buildLeadOrderBy(filters?.sortBy, filters?.sortDir);
+  // Server-side authorization: Loan Officers may only ever see leads
+  // assigned to themselves. The client-side LeadsCRM does pass
+  // `assignedUserId` on the initial SSR load, but subsequent fetches
+  // (search, pagination, filter changes) rebuild the filter object and
+  // drop it, which previously let LOs search the entire company's
+  // lead book. We now force-override `assignedUserId` for any
+  // non-admin/non-manager role regardless of what the client sent.
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role as UserRole | undefined;
+  const userId = session?.user?.id;
+  if (!userId) throw new Error('Unauthorized');
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
+
+  const scopedFilters: typeof filters = isAdmin
+    ? filters
+    : {
+        ...(filters ?? {}),
+        // Drop the "show unassigned only" sentinel for LOs -- they
+        // have no business seeing the unassigned pool.
+        unassigned: false,
+        assignedUserId: userId,
+      };
+
+  const where = buildLeadWhere(scopedFilters);
+  const orderBy = buildLeadOrderBy(scopedFilters?.sortBy, scopedFilters?.sortDir);
 
   // The notes _count include was forcing a LATERAL subquery per row even
   // though the CRM never rendered it. At PAGE_SIZE=200 that's 200 extra
@@ -1747,8 +1770,8 @@ export async function getLeads(
       assignedUser: { select: { id: true, name: true } },
     },
     orderBy: orderBy as never,
-    take: filters?.take ?? 100,
-    skip: filters?.skip ?? 0,
+    take: scopedFilters?.take ?? 100,
+    skip: scopedFilters?.skip ?? 0,
   };
 
   // Free-text search always runs without COUNT(*): even with trigram
@@ -1757,8 +1780,10 @@ export async function getLeads(
   // while the user is refining a query. The footer total reappears as
   // soon as the search is cleared (the client refetches without
   // skipCount in that case).
-  const searchActive = typeof filters?.search === 'string' && filters.search.trim().length >= 2;
-  if (filters?.skipCount || searchActive) {
+  const searchActive =
+    typeof scopedFilters?.search === 'string' &&
+    scopedFilters.search.trim().length >= 2;
+  if (scopedFilters?.skipCount || searchActive) {
     const leads = await prisma.lead.findMany(listArgs);
     return { leads, total: -1 };
   }
@@ -2081,8 +2106,18 @@ export async function bulkDeleteLeadsBatch(leadIds: string[]) {
 }
 
 export async function getDistinctLeadSources(opts: { assignedUserId?: string } = {}) {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role as UserRole | undefined;
+  const userId = session?.user?.id;
+  if (!userId) throw new Error('Unauthorized');
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
+
+  // LOs are pinned to their own leads regardless of what the caller
+  // passed in. Admins honor the opt (empty = company-wide).
+  const effectiveAssignedUserId = isAdmin ? opts.assignedUserId : userId;
+
   const where: Prisma.LeadWhereInput = { source: { not: null } };
-  if (opts.assignedUserId) where.assignedUserId = opts.assignedUserId;
+  if (effectiveAssignedUserId) where.assignedUserId = effectiveAssignedUserId;
   const results = await prisma.lead.findMany({
     where,
     select: { source: true },
@@ -2141,6 +2176,18 @@ export async function getLeadDashboardStats() {
 }
 
 export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role as UserRole | undefined;
+  const userId = session?.user?.id;
+  if (!userId) throw new Error('Unauthorized');
+  const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
+
+  // LOs only ever see stats for their own leads. Admins/managers honor
+  // the opt so the /admin/leads/all page can still pass no filter and
+  // get the company-wide counts.
+  const effectiveAssignedUserId = isAdmin ? opts.assignedUserId : userId;
+  opts = { assignedUserId: effectiveAssignedUserId };
+
   const now = new Date();
 
   const todayStart = new Date(now);

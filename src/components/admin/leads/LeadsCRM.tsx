@@ -1299,25 +1299,44 @@ export function LeadsCRM({
     }
   }, [getEffectiveIds]);
 
-  const openLeadDetail = useCallback(async (leadId: string) => {
-    setDetailLoading(true);
-    try {
-      const full = await getLead(leadId);
-      if (full) {
-        setDetailLead({
-          ...full,
-          receivedAt: full.receivedAt.toISOString(),
-          assignedAt: full.assignedAt?.toISOString() ?? null,
-          notes: full.notes.map((n) => ({
-            ...n,
-            createdAt: n.createdAt.toISOString(),
-          })),
-        } as LeadDetailData);
+  const openLeadDetail = useCallback(
+    async (leadId: string) => {
+      setDetailLoading(true);
+      try {
+        const full = await getLead(leadId);
+        if (full) {
+          setDetailLead({
+            ...full,
+            receivedAt: full.receivedAt.toISOString(),
+            assignedAt: full.assignedAt?.toISOString() ?? null,
+            notes: full.notes.map((n) => ({
+              ...n,
+              createdAt: n.createdAt.toISOString(),
+            })),
+          } as LeadDetailData);
+        } else {
+          // `getLead` returns null both for missing leads and leads the
+          // current user isn't allowed to see (non-admin LOs only get
+          // their own assigned leads). Previously this silently dropped
+          // the click and left the spinner flashing for a moment, which
+          // looked like a frozen UI. Surface a clear message and refresh
+          // the list so any stale row that no longer belongs to the LO
+          // disappears from the table.
+          if (typeof window !== 'undefined') {
+            window.alert(
+              isLoMode
+                ? 'This lead is no longer assigned to you.'
+                : 'Lead not found.'
+            );
+          }
+          await fetchLeads();
+        }
+      } finally {
+        setDetailLoading(false);
       }
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
+    },
+    [isLoMode, fetchLeads]
+  );
 
   const handleBulkAssign = useCallback(
     async (userId: string) => {
