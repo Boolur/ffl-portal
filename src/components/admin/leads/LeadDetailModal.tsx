@@ -18,12 +18,17 @@ import {
   MessageSquare,
   Pencil,
   Save,
+  Database,
+  RefreshCw,
 } from 'lucide-react';
 import {
   updateLeadStatus,
   updateLeadFields,
   addLeadNote,
+  reingestLeadFromRawPayload,
 } from '@/app/actions/leadActions';
+import { RawPayloadAudit } from './RawPayloadAudit';
+import { LEAD_MAILBOX_FIELD_MAP as LEAD_MAILBOX_FIELD_MAP_CACHE } from '@/lib/leadMailboxBridge';
 import { useRouter } from 'next/navigation';
 import { FormatDate } from '@/components/ui/FormatDate';
 
@@ -99,6 +104,9 @@ type LeadDetail = {
   price: string | null;
   receivedAt: string;
   assignedAt: string | null;
+  // The untouched JSON body the ingestion webhook received. Used by
+  // the RawPayloadAudit panel to show which keys applied/dropped.
+  rawPayload?: unknown;
   vendor: { name: string } | null;
   campaign: { name: string } | null;
   assignedUser: { name: string } | null;
@@ -320,6 +328,143 @@ function Section({
     </div>
   );
 }
+
+/**
+ * Collapsible "Raw Payload" panel at the bottom of Lead Detail. Starts
+ * closed so the modal doesn't get any taller by default. When there's
+ * recoverable data (a currently-blank Lead column whose raw payload key
+ * had a non-placeholder value), it also surfaces a "Re-map from payload"
+ * button that calls reingestLeadFromRawPayload() to fill those columns
+ * without touching fields an admin has already edited.
+ */
+function RawPayloadSection({
+  lead,
+  onUpdated,
+}: {
+  lead: LeadDetail;
+  onUpdated?: () => void;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [lastResult, setLastResult] = useState<{
+    updated: number;
+    filled: string[];
+  } | null>(null);
+
+  // Pass current Lead values into the audit so it can flag "would fill a
+  // currently-blank column". We also use this set to decide whether to
+  // enable the Re-map button.
+  const currentValues = useMemo(() => {
+    const out: Record<string, string | null | undefined> = {};
+    // Iterate every own property; the Lead columns we care about all
+    // happen to be string | null, and extra non-string fields are
+    // harmless because the audit only reads against its field-map keys.
+    for (const [k, v] of Object.entries(lead as unknown as Record<string, unknown>)) {
+      if (v == null || typeof v === 'string') {
+        out[k] = v as string | null | undefined;
+      }
+    }
+    return out;
+  }, [lead]);
+
+  const canReingest = useMemo(() => {
+    // Only show the button when at least one mapped payload key has a
+    // real value AND the target Lead column is currently blank. Without
+    // that condition the button would be a no-op for the vast majority
+    // of leads.
+    if (!lead.rawPayload || typeof lead.rawPayload !== 'object') return false;
+    const payload = lead.rawPayload as Record<string, unknown>;
+    for (const [key, raw] of Object.entries(payload)) {
+      const target = (LEAD_MAILBOX_FIELD_MAP_CACHE as Record<string, string>)[key];
+      if (!target) continue;
+      if (raw == null) continue;
+      const str = String(raw).trim();
+      if (!str) continue;
+      if (/^\{[A-Za-z0-9_]+\}$/.test(str)) continue;
+      const current = currentValues[target];
+      if (!current) return true;
+    }
+    return false;
+  }, [lead.rawPayload, currentValues]);
+
+  const handleReingest = useCallback(async () => {
+    setRunning(true);
+    try {
+      const result = await reingestLeadFromRawPayload(lead.id);
+      setLastResult(result);
+      router.refresh();
+      onUpdated?.();
+    } catch (err) {
+      console.error('[reingest] failed', err);
+    } finally {
+      setRunning(false);
+    }
+  }, [lead.id, router, onUpdated]);
+
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2.5 px-4 py-3 bg-slate-50/60 hover:bg-slate-50 transition-colors text-left"
+      >
+        <Database className="h-4 w-4 text-slate-400 shrink-0" />
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex-1">
+          Raw Payload Audit
+        </span>
+        {canReingest && !open && (
+          <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded ring-1 ring-amber-200">
+            Recoverable data
+          </span>
+        )}
+        {open ? (
+          <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+        )}
+      </button>
+      {open && (
+        <div>
+          {canReingest && (
+            <div className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-100 bg-amber-50/40">
+              <div className="flex-1 text-xs text-amber-800">
+                One or more dropped fields can be recovered from the raw
+                payload. Click Re-map to fill only columns that are
+                currently blank - your edits are preserved.
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleReingest()}
+                disabled={running}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+              >
+                {running ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Re-map from payload
+              </button>
+            </div>
+          )}
+          {lastResult && (
+            <div className="px-4 py-2 text-[11px] text-emerald-700 bg-emerald-50/60 border-b border-emerald-100">
+              {lastResult.updated > 0
+                ? `Filled ${lastResult.filled.join(', ')}.`
+                : 'No fields were updated - raw payload did not provide any new values.'}
+            </div>
+          )}
+          <RawPayloadAudit
+            rawPayload={lead.rawPayload}
+            currentValues={currentValues}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 export function LeadDetailModal({
   lead,
@@ -694,6 +839,10 @@ export function LeadDetailModal({
             <ReadOnlyRow label="Vendor Lead ID" value={lead.vendorLeadId} mono />
             <ReadOnlyRow label="Vendor User ID" value={lead.vendorUserId} mono />
           </Section>
+
+          {lead.rawPayload != null && (
+            <RawPayloadSection lead={lead} onUpdated={onUpdated} />
+          )}
 
           {/* Notes */}
           <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">

@@ -64,21 +64,43 @@ export type SkipReason =
   | 'GLOBAL_WEEKLY'
   | 'GLOBAL_MONTHLY';
 
-export type NextUpResult =
+/**
+ * Per-member skip record. Returned alongside every NextUpResult so the
+ * admin Up Next panel can show exactly WHY each member was passed over
+ * (e.g. "Not licensed in WA", "Daily quota hit 24/24"). This turns
+ * launch-day round-robin debugging from a black box into a glance.
+ */
+export type SkippedMember = {
+  memberId: string;
+  userId: string;
+  name: string;
+  reason: SkipReason;
+  // Extra human-readable context tied to the reason (e.g. the cap that
+  // was hit, the state the lead was in). Optional — the UI can render
+  // a generic label from `reason` alone.
+  detail?: string;
+};
+
+export type NextUpResult = (
   | { kind: 'MEMBER'; memberId: string; userId: string; name: string }
   | {
       kind: 'DEFAULT';
       userId: string;
       name: string;
-      reason: 'NO_MEMBERS' | 'ALL_SKIPPED';
+      // NO_MEMBERS remains the only valid DEFAULT reason now that
+      // ALL_SKIPPED routes to UNASSIGNED (so round-robin can't be
+      // silently swallowed by the fallback user). See leadActions.ts
+      // distributeLead for the matching live behavior.
+      reason: 'NO_MEMBERS';
     }
   | {
       kind: 'UNASSIGNED';
       reason:
         | 'NO_MEMBERS_NO_DEFAULT'
-        | 'ALL_SKIPPED_NO_DEFAULT'
+        | 'ALL_SKIPPED'
         | 'MANUAL';
-    };
+    }
+) & { skipped: SkippedMember[] };
 
 /**
  * Pure gauntlet check for a single member against a campaign + context.
@@ -146,9 +168,63 @@ export function evaluateMember(
 }
 
 /**
+ * Builds a short, human-readable detail string to accompany a SkipReason.
+ * The panel uses this to render "Not licensed in WA", "Daily cap 24/24",
+ * etc., without the UI having to re-derive from raw member numbers.
+ */
+export function describeSkip(
+  reason: SkipReason,
+  member: GauntletMember,
+  globalQuota: GauntletGlobalQuota | null,
+  ctx: GauntletContext
+): string | undefined {
+  const leadState = ctx.leadState?.trim().toUpperCase() || '';
+  switch (reason) {
+    case 'LEADS_DISABLED':
+      return 'Leads toggled off for this user';
+    case 'GLOBAL_STATE':
+      return leadState
+        ? `Not globally licensed in ${leadState}`
+        : 'Not globally licensed in lead state';
+    case 'CAMPAIGN_STATE':
+      return leadState
+        ? `Not licensed in ${leadState} on this campaign`
+        : 'Not licensed in lead state on this campaign';
+    case 'RECEIVE_DAY': {
+      const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const today = names[ctx.dayOfWeek] ?? `day ${ctx.dayOfWeek}`;
+      return `Does not receive on ${today}`;
+    }
+    case 'CAMPAIGN_DAILY':
+      return `Daily cap hit (${member.leadsReceivedToday}/${member.dailyQuota})`;
+    case 'CAMPAIGN_WEEKLY':
+      return `Weekly cap hit (${member.leadsReceivedThisWeek}/${member.weeklyQuota})`;
+    case 'CAMPAIGN_MONTHLY':
+      return `Monthly cap hit (${member.leadsReceivedThisMonth}/${member.monthlyQuota})`;
+    case 'GLOBAL_DAILY':
+      return globalQuota
+        ? `Global daily cap hit (${globalQuota.leadsReceivedToday}/${globalQuota.globalDailyQuota})`
+        : 'Global daily cap hit';
+    case 'GLOBAL_WEEKLY':
+      return globalQuota
+        ? `Global weekly cap hit (${globalQuota.leadsReceivedThisWeek}/${globalQuota.globalWeeklyQuota})`
+        : 'Global weekly cap hit';
+    case 'GLOBAL_MONTHLY':
+      return globalQuota
+        ? `Global monthly cap hit (${globalQuota.leadsReceivedThisMonth}/${globalQuota.globalMonthlyQuota})`
+        : 'Global monthly cap hit';
+  }
+}
+
+/**
  * Walks `members` in the order supplied (callers pass them pre-sorted by
  * roundRobinPosition asc) and returns the first member who passes the
- * gauntlet, falling through to the campaign's defaultUser when none do.
+ * gauntlet. If no one passes, returns UNASSIGNED/ALL_SKIPPED (the caller
+ * is expected to park the lead in the Unassigned Pool) — we intentionally
+ * do NOT fall through to `defaultUserId` here, because that swallows the
+ * rotation the moment any gate (licensing, receive days, quotas) trips
+ * for every member. The empty-members branch still honors the default
+ * user for the genuinely-different "no roster" case.
  */
 export function findNextEligibleMember(
   campaign: GauntletCampaign,
@@ -157,7 +233,7 @@ export function findNextEligibleMember(
   ctx: GauntletContext
 ): NextUpResult {
   if (campaign.distributionMethod === 'MANUAL') {
-    return { kind: 'UNASSIGNED', reason: 'MANUAL' };
+    return { kind: 'UNASSIGNED', reason: 'MANUAL', skipped: [] };
   }
 
   if (members.length === 0) {
@@ -167,11 +243,17 @@ export function findNextEligibleMember(
         userId: campaign.defaultUserId,
         name: campaign.defaultUserName ?? 'Default user',
         reason: 'NO_MEMBERS',
+        skipped: [],
       };
     }
-    return { kind: 'UNASSIGNED', reason: 'NO_MEMBERS_NO_DEFAULT' };
+    return {
+      kind: 'UNASSIGNED',
+      reason: 'NO_MEMBERS_NO_DEFAULT',
+      skipped: [],
+    };
   }
 
+  const skipped: SkippedMember[] = [];
   for (const member of members) {
     if (!member.active) continue;
     const globalQuota = globalQuotasByUserId.get(member.userId) ?? null;
@@ -182,17 +264,19 @@ export function findNextEligibleMember(
         memberId: member.id,
         userId: member.userId,
         name: member.userName,
+        skipped,
       };
     }
+    skipped.push({
+      memberId: member.id,
+      userId: member.userId,
+      name: member.userName,
+      reason: skip,
+      detail: describeSkip(skip, member, globalQuota, ctx),
+    });
   }
 
-  if (campaign.defaultUserId) {
-    return {
-      kind: 'DEFAULT',
-      userId: campaign.defaultUserId,
-      name: campaign.defaultUserName ?? 'Default user',
-      reason: 'ALL_SKIPPED',
-    };
-  }
-  return { kind: 'UNASSIGNED', reason: 'ALL_SKIPPED_NO_DEFAULT' };
+  // All members failed the gauntlet. Route to the Unassigned Pool
+  // unconditionally — never to defaultUserId — to preserve rotation.
+  return { kind: 'UNASSIGNED', reason: 'ALL_SKIPPED', skipped };
 }

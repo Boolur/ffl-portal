@@ -37,6 +37,7 @@ import {
   type NextUpResult,
 } from '@/lib/leadDistribution';
 import { normalizeUserName } from '@/lib/leadNameMatch';
+import { LEAD_MAILBOX_FIELD_MAP } from '@/lib/leadMailboxBridge';
 import {
   INTEGRATION_SERVICE_TYPES,
   type IntegrationServiceInput,
@@ -200,23 +201,16 @@ export async function distributeLead(leadId: string) {
     return;
   }
 
-  if (campaign.defaultUserId) {
-    await prisma.lead.update({
-      where: { id: leadId },
-      data: {
-        assignedUserId: campaign.defaultUserId,
-        assignedAt: new Date(),
-        status: LeadStatus.NEW,
-      },
-    });
-    await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
-    void forwardLeadToBonzo(leadId, campaign.defaultUserId);
-    void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
-    void runServiceTriggers(
-      leadId,
-      IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
-    );
-  }
+  // All active members were skipped by evaluateMember (licensing, receive
+  // days, quota caps, leadsEnabled, etc.). Do NOT silently funnel to
+  // campaign.defaultUserId here: doing so defeats round-robin the moment
+  // any gate trips for everyone (e.g. a state we don't fully cover), and
+  // masks the root cause. Leave the lead UNASSIGNED so it surfaces in the
+  // Unassigned Pool and an admin can route it / fix the roster.
+  //
+  // The empty-members branch above still honors defaultUserId, because
+  // "no one is staffed on this campaign" is a genuinely different
+  // scenario from "the roster is gated out right now".
 }
 
 async function createLeadNotification(
@@ -756,7 +750,7 @@ export async function createLeadCampaign(data: {
   duplicateHandling?: 'NONE' | 'REJECT' | 'ALLOW';
   defaultLeadStatus?: string;
   enableUserQuotas?: boolean;
-  defaultUserId?: string;
+  defaultUserId?: string | null;
   stateFilter?: string[];
   loanTypeFilter?: string[];
   groupId?: string | null;
@@ -2897,6 +2891,114 @@ export async function bulkCreateLeadsBatch(
   }
 
   return { created: createResult.count };
+}
+
+/**
+ * Re-runs the Lead Mailbox bridge's field map against a single Lead's
+ * stored rawPayload and fills any Lead column that is currently blank.
+ *
+ * Intended for the "we found a misconfigured LMB template, fix it, then
+ * recover the dropped fields" workflow. Never overwrites a populated
+ * column, so an admin's manual edits are preserved. Placeholder tokens
+ * (e.g. the literal string "{phys_address}") are still dropped - those
+ * should be fixed at the source, not papered over.
+ *
+ * Returns the number of columns updated and their names so the UI can
+ * show a precise confirmation ("Filled propertyAddress, propertyCity").
+ */
+export async function reingestLeadFromRawPayload(
+  leadId: string
+): Promise<{ updated: number; filled: string[] }> {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role as UserRole | undefined;
+  if (!canAccessLeadDistribution(role ? [role] : [])) {
+    throw new Error('Forbidden');
+  }
+
+  const fullLead = await prisma.lead.findUnique({ where: { id: leadId } });
+  if (!fullLead) throw new Error('Lead not found');
+
+  const payload = fullLead.rawPayload;
+  if (!payload || typeof payload !== 'object') {
+    return { updated: 0, filled: [] };
+  }
+
+  const placeholder = /^\{[A-Za-z0-9_]+\}$/;
+  const updates: Record<string, string> = {};
+
+  for (const [key, raw] of Object.entries(payload as Record<string, unknown>)) {
+    const target = LEAD_MAILBOX_FIELD_MAP[key];
+    if (!target) continue;
+    if (raw == null) continue;
+    const str = typeof raw === 'object' ? JSON.stringify(raw) : String(raw).trim();
+    if (!str) continue;
+    if (placeholder.test(str)) continue;
+
+    // Only fill columns that are currently blank. We read the
+    // already-loaded fullLead (plain object) to avoid a second query.
+    const current = (fullLead as unknown as Record<string, unknown>)[target];
+    if (current != null && current !== '') continue;
+
+    // First mapped key that supplies a usable value wins, which matches
+    // the live bridge behavior in webhookIngest.ts.
+    if (updates[target] != null) continue;
+
+    if (target === 'isMilitary') {
+      updates[target] = normalizeMilitaryFlag(str) ?? str;
+    } else {
+      updates[target] = str;
+    }
+  }
+
+  const filled = Object.keys(updates);
+  if (filled.length === 0) return { updated: 0, filled: [] };
+
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: updates,
+  });
+  revalidatePath('/admin/leads/all');
+  revalidatePath('/admin/leads/pool');
+  return { updated: filled.length, filled };
+}
+
+/**
+ * Bulk variant of {@link reingestLeadFromRawPayload}. Processes leads
+ * sequentially (the work is cheap - no outbound HTTP, just DB updates)
+ * and returns aggregate counts plus a per-field "filled" tally so the
+ * toolbar can report "Recovered 312 propertyAddress, 289 propertyCity".
+ */
+export async function bulkReingestLeadsFromRawPayload(
+  leadIds: string[]
+): Promise<{
+  processed: number;
+  updated: number;
+  filledByField: Record<string, number>;
+}> {
+  const session = await getServerSession(authOptions);
+  const role = session?.user?.role as UserRole | undefined;
+  if (!canAccessLeadDistribution(role ? [role] : [])) {
+    throw new Error('Forbidden');
+  }
+
+  const filledByField: Record<string, number> = {};
+  let updated = 0;
+
+  for (const id of leadIds) {
+    try {
+      const result = await reingestLeadFromRawPayload(id);
+      if (result.updated > 0) {
+        updated += 1;
+        for (const f of result.filled) {
+          filledByField[f] = (filledByField[f] ?? 0) + 1;
+        }
+      }
+    } catch (err) {
+      console.error('[bulk-reingest] failed', id, err);
+    }
+  }
+
+  return { processed: leadIds.length, updated, filledByField };
 }
 
 export async function revalidateLeadPaths() {

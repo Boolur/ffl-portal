@@ -633,7 +633,11 @@ export function CampaignManager({
         duplicateHandling: form.duplicateHandling as 'NONE' | 'REJECT' | 'ALLOW',
         defaultLeadStatus: form.defaultLeadStatus,
         enableUserQuotas: form.enableUserQuotas,
-        defaultUserId: form.defaultUserId || undefined,
+        // Explicit null (not undefined) so picking "None" in the dropdown
+        // actually clears LeadCampaign.defaultUserId. undefined would be
+        // stripped during server-action serialization and Prisma would
+        // never touch the column, leaving the old fallback user in place.
+        defaultUserId: form.defaultUserId || null,
         stateFilter: form.stateFilter ? form.stateFilter.split(',').map((s) => s.trim()).filter(Boolean) : [],
         loanTypeFilter: form.loanTypeFilter ? form.loanTypeFilter.split(',').map((s) => s.trim()).filter(Boolean) : [],
         groupId: form.groupId ? form.groupId : null,

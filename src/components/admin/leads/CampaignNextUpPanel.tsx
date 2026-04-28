@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Crown,
   Hand,
+  Info,
   RefreshCw,
   UserX,
 } from 'lucide-react';
@@ -238,7 +239,7 @@ export function CampaignNextUpPanel({ initialRoster, filterGroupId }: Props) {
                 <>
                   {' '}
                   &middot; {totalReady} ready &middot;{' '}
-                  {filtered.length - totalReady} fallback
+                  {filtered.length - totalReady} needs attention
                 </>
               )}
             </span>
@@ -360,7 +361,7 @@ function VendorSection({
               {' '}
               &middot;{' '}
               <span className="text-amber-600">
-                {group.fallbackCount} fallback
+                {group.fallbackCount} needs attention
               </span>
             </>
           )}
@@ -385,24 +386,112 @@ function CampaignRow({
   row: CampaignNextUpRow;
   palette: ReturnType<typeof vendorColor>;
 }) {
+  const skipped = row.upNext.skipped;
+  // Only offer expansion when there's something worth reading - i.e.
+  // at least one member was evaluated and skipped. MANUAL campaigns and
+  // empty rosters have nothing to show.
+  const canExpand = skipped.length > 0;
+  const [open, setOpen] = useState(false);
+
   return (
-    <li className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 transition-colors">
-      <span
-        className={`inline-block h-1.5 w-1.5 rounded-full ${palette.dot} ml-5 shrink-0`}
-        aria-hidden="true"
-      />
-      <span
-        className="text-sm text-slate-800 flex-1 min-w-0 truncate"
-        title={row.campaignName}
+    <li className="border-b border-slate-100 last:border-b-0">
+      <div
+        className={`flex items-center gap-3 px-4 py-2 transition-colors ${
+          canExpand ? 'hover:bg-slate-50 cursor-pointer' : ''
+        }`}
+        onClick={canExpand ? () => setOpen((o) => !o) : undefined}
+        role={canExpand ? 'button' : undefined}
+        aria-expanded={canExpand ? open : undefined}
       >
-        {row.campaignName}
-      </span>
-      <span className="text-[10px] text-slate-400 hidden sm:inline-block shrink-0">
-        {row.memberCount} LO{row.memberCount === 1 ? '' : 's'}
-      </span>
-      <UpNextInline upNext={row.upNext} />
+        {canExpand ? (
+          <ChevronRight
+            className={`h-3.5 w-3.5 text-slate-400 transition-transform ml-3 shrink-0 ${
+              open ? 'rotate-90' : ''
+            }`}
+          />
+        ) : (
+          <span
+            className={`inline-block h-1.5 w-1.5 rounded-full ${palette.dot} ml-5 shrink-0`}
+            aria-hidden="true"
+          />
+        )}
+        <span
+          className="text-sm text-slate-800 flex-1 min-w-0 truncate"
+          title={row.campaignName}
+        >
+          {row.campaignName}
+        </span>
+        <span className="text-[10px] text-slate-400 hidden sm:inline-block shrink-0">
+          {row.memberCount} LO{row.memberCount === 1 ? '' : 's'}
+        </span>
+        <UpNextInline upNext={row.upNext} />
+      </div>
+      {canExpand && open && <SkipReasonsList skipped={skipped} />}
     </li>
   );
+}
+
+function SkipReasonsList({
+  skipped,
+}: {
+  skipped: CampaignNextUpRow['upNext']['skipped'];
+}) {
+  return (
+    <div className="bg-slate-50/60 border-t border-slate-100 px-4 py-3">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+        <Info className="h-3 w-3" />
+        Why these members were skipped
+      </div>
+      <ul className="space-y-1.5">
+        {skipped.map((s) => (
+          <li
+            key={s.memberId}
+            className="flex items-center gap-2 text-sm text-slate-700"
+          >
+            <span
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[9px] font-bold text-slate-600"
+              aria-hidden="true"
+            >
+              {initialsOf(s.name)}
+            </span>
+            <span className="font-medium text-slate-900 shrink-0">
+              {s.name}
+            </span>
+            <span className="text-slate-400">&mdash;</span>
+            <span className="text-slate-600">
+              {s.detail ?? describeReasonFallback(s.reason)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// Last-resort label if the server didn't compute a `detail` string (older
+// cached response, etc.). describeSkip() in leadDistribution.ts should
+// normally win, but this keeps the UI legible if it doesn't.
+function describeReasonFallback(reason: string): string {
+  switch (reason) {
+    case 'LEADS_DISABLED':
+      return 'Leads disabled';
+    case 'GLOBAL_STATE':
+    case 'CAMPAIGN_STATE':
+      return 'Not licensed in lead state';
+    case 'RECEIVE_DAY':
+      return 'Not receiving today';
+    case 'CAMPAIGN_DAILY':
+    case 'GLOBAL_DAILY':
+      return 'Daily cap hit';
+    case 'CAMPAIGN_WEEKLY':
+    case 'GLOBAL_WEEKLY':
+      return 'Weekly cap hit';
+    case 'CAMPAIGN_MONTHLY':
+    case 'GLOBAL_MONTHLY':
+      return 'Monthly cap hit';
+    default:
+      return reason;
+  }
 }
 
 function UpNextInline({ upNext }: { upNext: CampaignNextUpRow['upNext'] }) {
@@ -423,14 +512,13 @@ function UpNextInline({ upNext }: { upNext: CampaignNextUpRow['upNext'] }) {
   }
 
   if (upNext.kind === 'DEFAULT') {
+    // DEFAULT now only fires for the empty-roster case. "All members
+    // gated out" routes to UNASSIGNED instead, so rotation can't be
+    // silently eaten by the fallback user.
     return (
       <span
         className="inline-flex items-center gap-2 shrink-0"
-        title={
-          upNext.reason === 'NO_MEMBERS'
-            ? 'No members assigned - falling back to default user'
-            : 'All members gated out - falling back to default user'
-        }
+        title="No members assigned - falling back to default user"
       >
         <span
           className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-700 ring-1 ring-amber-200"
@@ -454,9 +542,18 @@ function UpNextInline({ upNext }: { upNext: CampaignNextUpRow['upNext'] }) {
       ? 'Manual'
       : upNext.reason === 'NO_MEMBERS_NO_DEFAULT'
       ? 'No members'
-      : 'All gated';
+      : 'Unassigned';
+  const title =
+    upNext.reason === 'MANUAL'
+      ? 'Manual distribution - admin assigns leads by hand'
+      : upNext.reason === 'NO_MEMBERS_NO_DEFAULT'
+      ? 'Campaign has no active members and no fallback user'
+      : 'All members gated out - leads land in the Unassigned Pool. Expand this row to see why.';
   return (
-    <span className="inline-flex items-center gap-1.5 shrink-0 text-slate-500">
+    <span
+      className="inline-flex items-center gap-1.5 shrink-0 text-slate-500"
+      title={title}
+    >
       <Icon className="h-3.5 w-3.5" />
       <span className="text-[11px] font-medium">{label}</span>
     </span>

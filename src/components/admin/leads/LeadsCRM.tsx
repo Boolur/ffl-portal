@@ -40,6 +40,7 @@ import {
   bulkUpdateLeadStatus,
   bulkDeleteLeads,
   bulkDeleteLeadsBatch,
+  bulkReingestLeadsFromRawPayload,
   getAllLeadIds,
   getLeadsForExport,
   revalidateLeadPaths,
@@ -690,6 +691,12 @@ export function LeadsCRM({
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [pushServiceOpen, setPushServiceOpen] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const [reingestLoading, setReingestLoading] = useState(false);
+  const [reingestResult, setReingestResult] = useState<{
+    processed: number;
+    updated: number;
+    filledByField: Record<string, number>;
+  } | null>(null);
   const [progressOverlay, setProgressOverlay] = useState<{
     label: string;
     percent: number;
@@ -1167,6 +1174,42 @@ export function LeadsCRM({
     if (selectAllGlobal && globalIds) return globalIds;
     return [...selected];
   }, [selected, selectAllGlobal, globalIds]);
+
+  const handleReingestFromPayload = useCallback(async () => {
+    const ids = getEffectiveIds();
+    if (ids.length === 0) return;
+    if (
+      !window.confirm(
+        `Re-map ${ids.length.toLocaleString()} lead${
+          ids.length === 1 ? '' : 's'
+        } from their stored raw payload?\n\n` +
+          'This fills columns that are currently blank using the latest ' +
+          'bridge field map. Your existing values are preserved.'
+      )
+    ) {
+      return;
+    }
+    setReingestLoading(true);
+    setReingestResult(null);
+    setProgressOverlay({
+      label: 'Re-mapping leads from payload...',
+      percent: 0,
+      detail: `${ids.length.toLocaleString()} leads`,
+    });
+    try {
+      // Single server call - the action iterates internally. The work
+      // is all cheap DB updates, so there's no need to batch on the
+      // client like we do for CSV export.
+      const result = await bulkReingestLeadsFromRawPayload(ids);
+      setReingestResult(result);
+      router.refresh();
+    } catch (err) {
+      console.error('[bulk-reingest] failed', err);
+    } finally {
+      setReingestLoading(false);
+      setProgressOverlay(null);
+    }
+  }, [getEffectiveIds, router]);
 
   const handleExportCsv = useCallback(async () => {
     const ids = getEffectiveIds();
@@ -2085,6 +2128,21 @@ export function LeadsCRM({
 
           <button
             type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-amber-300 px-3 py-1.5 text-sm font-semibold text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => void handleReingestFromPayload()}
+            disabled={reingestLoading}
+            title="Re-run the Lead Mailbox field map on each selected lead's stored raw payload. Only fills columns that are currently blank - your edits are preserved. Use this after fixing an LMB template to recover previously-dropped fields."
+          >
+            {reingestLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Re-map from payload
+          </button>
+
+          <button
+            type="button"
             className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-emerald-300 px-3 py-1.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 transition-colors"
             onClick={() => void handleExportCsv()}
             disabled={exportLoading}
@@ -2145,6 +2203,40 @@ export function LeadsCRM({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {reingestResult && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <RefreshCw className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+          <div className="flex-1 text-sm text-emerald-800">
+            <div className="font-semibold">
+              Re-mapped {reingestResult.processed.toLocaleString()} lead
+              {reingestResult.processed === 1 ? '' : 's'}.
+              {reingestResult.updated > 0
+                ? ` ${reingestResult.updated.toLocaleString()} row${
+                    reingestResult.updated === 1 ? '' : 's'
+                  } updated.`
+                : ' No blank columns were eligible for backfill.'}
+            </div>
+            {Object.keys(reingestResult.filledByField).length > 0 && (
+              <div className="text-xs text-emerald-700 mt-1">
+                Filled:{' '}
+                {Object.entries(reingestResult.filledByField)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([field, count]) => `${count.toLocaleString()} ${field}`)
+                  .join(', ')}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setReingestResult(null)}
+            className="text-emerald-600 hover:text-emerald-800 p-1 -m-1"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 

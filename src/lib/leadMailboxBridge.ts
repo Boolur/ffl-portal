@@ -73,6 +73,21 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   phys_zip: 'propertyZip',
   phys_county: 'propertyCounty',
 
+  // Forgiving aliases so a misconfigured LMB service still lands address
+  // data instead of silently dropping it. All of these coexist with
+  // first-match-wins, so earlier canonical keys like property_address
+  // still take precedence when both are populated.
+  subject_property_address: 'propertyAddress',
+  subject_property_city: 'propertyCity',
+  subject_property_state: 'propertyState',
+  subject_property_zip: 'propertyZip',
+  subject_property_county: 'propertyCounty',
+  address_line_1: 'propertyAddress',
+  street_1: 'propertyAddress',
+  street1: 'propertyAddress',
+  zip_code: 'propertyZip',
+  postal_code: 'propertyZip',
+
   // Property details
   purchase_price: 'purchasePrice',
   property_value: 'propertyValue',
