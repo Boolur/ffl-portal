@@ -24,6 +24,7 @@ import {
 import { prisma } from '@/lib/prisma';
 import { sendEmail } from '@/lib/email';
 import { buildBonzoPayload } from '@/lib/bonzoForward';
+import { sendBrokerLaunchEmail } from '@/lib/brokerLaunchEmail';
 import { render, renderString, type TemplateContext } from './template';
 
 // ---------------------------------------------------------------------------
@@ -108,6 +109,10 @@ const CONTENT_TYPE_BY_METHOD: Record<IntegrationServiceMethod, string | null> = 
   POST_XML_TEXT: 'text/xml',
   POST_XML_SOAP: 'text/xml; charset=utf-8',
   PUT_JSON: 'application/json',
+  // Email methods never reach the HTTP sender — the dispatcher
+  // short-circuits before sendHttp is called. Included here only so
+  // the Record<IntegrationServiceMethod> mapping is exhaustive.
+  EMAIL_BROKER_LAUNCH: null,
 };
 
 const HTTP_VERB_BY_METHOD: Record<IntegrationServiceMethod, 'GET' | 'POST' | 'PUT'> = {
@@ -119,6 +124,10 @@ const HTTP_VERB_BY_METHOD: Record<IntegrationServiceMethod, 'GET' | 'POST' | 'PU
   POST_XML_TEXT: 'POST',
   POST_XML_SOAP: 'POST',
   PUT_JSON: 'PUT',
+  // Unused for email methods (dispatcher short-circuits). POST is a
+  // placeholder that keeps the mapping exhaustive without affecting
+  // behavior.
+  EMAIL_BROKER_LAUNCH: 'POST',
 };
 
 // ---------------------------------------------------------------------------
@@ -172,6 +181,80 @@ export async function dispatchServiceToLead(
       await recordDispatch(service, leadId, trigger, gate, null, null, opts);
     }
     return gate;
+  }
+
+  // 2b. Fixed-template email methods short-circuit the HTTP pipeline.
+  // Broker Launch Notification is the only one today; it has no URL,
+  // body template, or credentials — the dispatcher just calls the
+  // dedicated email helper and records the outcome in the same
+  // ServiceDispatch row shape HTTP services use, so the admin audit
+  // log stays uniform across transports.
+  if (service.method === IntegrationServiceMethod.EMAIL_BROKER_LAUNCH) {
+    if (!lead.assignedUserId) {
+      // evaluateGate already catches `requiresAssignedUser` services,
+      // but keep this defense in case someone seeds a broker-launch
+      // row with that flag off. Without an assigned LO we have nobody
+      // to email, so skip rather than fail.
+      const outcome: DispatchOutcome = {
+        ok: false,
+        skipped: true,
+        reason: 'no_assignee',
+      };
+      if (auditEnabled) {
+        await recordDispatch(service, leadId, trigger, outcome, null, null, opts);
+      }
+      return outcome;
+    }
+
+    const result = await sendBrokerLaunchEmail(leadId, lead.assignedUserId);
+
+    let outcome: DispatchOutcome;
+    if (result.ok) {
+      outcome = { ok: true, status: 200, info: result.info };
+    } else if ('skipped' in result && result.skipped) {
+      outcome = {
+        ok: false,
+        skipped: true,
+        // The sender returns `lead_not_found` / `no_assignee` / `no_
+        // email_on_user`. The first two map directly to SkipReason;
+        // the third is surfaced as `no_assignee` (closest existing
+        // reason) with the specific detail preserved in `info` so
+        // admins can see "User ... has no email" in the audit row.
+        reason:
+          result.reason === 'no_email_on_user'
+            ? 'no_assignee'
+            : result.reason,
+        info: result.info,
+      };
+    } else {
+      outcome = {
+        ok: false,
+        reason: 'exception',
+        info: result.error,
+      };
+    }
+
+    const requestSnapshot = {
+      transport: 'email',
+      method: 'EMAIL_BROKER_LAUNCH',
+      subject: 'Broker Launch Notification',
+      to: lead.assignedUser?.email ?? null,
+    };
+    if (auditEnabled) {
+      await recordDispatch(
+        service,
+        leadId,
+        trigger,
+        outcome,
+        requestSnapshot,
+        null,
+        opts
+      );
+    }
+    if (!outcome.ok && !outcome.skipped) {
+      await maybeNotifyFailure(service, lead, outcome);
+    }
+    return outcome;
   }
 
   // 3. Load per-user credentials for the assigned user, if any.
@@ -535,17 +618,47 @@ export function summarizeBatch(
  * dispatches the lead through it. Respects per-service Day/Delay — delayed
  * services get a PENDING ServiceDispatch row that the cron drain picks up.
  * Immediate services are fired inline with a short timeout and logged.
+ *
+ * `includeSlugs` / `excludeSlugs` let callers narrow or filter the
+ * candidate set. Used by the CSV importer so admins can opt leads into
+ * specific outbound services at upload time (e.g. enable Broker Launch
+ * email for a batch of fresh leads while suppressing other ON_ASSIGN
+ * integrations). `includeSlugs` is evaluated first; pass an empty set
+ * to disable all services. `excludeSlugs` filters whatever remains.
  */
 export async function runServiceTriggers(
   leadId: string,
   trigger: IntegrationServiceTrigger,
-  context: { previousStatus?: string; newStatus?: string } = {}
+  context: {
+    previousStatus?: string;
+    newStatus?: string;
+    includeSlugs?: string[];
+    excludeSlugs?: string[];
+  } = {}
 ): Promise<void> {
   try {
+    const includeSet = context.includeSlugs
+      ? new Set(context.includeSlugs)
+      : null;
+    const excludeSet = context.excludeSlugs
+      ? new Set(context.excludeSlugs)
+      : null;
+
+    // Fast path: if the caller passed an empty include list, there is
+    // nothing to fire and we can skip the DB round-trip entirely. This
+    // matches how the CSV importer signals "no services for this batch"
+    // without us having to invent a separate boolean.
+    if (includeSet && includeSet.size === 0) return;
+
     const candidates = await prisma.integrationService.findMany({
       where: {
         active: true,
         statusTrigger: trigger,
+        ...(includeSet
+          ? { slug: { in: Array.from(includeSet) } }
+          : excludeSet && excludeSet.size > 0
+            ? { slug: { notIn: Array.from(excludeSet) } }
+            : {}),
       },
       include: { credentialFields: true },
     });

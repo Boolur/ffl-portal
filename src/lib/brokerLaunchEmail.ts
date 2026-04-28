@@ -16,21 +16,47 @@ import { sendEmail } from '@/lib/email';
  * actually have on the Lead model. Tokens LMB never substituted are kept
  * as literals so the parsers see exactly the same shape they always have.
  *
- * Call sites mirror `forwardLeadToBonzo` — every spot in leadActions.ts
- * where a lead picks up an `assignedUserId`.
+ * Firing is driven by the Integration Service row with
+ * `method = EMAIL_BROKER_LAUNCH`, seeded in the
+ * 20260428010100_seed_broker_launch_email_service migration. The service
+ * dispatcher (src/lib/services/dispatch.ts) calls `sendBrokerLaunchEmail`
+ * when it encounters that method, which means:
+ *
+ *   - Every ON_ASSIGN trigger fires the service (manual assign, round-
+ *     robin, default-user fallback, CSV import when the admin opts in).
+ *   - Admins can batch-send from the Leads screen Push to Service modal.
+ *   - Every send gets a ServiceDispatch audit row (DB-level "who got
+ *     emailed?" log, no Graph Mail.Read permission required).
  */
 
 export const BROKER_LAUNCH_SUBJECT = 'Broker Launch Notification';
 
 /**
- * Fire-and-forget entry point. Errors are logged, never thrown, so an
- * email outage never blocks lead distribution (same contract as
- * `forwardLeadToBonzo`).
+ * Structured result returned to the service dispatcher so it can record
+ * a meaningful ServiceDispatch row (SENT / SKIPPED / FAILED). Callers
+ * outside the dispatcher (none today, but kept for test scripts) can
+ * treat any non-`ok` response as a warning to log.
+ */
+export type BrokerLaunchSendResult =
+  | { ok: true; info?: string }
+  | {
+      ok: false;
+      skipped: true;
+      reason: 'lead_not_found' | 'no_assignee' | 'no_email_on_user';
+      info?: string;
+    }
+  | { ok: false; skipped?: false; error: string };
+
+/**
+ * Sends the Broker Launch Notification to the lead's assigned LO. Returns
+ * a structured result instead of throwing so the dispatcher can map it
+ * directly to a ServiceDispatch row without additional try/catch. Call
+ * sites that don't need the result can simply ignore the return value.
  */
 export async function sendBrokerLaunchEmail(
   leadId: string,
   userId: string
-): Promise<void> {
+): Promise<BrokerLaunchSendResult> {
   try {
     const [lead, user] = await Promise.all([
       prisma.lead.findUnique({
@@ -46,8 +72,20 @@ export async function sendBrokerLaunchEmail(
       }),
     ]);
 
-    if (!lead) return;
-    if (!user?.email) return;
+    if (!lead) {
+      return { ok: false, skipped: true, reason: 'lead_not_found' };
+    }
+    if (!user) {
+      return { ok: false, skipped: true, reason: 'no_assignee' };
+    }
+    if (!user.email) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'no_email_on_user',
+        info: `User ${userId} has no email on their account.`,
+      };
+    }
 
     const body = buildBrokerLaunchEmailBody(lead);
 
@@ -56,11 +94,15 @@ export async function sendBrokerLaunchEmail(
       subject: BROKER_LAUNCH_SUBJECT,
       text: body,
     });
+
+    return { ok: true, info: `Delivered to ${user.email}` };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     console.warn(
       `[broker-launch] Email error for lead ${leadId} -> user ${userId}:`,
       err
     );
+    return { ok: false, error: message };
   }
 }
 

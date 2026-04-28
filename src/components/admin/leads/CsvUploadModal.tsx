@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
-  X, Upload, FileSpreadsheet, ChevronRight, ChevronLeft, Check, Loader2, AlertCircle, UserCheck, Users, Zap,
+  X, Upload, FileSpreadsheet, ChevronRight, ChevronLeft, Check, Loader2, AlertCircle, UserCheck, Users, Zap, Mail,
 } from 'lucide-react';
 import Papa from 'papaparse';
 import {
@@ -103,7 +103,15 @@ export function CsvUploadModal({
   // buildNameIndex normalizes to, so repeat imports can skip step 3 if every
   // name is already resolved.
   const [nameDecisions, setNameDecisions] = useState<Record<string, string | null>>({});
+  // Two independent outbound toggles, both default off so large
+  // historical imports don't accidentally fan out to Bonzo or email the
+  // assigned LOs. `fireBonzo` controls the per-user Bonzo webhook
+  // forward; `fireBrokerLaunchEmail` controls the "Broker Launch
+  // Notification" integration service (fixed-template LMB-compatible
+  // email parsed by the LOs' quoting tools). The two are wired
+  // separately server-side -- see `bulkCreateLeadsBatch`.
   const [fireBonzo, setFireBonzo] = useState(false);
+  const [fireBrokerLaunchEmail, setFireBrokerLaunchEmail] = useState(false);
 
   const mappingLookup = useMemo(() => {
     const map: Record<string, string> = {};
@@ -357,7 +365,11 @@ export function CsvUploadModal({
       }
 
       const assignment = assignmentEnabled
-        ? { nameToUserId: nameDecisions, fireBonzo }
+        ? {
+            nameToUserId: nameDecisions,
+            fireBonzo,
+            fireBrokerLaunchEmail,
+          }
         : undefined;
 
       const batchSize = 50;
@@ -403,6 +415,7 @@ export function CsvUploadModal({
     setColumnMap({});
     setNameDecisions({});
     setFireBonzo(false);
+    setFireBrokerLaunchEmail(false);
     setResult(null);
     setError('');
     if (fileRef.current) fileRef.current.value = '';
@@ -735,25 +748,52 @@ export function CsvUploadModal({
                 </div>
               )}
 
-              <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 accent-indigo-600"
-                  checked={fireBonzo}
-                  onChange={(e) => setFireBonzo(e.target.checked)}
-                />
-                <span className="flex-1">
-                  <span className="inline-flex items-center gap-1 font-semibold">
-                    <Zap className="h-3.5 w-3.5 text-indigo-600" />
-                    Also forward imported leads to Bonzo
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Outbound notifications
+                </div>
+                <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-indigo-600"
+                    checked={fireBonzo}
+                    onChange={(e) => setFireBonzo(e.target.checked)}
+                  />
+                  <span className="flex-1">
+                    <span className="inline-flex items-center gap-1 font-semibold">
+                      <Zap className="h-3.5 w-3.5 text-indigo-600" />
+                      Forward imported leads to Bonzo
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      Off by default. Turn on only if these leads have never
+                      been sent to Bonzo before &mdash; historical imports are
+                      usually already in each LO&apos;s Bonzo account.
+                    </span>
                   </span>
-                  <span className="block text-xs text-slate-500 mt-0.5">
-                    Off by default. Turn on only if these leads have never
-                    been sent to Bonzo before &mdash; historical imports are
-                    usually already in each LO&apos;s Bonzo account.
+                </label>
+                <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-indigo-600"
+                    checked={fireBrokerLaunchEmail}
+                    onChange={(e) =>
+                      setFireBrokerLaunchEmail(e.target.checked)
+                    }
+                  />
+                  <span className="flex-1">
+                    <span className="inline-flex items-center gap-1 font-semibold">
+                      <Mail className="h-3.5 w-3.5 text-indigo-600" />
+                      Send Broker Launch Notification emails
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      Off by default. Turn on to email each assigned LO the
+                      LMB-compatible lead brief their quoting tool parses.
+                      Leave off for historical imports so LO inboxes
+                      aren&apos;t flooded with old leads.
+                    </span>
                   </span>
-                </span>
-              </label>
+                </label>
+              </div>
             </div>
           )}
 

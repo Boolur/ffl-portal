@@ -647,6 +647,12 @@ enum IntegrationServiceMethod {
   POST_XML_TEXT
   POST_XML_SOAP
   PUT_JSON
+  // Fixed-template transactional email. No URL/body/headers are used;
+  // the dispatcher renders a hard-coded template and sends via
+  // Microsoft Graph on behalf of MS_SENDER_EMAIL. Recipient = lead's
+  // assigned LO. Currently only the "Broker Launch Notification" email
+  // uses this method.
+  EMAIL_BROKER_LAUNCH
 }
 
 enum IntegrationServiceScope {

@@ -16,7 +16,6 @@ import {
   postBonzoPayload,
   type BonzoLeadLike,
 } from '@/lib/bonzoForward';
-import { sendBrokerLaunchEmail } from '@/lib/brokerLaunchEmail';
 import {
   runDispatchBatch,
   summarizeBatch,
@@ -92,7 +91,9 @@ export async function distributeLead(leadId: string) {
       });
       await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
       void forwardLeadToBonzo(leadId, campaign.defaultUserId);
-      void sendBrokerLaunchEmail(leadId, campaign.defaultUserId);
+      // ON_ASSIGN triggers fire every active IntegrationService whose
+      // statusTrigger matches, which includes the "Broker Launch
+      // Notification" email service (method = EMAIL_BROKER_LAUNCH).
       void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
       void runServiceTriggers(
         leadId,
@@ -191,7 +192,6 @@ export async function distributeLead(leadId: string) {
 
     await createLeadNotification(member.userId, lead, campaign.name);
     void forwardLeadToBonzo(leadId, member.userId);
-    void sendBrokerLaunchEmail(leadId, member.userId);
     void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
     void runServiceTriggers(
       leadId,
@@ -211,7 +211,6 @@ export async function distributeLead(leadId: string) {
     });
     await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
     void forwardLeadToBonzo(leadId, campaign.defaultUserId);
-    void sendBrokerLaunchEmail(leadId, campaign.defaultUserId);
     void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
     void runServiceTriggers(
       leadId,
@@ -1940,7 +1939,6 @@ export async function assignLead(leadId: string, userId: string) {
   });
   await createLeadNotification(userId, { id: leadId }, 'Manual Assignment');
   void forwardLeadToBonzo(leadId, userId);
-  void sendBrokerLaunchEmail(leadId, userId);
   void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
   void runServiceTriggers(
     leadId,
@@ -1962,7 +1960,6 @@ export async function bulkAssignLeads(leadIds: string[], userId: string) {
   });
   for (const leadId of leadIds) {
     void forwardLeadToBonzo(leadId, userId);
-    void sendBrokerLaunchEmail(leadId, userId);
     void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
     void runServiceTriggers(
       leadId,
@@ -2774,7 +2771,9 @@ export async function bulkCreateLeadsFromCsv(
 /**
  * Bulk import a batch of CSV rows as leads.
  *
- * Historical-import options (optional):
+ * Historical-import options (optional, all default false so a vanilla
+ * CSV upload with no `options` makes zero outbound calls):
+ *
  *  - `assignment.nameToUserId` — lookup map built client-side from the CSV's
  *    "User Name" column. Any row with `assignedUserName` whose normalized
  *    value hits this map gets `assignedUserId` + `assignedAt` set and its
@@ -2784,6 +2783,14 @@ export async function bulkCreateLeadsFromCsv(
  *  - `assignment.fireBonzo` — when true, each assigned lead is forwarded
  *    to its LO's Bonzo webhook (fire-and-forget). Default false for
  *    historical imports since those leads are typically already in Bonzo.
+ *  - `assignment.fireBrokerLaunchEmail` — when true, fires the
+ *    "Broker Launch Notification" integration service for each assigned
+ *    lead, which emails the LO the LMB-compatible plain-text brief
+ *    their quoting tools parse. Default false so large historical
+ *    imports don't spam LO inboxes.
+ *
+ * The two flags are independent: admins can forward to Bonzo without
+ * emailing, email without forwarding, do both, or do neither.
  */
 export async function bulkCreateLeadsBatch(
   rows: Array<Record<string, string | null>>,
@@ -2791,6 +2798,7 @@ export async function bulkCreateLeadsBatch(
     assignment?: {
       nameToUserId: Record<string, string | null>;
       fireBonzo?: boolean;
+      fireBrokerLaunchEmail?: boolean;
     };
   }
 ) {
@@ -2798,6 +2806,8 @@ export async function bulkCreateLeadsBatch(
   const now = new Date();
   const assignmentMap = options?.assignment?.nameToUserId;
   const fireBonzo = options?.assignment?.fireBonzo === true;
+  const fireBrokerLaunchEmail =
+    options?.assignment?.fireBrokerLaunchEmail === true;
 
   type Resolved = {
     data: Prisma.LeadCreateManyInput;
@@ -2842,7 +2852,7 @@ export async function bulkCreateLeadsBatch(
     data: resolved.map((r) => r.data),
   });
 
-  if (fireBonzo) {
+  if (fireBonzo || fireBrokerLaunchEmail) {
     // Can't get the newly-created ids back from createMany, so look them up
     // by rawPayload match via the assigned users + receivedAt window. For
     // simplicity and correctness we just fetch all leads created in this
@@ -2857,15 +2867,31 @@ export async function bulkCreateLeadsBatch(
       select: { id: true, assignedUserId: true },
       take: resolved.length,
     });
+    // Only fire the broker-launch-email service when the admin ticked
+    // its checkbox. Passing `includeSlugs` scopes runServiceTriggers to
+    // just that one service; omitting the option entirely lets every
+    // active ON_ASSIGN integration fire (current behavior for non-CSV
+    // assignments). CSV imports deliberately don't trigger the full
+    // fan-out so historical batches don't accidentally re-run every
+    // integration the admin has installed.
+    const brokerLaunchSlugs = fireBrokerLaunchEmail
+      ? ['broker-launch-email']
+      : [];
     for (const l of fresh) {
       if (l.assignedUserId) {
-        void forwardLeadToBonzo(l.id, l.assignedUserId);
-        void sendBrokerLaunchEmail(l.id, l.assignedUserId);
-        void runServiceTriggers(l.id, IntegrationServiceTrigger.ON_ASSIGN);
-        void runServiceTriggers(
-          l.id,
-          IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
-        );
+        if (fireBonzo) {
+          void forwardLeadToBonzo(l.id, l.assignedUserId);
+        }
+        if (fireBrokerLaunchEmail) {
+          void runServiceTriggers(l.id, IntegrationServiceTrigger.ON_ASSIGN, {
+            includeSlugs: brokerLaunchSlugs,
+          });
+          void runServiceTriggers(
+            l.id,
+            IntegrationServiceTrigger.DELAY_AFTER_ASSIGN,
+            { includeSlugs: brokerLaunchSlugs }
+          );
+        }
       }
     }
   }

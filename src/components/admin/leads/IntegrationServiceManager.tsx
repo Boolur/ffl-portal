@@ -78,6 +78,12 @@ const METHOD_OPTIONS: Array<{ value: IntegrationServiceMethod; label: string }> 
   { value: 'POST_XML_TEXT', label: 'POST — XML (text/xml)' },
   { value: 'POST_XML_SOAP', label: 'POST — SOAP envelope' },
   { value: 'PUT_JSON', label: 'PUT — JSON' },
+  // Fixed-template email transport. Selecting this disables URL / body /
+  // headers / credentials in the editor — the dispatcher always renders
+  // the LMB-compatible Broker Launch template and sends via Microsoft
+  // Graph. Keep it at the bottom of the list so HTTP methods stay the
+  // default surface admins see.
+  { value: 'EMAIL_BROKER_LAUNCH', label: 'Email — Broker Launch Notification' },
 ];
 
 const TRIGGER_OPTIONS: Array<{ value: IntegrationServiceTrigger; label: string; help?: string }> = [
@@ -2084,6 +2090,8 @@ function prettyMethod(m: IntegrationServiceMethod): string {
       return 'POST · SOAP';
     case 'PUT_JSON':
       return 'PUT · JSON';
+    case 'EMAIL_BROKER_LAUNCH':
+      return 'Email · Broker Launch';
   }
 }
 

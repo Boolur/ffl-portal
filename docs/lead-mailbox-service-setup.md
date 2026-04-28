@@ -417,10 +417,13 @@ Each call fires after the DB write commits, so if the assignment fails, Bonzo is
 
 The portal sends a "Broker Launch Notification" email to the assigned LO every time a lead picks up an `assignedUserId`. This email replaces the one Lead Mailbox used to send; it's sent from `MS_SENDER_EMAIL` (the `noreply@federalfirstlending.com` mailbox already wired up in [src/lib/email.ts](../src/lib/email.ts)).
 
-- **Module:** [src/lib/brokerLaunchEmail.ts](../src/lib/brokerLaunchEmail.ts) (`sendBrokerLaunchEmail`)
-- **Subject:** `Broker Launch Notification` (exactly — LO quoting tools filter on this)
-- **Fire-and-forget:** Graph outages are logged as `[broker-launch] Email error for lead <id> -> user <id>: ...` and never block distribution.
-- **Call sites:** same six places `forwardLeadToBonzo` is called — round-robin assign, default-user fallback (×2), manual assign, bulk assign, CSV import.
+- **Template module:** [src/lib/brokerLaunchEmail.ts](../src/lib/brokerLaunchEmail.ts) (`sendBrokerLaunchEmail` + `buildBrokerLaunchEmailBody`).
+- **Transport:** the dispatcher — not a direct call. The seeded `IntegrationService` row (`slug: 'broker-launch-email'`, `method: EMAIL_BROKER_LAUNCH`) triggers the template via [src/lib/services/dispatch.ts](../src/lib/services/dispatch.ts). Every send writes a `ServiceDispatch` audit row so the DB is the source of truth for "who got emailed?"
+- **Subject:** `Broker Launch Notification` (exactly — LO quoting tools filter on this).
+- **Fire-and-forget:** Graph outages land as FAILED `ServiceDispatch` rows and log `[broker-launch] Email error for lead <id> -> user <id>: ...`. Lead distribution never blocks.
+- **Call surface:** the service fires on every `runServiceTriggers(ON_ASSIGN)` call — round-robin assign, default-user fallback (×2 in `distributeLead`), manual assign (`assignLead`), and bulk assign (`bulkAssignLeads`). CSV imports fire it **only when the admin ticks "Send Broker Launch Notification emails"** in Step 3 of the CSV upload modal (see `bulkCreateLeadsBatch`).
+- **Admin batch send:** available from the Leads screen Push to Service modal. Pick "Broker Launch Notification" from the service list, confirm, and each selected lead's assigned LO gets the email.
+- **Admin-only by default:** non-admins don't see the service in their Push picker unless explicitly granted a `UserIntegrationServicePermission` row. `pushLeadsToService` double-checks this server-side.
 
 ## 12. Why the template looks frozen
 
