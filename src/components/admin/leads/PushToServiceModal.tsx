@@ -154,17 +154,17 @@ export function PushToServiceModal({ leadIds, services, onClose }: Props) {
                 {active.map((s) => (
                   <div
                     key={s.id}
-                    className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 hover:border-indigo-300 transition-colors"
+                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 hover:border-indigo-300 transition-colors"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
                         <Zap className="h-4 w-4" />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="font-semibold text-slate-900">
                           {s.name}
                         </div>
-                        <div className="text-xs text-slate-500 max-w-md">
+                        <div className="text-xs text-slate-500">
                           {s.description || `type: ${s.type}`}
                         </div>
                       </div>
@@ -174,7 +174,7 @@ export function PushToServiceModal({ leadIds, services, onClose }: Props) {
                       onClick={() =>
                         setState({ status: 'confirming', service: s })
                       }
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+                      className="inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
                     >
                       <Zap className="h-3.5 w-3.5" />
                       Push {leadIds.length} lead
