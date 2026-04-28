@@ -410,3 +410,34 @@ Every POST to a Bonzo webhook has this shape (built by `buildBonzoPayload` in `s
 - Default-user reassign (admin override).
 
 Each call fires after the DB write commits, so if the assignment fails, Bonzo isn't hit. If Bonzo is slow or down, the forward aborts at 10 s but the lead stays assigned in the portal — admins can retry later by reassigning the lead, which triggers the forward again.
+
+---
+
+# Broker Launch Notification email
+
+The portal sends a "Broker Launch Notification" email to the assigned LO every time a lead picks up an `assignedUserId`. This email replaces the one Lead Mailbox used to send; it's sent from `MS_SENDER_EMAIL` (the `noreply@federalfirstlending.com` mailbox already wired up in [src/lib/email.ts](../src/lib/email.ts)).
+
+- **Module:** [src/lib/brokerLaunchEmail.ts](../src/lib/brokerLaunchEmail.ts) (`sendBrokerLaunchEmail`)
+- **Subject:** `Broker Launch Notification` (exactly — LO quoting tools filter on this)
+- **Fire-and-forget:** Graph outages are logged as `[broker-launch] Email error for lead <id> -> user <id>: ...` and never block distribution.
+- **Call sites:** same six places `forwardLeadToBonzo` is called — round-robin assign, default-user fallback (×2), manual assign, bulk assign, CSV import.
+
+## 12. Why the template looks frozen
+
+Several LOs run third-party quoting tools that parse the plain-text body to auto-generate quotes. Those parsers were trained against LMB's template, so the portal reproduces LMB's output byte-for-byte. Specifically:
+
+- `Email = …` has **no** trailing period (appending one corrupts naive email extractors).
+- Numeric-value lines (`Property Value`, `Current Balance`, `Property LTV`, `Cash out`, `Loan Amount`, `Price`) have no trailing period.
+- Every other string label gets `= <value>.` (trailing period), and empty strings render as `= .` so the label is always present.
+- Five tokens are kept as literal `{…}` strings because LMB never substituted them and parsers expect them as-is:
+  - `CB = {addl_PrimaryMortgageBalance}`
+  - `HELOC = {addl_HomeEquityAddlCash}`
+  - `IsMilitary = {IsMilitary}.`
+  - `curentVALoan = {VA Loan}.` *(the misspelled "curent" is intentional — matches LMB)*
+  - `currentFHALoan = {FHA Loan}.`
+- The last two lines use `:` instead of `=`: `Current Rate:` and `DOB:`.
+- `Phone` is normalized to `(AAA)BBB-CCCC` with no space — LMB's exact shape.
+- `Campaign = …` uses the `LeadCampaign.routingTag` (e.g. `FFL07HELOC/HELOANCredit620-699|0-80LTV(Grade B)ALL`), falling back to the campaign name and then the vendor name.
+- `Address / City / State / Zip` uses `mailingAddress` when present and falls back to `propertyAddress` because the LM Bridge maps every address variant into the `property_*` columns — without the fallback those lines would be empty for bridge-ingested leads.
+
+If you need to change any of this, **coordinate with the LOs first** — their quoting tools will break silently on format drift.

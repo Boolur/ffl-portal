@@ -16,6 +16,7 @@ import {
   postBonzoPayload,
   type BonzoLeadLike,
 } from '@/lib/bonzoForward';
+import { sendBrokerLaunchEmail } from '@/lib/brokerLaunchEmail';
 import {
   runDispatchBatch,
   summarizeBatch,
@@ -91,6 +92,7 @@ export async function distributeLead(leadId: string) {
       });
       await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
       void forwardLeadToBonzo(leadId, campaign.defaultUserId);
+      void sendBrokerLaunchEmail(leadId, campaign.defaultUserId);
       void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
       void runServiceTriggers(
         leadId,
@@ -189,6 +191,7 @@ export async function distributeLead(leadId: string) {
 
     await createLeadNotification(member.userId, lead, campaign.name);
     void forwardLeadToBonzo(leadId, member.userId);
+    void sendBrokerLaunchEmail(leadId, member.userId);
     void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
     void runServiceTriggers(
       leadId,
@@ -208,6 +211,7 @@ export async function distributeLead(leadId: string) {
     });
     await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
     void forwardLeadToBonzo(leadId, campaign.defaultUserId);
+    void sendBrokerLaunchEmail(leadId, campaign.defaultUserId);
     void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
     void runServiceTriggers(
       leadId,
@@ -1936,6 +1940,7 @@ export async function assignLead(leadId: string, userId: string) {
   });
   await createLeadNotification(userId, { id: leadId }, 'Manual Assignment');
   void forwardLeadToBonzo(leadId, userId);
+  void sendBrokerLaunchEmail(leadId, userId);
   void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
   void runServiceTriggers(
     leadId,
@@ -1957,6 +1962,7 @@ export async function bulkAssignLeads(leadIds: string[], userId: string) {
   });
   for (const leadId of leadIds) {
     void forwardLeadToBonzo(leadId, userId);
+    void sendBrokerLaunchEmail(leadId, userId);
     void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
     void runServiceTriggers(
       leadId,
@@ -2854,6 +2860,7 @@ export async function bulkCreateLeadsBatch(
     for (const l of fresh) {
       if (l.assignedUserId) {
         void forwardLeadToBonzo(l.id, l.assignedUserId);
+        void sendBrokerLaunchEmail(l.id, l.assignedUserId);
         void runServiceTriggers(l.id, IntegrationServiceTrigger.ON_ASSIGN);
         void runServiceTriggers(
           l.id,
