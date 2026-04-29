@@ -41,6 +41,7 @@ type Campaign = {
   updatedAt: Date | string;
   totalDailyQuota: number;
   avgLeads5bd: number;
+  leadsToday: number;
 };
 
 type Props = {

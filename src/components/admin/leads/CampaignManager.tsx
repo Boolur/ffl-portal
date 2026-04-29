@@ -58,6 +58,13 @@ type Campaign = {
   updatedAt: Date | string;
   totalDailyQuota: number;
   avgLeads5bd: number;
+  // Leads received today (Pacific-time midnight boundary). Shown in
+  // the "Today" column on the Campaigns tab so admins can watch
+  // per-campaign volume without refreshing the whole /leads screen.
+  // The delete / reassign dialog still reads `_count.leads` for the
+  // all-time total because that's the number that governs whether
+  // the campaign is safe to archive.
+  leadsToday: number;
 };
 type CampaignDetail = Campaign & {
   members: Array<{
@@ -265,7 +272,16 @@ const CAMPAIGN_COLUMNS: Array<{
   { id: 'group', label: 'Group', defaultWidth: 150, minWidth: 110, align: 'left', sortable: true },
   { id: 'tag', label: 'Routing Tag', defaultWidth: 160, minWidth: 120, align: 'left', sortable: true },
   { id: 'members', label: 'Members', defaultWidth: 130, minWidth: 110, align: 'center', sortable: true },
-  { id: 'leads', label: 'Leads', defaultWidth: 110, minWidth: 90, align: 'center', sortable: true },
+  {
+    id: 'leads',
+    label: 'Today',
+    defaultWidth: 110,
+    minWidth: 90,
+    align: 'center',
+    sortable: true,
+    title:
+      'Leads received so far today (resets at midnight Pacific). For all-time totals, open the campaign and use Archive \u2192 Reassign.',
+  },
   {
     id: 'quota',
     label: 'Total Quotas',
@@ -315,7 +331,8 @@ function getCampaignColumnSortValue(c: Campaign, id: CampaignSortKey): string | 
     case 'members':
       return c._count.members;
     case 'leads':
-      return c._count.leads;
+      // Column is "Today" — sort by today's volume, not all-time.
+      return c.leadsToday;
     case 'quota':
       return c.totalDailyQuota;
     case 'avg5bd':
@@ -404,7 +421,7 @@ function renderCampaignCell(id: CampaignColumnId, c: Campaign): React.ReactNode 
     case 'members':
       return c._count.members;
     case 'leads':
-      return c._count.leads;
+      return c.leadsToday;
     case 'quota':
       return c.totalDailyQuota;
     case 'avg5bd':

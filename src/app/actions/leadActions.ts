@@ -613,8 +613,15 @@ export async function getLeadCampaigns() {
   // preview shows the same data an admin would see glancing at a PT
   // calendar on the wall.
   const fiveBdAgo = startOfLastNBusinessDays(5);
+  // "Today" also anchored to PT so the Campaigns tab's per-campaign
+  // daily counter rolls over at midnight Pacific, matching the same
+  // day-boundary convention used by the LO quota gauntlet and the
+  // dashboard's "New Today" stat card. Callers using UTC midnight
+  // would see the counter flip at 5 PM PT, which confused admins in
+  // pre-launch testing.
+  const todayStart = startOfBusinessDay();
 
-  const [campaigns, quotaSums, recentLeadCounts] = await Promise.all([
+  const [campaigns, quotaSums, recentLeadCounts, todayLeadCounts] = await Promise.all([
     prisma.leadCampaign.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
@@ -635,17 +642,31 @@ export async function getLeadCampaigns() {
       _count: { _all: true },
       orderBy: { campaignId: 'asc' },
     }),
+    // Today's leads per campaign. Uses receivedAt (not createdAt) so a
+    // backfill / CSV re-import doesn't inflate today's counter with
+    // leads that were actually delivered days ago — matches the field
+    // the rest of the CRM sorts and date-filters on.
+    prisma.lead.groupBy({
+      by: ['campaignId'],
+      where: { receivedAt: { gte: todayStart } },
+      _count: { _all: true },
+      orderBy: { campaignId: 'asc' },
+    }),
   ]);
 
   const quotaMap = new Map(quotaSums.map((q) => [q.campaignId, q._sum.dailyQuota ?? 0]));
   const recentMap = new Map(
     recentLeadCounts.map((r) => [r.campaignId, r._count._all]),
   );
+  const todayMap = new Map(
+    todayLeadCounts.map((r) => [r.campaignId, r._count._all]),
+  );
 
   return campaigns.map((c) => ({
     ...c,
     totalDailyQuota: quotaMap.get(c.id) ?? 0,
     avgLeads5bd: Math.round(((recentMap.get(c.id) ?? 0) / 5) * 10) / 10,
+    leadsToday: todayMap.get(c.id) ?? 0,
   }));
 }
 
