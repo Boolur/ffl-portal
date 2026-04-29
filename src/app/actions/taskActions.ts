@@ -81,10 +81,11 @@ const QC_INVESTOR_ALLOWED_VALUES = new Set([
   'PENNYMAC',
   'FIGURE',
   'NFTY',
+  'SPRING EQ',
   'OTHER',
 ]);
 
-const QC_ONLY_INVESTORS = new Set(['FIGURE', 'NFTY']);
+const QC_ONLY_INVESTORS = new Set(['FIGURE', 'NFTY', 'SPRING EQ']);
 
 function isVaTaskKind(kind: TaskKind | null) {
   return (
