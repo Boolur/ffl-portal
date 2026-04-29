@@ -177,7 +177,11 @@ type LeadLike = {
  *   workPhone           -> work_phone
  *   dob                 -> birthday
  *   ssn                 -> ssn
- *   mailingAddress/...  -> address / city / state / zip     (borrower mailing)
+ *   mailingAddress/...  -> address / city / state / zip     (borrower mailing;
+ *                          falls back to propertyAddress/... so LMB-sourced
+ *                          leads — whose bridge writes every address variant
+ *                          into the property* columns — still populate
+ *                          Bonzo's native address keys)
  *   propertyAddress/... -> property_address / property_city / property_state / property_zip / property_county
  *   propertyType        -> property_type
  *   propertyUse         -> property_use
@@ -246,6 +250,21 @@ function buildBonzoPayload(lead: LeadLike) {
   const veteranBool = normalizeMilitaryFlagToBool(veteranFlag);
   const veteranYesNo = veteranFlag; // 'Yes' | 'No' | null
 
+  // Mailing address falls back to property-* because the Lead Mailbox
+  // bridge collapses every address variant (`phys_*`, `Mail_*`, `address_
+  // line_1`, …) into the `property*` columns — see leadMailboxBridge.ts.
+  // Bonzo's native `address` / `city` / `state` / `zip` keys drive most
+  // of their campaign triggers, so leaving them null (even when
+  // `property_address` was populated) meant LOs' VA / refinance
+  // campaigns couldn't match on city/state. Same `??` pattern the
+  // Broker Launch email uses for its `Address = …` block, so LMB leads
+  // get a filled mailing block while non-LMB vendors that send a
+  // genuine separate mailing address still win.
+  const mailAddress = lead.mailingAddress ?? lead.propertyAddress;
+  const mailCity = lead.mailingCity ?? lead.propertyCity;
+  const mailState = lead.mailingState ?? lead.propertyState;
+  const mailZip = lead.mailingZip ?? lead.propertyZip;
+
   return {
     // Identity
     lead_id: lead.id,
@@ -263,10 +282,10 @@ function buildBonzoPayload(lead: LeadLike) {
     ssn: lead.ssn,
 
     // Borrower mailing address
-    address: lead.mailingAddress,
-    city: lead.mailingCity,
-    state: lead.mailingState,
-    zip: lead.mailingZip,
+    address: mailAddress,
+    city: mailCity,
+    state: mailState,
+    zip: mailZip,
 
     // Property address
     property_address: lead.propertyAddress,

@@ -210,11 +210,30 @@ export function buildLeadMailboxJsonTemplate(): string {
       dob: '{dob}',
       ssn: '{social}',
 
+      // Subject property address. LMB populates `{phys_*}` reliably for
+      // most vendors (e.g. LeadPoint, Lendgo), so it stays first and wins
+      // when present. See `ingestLeadMailboxWebhook` for the first-non-
+      // empty-wins logic that skips unsubstituted `{phys_*}` placeholders.
       property_address: '{phys_address}',
       property_city: '{phys_city}',
       property_state: '{phys_state}',
       property_zip: '{phys_zip}',
       property_county: '{phys_county}',
+
+      // Mailing address fallback. Some vendors (notably LendingTree and
+      // FreeRateUpdate) leave `{phys_*}` blank on many leads but reliably
+      // populate `{Mail_*}`. Because these map to the same `property*`
+      // columns and only fill in when the `{phys_*}` keys above were
+      // dropped as unsubstituted placeholders, the portal (and the
+      // Broker Launch email) ends up with an address no matter which
+      // side LMB filled in. Investor leads with genuinely different
+      // mailing vs subject property still preserve the subject property
+      // because `{phys_*}` wins when populated.
+      mailing_address: '{Mail_Address}',
+      mailing_city: '{Mail_City}',
+      mailing_state: '{Mail_State}',
+      mailing_zip: '{Mail_Zip}',
+      mailing_county: '{Mail_County}',
 
       property_value: '{property value}',
       property_type: '{property type}',

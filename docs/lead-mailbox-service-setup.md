@@ -36,6 +36,12 @@ Paste this into the **Content** field of every LMB Service you create. The **onl
   "property_zip": "{phys_zip}",
   "property_county": "{phys_county}",
 
+  "mailing_address": "{Mail_Address}",
+  "mailing_city": "{Mail_City}",
+  "mailing_state": "{Mail_State}",
+  "mailing_zip": "{Mail_Zip}",
+  "mailing_county": "{Mail_County}",
+
   "property_value": "{property value}",
   "property_type": "{property type}",
   "property_use": "{property use}",
@@ -77,6 +83,7 @@ Key things to know:
 
 - `routing_tag` starts empty (`""`) — you must fill it in per service with the value from the tables in section 3. The webhook falls back to the Unassigned Pool if it doesn't match.
 - `lead_id` becomes the portal lead's `vendorLeadId` (for cross-referencing back to LMB).
+- The `property_*` block (using `{phys_*}`) stays first so the subject property wins when LMB populates it. The `mailing_*` block (using `{Mail_*}`) acts as a fallback for vendors that leave `{phys_*}` blank — notably LendingTree and FreeRateUpdate. Both blocks map to the same `property*` columns on the `Lead` model; first-non-empty-wins in `ingestLeadMailboxWebhook` means investor leads with genuinely different mailing vs subject property still keep the subject property, while leads that only sent a mailing address no longer ingest with a blank address (and the Broker Launch email's `Address = …` section fills in accordingly).
 - `property_ltv: "{Field_011}"` and `loan_rate: "{Field_037}"` reference numbered custom fields — these IDs are assigned per-customer in LMB's admin and match the ones configured for this org today. If an LMB admin renumbers a field, update it in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts) and re-copy.
 - LO info (`{User_Name}`, `{User_Email}`, `{User_License}`, `{User_Phone}`) and `{campaign_name}` have no home on the `Lead` model, so they're persisted as **notes** instead of getting dropped. `extractBridgeNotes` in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts) auto-filters empty strings and unsubstituted `{Token}` placeholders.
 - `is_military` and `custom_veteran` both land on the same `Lead.isMilitary` yes/no column — see the comment at lines 129-132 of [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts).
