@@ -89,8 +89,27 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, user, trigger, session }) {
+      // Throttled DB re-sync. Previously the `session` callback ran
+      // `prisma.user.findUnique` on EVERY request (every
+      // getServerSession call — which every server action does as its
+      // first line). At 30+ users × 20s dashboard polling, that alone
+      // saturated the Supabase pooler and manifested as "sign in spins
+      // for a minute" + "saving attachment timed out". Now we cache
+      // role/name/active in the JWT and only re-read once every
+      // SESSION_DB_REFRESH_MS so admin role changes / deactivations
+      // still propagate without forcing a sign-out.
+      //
+      // NB: JWT-callback mutations persist back to the signed cookie;
+      // session-callback mutations do not. That's why the throttle
+      // lives here, not in session().
+      const SESSION_DB_REFRESH_MS = 5 * 60 * 1000;
+      const tokenWithMeta = token as typeof token & {
+        id?: string;
+        dbSyncedAt?: number;
+      };
+
       if (user) {
-        token.id = (user as { id?: string }).id;
+        tokenWithMeta.id = (user as { id?: string }).id;
         const fallbackRole = normalizeRole((user as { role?: string }).role);
         const roles = normalizeRoles((user as { roles?: string[] }).roles, fallbackRole);
         const activeRole = resolveActiveRole(
@@ -98,78 +117,103 @@ export const authOptions: NextAuthOptions = {
           normalizeRole((user as { activeRole?: string }).activeRole),
           fallbackRole
         );
-        token.roles = roles;
-        token.activeRole = activeRole;
-        token.role = activeRole;
+        tokenWithMeta.roles = roles;
+        tokenWithMeta.activeRole = activeRole;
+        tokenWithMeta.role = activeRole;
+        // Just-signed-in user: authorize() already read the row, so
+        // treat this as a fresh sync and skip the immediate re-read.
+        tokenWithMeta.dbSyncedAt = Date.now();
       }
 
       if (trigger === 'update') {
         const tokenRoles = normalizeRoles(
-          (token.roles as string[] | undefined) || undefined,
-          normalizeRole((token.role as string | undefined) || undefined)
+          (tokenWithMeta.roles as string[] | undefined) || undefined,
+          normalizeRole((tokenWithMeta.role as string | undefined) || undefined)
         );
         const requestedActiveRole = normalizeRole(
           (session as { activeRole?: string } | undefined)?.activeRole
         );
-        const activeRole = resolveActiveRole(tokenRoles, requestedActiveRole, token.activeRole as UserRole);
-        token.roles = tokenRoles;
-        token.activeRole = activeRole;
-        token.role = activeRole;
+        const activeRole = resolveActiveRole(
+          tokenRoles,
+          requestedActiveRole,
+          tokenWithMeta.activeRole as UserRole
+        );
+        tokenWithMeta.roles = tokenRoles;
+        tokenWithMeta.activeRole = activeRole;
+        tokenWithMeta.role = activeRole;
+        // Force a fresh DB read on the next pass — admins flipping a
+        // user's role/status from the admin UI trigger an update, and
+        // we want that to reflect immediately.
+        tokenWithMeta.dbSyncedAt = 0;
       }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
 
-        const tokenUserId = token.id as string | undefined;
-        if (tokenUserId) {
+      const needsDbSync =
+        tokenWithMeta.id &&
+        (!tokenWithMeta.dbSyncedAt ||
+          Date.now() - tokenWithMeta.dbSyncedAt > SESSION_DB_REFRESH_MS);
+
+      if (needsDbSync && tokenWithMeta.id) {
+        try {
           const dbUser = await prisma.user.findUnique({
-            where: { id: tokenUserId },
+            where: { id: tokenWithMeta.id },
             select: { role: true, roles: true, name: true, active: true },
           });
           if (dbUser?.active) {
             const roles = normalizeRoles(dbUser.roles, dbUser.role);
             const activeRole = resolveActiveRole(
               roles,
-              normalizeRole((token.activeRole as string | undefined) || undefined),
-              normalizeRole((token.role as string | undefined) || undefined)
+              normalizeRole(
+                (tokenWithMeta.activeRole as string | undefined) || undefined
+              ),
+              normalizeRole(
+                (tokenWithMeta.role as string | undefined) || undefined
+              )
             );
-            session.user.roles = roles;
-            session.user.activeRole = activeRole;
-            session.user.role = activeRole;
-            session.user.name = dbUser.name || session.user.name;
-            token.roles = roles;
-            token.activeRole = activeRole;
-            token.role = activeRole;
-          } else {
-            const roles = normalizeRoles(
-              (token.roles as string[] | undefined) || undefined,
-              normalizeRole((token.role as string | undefined) || undefined)
-            );
-            const activeRole = resolveActiveRole(
-              roles,
-              normalizeRole((token.activeRole as string | undefined) || undefined),
-              normalizeRole((token.role as string | undefined) || undefined)
-            );
-            session.user.roles = roles;
-            session.user.activeRole = activeRole;
-            session.user.role = activeRole;
+            tokenWithMeta.roles = roles;
+            tokenWithMeta.activeRole = activeRole;
+            tokenWithMeta.role = activeRole;
+            tokenWithMeta.name = dbUser.name || tokenWithMeta.name;
+            tokenWithMeta.dbSyncedAt = Date.now();
+          } else if (dbUser && !dbUser.active) {
+            // Deactivated accounts get an empty-roles token so downstream
+            // guards fail closed instead of trusting stale JWT state.
+            tokenWithMeta.roles = [];
+            tokenWithMeta.activeRole = undefined;
+            tokenWithMeta.role = undefined;
+            tokenWithMeta.dbSyncedAt = Date.now();
           }
-        } else {
-          const roles = normalizeRoles(
-            (token.roles as string[] | undefined) || undefined,
-            normalizeRole((token.role as string | undefined) || undefined)
-          );
-          const activeRole = resolveActiveRole(
-            roles,
-            normalizeRole((token.activeRole as string | undefined) || undefined),
-            normalizeRole((token.role as string | undefined) || undefined)
-          );
-          session.user.roles = roles;
-          session.user.activeRole = activeRole;
-          session.user.role = activeRole;
+          // User row missing: leave token as-is; not our job to sign
+          // them out from this layer, and failing closed on a transient
+          // null could lock the whole company out.
+        } catch (err) {
+          // Transient pool timeout or network hiccup — keep serving
+          // the slightly-stale JWT rather than 500-ing the app.
+          // dbSyncedAt stays unchanged so we retry next request.
+          console.warn('[auth] jwt db refresh failed, using cached token', err);
         }
+      }
+
+      return tokenWithMeta;
+    },
+    async session({ session, token }) {
+      if (!session.user) return session;
+
+      session.user.id = token.id as string;
+
+      const roles = normalizeRoles(
+        (token.roles as string[] | undefined) || undefined,
+        normalizeRole((token.role as string | undefined) || undefined)
+      );
+      const activeRole = resolveActiveRole(
+        roles,
+        normalizeRole((token.activeRole as string | undefined) || undefined),
+        normalizeRole((token.role as string | undefined) || undefined)
+      );
+      session.user.roles = roles;
+      session.user.activeRole = activeRole;
+      session.user.role = activeRole;
+      if (typeof token.name === 'string' && token.name) {
+        session.user.name = token.name;
       }
       return session;
     },

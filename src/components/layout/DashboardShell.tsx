@@ -105,7 +105,15 @@ function DashboardContent({ children, user }: DashboardShellProps) {
     if (!shouldAutoRefresh) return;
 
     const INTERACTION_PAUSE_MS = 4000;
-    const AUTO_REFRESH_MS = 20000;
+    // Raised from 20s → 60s on launch day: at 30+ simultaneously
+    // logged-in users, a 20-second refresh tripled the sustained
+    // Prisma load on the Supabase pooler (connection_limit=5) and
+    // surfaced as sign-in timeouts + attachment save errors. 60s is
+    // still live enough for bucket counts / notifications without
+    // starving pool capacity during bursts. Users who want an
+    // immediate refresh can switch tabs away + back (visibilitychange
+    // handler below still catches up instantly).
+    const AUTO_REFRESH_MS = 60000;
     let lastInteractionAt = Date.now();
     const markInteraction = () => {
       lastInteractionAt = Date.now();

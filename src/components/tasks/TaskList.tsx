@@ -2642,7 +2642,15 @@ export function TaskList({
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutHandle = window.setTimeout(
         () => reject(new Error('Saving attachment timed out. Please try again.')),
-        15_000
+        // Raised from 15s → 45s. Under Supabase pooler pressure the
+        // finalize server action (3 DB ops: session check, task read,
+        // taskAttachment.create) can queue briefly past 15s and then
+        // succeed. A 15s client-side abort was surfacing a scary
+        // "timed out" banner on uploads that actually DID save to
+        // storage + DB, forcing users to retry and create duplicates.
+        // 45s comfortably covers a saturated pool without hanging the
+        // UI indefinitely.
+        45_000
       );
     });
 
