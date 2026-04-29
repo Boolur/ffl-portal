@@ -924,6 +924,21 @@ export function LeadsCRM({
     );
   }, [buildFilters, computeFilterSig]);
 
+  // Stable ref to the latest `fetchLeads`. Needed because `fetchLeads`
+  // (useCallback) takes a new identity any time `buildFilters` does,
+  // and `buildFilters` takes a new identity on every filter/page/sort
+  // state change. Without this ref, the sort + search effects below
+  // would depend on `fetchLeads` directly, re-fire on every page
+  // change, and the sort effect's `setPage(0)` would immediately
+  // undo the navigation the user just performed by clicking Next.
+  // That's the reason Prev/Next appeared to "do nothing" even after
+  // the overlay fix — the click DID navigate, then a cascading
+  // effect snapped the page right back to 0 one tick later.
+  const fetchLeadsRef = useRef(fetchLeads);
+  useEffect(() => {
+    fetchLeadsRef.current = fetchLeads;
+  }, [fetchLeads]);
+
   // Debounced search auto-fire. Triggers a fetch ~350ms after the user
   // stops typing. Guards:
   //   - Skips the very first render (no pointless initial fetch; the
@@ -933,6 +948,10 @@ export function LeadsCRM({
   //     <2 char queries, so this just saves the round-trip).
   //   - Clearing the box (string -> '') is allowed through so the
   //     unfiltered list + full total come back.
+  // Deps are `[search]` only, not `[search, fetchLeads]`: pagination
+  // shouldn't recreate the debounce timer, and using fetchLeadsRef
+  // keeps us reading the latest function identity without adding it
+  // to the dependency list.
   const searchMountRef = useRef(false);
   const lastSearchFiredRef = useRef('');
   useEffect(() => {
@@ -947,10 +966,10 @@ export function LeadsCRM({
     const timer = window.setTimeout(() => {
       lastSearchFiredRef.current = search;
       setPage(0);
-      void fetchLeads(0);
+      void fetchLeadsRef.current(0);
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [search, fetchLeads]);
+  }, [search]);
 
   const handleSort = useCallback(
     (key: SortKey) => {
@@ -964,7 +983,13 @@ export function LeadsCRM({
     [sortBy]
   );
 
-  // Refetch when sort changes (skip first render)
+  // Refetch when sort changes (skip first render). Deps are
+  // `[sortBy, sortDir]` only — dropping `fetchLeads` fixes the Prev/
+  // Next bug: previously this effect re-fired on every page change
+  // (because fetchLeads took a new identity) and its unconditional
+  // `setPage(0)` snapped the user straight back to page 1 the tick
+  // after they clicked Next. Now it only fires when the sort column
+  // or direction actually changes.
   const didMountRef = useRef(false);
   useEffect(() => {
     if (!didMountRef.current) {
@@ -972,8 +997,8 @@ export function LeadsCRM({
       return;
     }
     setPage(0);
-    void fetchLeads(0);
-  }, [sortBy, sortDir, fetchLeads]);
+    void fetchLeadsRef.current(0);
+  }, [sortBy, sortDir]);
 
   const handlePageChange = useCallback(
     (newPage: number) => {
