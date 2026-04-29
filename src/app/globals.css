@@ -292,3 +292,22 @@ textarea:disabled,
 .app-sync-progress-shimmer {
   animation: appSyncShimmer 1.4s ease-in-out infinite;
 }
+
+/* Indeterminate progress strip used in Leads CRM pagination. A thin
+   bar that slides across the top of the table while a page-change
+   fetch is in flight; non-blocking so the user sees progress without
+   losing access to Prev/Next controls. 1.2s cycle roughly matches
+   typical server-action latency so one full sweep maps to "about
+   done". */
+@keyframes leadsPageStripSlide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.leads-page-strip {
+  animation: leadsPageStripSlide 1.2s ease-in-out infinite;
+}

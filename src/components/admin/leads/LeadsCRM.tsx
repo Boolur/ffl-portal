@@ -60,6 +60,11 @@ const ALL_STATUSES = [
   'UNASSIGNED',
 ] as const;
 
+// Must stay in sync with the `select` block in `getLeads` (src/app/
+// actions/leadActions.ts). The table renders only these fields; the
+// detail drawer has its own `getLead(id)` fetch for the full row, and
+// CSV export uses `getLeadsForExport(ids)` which returns a wider shape.
+// If you add a column to the table, add it to both places.
 type LeadRow = {
   id: string;
   firstName: string | null;
@@ -67,8 +72,6 @@ type LeadRow = {
   email: string | null;
   phone: string | null;
   propertyState: string | null;
-  loanPurpose: string | null;
-  loanAmount: string | null;
   status: string;
   source: string | null;
   receivedAt: string;
@@ -416,16 +419,32 @@ export function LeadsCRM({
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
-  // Distinct from `loading` so we can render a blocking overlay only
-  // when the user is actively searching (the generic `loading` flag is
-  // also raised for sort/page/filter changes which don't need it).
-  const [searching, setSearching] = useState(false);
+  // `fetchMode` drives visible loading feedback:
+  //   - 'idle'          — no fetch in flight; table is interactive.
+  //   - 'query-change'  — filter/search/sort changed. Draws the table-
+  //                       region overlay ("Applying filters…" /
+  //                       "Searching…") so the user sees something
+  //                       happened. Pagination stays uncovered.
+  //   - 'page-change'   — Next / Prev only. Draws a thin top strip so
+  //                       the user sees progress without the whole
+  //                       table disappearing behind an overlay.
+  // Replaces the old `searching` boolean which only fired for >=2 char
+  // searches and left filter/sort refetches feeling dead.
+  const [fetchMode, setFetchMode] = useState<
+    'idle' | 'query-change' | 'page-change'
+  >('idle');
   // Monotonically-increasing request id. Every fetch captures its id at
   // dispatch time; when the response arrives we only commit the result
   // if the id still matches the latest one. This kills the "old slow
   // search overwrites new fast search" race that used to reshuffle the
   // table mid-click.
   const fetchSeqRef = useRef(0);
+  // Signature of the last committed filter set (search + every filter +
+  // sort, but NOT page). We reset the multi-select only when this
+  // changes, so clicking Next Page preserves the user's selection
+  // across pagination — matches the "select multiple leads, paginate,
+  // select more" flow admins expect from a CRM.
+  const lastFilterSigRef = useRef<string>('');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -791,22 +810,66 @@ export function LeadsCRM({
     ]
   );
 
+  // Builds a stable signature for the current filter set. We use it to
+  // detect whether a new fetch is "same filters, different page" (keep
+  // selection + show page-change strip) vs "filters actually changed"
+  // (reset selection + show blocking overlay). Page is deliberately
+  // omitted; sort is included because changing sort also changes what
+  // the user is looking at and any pre-selected rows no longer map to
+  // the same positional set.
+  const computeFilterSig = useCallback(
+    (filters: Record<string, unknown>): string => {
+      const {
+        take: _take,
+        skip: _skip,
+        skipCount: _skipCount,
+        ...rest
+      } = filters;
+      // Void the unused destructured vars so the linter doesn't flag
+      // them. Cheaper than building a manually-whitelisted object and
+      // keeps `buildFilters` as the single source of truth.
+      void _take;
+      void _skip;
+      void _skipCount;
+      const keys = Object.keys(rest).sort();
+      const parts: string[] = [];
+      for (const k of keys) {
+        const v = rest[k];
+        parts.push(`${k}=${v === undefined ? '' : String(v)}`);
+      }
+      return parts.join('|');
+    },
+    []
+  );
+
   const fetchLeads = useCallback(
-    async (pageOverride?: number, opts?: { skipCount?: boolean }) => {
+    async (
+      pageOverride?: number,
+      opts?: { skipCount?: boolean; mode?: 'query-change' | 'page-change' }
+    ) => {
       const seq = ++fetchSeqRef.current;
       setLoading(true);
       const filters = buildFilters(pageOverride) as Record<string, unknown>;
       if (opts?.skipCount) filters.skipCount = true;
-      const isSearchRequest =
-        typeof filters.search === 'string' &&
-        (filters.search as string).trim().length >= 2;
-      if (isSearchRequest) setSearching(true);
+
+      const nextSig = computeFilterSig(filters);
+      // Caller can hint at the mode (pagination callers pass
+      // 'page-change'); otherwise we infer from whether the filter
+      // signature changed. First fetch after mount will always fall
+      // into 'query-change' because lastFilterSigRef starts empty.
+      const inferredMode: 'query-change' | 'page-change' =
+        opts?.mode ?? (nextSig === lastFilterSigRef.current
+          ? 'page-change'
+          : 'query-change');
+      setFetchMode(inferredMode);
+
       try {
         const result = await getLeads(filters as never);
         // Stale response guard: if another fetch was dispatched after
         // this one, drop this result on the floor. Prevents the older
         // slow query from clobbering a newer fast query.
         if (seq !== fetchSeqRef.current) return;
+
         setLeads(
           result.leads.map((l) => ({
             ...l,
@@ -818,21 +881,48 @@ export function LeadsCRM({
         // during pagination, or implicitly when the server detects an
         // active search). Keep the previous total in that case.
         if (result.total !== -1) setTotal(result.total);
-        setSelected(new Set());
+
+        // Selection policy: persist across pagination and sort-dir
+        // flips for the same filter set; reset only when the filter
+        // signature changed (user typed in search, toggled a filter,
+        // or changed the sort column). Also resets the "select all
+        // matching" banner so stale globalIds don't stick around.
+        const prevSig = lastFilterSigRef.current;
+        lastFilterSigRef.current = nextSig;
+        if (prevSig !== nextSig) {
+          setSelected(new Set());
+          setSelectAllGlobal(false);
+          setGlobalIds(null);
+        }
       } finally {
         if (seq === fetchSeqRef.current) {
           setLoading(false);
-          setSearching(false);
+          setFetchMode('idle');
         }
       }
     },
-    [buildFilters]
+    [buildFilters, computeFilterSig]
   );
 
   const handleFilterChange = useCallback(() => {
     setPage(0);
     void fetchLeads(0);
   }, [fetchLeads]);
+
+  // Seed the filter signature from the initial SSR filter set on mount
+  // so the very first user action (usually a Next Page click on the
+  // default unfiltered list) is correctly classified as a page-change
+  // and keeps any pre-click selection. Without this the first fetch
+  // would see lastFilterSigRef='' vs nextSig='sortBy=receivedAt|...'
+  // and wipe the selection even though the filter set didn't change.
+  const sigMountRef = useRef(false);
+  useEffect(() => {
+    if (sigMountRef.current) return;
+    sigMountRef.current = true;
+    lastFilterSigRef.current = computeFilterSig(
+      buildFilters(0) as Record<string, unknown>
+    );
+  }, [buildFilters, computeFilterSig]);
 
   // Debounced search auto-fire. Triggers a fetch ~350ms after the user
   // stops typing. Guards:
@@ -890,8 +980,10 @@ export function LeadsCRM({
       setPage(newPage);
       // Page-only navigation doesn't change the filter set, so there's
       // no need to pay for another COUNT(*) across the full lead table
-      // — reuse the total we already have.
-      void fetchLeads(newPage, { skipCount: true });
+      // — reuse the total we already have. Explicit mode hint keeps
+      // pagination out of the blocking overlay path so the user's
+      // Prev/Next clicks are never swallowed mid-fetch.
+      void fetchLeads(newPage, { skipCount: true, mode: 'page-change' });
     },
     [fetchLeads]
   );
@@ -916,7 +1008,7 @@ export function LeadsCRM({
     setPage(0);
     setActiveQuickFilter(null);
     setLoading(true);
-    setSearching(false);
+    setFetchMode('query-change');
     const seq = ++fetchSeqRef.current;
     getLeads({ take: PAGE_SIZE, skip: 0, sortBy, sortDir } as never).then((result) => {
       if (seq !== fetchSeqRef.current) return;
@@ -927,8 +1019,15 @@ export function LeadsCRM({
         })) as unknown as LeadRow[]
       );
       if (result.total !== -1) setTotal(result.total);
+      // Filters were cleared wholesale — always reset selection and
+      // keep lastFilterSigRef in sync so the very next fetch's
+      // "did filters change?" check is accurate.
       setSelected(new Set());
+      setSelectAllGlobal(false);
+      setGlobalIds(null);
+      lastFilterSigRef.current = `sortBy=${sortBy}|sortDir=${sortDir}`;
       setLoading(false);
+      setFetchMode('idle');
     });
   }, [sortBy, sortDir]);
 
@@ -989,6 +1088,7 @@ export function LeadsCRM({
         setActiveQuickFilter(null);
         setPage(0);
         setLoading(true);
+        setFetchMode('query-change');
         const seq = ++fetchSeqRef.current;
         getLeads({ take: PAGE_SIZE, skip: 0, sortBy, sortDir } as never).then((result) => {
           if (seq !== fetchSeqRef.current) return;
@@ -1000,7 +1100,14 @@ export function LeadsCRM({
           );
           if (result.total !== -1) setTotal(result.total);
           setSelected(new Set());
+          setSelectAllGlobal(false);
+          setGlobalIds(null);
+          // Reset the sig ref so the next `fetchLeads` call sees a
+          // "filters changed" signal and renders the query-change
+          // overlay (rather than the lighter page-change strip).
+          lastFilterSigRef.current = '';
           setLoading(false);
+          setFetchMode('idle');
         });
         return;
       }
@@ -1044,6 +1151,7 @@ export function LeadsCRM({
 
       setPage(0);
       setLoading(true);
+      setFetchMode('query-change');
       const seq = ++fetchSeqRef.current;
       getLeads(filters as never).then((result) => {
         if (seq !== fetchSeqRef.current) return;
@@ -1055,7 +1163,11 @@ export function LeadsCRM({
         );
         if (result.total !== -1) setTotal(result.total);
         setSelected(new Set());
+        setSelectAllGlobal(false);
+        setGlobalIds(null);
+        lastFilterSigRef.current = '';
         setLoading(false);
+        setFetchMode('idle');
       });
     },
     [activeQuickFilter, sortBy, sortDir]
@@ -1082,6 +1194,7 @@ export function LeadsCRM({
       setActiveQuickFilter(null);
       setPage(0);
       setLoading(true);
+      setFetchMode('query-change');
       const seq = ++fetchSeqRef.current;
       getLeads({
         take: PAGE_SIZE,
@@ -1099,7 +1212,11 @@ export function LeadsCRM({
         );
         if (result.total !== -1) setTotal(result.total);
         setSelected(new Set());
+        setSelectAllGlobal(false);
+        setGlobalIds(null);
+        lastFilterSigRef.current = '';
         setLoading(false);
+        setFetchMode('idle');
       });
     },
     [sortBy, sortDir]
@@ -1126,6 +1243,7 @@ export function LeadsCRM({
       setActiveQuickFilter(null);
       setPage(0);
       setLoading(true);
+      setFetchMode('query-change');
       const seq = ++fetchSeqRef.current;
       getLeads({
         take: PAGE_SIZE,
@@ -1143,7 +1261,11 @@ export function LeadsCRM({
         );
         if (result.total !== -1) setTotal(result.total);
         setSelected(new Set());
+        setSelectAllGlobal(false);
+        setGlobalIds(null);
+        lastFilterSigRef.current = '';
         setLoading(false);
+        setFetchMode('idle');
       });
     },
     [sortBy, sortDir]
@@ -2283,27 +2405,7 @@ export function LeadsCRM({
       )}
 
       {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden relative">
-        {/* Blocking search overlay. While a search is in flight we dim
-            the whole table card and capture clicks so the user can't
-            fire row-opens on rows that are about to disappear when
-            results land. This kills the "misclick on a reshuffled row"
-            complaint. Uses z-20 so the sticky thead (z-1) is covered. */}
-        {searching && (
-          <div
-            className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-[1px]"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
-              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-              <span className="text-sm font-medium text-slate-700">
-                Searching{' '}
-                {total > 0 ? `${total.toLocaleString()} ` : ''}leads&hellip;
-              </span>
-            </div>
-          </div>
-        )}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <p className="text-sm text-slate-600">
             <span className="font-bold text-slate-900">
@@ -2330,6 +2432,53 @@ export function LeadsCRM({
             </button>
           </div>
         </div>
+
+        {/* Thin top progress strip for page-change fetches. Non-
+            blocking on purpose — clicking Prev/Next should never
+            disable itself. The strip sits directly under the header
+            bar and above the table, so it's clearly tied to the
+            fetch that's in flight. Animation defined in globals.css
+            as `.leads-page-strip` (leadsPageStripSlide keyframe). */}
+        {fetchMode === 'page-change' && (
+          <div
+            className="h-0.5 w-full overflow-hidden bg-slate-100"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="leads-page-strip h-full w-1/4 bg-blue-500" />
+          </div>
+        )}
+
+        {/* Table region — scoped `relative` so the query-change
+            overlay below covers ONLY the rows. Previously the overlay
+            lived on the outer card and swallowed clicks on the
+            pagination bar (preventing Next Page while a fetch was in
+            flight). Split lets pagination stay interactive. */}
+        <div className="relative">
+          {/* Blocking overlay for query-change fetches (search, filter
+              apply, sort). Dims the rows + captures clicks so the
+              user can't fire row-opens on rows about to disappear
+              when results land. z-20 covers the sticky thead (z-1).
+              Deliberately scoped to .relative parent so pagination
+              below stays uncovered and clickable. */}
+          {fetchMode === 'query-change' && (
+            <div
+              className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-[1px]"
+              aria-live="polite"
+              aria-busy="true"
+            >
+              <div
+                className="pointer-events-auto flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm"
+              >
+                <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                <span className="text-sm font-medium text-slate-700">
+                  {search.trim().length >= 2
+                    ? `Searching ${total > 0 ? `${total.toLocaleString()} ` : ''}leads\u2026`
+                    : 'Applying filters\u2026'}
+                </span>
+              </div>
+            </div>
+          )}
 
         {leads.length === 0 ? (
           <div className="p-12 text-center">
@@ -2459,13 +2608,15 @@ export function LeadsCRM({
             </table>
           </div>
         )}
+        </div>
+        {/* /.relative table region */}
 
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={page === 0}
+              disabled={page === 0 || fetchMode !== 'idle'}
               onClick={() => handlePageChange(page - 1)}
             >
               <ChevronLeft className="h-4 w-4" />
@@ -2479,7 +2630,7 @@ export function LeadsCRM({
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={page >= totalPages - 1}
+              disabled={page >= totalPages - 1 || fetchMode !== 'idle'}
               onClick={() => handlePageChange(page + 1)}
             >
               Next
