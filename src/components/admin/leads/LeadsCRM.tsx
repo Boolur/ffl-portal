@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
+  Activity,
   Search,
   UserPlus,
   Loader2,
@@ -1660,8 +1661,9 @@ export function LeadsCRM({
 
   return (
     <div className="space-y-5">
-      {/* Quick action toolbar (CSV import + jump to Unassigned Pool).
-          Admin-only: LOs can't ingest CSV batches or browse the pool. */}
+      {/* Quick action toolbar (CSV import + jump to Unassigned Pool +
+          Health). Admin-only: LOs can't ingest CSV batches, browse the
+          pool, or run mapping diagnostics. */}
       {!isLoMode && (
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -1677,6 +1679,14 @@ export function LeadsCRM({
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
           >
             View Unassigned Pool &rarr;
+          </Link>
+          <Link
+            href="/admin/leads/health"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+            title="Webhook inbox + lead-to-Bonzo mapping audit + address backfill"
+          >
+            <Activity className="h-4 w-4" />
+            Health
           </Link>
         </div>
       )}

@@ -3,7 +3,6 @@
 import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  Activity,
   Database,
   Globe,
   Megaphone,
@@ -99,18 +98,6 @@ const NAV_CARDS = [
     cta: 'bg-indigo-50 text-indigo-700 group-hover:bg-indigo-600 group-hover:text-white',
     ctaLabel: 'Manage Services',
   },
-  {
-    title: 'Health',
-    subtitle:
-      'Webhook inbox status, lead-to-Bonzo mapping audit, and one-click address backfill in one place.',
-    href: '/admin/leads/health',
-    Icon: Activity,
-    border: 'border-rose-200 hover:border-rose-300',
-    iconBg: 'bg-rose-500',
-    watermark: 'text-rose-500',
-    cta: 'bg-rose-50 text-rose-700 group-hover:bg-rose-500 group-hover:text-white',
-    ctaLabel: 'Open Health',
-  },
 ] as const;
 
 export function LeadDashboard({
@@ -149,7 +136,7 @@ export function LeadDashboard({
       <WebhookInboxPanel />
 
       {/* Primary Navigation Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
         {NAV_CARDS.map((card) => (
           <Link
             key={card.href}
