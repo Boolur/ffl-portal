@@ -1,9 +1,48 @@
-import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import {
   coalesceMilitaryFlag,
   normalizeMilitaryFlagToBool,
 } from '@/lib/militaryFlag';
+
+/**
+ * Cap on simultaneous in-flight `forwardLeadToBonzo` calls.
+ *
+ * Each forward holds up to 2 Prisma connections at peak (the parallel
+ * `userLeadQuota.findUnique` + `lead.findUnique`, then the single-query
+ * audit upsert below). Vercel's serverless Prisma pool is typically
+ * 10–20 connections, and bulk paths (`bulkAssignLeads`, CSV import with
+ * "fire Bonzo" checked, and the post-distribution loop in
+ * `leadActions.ts`) fire forwards as fire-and-forget `void` in a tight
+ * `for` loop with no awaits between them — so a 50-lead bulk would
+ * burst ~100 connection requests and exhaust the pool. When that
+ * happens the in-flight forwards fail with "Timed out fetching a new
+ * connection from the connection pool", AND the audit-write that
+ * normally records the exception also fails (pool is still drained),
+ * leaving leads silently classified as "never_attempted" on the Bonzo
+ * Forwarding health panel.
+ *
+ * 5 keeps Bonzo throughput high (the bottleneck is Bonzo's HTTP API,
+ * not us — at 5 concurrent and ~500ms per POST that's still 10
+ * leads/sec) while leaving the rest of the pool free for the rest of
+ * the request cycle.
+ */
+const FORWARD_CONCURRENCY_LIMIT = 5;
+let activeForwards = 0;
+const forwardWaiters: Array<() => void> = [];
+
+async function withForwardSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeForwards >= FORWARD_CONCURRENCY_LIMIT) {
+    await new Promise<void>((resolve) => forwardWaiters.push(resolve));
+  }
+  activeForwards++;
+  try {
+    return await fn();
+  } finally {
+    activeForwards--;
+    const next = forwardWaiters.shift();
+    if (next) next();
+  }
+}
 
 /**
  * Single source of truth for the Bonzo forward audit record we stash on
@@ -39,38 +78,62 @@ const MAX_BODY_PREVIEW = 500;
 
 /**
  * Persists the audit record to `Lead.customData.lastBonzoForward` without
- * disturbing any other keys callers may have stashed there. We swallow
- * write errors because the lead-distribution path must never block on
- * audit logging — a transient pooler blip during the audit write is far
- * less damaging than throwing and aborting the whole assignment chain.
+ * disturbing any other keys callers may have stashed there.
+ *
+ * Uses a single atomic UPDATE with Postgres' JSONB concat (`||`) operator
+ * instead of a findUnique + JS merge + update. Two reasons:
+ *
+ * 1. Connection budget. The bulk-assign / CSV-import paths can fire
+ *    dozens of forwards in parallel, and a single forward already burns
+ *    2 connections on the parallel lead+user lookups. Halving the audit
+ *    cost from 2 connections to 1 is the difference between staying
+ *    under Vercel's pool ceiling and exhausting it (which surfaces as
+ *    "Timed out fetching a new connection from the connection pool"
+ *    exceptions in the Health panel).
+ *
+ * 2. Race correctness. The previous read-modify-write window meant two
+ *    concurrent forwards on the same lead (e.g. an auto-forward racing
+ *    a manual Push to Service retry) could each read the same baseline
+ *    customData, append their own audit, and the later writer would
+ *    clobber the earlier one's other-key changes. The `||` merge lets
+ *    Postgres serialize the merge atomically.
+ *
+ * Audit writes use a one-shot retry with a short backoff: the
+ * connection-pool exception we're trying to record could be the same
+ * transient blip that takes down the audit write, and silently losing
+ * the audit row is exactly what made "never_attempted" balloon to 184
+ * leads in the first place. Two attempts is the right tradeoff —
+ * enough to ride out a pool burp without holding the assignment chain
+ * indefinitely.
  */
 async function recordBonzoForwardAudit(
   leadId: string,
   audit: BonzoForwardAudit
 ): Promise<void> {
-  try {
-    const lead = await prisma.lead.findUnique({
-      where: { id: leadId },
-      select: { customData: true },
-    });
-    const existing =
-      lead?.customData && typeof lead.customData === 'object' && !Array.isArray(lead.customData)
-        ? (lead.customData as Record<string, unknown>)
-        : {};
-    await prisma.lead.update({
-      where: { id: leadId },
-      data: {
-        customData: {
-          ...existing,
-          lastBonzoForward: audit as unknown as Prisma.InputJsonValue,
-        } as Prisma.InputJsonValue,
-      },
-    });
-  } catch (err) {
-    console.warn(
-      `[bonzo] Failed to write forward audit for lead ${leadId}:`,
-      err instanceof Error ? err.message : err
-    );
+  const auditJson = JSON.stringify(audit);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await prisma.$executeRaw`
+        UPDATE "Lead"
+        SET "customData" = COALESCE("customData", '{}'::jsonb)
+                        || jsonb_build_object('lastBonzoForward', ${auditJson}::jsonb)
+        WHERE "id" = ${leadId}
+      `;
+      return;
+    } catch (err) {
+      if (attempt === 0) {
+        // Most likely cause is the connection-pool burp that the audit
+        // is trying to capture. Wait briefly and try once more so the
+        // actual outcome makes it onto the lead instead of leaving the
+        // row in a phantom "never attempted" state.
+        await new Promise((r) => setTimeout(r, 250));
+        continue;
+      }
+      console.warn(
+        `[bonzo] Failed to write forward audit for lead ${leadId}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 }
 
@@ -88,6 +151,19 @@ export async function forwardLeadToBonzo(
   leadId: string,
   userId: string,
   trigger: 'auto' | 'manual' = 'auto'
+): Promise<void> {
+  // Gate every forward through the global concurrency limit so a 50-
+  // lead bulk assignment can't exhaust the Prisma connection pool. The
+  // semaphore queues callers internally, so callers still get the
+  // fire-and-forget contract — they just complete in waves rather than
+  // all at once. See FORWARD_CONCURRENCY_LIMIT for the rationale.
+  return withForwardSlot(() => forwardLeadToBonzoImpl(leadId, userId, trigger));
+}
+
+async function forwardLeadToBonzoImpl(
+  leadId: string,
+  userId: string,
+  trigger: 'auto' | 'manual'
 ): Promise<void> {
   const at = new Date().toISOString();
 
