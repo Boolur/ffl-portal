@@ -38,18 +38,22 @@ import {
   getAuditVendors,
   getBonzoForwardRetryIds,
   getBonzoForwardStatus,
+  getBonzoHealSweepActivity,
   getBrokerLaunchEmailStatus,
   getFailedBrokerLaunchDispatchIds,
   getLeadAddressBackfillPreview,
   getLeadMappingAudit,
   retryBonzoForwardForLead,
   retryBrokerLaunchDispatch,
+  runBonzoHealSweepManual,
   runLeadAddressBackfill,
   type AddressBackfillApplyResult,
   type AddressBackfillSummary,
   type AuditVendorOption,
   type BonzoForwardSampleRow,
   type BonzoForwardStatus,
+  type BonzoHealActivity,
+  type BonzoHealSweepResult,
   type BrokerLaunchDispatchRow,
   type BrokerLaunchEmailStatus,
   type LeadMappingAuditResult,
@@ -140,6 +144,18 @@ export function LeadHealthPanel() {
   // are independent transports).
   const [bonzoBulk, setBonzoBulk] = useState<BulkRetryProgress | null>(null);
   const cancelBonzoBulkRef = useRef(false);
+
+  // ---- Auto-heal sweep state ----
+  // The sweep runs every 5 min via Vercel cron and is also triggerable
+  // from this panel. We surface its recent activity (last sweep time,
+  // outcome breakdown) so admins can confirm the safety net is working.
+  const [healActivity, setHealActivity] = useState<BonzoHealActivity | null>(
+    null
+  );
+  const [lastManualSweep, setLastManualSweep] =
+    useState<BonzoHealSweepResult | null>(null);
+  const [healPending, startHeal] = useTransition();
+  const [healError, setHealError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -323,12 +339,39 @@ export function LeadHealthPanel() {
     setBonzoError(null);
     startBonzo(async () => {
       try {
-        const status = await getBonzoForwardStatus({ days });
+        // Fan out the two reads in parallel — they hit independent
+        // queries and the panel renders both in the same band, so a
+        // serial fetch would just add latency without simplifying
+        // anything.
+        const [status, activity] = await Promise.all([
+          getBonzoForwardStatus({ days }),
+          getBonzoHealSweepActivity().catch(() => null),
+        ]);
         setBonzoStatus(status);
         setBonzoLoadedAt(new Date());
+        if (activity) setHealActivity(activity);
       } catch (err) {
         setBonzoError(
           err instanceof Error ? err.message : 'Bonzo status fetch failed.'
+        );
+      }
+    });
+  };
+
+  const onRunHealSweep = () => {
+    setHealError(null);
+    startHeal(async () => {
+      try {
+        const result = await runBonzoHealSweepManual({});
+        setLastManualSweep(result);
+        // Refresh the status counters and sweep activity so the panel
+        // immediately reflects whatever the sweep just healed (or
+        // didn't). The sweep already wrote audit rows, so the next
+        // status read will show them in the appropriate buckets.
+        void refreshBonzoStatus(bonzoDays);
+      } catch (err) {
+        setHealError(
+          err instanceof Error ? err.message : 'Heal sweep failed.'
         );
       }
     });
@@ -552,6 +595,12 @@ export function LeadHealthPanel() {
           bulk={bonzoBulk}
           onCancelBulk={onCancelBonzoBulk}
           onDismissBulk={onDismissBonzoBulk}
+          healActivity={healActivity}
+          lastManualSweep={lastManualSweep}
+          healPending={healPending}
+          healError={healError}
+          onRunHealSweep={onRunHealSweep}
+          onDismissLastSweep={() => setLastManualSweep(null)}
         />
       </Section>
 
@@ -1235,6 +1284,12 @@ function BonzoForwardSection({
   bulk,
   onCancelBulk,
   onDismissBulk,
+  healActivity,
+  lastManualSweep,
+  healPending,
+  healError,
+  onRunHealSweep,
+  onDismissLastSweep,
 }: {
   status: BonzoForwardStatus | null;
   loadedAt: Date | null;
@@ -1251,6 +1306,12 @@ function BonzoForwardSection({
   bulk: BulkRetryProgress | null;
   onCancelBulk: () => void;
   onDismissBulk: () => void;
+  healActivity: BonzoHealActivity | null;
+  lastManualSweep: BonzoHealSweepResult | null;
+  healPending: boolean;
+  healError: string | null;
+  onRunHealSweep: () => void;
+  onDismissLastSweep: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1290,6 +1351,15 @@ function BonzoForwardSection({
           </button>
         </div>
       </div>
+
+      <BonzoHealStrip
+        activity={healActivity}
+        lastManualSweep={lastManualSweep}
+        pending={healPending}
+        error={healError}
+        onRun={onRunHealSweep}
+        onDismissLastSweep={onDismissLastSweep}
+      />
 
       {error && (
         <div className="px-6 py-3 text-xs text-rose-700 bg-rose-50 border-b border-rose-100">
@@ -1336,6 +1406,161 @@ function BonzoForwardSection({
           onBulkRetry={onBulkRetry}
           bulkActive={Boolean(bulk && !bulk.done)}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Auto-heal sweep status band. Surfaces three things:
+ *   1. When the last sweep activity happened (most recent
+ *      `trigger='sweep'` audit). Lets admins confirm the cron is alive.
+ *   2. Last 24h sweep outcome breakdown — if "sent" dominates, the
+ *      safety net is doing its job. If "exception" / "http_error"
+ *      dominate, there's a structural issue (bad webhook URL, Bonzo
+ *      outage) the auto-loop alone can't fix.
+ *   3. A manual "Run sweep now" button that bypasses the 5-min cron
+ *      cadence — useful right after a deploy or to confirm a fix.
+ */
+function BonzoHealStrip({
+  activity,
+  lastManualSweep,
+  pending,
+  error,
+  onRun,
+  onDismissLastSweep,
+}: {
+  activity: BonzoHealActivity | null;
+  lastManualSweep: BonzoHealSweepResult | null;
+  pending: boolean;
+  error: string | null;
+  onRun: () => void;
+  onDismissLastSweep: () => void;
+}) {
+  const lastAt = activity?.lastSweepActivityAt
+    ? new Date(activity.lastSweepActivityAt)
+    : null;
+  const last24 = activity?.last24h ?? {
+    sent: 0,
+    httpError: 0,
+    noWebhookUrl: 0,
+    exception: 0,
+    total: 0,
+  };
+
+  return (
+    <div className="border-b border-slate-100 bg-slate-50/60">
+      <div className="px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className="font-semibold text-slate-700">Auto-heal sweep</span>
+          <span className="text-slate-500">runs every 5 min</span>
+        </div>
+        <div className="text-slate-600">
+          Last activity:{' '}
+          {lastAt ? (
+            <span className="font-medium text-slate-800">
+              {lastAt.toLocaleString()}
+            </span>
+          ) : (
+            <span className="italic text-slate-500">no recoveries yet</span>
+          )}
+        </div>
+        {last24.total > 0 && (
+          <div className="text-slate-600">
+            Last 24h:{' '}
+            <span className="font-medium text-emerald-700">
+              {last24.sent} healed
+            </span>
+            {(last24.httpError > 0 ||
+              last24.exception > 0 ||
+              last24.noWebhookUrl > 0) && (
+              <>
+                {', '}
+                {last24.httpError > 0 && (
+                  <span className="text-rose-700">
+                    {last24.httpError} http_error
+                  </span>
+                )}
+                {last24.exception > 0 && (
+                  <>
+                    {last24.httpError > 0 ? ', ' : ''}
+                    <span className="text-rose-700">
+                      {last24.exception} exception
+                    </span>
+                  </>
+                )}
+                {last24.noWebhookUrl > 0 && (
+                  <>
+                    {last24.httpError > 0 || last24.exception > 0 ? ', ' : ''}
+                    <span className="text-amber-700">
+                      {last24.noWebhookUrl} no_webhook
+                    </span>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        <div className="ml-auto">
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={pending}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {pending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
+            Run sweep now
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="px-6 py-2 text-[11px] text-rose-700 bg-rose-50 border-t border-rose-100">
+          Heal sweep failed: {error}
+        </div>
+      )}
+
+      {lastManualSweep && (
+        <div className="px-6 py-2 text-[11px] text-slate-700 bg-emerald-50/60 border-t border-emerald-100 flex items-center justify-between gap-3">
+          <span>
+            Manual sweep finished in {lastManualSweep.durationMs}ms — found{' '}
+            <strong>{lastManualSweep.found}</strong> stale
+            {lastManualSweep.found === 1 ? ' lead' : ' leads'}
+            {lastManualSweep.found > 0 && (
+              <>
+                : {lastManualSweep.sent} sent
+                {lastManualSweep.httpError > 0 &&
+                  `, ${lastManualSweep.httpError} http_error`}
+                {lastManualSweep.exception > 0 &&
+                  `, ${lastManualSweep.exception} exception`}
+                {lastManualSweep.noWebhookUrl > 0 &&
+                  `, ${lastManualSweep.noWebhookUrl} no_webhook_url`}
+              </>
+            )}
+            .
+            {lastManualSweep.firstError && (
+              <>
+                {' '}
+                First error:{' '}
+                <code className="font-mono text-[10px]">
+                  {lastManualSweep.firstError}
+                </code>
+              </>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={onDismissLastSweep}
+            className="text-[10px] uppercase tracking-wider opacity-70 hover:opacity-100"
+          >
+            Dismiss
+          </button>
+        </div>
       )}
     </div>
   );

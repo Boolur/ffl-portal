@@ -7,6 +7,10 @@
     {
       "path": "/api/internal/services/dispatch-due?batchSize=25",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/internal/leads/bonzo-heal?batchSize=50",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

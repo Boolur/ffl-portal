@@ -1501,3 +1501,330 @@ export async function retryBonzoForwardForLead(
     message: `${audit.outcome}${audit.status ? ` (${audit.status})` : ''}${audit.errorPreview ? `: ${audit.errorPreview.slice(0, 120)}` : ''}`,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Self-healing background sweep
+// ---------------------------------------------------------------------------
+//
+// Runs every 5 minutes via a Vercel cron (/api/internal/leads/bonzo-heal).
+// Finds leads that have been assigned for >N minutes but have no
+// `lastBonzoForward` audit row AND haven't been manually pushed to a Bonzo
+// IntegrationService — i.e. the auto-forward fired and crashed before
+// writing an audit, or the audit-write itself failed (the cascade we hit
+// when the connection pool exhausted). For each, fires
+// `forwardLeadToBonzo(..., 'sweep')` so Bonzo gets the lead and the
+// audit row reflects whatever actually happens this time.
+//
+// The sweep is idempotent: a lead that gets healed in run N has an audit
+// row in run N+1, so it's no longer matched by the staleness query.
+// Leads that fail again on retry will keep being matched, but the
+// `'sweep'` audit trigger lets the Health panel surface "this is the
+// auto-recovery loop, not the original auto-forward" so admins can tell
+// transient noise from a structural issue (bad webhook URL, etc.).
+// ---------------------------------------------------------------------------
+
+export type BonzoHealSweepResult = {
+  source: 'cron' | 'manual';
+  startedAt: string;
+  durationMs: number;
+  // How many stale leads matched the query (≤ batchSize)
+  found: number;
+  // How many forwards we actually fired (== found, unless a lead became
+  // ineligible mid-sweep, e.g. assignedUserId was cleared)
+  attempted: number;
+  // Outcome buckets after the forwards complete
+  sent: number;
+  httpError: number;
+  noWebhookUrl: number;
+  exception: number;
+  noLead: number;
+  unknown: number;
+  // First/typical error preview if any forward failed, for at-a-glance
+  // debugging without opening the Health page table
+  firstError: string | null;
+};
+
+type RunBonzoHealSweepInput = {
+  source: 'cron' | 'manual';
+  // Skip leads assigned within the last N minutes — gives the normal
+  // auto-forward path room to complete. Default 10 min, which is far
+  // longer than the 10s Bonzo POST timeout but short enough that
+  // healing happens within a single LO's first call window.
+  minMinutesStale?: number;
+  // Cap how many leads we touch per run. Default 50: at the 5-per-call
+  // concurrency limit and ~500ms/POST that's ~5s of wall time, safely
+  // under Vercel's serverless timeout.
+  batchSize?: number;
+  // How far back to scan for stale assignments. Default 7 days, which
+  // covers any realistic deploy/incident window without blowing up the
+  // result set.
+  lookbackDays?: number;
+};
+
+/**
+ * Internal heal-sweep runner. Called both from the cron route (with
+ * source='cron') and from the manual "Run sweep now" button in the
+ * Health panel (with source='manual'). The action skips the admin
+ * gate when invoked by the cron route — the route already authorizes
+ * via CRON_SECRET — and gates on it for the manual path.
+ *
+ * NOT exported from this file directly because Next "use server"
+ * requires every export to be a server action; the cron-only entry
+ * is a private function called via `runBonzoHealSweepInternal` below.
+ */
+async function runBonzoHealSweepInternal(
+  input: RunBonzoHealSweepInput
+): Promise<BonzoHealSweepResult> {
+  const startedAtMs = Date.now();
+  const minMinutesStale = Math.max(1, Math.min(120, input.minMinutesStale ?? 10));
+  const batchSize = Math.max(1, Math.min(200, input.batchSize ?? 50));
+  const lookbackDays = Math.max(1, Math.min(30, input.lookbackDays ?? 7));
+
+  const now = Date.now();
+  const ceiling = new Date(now - minMinutesStale * 60_000);
+  const floor = new Date(now - lookbackDays * 24 * 60 * 60 * 1000);
+
+  // Same exclusion pair the panel uses: CSV uploads + manual Bonzo
+  // dispatches. Without these, the sweep would hammer 4k+ historical
+  // imports and double-push leads admins already sent themselves.
+  const [csvVendor, bonzoServices] = await Promise.all([
+    prisma.leadVendor.findUnique({
+      where: { slug: CSV_VENDOR_SLUG },
+      select: { id: true },
+    }),
+    prisma.integrationService.findMany({
+      where: { urlTemplate: { contains: 'bonzo', mode: 'insensitive' } },
+      select: { id: true },
+    }),
+  ]);
+  const csvVendorId = csvVendor?.id ?? null;
+
+  const manualSentLeadIds = new Set<string>(
+    bonzoServices.length === 0
+      ? []
+      : (
+          await prisma.serviceDispatch.findMany({
+            where: {
+              serviceId: { in: bonzoServices.map((s) => s.id) },
+              status: ServiceDispatchStatus.SENT,
+              createdAt: { gte: floor },
+            },
+            select: { leadId: true },
+          })
+        ).map((d) => d.leadId)
+  );
+
+  // Pull candidates. Limit to 5x batchSize to give the in-JS filter
+  // (audit row check + manual-pushed exclusion) some headroom without
+  // pulling unbounded rows. assignedUserId NOT NULL is a hard
+  // prerequisite — `forwardLeadToBonzo` needs the user's webhook URL.
+  const rawCandidates = await prisma.lead.findMany({
+    where: {
+      assignedAt: { gte: floor, lte: ceiling },
+      assignedUserId: { not: null },
+      ...(csvVendorId ? { vendorId: { not: csvVendorId } } : {}),
+    },
+    select: {
+      id: true,
+      assignedUserId: true,
+      customData: true,
+    },
+    orderBy: { assignedAt: 'asc' },
+    take: batchSize * 5,
+  });
+
+  const stale: Array<{ id: string; assignedUserId: string }> = [];
+  for (const lead of rawCandidates) {
+    if (!lead.assignedUserId) continue;
+    if (manualSentLeadIds.has(lead.id)) continue;
+    const audit = readBonzoAudit(lead.customData);
+    if (audit) continue; // Already attempted, not "never_attempted" anymore
+    stale.push({ id: lead.id, assignedUserId: lead.assignedUserId });
+    if (stale.length >= batchSize) break;
+  }
+
+  // Fire forwards in parallel — the global concurrency limiter inside
+  // `forwardLeadToBonzo` caps real concurrency at 5, so this is safe
+  // even with batchSize=200. We await Promise.all (not fire-and-forget)
+  // because the sweep result needs the post-write audit counts.
+  await Promise.all(
+    stale.map((s) =>
+      forwardLeadToBonzo(s.id, s.assignedUserId, 'sweep').catch((err) => {
+        // forwardLeadToBonzo is supposed to swallow its own errors and
+        // record them on the audit, but defend in depth — a thrown
+        // error here would reject Promise.all and we'd lose count of
+        // every other forward.
+        console.warn(
+          `[bonzo-heal] forwardLeadToBonzo threw unexpectedly for lead ${s.id}:`,
+          err
+        );
+      })
+    )
+  );
+
+  // Re-read the audits we just wrote and tally outcomes.
+  const counts = {
+    sent: 0,
+    httpError: 0,
+    noWebhookUrl: 0,
+    exception: 0,
+    noLead: 0,
+    unknown: 0,
+  };
+  let firstError: string | null = null;
+
+  if (stale.length > 0) {
+    const fresh = await prisma.lead.findMany({
+      where: { id: { in: stale.map((s) => s.id) } },
+      select: { id: true, customData: true },
+    });
+    for (const lead of fresh) {
+      const audit = readBonzoAudit(lead.customData);
+      if (!audit) {
+        counts.unknown++;
+        continue;
+      }
+      switch (audit.outcome) {
+        case 'sent':
+          counts.sent++;
+          break;
+        case 'http_error':
+          counts.httpError++;
+          if (!firstError) {
+            firstError = `HTTP ${audit.status ?? '?'}: ${audit.errorPreview ?? ''}`.slice(
+              0,
+              200
+            );
+          }
+          break;
+        case 'no_webhook_url':
+          counts.noWebhookUrl++;
+          break;
+        case 'no_lead':
+          counts.noLead++;
+          break;
+        case 'exception':
+          counts.exception++;
+          if (!firstError) {
+            firstError = `EXC: ${audit.errorPreview ?? 'unknown error'}`.slice(0, 200);
+          }
+          break;
+      }
+    }
+  }
+
+  return {
+    source: input.source,
+    startedAt: new Date(startedAtMs).toISOString(),
+    durationMs: Date.now() - startedAtMs,
+    found: stale.length,
+    attempted: stale.length,
+    ...counts,
+    firstError,
+  };
+}
+
+/**
+ * Cron-only entry point. The `/api/internal/leads/bonzo-heal` route
+ * authorizes via CRON_SECRET and then calls this. We keep it
+ * separate from the admin-gated `runBonzoHealSweepManual` so the
+ * route handler doesn't have to fake a session.
+ */
+export async function runBonzoHealSweepFromCron(
+  input: Omit<RunBonzoHealSweepInput, 'source'> = {}
+): Promise<BonzoHealSweepResult> {
+  return runBonzoHealSweepInternal({ ...input, source: 'cron' });
+}
+
+/**
+ * Admin-triggered "Run sweep now" button on the Health panel. Useful
+ * for verifying the sweep works after a deploy without waiting up to
+ * 5 min for the next cron tick, and for forcing a recovery pass after
+ * an incident.
+ */
+export async function runBonzoHealSweepManual(
+  input: Omit<RunBonzoHealSweepInput, 'source'> = {}
+): Promise<BonzoHealSweepResult> {
+  await assertDistributionAdmin();
+  return runBonzoHealSweepInternal({ ...input, source: 'manual' });
+}
+
+export type BonzoHealActivity = {
+  // Timestamp of the most recent `trigger='sweep'` audit row. Null when
+  // no sweep has ever recovered a lead — could mean the cron is brand
+  // new (no work to do yet) OR the cron isn't running. The Health panel
+  // shows a hint distinguishing these cases.
+  lastSweepActivityAt: string | null;
+  // Counts of sweep-triggered audit outcomes in the last 24h. These
+  // tell admins at a glance whether the recovery loop is working
+  // (lots of `sent`) or whether something structural is broken
+  // (lots of `httpError` / `exception`).
+  last24h: {
+    sent: number;
+    httpError: number;
+    noWebhookUrl: number;
+    exception: number;
+    total: number;
+  };
+};
+
+/**
+ * Reads the recent sweep activity from `Lead.customData.lastBonzoForward`
+ * audit rows whose `trigger == 'sweep'`. We don't persist a separate
+ * sweep-log table — every recovered lead carries the sweep audit, so
+ * the audit trail itself is the heartbeat.
+ *
+ * Tradeoff: an "empty" sweep that found nothing to heal leaves no
+ * audit row, so `lastSweepActivityAt` only updates when there's
+ * actually been work. An admin reading "no recent sweep activity" can
+ * mean either (a) nothing's broken, or (b) the cron is offline. The
+ * panel hint (and the Vercel cron dashboard, which is the
+ * out-of-band ground truth) lets admins disambiguate.
+ */
+export async function getBonzoHealSweepActivity(): Promise<BonzoHealActivity> {
+  await assertDistributionAdmin();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const rows = await prisma.lead.findMany({
+    where: {
+      assignedAt: { gte: since },
+      // Pre-filter on the JSON path to keep the result set small. Postgres
+      // JSON containment is indexable; even without an index this scan is
+      // O(rows-in-window).
+      customData: {
+        path: ['lastBonzoForward', 'trigger'],
+        equals: 'sweep',
+      },
+    },
+    select: { customData: true },
+    take: 5000,
+  });
+
+  const counts = { sent: 0, httpError: 0, noWebhookUrl: 0, exception: 0, total: 0 };
+  let mostRecent: string | null = null;
+  for (const row of rows) {
+    const audit = readBonzoAudit(row.customData);
+    if (!audit) continue;
+    counts.total++;
+    if (!mostRecent || audit.at > mostRecent) mostRecent = audit.at;
+    switch (audit.outcome) {
+      case 'sent':
+        counts.sent++;
+        break;
+      case 'http_error':
+        counts.httpError++;
+        break;
+      case 'no_webhook_url':
+        counts.noWebhookUrl++;
+        break;
+      case 'exception':
+        counts.exception++;
+        break;
+    }
+  }
+
+  return {
+    lastSweepActivityAt: mostRecent,
+    last24h: counts,
+  };
+}
