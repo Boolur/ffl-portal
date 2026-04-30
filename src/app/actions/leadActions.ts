@@ -1618,6 +1618,13 @@ export type LeadListFilters = {
   status?: LeadStatus;
   assignedUserId?: string;
   unassigned?: boolean;
+  // Special composite filter used by the Unassigned Lead Pool view.
+  // Matches leads where EITHER the status is UNASSIGNED OR the lead
+  // has no owner yet (`assignedUserId` is null). A lead that landed
+  // with status `NEW` but never got a loan officer (e.g. campaign
+  // had no eligible members at ingest time) is still "in the pool"
+  // and needs a manual assignment.
+  inPool?: boolean;
   campaignId?: string;
   vendorId?: string;
   propertyState?: string;
@@ -1663,9 +1670,19 @@ const LEAD_SEARCH_FIELDS = [
 function buildLeadWhere(filters?: LeadListFilters): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   if (!filters) return where;
-  if (filters.status) where.status = filters.status;
-  if (filters.unassigned) where.assignedUserId = null;
-  else if (filters.assignedUserId) where.assignedUserId = filters.assignedUserId;
+  // `inPool` takes priority over status/assignedUserId/unassigned so the
+  // Unassigned Lead Pool page gets the full union (status=UNASSIGNED OR
+  // no assigned user) regardless of which sentinels a caller also set.
+  if (filters.inPool) {
+    where.OR = [
+      { status: LeadStatus.UNASSIGNED },
+      { assignedUserId: null },
+    ];
+  } else {
+    if (filters.status) where.status = filters.status;
+    if (filters.unassigned) where.assignedUserId = null;
+    else if (filters.assignedUserId) where.assignedUserId = filters.assignedUserId;
+  }
   if (filters.campaignId) where.campaignId = filters.campaignId;
   if (filters.vendorId) where.vendorId = filters.vendorId;
   if (filters.propertyState) {
