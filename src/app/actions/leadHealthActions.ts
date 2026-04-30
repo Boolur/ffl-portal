@@ -659,16 +659,23 @@ export type BrokerLaunchEmailStatus = {
     missing: string[];
   };
   lookbackDays: number;
+  // ISO timestamp of the start of the coverage window. Equal to
+  // `now - lookbackDays` unless the IntegrationService row was
+  // created more recently, in which case it's clamped to that
+  // creation time. The flag below tells the UI to surface the clamp.
+  coverageWindowStart: string;
+  coverageClampedToService: boolean;
   counts: {
     sent: number;
     failed: number;
     skipped: number;
     pending: number;
   };
-  // Compares "leads assigned to a user in the window" vs "broker-launch
-  // dispatch rows in the window". A meaningful gap means trigger
-  // wiring is missing somewhere (e.g. someone introduced a new
-  // assignment path that doesn't call runServiceTriggers ON_ASSIGN).
+  // Compares "leads assigned via Lead.assignedAt within the coverage
+  // window" vs "broker-launch dispatch rows created in the same window".
+  // A meaningful gap means trigger wiring is missing somewhere (e.g.
+  // someone introduced a new assignment path that doesn't call
+  // runServiceTriggers ON_ASSIGN).
   coverage: {
     leadsAssignedInWindow: number;
     dispatchesInWindow: number;
@@ -752,7 +759,7 @@ export async function getBrokerLaunchEmailStatus(
 
   const service = await prisma.integrationService.findUnique({
     where: { slug: BROKER_LAUNCH_SLUG },
-    select: { id: true, slug: true, name: true, active: true },
+    select: { id: true, slug: true, name: true, active: true, createdAt: true },
   });
 
   // If the service row hasn't been seeded yet (fresh DB) we still want
@@ -762,6 +769,8 @@ export async function getBrokerLaunchEmailStatus(
       service: null,
       env: { ok: missingEnv.length === 0, missing: missingEnv },
       lookbackDays: days,
+      coverageWindowStart: since.toISOString(),
+      coverageClampedToService: false,
       counts: { sent: 0, failed: 0, skipped: 0, pending: 0 },
       coverage: {
         leadsAssignedInWindow: 0,
@@ -774,7 +783,19 @@ export async function getBrokerLaunchEmailStatus(
     };
   }
 
-  // groupBy by status gives us the four counters in a single round trip.
+  // Clamp the coverage window to the service's createdAt so we don't
+  // count assignments that happened before the broker-launch service
+  // existed. Otherwise the gap looks alarming on a freshly-promoted
+  // service even though everything is healthy — pre-service assignments
+  // legitimately have no dispatch row.
+  const coverageStart =
+    service.createdAt > since ? service.createdAt : since;
+  const coverageClampedToService = service.createdAt > since;
+
+  // Counts are intentionally bounded by the user's chosen lookback
+  // (`since`), not the clamped coverage window. Admins still want to
+  // see the SENT/FAILED totals for the period they selected; the
+  // coverage banner is the only thing that needs the clamp.
   const grouped = await prisma.serviceDispatch.groupBy({
     by: ['status'],
     where: {
@@ -793,18 +814,23 @@ export async function getBrokerLaunchEmailStatus(
     else if (g.status === ServiceDispatchStatus.PENDING)
       counts.pending = g._count._all;
   }
-  const dispatchesInWindow =
-    counts.sent + counts.failed + counts.skipped + counts.pending;
 
-  // "Leads assigned in window" approximates what should have triggered
-  // the email. We use updatedAt + assignedUserId not null as the proxy;
-  // the Lead model doesn't store an explicit assignment timestamp on
-  // every assignment path, so this is the most accurate signal we have.
-  const leadsAssignedInWindow = await prisma.lead.count({
+  // Dispatches counted against the same clamped window the assignment
+  // count uses, so the gap math is meaningful.
+  const dispatchesInWindow = await prisma.serviceDispatch.count({
     where: {
-      assignedUserId: { not: null },
-      updatedAt: { gte: since },
+      serviceId: service.id,
+      createdAt: { gte: coverageStart },
     },
+  });
+
+  // "Leads assigned in window" — uses `Lead.assignedAt` (set by every
+  // assignment path: distributeLead, assignLead, bulkAssignLeads, CSV
+  // import). Clamped to coverageStart so we don't claim assignments
+  // pre-dating the broker-launch service should have produced a
+  // dispatch row.
+  const leadsAssignedInWindow = await prisma.lead.count({
+    where: { assignedAt: { gte: coverageStart } },
   });
 
   const include = {
@@ -855,9 +881,16 @@ export async function getBrokerLaunchEmailStatus(
   ]);
 
   return {
-    service,
+    service: {
+      id: service.id,
+      slug: service.slug,
+      name: service.name,
+      active: service.active,
+    },
     env: { ok: missingEnv.length === 0, missing: missingEnv },
     lookbackDays: days,
+    coverageWindowStart: coverageStart.toISOString(),
+    coverageClampedToService,
     counts,
     coverage: {
       leadsAssignedInWindow,
@@ -926,5 +959,97 @@ export async function retryBrokerLaunchDispatch(
   return {
     ok: false,
     message: `Failed: ${outcome.reason}${outcome.info ? ` — ${outcome.info}` : ''}`,
+  };
+}
+
+export type BulkRetryFailedResult = {
+  attempted: number;
+  succeeded: number;
+  stillFailed: number;
+  skipped: number;
+  // Up to 5 representative error messages from the rows that still
+  // failed after retry, so admins can see if there's a pattern (e.g.
+  // every retry hits the same 401 — Graph token issue).
+  sampleErrors: string[];
+};
+
+export type BulkRetryFailedInput = {
+  days?: number;
+};
+
+export async function retryAllFailedBrokerLaunchDispatches(
+  input: BulkRetryFailedInput = {}
+): Promise<BulkRetryFailedResult> {
+  await assertDistributionAdmin();
+  const days = Math.max(1, Math.min(60, input.days ?? 7));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const service = await prisma.integrationService.findUnique({
+    where: { slug: BROKER_LAUNCH_SLUG },
+    include: { credentialFields: true },
+  });
+  if (!service) {
+    return {
+      attempted: 0,
+      succeeded: 0,
+      stillFailed: 0,
+      skipped: 0,
+      sampleErrors: ['Broker-launch service row not found.'],
+    };
+  }
+
+  const failed = await prisma.serviceDispatch.findMany({
+    where: {
+      serviceId: service.id,
+      status: ServiceDispatchStatus.FAILED,
+      createdAt: { gte: since },
+    },
+    select: { id: true, leadId: true },
+    orderBy: { createdAt: 'asc' },
+    // Hard cap so a click can't lock the request for minutes if a
+    // legitimate ops issue produced thousands of FAILED rows. Re-run
+    // the action to clean up the rest.
+    take: 200,
+  });
+
+  let succeeded = 0;
+  let stillFailed = 0;
+  let skipped = 0;
+  const sampleErrors: string[] = [];
+
+  // Sequential, not parallel — Microsoft Graph rate-limits at 30
+  // sends/sec for /sendMail and we don't want a click to spike past
+  // that. With ~200 rows max this completes well inside Vercel's
+  // serverless function budget even at 100ms/row.
+  for (const row of failed) {
+    try {
+      const outcome = await dispatchServiceToLead(service, row.leadId, {
+        trigger: IntegrationServiceTrigger.MANUAL,
+      });
+      if (outcome.ok) {
+        succeeded += 1;
+      } else if ('skipped' in outcome && outcome.skipped) {
+        skipped += 1;
+      } else {
+        stillFailed += 1;
+        if (sampleErrors.length < 5) {
+          const detail = outcome.info ?? outcome.reason;
+          sampleErrors.push(detail);
+        }
+      }
+    } catch (err) {
+      stillFailed += 1;
+      if (sampleErrors.length < 5) {
+        sampleErrors.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+  }
+
+  return {
+    attempted: failed.length,
+    succeeded,
+    stillFailed,
+    skipped,
+    sampleErrors,
   };
 }

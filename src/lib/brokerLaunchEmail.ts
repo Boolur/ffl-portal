@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { sendEmail } from '@/lib/email';
 
@@ -48,58 +49,100 @@ export type BrokerLaunchSendResult =
   | { ok: false; skipped?: false; error: string };
 
 /**
+ * Lead shape sufficient to render the broker-launch body. We accept the
+ * preloaded relations from the dispatcher (which already loaded vendor,
+ * campaign, and assignedUser one query earlier) so we never re-hit the
+ * DB on the email path. Eliminating the duplicate `prisma.lead.findUnique`
+ * was the fix for the transient "Can't reach database server" failures
+ * that surfaced on the Lead Distribution Health page — Prisma queries
+ * against the pooler can blip in serverless, and doing two back-to-back
+ * for the same row doubled the failure rate for no upside.
+ */
+export type BrokerLaunchPreloadedLead = Prisma.LeadGetPayload<{
+  include: {
+    vendor: true;
+    campaign: true;
+    assignedUser: true;
+  };
+}>;
+
+/**
  * Sends the Broker Launch Notification to the lead's assigned LO. Returns
  * a structured result instead of throwing so the dispatcher can map it
- * directly to a ServiceDispatch row without additional try/catch. Call
- * sites that don't need the result can simply ignore the return value.
+ * directly to a ServiceDispatch row without additional try/catch.
+ *
+ * Two call shapes:
+ *
+ *   1. Preferred: pass the preloaded `lead` (with vendor/campaign/
+ *      assignedUser included) — no DB calls, just renders + Graph send.
+ *      The service dispatcher always loads this exact shape for every
+ *      service before deciding which transport to use, so reusing it
+ *      here keeps the email path zero-query.
+ *
+ *   2. Fallback: pass `{ leadId, userId }` — used by test scripts and
+ *      any caller that doesn't already have the lead in hand. We do
+ *      load the row in this branch because we have no choice.
  */
 export async function sendBrokerLaunchEmail(
-  leadId: string,
-  userId: string
+  arg:
+    | { lead: BrokerLaunchPreloadedLead }
+    | { leadId: string; userId: string }
 ): Promise<BrokerLaunchSendResult> {
+  const leadIdForLogging =
+    'lead' in arg ? arg.lead.id : arg.leadId;
+  const userIdForLogging =
+    'lead' in arg ? arg.lead.assignedUserId ?? '<unassigned>' : arg.userId;
+
   try {
-    const [lead, user] = await Promise.all([
-      prisma.lead.findUnique({
-        where: { id: leadId },
+    let lead: BrokerLaunchPreloadedLead | null;
+    if ('lead' in arg) {
+      lead = arg.lead;
+    } else {
+      lead = await prisma.lead.findUnique({
+        where: { id: arg.leadId },
         include: {
-          vendor: { select: { name: true } },
-          campaign: { select: { name: true, routingTag: true } },
+          vendor: true,
+          campaign: true,
+          assignedUser: true,
         },
-      }),
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { email: true },
-      }),
-    ]);
+      });
+    }
 
     if (!lead) {
       return { ok: false, skipped: true, reason: 'lead_not_found' };
     }
-    if (!user) {
+    const assignee = lead.assignedUser;
+    if (!assignee) {
       return { ok: false, skipped: true, reason: 'no_assignee' };
     }
-    if (!user.email) {
+    if (!assignee.email) {
       return {
         ok: false,
         skipped: true,
         reason: 'no_email_on_user',
-        info: `User ${userId} has no email on their account.`,
+        info: `User ${assignee.id} has no email on their account.`,
       };
     }
 
-    const body = buildBrokerLaunchEmailBody(lead);
+    const body = buildBrokerLaunchEmailBody({
+      ...lead,
+      vendor: { name: lead.vendor?.name ?? 'Unknown' },
+      campaign: lead.campaign
+        ? { name: lead.campaign.name, routingTag: lead.campaign.routingTag }
+        : null,
+    });
 
     await sendEmail({
-      to: user.email,
+      to: assignee.email,
       subject: BROKER_LAUNCH_SUBJECT,
       text: body,
     });
 
-    return { ok: true, info: `Delivered to ${user.email}` };
+    return { ok: true, info: `Delivered to ${assignee.email}` };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(
-      `[broker-launch] Email error for lead ${leadId} -> user ${userId}:`,
+      `[broker-launch] Email error for lead ${leadIdForLogging} -> user ${userIdForLogging}:`,
       err
     );
     return { ok: false, error: message };

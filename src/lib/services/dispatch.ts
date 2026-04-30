@@ -206,7 +206,11 @@ export async function dispatchServiceToLead(
       return outcome;
     }
 
-    const result = await sendBrokerLaunchEmail(leadId, lead.assignedUserId);
+    // Reuse the lead we already loaded above (line ~146) so the email
+    // path makes zero additional DB calls. Two back-to-back queries for
+    // the same row was the root cause of transient "Can't reach database
+    // server at ..." failures we were seeing in ServiceDispatch.
+    const result = await sendBrokerLaunchEmail({ lead });
 
     let outcome: DispatchOutcome;
     if (result.ok) {

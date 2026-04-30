@@ -38,6 +38,7 @@ import {
   getBrokerLaunchEmailStatus,
   getLeadAddressBackfillPreview,
   getLeadMappingAudit,
+  retryAllFailedBrokerLaunchDispatches,
   retryBrokerLaunchDispatch,
   runLeadAddressBackfill,
   type AddressBackfillApplyResult,
@@ -45,6 +46,7 @@ import {
   type AuditVendorOption,
   type BrokerLaunchDispatchRow,
   type BrokerLaunchEmailStatus,
+  type BulkRetryFailedResult,
   type LeadMappingAuditResult,
 } from '@/app/actions/leadHealthActions';
 import { FormatDate } from '@/components/ui/FormatDate';
@@ -94,6 +96,9 @@ export function LeadHealthPanel() {
     ok: boolean;
     message: string;
   } | null>(null);
+  const [bulkRetryPending, startBulkRetry] = useTransition();
+  const [bulkRetryResult, setBulkRetryResult] =
+    useState<BulkRetryFailedResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +162,35 @@ export function LeadHealthPanel() {
     } finally {
       setRetryingId(null);
     }
+  };
+
+  const onBulkRetry = () => {
+    if (!emailStatus || emailStatus.counts.failed === 0) return;
+    if (
+      !confirm(
+        `Retry all ${emailStatus.counts.failed} failed Broker Launch dispatches in the last ${emailStatus.lookbackDays} days?\n\n` +
+          `Each retry creates a fresh dispatch row (originals stay in history). ` +
+          `Capped at 200 per click; re-run if there are more.`
+      )
+    ) {
+      return;
+    }
+    setBulkRetryResult(null);
+    setRetryToast(null);
+    startBulkRetry(async () => {
+      try {
+        const result = await retryAllFailedBrokerLaunchDispatches({
+          days: emailDays,
+        });
+        setBulkRetryResult(result);
+        void refreshEmailStatus(emailDays);
+      } catch (err) {
+        setRetryToast({
+          ok: false,
+          message: err instanceof Error ? err.message : 'Bulk retry failed.',
+        });
+      }
+    });
   };
 
   const runAudit = () => {
@@ -250,6 +284,10 @@ export function LeadHealthPanel() {
           onRetry={onRetryDispatch}
           toast={retryToast}
           onClearToast={() => setRetryToast(null)}
+          onBulkRetry={onBulkRetry}
+          bulkRetryPending={bulkRetryPending}
+          bulkRetryResult={bulkRetryResult}
+          onClearBulkRetry={() => setBulkRetryResult(null)}
         />
       </Section>
 
@@ -776,6 +814,10 @@ function BrokerLaunchEmailSection({
   onRetry,
   toast,
   onClearToast,
+  onBulkRetry,
+  bulkRetryPending,
+  bulkRetryResult,
+  onClearBulkRetry,
 }: {
   status: BrokerLaunchEmailStatus | null;
   loadedAt: Date | null;
@@ -788,6 +830,10 @@ function BrokerLaunchEmailSection({
   onRetry: (row: BrokerLaunchDispatchRow) => void;
   toast: { ok: boolean; message: string } | null;
   onClearToast: () => void;
+  onBulkRetry: () => void;
+  bulkRetryPending: boolean;
+  bulkRetryResult: BulkRetryFailedResult | null;
+  onClearBulkRetry: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -853,12 +899,54 @@ function BrokerLaunchEmailSection({
         </div>
       )}
 
+      {bulkRetryResult && (
+        <div
+          className={`px-6 py-3 text-xs flex items-start justify-between gap-3 border-b ${
+            bulkRetryResult.stillFailed === 0
+              ? 'text-emerald-800 bg-emerald-50 border-emerald-100'
+              : 'text-amber-900 bg-amber-50 border-amber-100'
+          }`}
+        >
+          <div className="space-y-1">
+            <div>
+              Retried <strong>{bulkRetryResult.attempted}</strong>:{' '}
+              <strong>{bulkRetryResult.succeeded}</strong> sent,{' '}
+              <strong>{bulkRetryResult.stillFailed}</strong> still failed
+              {bulkRetryResult.skipped > 0 && (
+                <>
+                  , <strong>{bulkRetryResult.skipped}</strong> skipped
+                </>
+              )}
+              .
+            </div>
+            {bulkRetryResult.sampleErrors.length > 0 && (
+              <div className="font-mono text-[10px] opacity-80">
+                Sample error: {bulkRetryResult.sampleErrors[0]}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClearBulkRetry}
+            className="text-[10px] uppercase tracking-wider opacity-70 hover:opacity-100"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {!status ? (
         <div className="px-6 py-10 text-center text-sm text-slate-500">
           Loading email status…
         </div>
       ) : (
-        <BrokerLaunchEmailBody status={status} retryingId={retryingId} onRetry={onRetry} />
+        <BrokerLaunchEmailBody
+          status={status}
+          retryingId={retryingId}
+          onRetry={onRetry}
+          onBulkRetry={onBulkRetry}
+          bulkRetryPending={bulkRetryPending}
+        />
       )}
     </div>
   );
@@ -868,10 +956,14 @@ function BrokerLaunchEmailBody({
   status,
   retryingId,
   onRetry,
+  onBulkRetry,
+  bulkRetryPending,
 }: {
   status: BrokerLaunchEmailStatus;
   retryingId: string | null;
   onRetry: (row: BrokerLaunchDispatchRow) => void;
+  onBulkRetry: () => void;
+  bulkRetryPending: boolean;
 }) {
   const allHealthy =
     status.env.ok &&
@@ -926,9 +1018,18 @@ function BrokerLaunchEmailBody({
           <div className="space-y-1">
             <div>
               <strong>{status.coverage.leadsAssignedInWindow.toLocaleString()}</strong>{' '}
-              leads were assigned in the last {status.lookbackDays} days, and{' '}
+              leads were assigned (Lead.assignedAt) and{' '}
               <strong>{status.coverage.dispatchesInWindow.toLocaleString()}</strong>{' '}
-              broker-launch dispatches were created.
+              broker-launch dispatches were created
+              {status.coverageClampedToService ? (
+                <>
+                  {' '}since the service was promoted on{' '}
+                  <FormatDate date={status.coverageWindowStart} mode="datetime" />
+                </>
+              ) : (
+                <> in the last {status.lookbackDays} days</>
+              )}
+              .
             </div>
             {status.coverage.gap > 0 ? (
               <div className="text-xs">
@@ -944,6 +1045,12 @@ function BrokerLaunchEmailBody({
               <div className="text-xs">
                 Every assignment produced a dispatch row — the trigger
                 wiring is healthy.
+              </div>
+            )}
+            {status.coverageClampedToService && (
+              <div className="text-[11px] opacity-70">
+                Window clamped to the service's creation time so we don't
+                count assignments from before broker-launch existed.
               </div>
             )}
           </div>
@@ -977,15 +1084,36 @@ function BrokerLaunchEmailBody({
 
       {/* Failed table */}
       {status.recentFailed.length > 0 && (
-        <DispatchTable
-          title={`Recent failures (${status.counts.failed.toLocaleString()})`}
-          rows={status.recentFailed}
-          tone="rose"
-          showError
-          showRetry
-          retryingId={retryingId}
-          onRetry={onRetry}
-        />
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-rose-800">
+              Recent failures ({status.counts.failed.toLocaleString()})
+            </h3>
+            <button
+              type="button"
+              onClick={onBulkRetry}
+              disabled={bulkRetryPending || status.counts.failed === 0}
+              className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              title="Reissue every FAILED dispatch in the lookback window. Each retry creates a new dispatch row; originals stay in history. Capped at 200 per click."
+            >
+              {bulkRetryPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Send className="h-3 w-3" />
+              )}
+              Retry all failed
+            </button>
+          </div>
+          <DispatchTable
+            title=""
+            rows={status.recentFailed}
+            tone="rose"
+            showError
+            showRetry
+            retryingId={retryingId}
+            onRetry={onRetry}
+          />
+        </div>
       )}
 
       {/* Skipped table */}
