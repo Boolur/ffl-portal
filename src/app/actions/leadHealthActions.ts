@@ -407,34 +407,38 @@ async function loadBackfillCandidates(
   vendorSlug: string | null,
   limit: number
 ) {
-  const where: Record<string, unknown> = {
+  const where = {
     propertyAddress: null,
     ...(vendorSlug
       ? { vendor: { slug: vendorSlug.toLowerCase() } }
       : {}),
   };
 
-  const totalCandidates = await prisma.lead.count({ where });
-  if (totalCandidates === 0) {
-    return { totalCandidates, leads: [] as Awaited<ReturnType<typeof prisma.lead.findMany>> };
-  }
-
-  const leads = await prisma.lead.findMany({
-    where,
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      propertyCity: true,
-      propertyState: true,
-      propertyZip: true,
-      propertyCounty: true,
-      rawPayload: true,
-      vendor: { select: { slug: true } },
-    },
-    orderBy: { receivedAt: 'asc' },
-    take: limit,
-  });
+  // Run count + findMany in parallel. We could short-circuit findMany
+  // when count is 0, but doing so forced us to type the empty branch
+  // against the wide `Lead` model (no select) which loses the narrow
+  // `vendor` projection. With the IS NULL + indexed `vendorId` filter
+  // findMany on an empty result set is cheap, so the parallelism wins
+  // either way.
+  const [totalCandidates, leads] = await Promise.all([
+    prisma.lead.count({ where }),
+    prisma.lead.findMany({
+      where,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        propertyCity: true,
+        propertyState: true,
+        propertyZip: true,
+        propertyCounty: true,
+        rawPayload: true,
+        vendor: { select: { slug: true } },
+      },
+      orderBy: { receivedAt: 'asc' },
+      take: limit,
+    }),
+  ]);
 
   return { totalCandidates, leads };
 }
