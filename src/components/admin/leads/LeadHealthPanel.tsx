@@ -1431,6 +1431,16 @@ function BonzoForwardBody({
         </div>
       )}
 
+      {status.excludedCsvLeads > 0 && (
+        <div className="text-[11px] text-slate-500 italic">
+          Excluded <strong>{status.excludedCsvLeads.toLocaleString()}</strong>{' '}
+          CSV-uploaded lead{status.excludedCsvLeads === 1 ? '' : 's'} from this
+          window — those are bulk imports where the Bonzo push is opt-in at
+          upload time, so they don&rsquo;t belong in the auto-forward health
+          check.
+        </div>
+      )}
+
       {allHealthy && (
         <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />

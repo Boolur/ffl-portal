@@ -1047,6 +1047,12 @@ export type BonzoForwardStatus = {
   // can confirm we caught the right ones (and add a service whose URL
   // doesn't contain "bonzo" if necessary).
   manualBonzoServices: Array<{ slug: string; name: string }>;
+  // CSV-uploaded leads (vendor slug = "csv-upload") are excluded from
+  // the panel because they're historical bulk imports — admins decide
+  // at upload time whether to fire the Bonzo forward via the CSV
+  // wizard. Counting them here would explode the "never attempted"
+  // bucket with leads that intentionally never had auto-forward fire.
+  excludedCsvLeads: number;
   totals: {
     assigned: number;
     forwarded: number;
@@ -1156,12 +1162,32 @@ function toBonzoSampleRow(
   };
 }
 
+/**
+ * System vendor slug used for every CSV-imported lead. Kept in sync
+ * with src/app/actions/leadActions.ts (CSV_VENDOR_SLUG) — both files
+ * need to know it but neither owns the other, and copying a single
+ * string constant is cheaper than introducing a shared module just
+ * for one identifier. Renaming it requires updating both spots.
+ */
+const CSV_VENDOR_SLUG = 'csv-upload';
+
 export async function getBonzoForwardStatus(
   input: { days?: number } = {}
 ): Promise<BonzoForwardStatus> {
   await assertDistributionAdmin();
   const days = Math.max(1, Math.min(60, input.days ?? 7));
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  // Resolve the CSV vendor id once so we can filter at the query layer
+  // instead of pulling 5k rows and discarding most of them. We treat a
+  // missing CSV vendor row as "no exclusion needed" — the slug only
+  // gets created the first time someone uploads a CSV, so a fresh org
+  // wouldn't have one yet.
+  const csvVendor = await prisma.leadVendor.findUnique({
+    where: { slug: CSV_VENDOR_SLUG },
+    select: { id: true },
+  });
+  const csvVendorId = csvVendor?.id ?? null;
 
   // Identify any IntegrationService configured to push to Bonzo so we
   // can credit manual "Push to Service" pushes. Heuristic: urlTemplate
@@ -1178,6 +1204,15 @@ export async function getBonzoForwardStatus(
   });
   const bonzoServiceById = new Map(bonzoServices.map((s) => [s.id, s]));
 
+  // Count how many CSV leads we filtered out so the UI can show a
+  // transparency line. Cheap query — same indexed (assignedAt,
+  // vendorId) hot path the main lead query uses.
+  const excludedCsvLeads = csvVendorId
+    ? await prisma.lead.count({
+        where: { assignedAt: { gte: since }, vendorId: csvVendorId },
+      })
+    : 0;
+
   // Pull every lead assigned in the window. We classify in JS because
   // Prisma's JSON filter API can't reliably index into nested keys
   // across all Postgres deploys. With the typical traffic shape (~hund-
@@ -1185,7 +1220,15 @@ export async function getBonzoForwardStatus(
   // is faster than firing 5 separate counts.
   const [leads, manualSentDispatches] = await Promise.all([
     prisma.lead.findMany({
-      where: { assignedAt: { gte: since } },
+      where: {
+        assignedAt: { gte: since },
+        // Exclude CSV uploads: those are historical bulk imports that
+        // intentionally never went through the auto-forward path
+        // (admins decide at upload time whether to push to Bonzo via
+        // the CSV wizard). Counting them as "never attempted" pollutes
+        // the panel with leads that aren't actionable from here.
+        ...(csvVendorId ? { vendorId: { not: csvVendorId } } : {}),
+      },
       select: {
         id: true,
         firstName: true,
@@ -1319,6 +1362,7 @@ export async function getBonzoForwardStatus(
     lookbackDays: days,
     windowStart: since.toISOString(),
     manualBonzoServices: bonzoServices.map((s) => ({ slug: s.slug, name: s.name })),
+    excludedCsvLeads,
     totals: {
       assigned: leads.length,
       forwarded,
@@ -1358,13 +1402,23 @@ export async function getBonzoForwardRetryIds(
   const days = Math.max(1, Math.min(60, input.days ?? 7));
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
+  // Resolve CSV vendor + Bonzo service IDs in parallel before pulling
+  // leads, so we can apply both exclusions at the query layer.
+  const [csvVendor, bonzoServices] = await Promise.all([
+    prisma.leadVendor.findUnique({
+      where: { slug: CSV_VENDOR_SLUG },
+      select: { id: true },
+    }),
+    prisma.integrationService.findMany({
+      where: { urlTemplate: { contains: 'bonzo', mode: 'insensitive' } },
+      select: { id: true },
+    }),
+  ]);
+  const csvVendorId = csvVendor?.id ?? null;
+
   // Same Bonzo-service detection as getBonzoForwardStatus so manual
   // pushes are excluded from the retry queue. We never want a click
   // here to double-push a lead the admin already sent themselves.
-  const bonzoServices = await prisma.integrationService.findMany({
-    where: { urlTemplate: { contains: 'bonzo', mode: 'insensitive' } },
-    select: { id: true },
-  });
   const manualSentLeadIds = new Set<string>(
     bonzoServices.length === 0
       ? []
@@ -1381,7 +1435,13 @@ export async function getBonzoForwardRetryIds(
   );
 
   const leads = await prisma.lead.findMany({
-    where: { assignedAt: { gte: since } },
+    where: {
+      assignedAt: { gte: since },
+      // Match the panel's exclusion exactly: CSV uploads aren't actionable
+      // from here, and including them in the retry queue would silently
+      // push 4k+ historical imports through Bonzo on a single click.
+      ...(csvVendorId ? { vendorId: { not: csvVendorId } } : {}),
+    },
     select: { id: true, customData: true },
     orderBy: { assignedAt: 'asc' },
     take: 5000,
