@@ -22,8 +22,13 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { UserRole } from '@prisma/client';
+import {
+  IntegrationServiceTrigger,
+  ServiceDispatchStatus,
+  UserRole,
+} from '@prisma/client';
 import { isAdmin as isAdminRole } from '@/lib/adminTiers';
+import { dispatchServiceToLead } from '@/lib/services/dispatch';
 
 async function assertDistributionAdmin() {
   const session = await getServerSession(authOptions);
@@ -595,4 +600,331 @@ export async function runLeadAddressBackfill(
   }
 
   return { ...summary, applied, failed };
+}
+
+// ---------------------------------------------------------------------------
+// Broker Launch email status (automated email to assigned LO on assignment)
+// ---------------------------------------------------------------------------
+
+/**
+ * Slug of the seeded IntegrationService row that fires the Broker Launch
+ * Notification email (see prisma/migrations/20260428010100_seed_broker_
+ * launch_email_service/migration.sql). Hardcoded here because there is
+ * exactly one email service today; if a second one ever ships we should
+ * widen this to filter by `method = EMAIL_BROKER_LAUNCH` instead.
+ */
+const BROKER_LAUNCH_SLUG = 'broker-launch-email';
+
+const MS_ENV_VARS = [
+  'MS_TENANT_ID',
+  'MS_CLIENT_ID',
+  'MS_CLIENT_SECRET',
+  'MS_SENDER_EMAIL',
+] as const;
+
+export type BrokerLaunchDispatchRow = {
+  dispatchId: string;
+  status: ServiceDispatchStatus;
+  trigger: IntegrationServiceTrigger;
+  createdAt: string;
+  completedAt: string | null;
+  attempts: number;
+  lastError: string | null;
+  skippedReason: string | null;
+  // Snapshot of the recipient (`to:`) the dispatcher captured at send
+  // time. Useful when the assigned user has since rotated their email
+  // — we want to show the address we actually tried, not the one
+  // currently on the user row.
+  recipient: string | null;
+  leadId: string;
+  leadName: string;
+  leadVendorSlug: string | null;
+  assignedUserId: string | null;
+  assignedUserEmail: string | null;
+  assignedUserName: string | null;
+};
+
+export type BrokerLaunchEmailStatus = {
+  service: {
+    id: string;
+    slug: string;
+    name: string;
+    active: boolean;
+  } | null;
+  // Microsoft Graph configuration check. We never echo the actual values
+  // back to the client — only which env vars are missing — so the page
+  // is safe to view even at lower admin tiers.
+  env: {
+    ok: boolean;
+    missing: string[];
+  };
+  lookbackDays: number;
+  counts: {
+    sent: number;
+    failed: number;
+    skipped: number;
+    pending: number;
+  };
+  // Compares "leads assigned to a user in the window" vs "broker-launch
+  // dispatch rows in the window". A meaningful gap means trigger
+  // wiring is missing somewhere (e.g. someone introduced a new
+  // assignment path that doesn't call runServiceTriggers ON_ASSIGN).
+  coverage: {
+    leadsAssignedInWindow: number;
+    dispatchesInWindow: number;
+    gap: number;
+  };
+  recentFailed: BrokerLaunchDispatchRow[];
+  recentSkipped: BrokerLaunchDispatchRow[];
+  recentSent: BrokerLaunchDispatchRow[];
+};
+
+type DispatchWithRelations = {
+  id: string;
+  status: ServiceDispatchStatus;
+  trigger: IntegrationServiceTrigger;
+  createdAt: Date;
+  completedAt: Date | null;
+  attempts: number;
+  lastError: string | null;
+  skippedReason: string | null;
+  requestSnapshot: unknown;
+  leadId: string;
+  lead: {
+    firstName: string | null;
+    lastName: string | null;
+    assignedUserId: string | null;
+    assignedUser: {
+      id: string;
+      email: string | null;
+      name: string | null;
+    } | null;
+    vendor: { slug: string } | null;
+  };
+};
+
+function extractRecipientFromSnapshot(snapshot: unknown): string | null {
+  // The dispatcher writes `{ transport, method, subject, to }` for email
+  // services (see dispatch.ts ~237). Falling back to null lets the UI
+  // render "—" for legacy rows that pre-dated the snapshot field.
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const to = (snapshot as Record<string, unknown>).to;
+  return typeof to === 'string' && to.length > 0 ? to : null;
+}
+
+function toDispatchRow(d: DispatchWithRelations): BrokerLaunchDispatchRow {
+  const fullName =
+    [d.lead.firstName, d.lead.lastName].filter(Boolean).join(' ') ||
+    '(no name)';
+  return {
+    dispatchId: d.id,
+    status: d.status,
+    trigger: d.trigger,
+    createdAt: d.createdAt.toISOString(),
+    completedAt: d.completedAt ? d.completedAt.toISOString() : null,
+    attempts: d.attempts,
+    lastError: d.lastError,
+    skippedReason: d.skippedReason,
+    recipient: extractRecipientFromSnapshot(d.requestSnapshot),
+    leadId: d.leadId,
+    leadName: fullName,
+    leadVendorSlug: d.lead.vendor?.slug ?? null,
+    assignedUserId: d.lead.assignedUserId,
+    assignedUserEmail: d.lead.assignedUser?.email ?? null,
+    assignedUserName: d.lead.assignedUser?.name ?? null,
+  };
+}
+
+export type BrokerLaunchEmailStatusInput = {
+  days?: number;
+};
+
+export async function getBrokerLaunchEmailStatus(
+  input: BrokerLaunchEmailStatusInput = {}
+): Promise<BrokerLaunchEmailStatus> {
+  await assertDistributionAdmin();
+  const days = Math.max(1, Math.min(60, input.days ?? 7));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  // Env presence is computed server-side so we can flag misconfiguration
+  // without ever sending the values to the browser.
+  const missingEnv = MS_ENV_VARS.filter((name) => !process.env[name]);
+
+  const service = await prisma.integrationService.findUnique({
+    where: { slug: BROKER_LAUNCH_SLUG },
+    select: { id: true, slug: true, name: true, active: true },
+  });
+
+  // If the service row hasn't been seeded yet (fresh DB) we still want
+  // the page to render — the env + assignment counts are still useful.
+  if (!service) {
+    return {
+      service: null,
+      env: { ok: missingEnv.length === 0, missing: missingEnv },
+      lookbackDays: days,
+      counts: { sent: 0, failed: 0, skipped: 0, pending: 0 },
+      coverage: {
+        leadsAssignedInWindow: 0,
+        dispatchesInWindow: 0,
+        gap: 0,
+      },
+      recentFailed: [],
+      recentSkipped: [],
+      recentSent: [],
+    };
+  }
+
+  // groupBy by status gives us the four counters in a single round trip.
+  const grouped = await prisma.serviceDispatch.groupBy({
+    by: ['status'],
+    where: {
+      serviceId: service.id,
+      createdAt: { gte: since },
+    },
+    _count: { _all: true },
+  });
+  const counts = { sent: 0, failed: 0, skipped: 0, pending: 0 };
+  for (const g of grouped) {
+    if (g.status === ServiceDispatchStatus.SENT) counts.sent = g._count._all;
+    else if (g.status === ServiceDispatchStatus.FAILED)
+      counts.failed = g._count._all;
+    else if (g.status === ServiceDispatchStatus.SKIPPED)
+      counts.skipped = g._count._all;
+    else if (g.status === ServiceDispatchStatus.PENDING)
+      counts.pending = g._count._all;
+  }
+  const dispatchesInWindow =
+    counts.sent + counts.failed + counts.skipped + counts.pending;
+
+  // "Leads assigned in window" approximates what should have triggered
+  // the email. We use updatedAt + assignedUserId not null as the proxy;
+  // the Lead model doesn't store an explicit assignment timestamp on
+  // every assignment path, so this is the most accurate signal we have.
+  const leadsAssignedInWindow = await prisma.lead.count({
+    where: {
+      assignedUserId: { not: null },
+      updatedAt: { gte: since },
+    },
+  });
+
+  const include = {
+    lead: {
+      select: {
+        firstName: true,
+        lastName: true,
+        assignedUserId: true,
+        assignedUser: {
+          select: { id: true, email: true, name: true },
+        },
+        vendor: { select: { slug: true } },
+      },
+    },
+  } as const;
+
+  const [failedRows, skippedRows, sentRows] = await Promise.all([
+    prisma.serviceDispatch.findMany({
+      where: {
+        serviceId: service.id,
+        status: ServiceDispatchStatus.FAILED,
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+      include,
+    }),
+    prisma.serviceDispatch.findMany({
+      where: {
+        serviceId: service.id,
+        status: ServiceDispatchStatus.SKIPPED,
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+      include,
+    }),
+    prisma.serviceDispatch.findMany({
+      where: {
+        serviceId: service.id,
+        status: ServiceDispatchStatus.SENT,
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      include,
+    }),
+  ]);
+
+  return {
+    service,
+    env: { ok: missingEnv.length === 0, missing: missingEnv },
+    lookbackDays: days,
+    counts,
+    coverage: {
+      leadsAssignedInWindow,
+      dispatchesInWindow,
+      gap: Math.max(0, leadsAssignedInWindow - dispatchesInWindow),
+    },
+    recentFailed: failedRows.map(toDispatchRow),
+    recentSkipped: skippedRows.map(toDispatchRow),
+    recentSent: sentRows.map(toDispatchRow),
+  };
+}
+
+export type BrokerLaunchRetryResult = {
+  ok: boolean;
+  // The new dispatch row outcome rendered as a single short string so
+  // the UI can flash a confirmation toast without re-running the whole
+  // status query.
+  message: string;
+};
+
+export async function retryBrokerLaunchDispatch(
+  dispatchId: string
+): Promise<BrokerLaunchRetryResult> {
+  await assertDistributionAdmin();
+
+  const dispatch = await prisma.serviceDispatch.findUnique({
+    where: { id: dispatchId },
+    select: {
+      id: true,
+      leadId: true,
+      service: {
+        // dispatchServiceToLead expects credentialFields preloaded.
+        // EMAIL_BROKER_LAUNCH ignores credentials, but we honor the
+        // shape so the helper stays a drop-in dispatch entry point.
+        include: { credentialFields: true },
+      },
+    },
+  });
+  if (!dispatch) {
+    return { ok: false, message: 'Dispatch row not found.' };
+  }
+  if (dispatch.service.slug !== BROKER_LAUNCH_SLUG) {
+    return {
+      ok: false,
+      message: 'Refusing to retry a non broker-launch dispatch from this surface.',
+    };
+  }
+
+  // Run as a MANUAL dispatch so the retry is clearly distinguishable
+  // from the original automated firing in the audit log.
+  const outcome = await dispatchServiceToLead(
+    dispatch.service,
+    dispatch.leadId,
+    { trigger: IntegrationServiceTrigger.MANUAL }
+  );
+
+  if (outcome.ok) {
+    return { ok: true, message: 'Email sent.' };
+  }
+  if ('skipped' in outcome && outcome.skipped) {
+    return {
+      ok: false,
+      message: `Skipped: ${outcome.reason}${outcome.info ? ` — ${outcome.info}` : ''}`,
+    };
+  }
+  return {
+    ok: false,
+    message: `Failed: ${outcome.reason}${outcome.info ? ` — ${outcome.info}` : ''}`,
+  };
 }
