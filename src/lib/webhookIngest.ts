@@ -149,6 +149,32 @@ export async function ingestLeadMailboxWebhook(
     leadFields[target] = value;
   }
 
+  // Mirror mailing -> property when property is blank. The field map
+  // routes `mailing_*` to `Lead.mailing*` (so investor leads with a
+  // distinct subject property preserve both), but historically every
+  // downstream consumer (Broker Launch email, CSV export, lead detail
+  // UI, generic outbound integrations) only reads `propertyAddress` /
+  // `propertyCity` / etc. FreeRateUpdate and LendingTree LMB services
+  // often substitute `{phys_*}` to a blank string while reliably
+  // populating `{Mail_*}`, so without this mirror those consumers go
+  // back to seeing null addresses on the same leads yesterday's fix
+  // (commit 3c9b82f) was supposed to repair. The Bonzo forwarder
+  // separately falls back `mailingAddress ?? propertyAddress`, so this
+  // mirror is purely about keeping the property* columns populated for
+  // everything that doesn't.
+  const MAILING_TO_PROPERTY: Array<[string, string]> = [
+    ['mailingAddress', 'propertyAddress'],
+    ['mailingCity', 'propertyCity'],
+    ['mailingState', 'propertyState'],
+    ['mailingZip', 'propertyZip'],
+    ['mailingCounty', 'propertyCounty'],
+  ];
+  for (const [mail, property] of MAILING_TO_PROPERTY) {
+    if (!leadFields[property] && leadFields[mail]) {
+      leadFields[property] = leadFields[mail];
+    }
+  }
+
   const statusStr = campaign?.defaultLeadStatus ?? 'UNASSIGNED';
   const status = (Object.values(LeadStatus) as string[]).includes(statusStr)
     ? (statusStr as LeadStatus)

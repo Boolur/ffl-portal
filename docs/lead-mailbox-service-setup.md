@@ -83,7 +83,8 @@ Key things to know:
 
 - `routing_tag` starts empty (`""`) — you must fill it in per service with the value from the tables in section 3. The webhook falls back to the Unassigned Pool if it doesn't match.
 - `lead_id` becomes the portal lead's `vendorLeadId` (for cross-referencing back to LMB).
-- The `property_*` block (using `{phys_*}`) stays first so the subject property wins when LMB populates it. The `mailing_*` block (using `{Mail_*}`) acts as a fallback for vendors that leave `{phys_*}` blank — notably LendingTree and FreeRateUpdate. Both blocks map to the same `property*` columns on the `Lead` model; first-non-empty-wins in `ingestLeadMailboxWebhook` means investor leads with genuinely different mailing vs subject property still keep the subject property, while leads that only sent a mailing address no longer ingest with a blank address (and the Broker Launch email's `Address = …` section fills in accordingly).
+- The `property_*` block (using `{phys_*}`) stays first so the subject property wins when LMB populates it. The `mailing_*` block (using `{Mail_*}`) is now stored on the dedicated `Lead.mailing*` columns instead of collapsing into `property*`, so investor leads with a genuinely different mailing vs subject property preserve both. To keep the "address always lights up" guarantee for vendors whose `{phys_*}` placeholders are often blank (notably LendingTree and FreeRateUpdate), `ingestLeadMailboxWebhook` mirrors `mailing*` onto `property*` whenever `property*` ended up blank — same observable behavior as before for the Broker Launch email and lead detail UI, but Bonzo, CSV exports, and any future outbound integration that reads `Lead.mailingAddress` directly now see the real mailing address too.
+- The Bonzo forwarder ([src/lib/bonzoForward.ts](../src/lib/bonzoForward.ts)) keeps its own `mailingAddress ?? propertyAddress` fallback for the borrower address block (`address` / `city` / `state` / `zip`) and additionally falls back `phone -> homePhone -> workPhone` (and the same chain for `co_phone`). FRU leads whose only number arrived as `{HomePhone}` / `number2` were previously sent to Bonzo as `phone: null` — the fallback fixes that without changing what's stored on the lead. Bonzo also now receives `home_phone`, `work_phone`, `co_home_phone`, and `co_work_phone` as distinct keys, plus `loan_term` mirroring `loan_program` so triggers that key on either name fire correctly.
 - `property_ltv: "{Field_011}"` and `loan_rate: "{Field_037}"` reference numbered custom fields — these IDs are assigned per-customer in LMB's admin and match the ones configured for this org today. If an LMB admin renumbers a field, update it in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts) and re-copy.
 - LO info (`{User_Name}`, `{User_Email}`, `{User_License}`, `{User_Phone}`) and `{campaign_name}` have no home on the `Lead` model, so they're persisted as **notes** instead of getting dropped. `extractBridgeNotes` in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts) auto-filters empty strings and unsubstituted `{Token}` placeholders.
 - `is_military` and `custom_veteran` both land on the same `Lead.isMilitary` yes/no column — see the comment at lines 129-132 of [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts).
@@ -261,6 +262,8 @@ Full map lives in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts
 | `number2` / `number3` | `homePhone` / `workPhone` |
 | `dob` / `ssn` | `dob` / `ssn` |
 | `property_address` / `property_city` / `property_state` / `property_zip` / `property_county` | `propertyAddress` / `propertyCity` / `propertyState` / `propertyZip` / `propertyCounty` |
+| `mailing_address` / `mailing_city` / `mailing_state` / `mailing_zip` / `mailing_county` | `mailingAddress` / `mailingCity` / `mailingState` / `mailingZip` / `mailingCounty` (also mirrored onto the `property*` columns by `ingestLeadMailboxWebhook` when those came in blank) |
+| `phys_address` / `phys_city` / `phys_state` / `phys_zip` / `phys_county` | `propertyAddress` / `propertyCity` / `propertyState` / `propertyZip` / `propertyCounty` |
 | `property_value` / `property_type` / `property_use` / `property_ltv` / `purchase_price` | `propertyValue` / `propertyType` / `propertyUse` / `propertyLtv` / `purchasePrice` |
 | `employer` / `bankruptcy` / `foreclosure` | `employer` / `bankruptcy` / `foreclosure` |
 | `is_military` / `custom_veteran` | both write to `isMilitary` (single yes/no column) |
@@ -313,7 +316,8 @@ Every POST to a Bonzo webhook has this shape (built by `buildBonzoPayload` in `s
   "first_name": "...",
   "last_name": "...",
   "email": "...",
-  "phone": "...",
+  "phone": "<phone, falls back to homePhone, then workPhone>",
+  "home_phone": "...",
   "work_phone": "...",
   "birthday": "...",
   "ssn": "...",
@@ -337,6 +341,7 @@ Every POST to a Bonzo webhook has this shape (built by `buildBonzoPayload` in `s
   "loan_amount": "...",
   "loan_type": "...",
   "loan_program": "<loan term>",
+  "loan_term": "<loan term>",
   "loan_balance": "<current balance>",
   "interest_rate": "<current rate>",
   "down_payment": "...",
@@ -357,7 +362,9 @@ Every POST to a Bonzo webhook has this shape (built by `buildBonzoPayload` in `s
   "co_first_name": "...",
   "co_last_name": "...",
   "co_email": "...",
-  "co_phone": "...",
+  "co_phone": "<coPhone, falls back to coHomePhone, then coWorkPhone>",
+  "co_home_phone": "...",
+  "co_work_phone": "...",
   "co_birthday": "...",
 
   "notes": [
@@ -378,15 +385,17 @@ Every POST to a Bonzo webhook has this shape (built by `buildBonzoPayload` in `s
 | `campaign.name` | `lead_source` | Falls back to `vendor.name` if no campaign matched |
 | `receivedAt` (UTC) | `application_date` | Formatted as `YYYY-MM-DD` |
 | `status` | `1_Status` | Custom Bonzo field (prefix-numbered for sorting) |
-| `firstName` / `lastName` / `email` / `phone` | `first_name` / `last_name` / `email` / `phone` | |
+| `firstName` / `lastName` / `email` | `first_name` / `last_name` / `email` | |
+| `phone` | `phone` | Falls back to `homePhone`, then `workPhone` if `phone` is null. FRU leads often arrive with the only number on `homePhone` (`{HomePhone}` / `number2` in the LMB template), so without this fallback Bonzo received `phone: null` and VA / refi triggers wouldn't fire. |
+| `homePhone` | `home_phone` | Sent in addition to the fallback above so admins can target home vs. mobile in Bonzo workflows. |
 | `workPhone` | `work_phone` | |
 | `dob` | `birthday` | Bonzo uses "birthday", not "dob" |
 | `ssn` | `ssn` | |
-| `mailingAddress` / `mailingCity` / `mailingState` / `mailingZip` | `address` / `city` / `state` / `zip` | Borrower mailing address |
+| `mailingAddress` / `mailingCity` / `mailingState` / `mailingZip` | `address` / `city` / `state` / `zip` | Borrower mailing address. Falls back to `propertyAddress` / `propertyCity` / `propertyState` / `propertyZip` for vendors that don't distinguish mailing from subject property — needed because LMB-sourced leads (FRU, LendingTree) may have either side populated. |
 | `propertyAddress` / `propertyCity` / `propertyState` / `propertyZip` / `propertyCounty` | `property_address` / `property_city` / `property_state` / `property_zip` / `property_county` | Subject property |
 | `propertyType` / `propertyUse` / `propertyValue` / `purchasePrice` | `property_type` / `property_use` / `property_value` / `purchase_price` | |
 | `loanPurpose` / `loanAmount` / `loanType` / `downPayment` | `loan_purpose` / `loan_amount` / `loan_type` / `down_payment` | |
-| `loanTerm` | `loan_program` | Bonzo reuses "loan_program" for the term/product |
+| `loanTerm` | `loan_program`, `loan_term` | Mirrored to both keys. Bonzo tenants vary on which name their campaign triggers read — sending both prevents silent mismatches. |
 | `currentBalance` | `loan_balance` | |
 | `currentRate` | `interest_rate` | |
 | `cashOut` | `cash_out_amount` | |
@@ -398,7 +407,9 @@ Every POST to a Bonzo webhook has this shape (built by `buildBonzoPayload` in `s
 | `employer` | `prospect_company`, `company_name` | Mirrored to both keys since Bonzo admins sometimes surface one vs. the other |
 | `jobTitle` | `occupation` | |
 | `income` | `income`, `household_income` | Mirrored until we capture a separate household figure |
-| `coFirstName` / `coLastName` / `coEmail` / `coPhone` | `co_first_name` / `co_last_name` / `co_email` / `co_phone` | |
+| `coFirstName` / `coLastName` / `coEmail` | `co_first_name` / `co_last_name` / `co_email` | |
+| `coPhone` | `co_phone` | Falls back to `coHomePhone`, then `coWorkPhone` (same rationale as borrower `phone`). |
+| `coHomePhone` / `coWorkPhone` | `co_home_phone` / `co_work_phone` | Sent in addition to the `co_phone` fallback. |
 | `coDob` | `co_birthday` | |
 | `LeadNote.content` + routing meta | `notes` (array) | First entry is always `"From FFL Portal"`, followed by vendor/campaign/LO breadcrumbs, then up to 10 recent `LeadNote` entries |
 

@@ -43,24 +43,36 @@ export const LEAD_MAILBOX_FIELD_MAP: Record<string, string> = {
   co_work_phone: 'coWorkPhone',
   co_dob: 'coDob',
 
-  // Property address (mailing fields from LM also go here per the unified
-  // address model the portal adopted)
+  // Property address. Generic `street` / `address` / `city` / ... aliases
+  // also land on the property* columns since most vendors that don't
+  // distinguish mailing from subject property send the single address
+  // here.
   street: 'propertyAddress',
   address: 'propertyAddress',
   property_address: 'propertyAddress',
-  mailing_address: 'propertyAddress',
   city: 'propertyCity',
   property_city: 'propertyCity',
-  mailing_city: 'propertyCity',
   state: 'propertyState',
   property_state: 'propertyState',
-  mailing_state: 'propertyState',
   zip: 'propertyZip',
   property_zip: 'propertyZip',
-  mailing_zip: 'propertyZip',
   county: 'propertyCounty',
   property_county: 'propertyCounty',
-  mailing_county: 'propertyCounty',
+
+  // Mailing address. Stored on its own `mailing*` columns so investor
+  // leads that legitimately have a different mailing vs subject property
+  // preserve both, and so any non-Bonzo consumer that reads
+  // `Lead.mailingAddress` directly (CSV exports, future integrations,
+  // the borrower-facing email block) gets the right value. The bridge
+  // ingest step copies mailing* -> property* when property* is blank so
+  // the existing "address always lights up" guarantee for FRU/LendingTree
+  // leads (whose `{phys_*}` placeholders are often empty) still holds.
+  // See ingestLeadMailboxWebhook for the mirror logic.
+  mailing_address: 'mailingAddress',
+  mailing_city: 'mailingCity',
+  mailing_state: 'mailingState',
+  mailing_zip: 'mailingZip',
+  mailing_county: 'mailingCounty',
 
   // Physical / property address aliases (LM emits {phys_*} placeholders).
   // These take precedence over the mail_* aliases above when both are

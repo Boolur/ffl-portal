@@ -173,7 +173,10 @@ type LeadLike = {
  *
  *   id                  -> lead_id
  *   firstName/lastName  -> first_name / last_name
- *   email / phone       -> email / phone
+ *   email               -> email
+ *   phone               -> phone (falls back to homePhone, then workPhone — see
+ *                          the comment on `primaryPhone` below for why)
+ *   homePhone           -> home_phone
  *   workPhone           -> work_phone
  *   dob                 -> birthday
  *   ssn                 -> ssn
@@ -190,7 +193,10 @@ type LeadLike = {
  *   loanPurpose         -> loan_purpose
  *   loanAmount          -> loan_amount
  *   loanType            -> loan_type
- *   loanTerm            -> loan_program
+ *   loanTerm            -> loan_program AND loan_term (mirrored — Bonzo
+ *                          tenants vary on which key their campaign triggers
+ *                          read, so we send both to avoid silently breaking
+ *                          either configuration)
  *   currentBalance      -> loan_balance
  *   currentRate         -> interest_rate
  *   downPayment         -> down_payment
@@ -213,7 +219,11 @@ type LeadLike = {
  *   employer            -> prospect_company, company_name
  *   jobTitle            -> occupation
  *   income              -> income, household_income
- *   coFirstName/...     -> co_first_name / co_last_name / co_email / co_phone
+ *   coFirstName/...     -> co_first_name / co_last_name / co_email
+ *   coPhone             -> co_phone (falls back to coHomePhone, then
+ *                          coWorkPhone — same reason as borrower phone)
+ *   coHomePhone         -> co_home_phone
+ *   coWorkPhone         -> co_work_phone
  *   coDob               -> co_birthday
  *   campaign.name       -> lead_source
  *   receivedAt (UTC)    -> application_date (YYYY-MM-DD)
@@ -250,20 +260,37 @@ function buildBonzoPayload(lead: LeadLike) {
   const veteranBool = normalizeMilitaryFlagToBool(veteranFlag);
   const veteranYesNo = veteranFlag; // 'Yes' | 'No' | null
 
-  // Mailing address falls back to property-* because the Lead Mailbox
-  // bridge collapses every address variant (`phys_*`, `Mail_*`, `address_
-  // line_1`, …) into the `property*` columns — see leadMailboxBridge.ts.
-  // Bonzo's native `address` / `city` / `state` / `zip` keys drive most
-  // of their campaign triggers, so leaving them null (even when
-  // `property_address` was populated) meant LOs' VA / refinance
-  // campaigns couldn't match on city/state. Same `??` pattern the
-  // Broker Launch email uses for its `Address = …` block, so LMB leads
-  // get a filled mailing block while non-LMB vendors that send a
-  // genuine separate mailing address still win.
+  // Mailing address falls back to property-*. Bonzo's native `address` /
+  // `city` / `state` / `zip` keys drive most campaign triggers, so leaving
+  // them null (even when `property_address` was populated) meant LOs' VA
+  // / refinance campaigns couldn't match on city/state. The fallback
+  // covers two distinct cases:
+  //   1. Vendors that only ever send a single address (most non-LMB vendors
+  //      and the bulk of LMB-sourced leads): the value lands on `property*`
+  //      and Bonzo's borrower address block fills from the fallback.
+  //   2. Investor leads with a genuinely different mailing vs subject
+  //      property: `mailing*` is set explicitly by the LMB bridge map and
+  //      wins, exactly like Bonzo wants for the borrower block.
+  // Same `??` pattern the Broker Launch email uses for its `Address = …`
+  // block.
   const mailAddress = lead.mailingAddress ?? lead.propertyAddress;
   const mailCity = lead.mailingCity ?? lead.propertyCity;
   const mailState = lead.mailingState ?? lead.propertyState;
   const mailZip = lead.mailingZip ?? lead.propertyZip;
+
+  // Bonzo's `phone` is the primary number every campaign trigger keys off.
+  // Vendors don't agree on which slot the borrower's reachable number lands
+  // in: FreeRateUpdate's LMB template (see leadMailboxBridge.ts) routes
+  // `{phonenumeric}` -> `number1` -> `Lead.phone` but `{HomePhone}` ->
+  // `number2` -> `Lead.homePhone`, and FRU often supplies only one of the
+  // two. Without a fallback, Bonzo received `phone: null` for every FRU
+  // lead whose only number was a home phone — VA / refi triggers wouldn't
+  // fire and LOs had no way to call them. Fall through homePhone -> workPhone
+  // so Bonzo always gets the best available number, and still emit the
+  // distinct `home_phone` / `work_phone` keys below for tenants whose
+  // workflows key off those instead.
+  const primaryPhone = lead.phone ?? lead.homePhone ?? lead.workPhone;
+  const primaryCoPhone = lead.coPhone ?? lead.coHomePhone ?? lead.coWorkPhone;
 
   return {
     // Identity
@@ -276,7 +303,8 @@ function buildBonzoPayload(lead: LeadLike) {
     first_name: lead.firstName,
     last_name: lead.lastName,
     email: lead.email,
-    phone: lead.phone,
+    phone: primaryPhone,
+    home_phone: lead.homePhone,
     work_phone: lead.workPhone,
     birthday: lead.dob,
     ssn: lead.ssn,
@@ -305,6 +333,11 @@ function buildBonzoPayload(lead: LeadLike) {
     loan_amount: lead.loanAmount,
     loan_type: lead.loanType,
     loan_program: lead.loanTerm,
+    // Mirror loanTerm onto Bonzo's `loan_term` key as well. Some tenants
+    // configured campaigns against `loan_program` (the original mapping)
+    // and others against `loan_term`; sending both prevents silent
+    // mismatches without forcing every admin to re-key their triggers.
+    loan_term: lead.loanTerm,
     loan_balance: lead.currentBalance,
     interest_rate: lead.currentRate,
     down_payment: lead.downPayment,
@@ -336,7 +369,9 @@ function buildBonzoPayload(lead: LeadLike) {
     co_first_name: lead.coFirstName,
     co_last_name: lead.coLastName,
     co_email: lead.coEmail,
-    co_phone: lead.coPhone,
+    co_phone: primaryCoPhone,
+    co_home_phone: lead.coHomePhone,
+    co_work_phone: lead.coWorkPhone,
     co_birthday: lead.coDob,
 
     // Notes - array of strings per Bonzo's public API (proven in the LMB
