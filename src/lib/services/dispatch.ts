@@ -25,7 +25,32 @@ import { prisma } from '@/lib/prisma';
 import { sendEmail } from '@/lib/email';
 import { buildBonzoPayload } from '@/lib/bonzoForward';
 import { sendBrokerLaunchEmail } from '@/lib/brokerLaunchEmail';
+import {
+  withConcurrencyLimit,
+  ConcurrencyKeys,
+} from '@/lib/concurrencyLimit';
 import { render, renderString, type TemplateContext } from './template';
+
+/**
+ * Cap on simultaneous in-flight `runServiceTriggers` calls.
+ *
+ * Bulk paths (`bulkAssignLeads`, CSV import, the post-distribution loop
+ * in `leadActions.ts`, and `webhookIngest.ts` when a vendor pushes a
+ * burst) fire ON_ASSIGN + DELAY_AFTER_ASSIGN as fire-and-forget `void`
+ * for every lead. Each call does a `findMany` of candidate services
+ * plus per-service work (immediate POST or PENDING dispatch creation),
+ * so an uncapped 50-lead burst could spawn 100+ parallel chains and
+ * exhaust the Prisma connection pool — the same failure mode that
+ * already broke Bonzo forwarding. This cap prevents that on the
+ * service-trigger side.
+ *
+ * 5 mirrors the Bonzo forward limit: services typically fan out 1–3
+ * downstream HTTP calls per lead, and Bonzo + service triggers can run
+ * simultaneously, so we keep their pool budgets symmetric (≈10 of the
+ * pool's 10–20 connections at peak, leaving headroom for the rest of
+ * the request cycle).
+ */
+const SERVICE_TRIGGERS_CONCURRENCY_LIMIT = 5;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -639,6 +664,23 @@ export async function runServiceTriggers(
     includeSlugs?: string[];
     excludeSlugs?: string[];
   } = {}
+): Promise<void> {
+  return withConcurrencyLimit(
+    ConcurrencyKeys.serviceTriggers,
+    SERVICE_TRIGGERS_CONCURRENCY_LIMIT,
+    () => runServiceTriggersImpl(leadId, trigger, context)
+  );
+}
+
+async function runServiceTriggersImpl(
+  leadId: string,
+  trigger: IntegrationServiceTrigger,
+  context: {
+    previousStatus?: string;
+    newStatus?: string;
+    includeSlugs?: string[];
+    excludeSlugs?: string[];
+  }
 ): Promise<void> {
   try {
     const includeSet = context.includeSlugs

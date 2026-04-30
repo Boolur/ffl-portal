@@ -3,23 +3,21 @@ import {
   coalesceMilitaryFlag,
   normalizeMilitaryFlagToBool,
 } from '@/lib/militaryFlag';
+import {
+  withConcurrencyLimit,
+  ConcurrencyKeys,
+} from '@/lib/concurrencyLimit';
 
 /**
  * Cap on simultaneous in-flight `forwardLeadToBonzo` calls.
  *
  * Each forward holds up to 2 Prisma connections at peak (the parallel
  * `userLeadQuota.findUnique` + `lead.findUnique`, then the single-query
- * audit upsert below). Vercel's serverless Prisma pool is typically
- * 10–20 connections, and bulk paths (`bulkAssignLeads`, CSV import with
- * "fire Bonzo" checked, and the post-distribution loop in
- * `leadActions.ts`) fire forwards as fire-and-forget `void` in a tight
- * `for` loop with no awaits between them — so a 50-lead bulk would
- * burst ~100 connection requests and exhaust the pool. When that
- * happens the in-flight forwards fail with "Timed out fetching a new
- * connection from the connection pool", AND the audit-write that
- * normally records the exception also fails (pool is still drained),
- * leaving leads silently classified as "never_attempted" on the Bonzo
- * Forwarding health panel.
+ * audit upsert below). Without a cap, bulk paths (`bulkAssignLeads`,
+ * CSV import "fire Bonzo" loop, post-distribution loop in
+ * `leadActions.ts`) burst ~100 connection requests on a 50-lead batch
+ * and exhaust Vercel's ~10–20 connection Prisma pool — see
+ * `src/lib/concurrencyLimit.ts` for the full failure-mode write-up.
  *
  * 5 keeps Bonzo throughput high (the bottleneck is Bonzo's HTTP API,
  * not us — at 5 concurrent and ~500ms per POST that's still 10
@@ -27,22 +25,6 @@ import {
  * the request cycle.
  */
 const FORWARD_CONCURRENCY_LIMIT = 5;
-let activeForwards = 0;
-const forwardWaiters: Array<() => void> = [];
-
-async function withForwardSlot<T>(fn: () => Promise<T>): Promise<T> {
-  if (activeForwards >= FORWARD_CONCURRENCY_LIMIT) {
-    await new Promise<void>((resolve) => forwardWaiters.push(resolve));
-  }
-  activeForwards++;
-  try {
-    return await fn();
-  } finally {
-    activeForwards--;
-    const next = forwardWaiters.shift();
-    if (next) next();
-  }
-}
 
 /**
  * Single source of truth for the Bonzo forward audit record we stash on
@@ -71,7 +53,14 @@ export type BonzoForwardAudit = {
   status?: number;
   statusText?: string;
   errorPreview?: string;
-  trigger?: 'auto' | 'manual';
+  // `auto`   = fired during normal lead-distribution as part of the
+  //            assignment chain
+  // `manual` = an admin clicked "Push to Service" or "Retry" in the
+  //            Health panel
+  // `sweep`  = the self-healing background sweep recovered a lead that
+  //            slipped through (no audit row + no manual push despite
+  //            being assigned >N min ago)
+  trigger?: 'auto' | 'manual' | 'sweep';
 };
 
 const MAX_BODY_PREVIEW = 500;
@@ -150,20 +139,24 @@ async function recordBonzoForwardAudit(
 export async function forwardLeadToBonzo(
   leadId: string,
   userId: string,
-  trigger: 'auto' | 'manual' = 'auto'
+  trigger: 'auto' | 'manual' | 'sweep' = 'auto'
 ): Promise<void> {
   // Gate every forward through the global concurrency limit so a 50-
   // lead bulk assignment can't exhaust the Prisma connection pool. The
   // semaphore queues callers internally, so callers still get the
   // fire-and-forget contract — they just complete in waves rather than
   // all at once. See FORWARD_CONCURRENCY_LIMIT for the rationale.
-  return withForwardSlot(() => forwardLeadToBonzoImpl(leadId, userId, trigger));
+  return withConcurrencyLimit(
+    ConcurrencyKeys.bonzoForward,
+    FORWARD_CONCURRENCY_LIMIT,
+    () => forwardLeadToBonzoImpl(leadId, userId, trigger)
+  );
 }
 
 async function forwardLeadToBonzoImpl(
   leadId: string,
   userId: string,
-  trigger: 'auto' | 'manual'
+  trigger: 'auto' | 'manual' | 'sweep'
 ): Promise<void> {
   const at = new Date().toISOString();
 
