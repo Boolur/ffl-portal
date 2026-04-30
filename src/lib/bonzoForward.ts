@@ -11,20 +11,18 @@ import {
 /**
  * Cap on simultaneous in-flight `forwardLeadToBonzo` calls.
  *
- * Each forward holds up to 2 Prisma connections at peak (the parallel
- * `userLeadQuota.findUnique` + `lead.findUnique`, then the single-query
- * audit upsert below). Without a cap, bulk paths (`bulkAssignLeads`,
+ * Each forward holds 1 Prisma connection at a time (sequential
+ * `userLeadQuota.findUnique` then `lead.findUnique`, then the
+ * single-query audit upsert below). Without a cap, bulk paths (`bulkAssignLeads`,
  * CSV import "fire Bonzo" loop, post-distribution loop in
- * `leadActions.ts`) burst ~100 connection requests on a 50-lead batch
- * and exhaust Vercel's ~10–20 connection Prisma pool — see
+ * `leadActions.ts`) burst connection requests on a 50-lead batch
+ * and exhaust Vercel's 5-connection Prisma pool — see
  * `src/lib/concurrencyLimit.ts` for the full failure-mode write-up.
  *
- * 5 keeps Bonzo throughput high (the bottleneck is Bonzo's HTTP API,
- * not us — at 5 concurrent and ~500ms per POST that's still 10
- * leads/sec) while leaving the rest of the pool free for the rest of
- * the request cycle.
+ * 2 keeps the portal below the observed 5-connection production pool
+ * even when service triggers/email are running at the same time.
  */
-const FORWARD_CONCURRENCY_LIMIT = 5;
+const FORWARD_CONCURRENCY_LIMIT = 2;
 
 /**
  * Single source of truth for the Bonzo forward audit record we stash on
@@ -64,6 +62,38 @@ export type BonzoForwardAudit = {
 };
 
 const MAX_BODY_PREVIEW = 500;
+const TRANSIENT_DB_RETRY_DELAYS_MS = [250, 750, 1500] as const;
+
+function isTransientPrismaError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /connection pool|can't reach database server|timed out fetching a new connection|operation was aborted/i.test(
+    message
+  );
+}
+
+async function retryTransientDb<T>(
+  label: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= TRANSIENT_DB_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientPrismaError(err) || attempt === TRANSIENT_DB_RETRY_DELAYS_MS.length) {
+        throw err;
+      }
+      const delay = TRANSIENT_DB_RETRY_DELAYS_MS[attempt];
+      console.warn(
+        `[bonzo] transient DB error during ${label}; retrying in ${delay}ms:`,
+        err instanceof Error ? err.message : err
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastErr;
+}
 
 /**
  * Persists the audit record to `Lead.customData.lastBonzoForward` without
@@ -161,11 +191,13 @@ async function forwardLeadToBonzoImpl(
   const at = new Date().toISOString();
 
   try {
-    const [user, lead] = await Promise.all([
+    const user = await retryTransientDb('userLeadQuota lookup', () =>
       prisma.userLeadQuota.findUnique({
         where: { userId },
         select: { bonzoWebhookUrl: true },
-      }),
+      })
+    );
+    const lead = await retryTransientDb('lead lookup', () =>
       prisma.lead.findUnique({
         where: { id: leadId },
         include: {
@@ -178,8 +210,8 @@ async function forwardLeadToBonzoImpl(
             select: { content: true, createdAt: true },
           },
         },
-      }),
-    ]);
+      })
+    );
 
     const url = user?.bonzoWebhookUrl?.trim();
     if (!url) {

@@ -41,8 +41,10 @@ import {
   getBonzoHealSweepActivity,
   getBrokerLaunchEmailStatus,
   getFailedBrokerLaunchDispatchIds,
+  getMissingBrokerLaunchLeadIds,
   getLeadAddressBackfillPreview,
   getLeadMappingAudit,
+  recoverMissingBrokerLaunchForLead,
   retryBonzoForwardForLead,
   retryBrokerLaunchDispatch,
   runBonzoHealSweepManual,
@@ -357,6 +359,133 @@ export function LeadHealthPanel() {
     void refreshEmailStatus(emailDays);
   };
 
+  const onRecoverMissingBrokerLaunch = async () => {
+    if (!emailStatus || emailStatus.coverage.gap === 0) return;
+    if (
+      !confirm(
+        `Send Broker Launch emails for up to 500 assigned leads that have no dispatch row in the last ${emailStatus.lookbackDays} days?\n\n` +
+          `This fixes the coverage gap caused when the trigger failed before it could write an audit row. Leads that already have a dispatch row will be skipped.`
+      )
+    ) {
+      return;
+    }
+    setRetryToast(null);
+    cancelBulkRef.current = false;
+    setBulkRetry({
+      total: emailStatus.coverage.gap,
+      completed: 0,
+      succeeded: 0,
+      stillFailed: 0,
+      skipped: 0,
+      lastError: 'Loading leads with no Broker Launch dispatch…',
+      cancelled: false,
+      done: false,
+      startedAt: Date.now(),
+    });
+
+    let ids: string[];
+    try {
+      ids = await getMissingBrokerLaunchLeadIds({ days: emailDays });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Could not load missing Broker Launch leads.';
+      setRetryToast({ ok: false, message });
+      setBulkRetry((prev) =>
+        prev
+          ? {
+              ...prev,
+              stillFailed: emailStatus.coverage.gap,
+              lastError: message,
+              done: true,
+            }
+          : prev
+      );
+      return;
+    }
+
+    if (ids.length === 0) {
+      setRetryToast({ ok: true, message: 'No missing Broker Launch dispatches to recover.' });
+      setBulkRetry((prev) =>
+        prev
+          ? {
+              ...prev,
+              total: 0,
+              lastError: null,
+              done: true,
+            }
+          : prev
+      );
+      void refreshEmailStatus(emailDays);
+      return;
+    }
+
+    setBulkRetry({
+      total: ids.length,
+      completed: 0,
+      succeeded: 0,
+      stillFailed: 0,
+      skipped: 0,
+      lastError: null,
+      cancelled: false,
+      done: false,
+      startedAt: Date.now(),
+    });
+
+    let succeeded = 0;
+    let stillFailed = 0;
+    let skipped = 0;
+    let lastError: string | null = null;
+    let cancelled = false;
+
+    for (let i = 0; i < ids.length; i += 1) {
+      if (cancelBulkRef.current) {
+        cancelled = true;
+        break;
+      }
+      try {
+        const result = await recoverMissingBrokerLaunchForLead(ids[i]);
+        if (result.ok && result.message.startsWith('Skipped:')) {
+          skipped += 1;
+          lastError = result.message;
+        } else if (result.ok) {
+          succeeded += 1;
+        } else if (result.message.startsWith('Skipped:')) {
+          skipped += 1;
+          lastError = result.message;
+        } else {
+          stillFailed += 1;
+          lastError = result.message;
+        }
+      } catch (err) {
+        stillFailed += 1;
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+
+      setBulkRetry({
+        total: ids.length,
+        completed: i + 1,
+        succeeded,
+        stillFailed,
+        skipped,
+        lastError,
+        cancelled: false,
+        done: false,
+        startedAt: 0,
+      });
+    }
+
+    setBulkRetry((prev) =>
+      prev
+        ? {
+            ...prev,
+            cancelled,
+            done: true,
+          }
+        : prev
+    );
+    void refreshEmailStatus(emailDays);
+  };
+
   const onCancelBulkRetry = () => {
     cancelBulkRef.current = true;
   };
@@ -657,6 +786,7 @@ export function LeadHealthPanel() {
           toast={retryToast}
           onClearToast={() => setRetryToast(null)}
           onBulkRetry={onBulkRetry}
+          onRecoverMissing={onRecoverMissingBrokerLaunch}
           bulkRetry={bulkRetry}
           onCancelBulkRetry={onCancelBulkRetry}
           onDismissBulkRetry={onDismissBulkRetry}
@@ -1187,6 +1317,7 @@ function BrokerLaunchEmailSection({
   toast,
   onClearToast,
   onBulkRetry,
+  onRecoverMissing,
   bulkRetry,
   onCancelBulkRetry,
   onDismissBulkRetry,
@@ -1203,6 +1334,7 @@ function BrokerLaunchEmailSection({
   toast: { ok: boolean; message: string } | null;
   onClearToast: () => void;
   onBulkRetry: () => void;
+  onRecoverMissing: () => void;
   bulkRetry: BulkRetryProgress | null;
   onCancelBulkRetry: () => void;
   onDismissBulkRetry: () => void;
@@ -1289,6 +1421,7 @@ function BrokerLaunchEmailSection({
           retryingId={retryingId}
           onRetry={onRetry}
           onBulkRetry={onBulkRetry}
+          onRecoverMissing={onRecoverMissing}
           bulkRetryActive={Boolean(bulkRetry && !bulkRetry.done)}
         />
       )}
@@ -2111,12 +2244,14 @@ function BrokerLaunchEmailBody({
   retryingId,
   onRetry,
   onBulkRetry,
+  onRecoverMissing,
   bulkRetryActive,
 }: {
   status: BrokerLaunchEmailStatus;
   retryingId: string | null;
   onRetry: (row: BrokerLaunchDispatchRow) => void;
   onBulkRetry: () => void;
+  onRecoverMissing: () => void;
   bulkRetryActive: boolean;
 }) {
   const allHealthy =
@@ -2163,7 +2298,8 @@ function BrokerLaunchEmailBody({
             : 'border-slate-200 bg-slate-50 text-slate-700'
         }`}
       >
-        <div className="flex items-start gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
           {status.coverage.gap > 0 ? (
             <AlertTriangle className="h-5 w-5 text-rose-600 mt-0.5 flex-shrink-0" />
           ) : (
@@ -2208,6 +2344,23 @@ function BrokerLaunchEmailBody({
               </div>
             )}
           </div>
+          </div>
+          {status.coverage.gap > 0 && (
+            <button
+              type="button"
+              onClick={onRecoverMissing}
+              disabled={bulkRetryActive}
+              className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              title="Send Broker Launch emails for assigned leads that have no broker-launch dispatch row at all."
+            >
+              {bulkRetryActive ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Send className="h-3 w-3" />
+              )}
+              Send missing emails ({status.coverage.gap.toLocaleString()})
+            </button>
+          )}
         </div>
       </div>
 

@@ -44,13 +44,12 @@ import { render, renderString, type TemplateContext } from './template';
  * already broke Bonzo forwarding. This cap prevents that on the
  * service-trigger side.
  *
- * 5 mirrors the Bonzo forward limit: services typically fan out 1–3
- * downstream HTTP calls per lead, and Bonzo + service triggers can run
- * simultaneously, so we keep their pool budgets symmetric (≈10 of the
- * pool's 10–20 connections at peak, leaving headroom for the rest of
- * the request cycle).
+ * 2 mirrors the tightened Bonzo forward limit. Production Prisma logs
+ * show a 5-connection pool, so letting Bonzo and service triggers each
+ * run 5 at once still exhausts the pool. Keeping each channel at 2
+ * leaves one spare connection for normal page/API work.
  */
-const SERVICE_TRIGGERS_CONCURRENCY_LIMIT = 5;
+const SERVICE_TRIGGERS_CONCURRENCY_LIMIT = 2;
 
 // ---------------------------------------------------------------------------
 // Public types

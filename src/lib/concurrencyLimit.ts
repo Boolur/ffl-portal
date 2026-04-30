@@ -9,7 +9,7 @@
  * inside a tight `for (const id of ids)` loop — Bonzo forwarding,
  * IntegrationService triggers, broker-launch emails, etc. Each of those
  * functions performs multiple Prisma queries, and on Vercel's serverless
- * Prisma pool (typically 10–20 connections) a 50-lead bulk operation
+ * Prisma pool (observed production pool: 5 connections) a 50-lead bulk operation
  * can burst into ~150 simultaneous DB connection requests across all
  * three side-effect chains, exhausting the pool.
  *
@@ -41,7 +41,7 @@
  *
  * On Vercel each warm function instance has its own JS heap, so the
  * limiter is per-instance — two concurrent serverless invocations could
- * each have 5 in-flight Bonzo forwards simultaneously. That's still a
+ * each have 2 in-flight Bonzo forwards simultaneously. That's still a
  * massive improvement over today (uncapped per loop) and matches our
  * actual pool ceiling reasonably well: in steady state, only one or
  * two warm instances are active at once. If multi-instance contention

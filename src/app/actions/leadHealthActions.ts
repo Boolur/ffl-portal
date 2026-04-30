@@ -1081,6 +1081,99 @@ export async function getFailedBrokerLaunchDispatchIds(
   return rows.map((r) => r.id);
 }
 
+/**
+ * Broker Launch coverage-gap recovery.
+ *
+ * Failed dispatch retry only works when a ServiceDispatch row already
+ * exists. During a pool outage, `runServiceTriggers` can fail before it
+ * creates even the first broker-launch dispatch row, which shows up as
+ * the pink coverage gap ("assigned leads vs dispatches") with zero
+ * unresolved failures. This returns the lead IDs in that gap so the
+ * client can loop row-by-row with progress feedback.
+ */
+export async function getMissingBrokerLaunchLeadIds(
+  input: { days?: number } = {}
+): Promise<string[]> {
+  await assertDistributionAdmin();
+  const days = Math.max(1, Math.min(60, input.days ?? 7));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const service = await prisma.integrationService.findUnique({
+    where: { slug: BROKER_LAUNCH_SLUG },
+    select: { id: true, createdAt: true },
+  });
+  if (!service) return [];
+
+  const coverageStart = service.createdAt > since ? service.createdAt : since;
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT l."id"
+    FROM "Lead" l
+    WHERE l."assignedAt" >= ${coverageStart}
+      AND l."assignedUserId" IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "ServiceDispatch" d
+        WHERE d."serviceId" = ${service.id}
+          AND d."leadId" = l."id"
+          AND d."createdAt" >= ${coverageStart}
+      )
+    ORDER BY l."assignedAt" ASC
+    LIMIT 500
+  `;
+  return rows.map((r) => r.id);
+}
+
+export async function recoverMissingBrokerLaunchForLead(
+  leadId: string
+): Promise<BrokerLaunchRetryResult> {
+  await assertDistributionAdmin();
+
+  const [service, lead] = await Promise.all([
+    prisma.integrationService.findUnique({
+      where: { slug: BROKER_LAUNCH_SLUG },
+      include: { credentialFields: true },
+    }),
+    prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { id: true, assignedUserId: true },
+    }),
+  ]);
+
+  if (!service) return { ok: false, message: 'Broker Launch service not found.' };
+  if (!lead) return { ok: false, message: 'Lead not found.' };
+  if (!lead.assignedUserId) return { ok: false, message: 'Skipped: lead has no assigned user.' };
+
+  // If another retry/sweep already created a broker-launch dispatch for
+  // this lead, do not double-email the LO.
+  const existing = await prisma.serviceDispatch.findFirst({
+    where: { serviceId: service.id, leadId },
+    select: { id: true, status: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (existing) {
+    return {
+      ok: true,
+      message: `Skipped: dispatch already exists (${existing.status}).`,
+    };
+  }
+
+  const outcome = await dispatchServiceToLead(service, leadId, {
+    trigger: IntegrationServiceTrigger.MANUAL,
+  });
+
+  if (outcome.ok) return { ok: true, message: 'Email sent.' };
+  if ('skipped' in outcome && outcome.skipped) {
+    return {
+      ok: false,
+      message: `Skipped: ${outcome.reason}${outcome.info ? ` — ${outcome.info}` : ''}`,
+    };
+  }
+  return {
+    ok: false,
+    message: `Failed: ${outcome.reason}${outcome.info ? ` — ${outcome.info}` : ''}`,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Bonzo forward status (auto-push of every assigned lead to user webhook)
 // ---------------------------------------------------------------------------
