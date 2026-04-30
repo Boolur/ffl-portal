@@ -269,6 +269,19 @@ export async function dispatchServiceToLead(
       subject: 'Broker Launch Notification',
       to: lead.assignedUser?.email ?? null,
     };
+    const responseSnapshot =
+      result.ok && 'receipt' in result
+        ? {
+            transport: 'email',
+            provider: result.receipt.provider,
+            status: result.receipt.status,
+            statusText: result.receipt.statusText,
+            requestId: result.receipt.requestId,
+            clientRequestId: result.receipt.clientRequestId,
+            date: result.receipt.date,
+            acceptedAt: result.receipt.acceptedAt,
+          }
+        : null;
     if (auditEnabled) {
       await recordDispatch(
         service,
@@ -276,7 +289,7 @@ export async function dispatchServiceToLead(
         trigger,
         outcome,
         requestSnapshot,
-        null,
+        responseSnapshot,
         opts
       );
     }

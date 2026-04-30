@@ -117,7 +117,8 @@ export function LeadHealthPanel() {
     ok: boolean;
     message: string;
   } | null>(null);
-  // Client-driven bulk retry: we fetch the FAILED dispatch IDs once,
+  // Client-driven bulk retry: we fetch the unresolved FAILED dispatch
+  // IDs once (a later SENT row for the same lead clears an old failure),
   // then loop calling retryBrokerLaunchDispatch one row at a time so the
   // user gets per-row feedback and we sidestep Vercel's serverless
   // function timeout (each retry is its own short request).
@@ -226,7 +227,7 @@ export function LeadHealthPanel() {
     if (!emailStatus || emailStatus.counts.failed === 0) return;
     if (
       !confirm(
-        `Retry all ${emailStatus.counts.failed} failed Broker Launch dispatches in the last ${emailStatus.lookbackDays} days?\n\n` +
+        `Retry all ${emailStatus.counts.failed} unresolved failed Broker Launch dispatches in the last ${emailStatus.lookbackDays} days?\n\n` +
           `Each retry creates a fresh dispatch row (originals stay in history). ` +
           `Capped at 500 per click; re-run if there are more.`
       )
@@ -235,6 +236,17 @@ export function LeadHealthPanel() {
     }
     setRetryToast(null);
     cancelBulkRef.current = false;
+    setBulkRetry({
+      total: emailStatus.counts.failed,
+      completed: 0,
+      succeeded: 0,
+      stillFailed: 0,
+      skipped: 0,
+      lastError: 'Loading unresolved failed dispatches…',
+      cancelled: false,
+      done: false,
+      startedAt: Date.now(),
+    });
 
     // Phase 1: load the ID list. Cheap query, gives us a known total
     // before we start so the progress bar has a denominator.
@@ -242,14 +254,34 @@ export function LeadHealthPanel() {
     try {
       ids = await getFailedBrokerLaunchDispatchIds({ days: emailDays });
     } catch (err) {
-      setRetryToast({
-        ok: false,
-        message: err instanceof Error ? err.message : 'Could not load failed dispatch IDs.',
-      });
+      const message =
+        err instanceof Error ? err.message : 'Could not load failed dispatch IDs.';
+      setRetryToast({ ok: false, message });
+      setBulkRetry((prev) =>
+        prev
+          ? {
+              ...prev,
+              stillFailed: emailStatus.counts.failed,
+              lastError: message,
+              done: true,
+            }
+          : prev
+      );
       return;
     }
     if (ids.length === 0) {
       setRetryToast({ ok: true, message: 'No failed dispatches to retry.' });
+      setBulkRetry((prev) =>
+        prev
+          ? {
+              ...prev,
+              total: 0,
+              lastError: null,
+              done: true,
+            }
+          : prev
+      );
+      void refreshEmailStatus(emailDays);
       return;
     }
 
@@ -320,7 +352,7 @@ export function LeadHealthPanel() {
           }
         : prev
     );
-    // Refresh in the background so SENT/FAILED counters and the
+    // Refresh in the background so SENT/unresolved-FAILED counters and the
     // recent-failures table reflect the post-retry state.
     void refreshEmailStatus(emailDays);
   };
@@ -2065,9 +2097,9 @@ function BulkRetryProgressBar({
           style={{ width: `${pct}%` }}
         />
       </div>
-      {progress.lastError && progress.stillFailed > 0 && (
+      {progress.lastError && (
         <div className="mt-2 font-mono text-[10px] opacity-75 truncate" title={progress.lastError}>
-          Latest error: {progress.lastError}
+          {progress.stillFailed > 0 ? 'Latest error' : 'Status'}: {progress.lastError}
         </div>
       )}
     </div>
@@ -2118,7 +2150,7 @@ function BrokerLaunchEmailBody({
       {/* Counters */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <DispatchCounter label="Sent" count={status.counts.sent} tone="emerald" />
-        <DispatchCounter label="Failed" count={status.counts.failed} tone={status.counts.failed > 0 ? 'rose' : 'slate'} />
+        <DispatchCounter label="Unresolved Failed" count={status.counts.failed} tone={status.counts.failed > 0 ? 'rose' : 'slate'} />
         <DispatchCounter label="Skipped" count={status.counts.skipped} tone={status.counts.skipped > 0 ? 'amber' : 'slate'} />
         <DispatchCounter label="Pending" count={status.counts.pending} tone={status.counts.pending > 0 ? 'amber' : 'slate'} />
       </div>
@@ -2209,14 +2241,14 @@ function BrokerLaunchEmailBody({
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-rose-800">
-              Recent failures ({status.counts.failed.toLocaleString()})
+              Recent unresolved failures ({status.counts.failed.toLocaleString()})
             </h3>
             <button
               type="button"
               onClick={onBulkRetry}
               disabled={bulkRetryActive || status.counts.failed === 0}
               className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
-              title="Reissue every FAILED dispatch in the lookback window. Each retry creates a new dispatch row; originals stay in history. Capped at 500 per click and runs one row at a time so you see live progress."
+              title="Reissue every unresolved FAILED dispatch in the lookback window. A later SENT dispatch for the same lead clears it from this Health bucket; originals stay in history. Capped at 500 per click and runs one row at a time so you see live progress."
             >
               {bulkRetryActive ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -2379,6 +2411,9 @@ function DispatchTable({
               <th className="px-3 py-2 text-left">Lead</th>
               <th className="px-3 py-2 text-left">Assigned LO</th>
               <th className="px-3 py-2 text-left">Recipient</th>
+              {!showError && !showSkipReason && (
+                <th className="px-3 py-2 text-left">Graph proof</th>
+              )}
               {showError && <th className="px-3 py-2 text-left">Error</th>}
               {showSkipReason && (
                 <th className="px-3 py-2 text-left">Reason</th>
@@ -2407,6 +2442,31 @@ function DispatchTable({
                 <td className="px-3 py-2 font-mono text-[11px] text-slate-600">
                   {row.recipient || row.assignedUserEmail || '—'}
                 </td>
+                {!showError && !showSkipReason && (
+                  <td
+                    className="px-3 py-2 font-mono text-[10px] text-slate-500 max-w-xs truncate"
+                    title={
+                      row.graphRequestId || row.graphClientRequestId
+                        ? `acceptedAt=${row.graphAcceptedAt ?? 'n/a'} request-id=${row.graphRequestId ?? 'n/a'} client-request-id=${row.graphClientRequestId ?? 'n/a'}`
+                        : ''
+                    }
+                  >
+                    {row.graphRequestId || row.graphClientRequestId ? (
+                      <>
+                        Graph accepted{' '}
+                        {row.graphAcceptedAt ? (
+                          <FormatDate date={row.graphAcceptedAt} mode="datetime" />
+                        ) : (
+                          '—'
+                        )}
+                      </>
+                    ) : (
+                      <span className="italic text-slate-400">
+                        legacy row; no Graph receipt
+                      </span>
+                    )}
+                  </td>
+                )}
                 {showError && (
                   <td
                     className="px-3 py-2 text-rose-700 max-w-md truncate"

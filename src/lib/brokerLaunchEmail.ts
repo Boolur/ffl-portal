@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { sendEmail } from '@/lib/email';
+import { sendEmail, type EmailSendReceipt } from '@/lib/email';
 
 /**
  * Broker Launch Notification email.
@@ -39,7 +39,7 @@ export const BROKER_LAUNCH_SUBJECT = 'Broker Launch Notification';
  * treat any non-`ok` response as a warning to log.
  */
 export type BrokerLaunchSendResult =
-  | { ok: true; info?: string }
+  | { ok: true; info?: string; receipt: EmailSendReceipt }
   | {
       ok: false;
       skipped: true;
@@ -132,13 +132,17 @@ export async function sendBrokerLaunchEmail(
         : null,
     });
 
-    await sendEmail({
+    const receipt = await sendEmail({
       to: assignee.email,
       subject: BROKER_LAUNCH_SUBJECT,
       text: body,
     });
 
-    return { ok: true, info: `Delivered to ${assignee.email}` };
+    return {
+      ok: true,
+      info: `Accepted by Microsoft Graph (${receipt.status}) for ${assignee.email}`,
+      receipt,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(

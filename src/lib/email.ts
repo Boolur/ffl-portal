@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 const tenantId = process.env.MS_TENANT_ID;
 const clientId = process.env.MS_CLIENT_ID;
 const clientSecret = process.env.MS_CLIENT_SECRET;
@@ -12,6 +14,16 @@ let cachedToken: { value: string; expiresAt: number } | null = null;
 const TOKEN_TIMEOUT_MS = 10_000;
 const SEND_TIMEOUT_MS = 15_000;
 const MAX_SEND_ATTEMPTS = 3;
+
+export type EmailSendReceipt = {
+  provider: 'microsoft-graph';
+  status: number;
+  statusText: string;
+  requestId: string | null;
+  clientRequestId: string;
+  date: string | null;
+  acceptedAt: string;
+};
 
 function isRetryableStatus(status: number) {
   return status === 408 || status === 429 || status >= 500;
@@ -89,7 +101,7 @@ export async function sendEmail({
   subject: string;
   html?: string;
   text?: string;
-}) {
+}): Promise<EmailSendReceipt> {
   if (!senderEmail) {
     throw new Error('Microsoft Graph sender email missing.');
   }
@@ -99,6 +111,7 @@ export async function sendEmail({
   let lastError: string | null = null;
 
   for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt += 1) {
+    const clientRequestId = randomUUID();
     try {
       const accessToken = await getAccessToken();
       const response = await fetchWithTimeout(
@@ -108,6 +121,8 @@ export async function sendEmail({
           headers: {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
+            'client-request-id': clientRequestId,
+            'return-client-request-id': 'true',
           },
           body: JSON.stringify({
             message: {
@@ -122,11 +137,20 @@ export async function sendEmail({
       );
 
       if (response.ok) {
-        return;
+        return {
+          provider: 'microsoft-graph',
+          status: response.status,
+          statusText: response.statusText,
+          requestId: response.headers.get('request-id'),
+          clientRequestId:
+            response.headers.get('client-request-id') ?? clientRequestId,
+          date: response.headers.get('date'),
+          acceptedAt: new Date().toISOString(),
+        };
       }
 
       const errorText = await response.text();
-      lastError = `Graph send failed (${response.status}): ${errorText}`;
+      lastError = `Graph send failed (${response.status}; request-id=${response.headers.get('request-id') ?? 'n/a'}; client-request-id=${clientRequestId}): ${errorText}`;
 
       if (response.status === 401 || response.status === 403) {
         // Token may be stale/revoked; clear cache and retry once.

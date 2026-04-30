@@ -636,6 +636,9 @@ export type BrokerLaunchDispatchRow = {
   attempts: number;
   lastError: string | null;
   skippedReason: string | null;
+  graphAcceptedAt: string | null;
+  graphRequestId: string | null;
+  graphClientRequestId: string | null;
   // Snapshot of the recipient (`to:`) the dispatcher captured at send
   // time. Useful when the assigned user has since rotated their email
   // — we want to show the address we actually tried, not the one
@@ -701,6 +704,7 @@ type DispatchWithRelations = {
   lastError: string | null;
   skippedReason: string | null;
   requestSnapshot: unknown;
+  responseSnapshot: unknown;
   leadId: string;
   lead: {
     firstName: string | null;
@@ -724,10 +728,28 @@ function extractRecipientFromSnapshot(snapshot: unknown): string | null {
   return typeof to === 'string' && to.length > 0 ? to : null;
 }
 
+function extractGraphReceipt(snapshot: unknown): {
+  acceptedAt: string | null;
+  requestId: string | null;
+  clientRequestId: string | null;
+} {
+  if (!snapshot || typeof snapshot !== 'object') {
+    return { acceptedAt: null, requestId: null, clientRequestId: null };
+  }
+  const record = snapshot as Record<string, unknown>;
+  return {
+    acceptedAt: typeof record.acceptedAt === 'string' ? record.acceptedAt : null,
+    requestId: typeof record.requestId === 'string' ? record.requestId : null,
+    clientRequestId:
+      typeof record.clientRequestId === 'string' ? record.clientRequestId : null,
+  };
+}
+
 function toDispatchRow(d: DispatchWithRelations): BrokerLaunchDispatchRow {
   const fullName =
     [d.lead.firstName, d.lead.lastName].filter(Boolean).join(' ') ||
     '(no name)';
+  const graphReceipt = extractGraphReceipt(d.responseSnapshot);
   return {
     dispatchId: d.id,
     status: d.status,
@@ -737,6 +759,9 @@ function toDispatchRow(d: DispatchWithRelations): BrokerLaunchDispatchRow {
     attempts: d.attempts,
     lastError: d.lastError,
     skippedReason: d.skippedReason,
+    graphAcceptedAt: graphReceipt.acceptedAt,
+    graphRequestId: graphReceipt.requestId,
+    graphClientRequestId: graphReceipt.clientRequestId,
     recipient: extractRecipientFromSnapshot(d.requestSnapshot),
     leadId: d.leadId,
     leadName: fullName,
@@ -799,26 +824,51 @@ export async function getBrokerLaunchEmailStatus(
 
   // Counts are intentionally bounded by the user's chosen lookback
   // (`since`), not the clamped coverage window. Admins still want to
-  // see the SENT/FAILED totals for the period they selected; the
-  // coverage banner is the only thing that needs the clamp.
-  const grouped = await prisma.serviceDispatch.groupBy({
-    by: ['status'],
-    where: {
-      serviceId: service.id,
-      createdAt: { gte: since },
-    },
-    _count: { _all: true },
-  });
+  // see the SENT/SKIPPED/PENDING totals for the period they selected;
+  // the coverage banner is the only thing that needs the clamp.
+  //
+  // Important retry semantics: FAILED is an audit history state, not
+  // necessarily the current health state. A successful retry creates a
+  // fresh SENT row and leaves the original FAILED row intact. Counting
+  // every historical FAILED row made "Retry all failed" look broken
+  // because the red count/table stayed unchanged after successful
+  // retries. The Health panel should surface unresolved failures only:
+  // a FAILED row is resolved once a later SENT row exists for the same
+  // lead+service.
+  const [grouped, unresolvedFailedCountRows] = await Promise.all([
+    prisma.serviceDispatch.groupBy({
+      by: ['status'],
+      where: {
+        serviceId: service.id,
+        createdAt: { gte: since },
+      },
+      _count: { _all: true },
+    }),
+    prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS count
+      FROM "ServiceDispatch" failed
+      WHERE failed."serviceId" = ${service.id}
+        AND failed."createdAt" >= ${since}
+        AND failed."status"::text = ${ServiceDispatchStatus.FAILED}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "ServiceDispatch" sent
+          WHERE sent."serviceId" = failed."serviceId"
+            AND sent."leadId" = failed."leadId"
+            AND sent."status"::text = ${ServiceDispatchStatus.SENT}
+            AND sent."createdAt" > failed."createdAt"
+        )
+    `,
+  ]);
   const counts = { sent: 0, failed: 0, skipped: 0, pending: 0 };
   for (const g of grouped) {
     if (g.status === ServiceDispatchStatus.SENT) counts.sent = g._count._all;
-    else if (g.status === ServiceDispatchStatus.FAILED)
-      counts.failed = g._count._all;
     else if (g.status === ServiceDispatchStatus.SKIPPED)
       counts.skipped = g._count._all;
     else if (g.status === ServiceDispatchStatus.PENDING)
       counts.pending = g._count._all;
   }
+  counts.failed = Number(unresolvedFailedCountRows[0]?.count ?? 0);
 
   // Dispatches counted against the same clamped window the assignment
   // count uses, so the gap math is meaningful.
@@ -852,17 +902,24 @@ export async function getBrokerLaunchEmailStatus(
     },
   } as const;
 
-  const [failedRows, skippedRows, sentRows] = await Promise.all([
-    prisma.serviceDispatch.findMany({
-      where: {
-        serviceId: service.id,
-        status: ServiceDispatchStatus.FAILED,
-        createdAt: { gte: since },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 25,
-      include,
-    }),
+  const [unresolvedFailedIdRows, skippedRows, sentRows] = await Promise.all([
+    prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT failed."id"
+      FROM "ServiceDispatch" failed
+      WHERE failed."serviceId" = ${service.id}
+        AND failed."createdAt" >= ${since}
+        AND failed."status"::text = ${ServiceDispatchStatus.FAILED}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "ServiceDispatch" sent
+          WHERE sent."serviceId" = failed."serviceId"
+            AND sent."leadId" = failed."leadId"
+            AND sent."status"::text = ${ServiceDispatchStatus.SENT}
+            AND sent."createdAt" > failed."createdAt"
+        )
+      ORDER BY failed."createdAt" DESC
+      LIMIT 25
+    `,
     prisma.serviceDispatch.findMany({
       where: {
         serviceId: service.id,
@@ -884,6 +941,22 @@ export async function getBrokerLaunchEmailStatus(
       include,
     }),
   ]);
+
+  const unresolvedFailedIds = unresolvedFailedIdRows.map((r) => r.id);
+  const failedRowsById =
+    unresolvedFailedIds.length === 0
+      ? new Map<string, DispatchWithRelations>()
+      : new Map(
+          (
+            await prisma.serviceDispatch.findMany({
+              where: { id: { in: unresolvedFailedIds } },
+              include,
+            })
+          ).map((row) => [row.id, row])
+        );
+  const failedRows = unresolvedFailedIds
+    .map((id) => failedRowsById.get(id))
+    .filter((row): row is DispatchWithRelations => Boolean(row));
 
   return {
     service: {
@@ -988,19 +1061,23 @@ export async function getFailedBrokerLaunchDispatchIds(
   });
   if (!service) return [];
 
-  const rows = await prisma.serviceDispatch.findMany({
-    where: {
-      serviceId: service.id,
-      status: ServiceDispatchStatus.FAILED,
-      createdAt: { gte: since },
-    },
-    select: { id: true },
-    orderBy: { createdAt: 'asc' },
-    // Hard cap so a click can't queue up thousands of round-trips if a
-    // legitimate ops issue produced a flood of FAILED rows. Admins can
-    // re-run the loop to clean up the rest.
-    take: 500,
-  });
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT failed."id"
+    FROM "ServiceDispatch" failed
+    WHERE failed."serviceId" = ${service.id}
+      AND failed."createdAt" >= ${since}
+      AND failed."status"::text = ${ServiceDispatchStatus.FAILED}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "ServiceDispatch" sent
+        WHERE sent."serviceId" = failed."serviceId"
+          AND sent."leadId" = failed."leadId"
+          AND sent."status"::text = ${ServiceDispatchStatus.SENT}
+          AND sent."createdAt" > failed."createdAt"
+      )
+    ORDER BY failed."createdAt" ASC
+    LIMIT 500
+  `;
   return rows.map((r) => r.id);
 }
 
