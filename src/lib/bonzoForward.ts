@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import {
   coalesceMilitaryFlag,
@@ -5,11 +6,91 @@ import {
 } from '@/lib/militaryFlag';
 
 /**
+ * Single source of truth for the Bonzo forward audit record we stash on
+ * `Lead.customData.lastBonzoForward`. Stored as JSON (not a dedicated
+ * table) so we never need a migration to start observing Bonzo health.
+ *
+ * `outcome`:
+ *   - 'sent'              -> Bonzo accepted the payload (HTTP 2xx)
+ *   - 'http_error'        -> Bonzo responded but with a non-2xx status
+ *   - 'no_webhook_url'    -> assigned user has no bonzoWebhookUrl set,
+ *                            so we never tried to POST. This used to
+ *                            silently no-op; now it's auditable.
+ *   - 'no_lead'           -> lead disappeared between assignment and
+ *                            forwarding (effectively impossible but
+ *                            kept exhaustive)
+ *   - 'exception'         -> network / timeout / unhandled error
+ */
+export type BonzoForwardAudit = {
+  at: string; // ISO timestamp of the attempt
+  outcome:
+    | 'sent'
+    | 'http_error'
+    | 'no_webhook_url'
+    | 'no_lead'
+    | 'exception';
+  status?: number;
+  statusText?: string;
+  errorPreview?: string;
+  trigger?: 'auto' | 'manual';
+};
+
+const MAX_BODY_PREVIEW = 500;
+
+/**
+ * Persists the audit record to `Lead.customData.lastBonzoForward` without
+ * disturbing any other keys callers may have stashed there. We swallow
+ * write errors because the lead-distribution path must never block on
+ * audit logging — a transient pooler blip during the audit write is far
+ * less damaging than throwing and aborting the whole assignment chain.
+ */
+async function recordBonzoForwardAudit(
+  leadId: string,
+  audit: BonzoForwardAudit
+): Promise<void> {
+  try {
+    const lead = await prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { customData: true },
+    });
+    const existing =
+      lead?.customData && typeof lead.customData === 'object' && !Array.isArray(lead.customData)
+        ? (lead.customData as Record<string, unknown>)
+        : {};
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        customData: {
+          ...existing,
+          lastBonzoForward: audit as unknown as Prisma.InputJsonValue,
+        } as Prisma.InputJsonValue,
+      },
+    });
+  } catch (err) {
+    console.warn(
+      `[bonzo] Failed to write forward audit for lead ${leadId}:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
  * Forwards a newly-assigned lead to the assigned user's Bonzo webhook URL.
  * Fire-and-forget: any failure is logged but never bubbles up to the caller,
  * so Bonzo outages never block lead distribution.
+ *
+ * Every call writes a `BonzoForwardAudit` to `Lead.customData.lastBonzoForward`
+ * so the Lead Distribution Health page has authoritative data on whether
+ * Bonzo received each lead. HTTP errors (4xx/5xx) are now recorded as
+ * `http_error` rather than swallowed silently.
  */
-export async function forwardLeadToBonzo(leadId: string, userId: string): Promise<void> {
+export async function forwardLeadToBonzo(
+  leadId: string,
+  userId: string,
+  trigger: 'auto' | 'manual' = 'auto'
+): Promise<void> {
+  const at = new Date().toISOString();
+
   try {
     const [user, lead] = await Promise.all([
       prisma.userLeadQuota.findUnique({
@@ -32,16 +113,77 @@ export async function forwardLeadToBonzo(leadId: string, userId: string): Promis
     ]);
 
     const url = user?.bonzoWebhookUrl?.trim();
-    if (!url) return;
-    if (!lead) return;
+    if (!url) {
+      await recordBonzoForwardAudit(leadId, {
+        at,
+        outcome: 'no_webhook_url',
+        trigger,
+      });
+      return;
+    }
+    if (!lead) {
+      await recordBonzoForwardAudit(leadId, {
+        at,
+        outcome: 'no_lead',
+        trigger,
+      });
+      return;
+    }
 
     const payload = buildBonzoPayload(lead);
 
-    await postBonzoPayload(url, payload).catch((err) => {
-      console.warn(`[bonzo] Forward error for lead ${leadId} -> user ${userId}:`, err);
-    });
+    try {
+      const result = await postBonzoPayload(url, payload);
+      if (result.ok) {
+        await recordBonzoForwardAudit(leadId, {
+          at,
+          outcome: 'sent',
+          status: result.status,
+          statusText: result.statusText,
+          trigger,
+        });
+      } else {
+        // HTTP-but-not-OK: Bonzo received the request and rejected it.
+        // Common causes: missing required field, invalid token in URL,
+        // tenant disabled. Surface the first 500 chars of the body so
+        // admins can read the actual reason on the Health page.
+        await recordBonzoForwardAudit(leadId, {
+          at,
+          outcome: 'http_error',
+          status: result.status,
+          statusText: result.statusText,
+          errorPreview: result.bodyExcerpt.slice(0, MAX_BODY_PREVIEW),
+          trigger,
+        });
+        console.warn(
+          `[bonzo] HTTP ${result.status} for lead ${leadId} -> user ${userId}: ${result.bodyExcerpt}`
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await recordBonzoForwardAudit(leadId, {
+        at,
+        outcome: 'exception',
+        errorPreview: message.slice(0, MAX_BODY_PREVIEW),
+        trigger,
+      });
+      console.warn(
+        `[bonzo] Forward error for lead ${leadId} -> user ${userId}:`,
+        err
+      );
+    }
   } catch (err) {
-    console.warn(`[bonzo] Forward error for lead ${leadId} -> user ${userId}:`, err);
+    const message = err instanceof Error ? err.message : String(err);
+    await recordBonzoForwardAudit(leadId, {
+      at,
+      outcome: 'exception',
+      errorPreview: message.slice(0, MAX_BODY_PREVIEW),
+      trigger,
+    });
+    console.warn(
+      `[bonzo] Forward error for lead ${leadId} -> user ${userId}:`,
+      err
+    );
   }
 }
 

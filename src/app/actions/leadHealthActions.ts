@@ -24,11 +24,16 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import {
   IntegrationServiceTrigger,
+  Prisma,
   ServiceDispatchStatus,
   UserRole,
 } from '@prisma/client';
 import { isAdmin as isAdminRole } from '@/lib/adminTiers';
 import { dispatchServiceToLead } from '@/lib/services/dispatch';
+import {
+  forwardLeadToBonzo,
+  type BonzoForwardAudit,
+} from '@/lib/bonzoForward';
 
 async function assertDistributionAdmin() {
   const session = await getServerSession(authOptions);
@@ -997,4 +1002,284 @@ export async function getFailedBrokerLaunchDispatchIds(
     take: 500,
   });
   return rows.map((r) => r.id);
+}
+
+// ---------------------------------------------------------------------------
+// Bonzo forward status (auto-push of every assigned lead to user webhook)
+// ---------------------------------------------------------------------------
+
+export type BonzoForwardSampleRow = {
+  leadId: string;
+  leadName: string;
+  vendorSlug: string | null;
+  assignedUserName: string | null;
+  assignedUserEmail: string | null;
+  assignedUserId: string;
+  assignedAt: string | null;
+  forwardAt: string | null;
+  outcome:
+    | 'sent'
+    | 'http_error'
+    | 'no_webhook_url'
+    | 'no_lead'
+    | 'exception'
+    | 'never_attempted';
+  status: number | null;
+  errorPreview: string | null;
+};
+
+export type BonzoForwardStatus = {
+  lookbackDays: number;
+  windowStart: string;
+  totals: {
+    assigned: number;
+    forwarded: number;
+    sent: number;
+    httpError: number;
+    noWebhookUrl: number;
+    exception: number;
+    neverAttempted: number;
+  };
+  // Top error preview / status combos, so a recurring 422 with the same
+  // message floats to the top instead of being buried in 500 sample rows.
+  topErrors: Array<{ key: string; count: number }>;
+  // Recent failures grouped sample (caps for UI). HTTP errors are usually
+  // the most actionable bucket so we surface them first.
+  recentHttpErrors: BonzoForwardSampleRow[];
+  recentExceptions: BonzoForwardSampleRow[];
+  recentNoWebhook: BonzoForwardSampleRow[];
+  recentNeverAttempted: BonzoForwardSampleRow[];
+  recentSent: BonzoForwardSampleRow[];
+};
+
+function readBonzoAudit(customData: unknown): BonzoForwardAudit | null {
+  if (!customData || typeof customData !== 'object' || Array.isArray(customData)) {
+    return null;
+  }
+  const last = (customData as Record<string, unknown>).lastBonzoForward;
+  if (!last || typeof last !== 'object' || Array.isArray(last)) {
+    return null;
+  }
+  const audit = last as Record<string, unknown>;
+  if (typeof audit.at !== 'string' || typeof audit.outcome !== 'string') {
+    return null;
+  }
+  return audit as unknown as BonzoForwardAudit;
+}
+
+type RawLeadRow = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  assignedAt: Date | null;
+  assignedUserId: string | null;
+  assignedUser: { id: string; name: string | null; email: string | null } | null;
+  vendor: { slug: string } | null;
+  customData: Prisma.JsonValue;
+};
+
+function toBonzoSampleRow(
+  lead: RawLeadRow,
+  audit: BonzoForwardAudit | null
+): BonzoForwardSampleRow {
+  return {
+    leadId: lead.id,
+    leadName:
+      [lead.firstName, lead.lastName].filter(Boolean).join(' ') || '(no name)',
+    vendorSlug: lead.vendor?.slug ?? null,
+    assignedUserId: lead.assignedUserId ?? '',
+    assignedUserName: lead.assignedUser?.name ?? null,
+    assignedUserEmail: lead.assignedUser?.email ?? null,
+    assignedAt: lead.assignedAt ? lead.assignedAt.toISOString() : null,
+    forwardAt: audit?.at ?? null,
+    outcome: audit?.outcome ?? 'never_attempted',
+    status: audit?.status ?? null,
+    errorPreview: audit?.errorPreview ?? audit?.statusText ?? null,
+  };
+}
+
+export async function getBonzoForwardStatus(
+  input: { days?: number } = {}
+): Promise<BonzoForwardStatus> {
+  await assertDistributionAdmin();
+  const days = Math.max(1, Math.min(60, input.days ?? 7));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  // Pull every lead assigned in the window. We classify in JS because
+  // Prisma's JSON filter API can't reliably index into nested keys
+  // across all Postgres deploys. With the typical traffic shape (~hund-
+  // reds/day) the row set is small enough that an in-memory bucket pass
+  // is faster than firing 5 separate counts.
+  const leads = await prisma.lead.findMany({
+    where: { assignedAt: { gte: since } },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      assignedAt: true,
+      assignedUserId: true,
+      assignedUser: {
+        select: { id: true, name: true, email: true },
+      },
+      vendor: { select: { slug: true } },
+      customData: true,
+    },
+    orderBy: { assignedAt: 'desc' },
+    // Cap to keep the request snappy even on a busy day. Anything
+    // beyond this slips out of the sample but still counts in the
+    // totals we tally below.
+    take: 5000,
+  });
+
+  let sent = 0;
+  let httpError = 0;
+  let noWebhookUrl = 0;
+  let exception = 0;
+  let neverAttempted = 0;
+  let forwarded = 0;
+
+  const errorBuckets = new Map<string, number>();
+  const recentHttpErrors: BonzoForwardSampleRow[] = [];
+  const recentExceptions: BonzoForwardSampleRow[] = [];
+  const recentNoWebhook: BonzoForwardSampleRow[] = [];
+  const recentNeverAttempted: BonzoForwardSampleRow[] = [];
+  const recentSent: BonzoForwardSampleRow[] = [];
+
+  for (const lead of leads) {
+    const audit = readBonzoAudit(lead.customData);
+    const row = toBonzoSampleRow(lead, audit);
+
+    if (!audit) {
+      neverAttempted += 1;
+      if (recentNeverAttempted.length < 25) recentNeverAttempted.push(row);
+      continue;
+    }
+
+    forwarded += 1;
+    if (audit.outcome === 'sent') {
+      sent += 1;
+      if (recentSent.length < 5) recentSent.push(row);
+    } else if (audit.outcome === 'http_error') {
+      httpError += 1;
+      if (recentHttpErrors.length < 25) recentHttpErrors.push(row);
+      const key = `HTTP ${audit.status ?? '?'}: ${(audit.errorPreview ?? audit.statusText ?? '').slice(0, 120)}`;
+      errorBuckets.set(key, (errorBuckets.get(key) ?? 0) + 1);
+    } else if (audit.outcome === 'no_webhook_url') {
+      noWebhookUrl += 1;
+      if (recentNoWebhook.length < 25) recentNoWebhook.push(row);
+    } else if (audit.outcome === 'exception') {
+      exception += 1;
+      if (recentExceptions.length < 25) recentExceptions.push(row);
+      const key = `EXC: ${(audit.errorPreview ?? '').slice(0, 120)}`;
+      errorBuckets.set(key, (errorBuckets.get(key) ?? 0) + 1);
+    } else if (audit.outcome === 'no_lead') {
+      // Effectively never seen in practice; lump into exception bucket.
+      exception += 1;
+    }
+  }
+
+  const topErrors = [...errorBuckets.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([key, count]) => ({ key, count }));
+
+  return {
+    lookbackDays: days,
+    windowStart: since.toISOString(),
+    totals: {
+      assigned: leads.length,
+      forwarded,
+      sent,
+      httpError,
+      noWebhookUrl,
+      exception,
+      neverAttempted,
+    },
+    topErrors,
+    recentHttpErrors,
+    recentExceptions,
+    recentNoWebhook,
+    recentNeverAttempted,
+    recentSent,
+  };
+}
+
+/**
+ * Returns the lead IDs whose Bonzo forward needs replay. Callers loop
+ * client-side via `retryBonzoForwardForLead(leadId)` so the UI gets
+ * per-row progress and we sidestep serverless function timeouts (same
+ * pattern broker-launch uses).
+ *
+ * `bucket`:
+ *   - 'failed'       -> http_error + exception
+ *   - 'never'        -> assigned but no audit row at all (forward never
+ *                       fired — this is the "what happened?" bucket)
+ *   - 'no-webhook'   -> assigned but the LO has no bonzoWebhookUrl set
+ */
+export async function getBonzoForwardRetryIds(
+  input: { days?: number; bucket: 'failed' | 'never' | 'no-webhook' }
+): Promise<string[]> {
+  await assertDistributionAdmin();
+  const days = Math.max(1, Math.min(60, input.days ?? 7));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const leads = await prisma.lead.findMany({
+    where: { assignedAt: { gte: since } },
+    select: { id: true, customData: true },
+    orderBy: { assignedAt: 'asc' },
+    take: 5000,
+  });
+
+  const ids: string[] = [];
+  for (const lead of leads) {
+    const audit = readBonzoAudit(lead.customData);
+    if (input.bucket === 'failed') {
+      if (audit && (audit.outcome === 'http_error' || audit.outcome === 'exception')) {
+        ids.push(lead.id);
+      }
+    } else if (input.bucket === 'never') {
+      if (!audit) ids.push(lead.id);
+    } else if (input.bucket === 'no-webhook') {
+      if (audit && audit.outcome === 'no_webhook_url') ids.push(lead.id);
+    }
+    if (ids.length >= 500) break;
+  }
+  return ids;
+}
+
+export type BonzoRetryResult = {
+  ok: boolean;
+  message: string;
+};
+
+export async function retryBonzoForwardForLead(
+  leadId: string
+): Promise<BonzoRetryResult> {
+  await assertDistributionAdmin();
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { id: true, assignedUserId: true },
+  });
+  if (!lead) return { ok: false, message: 'Lead not found.' };
+  if (!lead.assignedUserId) {
+    return { ok: false, message: 'Lead has no assigned user.' };
+  }
+  // forwardLeadToBonzo writes the audit row itself; we just trigger it
+  // and trust the next status fetch to reflect the outcome.
+  await forwardLeadToBonzo(leadId, lead.assignedUserId, 'manual');
+  // Re-read the audit so the immediate UI feedback reflects the actual
+  // outcome instead of a generic "queued" message.
+  const fresh = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { customData: true },
+  });
+  const audit = readBonzoAudit(fresh?.customData);
+  if (!audit) return { ok: false, message: 'Forward attempted but no audit found.' };
+  if (audit.outcome === 'sent') {
+    return { ok: true, message: `Sent (${audit.status ?? 200}).` };
+  }
+  return {
+    ok: false,
+    message: `${audit.outcome}${audit.status ? ` (${audit.status})` : ''}${audit.errorPreview ? `: ${audit.errorPreview.slice(0, 120)}` : ''}`,
+  };
 }
