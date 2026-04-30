@@ -1026,15 +1026,33 @@ export type BonzoForwardSampleRow = {
     | 'never_attempted';
   status: number | null;
   errorPreview: string | null;
+  // Where the audit signal came from. `auto` = the auto-forward path
+  // (Lead.customData.lastBonzoForward, set by forwardLeadToBonzo on
+  // assignment). `manual` = the admin Push to Service modal, detected
+  // by joining ServiceDispatch SENT rows for any IntegrationService
+  // whose urlTemplate contains "bonzo". `none` = no audit row from
+  // either source — the genuine "never attempted" bucket.
+  source: 'auto' | 'manual' | 'none';
+  // Slug of the IntegrationService that pushed the lead (only set for
+  // source='manual'); useful when the user has multiple Bonzo services
+  // configured (e.g. one per brand) and wants to know which one fired.
+  manualServiceSlug: string | null;
 };
 
 export type BonzoForwardStatus = {
   lookbackDays: number;
   windowStart: string;
+  // Slugs of every IntegrationService we matched as a "Bonzo service"
+  // for the manual-push cross-reference. Surfaced in the UI so admins
+  // can confirm we caught the right ones (and add a service whose URL
+  // doesn't contain "bonzo" if necessary).
+  manualBonzoServices: Array<{ slug: string; name: string }>;
   totals: {
     assigned: number;
     forwarded: number;
-    sent: number;
+    sent: number; // includes both auto and manual successful pushes
+    sentAuto: number;
+    sentManual: number;
     httpError: number;
     noWebhookUrl: number;
     exception: number;
@@ -1078,11 +1096,18 @@ type RawLeadRow = {
   customData: Prisma.JsonValue;
 };
 
+type ManualPush = {
+  serviceSlug: string;
+  serviceName: string;
+  completedAt: string;
+};
+
 function toBonzoSampleRow(
   lead: RawLeadRow,
-  audit: BonzoForwardAudit | null
+  audit: BonzoForwardAudit | null,
+  manualPush: ManualPush | null
 ): BonzoForwardSampleRow {
-  return {
+  const base = {
     leadId: lead.id,
     leadName:
       [lead.firstName, lead.lastName].filter(Boolean).join(' ') || '(no name)',
@@ -1091,10 +1116,43 @@ function toBonzoSampleRow(
     assignedUserName: lead.assignedUser?.name ?? null,
     assignedUserEmail: lead.assignedUser?.email ?? null,
     assignedAt: lead.assignedAt ? lead.assignedAt.toISOString() : null,
-    forwardAt: audit?.at ?? null,
-    outcome: audit?.outcome ?? 'never_attempted',
-    status: audit?.status ?? null,
-    errorPreview: audit?.errorPreview ?? audit?.statusText ?? null,
+  };
+
+  // Auto wins over manual when both exist — the auto audit is the
+  // source of truth for whether the assignment-time push succeeded
+  // and is what determines health-banner color. Manual pushes are
+  // surfaced separately in totals.sentManual so admins can still see
+  // their manual sends are landing.
+  if (audit) {
+    return {
+      ...base,
+      forwardAt: audit.at,
+      outcome: audit.outcome,
+      status: audit.status ?? null,
+      errorPreview: audit.errorPreview ?? audit.statusText ?? null,
+      source: 'auto',
+      manualServiceSlug: null,
+    };
+  }
+  if (manualPush) {
+    return {
+      ...base,
+      forwardAt: manualPush.completedAt,
+      outcome: 'sent',
+      status: null,
+      errorPreview: null,
+      source: 'manual',
+      manualServiceSlug: manualPush.serviceSlug,
+    };
+  }
+  return {
+    ...base,
+    forwardAt: null,
+    outcome: 'never_attempted',
+    status: null,
+    errorPreview: null,
+    source: 'none',
+    manualServiceSlug: null,
   };
 }
 
@@ -1105,33 +1163,82 @@ export async function getBonzoForwardStatus(
   const days = Math.max(1, Math.min(60, input.days ?? 7));
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
+  // Identify any IntegrationService configured to push to Bonzo so we
+  // can credit manual "Push to Service" pushes. Heuristic: urlTemplate
+  // contains "bonzo" (case-insensitive). Bonzo's official endpoint is
+  // app.getbonzo.com, every legitimate Bonzo webhook URL contains the
+  // brand string, and the user explicitly asked for manual pushes to
+  // be counted alongside auto-forwards. EMAIL_BROKER_LAUNCH is excluded
+  // because it doesn't have a meaningful URL template.
+  const bonzoServices = await prisma.integrationService.findMany({
+    where: {
+      urlTemplate: { contains: 'bonzo', mode: 'insensitive' },
+    },
+    select: { id: true, slug: true, name: true },
+  });
+  const bonzoServiceById = new Map(bonzoServices.map((s) => [s.id, s]));
+
   // Pull every lead assigned in the window. We classify in JS because
   // Prisma's JSON filter API can't reliably index into nested keys
   // across all Postgres deploys. With the typical traffic shape (~hund-
   // reds/day) the row set is small enough that an in-memory bucket pass
   // is faster than firing 5 separate counts.
-  const leads = await prisma.lead.findMany({
-    where: { assignedAt: { gte: since } },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      assignedAt: true,
-      assignedUserId: true,
-      assignedUser: {
-        select: { id: true, name: true, email: true },
+  const [leads, manualSentDispatches] = await Promise.all([
+    prisma.lead.findMany({
+      where: { assignedAt: { gte: since } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        assignedAt: true,
+        assignedUserId: true,
+        assignedUser: {
+          select: { id: true, name: true, email: true },
+        },
+        vendor: { select: { slug: true } },
+        customData: true,
       },
-      vendor: { select: { slug: true } },
-      customData: true,
-    },
-    orderBy: { assignedAt: 'desc' },
-    // Cap to keep the request snappy even on a busy day. Anything
-    // beyond this slips out of the sample but still counts in the
-    // totals we tally below.
-    take: 5000,
-  });
+      orderBy: { assignedAt: 'desc' },
+      // Cap to keep the request snappy even on a busy day. Anything
+      // beyond this slips out of the sample but still counts in the
+      // totals we tally below.
+      take: 5000,
+    }),
+    bonzoServices.length === 0
+      ? Promise.resolve([])
+      : prisma.serviceDispatch.findMany({
+          where: {
+            serviceId: { in: bonzoServices.map((s) => s.id) },
+            status: ServiceDispatchStatus.SENT,
+            createdAt: { gte: since },
+          },
+          select: {
+            leadId: true,
+            serviceId: true,
+            completedAt: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+  ]);
+
+  // Map each leadId -> most recent successful manual Bonzo push. The
+  // findMany above is ordered desc, so the first hit per lead wins.
+  const manualByLeadId = new Map<string, ManualPush>();
+  for (const d of manualSentDispatches) {
+    if (manualByLeadId.has(d.leadId)) continue;
+    const svc = bonzoServiceById.get(d.serviceId);
+    if (!svc) continue;
+    manualByLeadId.set(d.leadId, {
+      serviceSlug: svc.slug,
+      serviceName: svc.name,
+      completedAt: (d.completedAt ?? d.createdAt).toISOString(),
+    });
+  }
 
   let sent = 0;
+  let sentAuto = 0;
+  let sentManual = 0;
   let httpError = 0;
   let noWebhookUrl = 0;
   let exception = 0;
@@ -1147,34 +1254,59 @@ export async function getBonzoForwardStatus(
 
   for (const lead of leads) {
     const audit = readBonzoAudit(lead.customData);
-    const row = toBonzoSampleRow(lead, audit);
+    const manualPush = manualByLeadId.get(lead.id) ?? null;
+    const row = toBonzoSampleRow(lead, audit, manualPush);
 
-    if (!audit) {
+    if (audit) {
+      forwarded += 1;
+      if (audit.outcome === 'sent') {
+        sent += 1;
+        sentAuto += 1;
+        if (recentSent.length < 5) recentSent.push(row);
+      } else if (audit.outcome === 'http_error') {
+        httpError += 1;
+        if (recentHttpErrors.length < 25) recentHttpErrors.push(row);
+        const key = `HTTP ${audit.status ?? '?'}: ${(audit.errorPreview ?? audit.statusText ?? '').slice(0, 120)}`;
+        errorBuckets.set(key, (errorBuckets.get(key) ?? 0) + 1);
+      } else if (audit.outcome === 'no_webhook_url') {
+        // If the LO has no webhook BUT the lead was manually pushed
+        // through a Bonzo service, treat it as covered. The auto
+        // path correctly recorded "no webhook" for the LO, but the
+        // admin already sent it manually so it's not actionable.
+        if (manualPush) {
+          sent += 1;
+          sentManual += 1;
+          if (recentSent.length < 5) recentSent.push(row);
+        } else {
+          noWebhookUrl += 1;
+          if (recentNoWebhook.length < 25) recentNoWebhook.push(row);
+        }
+      } else if (audit.outcome === 'exception') {
+        // Same coverage logic for exceptions: a manual push after an
+        // auto-forward exception means Bonzo got the lead.
+        if (manualPush) {
+          sent += 1;
+          sentManual += 1;
+          if (recentSent.length < 5) recentSent.push(row);
+        } else {
+          exception += 1;
+          if (recentExceptions.length < 25) recentExceptions.push(row);
+          const key = `EXC: ${(audit.errorPreview ?? '').slice(0, 120)}`;
+          errorBuckets.set(key, (errorBuckets.get(key) ?? 0) + 1);
+        }
+      } else if (audit.outcome === 'no_lead') {
+        exception += 1;
+      }
+    } else if (manualPush) {
+      // No auto audit, but we've got proof the admin pushed manually
+      // through a Bonzo IntegrationService. Count as sent.
+      forwarded += 1;
+      sent += 1;
+      sentManual += 1;
+      if (recentSent.length < 5) recentSent.push(row);
+    } else {
       neverAttempted += 1;
       if (recentNeverAttempted.length < 25) recentNeverAttempted.push(row);
-      continue;
-    }
-
-    forwarded += 1;
-    if (audit.outcome === 'sent') {
-      sent += 1;
-      if (recentSent.length < 5) recentSent.push(row);
-    } else if (audit.outcome === 'http_error') {
-      httpError += 1;
-      if (recentHttpErrors.length < 25) recentHttpErrors.push(row);
-      const key = `HTTP ${audit.status ?? '?'}: ${(audit.errorPreview ?? audit.statusText ?? '').slice(0, 120)}`;
-      errorBuckets.set(key, (errorBuckets.get(key) ?? 0) + 1);
-    } else if (audit.outcome === 'no_webhook_url') {
-      noWebhookUrl += 1;
-      if (recentNoWebhook.length < 25) recentNoWebhook.push(row);
-    } else if (audit.outcome === 'exception') {
-      exception += 1;
-      if (recentExceptions.length < 25) recentExceptions.push(row);
-      const key = `EXC: ${(audit.errorPreview ?? '').slice(0, 120)}`;
-      errorBuckets.set(key, (errorBuckets.get(key) ?? 0) + 1);
-    } else if (audit.outcome === 'no_lead') {
-      // Effectively never seen in practice; lump into exception bucket.
-      exception += 1;
     }
   }
 
@@ -1186,10 +1318,13 @@ export async function getBonzoForwardStatus(
   return {
     lookbackDays: days,
     windowStart: since.toISOString(),
+    manualBonzoServices: bonzoServices.map((s) => ({ slug: s.slug, name: s.name })),
     totals: {
       assigned: leads.length,
       forwarded,
       sent,
+      sentAuto,
+      sentManual,
       httpError,
       noWebhookUrl,
       exception,
@@ -1223,6 +1358,28 @@ export async function getBonzoForwardRetryIds(
   const days = Math.max(1, Math.min(60, input.days ?? 7));
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
+  // Same Bonzo-service detection as getBonzoForwardStatus so manual
+  // pushes are excluded from the retry queue. We never want a click
+  // here to double-push a lead the admin already sent themselves.
+  const bonzoServices = await prisma.integrationService.findMany({
+    where: { urlTemplate: { contains: 'bonzo', mode: 'insensitive' } },
+    select: { id: true },
+  });
+  const manualSentLeadIds = new Set<string>(
+    bonzoServices.length === 0
+      ? []
+      : (
+          await prisma.serviceDispatch.findMany({
+            where: {
+              serviceId: { in: bonzoServices.map((s) => s.id) },
+              status: ServiceDispatchStatus.SENT,
+              createdAt: { gte: since },
+            },
+            select: { leadId: true },
+          })
+        ).map((d) => d.leadId)
+  );
+
   const leads = await prisma.lead.findMany({
     where: { assignedAt: { gte: since } },
     select: { id: true, customData: true },
@@ -1232,6 +1389,7 @@ export async function getBonzoForwardRetryIds(
 
   const ids: string[] = [];
   for (const lead of leads) {
+    if (manualSentLeadIds.has(lead.id)) continue;
     const audit = readBonzoAudit(lead.customData);
     if (input.bucket === 'failed') {
       if (audit && (audit.outcome === 'http_error' || audit.outcome === 'exception')) {

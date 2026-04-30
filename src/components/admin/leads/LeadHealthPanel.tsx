@@ -1394,6 +1394,43 @@ function BonzoForwardBody({
         />
       </div>
 
+      {/* Auto vs manual breakdown */}
+      {totals.sent > 0 && (
+        <div className="text-[11px] text-slate-500">
+          Of {totals.sent.toLocaleString()} successful pushes:{' '}
+          <strong className="text-slate-700">
+            {totals.sentAuto.toLocaleString()} auto-forward
+          </strong>
+          {totals.sentManual > 0 && (
+            <>
+              ,{' '}
+              <strong className="text-slate-700">
+                {totals.sentManual.toLocaleString()} manual Push to Service
+              </strong>
+              {status.manualBonzoServices.length > 0 && (
+                <>
+                  {' '}via{' '}
+                  {status.manualBonzoServices
+                    .map((s) => s.name)
+                    .join(', ')}
+                </>
+              )}
+            </>
+          )}
+          .
+        </div>
+      )}
+
+      {status.manualBonzoServices.length === 0 && (
+        <div className="text-[11px] text-slate-500 italic">
+          No IntegrationService whose URL template contains &ldquo;bonzo&rdquo;
+          was found, so manual Push to Service runs aren&rsquo;t cross-credited
+          here. If you push to Bonzo manually through a service with a
+          different URL pattern, rename or tag it so the slug or URL
+          contains &ldquo;bonzo&rdquo; and we&rsquo;ll catch it.
+        </div>
+      )}
+
       {allHealthy && (
         <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
@@ -1411,15 +1448,19 @@ function BonzoForwardBody({
           <div className="space-y-1 flex-1">
             <div>
               <strong>{totals.neverAttempted.toLocaleString()}</strong> leads
-              were assigned but Bonzo forwarding never recorded an audit row.
-              These were assigned before the audit was instrumented, OR a
-              runtime error killed the forward before it could write the
-              outcome.
+              were assigned but neither the auto-forward nor a manual Push
+              to Service to a Bonzo integration recorded a successful send.
+              These were assigned before the audit was instrumented, OR
+              their auto-forward errored before writing an outcome AND
+              they weren&rsquo;t manually pushed.
             </div>
             <div className="text-xs">
-              Use <em>Retry never-attempted</em> below to push them through now.
-              Going forward, every assignment writes an audit row regardless
-              of outcome, so this bucket should drain to zero.
+              Manual pushes are detected automatically by joining
+              ServiceDispatch SENT rows for any IntegrationService whose
+              URL contains &ldquo;bonzo&rdquo; — those leads are
+              <strong> excluded</strong> from this bucket and from
+              &ldquo;Retry never-attempted&rdquo; so you don&rsquo;t
+              accidentally double-push.
             </div>
           </div>
         </div>
@@ -1652,6 +1693,18 @@ function BonzoSampleTable({
                   {row.outcome}
                   {row.status ? ` (${row.status})` : ''}
                 </span>
+                {row.source === 'manual' && (
+                  <span
+                    className="ml-1 rounded bg-blue-100 px-1.5 py-0.5 text-blue-800"
+                    title={
+                      row.manualServiceSlug
+                        ? `Manually pushed via ${row.manualServiceSlug}`
+                        : 'Manually pushed via Push to Service'
+                    }
+                  >
+                    manual
+                  </span>
+                )}
               </td>
               <td
                 className="px-3 py-2 text-slate-600 max-w-md truncate font-mono text-[11px]"
