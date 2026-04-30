@@ -20,7 +20,7 @@
  *      the recoverable rows. Mirrors `src/scripts/backfillLeadAddresses.mjs`.
  */
 
-import React, { useEffect, useState, useTransition } from 'react';
+import React, { useEffect, useRef, useState, useTransition } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -31,14 +31,15 @@ import {
   RefreshCcw,
   Save,
   Send,
+  X,
 } from 'lucide-react';
 import { WebhookInboxPanel } from './WebhookInboxPanel';
 import {
   getAuditVendors,
   getBrokerLaunchEmailStatus,
+  getFailedBrokerLaunchDispatchIds,
   getLeadAddressBackfillPreview,
   getLeadMappingAudit,
-  retryAllFailedBrokerLaunchDispatches,
   retryBrokerLaunchDispatch,
   runLeadAddressBackfill,
   type AddressBackfillApplyResult,
@@ -46,7 +47,6 @@ import {
   type AuditVendorOption,
   type BrokerLaunchDispatchRow,
   type BrokerLaunchEmailStatus,
-  type BulkRetryFailedResult,
   type LeadMappingAuditResult,
 } from '@/app/actions/leadHealthActions';
 import { FormatDate } from '@/components/ui/FormatDate';
@@ -56,6 +56,18 @@ const DAY_OPTIONS = [3, 7, 14, 30] as const;
 const LIMIT_OPTIONS = [100, 200, 500, 1000] as const;
 const BACKFILL_LIMIT_OPTIONS = [100, 250, 500, 1000, 2000] as const;
 const EMAIL_DAY_OPTIONS = [1, 3, 7, 14, 30] as const;
+
+type BulkRetryProgress = {
+  total: number;
+  completed: number;
+  succeeded: number;
+  stillFailed: number;
+  skipped: number;
+  lastError: string | null;
+  cancelled: boolean;
+  done: boolean;
+  startedAt: number;
+};
 
 export function LeadHealthPanel() {
   const [vendors, setVendors] = useState<AuditVendorOption[]>([]);
@@ -96,9 +108,14 @@ export function LeadHealthPanel() {
     ok: boolean;
     message: string;
   } | null>(null);
-  const [bulkRetryPending, startBulkRetry] = useTransition();
-  const [bulkRetryResult, setBulkRetryResult] =
-    useState<BulkRetryFailedResult | null>(null);
+  // Client-driven bulk retry: we fetch the FAILED dispatch IDs once,
+  // then loop calling retryBrokerLaunchDispatch one row at a time so the
+  // user gets per-row feedback and we sidestep Vercel's serverless
+  // function timeout (each retry is its own short request).
+  const [bulkRetry, setBulkRetry] = useState<BulkRetryProgress | null>(null);
+  // Ref so the Cancel button can flip a flag the loop checks between
+  // iterations without forcing every retry to be aware of state setters.
+  const cancelBulkRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,33 +181,115 @@ export function LeadHealthPanel() {
     }
   };
 
-  const onBulkRetry = () => {
+  const onBulkRetry = async () => {
     if (!emailStatus || emailStatus.counts.failed === 0) return;
     if (
       !confirm(
         `Retry all ${emailStatus.counts.failed} failed Broker Launch dispatches in the last ${emailStatus.lookbackDays} days?\n\n` +
           `Each retry creates a fresh dispatch row (originals stay in history). ` +
-          `Capped at 200 per click; re-run if there are more.`
+          `Capped at 500 per click; re-run if there are more.`
       )
     ) {
       return;
     }
-    setBulkRetryResult(null);
     setRetryToast(null);
-    startBulkRetry(async () => {
-      try {
-        const result = await retryAllFailedBrokerLaunchDispatches({
-          days: emailDays,
-        });
-        setBulkRetryResult(result);
-        void refreshEmailStatus(emailDays);
-      } catch (err) {
-        setRetryToast({
-          ok: false,
-          message: err instanceof Error ? err.message : 'Bulk retry failed.',
-        });
-      }
+    cancelBulkRef.current = false;
+
+    // Phase 1: load the ID list. Cheap query, gives us a known total
+    // before we start so the progress bar has a denominator.
+    let ids: string[];
+    try {
+      ids = await getFailedBrokerLaunchDispatchIds({ days: emailDays });
+    } catch (err) {
+      setRetryToast({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Could not load failed dispatch IDs.',
+      });
+      return;
+    }
+    if (ids.length === 0) {
+      setRetryToast({ ok: true, message: 'No failed dispatches to retry.' });
+      return;
+    }
+
+    setBulkRetry({
+      total: ids.length,
+      completed: 0,
+      succeeded: 0,
+      stillFailed: 0,
+      skipped: 0,
+      lastError: null,
+      cancelled: false,
+      done: false,
+      startedAt: Date.now(),
     });
+
+    // Phase 2: serial loop. Sequential (not Promise.all) for two
+    // reasons: (1) Microsoft Graph rate-limits sendMail at 30/sec per
+    // mailbox, and (2) progress feedback only makes sense if rows
+    // finish one at a time. Each call is its own server-action HTTP
+    // round-trip, so any single timeout/blip only kills that row.
+    let succeeded = 0;
+    let stillFailed = 0;
+    let skipped = 0;
+    let lastError: string | null = null;
+    let cancelled = false;
+
+    for (let i = 0; i < ids.length; i += 1) {
+      if (cancelBulkRef.current) {
+        cancelled = true;
+        break;
+      }
+      const id = ids[i];
+      try {
+        const result = await retryBrokerLaunchDispatch(id);
+        if (result.ok) {
+          succeeded += 1;
+        } else if (result.message.startsWith('Skipped:')) {
+          skipped += 1;
+          lastError = result.message;
+        } else {
+          stillFailed += 1;
+          lastError = result.message;
+        }
+      } catch (err) {
+        stillFailed += 1;
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+
+      setBulkRetry({
+        total: ids.length,
+        completed: i + 1,
+        succeeded,
+        stillFailed,
+        skipped,
+        lastError,
+        cancelled: false,
+        done: false,
+        startedAt: 0, // unused once running, kept for type stability
+      });
+    }
+
+    setBulkRetry((prev) =>
+      prev
+        ? {
+            ...prev,
+            cancelled,
+            done: true,
+          }
+        : prev
+    );
+    // Refresh in the background so SENT/FAILED counters and the
+    // recent-failures table reflect the post-retry state.
+    void refreshEmailStatus(emailDays);
+  };
+
+  const onCancelBulkRetry = () => {
+    cancelBulkRef.current = true;
+  };
+
+  const onDismissBulkRetry = () => {
+    setBulkRetry(null);
   };
 
   const runAudit = () => {
@@ -285,9 +384,9 @@ export function LeadHealthPanel() {
           toast={retryToast}
           onClearToast={() => setRetryToast(null)}
           onBulkRetry={onBulkRetry}
-          bulkRetryPending={bulkRetryPending}
-          bulkRetryResult={bulkRetryResult}
-          onClearBulkRetry={() => setBulkRetryResult(null)}
+          bulkRetry={bulkRetry}
+          onCancelBulkRetry={onCancelBulkRetry}
+          onDismissBulkRetry={onDismissBulkRetry}
         />
       </Section>
 
@@ -815,9 +914,9 @@ function BrokerLaunchEmailSection({
   toast,
   onClearToast,
   onBulkRetry,
-  bulkRetryPending,
-  bulkRetryResult,
-  onClearBulkRetry,
+  bulkRetry,
+  onCancelBulkRetry,
+  onDismissBulkRetry,
 }: {
   status: BrokerLaunchEmailStatus | null;
   loadedAt: Date | null;
@@ -831,9 +930,9 @@ function BrokerLaunchEmailSection({
   toast: { ok: boolean; message: string } | null;
   onClearToast: () => void;
   onBulkRetry: () => void;
-  bulkRetryPending: boolean;
-  bulkRetryResult: BulkRetryFailedResult | null;
-  onClearBulkRetry: () => void;
+  bulkRetry: BulkRetryProgress | null;
+  onCancelBulkRetry: () => void;
+  onDismissBulkRetry: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -899,40 +998,12 @@ function BrokerLaunchEmailSection({
         </div>
       )}
 
-      {bulkRetryResult && (
-        <div
-          className={`px-6 py-3 text-xs flex items-start justify-between gap-3 border-b ${
-            bulkRetryResult.stillFailed === 0
-              ? 'text-emerald-800 bg-emerald-50 border-emerald-100'
-              : 'text-amber-900 bg-amber-50 border-amber-100'
-          }`}
-        >
-          <div className="space-y-1">
-            <div>
-              Retried <strong>{bulkRetryResult.attempted}</strong>:{' '}
-              <strong>{bulkRetryResult.succeeded}</strong> sent,{' '}
-              <strong>{bulkRetryResult.stillFailed}</strong> still failed
-              {bulkRetryResult.skipped > 0 && (
-                <>
-                  , <strong>{bulkRetryResult.skipped}</strong> skipped
-                </>
-              )}
-              .
-            </div>
-            {bulkRetryResult.sampleErrors.length > 0 && (
-              <div className="font-mono text-[10px] opacity-80">
-                Sample error: {bulkRetryResult.sampleErrors[0]}
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClearBulkRetry}
-            className="text-[10px] uppercase tracking-wider opacity-70 hover:opacity-100"
-          >
-            Dismiss
-          </button>
-        </div>
+      {bulkRetry && (
+        <BulkRetryProgressBar
+          progress={bulkRetry}
+          onCancel={onCancelBulkRetry}
+          onDismiss={onDismissBulkRetry}
+        />
       )}
 
       {!status ? (
@@ -945,8 +1016,112 @@ function BrokerLaunchEmailSection({
           retryingId={retryingId}
           onRetry={onRetry}
           onBulkRetry={onBulkRetry}
-          bulkRetryPending={bulkRetryPending}
+          bulkRetryActive={Boolean(bulkRetry && !bulkRetry.done)}
         />
+      )}
+    </div>
+  );
+}
+
+function BulkRetryProgressBar({
+  progress,
+  onCancel,
+  onDismiss,
+}: {
+  progress: BulkRetryProgress;
+  onCancel: () => void;
+  onDismiss: () => void;
+}) {
+  const pct =
+    progress.total === 0
+      ? 0
+      : Math.min(100, Math.round((progress.completed / progress.total) * 100));
+  const isRunning = !progress.done;
+  const cleanFinish = progress.done && progress.stillFailed === 0;
+
+  // Color the bar by terminal state — running uses blue, finished
+  // clean uses emerald, finished with errors uses amber. Cancelled
+  // mid-run uses slate so it looks "interrupted" not "broken".
+  const toneClass = progress.cancelled
+    ? 'bg-slate-50 border-slate-200 text-slate-700'
+    : isRunning
+      ? 'bg-blue-50 border-blue-200 text-blue-900'
+      : cleanFinish
+        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+        : 'bg-amber-50 border-amber-200 text-amber-900';
+  const fillClass = progress.cancelled
+    ? 'bg-slate-400'
+    : isRunning
+      ? 'bg-blue-500'
+      : cleanFinish
+        ? 'bg-emerald-500'
+        : 'bg-amber-500';
+
+  return (
+    <div className={`px-6 py-3 border-b ${toneClass}`}>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="text-xs font-semibold flex items-center gap-2">
+          {isRunning ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : cleanFinish ? (
+            <CheckCircle2 className="h-3.5 w-3.5" />
+          ) : (
+            <AlertTriangle className="h-3.5 w-3.5" />
+          )}
+          <span>
+            {isRunning
+              ? `Retrying ${progress.completed.toLocaleString()} of ${progress.total.toLocaleString()}…`
+              : progress.cancelled
+                ? `Cancelled — ${progress.completed.toLocaleString()} of ${progress.total.toLocaleString()} processed`
+                : `Done — retried ${progress.total.toLocaleString()}`}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-[11px] tabular-nums opacity-80">
+            <span className="text-emerald-700">✓ {progress.succeeded}</span>
+            {progress.stillFailed > 0 && (
+              <>
+                {' '}
+                <span className="text-rose-700">✗ {progress.stillFailed}</span>
+              </>
+            )}
+            {progress.skipped > 0 && (
+              <>
+                {' '}
+                <span className="text-amber-700">↷ {progress.skipped}</span>
+              </>
+            )}
+          </div>
+          {isRunning ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="inline-flex items-center gap-1 rounded-lg border border-current bg-white/60 px-2 py-0.5 text-[11px] font-semibold hover:bg-white"
+            >
+              <X className="h-3 w-3" />
+              Cancel
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-[10px] uppercase tracking-wider opacity-70 hover:opacity-100"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="h-2 w-full rounded-full bg-white/60 overflow-hidden">
+        <div
+          className={`h-full ${fillClass} transition-all duration-300`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {progress.lastError && progress.stillFailed > 0 && (
+        <div className="mt-2 font-mono text-[10px] opacity-75 truncate" title={progress.lastError}>
+          Latest error: {progress.lastError}
+        </div>
       )}
     </div>
   );
@@ -957,13 +1132,13 @@ function BrokerLaunchEmailBody({
   retryingId,
   onRetry,
   onBulkRetry,
-  bulkRetryPending,
+  bulkRetryActive,
 }: {
   status: BrokerLaunchEmailStatus;
   retryingId: string | null;
   onRetry: (row: BrokerLaunchDispatchRow) => void;
   onBulkRetry: () => void;
-  bulkRetryPending: boolean;
+  bulkRetryActive: boolean;
 }) {
   const allHealthy =
     status.env.ok &&
@@ -1092,11 +1267,11 @@ function BrokerLaunchEmailBody({
             <button
               type="button"
               onClick={onBulkRetry}
-              disabled={bulkRetryPending || status.counts.failed === 0}
+              disabled={bulkRetryActive || status.counts.failed === 0}
               className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
-              title="Reissue every FAILED dispatch in the lookback window. Each retry creates a new dispatch row; originals stay in history. Capped at 200 per click."
+              title="Reissue every FAILED dispatch in the lookback window. Each retry creates a new dispatch row; originals stay in history. Capped at 500 per click and runs one row at a time so you see live progress."
             >
-              {bulkRetryPending ? (
+              {bulkRetryActive ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
                 <Send className="h-3 w-3" />

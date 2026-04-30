@@ -962,94 +962,39 @@ export async function retryBrokerLaunchDispatch(
   };
 }
 
-export type BulkRetryFailedResult = {
-  attempted: number;
-  succeeded: number;
-  stillFailed: number;
-  skipped: number;
-  // Up to 5 representative error messages from the rows that still
-  // failed after retry, so admins can see if there's a pattern (e.g.
-  // every retry hits the same 401 — Graph token issue).
-  sampleErrors: string[];
-};
-
-export type BulkRetryFailedInput = {
-  days?: number;
-};
-
-export async function retryAllFailedBrokerLaunchDispatches(
-  input: BulkRetryFailedInput = {}
-): Promise<BulkRetryFailedResult> {
+/**
+ * Returns the list of FAILED broker-launch dispatch IDs in the lookback
+ * window so the client can drive a per-row retry loop with live
+ * progress. Doing this client-side (vs the previous "retry all" server
+ * action that looped 66+ rows in one request) gives admins immediate
+ * feedback and dodges the Vercel serverless function timeout that
+ * killed long-running batches.
+ */
+export async function getFailedBrokerLaunchDispatchIds(
+  input: { days?: number } = {}
+): Promise<string[]> {
   await assertDistributionAdmin();
   const days = Math.max(1, Math.min(60, input.days ?? 7));
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const service = await prisma.integrationService.findUnique({
     where: { slug: BROKER_LAUNCH_SLUG },
-    include: { credentialFields: true },
+    select: { id: true },
   });
-  if (!service) {
-    return {
-      attempted: 0,
-      succeeded: 0,
-      stillFailed: 0,
-      skipped: 0,
-      sampleErrors: ['Broker-launch service row not found.'],
-    };
-  }
+  if (!service) return [];
 
-  const failed = await prisma.serviceDispatch.findMany({
+  const rows = await prisma.serviceDispatch.findMany({
     where: {
       serviceId: service.id,
       status: ServiceDispatchStatus.FAILED,
       createdAt: { gte: since },
     },
-    select: { id: true, leadId: true },
+    select: { id: true },
     orderBy: { createdAt: 'asc' },
-    // Hard cap so a click can't lock the request for minutes if a
-    // legitimate ops issue produced thousands of FAILED rows. Re-run
-    // the action to clean up the rest.
-    take: 200,
+    // Hard cap so a click can't queue up thousands of round-trips if a
+    // legitimate ops issue produced a flood of FAILED rows. Admins can
+    // re-run the loop to clean up the rest.
+    take: 500,
   });
-
-  let succeeded = 0;
-  let stillFailed = 0;
-  let skipped = 0;
-  const sampleErrors: string[] = [];
-
-  // Sequential, not parallel — Microsoft Graph rate-limits at 30
-  // sends/sec for /sendMail and we don't want a click to spike past
-  // that. With ~200 rows max this completes well inside Vercel's
-  // serverless function budget even at 100ms/row.
-  for (const row of failed) {
-    try {
-      const outcome = await dispatchServiceToLead(service, row.leadId, {
-        trigger: IntegrationServiceTrigger.MANUAL,
-      });
-      if (outcome.ok) {
-        succeeded += 1;
-      } else if ('skipped' in outcome && outcome.skipped) {
-        skipped += 1;
-      } else {
-        stillFailed += 1;
-        if (sampleErrors.length < 5) {
-          const detail = outcome.info ?? outcome.reason;
-          sampleErrors.push(detail);
-        }
-      }
-    } catch (err) {
-      stillFailed += 1;
-      if (sampleErrors.length < 5) {
-        sampleErrors.push(err instanceof Error ? err.message : String(err));
-      }
-    }
-  }
-
-  return {
-    attempted: failed.length,
-    succeeded,
-    stillFailed,
-    skipped,
-    sampleErrors,
-  };
+  return rows.map((r) => r.id);
 }
