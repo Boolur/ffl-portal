@@ -3,7 +3,6 @@
 import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  BarChart3,
   Database,
   Globe,
   Megaphone,
@@ -99,17 +98,6 @@ const NAV_CARDS = [
     cta: 'bg-indigo-50 text-indigo-700 group-hover:bg-indigo-600 group-hover:text-white',
     ctaLabel: 'Manage Services',
   },
-  {
-    title: 'Reporting',
-    subtitle: 'Analyze lead spend by loan officer, vendor, campaign, and billing period.',
-    href: '/admin/leads/reporting',
-    Icon: BarChart3,
-    border: 'border-sky-200 hover:border-sky-300',
-    iconBg: 'bg-sky-600',
-    watermark: 'text-sky-600',
-    cta: 'bg-sky-50 text-sky-700 group-hover:bg-sky-600 group-hover:text-white',
-    ctaLabel: 'Open Reports',
-  },
 ] as const;
 
 export function LeadDashboard({
@@ -148,7 +136,7 @@ export function LeadDashboard({
       <WebhookInboxPanel />
 
       {/* Primary Navigation Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
         {NAV_CARDS.map((card) => (
           <Link
             key={card.href}

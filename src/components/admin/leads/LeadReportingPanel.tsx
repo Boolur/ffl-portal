@@ -3,7 +3,6 @@
 import React, { useMemo, useState, useTransition } from 'react';
 import {
   AlertTriangle,
-  ArrowUpRight,
   Banknote,
   BarChart3,
   Building2,
@@ -16,7 +15,6 @@ import {
   ReceiptText,
   RefreshCw,
   Search,
-  Sparkles,
   UserRound,
   Users,
 } from 'lucide-react';
@@ -28,6 +26,14 @@ import {
 } from '@/app/actions/leadReportingActions';
 
 type Preset = 'today' | 'yesterday' | 'last7' | 'mtd' | 'lastMonth' | 'custom';
+type SortDirection = 'asc' | 'desc';
+type OfficerSortKey = 'loanOfficerName' | 'totalSpend' | 'leadCount' | 'averagePrice';
+type CampaignSortKey =
+  | 'campaignName'
+  | 'totalSpend'
+  | 'leadCount'
+  | 'averagePrice'
+  | 'missingPriceCount';
 
 type Props = {
   options: LeadReportingFilterOptions;
@@ -64,6 +70,21 @@ const PRESET_OPTIONS: Array<{ value: Preset; label: string }> = [
   { value: 'lastMonth', label: 'Last Month' },
   { value: 'custom', label: 'Date Range' },
 ];
+
+const OFFICER_SORT_LABELS: Record<OfficerSortKey, string> = {
+  loanOfficerName: 'Loan Officer',
+  totalSpend: 'Spend',
+  leadCount: 'Leads',
+  averagePrice: 'Avg',
+};
+
+const CAMPAIGN_SORT_LABELS: Record<CampaignSortKey, string> = {
+  campaignName: 'Campaign',
+  totalSpend: 'Spend',
+  leadCount: 'Leads',
+  averagePrice: 'Avg',
+  missingPriceCount: 'Missing',
+};
 
 function startOfDay(date: Date) {
   const next = new Date(date);
@@ -147,6 +168,54 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
 }
 
+function compareText(a: string, b: string) {
+  return a.localeCompare(b, undefined, { sensitivity: 'base' });
+}
+
+function sortMultiplier(direction: SortDirection) {
+  return direction === 'asc' ? 1 : -1;
+}
+
+function SortHeader<T extends string>({
+  label,
+  sortKey,
+  activeKey,
+  direction,
+  align = 'left',
+  onSort,
+}: {
+  label: string;
+  sortKey: T;
+  activeKey: T;
+  direction: SortDirection;
+  align?: 'left' | 'right';
+  onSort: (key: T) => void;
+}) {
+  const active = sortKey === activeKey;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      className={cx(
+        'inline-flex items-center gap-1 rounded-md px-1 py-0.5 font-bold transition hover:bg-slate-100 hover:text-slate-700',
+        align === 'right' && 'ml-auto',
+        active ? 'text-slate-800' : 'text-slate-500'
+      )}
+      aria-label={`Sort by ${label}`}
+    >
+      {label}
+      <ChevronDown
+        className={cx(
+          'h-3 w-3 transition',
+          active ? 'opacity-100' : 'opacity-0',
+          active && direction === 'asc' && 'rotate-180'
+        )}
+      />
+    </button>
+  );
+}
+
 function KpiCard({
   title,
   value,
@@ -189,20 +258,19 @@ function KpiCard({
   const selectedTone = tones[tone];
 
   return (
-    <div className={cx('relative overflow-hidden rounded-3xl border p-5 shadow-sm', selectedTone.card)}>
-      <div className="absolute -right-5 -top-5 h-24 w-24 rounded-full bg-white/60" />
+    <div className={cx('relative overflow-hidden rounded-2xl border p-4 shadow-sm', selectedTone.card)}>
       <div className="relative flex items-start justify-between gap-4">
         <div>
-          <p className={cx('text-xs font-bold uppercase tracking-[0.18em]', selectedTone.label)}>
+          <p className={cx('text-[11px] font-bold uppercase tracking-[0.14em]', selectedTone.label)}>
             {title}
           </p>
-          <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
-          <p className={cx('mt-2 text-sm', selectedTone.subtitle)}>
+          <p className="mt-2 text-2xl font-bold tracking-tight">{value}</p>
+          <p className={cx('mt-1 text-xs', selectedTone.subtitle)}>
             {subtitle}
           </p>
         </div>
-        <div className={cx('rounded-2xl p-3 ring-1', selectedTone.icon)}>
-          <Icon className="h-5 w-5" />
+        <div className={cx('rounded-xl p-2 ring-1', selectedTone.icon)}>
+          <Icon className="h-4 w-4" />
         </div>
       </div>
     </div>
@@ -229,6 +297,14 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
     initialReport.filters.includeMissingPrice
   );
   const [expandedOfficerIds, setExpandedOfficerIds] = useState<Set<string>>(new Set());
+  const [officerSort, setOfficerSort] = useState<{
+    key: OfficerSortKey;
+    direction: SortDirection;
+  }>({ key: 'totalSpend', direction: 'desc' });
+  const [campaignSort, setCampaignSort] = useState<{
+    key: CampaignSortKey;
+    direction: SortDirection;
+  }>({ key: 'totalSpend', direction: 'desc' });
   const [isPending, startTransition] = useTransition();
 
   const filteredCampaigns = useMemo(() => {
@@ -241,6 +317,45 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
     const end = new Date(report.filters.endDate);
     return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
   }, [report.filters.endDate, report.filters.startDate]);
+
+  const sortedOfficerRows = useMemo(() => {
+    const multiplier = sortMultiplier(officerSort.direction);
+    return [...report.loanOfficerRows].sort((a, b) => {
+      if (officerSort.key === 'loanOfficerName') {
+        return compareText(a.loanOfficerName, b.loanOfficerName) * multiplier;
+      }
+
+      return (a[officerSort.key] - b[officerSort.key]) * multiplier;
+    });
+  }, [officerSort.direction, officerSort.key, report.loanOfficerRows]);
+
+  const sortedCampaignRows = useMemo(() => {
+    const multiplier = sortMultiplier(campaignSort.direction);
+    return [...report.campaignRows].sort((a, b) => {
+      if (campaignSort.key === 'campaignName') {
+        const campaignCompare = compareText(a.campaignName, b.campaignName);
+        return campaignCompare !== 0
+          ? campaignCompare * multiplier
+          : compareText(a.loanOfficerName, b.loanOfficerName) * multiplier;
+      }
+
+      return (a[campaignSort.key] - b[campaignSort.key]) * multiplier;
+    });
+  }, [campaignSort.direction, campaignSort.key, report.campaignRows]);
+
+  function updateOfficerSort(key: OfficerSortKey) {
+    setOfficerSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
+    }));
+  }
+
+  function updateCampaignSort(key: CampaignSortKey) {
+    setCampaignSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
+    }));
+  }
 
   function buildReportParams(overrides?: Partial<{
     startDate: string;
@@ -294,38 +409,46 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-[2rem] border border-blue-100 bg-white p-6 text-slate-900 shadow-sm sm:p-8">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(219,234,254,0.95),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(209,250,229,0.75),transparent_32%)]" />
-        <div className="relative grid gap-6 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
+    <div className="space-y-5">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm">
+        <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              <Sparkles className="h-3.5 w-3.5" />
-              Lead spend command center
-            </div>
-            <h2 className="mt-5 max-w-3xl text-3xl font-black tracking-tight sm:text-5xl">
-              Billable lead spend, sliced by LO, vendor, and campaign.
+            <h2 className="text-lg font-bold tracking-tight text-slate-900">
+              Lead spend summary
             </h2>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-              A finance-grade view of where lead dollars went, who owns the
-              spend, and which records still need pricing cleanup before billing.
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+              Review billable lead price by loan officer, vendor, campaign, and date range.
             </p>
           </div>
-          <div className="rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-sm backdrop-blur">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
-              Current report
-            </p>
-            <p className="mt-3 text-2xl font-black">{formatCurrency(report.summary.totalSpend)}</p>
-            <p className="mt-2 text-sm text-slate-500">{rangeLabel}</p>
-            <p className="mt-4 text-xs text-slate-400">
-              Generated {formatDateTime(report.generatedAt)}
-            </p>
+          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[520px]">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                Spend
+              </p>
+              <p className="mt-1 text-xl font-bold text-slate-900">
+                {formatCurrency(report.summary.totalSpend)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                Date range
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-700">{rangeLabel}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                Generated
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-700">
+                {formatDateTime(report.generatedAt)}
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="rounded-[1.75rem] border border-slate-200 bg-white/95 p-5 shadow-sm">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
               <Filter className="h-4 w-4 text-blue-600" />
@@ -348,7 +471,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
 
         <div className="grid gap-4 xl:grid-cols-[1.05fr_1fr]">
           <div className="space-y-3">
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
               Billing focus
             </p>
             <div className="grid gap-2 sm:grid-cols-3">
@@ -361,13 +484,13 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
                     runReport({ billingFocus: option.value });
                   }}
                   className={cx(
-                    'rounded-2xl border px-4 py-3 text-left transition',
+                    'rounded-xl border px-3 py-2.5 text-left transition',
                     billingFocus === option.value
                       ? 'border-blue-200 bg-blue-50 text-blue-950 shadow-sm'
                       : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
                   )}
                 >
-                  <span className="block text-sm font-black">{option.label}</span>
+                  <span className="block text-sm font-bold">{option.label}</span>
                   <span className={cx('mt-1 block text-xs', billingFocus === option.value ? 'text-blue-700/75' : 'text-slate-500')}>
                     {option.description}
                   </span>
@@ -377,7 +500,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
           </div>
 
           <div className="space-y-3">
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
               Date range
             </p>
             <div className="flex flex-wrap gap-2">
@@ -441,7 +564,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
                     : current.filter((id) => options.campaigns.some((c) => c.id === id && next.includes(c.vendorId)))
                 );
               }}
-              className="min-h-28 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+              className="min-h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
             >
               {options.vendors.map((vendor) => (
                 <option key={vendor.id} value={vendor.id}>
@@ -457,7 +580,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
               multiple
               value={campaignIds}
               onChange={(event) => setCampaignIds(selectedValues(event.currentTarget))}
-              className="min-h-28 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+              className="min-h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
             >
               {filteredCampaigns.map((campaign) => (
                 <option key={campaign.id} value={campaign.id}>
@@ -473,7 +596,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
               multiple
               value={assignedUserIds}
               onChange={(event) => setAssignedUserIds(selectedValues(event.currentTarget))}
-              className="min-h-28 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+              className="min-h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
             >
               {options.loanOfficers.map((user) => (
                 <option key={user.id} value={user.id}>
@@ -538,10 +661,10 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
             <div>
-              <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
+              <h3 className="flex items-center gap-2 text-base font-bold text-slate-900">
                 <Users className="h-4 w-4 text-blue-600" />
                 Billing by loan officer
               </h3>
@@ -554,18 +677,53 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
             </span>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="max-h-[560px] overflow-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500">
+              <thead className="sticky top-0 z-[1] bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 <tr>
-                  <th className="px-5 py-3 text-left">Loan Officer</th>
-                  <th className="px-5 py-3 text-right">Spend</th>
-                  <th className="px-5 py-3 text-right">Leads</th>
-                  <th className="px-5 py-3 text-right">Avg</th>
+                  <th className="px-5 py-3 text-left">
+                    <SortHeader
+                      label={OFFICER_SORT_LABELS.loanOfficerName}
+                      sortKey="loanOfficerName"
+                      activeKey={officerSort.key}
+                      direction={officerSort.direction}
+                      onSort={updateOfficerSort}
+                    />
+                  </th>
+                  <th className="px-5 py-3 text-right">
+                    <SortHeader
+                      label={OFFICER_SORT_LABELS.totalSpend}
+                      sortKey="totalSpend"
+                      activeKey={officerSort.key}
+                      direction={officerSort.direction}
+                      align="right"
+                      onSort={updateOfficerSort}
+                    />
+                  </th>
+                  <th className="px-5 py-3 text-right">
+                    <SortHeader
+                      label={OFFICER_SORT_LABELS.leadCount}
+                      sortKey="leadCount"
+                      activeKey={officerSort.key}
+                      direction={officerSort.direction}
+                      align="right"
+                      onSort={updateOfficerSort}
+                    />
+                  </th>
+                  <th className="px-5 py-3 text-right">
+                    <SortHeader
+                      label={OFFICER_SORT_LABELS.averagePrice}
+                      sortKey="averagePrice"
+                      activeKey={officerSort.key}
+                      direction={officerSort.direction}
+                      align="right"
+                      onSort={updateOfficerSort}
+                    />
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {report.loanOfficerRows.map((row) => {
+                {sortedOfficerRows.map((row) => {
                   const key = row.assignedUserId ?? '__unassigned__';
                   const expanded = expandedOfficerIds.has(key);
                   return (
@@ -577,16 +735,16 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
                             onClick={() => toggleOfficer(key)}
                             className="flex items-center gap-3 text-left"
                           >
-                            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
                               {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                             </span>
                             <span>
-                              <span className="block font-black text-slate-900">{row.loanOfficerName}</span>
+                              <span className="block font-semibold text-slate-900">{row.loanOfficerName}</span>
                               <span className="block text-xs text-slate-500">{row.loanOfficerEmail ?? 'No assignee'}</span>
                             </span>
                           </button>
                         </td>
-                        <td className="px-5 py-4 text-right font-black text-slate-900">
+                        <td className="px-5 py-4 text-right font-bold text-slate-900">
                           {formatCurrency(row.totalSpend)}
                         </td>
                         <td className="px-5 py-4 text-right text-slate-600">
@@ -603,13 +761,13 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
                               {row.breakdown.map((item) => (
                                 <div
                                   key={`${item.vendorId}:${item.campaignId ?? 'none'}`}
-                                  className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                                  className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"
                                 >
                                   <div>
                                     <p className="text-sm font-bold text-slate-800">{item.campaignName}</p>
                                     <p className="text-xs text-slate-500">{item.vendorName} • {formatNumber(item.leadCount)} leads</p>
                                   </div>
-                                  <p className="text-sm font-black text-slate-900">{formatCurrency(item.totalSpend)}</p>
+                                  <p className="text-sm font-bold text-slate-900">{formatCurrency(item.totalSpend)}</p>
                                 </div>
                               ))}
                             </div>
@@ -631,9 +789,9 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4">
-            <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
+            <h3 className="flex items-center gap-2 text-base font-bold text-slate-900">
               <Building2 className="h-4 w-4 text-emerald-600" />
               Vendor & campaign mix
             </h3>
@@ -641,44 +799,110 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
               The highest-spend campaign and assignee combinations.
             </p>
           </div>
-          <div className="max-h-[520px] overflow-auto">
-            {report.campaignRows.slice(0, 20).map((row) => (
-              <div key={`${row.vendorId}:${row.campaignId}:${row.assignedUserId}`} className="border-b border-slate-100 px-5 py-4 last:border-b-0">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-black text-slate-900">{row.campaignName}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {row.vendorName} • {row.loanOfficerName}
-                    </p>
-                  </div>
-                  <p className="whitespace-nowrap text-sm font-black text-slate-900">
-                    {formatCurrency(row.totalSpend)}
-                  </p>
-                </div>
-                <div className="mt-3 flex items-center gap-3 text-xs text-slate-500">
-                  <span>{formatNumber(row.leadCount)} leads</span>
-                  <span>{formatCurrency(row.averagePrice)} avg</span>
-                  {row.missingPriceCount > 0 && (
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 font-bold text-amber-700">
-                      {row.missingPriceCount} missing price
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-            {report.campaignRows.length === 0 && (
-              <div className="px-5 py-12 text-center text-sm text-slate-500">
-                No campaign spend matched these filters.
-              </div>
-            )}
+          <div className="max-h-[560px] overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-[1] bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="px-5 py-3 text-left">
+                    <SortHeader
+                      label={CAMPAIGN_SORT_LABELS.campaignName}
+                      sortKey="campaignName"
+                      activeKey={campaignSort.key}
+                      direction={campaignSort.direction}
+                      onSort={updateCampaignSort}
+                    />
+                  </th>
+                  <th className="px-5 py-3 text-right">
+                    <SortHeader
+                      label={CAMPAIGN_SORT_LABELS.totalSpend}
+                      sortKey="totalSpend"
+                      activeKey={campaignSort.key}
+                      direction={campaignSort.direction}
+                      align="right"
+                      onSort={updateCampaignSort}
+                    />
+                  </th>
+                  <th className="px-5 py-3 text-right">
+                    <SortHeader
+                      label={CAMPAIGN_SORT_LABELS.leadCount}
+                      sortKey="leadCount"
+                      activeKey={campaignSort.key}
+                      direction={campaignSort.direction}
+                      align="right"
+                      onSort={updateCampaignSort}
+                    />
+                  </th>
+                  <th className="px-5 py-3 text-right">
+                    <SortHeader
+                      label={CAMPAIGN_SORT_LABELS.averagePrice}
+                      sortKey="averagePrice"
+                      activeKey={campaignSort.key}
+                      direction={campaignSort.direction}
+                      align="right"
+                      onSort={updateCampaignSort}
+                    />
+                  </th>
+                  <th className="px-5 py-3 text-right">
+                    <SortHeader
+                      label={CAMPAIGN_SORT_LABELS.missingPriceCount}
+                      sortKey="missingPriceCount"
+                      activeKey={campaignSort.key}
+                      direction={campaignSort.direction}
+                      align="right"
+                      onSort={updateCampaignSort}
+                    />
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {sortedCampaignRows.map((row) => (
+                  <tr
+                    key={`${row.vendorId}:${row.campaignId}:${row.assignedUserId}`}
+                    className="hover:bg-slate-50/70"
+                  >
+                    <td className="px-5 py-4">
+                      <p className="font-semibold text-slate-900">{row.campaignName}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {row.vendorName} • {row.loanOfficerName}
+                      </p>
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-right font-bold text-slate-900">
+                      {formatCurrency(row.totalSpend)}
+                    </td>
+                    <td className="px-5 py-4 text-right text-slate-600">
+                      {formatNumber(row.leadCount)}
+                    </td>
+                    <td className="px-5 py-4 text-right text-slate-600">
+                      {formatCurrency(row.averagePrice)}
+                    </td>
+                    <td className="px-5 py-4 text-right text-slate-600">
+                      {row.missingPriceCount > 0 ? (
+                        <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
+                          {formatNumber(row.missingPriceCount)}
+                        </span>
+                      ) : (
+                        '0'
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {report.campaignRows.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-5 py-12 text-center text-sm text-slate-500">
+                      No campaign spend matched these filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
-            <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
+            <h3 className="flex items-center gap-2 text-base font-bold text-slate-900">
               <Search className="h-4 w-4 text-slate-600" />
               Audit detail
             </h3>
@@ -693,7 +917,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500">
+            <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-5 py-3 text-left">Received</th>
                 <th className="px-5 py-3 text-left">Borrower</th>
@@ -722,7 +946,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
                     <p className="font-semibold text-slate-800">{lead.campaignName}</p>
                     <p className="text-xs text-slate-500">{lead.vendorName} / {lead.routingTag ?? 'no tag'}</p>
                   </td>
-                  <td className="px-5 py-3 text-right font-black text-slate-900">
+                  <td className="px-5 py-3 text-right font-bold text-slate-900">
                     {lead.price === null ? (
                       <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
                         Missing
@@ -751,16 +975,6 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
         </div>
       </section>
 
-      <div className="flex items-center justify-between rounded-3xl border border-blue-100 bg-blue-50/70 px-5 py-4 text-sm text-blue-900">
-        <div>
-          <p className="font-black">Built for expansion</p>
-          <p className="mt-1 text-blue-800/80">
-            Lead price powers this first report. The same surface can later add
-            conversion, return rate, ROI, and vendor quality reporting.
-          </p>
-        </div>
-        <ArrowUpRight className="hidden h-5 w-5 sm:block" />
-      </div>
     </div>
   );
 }
