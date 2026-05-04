@@ -51,6 +51,8 @@ export type BonzoForwardAudit = {
   status?: number;
   statusText?: string;
   errorPreview?: string;
+  durationMs?: number;
+  stage?: 'preflight' | 'db_lookup' | 'post';
   // `auto`   = fired during normal lead-distribution as part of the
   //            assignment chain
   // `manual` = an admin clicked "Push to Service" or "Retry" in the
@@ -62,13 +64,12 @@ export type BonzoForwardAudit = {
 };
 
 const MAX_BODY_PREVIEW = 500;
+const BONZO_POST_TIMEOUT_MS = 20_000;
 const TRANSIENT_DB_RETRY_DELAYS_MS = [250, 750, 1500] as const;
 
 function isTransientPrismaError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return /connection pool|can't reach database server|timed out fetching a new connection|operation was aborted/i.test(
-    message
-  );
+  return /connection pool|can't reach database server|timed out fetching a new connection|operation was aborted|server has closed the connection/i.test(message);
 }
 
 async function retryTransientDb<T>(
@@ -189,6 +190,7 @@ async function forwardLeadToBonzoImpl(
   trigger: 'auto' | 'manual' | 'sweep'
 ): Promise<void> {
   const at = new Date().toISOString();
+  const startedAt = Date.now();
 
   try {
     const user = await retryTransientDb('userLeadQuota lookup', () =>
@@ -219,6 +221,8 @@ async function forwardLeadToBonzoImpl(
         at,
         outcome: 'no_webhook_url',
         trigger,
+        durationMs: Date.now() - startedAt,
+        stage: 'preflight',
       });
       return;
     }
@@ -227,6 +231,8 @@ async function forwardLeadToBonzoImpl(
         at,
         outcome: 'no_lead',
         trigger,
+        durationMs: Date.now() - startedAt,
+        stage: 'db_lookup',
       });
       return;
     }
@@ -242,6 +248,8 @@ async function forwardLeadToBonzoImpl(
           status: result.status,
           statusText: result.statusText,
           trigger,
+          durationMs: Date.now() - startedAt,
+          stage: 'post',
         });
       } else {
         // HTTP-but-not-OK: Bonzo received the request and rejected it.
@@ -255,6 +263,8 @@ async function forwardLeadToBonzoImpl(
           statusText: result.statusText,
           errorPreview: result.bodyExcerpt.slice(0, MAX_BODY_PREVIEW),
           trigger,
+          durationMs: Date.now() - startedAt,
+          stage: 'post',
         });
         console.warn(
           `[bonzo] HTTP ${result.status} for lead ${leadId} -> user ${userId}: ${result.bodyExcerpt}`
@@ -267,6 +277,8 @@ async function forwardLeadToBonzoImpl(
         outcome: 'exception',
         errorPreview: message.slice(0, MAX_BODY_PREVIEW),
         trigger,
+        durationMs: Date.now() - startedAt,
+        stage: 'post',
       });
       console.warn(
         `[bonzo] Forward error for lead ${leadId} -> user ${userId}:`,
@@ -280,6 +292,8 @@ async function forwardLeadToBonzoImpl(
       outcome: 'exception',
       errorPreview: message.slice(0, MAX_BODY_PREVIEW),
       trigger,
+      durationMs: Date.now() - startedAt,
+      stage: 'db_lookup',
     });
     console.warn(
       `[bonzo] Forward error for lead ${leadId} -> user ${userId}:`,
@@ -289,7 +303,7 @@ async function forwardLeadToBonzoImpl(
 }
 
 /**
- * Low-level POST to a Bonzo webhook URL. 10s timeout, JSON body, standard UA.
+ * Low-level POST to a Bonzo webhook URL. 20s timeout, JSON body, standard UA.
  * Throws on network errors; returns a structured result on HTTP completion
  * so callers (e.g. the admin "Send test" action) can surface status/body.
  */
@@ -298,7 +312,11 @@ export async function postBonzoPayload(
   payload: unknown
 ): Promise<{ ok: boolean; status: number; statusText: string; bodyExcerpt: string }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, BONZO_POST_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -319,6 +337,11 @@ export async function postBonzoPayload(
       statusText: res.statusText,
       bodyExcerpt,
     };
+  } catch (err) {
+    if (timedOut) {
+      throw new Error(`Bonzo request timed out after ${BONZO_POST_TIMEOUT_MS}ms`);
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
   }

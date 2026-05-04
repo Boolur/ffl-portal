@@ -114,6 +114,23 @@ const ADDRESS_ALIASES: Record<string, string[]> = {
   ],
 };
 
+const MAILING_ADDRESS_ALIASES: Record<string, string[]> = {
+  mailingAddress: [
+    'mailing_address',
+    'Mail_Address',
+    'mail_address',
+    'address',
+    'address_line_1',
+    'street',
+    'street_1',
+    'street1',
+  ],
+  mailingCity: ['mailing_city', 'Mail_City', 'mail_city', 'city'],
+  mailingState: ['mailing_state', 'Mail_State', 'mail_state', 'state'],
+  mailingZip: ['mailing_zip', 'Mail_Zip', 'mail_zip', 'zip', 'zip_code', 'postal_code'],
+  mailingCounty: ['mailing_county', 'Mail_County', 'mail_county', 'county'],
+};
+
 const MAILING_RAW_KEYS = [
   'mailing_address',
   'Mail_Address',
@@ -370,6 +387,10 @@ export async function getLeadMappingAudit(
 export type AddressBackfillInput = {
   // null / undefined = all vendors
   vendorSlug?: string | null;
+  // Restrict by receivedAt so admins can focus on today's bad vendor
+  // payloads instead of the historical 100k-row null-address backlog.
+  // null / undefined keeps the legacy all-time behavior.
+  hours?: number | null;
   // Hard cap so a single click can't lock the table for minutes on a
   // 100k-row import. The CLI script defaults to "no limit"; the UI
   // defaults to 500 to keep the request snappy and lets admins re-run
@@ -386,6 +407,7 @@ export type AddressBackfillRecoverableRow = {
   newState: string | null;
   newZip: string | null;
   newCounty: string | null;
+  fields: string[];
 };
 
 export type AddressBackfillUnrecoverableRow = {
@@ -400,9 +422,19 @@ export type AddressBackfillUnrecoverableRow = {
 export type AddressBackfillSummary = {
   scanned: number;
   totalCandidates: number;
+  windowHours: number | null;
+  vendorSlug: string | null;
   recoverable: number;
   unrecoverable: number;
   byVendor: Array<{ vendorSlug: string; total: number; recoverable: number }>;
+  byCampaign: Array<{
+    vendorSlug: string;
+    routingTag: string;
+    campaignName: string;
+    total: number;
+    recoverable: number;
+    unrecoverable: number;
+  }>;
   // Sample rows for the UI (capped, not all of them).
   sampleRecoverable: AddressBackfillRecoverableRow[];
   sampleUnrecoverable: AddressBackfillUnrecoverableRow[];
@@ -415,10 +447,21 @@ export type AddressBackfillApplyResult = AddressBackfillSummary & {
 
 async function loadBackfillCandidates(
   vendorSlug: string | null,
+  hours: number | null,
   limit: number
 ) {
   const where = {
-    propertyAddress: null,
+    OR: [
+      { propertyAddress: null },
+      { propertyCity: null },
+      { propertyZip: null },
+      { mailingAddress: null },
+      { mailingCity: null },
+      { mailingZip: null },
+    ],
+    ...(hours
+      ? { receivedAt: { gte: new Date(Date.now() - hours * 60 * 60 * 1000) } }
+      : {}),
     ...(vendorSlug
       ? { vendor: { slug: vendorSlug.toLowerCase() } }
       : {}),
@@ -438,14 +481,21 @@ async function loadBackfillCandidates(
         id: true,
         firstName: true,
         lastName: true,
+        mailingAddress: true,
+        mailingCity: true,
+        mailingState: true,
+        mailingZip: true,
+        mailingCounty: true,
+        propertyAddress: true,
         propertyCity: true,
         propertyState: true,
         propertyZip: true,
         propertyCounty: true,
         rawPayload: true,
         vendor: { select: { slug: true } },
+        campaign: { select: { name: true, routingTag: true } },
       },
-      orderBy: { receivedAt: 'asc' },
+      orderBy: { receivedAt: 'desc' },
       take: limit,
     }),
   ]);
@@ -459,6 +509,9 @@ type ResolvedRow = {
   name: string;
   updates: Record<string, string>;
   recoverable: boolean;
+  campaignName: string;
+  routingTag: string;
+  address: string | null;
   city: string | null;
   state: string | null;
   zip: string | null;
@@ -468,23 +521,85 @@ function resolveBackfillRow(lead: {
   id: string;
   firstName: string | null;
   lastName: string | null;
+  mailingAddress: string | null;
+  mailingCity: string | null;
+  mailingState: string | null;
+  mailingZip: string | null;
+  mailingCounty: string | null;
+  propertyAddress: string | null;
   propertyCity: string | null;
   propertyState: string | null;
   propertyZip: string | null;
   propertyCounty: string | null;
   rawPayload: unknown;
   vendor: { slug: string } | null;
+  campaign: { name: string; routingTag: string } | null;
 }): ResolvedRow {
   const found = {
-    propertyAddress: findFirstValue(lead.rawPayload, ADDRESS_ALIASES.propertyAddress),
-    propertyCity: findFirstValue(lead.rawPayload, ADDRESS_ALIASES.propertyCity),
-    propertyState: findFirstValue(lead.rawPayload, ADDRESS_ALIASES.propertyState),
-    propertyZip: findFirstValue(lead.rawPayload, ADDRESS_ALIASES.propertyZip),
-    propertyCounty: findFirstValue(lead.rawPayload, ADDRESS_ALIASES.propertyCounty),
+    propertyAddress:
+      lead.mailingAddress ??
+      findFirstValue(lead.rawPayload, [
+        ...MAILING_ADDRESS_ALIASES.mailingAddress,
+        ...ADDRESS_ALIASES.propertyAddress,
+      ]),
+    propertyCity:
+      lead.mailingCity ??
+      findFirstValue(lead.rawPayload, [
+        ...MAILING_ADDRESS_ALIASES.mailingCity,
+        ...ADDRESS_ALIASES.propertyCity,
+      ]),
+    propertyState:
+      lead.mailingState ??
+      findFirstValue(lead.rawPayload, [
+        ...MAILING_ADDRESS_ALIASES.mailingState,
+        ...ADDRESS_ALIASES.propertyState,
+      ]),
+    propertyZip:
+      lead.mailingZip ??
+      findFirstValue(lead.rawPayload, [
+        ...MAILING_ADDRESS_ALIASES.mailingZip,
+        ...ADDRESS_ALIASES.propertyZip,
+      ]),
+    propertyCounty:
+      lead.mailingCounty ??
+      findFirstValue(lead.rawPayload, [
+        ...MAILING_ADDRESS_ALIASES.mailingCounty,
+        ...ADDRESS_ALIASES.propertyCounty,
+      ]),
+    mailingAddress:
+      lead.propertyAddress ??
+      findFirstValue(lead.rawPayload, [
+        ...ADDRESS_ALIASES.propertyAddress,
+        ...MAILING_ADDRESS_ALIASES.mailingAddress,
+      ]),
+    mailingCity:
+      lead.propertyCity ??
+      findFirstValue(lead.rawPayload, [
+        ...ADDRESS_ALIASES.propertyCity,
+        ...MAILING_ADDRESS_ALIASES.mailingCity,
+      ]),
+    mailingState:
+      lead.propertyState ??
+      findFirstValue(lead.rawPayload, [
+        ...ADDRESS_ALIASES.propertyState,
+        ...MAILING_ADDRESS_ALIASES.mailingState,
+      ]),
+    mailingZip:
+      lead.propertyZip ??
+      findFirstValue(lead.rawPayload, [
+        ...ADDRESS_ALIASES.propertyZip,
+        ...MAILING_ADDRESS_ALIASES.mailingZip,
+      ]),
+    mailingCounty:
+      lead.propertyCounty ??
+      findFirstValue(lead.rawPayload, [
+        ...ADDRESS_ALIASES.propertyCounty,
+        ...MAILING_ADDRESS_ALIASES.mailingCounty,
+      ]),
   };
 
   const updates: Record<string, string> = {};
-  if (found.propertyAddress) {
+  if (found.propertyAddress && !lead.propertyAddress) {
     updates.propertyAddress = found.propertyAddress;
   }
   if (found.propertyCity && !lead.propertyCity) {
@@ -499,6 +614,21 @@ function resolveBackfillRow(lead: {
   if (found.propertyCounty && !lead.propertyCounty) {
     updates.propertyCounty = found.propertyCounty;
   }
+  if (found.mailingAddress && !lead.mailingAddress) {
+    updates.mailingAddress = found.mailingAddress;
+  }
+  if (found.mailingCity && !lead.mailingCity) {
+    updates.mailingCity = found.mailingCity;
+  }
+  if (found.mailingState && !lead.mailingState) {
+    updates.mailingState = found.mailingState;
+  }
+  if (found.mailingZip && !lead.mailingZip) {
+    updates.mailingZip = found.mailingZip;
+  }
+  if (found.mailingCounty && !lead.mailingCounty) {
+    updates.mailingCounty = found.mailingCounty;
+  }
 
   return {
     leadId: lead.id,
@@ -506,34 +636,69 @@ function resolveBackfillRow(lead: {
     name:
       [lead.firstName, lead.lastName].filter(Boolean).join(' ') || '(no name)',
     updates,
-    recoverable: Boolean(updates.propertyAddress),
-    city: lead.propertyCity,
-    state: lead.propertyState,
-    zip: lead.propertyZip,
+    recoverable: Object.keys(updates).some((key) => !key.toLowerCase().includes('county')),
+    campaignName: lead.campaign?.name ?? '(no campaign)',
+    routingTag: lead.campaign?.routingTag ?? '(none)',
+    address: lead.propertyAddress ?? lead.mailingAddress,
+    city: lead.propertyCity ?? lead.mailingCity,
+    state: lead.propertyState ?? lead.mailingState,
+    zip: lead.propertyZip ?? lead.mailingZip,
   };
 }
 
 function summarize(
   rows: ResolvedRow[],
-  totalCandidates: number
+  totalCandidates: number,
+  input: { vendorSlug: string | null; windowHours: number | null }
 ): AddressBackfillSummary {
   const recoverable = rows.filter((r) => r.recoverable);
   const unrecoverable = rows.filter((r) => !r.recoverable);
   const vendorMap = new Map<string, { total: number; recoverable: number }>();
+  const campaignMap = new Map<
+    string,
+    {
+      vendorSlug: string;
+      routingTag: string;
+      campaignName: string;
+      total: number;
+      recoverable: number;
+      unrecoverable: number;
+    }
+  >();
   for (const r of rows) {
     const stat = vendorMap.get(r.vendorSlug) ?? { total: 0, recoverable: 0 };
     stat.total += 1;
     if (r.recoverable) stat.recoverable += 1;
     vendorMap.set(r.vendorSlug, stat);
+
+    const campaignKey = `${r.vendorSlug}|${r.routingTag}`;
+    const campaignStat =
+      campaignMap.get(campaignKey) ?? {
+        vendorSlug: r.vendorSlug,
+        routingTag: r.routingTag,
+        campaignName: r.campaignName,
+        total: 0,
+        recoverable: 0,
+        unrecoverable: 0,
+      };
+    campaignStat.total += 1;
+    if (r.recoverable) campaignStat.recoverable += 1;
+    else campaignStat.unrecoverable += 1;
+    campaignMap.set(campaignKey, campaignStat);
   }
   return {
     scanned: rows.length,
     totalCandidates,
+    windowHours: input.windowHours,
+    vendorSlug: input.vendorSlug,
     recoverable: recoverable.length,
     unrecoverable: unrecoverable.length,
     byVendor: [...vendorMap.entries()]
       .sort((a, b) => b[1].recoverable - a[1].recoverable)
       .map(([slug, stat]) => ({ vendorSlug: slug, ...stat })),
+    byCampaign: [...campaignMap.values()]
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 25),
     sampleRecoverable: recoverable.slice(0, 25).map((r) => ({
       leadId: r.leadId,
       vendorSlug: r.vendorSlug,
@@ -543,6 +708,7 @@ function summarize(
       newState: r.updates.propertyState ?? r.state,
       newZip: r.updates.propertyZip ?? r.zip,
       newCounty: r.updates.propertyCounty ?? null,
+      fields: Object.keys(r.updates),
     })),
     sampleUnrecoverable: unrecoverable.slice(0, 25).map((r) => ({
       leadId: r.leadId,
@@ -560,12 +726,20 @@ export async function getLeadAddressBackfillPreview(
 ): Promise<AddressBackfillSummary> {
   await assertDistributionAdmin();
   const limit = Math.max(1, Math.min(2000, input.limit ?? 500));
+  const hours =
+    input.hours === null || input.hours === undefined
+      ? null
+      : Math.max(1, Math.min(24 * 90, input.hours));
   const { totalCandidates, leads } = await loadBackfillCandidates(
     input.vendorSlug ?? null,
+    hours,
     limit
   );
   const rows = leads.map(resolveBackfillRow);
-  return summarize(rows, totalCandidates);
+  return summarize(rows, totalCandidates, {
+    vendorSlug: input.vendorSlug ?? null,
+    windowHours: hours,
+  });
 }
 
 export async function runLeadAddressBackfill(
@@ -573,20 +747,28 @@ export async function runLeadAddressBackfill(
 ): Promise<AddressBackfillApplyResult> {
   await assertDistributionAdmin();
   const limit = Math.max(1, Math.min(2000, input.limit ?? 500));
+  const hours =
+    input.hours === null || input.hours === undefined
+      ? null
+      : Math.max(1, Math.min(24 * 90, input.hours));
   const { totalCandidates, leads } = await loadBackfillCandidates(
     input.vendorSlug ?? null,
+    hours,
     limit
   );
   const rows = leads.map(resolveBackfillRow);
-  const summary = summarize(rows, totalCandidates);
+  const summary = summarize(rows, totalCandidates, {
+    vendorSlug: input.vendorSlug ?? null,
+    windowHours: hours,
+  });
 
   let applied = 0;
   let failed = 0;
   // Sequential updates, mirroring the CLI script. The candidate set is
-  // bounded by `limit` (default 500) so we don't need a transaction —
-  // partial progress on a transient DB hiccup is fine because re-running
-  // the action picks up where it left off (propertyAddress is now
-  // non-null on the rows we did update, so they fall out of the filter).
+  // bounded by `limit` (default 500) so we don't need a transaction.
+  // Partial progress on a transient DB hiccup is fine because re-running
+  // the action picks up where it left off; only still-null address fields
+  // are included in each update.
   for (const r of rows) {
     if (!r.recoverable) continue;
     try {
@@ -1340,6 +1522,15 @@ function toBonzoSampleRow(
  * for one identifier. Renaming it requires updating both spots.
  */
 const CSV_VENDOR_SLUG = 'csv-upload';
+const RECOVERABLE_BONZO_EXCEPTION =
+  /connection pool|can't reach database server|timed out fetching a new connection|server has closed the connection/i;
+const BONZO_SERVICE_WHERE = {
+  OR: [
+    { slug: 'bonzo' },
+    { type: 'bonzo' },
+    { urlTemplate: { contains: 'bonzo', mode: 'insensitive' as const } },
+  ],
+};
 
 export async function getBonzoForwardStatus(
   input: { days?: number } = {}
@@ -1360,16 +1551,11 @@ export async function getBonzoForwardStatus(
   const csvVendorId = csvVendor?.id ?? null;
 
   // Identify any IntegrationService configured to push to Bonzo so we
-  // can credit manual "Push to Service" pushes. Heuristic: urlTemplate
-  // contains "bonzo" (case-insensitive). Bonzo's official endpoint is
-  // app.getbonzo.com, every legitimate Bonzo webhook URL contains the
-  // brand string, and the user explicitly asked for manual pushes to
-  // be counted alongside auto-forwards. EMAIL_BROKER_LAUNCH is excluded
-  // because it doesn't have a meaningful URL template.
+  // can credit successful alternate sends. This clears an exception /
+  // never-attempted row when the generic Bonzo service already got a
+  // 200 OK for the same lead.
   const bonzoServices = await prisma.integrationService.findMany({
-    where: {
-      urlTemplate: { contains: 'bonzo', mode: 'insensitive' },
-    },
+    where: BONZO_SERVICE_WHERE,
     select: { id: true, slug: true, name: true },
   });
   const bonzoServiceById = new Map(bonzoServices.map((s) => [s.id, s]));
@@ -1580,7 +1766,7 @@ export async function getBonzoForwardRetryIds(
       select: { id: true },
     }),
     prisma.integrationService.findMany({
-      where: { urlTemplate: { contains: 'bonzo', mode: 'insensitive' } },
+      where: BONZO_SERVICE_WHERE,
       select: { id: true },
     }),
   ]);
@@ -1687,10 +1873,10 @@ export async function retryBonzoForwardForLead(
 //
 // The sweep is idempotent: a lead that gets healed in run N has an audit
 // row in run N+1, so it's no longer matched by the staleness query.
-// Leads that fail again on retry will keep being matched, but the
-// `'sweep'` audit trigger lets the Health panel surface "this is the
-// auto-recovery loop, not the original auto-forward" so admins can tell
-// transient noise from a structural issue (bad webhook URL, etc.).
+// Recoverable exceptions (pool timeout, serverless abort, transient DB
+// reachability) are also retried. Permanent outcomes (sent,
+// http_error, no_webhook_url) are left alone so we do not double-push
+// or hide configuration problems.
 // ---------------------------------------------------------------------------
 
 export type BonzoHealSweepResult = {
@@ -1763,7 +1949,7 @@ async function runBonzoHealSweepInternal(
       select: { id: true },
     }),
     prisma.integrationService.findMany({
-      where: { urlTemplate: { contains: 'bonzo', mode: 'insensitive' } },
+      where: BONZO_SERVICE_WHERE,
       select: { id: true },
     }),
   ]);
@@ -1808,7 +1994,15 @@ async function runBonzoHealSweepInternal(
     if (!lead.assignedUserId) continue;
     if (manualSentLeadIds.has(lead.id)) continue;
     const audit = readBonzoAudit(lead.customData);
-    if (audit) continue; // Already attempted, not "never_attempted" anymore
+    if (audit) {
+      const recoverableException =
+        audit.outcome === 'exception' &&
+        audit.stage !== 'post' &&
+        RECOVERABLE_BONZO_EXCEPTION.test(audit.errorPreview ?? '');
+      if (!recoverableException) {
+        continue;
+      }
+    }
     stale.push({ id: lead.id, assignedUserId: lead.assignedUserId });
     if (stale.length >= batchSize) break;
   }

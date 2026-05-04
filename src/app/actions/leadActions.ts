@@ -10,6 +10,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import {
   forwardLeadToBonzo,
   buildBonzoPayload,
@@ -27,6 +28,16 @@ import {
   canAccessLeadDistribution,
   isAdmin as isAdminRole,
 } from '@/lib/adminTiers';
+
+function scheduleLeadSideEffect(label: string, fn: () => Promise<void>) {
+  after(async () => {
+    try {
+      await fn();
+    } catch (err) {
+      console.warn(`[lead-actions] ${label} failed:`, err);
+    }
+  });
+}
 import { normalizeMilitaryFlag } from '@/lib/militaryFlag';
 import {
   evaluateMember,
@@ -102,14 +113,18 @@ export async function distributeLead(leadId: string) {
         },
       });
       await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
-      void forwardLeadToBonzo(leadId, campaign.defaultUserId);
+      scheduleLeadSideEffect('Bonzo forward after default assignment', () =>
+        forwardLeadToBonzo(leadId, campaign.defaultUserId!)
+      );
       // ON_ASSIGN triggers fire every active IntegrationService whose
       // statusTrigger matches, which includes the "Broker Launch
       // Notification" email service (method = EMAIL_BROKER_LAUNCH).
-      void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
-      void runServiceTriggers(
-        leadId,
-        IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+      scheduleLeadSideEffect('ON_ASSIGN triggers after default assignment', () =>
+        runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN)
+      );
+      scheduleLeadSideEffect(
+        'DELAY_AFTER_ASSIGN triggers after default assignment',
+        () => runServiceTriggers(leadId, IntegrationServiceTrigger.DELAY_AFTER_ASSIGN)
       );
     }
     return;
@@ -232,11 +247,15 @@ export async function distributeLead(leadId: string) {
     ]);
 
     await createLeadNotification(member.userId, lead, campaign.name);
-    void forwardLeadToBonzo(leadId, member.userId);
-    void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
-    void runServiceTriggers(
-      leadId,
-      IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+    scheduleLeadSideEffect('Bonzo forward after round-robin assignment', () =>
+      forwardLeadToBonzo(leadId, member.userId)
+    );
+    scheduleLeadSideEffect('ON_ASSIGN triggers after round-robin assignment', () =>
+      runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN)
+    );
+    scheduleLeadSideEffect(
+      'DELAY_AFTER_ASSIGN triggers after round-robin assignment',
+      () => runServiceTriggers(leadId, IntegrationServiceTrigger.DELAY_AFTER_ASSIGN)
     );
     return;
   }
@@ -2009,10 +2028,12 @@ export async function updateLeadStatus(leadId: string, status: LeadStatus) {
   });
   await prisma.lead.update({ where: { id: leadId }, data: { status } });
   if (prev && prev.status !== status) {
-    void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_STATUS_CHANGE, {
-      previousStatus: prev.status,
-      newStatus: status,
-    });
+    scheduleLeadSideEffect('ON_STATUS_CHANGE triggers after status update', () =>
+      runServiceTriggers(leadId, IntegrationServiceTrigger.ON_STATUS_CHANGE, {
+        previousStatus: prev.status,
+        newStatus: status,
+      })
+    );
   }
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
@@ -2079,11 +2100,15 @@ export async function assignLead(leadId: string, userId: string) {
     },
   });
   await createLeadNotification(userId, { id: leadId }, 'Manual Assignment');
-  void forwardLeadToBonzo(leadId, userId);
-  void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
-  void runServiceTriggers(
-    leadId,
-    IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+  scheduleLeadSideEffect('Bonzo forward after manual assignment', () =>
+    forwardLeadToBonzo(leadId, userId)
+  );
+  scheduleLeadSideEffect('ON_ASSIGN triggers after manual assignment', () =>
+    runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN)
+  );
+  scheduleLeadSideEffect(
+    'DELAY_AFTER_ASSIGN triggers after manual assignment',
+    () => runServiceTriggers(leadId, IntegrationServiceTrigger.DELAY_AFTER_ASSIGN)
   );
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
@@ -2100,11 +2125,15 @@ export async function bulkAssignLeads(leadIds: string[], userId: string) {
     },
   });
   for (const leadId of leadIds) {
-    void forwardLeadToBonzo(leadId, userId);
-    void runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN);
-    void runServiceTriggers(
-      leadId,
-      IntegrationServiceTrigger.DELAY_AFTER_ASSIGN
+    scheduleLeadSideEffect('Bonzo forward after bulk assignment', () =>
+      forwardLeadToBonzo(leadId, userId)
+    );
+    scheduleLeadSideEffect('ON_ASSIGN triggers after bulk assignment', () =>
+      runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN)
+    );
+    scheduleLeadSideEffect(
+      'DELAY_AFTER_ASSIGN triggers after bulk assignment',
+      () => runServiceTriggers(leadId, IntegrationServiceTrigger.DELAY_AFTER_ASSIGN)
     );
   }
   revalidatePath('/leads');
@@ -3006,16 +3035,22 @@ export async function bulkCreateLeadsBatch(
     for (const l of fresh) {
       if (l.assignedUserId) {
         if (fireBonzo) {
-          void forwardLeadToBonzo(l.id, l.assignedUserId);
+          scheduleLeadSideEffect('Bonzo forward after CSV import assignment', () =>
+            forwardLeadToBonzo(l.id, l.assignedUserId!)
+          );
         }
         if (fireBrokerLaunchEmail) {
-          void runServiceTriggers(l.id, IntegrationServiceTrigger.ON_ASSIGN, {
-            includeSlugs: brokerLaunchSlugs,
-          });
-          void runServiceTriggers(
-            l.id,
-            IntegrationServiceTrigger.DELAY_AFTER_ASSIGN,
-            { includeSlugs: brokerLaunchSlugs }
+          scheduleLeadSideEffect('ON_ASSIGN broker launch after CSV import', () =>
+            runServiceTriggers(l.id, IntegrationServiceTrigger.ON_ASSIGN, {
+              includeSlugs: brokerLaunchSlugs,
+            })
+          );
+          scheduleLeadSideEffect(
+            'DELAY_AFTER_ASSIGN broker launch after CSV import',
+            () =>
+              runServiceTriggers(l.id, IntegrationServiceTrigger.DELAY_AFTER_ASSIGN, {
+                includeSlugs: brokerLaunchSlugs,
+              })
           );
         }
       }

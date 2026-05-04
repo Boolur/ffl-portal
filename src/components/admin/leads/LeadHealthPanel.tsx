@@ -66,6 +66,12 @@ const DEFAULT_VENDOR = 'freerateupdate';
 const DAY_OPTIONS = [3, 7, 14, 30] as const;
 const LIMIT_OPTIONS = [100, 200, 500, 1000] as const;
 const BACKFILL_LIMIT_OPTIONS = [100, 250, 500, 1000, 2000] as const;
+const BACKFILL_WINDOW_OPTIONS = [
+  { label: 'Last 24 hours', value: 24 },
+  { label: 'Last 3 days', value: 72 },
+  { label: 'Last 7 days', value: 168 },
+  { label: 'All time', value: 0 },
+] as const;
 const EMAIL_DAY_OPTIONS = [1, 3, 7, 14, 30] as const;
 
 type BulkRetryProgress = {
@@ -97,6 +103,7 @@ export function LeadHealthPanel() {
   // ---- Backfill state ----
   const [backfillVendor, setBackfillVendor] = useState<string>(''); // '' = all
   const [backfillLimit, setBackfillLimit] = useState<number>(500);
+  const [backfillHours, setBackfillHours] = useState<number>(24);
   const [backfillPreview, setBackfillPreview] =
     useState<AddressBackfillSummary | null>(null);
   const [backfillApply, setBackfillApply] =
@@ -613,7 +620,7 @@ export function LeadHealthPanel() {
 
     let succeeded = 0;
     let stillFailed = 0;
-    let skipped = 0;
+    const skipped = 0;
     let lastError: string | null = null;
     let cancelled = false;
 
@@ -685,6 +692,7 @@ export function LeadHealthPanel() {
         const result = await getLeadAddressBackfillPreview({
           vendorSlug: backfillVendor || null,
           limit: backfillLimit,
+          hours: backfillHours || null,
         });
         setBackfillPreview(result);
       } catch (err) {
@@ -711,6 +719,7 @@ export function LeadHealthPanel() {
         const result = await runLeadAddressBackfill({
           vendorSlug: backfillVendor || null,
           limit: backfillLimit,
+          hours: backfillHours || null,
         });
         setBackfillApply(result);
         setBackfillPreview(result);
@@ -890,6 +899,19 @@ export function LeadHealthPanel() {
                 {vendors.map((v) => (
                   <option key={v.slug} value={v.slug}>
                     {v.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Window">
+              <select
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                value={backfillHours}
+                onChange={(e) => setBackfillHours(Number(e.target.value))}
+              >
+                {BACKFILL_WINDOW_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
@@ -1136,6 +1158,9 @@ function BackfillResults({
   applied: AddressBackfillApplyResult | null;
 }) {
   const remaining = preview.totalCandidates - preview.scanned;
+  const windowLabel = preview.windowHours
+    ? `from the last ${preview.windowHours} hour${preview.windowHours === 1 ? '' : 's'}`
+    : 'across all time';
   return (
     <div className="px-6 py-5 space-y-5">
       <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
@@ -1143,7 +1168,9 @@ function BackfillResults({
         <strong className="text-slate-900">
           {preview.totalCandidates.toLocaleString()}
         </strong>
-        <span className="text-slate-400">leads with a null propertyAddress</span>
+        <span className="text-slate-400">
+          leads with missing property or mailing address details {windowLabel}
+        </span>
         {remaining > 0 && (
           <span className="text-slate-400">
             (showing first {preview.scanned.toLocaleString()}; raise the batch
@@ -1158,7 +1185,7 @@ function BackfillResults({
           count={preview.recoverable}
           denominator={preview.scanned}
           tone={preview.recoverable > 0 ? 'emerald' : 'slate'}
-          help="rawPayload contained a usable address alias (mailing_*, Mail_*, phys_*, subject_property_*, address, etc.). Apply will write propertyAddress on these rows."
+          help="The saved lead/raw payload contains a usable value for at least one missing street, city, state, or zip field. Apply writes only currently blank address fields."
         />
         <StatCard
           label="Unrecoverable"
@@ -1189,6 +1216,50 @@ function BackfillResults({
           />
         )}
       </div>
+
+      {preview.byCampaign.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50">
+          <div className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+            Campaign breakdown
+          </div>
+          <table className="w-full text-xs">
+            <thead className="bg-slate-100 text-[10px] uppercase tracking-wider text-slate-500">
+              <tr>
+                <th className="px-3 py-1.5 text-left">Vendor</th>
+                <th className="px-3 py-1.5 text-left">Routing tag</th>
+                <th className="px-3 py-1.5 text-left">Campaign</th>
+                <th className="px-3 py-1.5 text-right">Missing</th>
+                <th className="px-3 py-1.5 text-right">Recoverable</th>
+                <th className="px-3 py-1.5 text-right">Unrecoverable</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {preview.byCampaign.map((b) => (
+                <tr key={`${b.vendorSlug}-${b.routingTag}`}>
+                  <td className="px-3 py-1.5 font-mono text-[11px] text-slate-700">
+                    {b.vendorSlug}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono text-[11px] text-slate-700">
+                    {b.routingTag}
+                  </td>
+                  <td className="px-3 py-1.5 text-slate-600">
+                    {b.campaignName}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-slate-600 tabular-nums">
+                    {b.total}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-emerald-700 font-semibold tabular-nums">
+                    {b.recoverable}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-slate-600 tabular-nums">
+                    {b.unrecoverable}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {preview.byVendor.length > 1 && (
         <div className="rounded-xl border border-slate-200 bg-slate-50">
@@ -1233,7 +1304,8 @@ function BackfillResults({
                 <tr>
                   <th className="px-3 py-2 text-left">Vendor</th>
                   <th className="px-3 py-2 text-left">Name</th>
-                  <th className="px-3 py-2 text-left">Will set propertyAddress to</th>
+                  <th className="px-3 py-2 text-left">Fields</th>
+                  <th className="px-3 py-2 text-left">Address</th>
                   <th className="px-3 py-2 text-left">City / State / Zip</th>
                 </tr>
               </thead>
@@ -1246,8 +1318,11 @@ function BackfillResults({
                     <td className="px-3 py-2 font-semibold text-slate-800">
                       {r.name}
                     </td>
+                    <td className="px-3 py-2 text-slate-600">
+                      {r.fields.join(', ')}
+                    </td>
                     <td className="px-3 py-2 text-emerald-700">
-                      {r.newAddress}
+                      {r.newAddress || 'No street change'}
                     </td>
                     <td className="px-3 py-2 text-slate-600">
                       {[r.newCity, r.newState, r.newZip]
@@ -1768,7 +1843,7 @@ function BonzoForwardBody({
           tone={totals.httpError > 0 ? 'rose' : 'slate'}
         />
         <DispatchCounter
-          label="Exception"
+          label="Unknown exception"
           count={totals.exception}
           tone={totals.exception > 0 ? 'rose' : 'slate'}
         />
@@ -1917,14 +1992,14 @@ function BonzoForwardBody({
                 bulkActive || totals.httpError + totals.exception === 0
               }
               className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
-              title="Retry every Bonzo forward in this window with outcome http_error or exception."
+              title="Retry every Bonzo forward in this window with outcome http_error or unknown exception."
             >
               {bulkActive ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
                 <Send className="h-3 w-3" />
               )}
-              Retry all failed ({(totals.httpError + totals.exception).toLocaleString()})
+              Retry unknown failed ({(totals.httpError + totals.exception).toLocaleString()})
             </button>
           </div>
           <BonzoSampleTable
@@ -1939,7 +2014,7 @@ function BonzoForwardBody({
       {status.recentExceptions.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-xs font-bold uppercase tracking-wider text-rose-800">
-            Recent exceptions ({totals.exception.toLocaleString()})
+            Unknown delivery exceptions ({totals.exception.toLocaleString()})
           </h3>
           <BonzoSampleTable
             rows={status.recentExceptions}
@@ -2339,7 +2414,7 @@ function BrokerLaunchEmailBody({
             )}
             {status.coverageClampedToService && (
               <div className="text-[11px] opacity-70">
-                Window clamped to the service's creation time so we don't
+                Window clamped to the service&apos;s creation time so we don&apos;t
                 count assignments from before broker-launch existed.
               </div>
             )}

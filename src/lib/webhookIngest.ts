@@ -3,6 +3,7 @@ import {
   LeadStatus,
   type Prisma,
 } from '@prisma/client';
+import { after } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { distributeLead } from '@/app/actions/leadActions';
 import { runServiceTriggers } from '@/lib/services';
@@ -12,6 +13,16 @@ import {
   extractBridgeNotes,
 } from '@/lib/leadMailboxBridge';
 import { normalizeMilitaryFlag } from '@/lib/militaryFlag';
+
+function scheduleWebhookSideEffect(label: string, fn: () => Promise<void>) {
+  after(async () => {
+    try {
+      await fn();
+    } catch (err) {
+      console.warn(`[webhookIngest] ${label} failed:`, err);
+    }
+  });
+}
 
 // Matches an unsubstituted Lead Mailbox placeholder, e.g. "{FirstName}"
 // or "{Co_DateOfBirth}". LM passes the literal token through when it
@@ -196,10 +207,12 @@ export async function ingestLeadMailboxWebhook(
 
   const lead = await prisma.lead.create({ data: createData });
 
-  void runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE);
-  void runServiceTriggers(
-    lead.id,
-    IntegrationServiceTrigger.DELAY_AFTER_RECEIVE
+  scheduleWebhookSideEffect('ON_RECEIVE service triggers', () =>
+    runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE)
+  );
+  scheduleWebhookSideEffect(
+    'DELAY_AFTER_RECEIVE service triggers',
+    () => runServiceTriggers(lead.id, IntegrationServiceTrigger.DELAY_AFTER_RECEIVE)
   );
 
   const noteContents = extractBridgeNotes(payload);
@@ -221,18 +234,13 @@ export async function ingestLeadMailboxWebhook(
     }
   }
 
-  try {
-    await distributeLead(lead.id);
-  } catch (err) {
-    // Distribution failures are non-fatal from the webhook's point of
-    // view — the lead is in the unassigned pool and can be distributed
-    // manually. We still log so the failure is visible.
-    console.error(
-      '[lead-mailbox-bridge] distribution failed for lead',
-      lead.id,
-      err
-    );
-  }
+  // Respond to Lead Mailbox as soon as the lead is safely persisted.
+  // Distribution can trigger Bonzo/email side effects and occasionally hits
+  // serverless/db/network latency; waiting for that whole chain makes LM mark
+  // the service as failed even though the lead was created.
+  scheduleWebhookSideEffect('lead-mailbox distribution', () =>
+    distributeLead(lead.id)
+  );
 
   return {
     status: 'processed',
@@ -412,17 +420,17 @@ export async function ingestVendorLeadWebhook(
 
   const lead = await prisma.lead.create({ data: createData });
 
-  void runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE);
-  void runServiceTriggers(
-    lead.id,
-    IntegrationServiceTrigger.DELAY_AFTER_RECEIVE
+  scheduleWebhookSideEffect('ON_RECEIVE service triggers', () =>
+    runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE)
+  );
+  scheduleWebhookSideEffect(
+    'DELAY_AFTER_RECEIVE service triggers',
+    () => runServiceTriggers(lead.id, IntegrationServiceTrigger.DELAY_AFTER_RECEIVE)
   );
 
-  try {
-    await distributeLead(lead.id);
-  } catch (err) {
-    console.error('[lead-webhook] distribution failed for lead', lead.id, err);
-  }
+  scheduleWebhookSideEffect('lead-webhook distribution', () =>
+    distributeLead(lead.id)
+  );
 
   return {
     status: 'processed',

@@ -3,7 +3,7 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { UserRole, WebhookInboxStatus } from '@prisma/client';
+import { Prisma, UserRole, WebhookInboxStatus } from '@prisma/client';
 import { isAdmin as isAdminRole } from '@/lib/adminTiers';
 import {
   ingestLeadMailboxWebhook,
@@ -22,6 +22,28 @@ async function assertDistributionAdmin() {
   const allowed = isAdminRole(role) || role === UserRole.MANAGER;
   if (!allowed) throw new Error('Unauthorized');
   return session;
+}
+
+function parseCapturedRawJson(body: Record<string, unknown>):
+  | Record<string, unknown>
+  | null {
+  const raw = body._raw;
+  if (typeof raw !== 'string') return null;
+
+  const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, '');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (lastBrace < 0 || !/^[\s`]*$/.test(trimmed.slice(lastBrace + 1))) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed.slice(0, lastBrace + 1)) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return null;
+  }
 }
 
 export type InboxStatusFilter = 'ALL' | WebhookInboxStatus;
@@ -196,19 +218,30 @@ export async function replayInboxEvent(
 
   // Reject replay for events whose body is unparseable JSON. Those were
   // captured verbatim but have no meaningful payload to re-ingest.
-  const body = row.body as unknown;
+  let body = row.body as unknown;
   if (
     !body ||
     typeof body !== 'object' ||
     (body as Record<string, unknown>)._parseError
   ) {
-    await markSkipped(row.id, 'Replay skipped: body is not valid JSON');
-    return {
-      ok: false,
-      status: WebhookInboxStatus.SKIPPED,
-      leadId: null,
-      error: 'Body is not valid JSON — cannot replay',
-    };
+    const recovered =
+      body && typeof body === 'object'
+        ? parseCapturedRawJson(body as Record<string, unknown>)
+        : null;
+    if (!recovered) {
+      await markSkipped(row.id, 'Replay skipped: body is not valid JSON');
+      return {
+        ok: false,
+        status: WebhookInboxStatus.SKIPPED,
+        leadId: null,
+        error: 'Body is not valid JSON — cannot replay',
+      };
+    }
+    body = recovered;
+    await prisma.webhookInboxEvent.update({
+      where: { id: row.id },
+      data: { body: recovered as Prisma.InputJsonValue },
+    });
   }
 
   if (!row.vendorSlug) {

@@ -51,6 +51,10 @@ import { render, renderString, type TemplateContext } from './template';
  */
 const SERVICE_TRIGGERS_CONCURRENCY_LIMIT = 2;
 
+function isBonzoService(service: Pick<IntegrationService, 'slug' | 'type'>) {
+  return service.slug === 'bonzo' || service.type === 'bonzo';
+}
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -722,6 +726,15 @@ async function runServiceTriggersImpl(
     });
 
     for (const service of candidates) {
+      // The portal has a first-class per-user Bonzo forwarder that runs on
+      // assignment (`forwardLeadToBonzo`). Letting a Bonzo IntegrationService
+      // auto-fire from the same trigger creates duplicate Bonzo prospects.
+      // Bonzo services remain available for manual Push to Service because
+      // manual dispatch calls `dispatchServiceToLead` directly.
+      if (isBonzoService(service)) {
+        continue;
+      }
+
       // ON_STATUS_CHANGE services can filter to a specific target status.
       if (
         trigger === IntegrationServiceTrigger.ON_STATUS_CHANGE &&

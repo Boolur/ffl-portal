@@ -2,18 +2,18 @@ import { NextResponse } from 'next/server';
 import { drainDueDispatches } from '@/lib/services';
 
 function isAuthorized(request: Request) {
-  const expected =
-    process.env.NOTIFICATION_OUTBOX_SECRET?.trim() ||
-    process.env.CRON_SECRET?.trim() ||
-    '';
-  if (!expected) return false;
+  const allowedSecrets = [
+    process.env.NOTIFICATION_OUTBOX_SECRET?.trim(),
+    process.env.CRON_SECRET?.trim(),
+  ].filter((secret): secret is string => Boolean(secret));
+  if (allowedSecrets.length === 0) return false;
 
   const authHeader = request.headers.get('authorization') || '';
   const bearer = authHeader.toLowerCase().startsWith('bearer ')
     ? authHeader.slice(7).trim()
     : '';
   const headerSecret = request.headers.get('x-cron-secret')?.trim() || '';
-  return bearer === expected || headerSecret === expected;
+  return allowedSecrets.includes(bearer) || allowedSecrets.includes(headerSecret);
 }
 
 export async function POST(request: Request) {

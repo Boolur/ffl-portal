@@ -570,7 +570,7 @@ function ServiceBuilderModal({
       const next: BuilderState = { ...prev, preset };
       if (preset === 'bonzo') {
         next.method = 'POST_JSON';
-        next.statusTrigger = prev.statusTrigger === 'MANUAL' ? 'ON_ASSIGN' : prev.statusTrigger;
+        next.statusTrigger = 'MANUAL';
         next.requiresAssignedUser = true;
         next.allowManualSend = true;
         if (!prev.urlTemplate) {

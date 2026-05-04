@@ -8,6 +8,44 @@ import {
 } from '@/lib/webhookInbox';
 import { ingestLeadMailboxWebhook } from '@/lib/webhookIngest';
 
+function parseWebhookJson(bodyText: string): {
+  payload: Record<string, unknown> | null;
+  parseError: string | null;
+} {
+  try {
+    return {
+      payload: bodyText ? (JSON.parse(bodyText) as Record<string, unknown>) : {},
+      parseError: null,
+    };
+  } catch (err) {
+    const originalError =
+      err instanceof Error ? err.message : 'Unknown JSON parse error';
+
+    // Lead Mailbox admins sometimes paste the JSON template from a markdown
+    // code block and the trailing backticks survive substitution. If the only
+    // non-JSON content is whitespace/backticks after the final object brace,
+    // salvage the payload instead of dropping a real lead into SKIPPED.
+    const trimmed = bodyText.trim().replace(/^```(?:json)?\s*/i, '');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (lastBrace >= 0 && /^[\s`]*$/.test(trimmed.slice(lastBrace + 1))) {
+      try {
+        return {
+          payload: JSON.parse(trimmed.slice(0, lastBrace + 1)) as Record<
+            string,
+            unknown
+          >,
+          parseError: null,
+        };
+      } catch {
+        // Fall through to the original parse error; it points closest to what
+        // the sender actually posted.
+      }
+    }
+
+    return { payload: null, parseError: originalError };
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ vendorSlug: string }> }
@@ -19,14 +57,7 @@ export async function POST(
   // the source of truth for everything that follows.
   const bodyText = await request.text();
 
-  let payload: Record<string, unknown> | null = null;
-  let parseError: string | null = null;
-  try {
-    payload = bodyText ? (JSON.parse(bodyText) as Record<string, unknown>) : {};
-  } catch (err) {
-    parseError =
-      err instanceof Error ? err.message : 'Unknown JSON parse error';
-  }
+  const { payload, parseError } = parseWebhookJson(bodyText);
 
   const headers = captureHeaders(request.headers);
 
