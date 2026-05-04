@@ -49,8 +49,8 @@ export default async function LeadReportingPage() {
           &larr; Back to Lead Distribution
         </Link>
         <div className="flex items-center gap-3 mt-1">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 shadow-sm">
-            <BarChart3 className="h-5 w-5 text-white" />
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-100 bg-white shadow-sm">
+            <BarChart3 className="h-5 w-5 text-blue-600" />
           </div>
           <div>
             <h1 className="app-page-title !mb-0">Lead Spend Reporting</h1>

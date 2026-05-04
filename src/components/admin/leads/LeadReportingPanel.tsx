@@ -57,12 +57,12 @@ const BILLING_FOCUS_OPTIONS: Array<{
 ];
 
 const PRESET_OPTIONS: Array<{ value: Preset; label: string }> = [
-  { value: 'today', label: 'Today' },
+  { value: 'today', label: 'Daily' },
   { value: 'yesterday', label: 'Yesterday' },
-  { value: 'last7', label: 'Last 7 Days' },
-  { value: 'mtd', label: 'Month to Date' },
+  { value: 'last7', label: 'Weekly' },
+  { value: 'mtd', label: 'Monthly' },
   { value: 'lastMonth', label: 'Last Month' },
-  { value: 'custom', label: 'Custom' },
+  { value: 'custom', label: 'Date Range' },
 ];
 
 function startOfDay(date: Date) {
@@ -158,29 +158,50 @@ function KpiCard({
   value: string;
   subtitle: string;
   Icon: React.ComponentType<{ className?: string }>;
-  tone: 'slate' | 'blue' | 'emerald' | 'amber';
+  tone: 'sky' | 'blue' | 'emerald' | 'amber';
 }) {
   const tones = {
-    slate: 'from-slate-950 to-slate-800 text-white ring-slate-700',
-    blue: 'from-blue-600 to-indigo-700 text-white ring-blue-500',
-    emerald: 'from-emerald-500 to-teal-700 text-white ring-emerald-400',
-    amber: 'from-amber-400 to-orange-600 text-slate-950 ring-amber-300',
+    sky: {
+      card: 'border-sky-200 bg-sky-50 text-sky-950',
+      icon: 'bg-white text-sky-600 ring-sky-100',
+      label: 'text-sky-700',
+      subtitle: 'text-sky-700/75',
+    },
+    blue: {
+      card: 'border-blue-200 bg-blue-50 text-blue-950',
+      icon: 'bg-white text-blue-600 ring-blue-100',
+      label: 'text-blue-700',
+      subtitle: 'text-blue-700/75',
+    },
+    emerald: {
+      card: 'border-emerald-200 bg-emerald-50 text-emerald-950',
+      icon: 'bg-white text-emerald-600 ring-emerald-100',
+      label: 'text-emerald-700',
+      subtitle: 'text-emerald-700/75',
+    },
+    amber: {
+      card: 'border-amber-200 bg-amber-50 text-amber-950',
+      icon: 'bg-white text-amber-600 ring-amber-100',
+      label: 'text-amber-700',
+      subtitle: 'text-amber-700/75',
+    },
   };
+  const selectedTone = tones[tone];
 
   return (
-    <div className={cx('relative overflow-hidden rounded-3xl bg-gradient-to-br p-5 shadow-sm ring-1', tones[tone])}>
-      <div className="absolute -right-5 -top-5 h-24 w-24 rounded-full bg-white/10" />
+    <div className={cx('relative overflow-hidden rounded-3xl border p-5 shadow-sm', selectedTone.card)}>
+      <div className="absolute -right-5 -top-5 h-24 w-24 rounded-full bg-white/60" />
       <div className="relative flex items-start justify-between gap-4">
         <div>
-          <p className={cx('text-xs font-bold uppercase tracking-[0.18em]', tone === 'amber' ? 'text-slate-800/70' : 'text-white/70')}>
+          <p className={cx('text-xs font-bold uppercase tracking-[0.18em]', selectedTone.label)}>
             {title}
           </p>
           <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
-          <p className={cx('mt-2 text-sm', tone === 'amber' ? 'text-slate-800/75' : 'text-white/75')}>
+          <p className={cx('mt-2 text-sm', selectedTone.subtitle)}>
             {subtitle}
           </p>
         </div>
-        <div className={cx('rounded-2xl p-3 ring-1', tone === 'amber' ? 'bg-white/30 ring-slate-900/10' : 'bg-white/15 ring-white/20')}>
+        <div className={cx('rounded-2xl p-3 ring-1', selectedTone.icon)}>
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -221,28 +242,46 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
     return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
   }, [report.filters.endDate, report.filters.startDate]);
 
+  function buildReportParams(overrides?: Partial<{
+    startDate: string;
+    endDate: string;
+    vendorIds: string[];
+    campaignIds: string[];
+    assignedUserIds: string[];
+    billingFocus: LeadBillingFocus;
+    includeUnassigned: boolean;
+    includeMissingPrice: boolean;
+  }>) {
+    return {
+      startDate: overrides?.startDate ?? startDate,
+      endDate: overrides?.endDate ?? endDate,
+      vendorIds: overrides?.vendorIds ?? vendorIds,
+      campaignIds: overrides?.campaignIds ?? campaignIds,
+      assignedUserIds: overrides?.assignedUserIds ?? assignedUserIds,
+      billingFocus: overrides?.billingFocus ?? billingFocus,
+      includeUnassigned: overrides?.includeUnassigned ?? includeUnassigned,
+      includeMissingPrice: overrides?.includeMissingPrice ?? includeMissingPrice,
+    };
+  }
+
+  function runReport(overrides?: Partial<ReturnType<typeof buildReportParams>>) {
+    startTransition(async () => {
+      const next = await getLeadSpendReport(buildReportParams(overrides));
+      setReport(next);
+    });
+  }
+
   function applyPreset(nextPreset: Preset) {
     setPreset(nextPreset);
     if (nextPreset === 'custom') return;
     const range = rangeForPreset(nextPreset);
     setStartDate(range.startDate);
     setEndDate(range.endDate);
+    runReport({ startDate: range.startDate, endDate: range.endDate });
   }
 
   function refreshReport() {
-    startTransition(async () => {
-      const next = await getLeadSpendReport({
-        startDate,
-        endDate,
-        vendorIds,
-        campaignIds,
-        assignedUserIds,
-        billingFocus,
-        includeUnassigned,
-        includeMissingPrice,
-      });
-      setReport(next);
-    });
+    runReport();
   }
 
   function toggleOfficer(id: string) {
@@ -256,28 +295,28 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-950 p-6 text-white shadow-xl sm:p-8">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.32),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.2),transparent_30%)]" />
+      <section className="relative overflow-hidden rounded-[2rem] border border-blue-100 bg-white p-6 text-slate-900 shadow-sm sm:p-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(219,234,254,0.95),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(209,250,229,0.75),transparent_32%)]" />
         <div className="relative grid gap-6 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
               <Sparkles className="h-3.5 w-3.5" />
               Lead spend command center
             </div>
             <h2 className="mt-5 max-w-3xl text-3xl font-black tracking-tight sm:text-5xl">
               Billable lead spend, sliced by LO, vendor, and campaign.
             </h2>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
               A finance-grade view of where lead dollars went, who owns the
               spend, and which records still need pricing cleanup before billing.
             </p>
           </div>
-          <div className="rounded-3xl border border-white/10 bg-white/10 p-5 backdrop-blur">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/60">
+          <div className="rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-sm backdrop-blur">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
               Current report
             </p>
             <p className="mt-3 text-2xl font-black">{formatCurrency(report.summary.totalSpend)}</p>
-            <p className="mt-2 text-sm text-slate-300">{rangeLabel}</p>
+            <p className="mt-2 text-sm text-slate-500">{rangeLabel}</p>
             <p className="mt-4 text-xs text-slate-400">
               Generated {formatDateTime(report.generatedAt)}
             </p>
@@ -300,10 +339,10 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
             type="button"
             onClick={refreshReport}
             disabled={isPending}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-bold text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-60"
           >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Run report
+            Apply filters
           </button>
         </div>
 
@@ -317,16 +356,19 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => setBillingFocus(option.value)}
+                  onClick={() => {
+                    setBillingFocus(option.value);
+                    runReport({ billingFocus: option.value });
+                  }}
                   className={cx(
                     'rounded-2xl border px-4 py-3 text-left transition',
                     billingFocus === option.value
-                      ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
+                      ? 'border-blue-200 bg-blue-50 text-blue-950 shadow-sm'
                       : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
                   )}
                 >
                   <span className="block text-sm font-black">{option.label}</span>
-                  <span className={cx('mt-1 block text-xs', billingFocus === option.value ? 'text-slate-300' : 'text-slate-500')}>
+                  <span className={cx('mt-1 block text-xs', billingFocus === option.value ? 'text-blue-700/75' : 'text-slate-500')}>
                     {option.description}
                   </span>
                 </button>
@@ -347,7 +389,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
                   className={cx(
                     'rounded-full px-3 py-1.5 text-xs font-bold transition',
                     preset === option.value
-                      ? 'bg-blue-600 text-white shadow-sm'
+                      ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   )}
                 >
@@ -470,7 +512,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
           value={formatCurrency(report.summary.totalSpend)}
           subtitle={`${formatNumber(report.summary.pricedLeadCount)} priced leads`}
           Icon={Banknote}
-          tone="slate"
+          tone="sky"
         />
         <KpiCard
           title="Company-paid"

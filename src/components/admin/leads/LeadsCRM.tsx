@@ -645,7 +645,7 @@ export function LeadsCRM({
 
   const handleColDragLeave = useCallback(
     (colId: LeadColumnId) =>
-      (_e: React.DragEvent<HTMLTableCellElement>) => {
+      () => {
         setDropTarget((prev) => (prev?.colId === colId ? null : prev));
       },
     []
@@ -1691,7 +1691,7 @@ export function LeadsCRM({
           </Link>
           <Link
             href="/admin/leads/reporting"
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-white px-5 py-2.5 text-sm font-bold text-sky-700 shadow-sm hover:bg-sky-50 transition-colors"
             title="Lead spend reporting by loan officer, vendor, and campaign"
           >
             <BarChart3 className="h-4 w-4" />
@@ -2554,7 +2554,7 @@ export function LeadsCRM({
                 {orderedColumns.map((c) => (
                   <col key={c.id} style={{ width: columnWidths[c.id] }} />
                 ))}
-                <col aria-hidden="true" />
+                <col />
               </colgroup>
               <thead className="sticky top-0 z-[1] bg-slate-50">
                 <tr className="border-b border-slate-200">
