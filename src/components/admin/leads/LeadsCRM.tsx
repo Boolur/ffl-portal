@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Activity,
+  BarChart3,
   Search,
   UserPlus,
   Loader2,
@@ -1662,8 +1663,8 @@ export function LeadsCRM({
   return (
     <div className="space-y-5">
       {/* Quick action toolbar (CSV import + jump to Unassigned Pool +
-          Health). Admin-only: LOs can't ingest CSV batches, browse the
-          pool, or run mapping diagnostics. */}
+          Reporting + Health). Admin-only: LOs can't ingest CSV batches,
+          browse the pool, or run reporting/diagnostics. */}
       {!isLoMode && (
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -1687,6 +1688,14 @@ export function LeadsCRM({
           >
             <Activity className="h-4 w-4" />
             Health
+          </Link>
+          <Link
+            href="/admin/leads/reporting"
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-colors"
+            title="Lead spend reporting by loan officer, vendor, and campaign"
+          >
+            <BarChart3 className="h-4 w-4" />
+            Reporting
           </Link>
         </div>
       )}

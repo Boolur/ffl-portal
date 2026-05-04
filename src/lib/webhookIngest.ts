@@ -129,17 +129,25 @@ export async function ingestLeadMailboxWebhook(
     normalizeStringValue(payload.leadid) ??
     normalizeStringValue(payload.id);
 
-  if (campaign?.duplicateHandling === 'REJECT' && vendorLeadId) {
+  if (vendorLeadId) {
     const existing = await prisma.lead.findFirst({
       where: { vendorId: vendor.id, vendorLeadId },
     });
     if (existing) {
       return {
-        status: 'skipped',
-        code: 409,
-        body: { error: 'Duplicate lead rejected', leadId: existing.id },
+        status: 'processed',
+        code: 200,
+        body: {
+          status: 'ok',
+          success: true,
+          duplicate: true,
+          leadId: existing.id,
+          source: 'lead-mailbox-bridge',
+          vendor: vendor.slug,
+          campaign: campaign?.routingTag ?? null,
+        },
         leadId: existing.id,
-        skipReason: `Duplicate vendorLeadId=${vendorLeadId} (REJECT policy)`,
+        skipReason: null,
       };
     }
   }
@@ -308,7 +316,7 @@ const LEAD_FIELDS = new Set([
   'currentLender', 'currentBalance', 'currentRate', 'currentPayment', 'currentTerm', 'currentType',
   'otherBalance', 'otherPayment', 'targetRate',
   'vaStatus', 'vaLoan', 'isMilitary', 'fhaLoan', 'sourceUrl',
-  'leadCreated',
+  'leadCreated', 'price',
 ]);
 
 export type VendorLeadIngestInput = {
@@ -370,17 +378,17 @@ export async function ingestVendorLeadWebhook(
     (payload.id as string) ||
     null;
 
-  if (campaign?.duplicateHandling === 'REJECT' && vendorLeadId) {
+  if (vendorLeadId) {
     const existing = await prisma.lead.findFirst({
       where: { vendorId: vendor.id, vendorLeadId },
     });
     if (existing) {
       return {
-        status: 'skipped',
-        code: 409,
-        body: { error: 'Duplicate lead rejected', leadId: existing.id },
+        status: 'processed',
+        code: 200,
+        body: { success: true, duplicate: true, leadId: existing.id },
         leadId: existing.id,
-        skipReason: `Duplicate vendorLeadId=${vendorLeadId} (REJECT policy)`,
+        skipReason: null,
       };
     }
   }

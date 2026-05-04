@@ -192,9 +192,10 @@ export const LEAD_MAILBOX_TARGET_FIELDS: Set<string> = new Set(
  * - Property, loan, and credit details are NOT exposed as named placeholders
  *   in this LM config — they come through as numbered custom fields
  *   ({Field_007}, {Field_041}, etc.) whose IDs are assigned per-customer in
- *   LM's admin. The numbers below match the mapping in use today; if the LM
- *   admin renumbers a field, update it here and the Copy JSON Template button
- *   will hand out the corrected version.
+ *   LM's admin. Lead price is vendor metadata and uses `{Price}`.
+ *   The numbers below match the mapping in use today; if the LM admin
+ *   renumbers a field, update it here and the Copy JSON Template button will
+ *   hand out the corrected version.
  * - The `notes` array enriches the persisted lead with LO assignment
  *   metadata and the LM campaign name. Those placeholders have no
  *   column on the `Lead` model, but `extractBridgeNotes` preserves them
@@ -273,6 +274,7 @@ export function buildLeadMailboxJsonTemplate(): string {
       current_rate: '{current rate}',
 
       lead_created: '{createddash}',
+      price: '{Price}',
       user_id: '{user_002}',
 
       notes: [

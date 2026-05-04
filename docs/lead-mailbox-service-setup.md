@@ -68,6 +68,7 @@ Paste this into the **Content** field of every LMB Service you create. The **onl
   "current_rate": "{current rate}",
 
   "lead_created": "{createddash}",
+  "price": "{Price}",
   "user_id": "{user_002}",
 
   "notes": [
@@ -85,7 +86,7 @@ Key things to know:
 - `lead_id` becomes the portal lead's `vendorLeadId` (for cross-referencing back to LMB).
 - The `property_*` block (using `{phys_*}`) stays first so the subject property wins when LMB populates it. The `mailing_*` block (using `{Mail_*}`) is now stored on the dedicated `Lead.mailing*` columns instead of collapsing into `property*`, so investor leads with a genuinely different mailing vs subject property preserve both. To keep the "address always lights up" guarantee for vendors whose `{phys_*}` placeholders are often blank (notably LendingTree and FreeRateUpdate), `ingestLeadMailboxWebhook` mirrors `mailing*` onto `property*` whenever `property*` ended up blank — same observable behavior as before for the Broker Launch email and lead detail UI, but Bonzo, CSV exports, and any future outbound integration that reads `Lead.mailingAddress` directly now see the real mailing address too.
 - The Bonzo forwarder ([src/lib/bonzoForward.ts](../src/lib/bonzoForward.ts)) keeps its own `mailingAddress ?? propertyAddress` fallback for the borrower address block (`address` / `city` / `state` / `zip`) and additionally falls back `phone -> homePhone -> workPhone` (and the same chain for `co_phone`). FRU leads whose only number arrived as `{HomePhone}` / `number2` were previously sent to Bonzo as `phone: null` — the fallback fixes that without changing what's stored on the lead. Bonzo also now receives `home_phone`, `work_phone`, `co_home_phone`, and `co_work_phone` as distinct keys, plus `loan_term` mirroring `loan_program` so triggers that key on either name fire correctly.
-- `property_ltv: "{Field_011}"` and `loan_rate: "{Field_037}"` reference numbered custom fields — these IDs are assigned per-customer in LMB's admin and match the ones configured for this org today. If an LMB admin renumbers a field, update it in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts) and re-copy.
+- `property_ltv: "{Field_011}"` and `loan_rate: "{Field_037}"` reference numbered custom fields — these IDs are assigned per-customer in LMB's admin and match the ones configured for this org today. `price: "{Price}"` is the vendor-provided lead cost that appears in the portal's Price field and Broker Launch email. If an LMB admin renumbers a field, update it in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts) and re-copy.
 - LO info (`{User_Name}`, `{User_Email}`, `{User_License}`, `{User_Phone}`) and `{campaign_name}` have no home on the `Lead` model, so they're persisted as **notes** instead of getting dropped. `extractBridgeNotes` in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts) auto-filters empty strings and unsubstituted `{Token}` placeholders.
 - `is_military` and `custom_veteran` both land on the same `Lead.isMilitary` yes/no column — see the comment at lines 129-132 of [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts).
 
