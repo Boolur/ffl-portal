@@ -1394,29 +1394,124 @@ export function LeadsCRM({
     });
     try {
       const csvHeaders = [
-        'First Name',
-        'Last Name',
-        'Email',
-        'Phone',
-        'Property State',
-        'Loan Purpose',
-        'Loan Amount',
-        'Credit Rating',
+        'Lead ID',
+        'Vendor Lead ID',
+        'Vendor User ID',
         'Status',
-        'Source',
         'Vendor',
         'Campaign',
         'Assigned To',
         'Received At',
+        'Assigned At',
+        'Created At',
+        'Updated At',
+        'Source',
+        'Source URL',
+        'Lead Created',
+        'Lead Price',
+        'First Name',
+        'Last Name',
+        'Email',
+        'Phone',
+        'Home Phone',
+        'Work Phone',
+        'DOB',
+        'SSN',
+        'Co-Borrower First Name',
+        'Co-Borrower Last Name',
+        'Co-Borrower Email',
+        'Co-Borrower Phone',
+        'Co-Borrower Home Phone',
+        'Co-Borrower Work Phone',
+        'Co-Borrower DOB',
+        'Mailing Address',
+        'Mailing City',
+        'Mailing State',
+        'Mailing Zip',
+        'Mailing County',
+        'Property Address',
+        'Property City',
+        'Property State',
+        'Property Zip',
+        'Property County',
+        'Purchase Price',
+        'Property Value',
+        'Property Type',
+        'Property Use',
+        'Property Acquired',
+        'Property LTV',
+        'Employer',
+        'Job Title',
+        'Employment Length',
+        'Self Employed',
+        'Income',
+        'Bankruptcy',
+        'Foreclosure',
+        'Homeowner',
+        'Co-Borrower Employer',
+        'Co-Borrower Job Title',
+        'Co-Borrower Employment Length',
+        'Co-Borrower Self Employed',
+        'Co-Borrower Income',
+        'Loan Purpose',
+        'Loan Amount',
+        'Loan Term',
+        'Loan Type',
+        'Loan Rate',
+        'Down Payment',
+        'Cash Out',
+        'Credit Rating',
+        'Current Lender',
+        'Current Balance',
+        'Current Rate',
+        'Current Payment',
+        'Current Term',
+        'Current Type',
+        'Other Balance',
+        'Other Payment',
+        'Target Rate',
+        'VA Status',
+        'VA Loan',
+        'Military',
+        'FHA Loan',
+        'Notes Count',
+        'Notes',
+        'Raw Payload JSON',
       ];
 
-      const escCsv = (val: string | null | undefined) => {
+      const escCsv = (val: unknown) => {
         if (val == null || val === '') return '';
         const s = String(val);
         if (s.includes(',') || s.includes('"') || s.includes('\n'))
           return `"${s.replace(/"/g, '""')}"`;
         return s;
       };
+      const dateCsv = (val: Date | string | null | undefined) => {
+        if (!val) return '';
+        const date = val instanceof Date ? val : new Date(val);
+        return Number.isNaN(date.getTime()) ? String(val) : date.toISOString();
+      };
+      const jsonCsv = (val: unknown) => {
+        if (val == null) return '';
+        try {
+          return JSON.stringify(val);
+        } catch {
+          return String(val);
+        }
+      };
+      const notesCsv = (
+        notes: Array<{
+          content: string;
+          createdAt: Date | string;
+          author: { name: string } | null;
+        }>
+      ) =>
+        notes
+          .map((note) => {
+            const author = note.author?.name ?? 'Lead Mailbox';
+            return `${dateCsv(note.createdAt)} - ${author}: ${note.content}`;
+          })
+          .join('\n\n');
 
       const batchSize = 200;
       const totalBatches = Math.ceil(ids.length / batchSize);
@@ -1428,20 +1523,89 @@ export function LeadsCRM({
         for (const l of exportLeads) {
           allRows.push(
             [
+              escCsv(l.id),
+              escCsv(l.vendorLeadId),
+              escCsv(l.vendorUserId),
+              escCsv(l.status),
+              escCsv(l.vendor?.name),
+              escCsv(l.campaign?.name),
+              escCsv(l.assignedUser?.name),
+              escCsv(dateCsv(l.receivedAt)),
+              escCsv(dateCsv(l.assignedAt)),
+              escCsv(dateCsv(l.createdAt)),
+              escCsv(dateCsv(l.updatedAt)),
+              escCsv(l.source),
+              escCsv(l.sourceUrl),
+              escCsv(l.leadCreated),
+              escCsv(l.price),
               escCsv(l.firstName),
               escCsv(l.lastName),
               escCsv(l.email),
               escCsv(l.phone),
+              escCsv(l.homePhone),
+              escCsv(l.workPhone),
+              escCsv(l.dob),
+              escCsv(l.ssn),
+              escCsv(l.coFirstName),
+              escCsv(l.coLastName),
+              escCsv(l.coEmail),
+              escCsv(l.coPhone),
+              escCsv(l.coHomePhone),
+              escCsv(l.coWorkPhone),
+              escCsv(l.coDob),
+              escCsv(l.mailingAddress),
+              escCsv(l.mailingCity),
+              escCsv(l.mailingState),
+              escCsv(l.mailingZip),
+              escCsv(l.mailingCounty),
+              escCsv(l.propertyAddress),
+              escCsv(l.propertyCity),
               escCsv(l.propertyState),
+              escCsv(l.propertyZip),
+              escCsv(l.propertyCounty),
+              escCsv(l.purchasePrice),
+              escCsv(l.propertyValue),
+              escCsv(l.propertyType),
+              escCsv(l.propertyUse),
+              escCsv(l.propertyAcquired),
+              escCsv(l.propertyLtv),
+              escCsv(l.employer),
+              escCsv(l.jobTitle),
+              escCsv(l.employmentLength),
+              escCsv(l.selfEmployed),
+              escCsv(l.income),
+              escCsv(l.bankruptcy),
+              escCsv(l.foreclosure),
+              escCsv(l.homeowner),
+              escCsv(l.coEmployer),
+              escCsv(l.coJobTitle),
+              escCsv(l.coEmploymentLength),
+              escCsv(l.coSelfEmployed),
+              escCsv(l.coIncome),
               escCsv(l.loanPurpose),
               escCsv(l.loanAmount),
+              escCsv(l.loanTerm),
+              escCsv(l.loanType),
+              escCsv(l.loanRate),
+              escCsv(l.downPayment),
+              escCsv(l.cashOut),
               escCsv(l.creditRating),
-              escCsv(l.status),
-              escCsv(l.source),
-              escCsv(l.vendor?.name),
-              escCsv(l.campaign?.name),
-              escCsv(l.assignedUser?.name),
-              escCsv(l.receivedAt.toISOString()),
+              escCsv(l.currentLender),
+              escCsv(l.currentBalance),
+              escCsv(l.currentRate),
+              escCsv(l.currentPayment),
+              escCsv(l.currentTerm),
+              escCsv(l.currentType),
+              escCsv(l.otherBalance),
+              escCsv(l.otherPayment),
+              escCsv(l.targetRate),
+              escCsv(l.vaStatus),
+              escCsv(l.vaLoan),
+              escCsv(l.isMilitary),
+              escCsv(l.fhaLoan),
+              escCsv(l.notes.length),
+              escCsv(notesCsv(l.notes)),
+              escCsv(jsonCsv(l.rawPayload)),
             ].join(',')
           );
         }

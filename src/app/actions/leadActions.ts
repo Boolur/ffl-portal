@@ -1980,6 +1980,10 @@ export async function getLeadsForExport(leadIds: string[]) {
       vendor: { select: { name: true } },
       campaign: { select: { name: true } },
       assignedUser: { select: { name: true } },
+      notes: {
+        include: { author: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+      },
     },
     orderBy: { receivedAt: 'desc' },
   });
