@@ -361,3 +361,24 @@ export async function deleteInboxEvent(eventId: string): Promise<void> {
   await prisma.webhookInboxEvent.delete({ where: { id: eventId } });
   revalidatePath('/admin/leads');
 }
+
+export async function deleteInboxEventsByStatus(
+  statuses: Array<'FAILED' | 'PENDING' | 'SKIPPED'>
+): Promise<{ deleted: number }> {
+  await assertDistributionAdmin();
+  const allowed = new Set<string>([
+    WebhookInboxStatus.FAILED,
+    WebhookInboxStatus.PENDING,
+    WebhookInboxStatus.SKIPPED,
+  ]);
+  const safeStatuses = statuses.filter((status) =>
+    allowed.has(status)
+  );
+  if (safeStatuses.length === 0) return { deleted: 0 };
+
+  const result = await prisma.webhookInboxEvent.deleteMany({
+    where: { status: { in: safeStatuses as WebhookInboxStatus[] } },
+  });
+  revalidatePath('/admin/leads');
+  return { deleted: result.count };
+}

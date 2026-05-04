@@ -47,6 +47,10 @@ async function assertDistributionAdmin() {
 // audit's "would-this-be-recoverable" answer matches what the webhook
 // would actually do on replay.
 const UNSUBSTITUTED_PLACEHOLDER = /^\{[A-Za-z0-9_]+\}$/;
+const HEALTH_DISMISS_PREFIX = 'Health dismissed';
+const HEALTH_DISMISSAL_KEY = 'leadHealthDismissals';
+
+type LeadHealthDismissalKey = 'bonzoForward' | 'brokerLaunchCoverage';
 
 function normalizeStringValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -54,6 +58,59 @@ function normalizeStringValue(value: unknown): string | null {
   if (str.length === 0) return null;
   if (UNSUBSTITUTED_PLACEHOLDER.test(str)) return null;
   return str;
+}
+
+function readObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function isDismissedAfter(
+  customData: unknown,
+  key: LeadHealthDismissalKey,
+  comparisonDate: Date | null
+): boolean {
+  const dismissals = readObject(readObject(customData)[HEALTH_DISMISSAL_KEY]);
+  const dismissal = readObject(dismissals[key]);
+  const at = typeof dismissal.at === 'string' ? new Date(dismissal.at) : null;
+  if (!at || Number.isNaN(at.getTime())) return false;
+  if (!comparisonDate) return true;
+  return at >= comparisonDate;
+}
+
+async function markLeadHealthDismissed(
+  leadIds: string[],
+  key: LeadHealthDismissalKey,
+  bucket: string
+): Promise<number> {
+  const uniqueIds = Array.from(new Set(leadIds)).slice(0, 500);
+  if (uniqueIds.length === 0) return 0;
+  const dismissedAt = new Date().toISOString();
+  const rows = await prisma.lead.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, customData: true },
+  });
+
+  let updated = 0;
+  for (const row of rows) {
+    const customData = readObject(row.customData);
+    const dismissals = readObject(customData[HEALTH_DISMISSAL_KEY]);
+    await prisma.lead.update({
+      where: { id: row.id },
+      data: {
+        customData: {
+          ...customData,
+          [HEALTH_DISMISSAL_KEY]: {
+            ...dismissals,
+            [key]: { at: dismissedAt, bucket },
+          },
+        } as Prisma.InputJsonValue,
+      },
+    });
+    updated += 1;
+  }
+  return updated;
 }
 
 // Address aliases per `Lead.property*` column. Kept in sync with
@@ -1066,9 +1123,19 @@ export async function getBrokerLaunchEmailStatus(
   // import). Clamped to coverageStart so we don't claim assignments
   // pre-dating the broker-launch service should have produced a
   // dispatch row.
-  const leadsAssignedInWindow = await prisma.lead.count({
-    where: { assignedAt: { gte: coverageStart } },
-  });
+  const [leadsAssignedTotal, brokerCoverageDismissedRows] = await Promise.all([
+    prisma.lead.count({ where: { assignedAt: { gte: coverageStart } } }),
+    prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS count
+      FROM "Lead"
+      WHERE "assignedAt" >= ${coverageStart}
+        AND ("customData" #>> ARRAY[${HEALTH_DISMISSAL_KEY}, 'brokerLaunchCoverage', 'at']) >= ${coverageStart.toISOString()}
+    `,
+  ]);
+  const leadsAssignedInWindow = Math.max(
+    0,
+    leadsAssignedTotal - Number(brokerCoverageDismissedRows[0]?.count ?? 0)
+  );
 
   const include = {
     lead: {
@@ -1263,6 +1330,25 @@ export async function getFailedBrokerLaunchDispatchIds(
   return rows.map((r) => r.id);
 }
 
+export async function clearBrokerLaunchFailedDispatches(
+  input: { days?: number } = {}
+): Promise<{ cleared: number }> {
+  await assertDistributionAdmin();
+  const ids = await getFailedBrokerLaunchDispatchIds(input);
+  if (ids.length === 0) return { cleared: 0 };
+
+  const result = await prisma.serviceDispatch.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      status: ServiceDispatchStatus.SKIPPED,
+      skippedReason: `${HEALTH_DISMISS_PREFIX}: unresolved failure acknowledged`,
+      lastError: null,
+      completedAt: new Date(),
+    },
+  });
+  return { cleared: result.count };
+}
+
 /**
  * Broker Launch coverage-gap recovery.
  *
@@ -1292,6 +1378,10 @@ export async function getMissingBrokerLaunchLeadIds(
     FROM "Lead" l
     WHERE l."assignedAt" >= ${coverageStart}
       AND l."assignedUserId" IS NOT NULL
+      AND COALESCE(
+        (l."customData" #>> ARRAY[${HEALTH_DISMISSAL_KEY}, 'brokerLaunchCoverage', 'at']) < ${coverageStart.toISOString()},
+        true
+      )
       AND NOT EXISTS (
         SELECT 1
         FROM "ServiceDispatch" d
@@ -1303,6 +1393,19 @@ export async function getMissingBrokerLaunchLeadIds(
     LIMIT 500
   `;
   return rows.map((r) => r.id);
+}
+
+export async function clearBrokerLaunchCoverageGap(
+  input: { days?: number } = {}
+): Promise<{ cleared: number }> {
+  await assertDistributionAdmin();
+  const ids = await getMissingBrokerLaunchLeadIds(input);
+  const cleared = await markLeadHealthDismissed(
+    ids,
+    'brokerLaunchCoverage',
+    'coverage-gap'
+  );
+  return { cleared };
 }
 
 export async function recoverMissingBrokerLaunchForLead(
@@ -1655,6 +1758,13 @@ export async function getBonzoForwardStatus(
     const audit = readBonzoAudit(lead.customData);
     const manualPush = manualByLeadId.get(lead.id) ?? null;
     const row = toBonzoSampleRow(lead, audit, manualPush);
+    const comparisonDate = audit?.at ? new Date(audit.at) : lead.assignedAt;
+    if (
+      row.outcome !== 'sent' &&
+      isDismissedAfter(lead.customData, 'bonzoForward', comparisonDate)
+    ) {
+      continue;
+    }
 
     if (audit) {
       forwarded += 1;
@@ -1798,7 +1908,7 @@ export async function getBonzoForwardRetryIds(
       // push 4k+ historical imports through Bonzo on a single click.
       ...(csvVendorId ? { vendorId: { not: csvVendorId } } : {}),
     },
-    select: { id: true, customData: true },
+    select: { id: true, assignedAt: true, customData: true },
     orderBy: { assignedAt: 'asc' },
     take: 5000,
   });
@@ -1807,6 +1917,10 @@ export async function getBonzoForwardRetryIds(
   for (const lead of leads) {
     if (manualSentLeadIds.has(lead.id)) continue;
     const audit = readBonzoAudit(lead.customData);
+    const comparisonDate = audit?.at ? new Date(audit.at) : lead.assignedAt;
+    if (isDismissedAfter(lead.customData, 'bonzoForward', comparisonDate)) {
+      continue;
+    }
     if (input.bucket === 'failed') {
       if (audit && (audit.outcome === 'http_error' || audit.outcome === 'exception')) {
         ids.push(lead.id);
@@ -1819,6 +1933,16 @@ export async function getBonzoForwardRetryIds(
     if (ids.length >= 500) break;
   }
   return ids;
+}
+
+export async function clearBonzoForwardHealthBucket(input: {
+  days?: number;
+  bucket: 'failed' | 'never' | 'no-webhook';
+}): Promise<{ cleared: number }> {
+  await assertDistributionAdmin();
+  const ids = await getBonzoForwardRetryIds(input);
+  const cleared = await markLeadHealthDismissed(ids, 'bonzoForward', input.bucket);
+  return { cleared };
 }
 
 export type BonzoRetryResult = {

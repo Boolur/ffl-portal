@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import {
   deleteInboxEvent,
+  deleteInboxEventsByStatus,
   getWebhookInboxCounts,
   getWebhookInboxEventDetail,
   listWebhookInboxEvents,
@@ -153,6 +154,23 @@ export function WebhookInboxPanel() {
     });
   };
 
+  const handleClearAttention = () => {
+    if (
+      !confirm(
+        'Clear all Failed and Pending webhook inbox events? This deletes their stored raw payloads from the Health inbox.'
+      )
+    ) {
+      return;
+    }
+    setBulkMessage(null);
+    startTransition(async () => {
+      const result = await deleteInboxEventsByStatus(['FAILED', 'PENDING']);
+      setBulkMessage(`Cleared ${result.deleted.toLocaleString()} webhook inbox event(s).`);
+      await refreshCounts();
+      await refreshList(statusFilter);
+    });
+  };
+
   const openDetail = async (id: string) => {
     setDetailLoading(true);
     try {
@@ -219,6 +237,22 @@ export function WebhookInboxPanel() {
                   <RefreshCcw className="h-3.5 w-3.5" />
                 )}
                 Replay all failed
+              </button>
+            )}
+            {hasAttention && (
+              <button
+                type="button"
+                onClick={handleClearAttention}
+                disabled={isPending}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50 disabled:opacity-60"
+                title="Delete failed and pending inbox events from this Health bucket."
+              >
+                {isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )}
+                Clear failed/pending
               </button>
             )}
             <button

@@ -35,6 +35,9 @@ import {
 } from 'lucide-react';
 import { WebhookInboxPanel } from './WebhookInboxPanel';
 import {
+  clearBonzoForwardHealthBucket,
+  clearBrokerLaunchCoverageGap,
+  clearBrokerLaunchFailedDispatches,
   getAuditVendors,
   getBonzoForwardRetryIds,
   getBonzoForwardStatus,
@@ -166,6 +169,7 @@ export function LeadHealthPanel() {
     useState<BonzoHealSweepResult | null>(null);
   const [healPending, startHeal] = useTransition();
   const [healError, setHealError] = useState<string | null>(null);
+  const [clearPending, setClearPending] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -660,6 +664,105 @@ export function LeadHealthPanel() {
     void refreshBonzoStatus(bonzoDays);
   };
 
+  const onClearBonzoBucket = async (
+    bucket: 'failed' | 'never' | 'no-webhook'
+  ) => {
+    if (!bonzoStatus) return;
+    const total =
+      bucket === 'failed'
+        ? bonzoStatus.totals.httpError + bonzoStatus.totals.exception
+        : bucket === 'never'
+          ? bonzoStatus.totals.neverAttempted
+          : bonzoStatus.totals.noWebhookUrl;
+    if (total === 0) return;
+    if (
+      !confirm(
+        `Clear ${total.toLocaleString()} Bonzo health item${total === 1 ? '' : 's'} from this bucket?\n\n` +
+          `This acknowledges the current Health warning for the selected leads. It does not delete leads or send anything to Bonzo.`
+      )
+    ) {
+      return;
+    }
+    setBonzoToast(null);
+    setClearPending(`bonzo-${bucket}`);
+    try {
+      const result = await clearBonzoForwardHealthBucket({
+        days: bonzoDays,
+        bucket,
+      });
+      setBonzoToast({
+        ok: true,
+        message: `Cleared ${result.cleared.toLocaleString()} Bonzo health item(s).`,
+      });
+      void refreshBonzoStatus(bonzoDays);
+    } catch (err) {
+      setBonzoToast({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Could not clear Bonzo health items.',
+      });
+    } finally {
+      setClearPending(null);
+    }
+  };
+
+  const onClearBrokerFailed = async () => {
+    if (!emailStatus || emailStatus.counts.failed === 0) return;
+    if (
+      !confirm(
+        `Clear ${emailStatus.counts.failed.toLocaleString()} unresolved Broker Launch failure${emailStatus.counts.failed === 1 ? '' : 's'}?\n\n` +
+          `This marks the failed dispatch rows as skipped/dismissed so they stop showing as unresolved. It does not send any emails.`
+      )
+    ) {
+      return;
+    }
+    setRetryToast(null);
+    setClearPending('broker-failed');
+    try {
+      const result = await clearBrokerLaunchFailedDispatches({ days: emailDays });
+      setRetryToast({
+        ok: true,
+        message: `Cleared ${result.cleared.toLocaleString()} Broker Launch failure(s).`,
+      });
+      void refreshEmailStatus(emailDays);
+    } catch (err) {
+      setRetryToast({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Could not clear Broker Launch failures.',
+      });
+    } finally {
+      setClearPending(null);
+    }
+  };
+
+  const onClearBrokerCoverage = async () => {
+    if (!emailStatus || emailStatus.coverage.gap === 0) return;
+    if (
+      !confirm(
+        `Clear ${emailStatus.coverage.gap.toLocaleString()} Broker Launch coverage gap item${emailStatus.coverage.gap === 1 ? '' : 's'}?\n\n` +
+          `This acknowledges assigned leads that have no dispatch row so they stop showing in Health. It does not send any emails.`
+      )
+    ) {
+      return;
+    }
+    setRetryToast(null);
+    setClearPending('broker-coverage');
+    try {
+      const result = await clearBrokerLaunchCoverageGap({ days: emailDays });
+      setRetryToast({
+        ok: true,
+        message: `Cleared ${result.cleared.toLocaleString()} Broker Launch coverage item(s).`,
+      });
+      void refreshEmailStatus(emailDays);
+    } catch (err) {
+      setRetryToast({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Could not clear Broker Launch coverage items.',
+      });
+    } finally {
+      setClearPending(null);
+    }
+  };
+
   const onCancelBonzoBulk = () => {
     cancelBonzoBulkRef.current = true;
   };
@@ -762,6 +865,8 @@ export function LeadHealthPanel() {
           toast={bonzoToast}
           onClearToast={() => setBonzoToast(null)}
           onBulkRetry={onBonzoBulkRetry}
+          onClearBucket={onClearBonzoBucket}
+          clearPending={clearPending}
           bulk={bonzoBulk}
           onCancelBulk={onCancelBonzoBulk}
           onDismissBulk={onDismissBonzoBulk}
@@ -795,7 +900,10 @@ export function LeadHealthPanel() {
           toast={retryToast}
           onClearToast={() => setRetryToast(null)}
           onBulkRetry={onBulkRetry}
+          onClearFailed={onClearBrokerFailed}
           onRecoverMissing={onRecoverMissingBrokerLaunch}
+          onClearCoverage={onClearBrokerCoverage}
+          clearPending={clearPending}
           bulkRetry={bulkRetry}
           onCancelBulkRetry={onCancelBulkRetry}
           onDismissBulkRetry={onDismissBulkRetry}
@@ -862,6 +970,19 @@ export function LeadHealthPanel() {
               )}
               Run audit
             </button>
+            {auditResult && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAuditResult(null);
+                  setAuditError(null);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" />
+                Clear audit
+              </button>
+            )}
           </div>
 
           {auditError && (
@@ -962,6 +1083,20 @@ export function LeadHealthPanel() {
                 ? ` (${backfillPreview.recoverable})`
                 : ''}
             </button>
+            {backfillPreview && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBackfillPreview(null);
+                  setBackfillApply(null);
+                  setBackfillError(null);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" />
+                Clear results
+              </button>
+            )}
           </div>
 
           {backfillError && (
@@ -1392,7 +1527,10 @@ function BrokerLaunchEmailSection({
   toast,
   onClearToast,
   onBulkRetry,
+  onClearFailed,
   onRecoverMissing,
+  onClearCoverage,
+  clearPending,
   bulkRetry,
   onCancelBulkRetry,
   onDismissBulkRetry,
@@ -1409,7 +1547,10 @@ function BrokerLaunchEmailSection({
   toast: { ok: boolean; message: string } | null;
   onClearToast: () => void;
   onBulkRetry: () => void;
+  onClearFailed: () => void;
   onRecoverMissing: () => void;
+  onClearCoverage: () => void;
+  clearPending: string | null;
   bulkRetry: BulkRetryProgress | null;
   onCancelBulkRetry: () => void;
   onDismissBulkRetry: () => void;
@@ -1496,7 +1637,10 @@ function BrokerLaunchEmailSection({
           retryingId={retryingId}
           onRetry={onRetry}
           onBulkRetry={onBulkRetry}
+          onClearFailed={onClearFailed}
           onRecoverMissing={onRecoverMissing}
+          onClearCoverage={onClearCoverage}
+          clearPending={clearPending}
           bulkRetryActive={Boolean(bulkRetry && !bulkRetry.done)}
         />
       )}
@@ -1521,6 +1665,8 @@ function BonzoForwardSection({
   toast,
   onClearToast,
   onBulkRetry,
+  onClearBucket,
+  clearPending,
   bulk,
   onCancelBulk,
   onDismissBulk,
@@ -1543,6 +1689,8 @@ function BonzoForwardSection({
   toast: { ok: boolean; message: string } | null;
   onClearToast: () => void;
   onBulkRetry: (bucket: 'failed' | 'never' | 'no-webhook') => void;
+  onClearBucket: (bucket: 'failed' | 'never' | 'no-webhook') => void;
+  clearPending: string | null;
   bulk: BulkRetryProgress | null;
   onCancelBulk: () => void;
   onDismissBulk: () => void;
@@ -1644,6 +1792,8 @@ function BonzoForwardSection({
           retryingId={retryingId}
           onRetry={onRetry}
           onBulkRetry={onBulkRetry}
+          onClearBucket={onClearBucket}
+          clearPending={clearPending}
           bulkActive={Boolean(bulk && !bulk.done)}
         />
       )}
@@ -1811,12 +1961,16 @@ function BonzoForwardBody({
   retryingId,
   onRetry,
   onBulkRetry,
+  onClearBucket,
+  clearPending,
   bulkActive,
 }: {
   status: BonzoForwardStatus;
   retryingId: string | null;
   onRetry: (row: BonzoForwardSampleRow) => void;
   onBulkRetry: (bucket: 'failed' | 'never' | 'no-webhook') => void;
+  onClearBucket: (bucket: 'failed' | 'never' | 'no-webhook') => void;
+  clearPending: string | null;
   bulkActive: boolean;
 }) {
   const { totals } = status;
@@ -1910,9 +2064,9 @@ function BonzoForwardBody({
         <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
           <div>
-            All <strong>{totals.assigned.toLocaleString()}</strong> leads
-            assigned in the last {status.lookbackDays} days were successfully
-            forwarded to Bonzo. No errors, no missing webhook URLs.
+            No active Bonzo forwarding errors are showing for the{' '}
+            <strong>{totals.assigned.toLocaleString()}</strong> leads assigned
+            in the last {status.lookbackDays} days.
           </div>
         </div>
       )}
@@ -1985,22 +2139,41 @@ function BonzoForwardBody({
             <h3 className="text-xs font-bold uppercase tracking-wider text-rose-800">
               Recent HTTP errors ({totals.httpError.toLocaleString()})
             </h3>
-            <button
-              type="button"
-              onClick={() => onBulkRetry('failed')}
-              disabled={
-                bulkActive || totals.httpError + totals.exception === 0
-              }
-              className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
-              title="Retry every Bonzo forward in this window with outcome http_error or unknown exception."
-            >
-              {bulkActive ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Send className="h-3 w-3" />
-              )}
-              Retry unknown failed ({(totals.httpError + totals.exception).toLocaleString()})
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onBulkRetry('failed')}
+                disabled={
+                  bulkActive || totals.httpError + totals.exception === 0
+                }
+                className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Retry every Bonzo forward in this window with outcome http_error or unknown exception."
+              >
+                {bulkActive ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Send className="h-3 w-3" />
+                )}
+                Retry unknown failed ({(totals.httpError + totals.exception).toLocaleString()})
+              </button>
+              <button
+                type="button"
+                onClick={() => onClearBucket('failed')}
+                disabled={
+                  bulkActive ||
+                  clearPending === 'bonzo-failed' ||
+                  totals.httpError + totals.exception === 0
+                }
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {clearPending === 'bonzo-failed' ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+                Clear failed
+              </button>
+            </div>
           </div>
           <BonzoSampleTable
             rows={status.recentHttpErrors}
@@ -2013,9 +2186,24 @@ function BonzoForwardBody({
       {/* Exception rows */}
       {status.recentExceptions.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-rose-800">
-            Unknown delivery exceptions ({totals.exception.toLocaleString()})
-          </h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-rose-800">
+              Unknown delivery exceptions ({totals.exception.toLocaleString()})
+            </h3>
+            <button
+              type="button"
+              onClick={() => onClearBucket('failed')}
+              disabled={bulkActive || clearPending === 'bonzo-failed'}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {clearPending === 'bonzo-failed' ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <X className="h-3 w-3" />
+              )}
+              Clear failed
+            </button>
+          </div>
           <BonzoSampleTable
             rows={status.recentExceptions}
             retryingId={retryingId}
@@ -2031,19 +2219,34 @@ function BonzoForwardBody({
             <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800">
               Never attempted ({totals.neverAttempted.toLocaleString()})
             </h3>
-            <button
-              type="button"
-              onClick={() => onBulkRetry('never')}
-              disabled={bulkActive || totals.neverAttempted === 0}
-              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {bulkActive ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Send className="h-3 w-3" />
-              )}
-              Retry never-attempted ({totals.neverAttempted.toLocaleString()})
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onBulkRetry('never')}
+                disabled={bulkActive || totals.neverAttempted === 0}
+                className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {bulkActive ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Send className="h-3 w-3" />
+                )}
+                Retry never-attempted ({totals.neverAttempted.toLocaleString()})
+              </button>
+              <button
+                type="button"
+                onClick={() => onClearBucket('never')}
+                disabled={bulkActive || clearPending === 'bonzo-never'}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {clearPending === 'bonzo-never' ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+                Clear
+              </button>
+            </div>
           </div>
           <BonzoSampleTable
             rows={status.recentNeverAttempted}
@@ -2060,20 +2263,35 @@ function BonzoForwardBody({
             <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800">
               No webhook URL on assigned LO ({totals.noWebhookUrl.toLocaleString()})
             </h3>
-            <button
-              type="button"
-              onClick={() => onBulkRetry('no-webhook')}
-              disabled={bulkActive || totals.noWebhookUrl === 0}
-              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-60 disabled:cursor-not-allowed"
-              title="Retries the forward — useful after the LO pastes their Bonzo webhook URL."
-            >
-              {bulkActive ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Send className="h-3 w-3" />
-              )}
-              Retry no-webhook
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onBulkRetry('no-webhook')}
+                disabled={bulkActive || totals.noWebhookUrl === 0}
+                className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Retries the forward — useful after the LO pastes their Bonzo webhook URL."
+              >
+                {bulkActive ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Send className="h-3 w-3" />
+                )}
+                Retry no-webhook
+              </button>
+              <button
+                type="button"
+                onClick={() => onClearBucket('no-webhook')}
+                disabled={bulkActive || clearPending === 'bonzo-no-webhook'}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {clearPending === 'bonzo-no-webhook' ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+                Clear
+              </button>
+            </div>
           </div>
           <BonzoSampleTable
             rows={status.recentNoWebhook}
@@ -2319,14 +2537,20 @@ function BrokerLaunchEmailBody({
   retryingId,
   onRetry,
   onBulkRetry,
+  onClearFailed,
   onRecoverMissing,
+  onClearCoverage,
+  clearPending,
   bulkRetryActive,
 }: {
   status: BrokerLaunchEmailStatus;
   retryingId: string | null;
   onRetry: (row: BrokerLaunchDispatchRow) => void;
   onBulkRetry: () => void;
+  onClearFailed: () => void;
   onRecoverMissing: () => void;
+  onClearCoverage: () => void;
+  clearPending: string | null;
   bulkRetryActive: boolean;
 }) {
   const allHealthy =
@@ -2408,8 +2632,8 @@ function BrokerLaunchEmailBody({
               </div>
             ) : (
               <div className="text-xs">
-                Every assignment produced a dispatch row — the trigger
-                wiring is healthy.
+                No active Broker Launch coverage gap is showing for this
+                window.
               </div>
             )}
             {status.coverageClampedToService && (
@@ -2421,10 +2645,11 @@ function BrokerLaunchEmailBody({
           </div>
           </div>
           {status.coverage.gap > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onRecoverMissing}
-              disabled={bulkRetryActive}
+              disabled={bulkRetryActive || clearPending === 'broker-coverage'}
               className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
               title="Send Broker Launch emails for assigned leads that have no broker-launch dispatch row at all."
             >
@@ -2435,6 +2660,21 @@ function BrokerLaunchEmailBody({
               )}
               Send missing emails ({status.coverage.gap.toLocaleString()})
             </button>
+            <button
+              type="button"
+              onClick={onClearCoverage}
+              disabled={bulkRetryActive || clearPending === 'broker-coverage'}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              title="Acknowledge the current coverage gap without sending emails."
+            >
+              {clearPending === 'broker-coverage' ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <X className="h-3 w-3" />
+              )}
+              Clear gap
+            </button>
+            </div>
           )}
         </div>
       </div>
@@ -2471,20 +2711,36 @@ function BrokerLaunchEmailBody({
             <h3 className="text-xs font-bold uppercase tracking-wider text-rose-800">
               Recent unresolved failures ({status.counts.failed.toLocaleString()})
             </h3>
-            <button
-              type="button"
-              onClick={onBulkRetry}
-              disabled={bulkRetryActive || status.counts.failed === 0}
-              className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
-              title="Reissue every unresolved FAILED dispatch in the lookback window. A later SENT dispatch for the same lead clears it from this Health bucket; originals stay in history. Capped at 500 per click and runs one row at a time so you see live progress."
-            >
-              {bulkRetryActive ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Send className="h-3 w-3" />
-              )}
-              Retry all failed
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onBulkRetry}
+                disabled={bulkRetryActive || status.counts.failed === 0}
+                className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Reissue every unresolved FAILED dispatch in the lookback window. A later SENT dispatch for the same lead clears it from this Health bucket; originals stay in history. Capped at 500 per click and runs one row at a time so you see live progress."
+              >
+                {bulkRetryActive ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Send className="h-3 w-3" />
+                )}
+                Retry all failed
+              </button>
+              <button
+                type="button"
+                onClick={onClearFailed}
+                disabled={bulkRetryActive || clearPending === 'broker-failed'}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Mark unresolved failed rows as skipped/dismissed without sending emails."
+              >
+                {clearPending === 'broker-failed' ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+                Clear failed
+              </button>
+            </div>
           </div>
           <DispatchTable
             title=""
