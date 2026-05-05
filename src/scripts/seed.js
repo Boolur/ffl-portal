@@ -57,30 +57,6 @@ async function main() {
     },
   });
 
-  const jrProcessors = await Promise.all(
-    [
-      { email: 'alison.omoto@ffl.local', name: 'Alison Omoto' },
-      { email: 'rachael.woolrigdge@ffl.local', name: 'Rachael Woolrigdge' },
-    ].map((jrProcessor) =>
-      prisma.user.upsert({
-        where: { email: jrProcessor.email },
-        update: {
-          name: jrProcessor.name,
-          role: UserRole.PROCESSOR_JR,
-          roles: { set: [UserRole.PROCESSOR_JR] },
-          active: true,
-        },
-        create: {
-          email: jrProcessor.email,
-          name: jrProcessor.name,
-          role: UserRole.PROCESSOR_JR,
-          roles: [UserRole.PROCESSOR_JR],
-          active: true,
-        },
-      }),
-    ),
-  );
-
   await prisma.externalUser.upsert({
     where: {
       provider_externalId: {
@@ -173,7 +149,7 @@ async function main() {
     },
   });
 
-  console.log({ admin, lo, processor, jrProcessors, loan });
+  console.log({ admin, lo, processor, loan });
 }
 
 main()
