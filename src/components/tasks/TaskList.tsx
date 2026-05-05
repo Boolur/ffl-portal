@@ -173,6 +173,7 @@ type QcChecklistDraftItem = {
 
 type JrChecklistStatus = 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
 type JrProcessorAssignedValue =
+  | 'ALISON_OMOTO'
   | 'BEN_WANG'
   | 'CARRIE_JOHNSON'
   | 'CHRISTY_HORSTMAN'
@@ -188,6 +189,7 @@ type JrProcessorAssignedValue =
   | 'KIM_MARTIN'
   | 'MONICA_VINEY'
   | 'NANCY_CALIGARIS'
+  | 'RACHAEL_WOOLRIGDGE'
   | 'RACHEL_HANCOCK'
   | 'ROMI_HIRAYAMA'
   | 'RYAN_KATAOKA'
@@ -285,6 +287,7 @@ const jrChecklistStatusOptions: Array<{ value: JrChecklistStatus; label: string 
 const jrVoeChecklistRowId = 'ordered-voe';
 const jrUnderwritingChecklistRowId = 'submitted-underwriting';
 const jrProcessorAssignedOptions: Array<{ value: JrProcessorAssignedValue; label: string }> = [
+  { value: 'ALISON_OMOTO', label: 'Alison Omoto' },
   { value: 'BEN_WANG', label: 'Ben Wang' },
   { value: 'CARRIE_JOHNSON', label: 'Carrie Johnson' },
   { value: 'CHRISTY_HORSTMAN', label: 'Christy Horstman' },
@@ -300,6 +303,7 @@ const jrProcessorAssignedOptions: Array<{ value: JrProcessorAssignedValue; label
   { value: 'KIM_MARTIN', label: 'Kim Martin' },
   { value: 'MONICA_VINEY', label: 'Monica Viney' },
   { value: 'NANCY_CALIGARIS', label: 'Nancy Caligaris' },
+  { value: 'RACHAEL_WOOLRIGDGE', label: 'Rachael Woolrigdge' },
   { value: 'RACHEL_HANCOCK', label: 'Rachel Hancock' },
   { value: 'ROMI_HIRAYAMA', label: 'Romi Hirayama' },
   { value: 'RYAN_KATAOKA', label: 'Ryan Kataoka' },

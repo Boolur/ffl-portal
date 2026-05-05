@@ -2737,6 +2737,7 @@ type JrChecklistItemInput = {
 };
 
 type JrProcessorAssignedValue =
+  | 'ALISON_OMOTO'
   | 'BEN_WANG'
   | 'CARRIE_JOHNSON'
   | 'CHRISTY_HORSTMAN'
@@ -2752,6 +2753,7 @@ type JrProcessorAssignedValue =
   | 'KIM_MARTIN'
   | 'MONICA_VINEY'
   | 'NANCY_CALIGARIS'
+  | 'RACHAEL_WOOLRIGDGE'
   | 'RACHEL_HANCOCK'
   | 'ROMI_HIRAYAMA'
   | 'RYAN_KATAOKA'
@@ -2778,6 +2780,7 @@ const JR_CHECKLIST_STATUS_SET = new Set<JrChecklistStatus>([
 const JR_VOE_ROW_ID = 'ordered-voe';
 const JR_UNDERWRITING_ROW_ID = 'submitted-underwriting';
 const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>([
+  'ALISON_OMOTO',
   'BEN_WANG',
   'CARRIE_JOHNSON',
   'CHRISTY_HORSTMAN',
@@ -2793,6 +2796,7 @@ const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>([
   'KIM_MARTIN',
   'MONICA_VINEY',
   'NANCY_CALIGARIS',
+  'RACHAEL_WOOLRIGDGE',
   'RACHEL_HANCOCK',
   'ROMI_HIRAYAMA',
   'RYAN_KATAOKA',
