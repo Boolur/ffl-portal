@@ -628,6 +628,7 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     'MannerOfTitleHeldType',
     'TitleHeldDescription',
     'PropertyEstateType',
+    'BorrowerRelationshipTitleType',
   ]);
 
   return {
