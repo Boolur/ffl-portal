@@ -187,6 +187,7 @@ type JrProcessorAssignedValue =
   | 'JO_LANDIS'
   | 'KIM_GORDON'
   | 'KIM_MARTIN'
+  | 'LAUNNA_ECKERT'
   | 'MONICA_VINEY'
   | 'NANCY_CALIGARIS'
   | 'RACHAEL_WOOLRIGDGE'
@@ -301,6 +302,7 @@ const jrProcessorAssignedOptions: Array<{ value: JrProcessorAssignedValue; label
   { value: 'JO_LANDIS', label: 'Jo Landis' },
   { value: 'KIM_GORDON', label: 'Kim Gordon' },
   { value: 'KIM_MARTIN', label: 'Kim Martin' },
+  { value: 'LAUNNA_ECKERT', label: 'Launna Eckert' },
   { value: 'MONICA_VINEY', label: 'Monica Viney' },
   { value: 'NANCY_CALIGARIS', label: 'Nancy Caligaris' },
   { value: 'RACHAEL_WOOLRIGDGE', label: 'Rachael Woolrigdge' },

@@ -2751,6 +2751,7 @@ type JrProcessorAssignedValue =
   | 'JO_LANDIS'
   | 'KIM_GORDON'
   | 'KIM_MARTIN'
+  | 'LAUNNA_ECKERT'
   | 'MONICA_VINEY'
   | 'NANCY_CALIGARIS'
   | 'RACHAEL_WOOLRIGDGE'
@@ -2794,6 +2795,7 @@ const JR_PROCESSOR_ASSIGNED_SET = new Set<JrProcessorAssignedValue>([
   'JO_LANDIS',
   'KIM_GORDON',
   'KIM_MARTIN',
+  'LAUNNA_ECKERT',
   'MONICA_VINEY',
   'NANCY_CALIGARIS',
   'RACHAEL_WOOLRIGDGE',
