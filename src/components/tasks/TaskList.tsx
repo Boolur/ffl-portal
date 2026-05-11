@@ -230,7 +230,7 @@ const qcChecklistTemplate: Array<{ id: string; label: string }> = [
   { id: 'homeowners-insurance', label: 'Verify Homeowners Insurance Policy' },
   { id: 'income-documents', label: 'Verify Income Documents (Employed / Self Employed / Retired)' },
   { id: 'drivers-license', label: 'Verify IDs' },
-  { id: 'dd214-veteran', label: 'Verify Veteran Documentation (if applicable)' },
+  { id: 'dd214-veteran', label: 'Verify Veteran Documentation (DD-214 and COE, if applicable)' },
 ];
 
 const qcChecklistNoteOptions: Array<{ value: QcChecklistNoteOption; label: string }> = [
