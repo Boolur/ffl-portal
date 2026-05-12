@@ -86,6 +86,7 @@ const QC_INVESTOR_ALLOWED_VALUES = new Set([
 ]);
 
 const QC_ONLY_INVESTORS = new Set(['FIGURE', 'NFTY', 'SPRING EQ']);
+const QC_SKIP_TITLE_INVESTORS = new Set(['BUTTON']);
 
 function isVaTaskKind(kind: TaskKind | null) {
   return (
@@ -794,6 +795,9 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: s
     if (QC_ONLY_INVESTORS.has(qcInvestorValue)) {
       return [] as TaskKind[];
     }
+    const vaTaskBlueprintsForInvestor = QC_SKIP_TITLE_INVESTORS.has(qcInvestorValue)
+      ? VA_TASK_BLUEPRINTS.filter((blueprint) => blueprint.kind !== TaskKind.VA_TITLE)
+      : VA_TASK_BLUEPRINTS;
 
     const existingKinds = await tx.task.findMany({
       where: { loanId },
@@ -803,7 +807,7 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: s
     const has = (kind: TaskKind, assignedRole: UserRole) =>
       existingKinds.some((task) => task.kind === kind || task.assignedRole === assignedRole);
 
-    const toCreate = VA_TASK_BLUEPRINTS.filter(
+    const toCreate = vaTaskBlueprintsForInvestor.filter(
       (blueprint) => !has(blueprint.kind, blueprint.assignedRole)
     );
 
@@ -822,7 +826,7 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: s
       });
     }
 
-    const vaKinds = new Set(VA_TASK_BLUEPRINTS.map((entry) => entry.kind));
+    const vaKinds = new Set(vaTaskBlueprintsForInvestor.map((entry) => entry.kind));
     const existingVaTasks = await tx.task.findMany({
       where: {
         loanId,
