@@ -84,6 +84,18 @@ type LeadRow = {
 
 type FilterOption = { id: string; name: string };
 
+function sortByLabel<T extends { name: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  );
+}
+
+function sortStrings(items: string[]): string[] {
+  return [...items].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' })
+  );
+}
+
 type LeadDetailData = React.ComponentProps<typeof LeadDetailModal>['lead'];
 
 type CrmStats = {
@@ -418,6 +430,10 @@ export function LeadsCRM({
   const isLoMode = mode === 'lo';
   const showAssigneeControls = !isLoMode || canViewTeamLeads;
   const router = useRouter();
+  const sortedVendors = useMemo(() => sortByLabel(vendors), [vendors]);
+  const sortedCampaigns = useMemo(() => sortByLabel(campaigns), [campaigns]);
+  const sortedUsers = useMemo(() => sortByLabel(users), [users]);
+  const sortedSources = useMemo(() => sortStrings(sources), [sources]);
 
   const [leads, setLeads] = useState<LeadRow[]>(initialLeads);
   const [total, setTotal] = useState(initialTotal);
@@ -2191,7 +2207,7 @@ export function LeadsCRM({
                   onChange={(e) => setVendorFilter(e.target.value)}
                 >
                   <option value="">All Vendors</option>
-                  {vendors.map((v) => (
+                  {sortedVendors.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.name}
                     </option>
@@ -2208,7 +2224,7 @@ export function LeadsCRM({
                   onChange={(e) => setCampaignFilter(e.target.value)}
                 >
                   <option value="">All Campaigns</option>
-                  {campaigns.map((c) => (
+                  {sortedCampaigns.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
@@ -2229,7 +2245,7 @@ export function LeadsCRM({
                       {isLoMode ? 'All Accessible Users' : 'All Users'}
                     </option>
                     {!isLoMode && <option value="__unassigned__">Unassigned</option>}
-                    {users.map((u) => (
+                    {sortedUsers.map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.name}
                       </option>
@@ -2258,7 +2274,7 @@ export function LeadsCRM({
                   onChange={(e) => setSourceFilter(e.target.value)}
                 >
                   <option value="">All Sources</option>
-                  {sources.map((s) => (
+                  {sortedSources.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
