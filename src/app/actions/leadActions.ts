@@ -1496,6 +1496,8 @@ export type LeadUserTeamSummary = {
   updatedAt: Date;
   memberCount: number;
   memberIds: string[];
+  managerCount: number;
+  managerIds: string[];
 };
 
 export async function getLeadUserTeams(): Promise<LeadUserTeamSummary[]> {
@@ -1503,6 +1505,7 @@ export async function getLeadUserTeams(): Promise<LeadUserTeamSummary[]> {
     orderBy: [{ active: 'desc' }, { name: 'asc' }],
     include: {
       members: { select: { userId: true } },
+      managers: { select: { userId: true } },
     },
   });
   return teams.map((t) => ({
@@ -1516,6 +1519,8 @@ export async function getLeadUserTeams(): Promise<LeadUserTeamSummary[]> {
     updatedAt: t.updatedAt,
     memberCount: t.members.length,
     memberIds: t.members.map((m) => m.userId),
+    managerCount: t.managers.length,
+    managerIds: t.managers.map((m) => m.userId),
   }));
 }
 
@@ -1525,11 +1530,13 @@ export async function createLeadUserTeam(data: {
   color?: string;
   colors?: string[];
   memberUserIds?: string[];
+  managerUserIds?: string[];
 }) {
   const name = data.name.trim();
   if (!name) throw new Error('Team name is required');
 
   const uniqueMemberIds = Array.from(new Set(data.memberUserIds ?? []));
+  const uniqueManagerIds = Array.from(new Set(data.managerUserIds ?? []));
   const colors = normalizeTeamColors(data.colors ?? data.color);
 
   const team = await prisma.leadUserTeam.create({
@@ -1542,6 +1549,12 @@ export async function createLeadUserTeam(data: {
         uniqueMemberIds.length > 0
           ? {
               create: uniqueMemberIds.map((userId) => ({ userId })),
+            }
+          : undefined,
+      managers:
+        uniqueManagerIds.length > 0
+          ? {
+              create: uniqueManagerIds.map((userId) => ({ userId })),
             }
           : undefined,
     },
@@ -1612,6 +1625,41 @@ export async function setLeadUserTeamMembers(teamId: string, userIds: string[]) 
   revalidateTeamPaths();
 }
 
+export async function setLeadUserTeamManagers(teamId: string, userIds: string[]) {
+  const team = await prisma.leadUserTeam.findUnique({
+    where: { id: teamId },
+    select: { id: true },
+  });
+  if (!team) throw new Error('Team not found');
+
+  const targetUserIds = Array.from(new Set(userIds));
+  const existing = await prisma.leadUserTeamManager.findMany({
+    where: { teamId },
+    select: { id: true, userId: true },
+  });
+  const existingUserIds = new Set(existing.map((m) => m.userId));
+  const targetSet = new Set(targetUserIds);
+
+  const toRemove = existing.filter((m) => !targetSet.has(m.userId));
+  const toAdd = targetUserIds.filter((uid) => !existingUserIds.has(uid));
+
+  await prisma.$transaction([
+    ...(toRemove.length > 0
+      ? [
+          prisma.leadUserTeamManager.deleteMany({
+            where: { id: { in: toRemove.map((m) => m.id) } },
+          }),
+        ]
+      : []),
+    ...toAdd.map((userId) =>
+      prisma.leadUserTeamManager.create({ data: { teamId, userId } })
+    ),
+  ]);
+
+  revalidateTeamPaths();
+  revalidatePath('/leads');
+}
+
 /**
  * Hard delete — teams are purely cosmetic, they don't own any
  * distribution-affecting rows, so permanent deletion is safe. No typo
@@ -1636,6 +1684,7 @@ export async function deleteLeadUserTeam(id: string) {
 export type LeadListFilters = {
   status?: LeadStatus;
   assignedUserId?: string;
+  assignedUserIds?: string[];
   unassigned?: boolean;
   // Special composite filter used by the Unassigned Lead Pool view.
   // Matches leads where EITHER the status is UNASSIGNED OR the lead
@@ -1660,6 +1709,80 @@ export type LeadListFilters = {
   propertyZip?: string;
   employer?: string;
 };
+
+export type LeadAccessibleUser = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+export type LeadAccessScope = {
+  assignedUserIds: string[];
+  users: LeadAccessibleUser[];
+  canViewTeamLeads: boolean;
+};
+
+export async function getLeadAccessScopeForUser(
+  userId: string
+): Promise<LeadAccessScope> {
+  const [self, managedTeams] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true },
+    }),
+    prisma.leadUserTeamManager.findMany({
+      where: { userId, team: { active: true } },
+      select: {
+        team: {
+          select: {
+            members: {
+              select: {
+                userId: true,
+                user: { select: { id: true, name: true, email: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const usersById = new Map<string, LeadAccessibleUser>();
+  if (self) usersById.set(self.id, self);
+  for (const row of managedTeams) {
+    for (const member of row.team.members) {
+      usersById.set(member.userId, member.user);
+    }
+  }
+
+  const users = Array.from(usersById.values()).sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  return {
+    assignedUserIds: users.map((u) => u.id),
+    users,
+    canViewTeamLeads: managedTeams.length > 0,
+  };
+}
+
+function scopeLeadFiltersToAssignedUserIds<T extends LeadListFilters>(
+  filters: T | undefined,
+  assignedUserIds: string[]
+): T & { assignedUserId?: string; assignedUserIds?: string[]; unassigned?: boolean } {
+  const requestedUserId = filters?.assignedUserId;
+  return {
+    ...(filters ?? ({} as T)),
+    unassigned: false,
+    assignedUserId:
+      requestedUserId && assignedUserIds.includes(requestedUserId)
+        ? requestedUserId
+        : undefined,
+    assignedUserIds:
+      requestedUserId && assignedUserIds.includes(requestedUserId)
+        ? undefined
+        : assignedUserIds,
+  };
+}
 
 // Fields included in the global free-text search. Previously this scanned
 // 33 columns (loan amount, employer, credit rating, vendor url, etc.)
@@ -1700,6 +1823,9 @@ function buildLeadWhere(filters?: LeadListFilters): Record<string, unknown> {
   } else {
     if (filters.status) where.status = filters.status;
     if (filters.unassigned) where.assignedUserId = null;
+    else if (filters.assignedUserIds?.length) {
+      where.assignedUserId = { in: filters.assignedUserIds };
+    }
     else if (filters.assignedUserId) where.assignedUserId = filters.assignedUserId;
   }
   if (filters.campaignId) where.campaignId = filters.campaignId;
@@ -1847,27 +1973,18 @@ export async function getLeads(
   }
 ) {
   // Server-side authorization: Loan Officers may only ever see leads
-  // assigned to themselves. The client-side LeadsCRM does pass
-  // `assignedUserId` on the initial SSR load, but subsequent fetches
-  // (search, pagination, filter changes) rebuild the filter object and
-  // drop it, which previously let LOs search the entire company's
-  // lead book. We now force-override `assignedUserId` for any
-  // non-admin/non-manager role regardless of what the client sent.
+  // assigned to themselves or members of teams they manage. Client-side
+  // filters are treated as requests inside that allowed set.
   const session = await getServerSession(authOptions);
   const role = session?.user?.role as UserRole | undefined;
   const userId = session?.user?.id;
   if (!userId) throw new Error('Unauthorized');
   const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
+  const accessScope = isAdmin ? null : await getLeadAccessScopeForUser(userId);
 
   const scopedFilters: typeof filters = isAdmin
     ? filters
-    : {
-        ...(filters ?? {}),
-        // Drop the "show unassigned only" sentinel for LOs -- they
-        // have no business seeing the unassigned pool.
-        unassigned: false,
-        assignedUserId: userId,
-      };
+    : scopeLeadFiltersToAssignedUserIds(filters, accessScope!.assignedUserIds);
 
   const where = buildLeadWhere(scopedFilters);
   const orderBy = buildLeadOrderBy(scopedFilters?.sortBy, scopedFilters?.sortDir);
@@ -1949,8 +2066,11 @@ export async function getAllLeadIds(
   if (!userId) throw new Error('Unauthorized');
 
   const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
+  const accessScope = isAdmin ? null : await getLeadAccessScopeForUser(userId);
   const where = buildLeadWhere(
-    isAdmin ? filters : { ...filters, assignedUserId: userId }
+    isAdmin
+      ? filters
+      : scopeLeadFiltersToAssignedUserIds(filters, accessScope!.assignedUserIds)
   );
   const orderBy = buildLeadOrderBy(filters?.sortBy, filters?.sortDir);
   const rows = await prisma.lead.findMany({
@@ -1969,8 +2089,8 @@ export async function getLeadsForExport(leadIds: string[]) {
   if (!userId) throw new Error('Unauthorized');
 
   const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
-  // LOs can only export their own leads — silently drop foreign ids so
-  // the CSV reflects exactly what they're allowed to see.
+  // LOs can only export leads inside their access scope — silently drop
+  // foreign ids so the CSV reflects exactly what they're allowed to see.
   const ids = isAdmin ? leadIds : await filterLeadsOwnedByUser(leadIds, userId);
   if (ids.length === 0) return [];
 
@@ -2010,9 +2130,15 @@ export async function getLead(id: string) {
   if (!lead) return null;
 
   const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
-  if (!isAdmin && lead.assignedUserId !== userId) {
+  if (!isAdmin) {
+    const accessScope = await getLeadAccessScopeForUser(userId);
+    if (
+      !lead.assignedUserId ||
+      !accessScope.assignedUserIds.includes(lead.assignedUserId)
+    ) {
     // Don't leak existence of the lead via a distinct error message.
-    return null;
+      return null;
+    }
   }
   return lead;
 }
@@ -2267,12 +2393,18 @@ export async function getDistinctLeadSources(opts: { assignedUserId?: string } =
   if (!userId) throw new Error('Unauthorized');
   const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
 
-  // LOs are pinned to their own leads regardless of what the caller
-  // passed in. Admins honor the opt (empty = company-wide).
-  const effectiveAssignedUserId = isAdmin ? opts.assignedUserId : userId;
+  const accessScope = isAdmin ? null : await getLeadAccessScopeForUser(userId);
 
   const where: Prisma.LeadWhereInput = { source: { not: null } };
-  if (effectiveAssignedUserId) where.assignedUserId = effectiveAssignedUserId;
+  if (isAdmin) {
+    if (opts.assignedUserId) where.assignedUserId = opts.assignedUserId;
+  } else {
+    const requestedUserId = opts.assignedUserId;
+    where.assignedUserId =
+      requestedUserId && accessScope!.assignedUserIds.includes(requestedUserId)
+        ? requestedUserId
+        : { in: accessScope!.assignedUserIds };
+  }
   const results = await prisma.lead.findMany({
     where,
     select: { source: true },
@@ -2338,11 +2470,7 @@ export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
   if (!userId) throw new Error('Unauthorized');
   const isAdmin = isAdminRole(role) || role === UserRole.MANAGER;
 
-  // LOs only ever see stats for their own leads. Admins/managers honor
-  // the opt so the /admin/leads/all page can still pass no filter and
-  // get the company-wide counts.
-  const effectiveAssignedUserId = isAdmin ? opts.assignedUserId : userId;
-  opts = { assignedUserId: effectiveAssignedUserId };
+  const accessScope = isAdmin ? null : await getLeadAccessScopeForUser(userId);
 
   // All three windows use the business timezone (PT) so the dashboard
   // numbers line up with the admin's wall-clock day/week/month.
@@ -2350,12 +2478,13 @@ export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
   const weekStart = startOfBusinessWeek();
   const monthStart = startOfBusinessMonth();
 
-  // LO scoping: every count and groupBy is narrowed to this user's leads
-  // so the stat cards and vendor/campaign breakdowns reflect only what
-  // they own. Admins pass no filter and get the company-wide numbers.
-  const scope: Prisma.LeadWhereInput = opts.assignedUserId
-    ? { assignedUserId: opts.assignedUserId }
-    : {};
+  const scope: Prisma.LeadWhereInput = isAdmin
+    ? opts.assignedUserId
+      ? { assignedUserId: opts.assignedUserId }
+      : {}
+    : opts.assignedUserId && accessScope!.assignedUserIds.includes(opts.assignedUserId)
+      ? { assignedUserId: opts.assignedUserId }
+      : { assignedUserId: { in: accessScope!.assignedUserIds } };
 
   // CSV Upload is a *system* vendor used only for bulk historical
   // imports — a single 100k-row upload would otherwise dominate the
@@ -2399,9 +2528,7 @@ export async function getLeadCrmStats(opts: { assignedUserId?: string } = {}) {
       where: { ...nonCsvScope, receivedAt: { gte: monthStart } },
     }),
     prisma.lead.count({
-      where: opts.assignedUserId
-        ? { assignedUserId: opts.assignedUserId, status: LeadStatus.UNASSIGNED }
-        : { status: LeadStatus.UNASSIGNED },
+      where: { ...scope, status: LeadStatus.UNASSIGNED },
     }),
     prisma.lead.groupBy({
       by: ['vendorId'],
@@ -3841,12 +3968,16 @@ export async function assertLeadBelongsTo(
   userId: string,
   leadId: string
 ): Promise<void> {
+  const accessScope = await getLeadAccessScopeForUser(userId);
   const row = await prisma.lead.findUnique({
     where: { id: leadId },
     select: { assignedUserId: true },
   });
   if (!row) throw new Error('Lead not found');
-  if (row.assignedUserId !== userId) {
+  if (
+    !row.assignedUserId ||
+    !accessScope.assignedUserIds.includes(row.assignedUserId)
+  ) {
     throw new Error('You do not have access to this lead');
   }
 }
@@ -3862,8 +3993,12 @@ async function filterLeadsOwnedByUser(
   userId: string
 ): Promise<string[]> {
   if (leadIds.length === 0) return [];
+  const accessScope = await getLeadAccessScopeForUser(userId);
   const rows = await prisma.lead.findMany({
-    where: { id: { in: leadIds }, assignedUserId: userId },
+    where: {
+      id: { in: leadIds },
+      assignedUserId: { in: accessScope.assignedUserIds },
+    },
     select: { id: true },
   });
   return rows.map((r) => r.id);

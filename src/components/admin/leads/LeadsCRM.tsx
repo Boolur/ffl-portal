@@ -388,6 +388,7 @@ export function LeadsCRM({
   savedCsvMappings = [],
   eligibleUsers = [],
   mode = 'admin',
+  canViewTeamLeads = false,
 }: {
   initialLeads: LeadRow[];
   initialTotal: number;
@@ -412,8 +413,10 @@ export function LeadsCRM({
   // controls, bulk delete, assignee column/filter). Default keeps the
   // existing `/admin/leads/all` behavior unchanged.
   mode?: 'admin' | 'lo';
+  canViewTeamLeads?: boolean;
 }) {
   const isLoMode = mode === 'lo';
+  const showAssigneeControls = !isLoMode || canViewTeamLeads;
   const router = useRouter();
 
   const [leads, setLeads] = useState<LeadRow[]>(initialLeads);
@@ -690,11 +693,10 @@ export function LeadsCRM({
       columnOrder
         .map((id) => LEAD_COLUMNS.find((c) => c.id === id))
         .filter((c): c is (typeof LEAD_COLUMNS)[number] => Boolean(c))
-        // In LO mode every row belongs to the signed-in user, so the
-        // Assigned To column is pure noise — drop it from both the
-        // header and every body row.
-        .filter((c) => !isLoMode || c.id !== 'assignedUser'),
-    [columnOrder, isLoMode]
+        // Regular LOs only see their own leads, so the Assigned To column
+        // is noise. Team managers need it to distinguish member ownership.
+        .filter((c) => showAssigneeControls || c.id !== 'assignedUser'),
+    [columnOrder, showAssigneeControls]
   );
 
   const tableMinWidth = useMemo(
@@ -1661,7 +1663,9 @@ export function LeadsCRM({
           if (typeof window !== 'undefined') {
             window.alert(
               isLoMode
-                ? 'This lead is no longer assigned to you.'
+                ? canViewTeamLeads
+                  ? 'This lead is outside your team lead access.'
+                  : 'This lead is no longer assigned to you.'
                 : 'Lead not found.'
             );
           }
@@ -1671,7 +1675,7 @@ export function LeadsCRM({
         setDetailLoading(false);
       }
     },
-    [isLoMode, fetchLeads]
+    [canViewTeamLeads, isLoMode, fetchLeads]
   );
 
   const handleBulkAssign = useCallback(
@@ -1771,7 +1775,11 @@ export function LeadsCRM({
     ? [
         {
           key: 'total',
-          label: isLoMode ? 'My Leads' : 'Total Leads',
+          label: isLoMode
+            ? canViewTeamLeads
+              ? 'Team Leads'
+              : 'My Leads'
+            : 'Total Leads',
           value: stats.totalLeads,
           Icon: Database,
           accent: 'text-slate-600',
@@ -2207,7 +2215,7 @@ export function LeadsCRM({
                   ))}
                 </select>
               </div>
-              {!isLoMode && (
+              {showAssigneeControls && (
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                     Assigned To
@@ -2217,8 +2225,10 @@ export function LeadsCRM({
                     value={userFilter}
                     onChange={(e) => setUserFilter(e.target.value)}
                   >
-                    <option value="">All Users</option>
-                    <option value="__unassigned__">Unassigned</option>
+                    <option value="">
+                      {isLoMode ? 'All Accessible Users' : 'All Users'}
+                    </option>
+                    {!isLoMode && <option value="__unassigned__">Unassigned</option>}
                     {users.map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.name}

@@ -17,6 +17,7 @@ import {
   createLeadUserTeam,
   updateLeadUserTeam,
   setLeadUserTeamMembers,
+  setLeadUserTeamManagers,
   deleteLeadUserTeam,
 } from '@/app/actions/leadActions';
 
@@ -33,6 +34,8 @@ export type LeadUserTeamSummary = {
   updatedAt: Date | string;
   memberCount: number;
   memberIds: string[];
+  managerCount: number;
+  managerIds: string[];
 };
 
 type EligibleUser = { id: string; name: string; email: string; role: string };
@@ -208,7 +211,8 @@ export function LeadUserTeamManager({
             ? isActive
               ? `Showing ${t.memberCount} ${t.name} member${t.memberCount === 1 ? '' : 's'} — click to clear filter`
               : `Filter to ${t.memberCount} ${t.name} member${t.memberCount === 1 ? '' : 's'}`
-            : t.description || `${t.memberCount} members • click to edit`;
+            : t.description ||
+              `${t.memberCount} members • ${t.managerCount} managers • click to edit`;
           return (
             <div key={t.id} className="relative group/chip">
               <button
@@ -314,7 +318,11 @@ function TeamEditModal({
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     () => new Set(team?.memberIds ?? [])
   );
+  const [selectedManagerIds, setSelectedManagerIds] = useState<Set<string>>(
+    () => new Set(team?.managerIds ?? [])
+  );
   const [userSearch, setUserSearch] = useState('');
+  const [managerSearch, setManagerSearch] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -336,8 +344,26 @@ function TeamEditModal({
     );
   }, [users, userSearch]);
 
+  const filteredManagerUsers = useMemo(() => {
+    const q = managerSearch.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(
+      (u) =>
+        u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+    );
+  }, [users, managerSearch]);
+
   const toggleUser = useCallback((id: string) => {
     setSelectedUserIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleManager = useCallback((id: string) => {
+    setSelectedManagerIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -353,8 +379,20 @@ function TeamEditModal({
     });
   }, [filteredUsers]);
 
+  const selectAllFilteredManagers = useCallback(() => {
+    setSelectedManagerIds((prev) => {
+      const next = new Set(prev);
+      for (const u of filteredManagerUsers) next.add(u.id);
+      return next;
+    });
+  }, [filteredManagerUsers]);
+
   const clearAll = useCallback(() => {
     setSelectedUserIds(new Set());
+  }, []);
+
+  const clearAllManagers = useCallback(() => {
+    setSelectedManagerIds(new Set());
   }, []);
 
   const handleSave = async () => {
@@ -367,12 +405,14 @@ function TeamEditModal({
     setSaving(true);
     try {
       const memberIds = Array.from(selectedUserIds);
+      const managerIds = Array.from(selectedManagerIds);
       if (isCreating) {
         await createLeadUserTeam({
           name: trimmed,
           description: description || null,
           colors,
           memberUserIds: memberIds,
+          managerUserIds: managerIds,
         });
       } else if (team) {
         await updateLeadUserTeam(team.id, {
@@ -380,6 +420,7 @@ function TeamEditModal({
           description: description || null,
           colors,
         });
+        await setLeadUserTeamManagers(team.id, managerIds);
         await setLeadUserTeamMembers(team.id, memberIds);
       } else {
         return;
@@ -525,6 +566,90 @@ function TeamEditModal({
                   );
                 })}
               </div>
+            </div>
+          </section>
+
+          {/* Team Managers */}
+          <section>
+            <div className="flex items-start justify-between gap-4 mb-2">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Team Manager ({selectedManagerIds.size})
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Managers can see and work leads assigned to this team&apos;s
+                  members from their Loan Officer Leads page.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 text-[11px] font-medium shrink-0">
+                <button
+                  type="button"
+                  onClick={selectAllFilteredManagers}
+                  className="text-slate-500 hover:text-slate-800"
+                >
+                  Select all{managerSearch ? ' (filtered)' : ''}
+                </button>
+                {selectedManagerIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAllManagers}
+                    className="text-slate-500 hover:text-slate-800"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="relative mb-2">
+              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+              <input
+                className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                placeholder="Search managers by name or email..."
+                value={managerSearch}
+                onChange={(e) => setManagerSearch(e.target.value)}
+              />
+            </div>
+            <div className="max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+              {filteredManagerUsers.length === 0 ? (
+                <p className="px-4 py-6 text-center text-sm text-slate-500">
+                  No users match your search.
+                </p>
+              ) : (
+                filteredManagerUsers.map((u) => {
+                  const checked = selectedManagerIds.has(u.id);
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => toggleManager(u.id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
+                        checked ? 'bg-blue-50' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <span
+                        className={`h-4 w-4 rounded border flex items-center justify-center text-xs ${
+                          checked
+                            ? 'border-blue-500 bg-blue-500 text-white'
+                            : 'border-slate-300 bg-white'
+                        }`}
+                      >
+                        {checked && <Check className="h-3 w-3" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-900 truncate">
+                          {u.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {u.email}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        {u.role}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
             </div>
           </section>
 

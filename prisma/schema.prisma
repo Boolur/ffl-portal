@@ -167,6 +167,7 @@ model User {
   defaultForCampaigns LeadCampaign[] @relation("CampaignDefaultUser")
   leadNotes          LeadNote[]
   leadTeams          LeadUserTeamMember[]
+  managedLeadTeams   LeadUserTeamManager[]
   integrationCredentials UserIntegrationCredential[]
   integrationServicePermissions UserIntegrationServicePermission[]
 }
@@ -607,12 +608,25 @@ model LeadUserTeam {
   updatedAt   DateTime             @updatedAt
 
   members     LeadUserTeamMember[]
+  managers    LeadUserTeamManager[]
 
   @@unique([name])
   @@index([active])
 }
 
 model LeadUserTeamMember {
+  id        String       @id @default(uuid())
+  teamId    String
+  team      LeadUserTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+
+model LeadUserTeamManager {
   id        String       @id @default(uuid())
   teamId    String
   team      LeadUserTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)

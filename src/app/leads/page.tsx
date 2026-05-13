@@ -11,6 +11,7 @@ import {
   getDistinctLeadSources,
   getLeadCrmStats,
   getAllowedIntegrationServicesForUser,
+  getLeadAccessScopeForUser,
 } from '@/app/actions/leadActions';
 import { canAccessLeadsTab } from '@/lib/leadsPilot';
 import { redirect } from 'next/navigation';
@@ -41,17 +42,19 @@ export default async function MyLeadsPage() {
     sources,
     crmStats,
     services,
+    accessScope,
   ] = await Promise.all([
-    getLeads({ assignedUserId: userId, take: 200, skip: 0 }),
+    getLeads({ take: 200, skip: 0 }),
     // Vendor/campaign pickers are just labels used to populate the
     // filter dropdowns; showing every active vendor/campaign is fine
     // because the results list is still server-filtered to the LO's
     // own leads via `assignedUserId`.
     getLeadVendors(true),
     getLeadCampaigns(),
-    getDistinctLeadSources({ assignedUserId: userId }),
-    getLeadCrmStats({ assignedUserId: userId }),
+    getDistinctLeadSources(),
+    getLeadCrmStats(),
     getAllowedIntegrationServicesForUser(userId),
+    getLeadAccessScopeForUser(userId),
   ]);
 
   const user = {
@@ -67,9 +70,13 @@ export default async function MyLeadsPage() {
             <Database className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="app-page-title !mb-0">My Leads</h1>
+            <h1 className="app-page-title !mb-0">
+              {accessScope.canViewTeamLeads ? 'My Team Leads' : 'My Leads'}
+            </h1>
             <p className="text-sm text-slate-500">
-              Browse, filter, and work the leads assigned to you.
+              {accessScope.canViewTeamLeads
+                ? 'Browse, filter, and work leads assigned to you and your team members.'
+                : 'Browse, filter, and work the leads assigned to you.'}
             </p>
           </div>
         </div>
@@ -83,9 +90,7 @@ export default async function MyLeadsPage() {
         initialTotal={total}
         vendors={vendors.map((v) => ({ id: v.id, name: v.name }))}
         campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
-        // Assigned-to filter is hidden in LO mode, so an empty users
-        // list is fine here (and saves a pointless DB round-trip).
-        users={[]}
+        users={accessScope.users.map((u) => ({ id: u.id, name: u.name }))}
         sources={sources}
         stats={crmStats}
         services={services.map((s) => ({
@@ -95,6 +100,7 @@ export default async function MyLeadsPage() {
           description: s.description,
           type: s.type,
         }))}
+        canViewTeamLeads={accessScope.canViewTeamLeads}
       />
     </DashboardShell>
   );
