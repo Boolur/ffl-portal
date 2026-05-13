@@ -858,6 +858,7 @@ export async function runLeadAddressBackfill(
  * widen this to filter by `method = EMAIL_BROKER_LAUNCH` instead.
  */
 const BROKER_LAUNCH_SLUG = 'broker-launch-email';
+const HEALTH_AUTO_CLEAR_AFTER_MS = 60 * 60 * 1000;
 
 const MS_ENV_VARS = [
   'MS_TENANT_ID',
@@ -1011,6 +1012,36 @@ function toDispatchRow(d: DispatchWithRelations): BrokerLaunchDispatchRow {
   };
 }
 
+async function autoClearResolvedBrokerLaunchFailures(
+  serviceId: string,
+  since: Date
+): Promise<number> {
+  const olderThan = new Date(Date.now() - HEALTH_AUTO_CLEAR_AFTER_MS);
+  const result = await prisma.$executeRaw`
+    UPDATE "ServiceDispatch" failed
+    SET
+      "status" = ${ServiceDispatchStatus.SKIPPED}::"ServiceDispatchStatus",
+      "skippedReason" = ${`${HEALTH_DISMISS_PREFIX}: auto-cleared after later successful Broker Launch send`},
+      "lastError" = NULL,
+      "completedAt" = NOW()
+    WHERE failed."serviceId" = ${serviceId}
+      AND failed."createdAt" >= ${since}
+      AND failed."createdAt" <= ${olderThan}
+      AND failed."status"::text = ${ServiceDispatchStatus.FAILED}
+      AND EXISTS (
+        SELECT 1
+        FROM "ServiceDispatch" sent
+        WHERE sent."serviceId" = failed."serviceId"
+          AND sent."leadId" = failed."leadId"
+          AND sent."status"::text = ${ServiceDispatchStatus.SENT}
+          AND sent."createdAt" > failed."createdAt"
+          AND lower(sent."requestSnapshot" ->> 'to') =
+            lower(failed."requestSnapshot" ->> 'to')
+      )
+  `;
+  return result;
+}
+
 export type BrokerLaunchEmailStatusInput = {
   days?: number;
 };
@@ -1051,6 +1082,8 @@ export async function getBrokerLaunchEmailStatus(
       recentSent: [],
     };
   }
+
+  await autoClearResolvedBrokerLaunchFailures(service.id, since);
 
   // Clamp the coverage window to the service's createdAt so we don't
   // count assignments that happened before the broker-launch service

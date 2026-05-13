@@ -241,8 +241,8 @@ export function LeadHealthPanel() {
     if (
       !confirm(
         `Retry all ${emailStatus.counts.failed} unresolved failed Broker Launch dispatches in the last ${emailStatus.lookbackDays} days?\n\n` +
-          `Each retry creates a fresh dispatch row (originals stay in history). ` +
-          `Capped at 500 per click; re-run if there are more.`
+          `Microsoft Graph timeout/abort failures may have still delivered, so retries now skip any lead that already has a successful Broker Launch send to the same LO. ` +
+          `New retry rows stay in history. Capped at 500 per click; re-run if there are more.`
       )
     ) {
       return;
@@ -375,7 +375,7 @@ export function LeadHealthPanel() {
     if (
       !confirm(
         `Send Broker Launch emails for up to 500 assigned leads that have no dispatch row in the last ${emailStatus.lookbackDays} days?\n\n` +
-          `This fixes the coverage gap caused when the trigger failed before it could write an audit row. Leads that already have a dispatch row will be skipped.`
+          `This fixes the coverage gap caused when the trigger failed before it could write an audit row. Leads that already have a dispatch row or a prior successful send to the same LO will be skipped.`
       )
     ) {
       return;
@@ -2717,7 +2717,7 @@ function BrokerLaunchEmailBody({
                 onClick={onBulkRetry}
                 disabled={bulkRetryActive || status.counts.failed === 0}
                 className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                title="Reissue every unresolved FAILED dispatch in the lookback window. A later SENT dispatch for the same lead clears it from this Health bucket; originals stay in history. Capped at 500 per click and runs one row at a time so you see live progress."
+                title="Reissue unresolved FAILED dispatches. Microsoft Graph timeout failures can be ambiguous, so retries skip leads that already have a successful Broker Launch send to the same LO."
               >
                 {bulkRetryActive ? (
                   <Loader2 className="h-3 w-3 animate-spin" />

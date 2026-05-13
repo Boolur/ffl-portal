@@ -12,6 +12,8 @@ import {
 import { markFailed, markProcessed, markSkipped } from '@/lib/webhookInbox';
 import { revalidatePath } from 'next/cache';
 
+const AUTO_CLEAR_AFTER_MS = 60 * 60 * 1000;
+
 async function assertDistributionAdmin() {
   const session = await getServerSession(authOptions);
   const role = session?.user?.role as UserRole | undefined;
@@ -92,8 +94,42 @@ function buildPreview(body: unknown): string {
   return '—';
 }
 
+async function autoClearResolvedInboxEvents(): Promise<number> {
+  const olderThan = new Date(Date.now() - AUTO_CLEAR_AFTER_MS);
+  const result = await prisma.$executeRaw`
+    UPDATE "WebhookInboxEvent" stale
+    SET
+      "status" = ${WebhookInboxStatus.SKIPPED}::"WebhookInboxStatus",
+      "errorMessage" = 'auto-cleared: later proof of successful webhook processing exists',
+      "processedAt" = COALESCE(stale."processedAt", NOW())
+    WHERE stale."status"::text IN (${WebhookInboxStatus.FAILED}, ${WebhookInboxStatus.PENDING})
+      AND stale."receivedAt" <= ${olderThan}
+      AND (
+        (
+          stale."leadId" IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM "Lead" l WHERE l."id" = stale."leadId"
+          )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM "WebhookInboxEvent" processed
+          WHERE processed."id" <> stale."id"
+            AND processed."status"::text = ${WebhookInboxStatus.PROCESSED}
+            AND processed."receivedAt" > stale."receivedAt"
+            AND processed."source" = stale."source"
+            AND COALESCE(processed."vendorSlug", '') = COALESCE(stale."vendorSlug", '')
+            AND processed."body" = stale."body"
+            AND processed."leadId" IS NOT NULL
+        )
+      )
+  `;
+  return result;
+}
+
 export async function getWebhookInboxCounts(): Promise<WebhookInboxCounts> {
   await assertDistributionAdmin();
+  await autoClearResolvedInboxEvents();
   // groupBy gives us all four status counts in a single round-trip so the
   // Lead Distribution page load doesn't pay for four separate scans.
   const rows = await prisma.webhookInboxEvent.groupBy({
@@ -119,6 +155,7 @@ export async function listWebhookInboxEvents(params?: {
   skip?: number;
 }): Promise<WebhookInboxListItem[]> {
   await assertDistributionAdmin();
+  await autoClearResolvedInboxEvents();
   const take = Math.min(Math.max(params?.take ?? 50, 1), 200);
   const skip = Math.max(params?.skip ?? 0, 0);
   const status = params?.status ?? 'FAILED';

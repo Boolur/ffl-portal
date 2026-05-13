@@ -55,6 +55,24 @@ function isBonzoService(service: Pick<IntegrationService, 'slug' | 'type'>) {
   return service.slug === 'bonzo' || service.type === 'bonzo';
 }
 
+async function findExistingBrokerLaunchSentDispatch(input: {
+  serviceId: string;
+  leadId: string;
+  recipientEmail: string;
+}) {
+  const rows = await prisma.$queryRaw<Array<{ id: string; createdAt: Date }>>`
+    SELECT "id", "createdAt"
+    FROM "ServiceDispatch"
+    WHERE "serviceId" = ${input.serviceId}
+      AND "leadId" = ${input.leadId}
+      AND "status"::text = ${ServiceDispatchStatus.SENT}
+      AND lower("requestSnapshot" ->> 'to') = lower(${input.recipientEmail})
+    ORDER BY "createdAt" ASC
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -79,6 +97,7 @@ export type DispatchOutcome =
 export type SkipReason =
   | 'lead_not_found'
   | 'no_assignee'
+  | 'already_sent'
   | 'no_webhook_url'
   | 'requires_brand_new'
   | 'requires_not_brand_new'
@@ -234,6 +253,52 @@ export async function dispatchServiceToLead(
       return outcome;
     }
 
+    const recipientEmail = lead.assignedUser?.email?.trim();
+    if (!recipientEmail) {
+      const outcome: DispatchOutcome = {
+        ok: false,
+        skipped: true,
+        reason: 'no_assignee',
+        info: `User ${lead.assignedUserId} has no email on their account.`,
+      };
+      if (auditEnabled) {
+        await recordDispatch(service, leadId, trigger, outcome, null, null, opts);
+      }
+      return outcome;
+    }
+
+    const existingSent = await findExistingBrokerLaunchSentDispatch({
+      serviceId: service.id,
+      leadId,
+      recipientEmail,
+    });
+    if (existingSent) {
+      const outcome: DispatchOutcome = {
+        ok: false,
+        skipped: true,
+        reason: 'already_sent',
+        info: `Broker Launch already sent to ${recipientEmail} on ${existingSent.createdAt.toISOString()}.`,
+      };
+      if (auditEnabled) {
+        await recordDispatch(
+          service,
+          leadId,
+          trigger,
+          outcome,
+          {
+            transport: 'email',
+            method: 'EMAIL_BROKER_LAUNCH',
+            subject: 'Broker Launch Notification',
+            to: recipientEmail,
+            skippedDuplicateOf: existingSent.id,
+          },
+          null,
+          opts
+        );
+      }
+      return outcome;
+    }
+
     // Reuse the lead we already loaded above (line ~146) so the email
     // path makes zero additional DB calls. Two back-to-back queries for
     // the same row was the root cause of transient "Can't reach database
@@ -270,7 +335,7 @@ export async function dispatchServiceToLead(
       transport: 'email',
       method: 'EMAIL_BROKER_LAUNCH',
       subject: 'Broker Launch Notification',
-      to: lead.assignedUser?.email ?? null,
+      to: recipientEmail,
     };
     const responseSnapshot =
       result.ok && 'receipt' in result
