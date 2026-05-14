@@ -3445,6 +3445,43 @@ function parseOAuthConfig(raw: unknown): IntegrationServiceOAuthConfig | null {
   };
 }
 
+async function assertServiceScopeSelections(
+  data: IntegrationServiceInput,
+  existingId?: string
+) {
+  const existing = existingId
+    ? await prisma.integrationService.findUnique({
+        where: { id: existingId },
+        select: {
+          active: true,
+          userScope: true,
+          userIds: true,
+          campaignScope: true,
+          campaignIds: true,
+        },
+      })
+    : null;
+
+  const active = data.active ?? existing?.active ?? true;
+  if (!active) return;
+
+  const userScope = data.userScope ?? existing?.userScope;
+  const userIds = data.userIds ?? existing?.userIds ?? [];
+  if (userScope === 'SPECIFIC' && userIds.length === 0) {
+    throw new Error(
+      'Select at least one user before enabling a user-scoped service.'
+    );
+  }
+
+  const campaignScope = data.campaignScope ?? existing?.campaignScope;
+  const campaignIds = data.campaignIds ?? existing?.campaignIds ?? [];
+  if (campaignScope === 'SPECIFIC' && campaignIds.length === 0) {
+    throw new Error(
+      'Select at least one campaign before enabling a campaign-scoped service.'
+    );
+  }
+}
+
 /**
  * Returns every service (newest first), each with its credential-field
  * definitions. Pass `activeOnly: true` when populating the Push-to-Service
@@ -3579,6 +3616,7 @@ export async function createIntegrationService(
   data: IntegrationServiceInput
 ): Promise<IntegrationServiceSummary> {
   await assertServiceAdmin();
+  await assertServiceScopeSelections(data);
 
   const slug = normalizeSlug(data.slug || data.name);
   if (!slug) throw new Error('Service slug is required');
@@ -3617,6 +3655,7 @@ export async function updateIntegrationService(
   data: IntegrationServiceInput
 ): Promise<IntegrationServiceSummary> {
   await assertServiceAdmin();
+  await assertServiceScopeSelections(data, id);
 
   const patch = buildServiceUpdateData(data, { forCreate: false });
 

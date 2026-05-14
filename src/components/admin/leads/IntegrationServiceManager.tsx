@@ -134,6 +134,47 @@ const CAPTURE_FIELD_TARGETS: Array<{ value: string; label: string }> = [
   { value: 'customData.*', label: 'Lead customData (free-form)' },
 ];
 
+const FIVE9_LEAD_PUSH_URL =
+  'https://lead-router-fedfirst.onrender.com/webhooks/leadmailbox';
+
+const FIVE9_LEAD_PUSH_BODY = [
+  '{',
+  '  "first_name": "{{lead.firstName}}",',
+  '  "last_name": "{{lead.lastName}}",',
+  '  "email": "{{lead.email}}",',
+  '  "number1": "{{lead.phone}}",',
+  '  "number2": "{{lead.homePhone}}",',
+  '  "number3": "{{lead.workPhone}}",',
+  '',
+  '  "street": "{{lead.mailingAddress}}",',
+  '  "city": "{{lead.mailingCity}}",',
+  '  "state": "{{lead.mailingState}}",',
+  '  "zip": "{{lead.mailingZip}}",',
+  '',
+  '  "property_value": "{{lead.propertyValue}}",',
+  '  "property_type": "{{lead.propertyType}}",',
+  '  "property_use": "{{lead.propertyUse}}",',
+  '  "property_ltv": "{{lead.propertyLtv}}",',
+  '',
+  '  "loan_amount": "{{lead.loanAmount}}",',
+  '  "loan_rate": "{{lead.loanRate}}",',
+  '  "loan_term": "{{lead.loanTerm}}",',
+  '  "cash_out": "{{lead.cashOut}}",',
+  '',
+  '  "credit_rating": "{{lead.creditRating}}",',
+  '  "current_balance": "{{lead.currentBalance}}",',
+  '  "current_payment": "{{lead.currentPayment}}",',
+  '  "current_rate": "{{lead.currentRate}}",',
+  '',
+  '  "lead_id": "{{lead.vendorLeadId}}",',
+  '  "user_id": "{{user.id}}",',
+  '  "date_modified": "{{now.iso}}",',
+  '',
+  '  "branch": "CA",',
+  '  "source": "LeadMailbox"',
+  '}',
+].join('\n');
+
 // ---------------------------------------------------------------------------
 // Root component
 // ---------------------------------------------------------------------------
@@ -654,6 +695,31 @@ function ServiceBuilderModal({
             },
           ];
         }
+      } else if (preset === 'five9') {
+        next.name = prev.name || 'New Lead Push - Five9';
+        next.slug = prev.slug || 'new-lead-push-five9';
+        next.description =
+          prev.description ||
+          'Pushes newly assigned Lead Mailbox leads to the Five9 router middleware.';
+        next.kind = 'SERVER';
+        next.method = 'POST_JSON';
+        next.statusTrigger = 'ON_ASSIGN';
+        next.requiresBrandNew = true;
+        next.requiresAssignedUser = true;
+        next.allowManualSend = false;
+        next.userScope = 'SPECIFIC';
+        next.campaignScope = 'ANY';
+        next.excludeSelected = false;
+        if (!prev.urlTemplate) {
+          next.urlTemplate = FIVE9_LEAD_PUSH_URL;
+        }
+        if (!prev.headersTemplate) {
+          next.headersTemplate =
+            'User-Agent: FFL-Portal/1.0 (+lead-distribution)';
+        }
+        if (!prev.bodyTemplate) {
+          next.bodyTemplate = FIVE9_LEAD_PUSH_BODY;
+        }
       } else if (preset === 'webhook') {
         // Generic JSON webhook that works against any inbound endpoint.
         next.method = 'POST_JSON';
@@ -809,6 +875,18 @@ function ServiceBuilderModal({
     }
     if (!payload.urlTemplate?.trim()) {
       setError('URL template is required.');
+      return;
+    }
+    if (payload.active && payload.userScope === 'SPECIFIC' && payload.userIds?.length === 0) {
+      setError('Select at least one user before enabling a user-scoped service.');
+      return;
+    }
+    if (
+      payload.active &&
+      payload.campaignScope === 'SPECIFIC' &&
+      payload.campaignIds?.length === 0
+    ) {
+      setError('Select at least one campaign before enabling a campaign-scoped service.');
       return;
     }
     // Basic JSON sanity check for JSON bodies — renders may still have
@@ -999,9 +1077,11 @@ function HeaderSection({
                   ? 'SOAP / XML'
                   : p === 'zapier'
                     ? 'Zapier'
-                    : p === 'webhook'
-                      ? 'Generic Webhook'
-                      : p[0].toUpperCase() + p.slice(1),
+                    : p === 'five9'
+                      ? 'Five9 New Lead Push'
+                      : p === 'webhook'
+                        ? 'Generic Webhook'
+                        : p[0].toUpperCase() + p.slice(1),
           }))}
         />
         <Toggle
