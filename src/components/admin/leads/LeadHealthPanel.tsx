@@ -241,8 +241,8 @@ export function LeadHealthPanel() {
     if (
       !confirm(
         `Retry all ${emailStatus.counts.failed} unresolved failed Broker Launch dispatches in the last ${emailStatus.lookbackDays} days?\n\n` +
-          `Microsoft Graph timeout/abort failures may have still delivered, so retries now skip any lead that already has a successful Broker Launch send to the same LO. ` +
-          `New retry rows stay in history. Capped at 500 per click; re-run if there are more.`
+          `Microsoft Graph timeout/abort failures are ambiguous: the LO may already have received the email. Broker Launch sends no longer auto-retry at the transport layer to prevent duplicate inbox messages. ` +
+          `Manual retries still skip any lead that already has a successful Broker Launch send to the same LO. Capped at 500 per click; re-run if there are more.`
       )
     ) {
       return;
@@ -2717,7 +2717,7 @@ function BrokerLaunchEmailBody({
                 onClick={onBulkRetry}
                 disabled={bulkRetryActive || status.counts.failed === 0}
                 className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                title="Reissue unresolved FAILED dispatches. Microsoft Graph timeout failures can be ambiguous, so retries skip leads that already have a successful Broker Launch send to the same LO."
+                title="Reissue unresolved FAILED dispatches. Broker Launch Graph sends are single-attempt to prevent duplicate inbox messages; manual retries skip leads that already have a successful send to the same LO."
               >
                 {bulkRetryActive ? (
                   <Loader2 className="h-3 w-3 animate-spin" />

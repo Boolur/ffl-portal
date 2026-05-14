@@ -96,11 +96,17 @@ export async function sendEmail({
   subject,
   html,
   text,
+  maxAttempts = MAX_SEND_ATTEMPTS,
+  timeoutMs = SEND_TIMEOUT_MS,
+  label = 'email',
 }: {
   to: string;
   subject: string;
   html?: string;
   text?: string;
+  maxAttempts?: number;
+  timeoutMs?: number;
+  label?: string;
 }): Promise<EmailSendReceipt> {
   if (!senderEmail) {
     throw new Error('Microsoft Graph sender email missing.');
@@ -109,8 +115,10 @@ export async function sendEmail({
   const contentType = html ? 'HTML' : 'Text';
   const content = html || text || '';
   let lastError: string | null = null;
+  const attempts = Math.max(1, Math.floor(maxAttempts));
+  const sendTimeoutMs = Math.max(1_000, Math.floor(timeoutMs));
 
-  for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const clientRequestId = randomUUID();
     try {
       const accessToken = await getAccessToken();
@@ -133,7 +141,7 @@ export async function sendEmail({
             saveToSentItems: true,
           }),
         },
-        SEND_TIMEOUT_MS
+        sendTimeoutMs
       );
 
       if (response.ok) {
@@ -157,7 +165,7 @@ export async function sendEmail({
         cachedToken = null;
       }
 
-      if (!isRetryableStatus(response.status) || attempt === MAX_SEND_ATTEMPTS) {
+      if (!isRetryableStatus(response.status) || attempt === attempts) {
         throw new Error(lastError);
       }
     } catch (error) {
@@ -167,8 +175,8 @@ export async function sendEmail({
         error instanceof Error
           ? error.message
           : `Unknown email transport error${isAbort ? ' (timeout)' : ''}`;
-      if (attempt === MAX_SEND_ATTEMPTS) {
-        throw new Error(`Failed to send email via Graph: ${lastError}`);
+      if (attempt === attempts) {
+        throw new Error(`Failed to send ${label} via Graph: ${lastError}`);
       }
     }
 
