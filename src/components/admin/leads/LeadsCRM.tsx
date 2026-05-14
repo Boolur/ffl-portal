@@ -111,6 +111,8 @@ function MultiSelectFilter({
   options: MultiSelectOption[];
   onChange: (values: string[]) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const selected = new Set(values);
   const summary =
     values.length === 0
@@ -118,6 +120,16 @@ function MultiSelectFilter({
       : values.length === 1
         ? options.find((option) => option.value === values[0])?.label ?? '1 selected'
         : `${values.length} selected`;
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (containerRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
 
   const toggle = (value: string) => {
     if (selected.has(value)) {
@@ -128,7 +140,7 @@ function MultiSelectFilter({
   };
 
   return (
-    <div>
+    <div ref={containerRef} className="relative">
       <div className="mb-1 flex items-center justify-between gap-2">
         <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
           {label}
@@ -143,11 +155,22 @@ function MultiSelectFilter({
           </button>
         )}
       </div>
-      <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-3 py-2 text-sm font-medium text-slate-700">
-          {summary}
-        </div>
-        <div className="max-h-40 overflow-y-auto py-1">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="truncate">{summary}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+          <div className="max-h-56 overflow-y-auto py-1">
           {options.map((option) => (
             <label
               key={option.value}
@@ -165,8 +188,9 @@ function MultiSelectFilter({
           {options.length === 0 && (
             <div className="px-3 py-2 text-sm text-slate-400">No options</div>
           )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
