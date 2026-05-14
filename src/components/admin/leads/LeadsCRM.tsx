@@ -1702,14 +1702,16 @@ export function LeadsCRM({
       try {
         await bulkAssignLeads(ids, userId);
         setAssignOpen(false);
-        clearSelection();
+        setSelected(new Set(ids));
+        setSelectAllGlobal(false);
+        setGlobalIds(null);
         router.refresh();
         await fetchLeads();
       } finally {
         setActionLoading(false);
       }
     },
-    [getEffectiveIds, clearSelection, fetchLeads, router]
+    [getEffectiveIds, fetchLeads, router]
   );
 
   const handleBulkStatus = useCallback(
