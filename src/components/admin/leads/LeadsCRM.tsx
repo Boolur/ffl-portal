@@ -96,6 +96,81 @@ function sortStrings(items: string[]): string[] {
   );
 }
 
+type MultiSelectOption = { value: string; label: string };
+
+function MultiSelectFilter({
+  label,
+  allLabel,
+  values,
+  options,
+  onChange,
+}: {
+  label: string;
+  allLabel: string;
+  values: string[];
+  options: MultiSelectOption[];
+  onChange: (values: string[]) => void;
+}) {
+  const selected = new Set(values);
+  const summary =
+    values.length === 0
+      ? allLabel
+      : values.length === 1
+        ? options.find((option) => option.value === values[0])?.label ?? '1 selected'
+        : `${values.length} selected`;
+
+  const toggle = (value: string) => {
+    if (selected.has(value)) {
+      onChange(values.filter((item) => item !== value));
+      return;
+    }
+    onChange([...values, value]);
+  };
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          {label}
+        </label>
+        {values.length > 0 && (
+          <button
+            type="button"
+            className="text-[11px] font-semibold text-blue-600 hover:text-blue-800"
+            onClick={() => onChange([])}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-3 py-2 text-sm font-medium text-slate-700">
+          {summary}
+        </div>
+        <div className="max-h-40 overflow-y-auto py-1">
+          {options.map((option) => (
+            <label
+              key={option.value}
+              className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-slate-700 hover:bg-blue-50"
+            >
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                checked={selected.has(option.value)}
+                onChange={() => toggle(option.value)}
+              />
+              <span className="truncate">{option.label}</span>
+            </label>
+          ))}
+          {options.length === 0 && (
+            <div className="px-3 py-2 text-sm text-slate-400">No options</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type LeadDetailData = React.ComponentProps<typeof LeadDetailModal>['lead'];
 
 type CrmStats = {
@@ -434,6 +509,37 @@ export function LeadsCRM({
   const sortedCampaigns = useMemo(() => sortByLabel(campaigns), [campaigns]);
   const sortedUsers = useMemo(() => sortByLabel(users), [users]);
   const sortedSources = useMemo(() => sortStrings(sources), [sources]);
+  const statusOptions = useMemo<MultiSelectOption[]>(
+    () =>
+      ALL_STATUSES.filter((s) => !isLoMode || s !== 'UNASSIGNED').map((s) => ({
+        value: s,
+        label: s,
+      })),
+    [isLoMode]
+  );
+  const vendorOptions = useMemo<MultiSelectOption[]>(
+    () => sortedVendors.map((vendor) => ({ value: vendor.id, label: vendor.name })),
+    [sortedVendors]
+  );
+  const campaignOptions = useMemo<MultiSelectOption[]>(
+    () =>
+      sortedCampaigns.map((campaign) => ({
+        value: campaign.id,
+        label: campaign.name,
+      })),
+    [sortedCampaigns]
+  );
+  const userOptions = useMemo<MultiSelectOption[]>(
+    () => [
+      ...(!isLoMode ? [{ value: '__unassigned__', label: 'Unassigned' }] : []),
+      ...sortedUsers.map((user) => ({ value: user.id, label: user.name })),
+    ],
+    [isLoMode, sortedUsers]
+  );
+  const sourceOptions = useMemo<MultiSelectOption[]>(
+    () => sortedSources.map((source) => ({ value: source, label: source })),
+    [sortedSources]
+  );
 
   const [leads, setLeads] = useState<LeadRow[]>(initialLeads);
   const [total, setTotal] = useState(initialTotal);
@@ -468,12 +574,12 @@ export function LeadsCRM({
   const lastFilterSigRef = useRef<string>('');
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [vendorFilter, setVendorFilter] = useState('');
-  const [campaignFilter, setCampaignFilter] = useState('');
-  const [userFilter, setUserFilter] = useState('');
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [vendorFilters, setVendorFilters] = useState<string[]>([]);
+  const [campaignFilters, setCampaignFilters] = useState<string[]>([]);
+  const [userFilters, setUserFilters] = useState<string[]>([]);
   const [stateFilter, setStateFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('');
+  const [sourceFilters, setSourceFilters] = useState<string[]>([]);
   const [loanPurposeFilter, setLoanPurposeFilter] = useState('');
   const [loanTypeFilter, setLoanTypeFilter] = useState('');
   const [propertyTypeFilter, setPropertyTypeFilter] = useState('');
@@ -745,12 +851,12 @@ export function LeadsCRM({
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (search) count++;
-    if (statusFilter) count++;
-    if (vendorFilter) count++;
-    if (campaignFilter) count++;
-    if (userFilter) count++;
+    if (statusFilters.length > 0) count++;
+    if (vendorFilters.length > 0) count++;
+    if (campaignFilters.length > 0) count++;
+    if (userFilters.length > 0) count++;
     if (stateFilter) count++;
-    if (sourceFilter) count++;
+    if (sourceFilters.length > 0) count++;
     if (loanPurposeFilter) count++;
     if (loanTypeFilter) count++;
     if (propertyTypeFilter) count++;
@@ -763,12 +869,12 @@ export function LeadsCRM({
     return count;
   }, [
     search,
-    statusFilter,
-    vendorFilter,
-    campaignFilter,
-    userFilter,
+    statusFilters,
+    vendorFilters,
+    campaignFilters,
+    userFilters,
     stateFilter,
-    sourceFilter,
+    sourceFilters,
     loanPurposeFilter,
     loanTypeFilter,
     propertyTypeFilter,
@@ -789,13 +895,14 @@ export function LeadsCRM({
         sortDir,
       };
       if (search) f.search = search;
-      if (statusFilter) f.status = statusFilter;
-      if (vendorFilter) f.vendorId = vendorFilter;
-      if (campaignFilter) f.campaignId = campaignFilter;
-      if (userFilter === '__unassigned__') f.unassigned = true;
-      else if (userFilter) f.assignedUserId = userFilter;
+      if (statusFilters.length > 0) f.statuses = statusFilters;
+      if (vendorFilters.length > 0) f.vendorIds = vendorFilters;
+      if (campaignFilters.length > 0) f.campaignIds = campaignFilters;
+      const assignedUserIds = userFilters.filter((id) => id !== '__unassigned__');
+      if (userFilters.includes('__unassigned__')) f.unassigned = true;
+      if (assignedUserIds.length > 0) f.assignedUserIds = assignedUserIds;
       if (stateFilter) f.propertyState = stateFilter;
-      if (sourceFilter) f.source = sourceFilter;
+      if (sourceFilters.length > 0) f.sources = sourceFilters;
       if (loanPurposeFilter) f.loanPurpose = loanPurposeFilter;
       if (loanTypeFilter) f.loanType = loanTypeFilter;
       if (propertyTypeFilter) f.propertyType = propertyTypeFilter;
@@ -810,12 +917,12 @@ export function LeadsCRM({
     [
       page,
       search,
-      statusFilter,
-      vendorFilter,
-      campaignFilter,
-      userFilter,
+      statusFilters,
+      vendorFilters,
+      campaignFilters,
+      userFilters,
       stateFilter,
-      sourceFilter,
+      sourceFilters,
       loanPurposeFilter,
       loanTypeFilter,
       propertyTypeFilter,
@@ -855,7 +962,12 @@ export function LeadsCRM({
       const parts: string[] = [];
       for (const k of keys) {
         const v = rest[k];
-        parts.push(`${k}=${v === undefined ? '' : String(v)}`);
+        const serialized = Array.isArray(v)
+          ? [...v].map(String).sort().join(',')
+          : v === undefined
+            ? ''
+            : String(v);
+        parts.push(`${k}=${serialized}`);
       }
       return parts.join('|');
     },
@@ -1035,12 +1147,12 @@ export function LeadsCRM({
 
   const clearAllFilters = useCallback(() => {
     setSearch('');
-    setStatusFilter('');
-    setVendorFilter('');
-    setCampaignFilter('');
-    setUserFilter('');
+    setStatusFilters([]);
+    setVendorFilters([]);
+    setCampaignFilters([]);
+    setUserFilters([]);
     setStateFilter('');
-    setSourceFilter('');
+    setSourceFilters([]);
     setLoanPurposeFilter('');
     setLoanTypeFilter('');
     setPropertyTypeFilter('');
@@ -1080,12 +1192,12 @@ export function LeadsCRM({
   const applyQuickFilter = useCallback(
     (key: string) => {
       setSearch('');
-      setStatusFilter('');
-      setVendorFilter('');
-      setCampaignFilter('');
-      setUserFilter('');
+      setStatusFilters([]);
+      setVendorFilters([]);
+      setCampaignFilters([]);
+      setUserFilters([]);
       setStateFilter('');
-      setSourceFilter('');
+      setSourceFilters([]);
       setLoanPurposeFilter('');
       setLoanTypeFilter('');
       setPropertyTypeFilter('');
@@ -1189,7 +1301,7 @@ export function LeadsCRM({
         case 'unassigned':
           setDateFrom('');
           setDateTo('');
-          setUserFilter('__unassigned__');
+          setUserFilters(['__unassigned__']);
           filters = { ...filters, unassigned: true };
           break;
       }
@@ -1221,11 +1333,11 @@ export function LeadsCRM({
   const applyVendorFilter = useCallback(
     (vendorId: string) => {
       setSearch('');
-      setStatusFilter('');
-      setCampaignFilter('');
-      setUserFilter('');
+      setStatusFilters([]);
+      setCampaignFilters([]);
+      setUserFilters([]);
       setStateFilter('');
-      setSourceFilter('');
+      setSourceFilters([]);
       setLoanPurposeFilter('');
       setLoanTypeFilter('');
       setPropertyTypeFilter('');
@@ -1235,7 +1347,7 @@ export function LeadsCRM({
       setEmployerFilter('');
       setDateFrom('');
       setDateTo('');
-      setVendorFilter(vendorId);
+      setVendorFilters([vendorId]);
       setActiveQuickFilter(null);
       setPage(0);
       setLoading(true);
@@ -1270,11 +1382,11 @@ export function LeadsCRM({
   const applyCampaignFilter = useCallback(
     (campaignId: string) => {
       setSearch('');
-      setStatusFilter('');
-      setVendorFilter('');
-      setUserFilter('');
+      setStatusFilters([]);
+      setVendorFilters([]);
+      setUserFilters([]);
       setStateFilter('');
-      setSourceFilter('');
+      setSourceFilters([]);
       setLoanPurposeFilter('');
       setLoanTypeFilter('');
       setPropertyTypeFilter('');
@@ -1284,7 +1396,7 @@ export function LeadsCRM({
       setEmployerFilter('');
       setDateFrom('');
       setDateTo('');
-      setCampaignFilter(campaignId);
+      setCampaignFilters([campaignId]);
       setActiveQuickFilter(null);
       setPage(0);
       setLoading(true);
@@ -2000,7 +2112,7 @@ export function LeadsCRM({
                 <div className="px-5 py-3 space-y-2.5">
                   {stats.byVendor.map((v, i) => {
                     const pct = Math.round((v.count / maxVendorCount) * 100);
-                    const isActiveVendor = vendorFilter === v.vendorId;
+                    const isActiveVendor = vendorFilters.includes(v.vendorId);
                     return (
                       <button
                         key={v.vendorId}
@@ -2062,7 +2174,7 @@ export function LeadsCRM({
                         (c.count / maxCampaignCount) * 100
                       );
                       const isActiveCampaign =
-                        campaignFilter === c.campaignId;
+                        campaignFilters.includes(c.campaignId);
                       return (
                         <button
                           key={c.campaignId}
@@ -2180,80 +2292,35 @@ export function LeadsCRM({
         {filtersExpanded && (
           <div className="border-t border-slate-100 px-4 py-3">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Status
-                </label>
-                <select
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="">All Statuses</option>
-                  {ALL_STATUSES.filter(
-                    (s) => !isLoMode || s !== 'UNASSIGNED'
-                  ).map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Vendor
-                </label>
-                <select
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  value={vendorFilter}
-                  onChange={(e) => setVendorFilter(e.target.value)}
-                >
-                  <option value="">All Vendors</option>
-                  {sortedVendors.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Campaign
-                </label>
-                <select
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  value={campaignFilter}
-                  onChange={(e) => setCampaignFilter(e.target.value)}
-                >
-                  <option value="">All Campaigns</option>
-                  {sortedCampaigns.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <MultiSelectFilter
+                label="Status"
+                allLabel="All Statuses"
+                values={statusFilters}
+                options={statusOptions}
+                onChange={setStatusFilters}
+              />
+              <MultiSelectFilter
+                label="Vendor"
+                allLabel="All Vendors"
+                values={vendorFilters}
+                options={vendorOptions}
+                onChange={setVendorFilters}
+              />
+              <MultiSelectFilter
+                label="Campaign"
+                allLabel="All Campaigns"
+                values={campaignFilters}
+                options={campaignOptions}
+                onChange={setCampaignFilters}
+              />
               {showAssigneeControls && (
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Assigned To
-                  </label>
-                  <select
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    value={userFilter}
-                    onChange={(e) => setUserFilter(e.target.value)}
-                  >
-                    <option value="">
-                      {isLoMode ? 'All Accessible Users' : 'All Users'}
-                    </option>
-                    {!isLoMode && <option value="__unassigned__">Unassigned</option>}
-                    {sortedUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <MultiSelectFilter
+                  label="Assigned To"
+                  allLabel={isLoMode ? 'All Accessible Users' : 'All Users'}
+                  values={userFilters}
+                  options={userOptions}
+                  onChange={setUserFilters}
+                />
               )}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
@@ -2266,23 +2333,13 @@ export function LeadsCRM({
                   onChange={(e) => setStateFilter(e.target.value)}
                 />
               </div>
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Source
-                </label>
-                <select
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  value={sourceFilter}
-                  onChange={(e) => setSourceFilter(e.target.value)}
-                >
-                  <option value="">All Sources</option>
-                  {sortedSources.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <MultiSelectFilter
+                label="Source"
+                allLabel="All Sources"
+                values={sourceFilters}
+                options={sourceOptions}
+                onChange={setSourceFilters}
+              />
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                   Date From

@@ -1683,6 +1683,7 @@ export async function deleteLeadUserTeam(id: string) {
 
 export type LeadListFilters = {
   status?: LeadStatus;
+  statuses?: LeadStatus[];
   assignedUserId?: string;
   assignedUserIds?: string[];
   unassigned?: boolean;
@@ -1694,9 +1695,12 @@ export type LeadListFilters = {
   // and needs a manual assignment.
   inPool?: boolean;
   campaignId?: string;
+  campaignIds?: string[];
   vendorId?: string;
+  vendorIds?: string[];
   propertyState?: string;
   source?: string;
+  sources?: string[];
   dateFrom?: string;
   dateTo?: string;
   search?: string;
@@ -1770,17 +1774,23 @@ function scopeLeadFiltersToAssignedUserIds<T extends LeadListFilters>(
   assignedUserIds: string[]
 ): T & { assignedUserId?: string; assignedUserIds?: string[]; unassigned?: boolean } {
   const requestedUserId = filters?.assignedUserId;
+  const requestedUserIds = filters?.assignedUserIds;
+  const scopedRequestedUserIds = requestedUserIds
+    ? requestedUserIds.filter((id) => assignedUserIds.includes(id))
+    : null;
   return {
     ...(filters ?? ({} as T)),
     unassigned: false,
     assignedUserId:
-      requestedUserId && assignedUserIds.includes(requestedUserId)
+      !requestedUserIds && requestedUserId && assignedUserIds.includes(requestedUserId)
         ? requestedUserId
         : undefined,
     assignedUserIds:
-      requestedUserId && assignedUserIds.includes(requestedUserId)
-        ? undefined
-        : assignedUserIds,
+      requestedUserIds
+        ? scopedRequestedUserIds ?? []
+        : requestedUserId && assignedUserIds.includes(requestedUserId)
+          ? undefined
+          : assignedUserIds,
   };
 }
 
@@ -1821,19 +1831,29 @@ function buildLeadWhere(filters?: LeadListFilters): Record<string, unknown> {
       { assignedUserId: null },
     ];
   } else {
-    if (filters.status) where.status = filters.status;
-    if (filters.unassigned) where.assignedUserId = null;
-    else if (filters.assignedUserIds?.length) {
+    if (filters.statuses?.length) where.status = { in: filters.statuses };
+    else if (filters.status) where.status = filters.status;
+
+    if (filters.unassigned && filters.assignedUserIds?.length) {
+      where.OR = [
+        { assignedUserId: null },
+        { assignedUserId: { in: filters.assignedUserIds } },
+      ];
+    } else if (filters.unassigned) where.assignedUserId = null;
+    else if (filters.assignedUserIds) {
       where.assignedUserId = { in: filters.assignedUserIds };
-    }
-    else if (filters.assignedUserId) where.assignedUserId = filters.assignedUserId;
+    } else if (filters.assignedUserId) where.assignedUserId = filters.assignedUserId;
   }
-  if (filters.campaignId) where.campaignId = filters.campaignId;
-  if (filters.vendorId) where.vendorId = filters.vendorId;
+  if (filters.campaignIds?.length) where.campaignId = { in: filters.campaignIds };
+  else if (filters.campaignId) where.campaignId = filters.campaignId;
+  if (filters.vendorIds?.length) where.vendorId = { in: filters.vendorIds };
+  else if (filters.vendorId) where.vendorId = filters.vendorId;
   if (filters.propertyState) {
     where.propertyState = { contains: filters.propertyState, mode: 'insensitive' };
   }
-  if (filters.source) {
+  if (filters.sources?.length) {
+    where.source = { in: filters.sources };
+  } else if (filters.source) {
     where.source = { contains: filters.source, mode: 'insensitive' };
   }
   if (filters.loanPurpose) {
