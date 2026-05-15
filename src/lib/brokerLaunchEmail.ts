@@ -31,7 +31,7 @@ import { sendEmail, type EmailSendReceipt } from '@/lib/email';
  */
 
 export const BROKER_LAUNCH_SUBJECT = 'Broker Launch Notification';
-const BROKER_LAUNCH_GRAPH_TIMEOUT_MS = 60_000;
+const BROKER_LAUNCH_GRAPH_TIMEOUT_MS = 120_000;
 
 /**
  * Structured result returned to the service dispatcher so it can record

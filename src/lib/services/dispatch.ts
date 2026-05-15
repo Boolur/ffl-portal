@@ -828,6 +828,18 @@ async function runServiceTriggersImpl(
           },
         });
       } else {
+        if (service.method === IntegrationServiceMethod.EMAIL_BROKER_LAUNCH) {
+          try {
+            await dispatchServiceToLead(service, leadId, { trigger });
+          } catch (err) {
+            console.warn(
+              `[services] trigger dispatch failed for ${service.slug} -> lead ${leadId}:`,
+              err
+            );
+          }
+          continue;
+        }
+
         // Fire-and-forget: failures are recorded in the ServiceDispatch row,
         // but we never throw because trigger callers are in the middle of
         // user-facing work (lead assignment, status change).
