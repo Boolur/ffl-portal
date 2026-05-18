@@ -1583,6 +1583,11 @@ export function LeadsCRM({
         'Mailing State',
         'Mailing Zip',
         'Mailing County',
+        'Export Address',
+        'Export City',
+        'Export State',
+        'Export Zip',
+        'Export County',
         'Property Address',
         'Property City',
         'Property State',
@@ -1666,6 +1671,8 @@ export function LeadsCRM({
             return `${dateCsv(note.createdAt)} - ${author}: ${note.content}`;
           })
           .join('\n\n');
+      const firstFilled = (...values: Array<unknown>) =>
+        values.find((value) => String(value ?? '').trim() !== '') ?? '';
 
       const batchSize = 200;
       const totalBatches = Math.ceil(ids.length / batchSize);
@@ -1712,6 +1719,11 @@ export function LeadsCRM({
               escCsv(l.mailingState),
               escCsv(l.mailingZip),
               escCsv(l.mailingCounty),
+              escCsv(firstFilled(l.mailingAddress, l.propertyAddress)),
+              escCsv(firstFilled(l.mailingCity, l.propertyCity)),
+              escCsv(firstFilled(l.mailingState, l.propertyState)),
+              escCsv(firstFilled(l.mailingZip, l.propertyZip)),
+              escCsv(firstFilled(l.mailingCounty, l.propertyCounty)),
               escCsv(l.propertyAddress),
               escCsv(l.propertyCity),
               escCsv(l.propertyState),
