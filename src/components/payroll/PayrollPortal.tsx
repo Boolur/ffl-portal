@@ -41,6 +41,7 @@ type FormState = {
   expectedRevenue: string;
   submitterNotes: string;
 };
+type RequiredFieldKey = Exclude<keyof FormState, 'submitterNotes'>;
 
 const initialForm: FormState = {
   loanNumber: '',
@@ -52,6 +53,15 @@ const initialForm: FormState = {
   expectedRevenue: '',
   submitterNotes: '',
 };
+const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
+  { key: 'loanNumber', label: 'Arive Loan Number' },
+  { key: 'borrowerName', label: "Borrower's Name" },
+  { key: 'loanType', label: 'Loan Type' },
+  { key: 'lender', label: 'Lender' },
+  { key: 'loanChannel', label: 'Broker or Non-Delegated' },
+  { key: 'processingType', label: 'Processing Type' },
+  { key: 'expectedRevenue', label: 'Expected Revenue' },
+];
 
 type PayrollMismoPrefill = {
   loanNumber?: string;
@@ -190,6 +200,8 @@ export function PayrollPortal({ rows, summary }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [mismoFileName, setMismoFileName] = useState('');
   const [isParsingMismo, setIsParsingMismo] = useState(false);
+  const [touchedFields, setTouchedFields] = useState<Set<RequiredFieldKey>>(new Set());
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [preview, setPreview] = useState<Array<{
     recipientName: string;
     recipientEmail: string | null;
@@ -202,10 +214,26 @@ export function PayrollPortal({ rows, summary }: Props) {
   const [isPending, startTransition] = useTransition();
 
   const canPreview = useMemo(() => Number(form.expectedRevenue) > 0, [form.expectedRevenue]);
+  const missingFields = useMemo(() => {
+    return REQUIRED_FIELDS.filter(({ key }) => {
+      const value = form[key];
+      if (key === 'expectedRevenue') {
+        return !Number.isFinite(Number(value)) || Number(value) <= 0;
+      }
+      return !String(value).trim();
+    });
+  }, [form]);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setError(null);
+  };
+  const markTouched = (key: RequiredFieldKey) => {
+    setTouchedFields((current) => new Set(current).add(key));
+  };
+  const shouldHighlight = (key: RequiredFieldKey) => {
+    if (!missingFields.some((field) => field.key === key)) return false;
+    return attemptedSubmit || touchedFields.has(key);
   };
 
   const handleMismoFile = async (file: File | null) => {
@@ -248,6 +276,12 @@ export function PayrollPortal({ rows, summary }: Props) {
   };
 
   const submit = () => {
+    setAttemptedSubmit(true);
+    if (missingFields.length > 0) {
+      setTouchedFields(new Set(REQUIRED_FIELDS.map((field) => field.key)));
+      setError(`Please complete: ${missingFields.map((field) => field.label).join(', ')}.`);
+      return;
+    }
     startTransition(async () => {
       try {
         setError(null);
@@ -256,10 +290,15 @@ export function PayrollPortal({ rows, summary }: Props) {
           expectedRevenue: Number(form.expectedRevenue),
         });
         setForm(initialForm);
+        setTouchedFields(new Set());
+        setAttemptedSubmit(false);
         setPreview([]);
         setModalOpen(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unable to submit payroll request.');
+        const message = err instanceof Error && err.message && !err.message.includes('digest')
+          ? err.message
+          : 'Unable to submit payroll request. Please confirm every required field is filled out and try again.';
+        setError(message);
       }
     });
   };
@@ -278,7 +317,11 @@ export function PayrollPortal({ rows, summary }: Props) {
           <h2 className="text-lg font-bold text-slate-900">Submit a Funded Loan</h2>
           <p className="text-sm text-emerald-800/80">Send accounting the loan details and expected revenue for payroll review.</p>
         </div>
-        <button type="button" className="app-btn-primary" onClick={() => setModalOpen(true)}>
+        <button
+          type="button"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+          onClick={() => setModalOpen(true)}
+        >
           <Plus className="h-4 w-4" /> Submit Compensation Request
         </button>
       </div>
@@ -393,27 +436,39 @@ export function PayrollPortal({ rows, summary }: Props) {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <Input label="Arive Loan Number" value={form.loanNumber} onChange={(value) => update('loanNumber', value)} />
-                <Input label="Borrower's Name" value={form.borrowerName} onChange={(value) => update('borrowerName', value)} />
-                <Input label="Loan Type" value={form.loanType} onChange={(value) => update('loanType', value)} placeholder="VA IRRRL, FHA, Conventional" />
-                <Input label="Lender" value={form.lender} onChange={(value) => update('lender', value)} />
+                <Input label="Arive Loan Number" value={form.loanNumber} onChange={(value) => update('loanNumber', value)} onBlur={() => markTouched('loanNumber')} error={shouldHighlight('loanNumber')} />
+                <Input label="Borrower's Name" value={form.borrowerName} onChange={(value) => update('borrowerName', value)} onBlur={() => markTouched('borrowerName')} error={shouldHighlight('borrowerName')} />
+                <Input label="Loan Type" value={form.loanType} onChange={(value) => update('loanType', value)} onBlur={() => markTouched('loanType')} error={shouldHighlight('loanType')} placeholder="VA IRRRL, FHA, Conventional" />
+                <Input label="Lender" value={form.lender} onChange={(value) => update('lender', value)} onBlur={() => markTouched('lender')} error={shouldHighlight('lender')} />
                 <label className="block">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Broker or Non-Delegated</span>
+                  <span className={`text-[11px] font-bold uppercase tracking-wider ${shouldHighlight('loanChannel') ? 'text-rose-600' : 'text-slate-500'}`}>Broker or Non-Delegated</span>
                   <select
                     value={form.loanChannel}
                     onChange={(event) => update('loanChannel', event.target.value as PayrollLoanChannel)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    onBlur={() => markTouched('loanChannel')}
+                    aria-invalid={shouldHighlight('loanChannel')}
+                    className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 ${
+                      shouldHighlight('loanChannel')
+                        ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
+                        : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+                    }`}
                   >
                     <option value="BROKER">Broker</option>
                     <option value="NON_DELEGATED">Non-Delegated</option>
                   </select>
                 </label>
                 <label className="block">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Processing Type</span>
+                  <span className={`text-[11px] font-bold uppercase tracking-wider ${shouldHighlight('processingType') ? 'text-rose-600' : 'text-slate-500'}`}>Processing Type</span>
                   <select
                     value={form.processingType}
                     onChange={(event) => update('processingType', event.target.value as PayrollProcessingType)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    onBlur={() => markTouched('processingType')}
+                    aria-invalid={shouldHighlight('processingType')}
+                    className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 ${
+                      shouldHighlight('processingType')
+                        ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
+                        : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+                    }`}
                   >
                     <option value="IN_HOUSE">In-House</option>
                     <option value="CONTRACT">Contract</option>
@@ -421,7 +476,7 @@ export function PayrollPortal({ rows, summary }: Props) {
                     <option value="OTHER">Other</option>
                   </select>
                 </label>
-                <Input label="Expected Revenue" value={form.expectedRevenue} onChange={(value) => update('expectedRevenue', value)} placeholder="4500" inputMode="decimal" />
+                <Input label="Expected Revenue" value={form.expectedRevenue} onChange={(value) => update('expectedRevenue', value)} onBlur={() => markTouched('expectedRevenue')} error={shouldHighlight('expectedRevenue')} placeholder="4500" inputMode="decimal" />
                 <Input label="Notes" value={form.submitterNotes} onChange={(value) => update('submitterNotes', value)} placeholder="Optional" />
               </div>
 
@@ -481,24 +536,34 @@ function Input({
   label,
   value,
   onChange,
+  onBlur,
   placeholder,
   inputMode,
+  error = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  error?: boolean;
 }) {
   return (
     <label className="block">
-      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
+      <span className={`text-[11px] font-bold uppercase tracking-wider ${error ? 'text-rose-600' : 'text-slate-500'}`}>{label}</span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         inputMode={inputMode}
-        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+        aria-invalid={error}
+        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 ${
+          error
+            ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
+            : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+        }`}
       />
     </label>
   );
