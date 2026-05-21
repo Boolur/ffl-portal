@@ -47,6 +47,11 @@ export type PayrollCompRequestInput = {
   submitterNotes?: string;
 };
 
+export type PayrollAdminEditRequestInput = PayrollCompRequestInput & {
+  requestId: string;
+  adminNotes?: string;
+};
+
 export type PayrollRequestFilters = {
   status?: PayrollCompRequestStatus | 'ALL';
   loanOfficerId?: string;
@@ -89,6 +94,7 @@ export type PayrollRequestRow = {
   submittedAt: string;
   reviewedAt: string | null;
   paidAt: string | null;
+  editedAt: string | null;
   submitterNotes: string | null;
   adminNotes: string | null;
   rejectionReason: string | null;
@@ -248,6 +254,7 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     submittedAt: request.submittedAt.toISOString(),
     reviewedAt: request.reviewedAt?.toISOString() ?? null,
     paidAt: request.paidAt?.toISOString() ?? null,
+    editedAt: request.editedAt?.toISOString() ?? null,
     submitterNotes: request.submitterNotes,
     adminNotes: request.adminNotes,
     rejectionReason: request.rejectionReason,
@@ -580,6 +587,56 @@ async function replaceRequestSplits(requestId: string) {
       })),
     }),
   ]);
+}
+
+export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
+  const actor = await assertPayrollAdmin();
+  const request = await prisma.payrollCompRequest.findUnique({
+    where: { id: input.requestId },
+    select: { id: true, loanOfficerId: true, status: true },
+  });
+  if (!request) throw new Error('Payroll request was not found.');
+  if (request.status === PayrollCompRequestStatus.PAID) {
+    throw new Error('Paid requests cannot be edited.');
+  }
+
+  const expectedRevenue = ensureMoney(input.expectedRevenue, 'Expected revenue');
+  const snapshots = await buildSplitSnapshots(request.loanOfficerId, expectedRevenue);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.payrollCompRequest.update({
+      where: { id: input.requestId },
+      data: {
+        loanNumber: cleanText(input.loanNumber, 'Loan number'),
+        borrowerName: cleanText(input.borrowerName, "Borrower's name"),
+        loanType: cleanText(input.loanType, 'Loan type'),
+        lender: cleanText(input.lender, 'Lender'),
+        loanChannel: input.loanChannel,
+        processingType: input.processingType,
+        expectedRevenue,
+        submitterNotes: input.submitterNotes?.trim() || null,
+        adminNotes: input.adminNotes?.trim() || null,
+        editedAt: new Date(),
+        editedById: actor.userId,
+      },
+    });
+    await tx.payrollCompRequestSplit.deleteMany({ where: { requestId: input.requestId } });
+    await tx.payrollCompRequestSplit.createMany({
+      data: snapshots.map((split) => ({
+        requestId: input.requestId,
+        planId: split.planId,
+        recipientUserId: split.recipientUserId,
+        recipientName: split.recipientName,
+        recipientEmail: split.recipientEmail,
+        roleLabel: split.roleLabel,
+        splitPercent: split.splitPercent,
+        amount: split.amount,
+        sortOrder: split.sortOrder,
+      })),
+    });
+  });
+
+  revalidatePayroll();
 }
 
 export async function approvePayrollRequest(requestId: string, adminNotes?: string, recalculate = false) {

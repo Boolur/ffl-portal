@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useTransition } from 'react';
-import { Banknote, CheckCircle2, Clock, Loader2, Plus, ReceiptText, Send, Upload, X } from 'lucide-react';
+import { Banknote, CheckCircle2, Clock, Edit3, Loader2, Plus, ReceiptText, Send, Upload, X } from 'lucide-react';
 import { PayrollLoanChannel, PayrollProcessingType } from '@prisma/client';
 import {
   getPayrollRequestPreview,
@@ -532,7 +532,15 @@ export function PayrollPortal({ rows, summary }: Props) {
                   {rows.map((row) => (
                     <tr key={row.id} className="hover:bg-slate-50/70">
                       <td className="px-5 py-4">
-                        <p className="font-semibold text-slate-900">{row.loanNumber}</p>
+                        <p className="flex items-center gap-2 font-semibold text-slate-900">
+                          {row.loanNumber}
+                          {row.editedAt && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                              <Edit3 className="h-3 w-3" />
+                              Edited
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-slate-500">{row.borrowerName}</p>
                       </td>
                       <td className="px-5 py-4 text-slate-700">{row.lender}</td>

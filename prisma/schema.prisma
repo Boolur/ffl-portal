@@ -196,6 +196,7 @@ model User {
   payrollRequests       PayrollCompRequest[] @relation("PayrollCompRequestLoanOfficer")
   payrollReviewedRequests PayrollCompRequest[] @relation("PayrollCompRequestReviewedBy")
   payrollPaidRequests   PayrollCompRequest[] @relation("PayrollCompRequestPaidBy")
+  payrollEditedRequests PayrollCompRequest[] @relation("PayrollCompRequestEditedBy")
   payrollRequestSplits  PayrollCompRequestSplit[] @relation("PayrollCompRequestSplitRecipient")
 }
 
@@ -941,6 +942,9 @@ model PayrollCompRequest {
   submitterNotes        String?
   adminNotes            String?
   rejectionReason       String?
+  editedAt              DateTime?
+  editedById            String?
+  editedBy              User?    @relation("PayrollCompRequestEditedBy", fields: [editedById], references: [id], onDelete: SetNull)
 
   submittedAt           DateTime @default(now())
   reviewedAt            DateTime?
