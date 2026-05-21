@@ -16,10 +16,40 @@ type EligibleUser = {
 };
 
 type SplitDraft = {
-  recipientUserId: string;
+  recipientUserId: string | null;
+  recipientName: string;
+  recipientEmail?: string | null;
   roleLabel: string;
   splitPercent: string;
+  mandatory?: boolean;
 };
+
+const HOUSE_SPLIT: SplitDraft = {
+  recipientUserId: null,
+  recipientName: 'House',
+  recipientEmail: null,
+  roleLabel: 'House',
+  splitPercent: '0',
+  mandatory: true,
+};
+
+function withMandatoryHouseSplit(splits: SplitDraft[]) {
+  const existingHouse = splits.find((split) => split.mandatory || split.roleLabel.trim().toLowerCase() === 'house');
+  const otherSplits = splits.filter((split) => split !== existingHouse);
+  return [
+    existingHouse
+      ? {
+          ...existingHouse,
+          recipientUserId: null,
+          recipientName: existingHouse.recipientName || 'House',
+          recipientEmail: null,
+          roleLabel: 'House',
+          mandatory: true,
+        }
+      : HOUSE_SPLIT,
+    ...otherSplits,
+  ];
+}
 
 export function PayrollUserSettings({
   users,
@@ -29,15 +59,20 @@ export function PayrollUserSettings({
   eligibleUsers: EligibleUser[];
 }) {
   const [selectedId, setSelectedId] = useState(users[0]?.id ?? '');
+  const [userSearch, setUserSearch] = useState('');
   const selected = users.find((user) => user.id === selectedId) ?? users[0] ?? null;
   const [baseSplit, setBaseSplit] = useState(selected?.plan?.baseSplitPercent.toString() ?? '100');
   const [notes, setNotes] = useState(selected?.plan?.notes ?? '');
   const [splits, setSplits] = useState<SplitDraft[]>(
-    selected?.plan?.splits.map((split) => ({
-      recipientUserId: split.recipientUserId,
-      roleLabel: split.roleLabel,
-      splitPercent: split.splitPercent.toString(),
-    })) ?? []
+    withMandatoryHouseSplit(
+      selected?.plan?.splits.map((split) => ({
+        recipientUserId: split.recipientUserId,
+        recipientName: split.recipientName,
+        recipientEmail: split.recipientEmail,
+        roleLabel: split.roleLabel,
+        splitPercent: split.splitPercent.toString(),
+      })) ?? []
+    )
   );
   const [isPending, startTransition] = useTransition();
 
@@ -45,6 +80,13 @@ export function PayrollUserSettings({
     () => eligibleUsers.filter((user) => user.id !== selected?.id),
     [eligibleUsers, selected?.id]
   );
+  const filteredUsers = useMemo(() => {
+    const term = userSearch.trim().toLowerCase();
+    if (!term) return users;
+    return users.filter((user) =>
+      [user.name, user.email].some((value) => value.toLowerCase().includes(term))
+    );
+  }, [userSearch, users]);
 
   const total = useMemo(() => {
     const base = Number(baseSplit) || 0;
@@ -57,11 +99,15 @@ export function PayrollUserSettings({
     setBaseSplit(user?.plan?.baseSplitPercent.toString() ?? '100');
     setNotes(user?.plan?.notes ?? '');
     setSplits(
-      user?.plan?.splits.map((split) => ({
-        recipientUserId: split.recipientUserId,
-        roleLabel: split.roleLabel,
-        splitPercent: split.splitPercent.toString(),
-      })) ?? []
+      withMandatoryHouseSplit(
+        user?.plan?.splits.map((split) => ({
+          recipientUserId: split.recipientUserId,
+          recipientName: split.recipientName,
+          recipientEmail: split.recipientEmail,
+          roleLabel: split.roleLabel,
+          splitPercent: split.splitPercent.toString(),
+        })) ?? []
+      )
     );
   };
 
@@ -73,9 +119,11 @@ export function PayrollUserSettings({
         baseSplitPercent: Number(baseSplit),
         notes,
         splits: splits
-          .filter((split) => split.recipientUserId && split.roleLabel.trim())
+          .filter((split) => split.recipientName.trim() && split.roleLabel.trim())
           .map((split) => ({
             recipientUserId: split.recipientUserId,
+            recipientName: split.recipientName,
+            recipientEmail: split.recipientEmail,
             roleLabel: split.roleLabel,
             splitPercent: Number(split.splitPercent),
           })),
@@ -89,9 +137,15 @@ export function PayrollUserSettings({
         <div className="border-b border-slate-100 px-5 py-4">
           <h2 className="text-base font-bold text-slate-900">Loan Officers</h2>
           <p className="text-sm text-slate-500">Select a user to configure payroll splits.</p>
+          <input
+            value={userSearch}
+            onChange={(event) => setUserSearch(event.target.value)}
+            placeholder="Search loan officers..."
+            className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+          />
         </div>
         <div className="max-h-[620px] overflow-y-auto p-2">
-          {users.map((user) => (
+          {filteredUsers.map((user) => (
             <button
               key={user.id}
               type="button"
@@ -172,7 +226,7 @@ export function PayrollUserSettings({
                   <button
                     type="button"
                     className="app-btn-secondary"
-                    onClick={() => setSplits([...splits, { recipientUserId: '', roleLabel: 'Manager', splitPercent: '0' }])}
+                    onClick={() => setSplits([...splits, { recipientUserId: '', recipientName: '', recipientEmail: null, roleLabel: 'Manager', splitPercent: '0' }])}
                   >
                     <Plus className="h-4 w-4" /> Add Split
                   </button>
@@ -184,20 +238,32 @@ export function PayrollUserSettings({
                   ) : (
                     splits.map((split, index) => (
                       <div key={index} className="grid gap-3 px-4 py-4 md:grid-cols-[1.4fr_1fr_140px_auto]">
-                        <select
-                          value={split.recipientUserId}
-                          onChange={(event) => {
-                            const next = [...splits];
-                            next[index] = { ...split, recipientUserId: event.target.value };
-                            setSplits(next);
-                          }}
-                          className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                        >
-                          <option value="">Choose recipient</option>
-                          {recipientOptions.map((user) => (
-                            <option key={user.id} value={user.id}>{user.name} ({user.email})</option>
-                          ))}
-                        </select>
+                        {split.mandatory ? (
+                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+                            House
+                          </div>
+                        ) : (
+                          <select
+                            value={split.recipientUserId ?? ''}
+                            onChange={(event) => {
+                              const user = recipientOptions.find((option) => option.id === event.target.value);
+                              const next = [...splits];
+                              next[index] = {
+                                ...split,
+                                recipientUserId: user?.id ?? '',
+                                recipientName: user?.name ?? '',
+                                recipientEmail: user?.email ?? null,
+                              };
+                              setSplits(next);
+                            }}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                          >
+                            <option value="">Choose recipient</option>
+                            {recipientOptions.map((user) => (
+                              <option key={user.id} value={user.id}>{user.name} ({user.email})</option>
+                            ))}
+                          </select>
+                        )}
                         <input
                           value={split.roleLabel}
                           onChange={(event) => {
@@ -205,6 +271,7 @@ export function PayrollUserSettings({
                             next[index] = { ...split, roleLabel: event.target.value };
                             setSplits(next);
                           }}
+                          disabled={split.mandatory}
                           className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                           placeholder="Manager, VP, LOA"
                         />
@@ -221,14 +288,20 @@ export function PayrollUserSettings({
                           />
                           <span className="text-sm text-slate-500">%</span>
                         </div>
-                        <button
-                          type="button"
-                          className="app-icon-btn text-rose-600 hover:bg-rose-50"
-                          aria-label="Remove split"
-                          onClick={() => setSplits(splits.filter((_, splitIndex) => splitIndex !== index))}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {split.mandatory ? (
+                          <span className="inline-flex h-8 items-center justify-center rounded-full bg-emerald-50 px-3 text-xs font-bold uppercase tracking-wide text-emerald-700">
+                            Required
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="app-icon-btn text-rose-600 hover:bg-rose-50"
+                            aria-label="Remove split"
+                            onClick={() => setSplits(splits.filter((_, splitIndex) => splitIndex !== index))}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     ))
                   )}

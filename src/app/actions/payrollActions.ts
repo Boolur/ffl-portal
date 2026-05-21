@@ -23,7 +23,9 @@ const PAYROLL_ADMIN_PATHS = [
 const PAYROLL_PORTAL_PATH = '/payroll';
 
 export type PayrollCompSplitInput = {
-  recipientUserId: string;
+  recipientUserId?: string | null;
+  recipientName?: string | null;
+  recipientEmail?: string | null;
   roleLabel: string;
   splitPercent: number;
 };
@@ -114,9 +116,9 @@ export type PayrollUserPlanRow = {
     updatedAt: string;
     splits: Array<{
       id: string;
-      recipientUserId: string;
+      recipientUserId: string | null;
       recipientName: string;
-      recipientEmail: string;
+      recipientEmail: string | null;
       roleLabel: string;
       splitPercent: number;
       sortOrder: number;
@@ -305,9 +307,9 @@ async function buildSplitSnapshots(loanOfficerId: string, expectedRevenue: numbe
         },
         ...plan.splits.map((split, index) => ({
           planId: plan.id,
-          recipientUserId: split.recipientUser.id,
-          recipientName: split.recipientUser.name,
-          recipientEmail: split.recipientUser.email,
+          recipientUserId: split.recipientUser?.id ?? null,
+          recipientName: split.recipientUser?.name ?? split.recipientName ?? 'Unknown recipient',
+          recipientEmail: split.recipientUser?.email ?? split.recipientEmail ?? null,
           roleLabel: split.roleLabel,
           splitPercent: decimalToNumber(split.splitPercent),
           sortOrder: index + 1,
@@ -408,8 +410,8 @@ export async function getPayrollUsersWithPlans(): Promise<PayrollUserPlanRow[]> 
             splits: plan.splits.map((split) => ({
               id: split.id,
               recipientUserId: split.recipientUserId,
-              recipientName: split.recipientUser.name,
-              recipientEmail: split.recipientUser.email,
+              recipientName: split.recipientUser?.name ?? split.recipientName ?? 'Unknown recipient',
+              recipientEmail: split.recipientUser?.email ?? split.recipientEmail,
               roleLabel: split.roleLabel,
               splitPercent: decimalToNumber(split.splitPercent),
               sortOrder: split.sortOrder,
@@ -426,7 +428,9 @@ export async function savePayrollCompPlan(input: PayrollCompPlanInput) {
   const loanOfficerId = cleanText(input.loanOfficerId, 'Loan officer');
   const baseSplitPercent = ensurePercent(input.baseSplitPercent, 'Base split');
   const splits = input.splits.map((split, index) => ({
-    recipientUserId: cleanText(split.recipientUserId, 'Split recipient'),
+    recipientUserId: split.recipientUserId?.trim() || null,
+    recipientName: cleanText(split.recipientName ?? '', 'Split recipient'),
+    recipientEmail: split.recipientEmail?.trim() || null,
     roleLabel: cleanText(split.roleLabel, 'Split role'),
     splitPercent: ensurePercent(split.splitPercent, 'Split percent'),
     sortOrder: index + 1,
@@ -456,6 +460,8 @@ export async function savePayrollCompPlan(input: PayrollCompPlanInput) {
         splits: {
           create: splits.map((split) => ({
             recipientUserId: split.recipientUserId,
+            recipientName: split.recipientName,
+            recipientEmail: split.recipientEmail,
             roleLabel: split.roleLabel,
             splitPercent: split.splitPercent,
             sortOrder: split.sortOrder,
@@ -792,6 +798,24 @@ export async function getPayrollReport(filters: PayrollReportFilters = {}) {
     amount: number;
     requestCount: number;
   }>();
+  const byLender = new Map<string, {
+    label: string;
+    requestCount: number;
+    expectedRevenue: number;
+    paidRevenue: number;
+  }>();
+  const byLoanType = new Map<string, {
+    label: string;
+    requestCount: number;
+    expectedRevenue: number;
+    paidRevenue: number;
+  }>();
+  const byChannel = new Map<PayrollLoanChannel, {
+    label: PayrollLoanChannel;
+    requestCount: number;
+    expectedRevenue: number;
+    paidRevenue: number;
+  }>();
 
   for (const row of rows) {
     const officer = byLoanOfficer.get(row.loanOfficerId) ?? {
@@ -807,6 +831,45 @@ export async function getPayrollReport(filters: PayrollReportFilters = {}) {
       officer.paidRevenue = money(officer.paidRevenue + row.expectedRevenue);
     }
     byLoanOfficer.set(row.loanOfficerId, officer);
+
+    const lender = byLender.get(row.lender) ?? {
+      label: row.lender,
+      requestCount: 0,
+      expectedRevenue: 0,
+      paidRevenue: 0,
+    };
+    lender.requestCount += 1;
+    lender.expectedRevenue = money(lender.expectedRevenue + row.expectedRevenue);
+    if (row.status === PayrollCompRequestStatus.PAID) {
+      lender.paidRevenue = money(lender.paidRevenue + row.expectedRevenue);
+    }
+    byLender.set(row.lender, lender);
+
+    const loanType = byLoanType.get(row.loanType) ?? {
+      label: row.loanType,
+      requestCount: 0,
+      expectedRevenue: 0,
+      paidRevenue: 0,
+    };
+    loanType.requestCount += 1;
+    loanType.expectedRevenue = money(loanType.expectedRevenue + row.expectedRevenue);
+    if (row.status === PayrollCompRequestStatus.PAID) {
+      loanType.paidRevenue = money(loanType.paidRevenue + row.expectedRevenue);
+    }
+    byLoanType.set(row.loanType, loanType);
+
+    const channel = byChannel.get(row.loanChannel) ?? {
+      label: row.loanChannel,
+      requestCount: 0,
+      expectedRevenue: 0,
+      paidRevenue: 0,
+    };
+    channel.requestCount += 1;
+    channel.expectedRevenue = money(channel.expectedRevenue + row.expectedRevenue);
+    if (row.status === PayrollCompRequestStatus.PAID) {
+      channel.paidRevenue = money(channel.paidRevenue + row.expectedRevenue);
+    }
+    byChannel.set(row.loanChannel, channel);
 
     for (const split of row.splits) {
       const key = `${split.recipientEmail ?? split.recipientName}:${split.roleLabel}`;
@@ -827,6 +890,9 @@ export async function getPayrollReport(filters: PayrollReportFilters = {}) {
     summary,
     byLoanOfficer: Array.from(byLoanOfficer.values()).sort((a, b) => b.expectedRevenue - a.expectedRevenue),
     splitRows: Array.from(splitRows.values()).sort((a, b) => b.amount - a.amount),
+    byLender: Array.from(byLender.values()).sort((a, b) => b.expectedRevenue - a.expectedRevenue),
+    byLoanType: Array.from(byLoanType.values()).sort((a, b) => b.expectedRevenue - a.expectedRevenue),
+    byChannel: Array.from(byChannel.values()).sort((a, b) => b.expectedRevenue - a.expectedRevenue),
     detailRows: rows,
   };
 }

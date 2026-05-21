@@ -906,8 +906,10 @@ model PayrollCompSplit {
   planId                String
   plan                  PayrollCompPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
-  recipientUserId       String
-  recipientUser         User     @relation("PayrollCompSplitRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  recipientUserId       String?
+  recipientUser         User?    @relation("PayrollCompSplitRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipientName         String?
+  recipientEmail        String?
 
   roleLabel             String
   splitPercent          Decimal  @db.Decimal(7, 4)

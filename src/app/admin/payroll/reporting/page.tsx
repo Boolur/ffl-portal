@@ -6,9 +6,34 @@ import { PayrollReportingPanel } from '@/components/admin/payroll/PayrollReporti
 import { getPayrollReport } from '@/app/actions/payrollActions';
 import { authOptions } from '@/lib/auth';
 
-export default async function PayrollReportingRoute() {
+type PayrollReportingRouteProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function toDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function firstDayOfCurrentMonth() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+}
+
+function lastDayOfCurrentMonth() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0));
+}
+
+function singleParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function PayrollReportingRoute({ searchParams }: PayrollReportingRouteProps) {
   const session = await getServerSession(authOptions);
-  const report = await getPayrollReport();
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const startDate = singleParam(resolvedSearchParams.startDate) || toDateInputValue(firstDayOfCurrentMonth());
+  const endDate = singleParam(resolvedSearchParams.endDate) || toDateInputValue(lastDayOfCurrentMonth());
+  const report = await getPayrollReport({ startDate, endDate });
   const user = {
     name: session?.user?.name || 'Admin',
     role: session?.user?.activeRole || session?.user?.role || 'ADMIN',
@@ -30,7 +55,7 @@ export default async function PayrollReportingRoute() {
           </div>
         </div>
       </div>
-      <PayrollReportingPanel report={report} />
+      <PayrollReportingPanel report={report} filters={{ startDate, endDate }} />
     </DashboardShell>
   );
 }
