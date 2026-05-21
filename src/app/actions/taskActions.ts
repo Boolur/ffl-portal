@@ -19,6 +19,7 @@ import { sendEmail } from '@/lib/email';
 import { randomUUID } from 'crypto';
 import { recordPerfMetric } from '@/lib/perf';
 import { isAdmin, canAccessEmailSettings } from '@/lib/adminTiers';
+import { canDeleteTask, canDeleteTasks } from '@/lib/taskPermissions';
 import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
 import { canLoanOfficerViewLoan } from '@/lib/loanOfficerVisibility';
 
@@ -4735,8 +4736,10 @@ export async function deleteTask(taskId: string) {
   const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
-    if (!role || (!isAdmin(role) && role !== UserRole.MANAGER)) {
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
+    if (!canDeleteTasks(role)) {
       return { success: false, error: 'Not authorized to delete tasks.' };
     }
 
@@ -4751,6 +4754,9 @@ export async function deleteTask(taskId: string) {
     });
     if (!existing) {
       return { success: false, error: 'Task not found.' };
+    }
+    if (!canDeleteTask(role, existing)) {
+      return { success: false, error: 'Not authorized to delete this task.' };
     }
 
     const shouldSendDeleteNotification =

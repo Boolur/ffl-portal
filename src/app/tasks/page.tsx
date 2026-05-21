@@ -8,7 +8,8 @@ import { TasksRouteSyncGate } from '@/components/tasks/TasksRouteSyncGate';
 import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
 import { buildLoVaBorrowerProgress } from '@/lib/loVaProgress';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
-import { isAdmin, isAdminIII } from '@/lib/adminTiers';
+import { isAdmin } from '@/lib/adminTiers';
+import { canDeleteTasks } from '@/lib/taskPermissions';
 import {
   DisclosureDecisionReason,
   TaskAttachmentPurpose,
@@ -1203,7 +1204,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     ? buildLoVaBorrowerProgress(allTasks)
     : [];
   const isDualDeskMode = Boolean(dualDeskRows);
-  const canDelete = isAdminIII(sessionRole);
+  const canDelete = canDeleteTasks(sessionRole);
   const roleTaskSubtitle: Record<string, string> = {
     [UserRole.LOAN_OFFICER]:
       'Manage submitted requests, complete LO actions, and track returns sent back to Disclosure.',
