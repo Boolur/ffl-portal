@@ -62,6 +62,100 @@ const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
   { key: 'processingType', label: 'Processing Type' },
   { key: 'expectedRevenue', label: 'Expected Revenue' },
 ];
+const LOAN_TYPE_OPTIONS = [
+  'Conventional',
+  'FHA',
+  'VA',
+  'Heloc',
+  'Heloan',
+  'Non QM',
+  'Reverse Mortgage',
+];
+const LOAN_TYPE_OPTION_SET = new Set(LOAN_TYPE_OPTIONS.map((option) => option.toUpperCase()));
+const LENDER_OPTIONS = [
+  'UWM',
+  'Button Finance',
+  'Figure',
+  'Kind Lending',
+  'SunWest Mortgage',
+  'EPM',
+  'Spring EQ',
+  '11 Mortgage',
+  'Acra Lending',
+  'AD Mortgage',
+  'Ameritrust TPO',
+  'AmWest Funding',
+  'Angel Oak',
+  'Arc Home',
+  'Ardri',
+  'Brokers Choice',
+  'Brokers First Funding',
+  'Cardinal Financial',
+  'Carrington',
+  'Champions Funding',
+  'Change Wholesale',
+  'Click N Close',
+  'Deephaven Mortgage',
+  'Emporium TPO',
+  'Everstream Mortgage',
+  'Finance of America Reverse',
+  'First National Bank of America',
+  'Forward Lending',
+  'Foundation Mortgage',
+  'Freedom Mortgage',
+  'Fund Loans',
+  'Giant Lending',
+  'HomeBridge Wholesale',
+  'HomeXpress Mortgage',
+  'JMAC Lending',
+  'Kiavi Hard Money',
+  'LenderMAC',
+  'LendingXpress',
+  'Loan United',
+  'LoanDepot',
+  'LoanStream',
+  'Logan Finance',
+  'Longbridge Financial',
+  'Luminate Bank',
+  'Mutual Of Omaha',
+  'Nations Direct Lending',
+  'NewFi Wholesale',
+  'NewRez',
+  'NexBank Wholesale',
+  'NFTYDoor',
+  'OakTree Funding',
+  'Open Wholesale',
+  'Orion Lending',
+  'PennyMac',
+  'Plaza Home Mortgage',
+  'PRMG',
+  'REMN',
+  'Smartfi Home Loans',
+  'Splitero',
+  'Symmetry Lending',
+  'The Lender',
+  'The Loan Store',
+  'The Loan Store - FIGURE',
+  'TMAC',
+  'Triad Financial Services',
+  'Val Chris',
+  'Velocity Mortgage',
+  'Village Capital',
+  'Windsor Mortgage',
+];
+
+function normalizePayrollLoanType(value: string) {
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) return '';
+  if (normalized.includes('REVERSE') || normalized.includes('HECM')) return 'Reverse Mortgage';
+  if (normalized === 'CONVENTIONAL') return 'Conventional';
+  if (normalized === 'FHA') return 'FHA';
+  if (normalized === 'VA') return 'VA';
+  if (normalized === 'HELOC') return 'Heloc';
+  if (normalized === 'HELOAN' || normalized === 'HELOAN') return 'Heloan';
+  if (normalized === 'NON QM' || normalized === 'NONQM' || normalized === 'NON-QM') return 'Non QM';
+  return LOAN_TYPE_OPTION_SET.has(normalized) ? value.trim() : '';
+}
 
 type PayrollMismoPrefill = {
   loanNumber?: string;
@@ -142,15 +236,25 @@ function parsePayrollMismoXml(xmlText: string, sourceFilename?: string): Payroll
     (!isGuidLike(fallbackLoanNumber) ? fallbackLoanNumber : '');
 
   const mortgageType = getText(doc, 'MortgageType');
+  const normalizedMortgageType = mortgageType.trim().toUpperCase();
   const loanPurposeType = getText(doc, 'LoanPurposeType').trim().toUpperCase();
   const governmentRefinanceType = getText(doc, 'GovernmentRefinanceType').trim().toUpperCase();
   const refinancePrimaryPurposeType = getText(doc, 'RefinancePrimaryPurposeType').trim().toUpperCase();
-  const isIrrrl =
-    mortgageType.trim().toUpperCase() === 'VA' &&
-    (governmentRefinanceType === 'INTERESTRATEREDUCTIONREFINANCELOAN' ||
-      refinancePrimaryPurposeType === 'INTERESTRATEREDUCTION');
-  const purposeLabel = loanPurposeType === 'PURCHASE' ? 'Purchase' : loanPurposeType === 'REFINANCE' ? 'Refinance' : '';
-  const loanType = [mortgageType, isIrrrl ? 'IRRRL' : purposeLabel].filter(Boolean).join(' ');
+  const reverseMortgageIndicator = [
+    getText(doc, 'ReverseMortgageType'),
+    getText(doc, 'HECMIndicator'),
+    getText(doc, 'ReverseMortgageIndicator'),
+  ]
+    .join(' ')
+    .toUpperCase();
+  const rawLoanType =
+    reverseMortgageIndicator.includes('HECM') ||
+    reverseMortgageIndicator.includes('REVERSE') ||
+    normalizedMortgageType.includes('REVERSE')
+      ? 'Reverse Mortgage'
+      : ['CONVENTIONAL', 'FHA', 'VA'].includes(normalizedMortgageType)
+        ? mortgageType
+        : '';
 
   const loanOriginatorType = getText(doc, 'LoanOriginatorType');
   const loanChannel =
@@ -163,7 +267,7 @@ function parsePayrollMismoXml(xmlText: string, sourceFilename?: string): Payroll
   return {
     loanNumber,
     borrowerName,
-    loanType,
+    loanType: normalizePayrollLoanType(rawLoanType),
     lender: getText(doc, 'ProductProviderName'),
     loanChannel,
   };
@@ -194,12 +298,61 @@ function Kpi({
   );
 }
 
+function StatsPanel({
+  title,
+  subtitle,
+  rows,
+  emptyText,
+}: {
+  title: string;
+  subtitle: string;
+  rows: Array<{ label: string; count: number }>;
+  emptyText: string;
+}) {
+  const maxCount = Math.max(...rows.map((row) => row.count), 1);
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <h2 className="font-bold text-slate-900">{title}</h2>
+        <p className="text-sm text-slate-500">{subtitle}</p>
+      </div>
+      {rows.length === 0 ? (
+        <div className="px-5 py-10 text-center text-sm text-slate-500">
+          {emptyText}
+        </div>
+      ) : (
+        <div className="space-y-3 p-5">
+          {rows.map((row) => (
+            <div key={row.label} className="space-y-1.5">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-semibold text-slate-800">{row.label}</span>
+                <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700">
+                  {row.count}
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full bg-emerald-500"
+                  style={{ width: `${Math.max((row.count / maxCount) * 100, 8)}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function PayrollPortal({ rows, summary }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
   const [dragActive, setDragActive] = useState(false);
   const [mismoFileName, setMismoFileName] = useState('');
   const [isParsingMismo, setIsParsingMismo] = useState(false);
+  const [lenderDropdownOpen, setLenderDropdownOpen] = useState(false);
+  const [lenderSearch, setLenderSearch] = useState('');
   const [touchedFields, setTouchedFields] = useState<Set<RequiredFieldKey>>(new Set());
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [preview, setPreview] = useState<Array<{
@@ -214,6 +367,31 @@ export function PayrollPortal({ rows, summary }: Props) {
   const [isPending, startTransition] = useTransition();
 
   const canPreview = useMemo(() => Number(form.expectedRevenue) > 0, [form.expectedRevenue]);
+  const lenderStats = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const lender = row.lender.trim() || 'Unknown Lender';
+      counts.set(lender, (counts.get(lender) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [rows]);
+  const loanTypeStats = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const loanType = row.loanType.trim() || 'Unknown Loan Type';
+      counts.set(loanType, (counts.get(loanType) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [rows]);
+  const filteredLenders = useMemo(() => {
+    const term = lenderSearch.trim().toLowerCase();
+    if (!term) return LENDER_OPTIONS;
+    return LENDER_OPTIONS.filter((lender) => lender.toLowerCase().includes(term));
+  }, [lenderSearch]);
   const missingFields = useMemo(() => {
     return REQUIRED_FIELDS.filter(({ key }) => {
       const value = form[key];
@@ -326,50 +504,67 @@ export function PayrollPortal({ rows, summary }: Props) {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h2 className="font-bold text-slate-900">My Compensation Requests</h2>
-          <p className="text-sm text-slate-500">Track prior submissions and payroll decisions.</p>
-        </div>
-        {rows.length === 0 ? (
-          <div className="px-6 py-16 text-center">
-            <Banknote className="mx-auto h-10 w-10 text-slate-300" />
-            <p className="mt-3 text-sm font-semibold text-slate-700">No compensation requests yet</p>
-            <p className="mt-1 text-sm text-slate-500">Your funded loan submissions will appear here.</p>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h2 className="font-bold text-slate-900">My Compensation Requests</h2>
+            <p className="text-sm text-slate-500">Track prior submissions and payroll decisions.</p>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/70">
-                  <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Loan</th>
-                  <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Lender</th>
-                  <th className="px-5 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">Revenue</th>
-                  <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Status</th>
-                  <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Submitted</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-slate-50/70">
-                    <td className="px-5 py-4">
-                      <p className="font-semibold text-slate-900">{row.loanNumber}</p>
-                      <p className="text-xs text-slate-500">{row.borrowerName}</p>
-                    </td>
-                    <td className="px-5 py-4 text-slate-700">{row.lender}</td>
-                    <td className="px-5 py-4 text-right font-semibold text-slate-900">{formatCurrency(row.expectedRevenue)}</td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${payrollStatusClasses(row.status)}`}>
-                        {payrollStatusLabel(row.status)}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-slate-600">{formatDate(row.submittedAt)}</td>
+          {rows.length === 0 ? (
+            <div className="px-6 py-16 text-center">
+              <Banknote className="mx-auto h-10 w-10 text-slate-300" />
+              <p className="mt-3 text-sm font-semibold text-slate-700">No compensation requests yet</p>
+              <p className="mt-1 text-sm text-slate-500">Your funded loan submissions will appear here.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/70">
+                    <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Loan</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Lender</th>
+                    <th className="px-5 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">Revenue</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Status</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Submitted</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {rows.map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50/70">
+                      <td className="px-5 py-4">
+                        <p className="font-semibold text-slate-900">{row.loanNumber}</p>
+                        <p className="text-xs text-slate-500">{row.borrowerName}</p>
+                      </td>
+                      <td className="px-5 py-4 text-slate-700">{row.lender}</td>
+                      <td className="px-5 py-4 text-right font-semibold text-slate-900">{formatCurrency(row.expectedRevenue)}</td>
+                      <td className="px-5 py-4">
+                        <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${payrollStatusClasses(row.status)}`}>
+                          {payrollStatusLabel(row.status)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-slate-600">{formatDate(row.submittedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-5">
+          <StatsPanel
+            title="Lender Stats"
+            subtitle="Funded loans by lender"
+            rows={lenderStats}
+            emptyText="Lender stats will appear after your first request."
+          />
+          <StatsPanel
+            title="Loan Type Stats"
+            subtitle="Funded loans by loan type"
+            rows={loanTypeStats}
+            emptyText="Loan type stats will appear after your first request."
+          />
+        </div>
       </div>
 
       {modalOpen && (
@@ -438,8 +633,82 @@ export function PayrollPortal({ rows, summary }: Props) {
               <div className="grid gap-4 md:grid-cols-2">
                 <Input label="Arive Loan Number" value={form.loanNumber} onChange={(value) => update('loanNumber', value)} onBlur={() => markTouched('loanNumber')} error={shouldHighlight('loanNumber')} />
                 <Input label="Borrower's Name" value={form.borrowerName} onChange={(value) => update('borrowerName', value)} onBlur={() => markTouched('borrowerName')} error={shouldHighlight('borrowerName')} />
-                <Input label="Loan Type" value={form.loanType} onChange={(value) => update('loanType', value)} onBlur={() => markTouched('loanType')} error={shouldHighlight('loanType')} placeholder="VA IRRRL, FHA, Conventional" />
-                <Input label="Lender" value={form.lender} onChange={(value) => update('lender', value)} onBlur={() => markTouched('lender')} error={shouldHighlight('lender')} />
+                <label className="block">
+                  <span className={`text-[11px] font-bold uppercase tracking-wider ${shouldHighlight('loanType') ? 'text-rose-600' : 'text-slate-500'}`}>Loan Type</span>
+                  <select
+                    value={form.loanType}
+                    onChange={(event) => update('loanType', event.target.value)}
+                    onBlur={() => markTouched('loanType')}
+                    aria-invalid={shouldHighlight('loanType')}
+                    className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 ${
+                      shouldHighlight('loanType')
+                        ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
+                        : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+                    }`}
+                  >
+                    <option value="">Select loan type...</option>
+                    {LOAN_TYPE_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="relative">
+                  <span className={`text-[11px] font-bold uppercase tracking-wider ${shouldHighlight('lender') ? 'text-rose-600' : 'text-slate-500'}`}>Lender</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLenderDropdownOpen((open) => !open);
+                      markTouched('lender');
+                    }}
+                    onBlur={() => markTouched('lender')}
+                    aria-invalid={shouldHighlight('lender')}
+                    className={`mt-1 flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm outline-none focus:ring-2 ${
+                      shouldHighlight('lender')
+                        ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
+                        : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+                    }`}
+                  >
+                    <span className={form.lender ? 'text-slate-900' : 'text-slate-400'}>
+                      {form.lender || 'Select lender...'}
+                    </span>
+                    <span className="text-slate-400">⌄</span>
+                  </button>
+                  {lenderDropdownOpen && (
+                    <div className="absolute z-[70] mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                      <div className="border-b border-slate-100 p-2">
+                        <input
+                          value={lenderSearch}
+                          onChange={(event) => setLenderSearch(event.target.value)}
+                          placeholder="Search lenders..."
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="max-h-64 overflow-y-auto py-1">
+                        {filteredLenders.length === 0 ? (
+                          <p className="px-3 py-3 text-sm text-slate-500">No lenders found.</p>
+                        ) : filteredLenders.map((lender) => (
+                          <button
+                            key={lender}
+                            type="button"
+                            className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-emerald-50 hover:text-emerald-700 ${
+                              form.lender === lender ? 'bg-emerald-50 font-semibold text-emerald-700' : 'text-slate-700'
+                            }`}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              update('lender', lender);
+                              markTouched('lender');
+                              setLenderSearch('');
+                              setLenderDropdownOpen(false);
+                            }}
+                          >
+                            {lender}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <label className="block">
                   <span className={`text-[11px] font-bold uppercase tracking-wider ${shouldHighlight('loanChannel') ? 'text-rose-600' : 'text-slate-500'}`}>Broker or Non-Delegated</span>
                   <select
