@@ -459,7 +459,12 @@ export function PayrollPortal({ rows, summary }: Props) {
 
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
                 <button type="button" className="app-btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
-                <button type="button" className="app-btn-primary" disabled={isPending} onClick={submit}>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isPending}
+                  onClick={submit}
+                >
                   {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   Submit Request
                 </button>
