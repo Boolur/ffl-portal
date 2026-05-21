@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useMemo, useState, useTransition } from 'react';
-import { Banknote, CheckCircle2, Clock, Edit3, Loader2, Plus, ReceiptText, Send, Upload, X } from 'lucide-react';
-import { PayrollLoanChannel, PayrollProcessingType } from '@prisma/client';
+import { Banknote, Building2, CheckCircle2, Clock, Edit3, Loader2, Megaphone, Plus, ReceiptText, Send, Upload, X } from 'lucide-react';
+import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType } from '@prisma/client';
 import {
   getPayrollRequestPreview,
   submitPayrollCompRequest,
@@ -38,6 +38,8 @@ type FormState = {
   lender: string;
   loanChannel: PayrollLoanChannel;
   processingType: PayrollProcessingType;
+  leadSource: PayrollLeadSource;
+  leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue: string;
   submitterNotes: string;
 };
@@ -50,6 +52,8 @@ const initialForm: FormState = {
   lender: '',
   loanChannel: PayrollLoanChannel.BROKER,
   processingType: PayrollProcessingType.IN_HOUSE,
+  leadSource: PayrollLeadSource.OTHER,
+  leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
   expectedRevenue: '',
   submitterNotes: '',
 };
@@ -60,6 +64,8 @@ const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
   { key: 'lender', label: 'Lender' },
   { key: 'loanChannel', label: 'Broker or Non-Delegated' },
   { key: 'processingType', label: 'Processing Type' },
+  { key: 'leadSource', label: 'Lead Source' },
+  { key: 'leadProvidedBy', label: 'Lead Provided By' },
   { key: 'expectedRevenue', label: 'Expected Revenue' },
 ];
 const LOAN_TYPE_OPTIONS = [
@@ -143,6 +149,32 @@ const LENDER_OPTIONS = [
   'Village Capital',
   'Windsor Mortgage',
 ];
+const LEAD_SOURCE_OPTIONS = [
+  PayrollLeadSource.LEAD_BUY,
+  PayrollLeadSource.MAILER,
+  PayrollLeadSource.WARM_TRANSFER,
+  PayrollLeadSource.REFERRAL,
+  PayrollLeadSource.RETURN_CLIENT,
+  PayrollLeadSource.OTHER,
+];
+const LEAD_PROVIDED_BY_OPTIONS = [
+  PayrollLeadProvidedBy.SELF_SOURCED,
+  PayrollLeadProvidedBy.COMPANY_PROVIDED,
+  PayrollLeadProvidedBy.BRANCH_PROVIDED,
+];
+const LEAD_SOURCE_LABELS: Record<PayrollLeadSource, string> = {
+  LEAD_BUY: 'Lead Buy',
+  MAILER: 'Mailer',
+  WARM_TRANSFER: 'Warm Transfer',
+  REFERRAL: 'Referral',
+  RETURN_CLIENT: 'Return Client',
+  OTHER: 'Other',
+};
+const LEAD_PROVIDED_BY_LABELS: Record<PayrollLeadProvidedBy, string> = {
+  SELF_SOURCED: 'Self Sourced',
+  COMPANY_PROVIDED: 'Company Provided',
+  BRANCH_PROVIDED: 'Branch Provided',
+};
 
 function normalizePayrollLoanType(value: string) {
   const normalized = value.trim().toUpperCase();
@@ -757,6 +789,29 @@ export function PayrollPortal({ rows, summary }: Props) {
                 <Input label="Notes" value={form.submitterNotes} onChange={(value) => update('submitterNotes', value)} placeholder="Optional" />
               </div>
 
+              <div className="grid gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/90 to-blue-50/70 p-4 md:grid-cols-2">
+                <LeadSelect
+                  label="Lead Source"
+                  Icon={Megaphone}
+                  value={form.leadSource}
+                  options={LEAD_SOURCE_OPTIONS}
+                  labels={LEAD_SOURCE_LABELS}
+                  error={shouldHighlight('leadSource')}
+                  onBlur={() => markTouched('leadSource')}
+                  onChange={(value) => update('leadSource', value as PayrollLeadSource)}
+                />
+                <LeadSelect
+                  label="Lead Provided By"
+                  Icon={Building2}
+                  value={form.leadProvidedBy}
+                  options={LEAD_PROVIDED_BY_OPTIONS}
+                  labels={LEAD_PROVIDED_BY_LABELS}
+                  error={shouldHighlight('leadProvidedBy')}
+                  onBlur={() => markTouched('leadProvidedBy')}
+                  onChange={(value) => update('leadProvidedBy', value as PayrollLeadProvidedBy)}
+                />
+              </div>
+
               {error && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
                   {error}
@@ -842,6 +897,50 @@ function Input({
             : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
         }`}
       />
+    </label>
+  );
+}
+
+function LeadSelect<T extends string>({
+  label,
+  Icon,
+  value,
+  options,
+  labels,
+  onChange,
+  onBlur,
+  error = false,
+}: {
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  value: T;
+  options: T[];
+  labels: Record<T, string>;
+  onChange: (value: T) => void;
+  onBlur?: () => void;
+  error?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className={`mb-1 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider ${error ? 'text-rose-600' : 'text-emerald-800'}`}>
+        <Icon className="h-4 w-4" />
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+        onBlur={onBlur}
+        aria-invalid={error}
+        className={`w-full rounded-xl border bg-white px-3 py-3 text-sm font-semibold outline-none shadow-sm focus:ring-2 ${
+          error
+            ? 'border-rose-300 text-rose-700 focus:border-rose-500 focus:ring-rose-500/20'
+            : 'border-emerald-200 text-slate-900 focus:border-emerald-500 focus:ring-emerald-500/20'
+        }`}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>{labels[option]}</option>
+        ))}
+      </select>
     </label>
   );
 }

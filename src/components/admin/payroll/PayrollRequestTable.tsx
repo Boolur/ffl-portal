@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useTransition } from 'react';
 import { Check, DollarSign, Edit3, Loader2, RefreshCw, Save, X } from 'lucide-react';
-import { PayrollCompRequestStatus, PayrollLoanChannel, PayrollProcessingType } from '@prisma/client';
+import { PayrollCompPlanType, PayrollCompRequestStatus, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType } from '@prisma/client';
 import {
   approvePayrollRequest,
   editPayrollRequest,
@@ -16,6 +16,9 @@ import {
   formatDate,
   formatPercent,
   loanChannelLabel,
+  payrollLeadProvidedByLabel,
+  payrollLeadSourceLabel,
+  payrollPlanTypeLabel,
   payrollStatusClasses,
   payrollStatusLabel,
   processingTypeLabel,
@@ -24,6 +27,7 @@ import {
 type Props = {
   rows: PayrollRequestRow[];
   compact?: boolean;
+  embedded?: boolean;
 };
 type AdminEditForm = {
   loanNumber: string;
@@ -32,6 +36,9 @@ type AdminEditForm = {
   lender: string;
   loanChannel: PayrollLoanChannel;
   processingType: PayrollProcessingType;
+  leadSource: PayrollLeadSource;
+  leadProvidedBy: PayrollLeadProvidedBy;
+  appliedPlanType: PayrollCompPlanType;
   expectedRevenue: string;
   submitterNotes: string;
   adminNotes: string;
@@ -47,8 +54,21 @@ const LOAN_TYPE_OPTIONS = [
   'Non QM',
   'Reverse Mortgage',
 ];
+const LEAD_SOURCE_OPTIONS = [
+  PayrollLeadSource.LEAD_BUY,
+  PayrollLeadSource.MAILER,
+  PayrollLeadSource.WARM_TRANSFER,
+  PayrollLeadSource.REFERRAL,
+  PayrollLeadSource.RETURN_CLIENT,
+  PayrollLeadSource.OTHER,
+];
+const LEAD_PROVIDED_BY_OPTIONS = [
+  PayrollLeadProvidedBy.SELF_SOURCED,
+  PayrollLeadProvidedBy.COMPANY_PROVIDED,
+  PayrollLeadProvidedBy.BRANCH_PROVIDED,
+];
 
-export function PayrollRequestTable({ rows, compact = false }: Props) {
+export function PayrollRequestTable({ rows, compact = false, embedded = false }: Props) {
   const [selectedRequest, setSelectedRequest] = useState<PayrollRequestRow | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<AdminEditForm>({
@@ -58,6 +78,9 @@ export function PayrollRequestTable({ rows, compact = false }: Props) {
     lender: '',
     loanChannel: PayrollLoanChannel.BROKER,
     processingType: PayrollProcessingType.IN_HOUSE,
+    leadSource: PayrollLeadSource.OTHER,
+    leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
+    appliedPlanType: PayrollCompPlanType.BROKER,
     expectedRevenue: '',
     submitterNotes: '',
     adminNotes: '',
@@ -80,6 +103,9 @@ export function PayrollRequestTable({ rows, compact = false }: Props) {
       lender: currentRequest.lender,
       loanChannel: currentRequest.loanChannel,
       processingType: currentRequest.processingType,
+      leadSource: currentRequest.leadSource,
+      leadProvidedBy: currentRequest.leadProvidedBy,
+      appliedPlanType: currentRequest.appliedPlanType,
       expectedRevenue: String(currentRequest.expectedRevenue),
       submitterNotes: currentRequest.submitterNotes ?? '',
       adminNotes: currentRequest.adminNotes ?? '',
@@ -112,6 +138,9 @@ export function PayrollRequestTable({ rows, compact = false }: Props) {
         lender: editForm.lender,
         loanChannel: editForm.loanChannel,
         processingType: editForm.processingType,
+        leadSource: editForm.leadSource,
+        leadProvidedBy: editForm.leadProvidedBy,
+        appliedPlanType: editForm.appliedPlanType,
         expectedRevenue: Number(editForm.expectedRevenue),
         submitterNotes: editForm.submitterNotes,
         adminNotes: editForm.adminNotes,
@@ -122,7 +151,7 @@ export function PayrollRequestTable({ rows, compact = false }: Props) {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-14 text-center">
+      <div className={`${embedded ? 'px-6 py-14' : 'rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-14'} text-center`}>
         <DollarSign className="mx-auto h-10 w-10 text-slate-300" />
         <p className="mt-3 text-sm font-semibold text-slate-700">No payroll requests yet</p>
         <p className="mt-1 text-sm text-slate-500">Submitted compensation requests will appear here.</p>
@@ -131,7 +160,7 @@ export function PayrollRequestTable({ rows, compact = false }: Props) {
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className={embedded ? 'overflow-hidden' : 'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm'}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -270,6 +299,9 @@ export function PayrollRequestTable({ rows, compact = false }: Props) {
                   <AdminInput label="Lender" value={editForm.lender} onChange={(value) => setEditForm((current) => ({ ...current, lender: value }))} />
                   <AdminSelect label="Broker or Non-Delegated" value={editForm.loanChannel} onChange={(value) => setEditForm((current) => ({ ...current, loanChannel: value as PayrollLoanChannel }))} options={[PayrollLoanChannel.BROKER, PayrollLoanChannel.NON_DELEGATED]} labels={{ BROKER: 'Broker', NON_DELEGATED: 'Non-Delegated' }} />
                   <AdminSelect label="Processing Type" value={editForm.processingType} onChange={(value) => setEditForm((current) => ({ ...current, processingType: value as PayrollProcessingType }))} options={[PayrollProcessingType.IN_HOUSE, PayrollProcessingType.CONTRACT, PayrollProcessingType.LENDER, PayrollProcessingType.OTHER]} labels={{ IN_HOUSE: 'In-House', CONTRACT: 'Contract', LENDER: 'Lender', OTHER: 'Other' }} />
+                  <AdminSelect label="Lead Source" value={editForm.leadSource} onChange={(value) => setEditForm((current) => ({ ...current, leadSource: value as PayrollLeadSource }))} options={LEAD_SOURCE_OPTIONS} labels={{ LEAD_BUY: 'Lead Buy', MAILER: 'Mailer', WARM_TRANSFER: 'Warm Transfer', REFERRAL: 'Referral', RETURN_CLIENT: 'Return Client', OTHER: 'Other' }} />
+                  <AdminSelect label="Lead Provided By" value={editForm.leadProvidedBy} onChange={(value) => setEditForm((current) => ({ ...current, leadProvidedBy: value as PayrollLeadProvidedBy }))} options={LEAD_PROVIDED_BY_OPTIONS} labels={{ SELF_SOURCED: 'Self Sourced', COMPANY_PROVIDED: 'Company Provided', BRANCH_PROVIDED: 'Branch Provided' }} />
+                  <AdminSelect label="Applied Split Type" value={editForm.appliedPlanType} onChange={(value) => setEditForm((current) => ({ ...current, appliedPlanType: value as PayrollCompPlanType }))} options={[PayrollCompPlanType.BROKER, PayrollCompPlanType.RETAIL]} labels={{ BROKER: 'Broker Split', RETAIL: 'Retail Split' }} />
                   <AdminInput label="Expected Revenue" value={editForm.expectedRevenue} onChange={(value) => setEditForm((current) => ({ ...current, expectedRevenue: value }))} inputMode="decimal" />
                   <AdminInput label="Admin Notes" value={editForm.adminNotes} onChange={(value) => setEditForm((current) => ({ ...current, adminNotes: value }))} />
                   <div className="md:col-span-2">
@@ -287,6 +319,9 @@ export function PayrollRequestTable({ rows, compact = false }: Props) {
                       <Detail label="Lender" value={currentRequest.lender} />
                       <Detail label="Channel" value={loanChannelLabel(currentRequest.loanChannel)} />
                       <Detail label="Processing" value={processingTypeLabel(currentRequest.processingType)} />
+                      <Detail label="Lead Source" value={payrollLeadSourceLabel(currentRequest.leadSource)} />
+                      <Detail label="Provided By" value={payrollLeadProvidedByLabel(currentRequest.leadProvidedBy)} />
+                      <Detail label="Split Type" value={payrollPlanTypeLabel(currentRequest.appliedPlanType)} />
                       <Detail label="Revenue" value={formatCurrency(currentRequest.expectedRevenue)} />
                       <Detail label="Edited" value={formatDate(currentRequest.editedAt)} />
                     </dl>

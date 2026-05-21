@@ -147,6 +147,32 @@ enum PayrollProcessingType {
   OTHER
 }
 
+enum PayrollUserClassification {
+  BROKER
+  RETAIL
+  SUPPORT_STAFF
+}
+
+enum PayrollCompPlanType {
+  BROKER
+  RETAIL
+}
+
+enum PayrollLeadSource {
+  LEAD_BUY
+  MAILER
+  WARM_TRANSFER
+  REFERRAL
+  RETURN_CLIENT
+  OTHER
+}
+
+enum PayrollLeadProvidedBy {
+  SELF_SOURCED
+  COMPANY_PROVIDED
+  BRANCH_PROVIDED
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
@@ -885,6 +911,8 @@ model PayrollCompPlan {
   loanOfficerId         String
   loanOfficer           User     @relation("PayrollCompPlanLoanOfficer", fields: [loanOfficerId], references: [id], onDelete: Cascade)
 
+  userClassification    PayrollUserClassification @default(BROKER)
+  planType              PayrollCompPlanType @default(BROKER)
   baseSplitPercent      Decimal  @db.Decimal(7, 4)
   active                Boolean  @default(true)
   effectiveStart        DateTime @default(now())
@@ -898,6 +926,7 @@ model PayrollCompPlan {
   requestSnapshots      PayrollCompRequestSplit[]
 
   @@index([loanOfficerId, active])
+  @@index([loanOfficerId, planType, active])
   @@index([effectiveStart, effectiveEnd])
 }
 
@@ -938,6 +967,9 @@ model PayrollCompRequest {
   lender                String
   loanChannel           PayrollLoanChannel
   processingType        PayrollProcessingType
+  leadSource            PayrollLeadSource @default(OTHER)
+  leadProvidedBy        PayrollLeadProvidedBy @default(SELF_SOURCED)
+  appliedPlanType       PayrollCompPlanType @default(BROKER)
   expectedRevenue       Decimal  @db.Decimal(12, 2)
 
   status                PayrollCompRequestStatus @default(PENDING_REVIEW)

@@ -125,16 +125,16 @@ export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests
         </Link>
       </div>
 
-      <section className="grid gap-5 xl:grid-cols-2">
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
+      <section className="grid items-start gap-5 xl:grid-cols-2">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Pending Review Queue</h2>
+              <h2 className="font-bold text-slate-900">Pending Review Queue</h2>
               <p className="text-sm text-slate-500">Newest compensation requests awaiting payroll approval.</p>
             </div>
             <Link href="/admin/payroll/requests" className="text-sm font-semibold text-blue-600 hover:text-blue-700">View all</Link>
           </div>
-          <PayrollRequestTable rows={reviewRows} compact />
+          <PayrollRequestTable rows={reviewRows} compact embedded />
         </div>
         <div className="grid gap-5">
           <MiniStatsPanel title="Lender Stats" subtitle="Pending/recent loans by lender" rows={lenderStats} />

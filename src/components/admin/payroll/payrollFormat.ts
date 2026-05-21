@@ -1,7 +1,11 @@
 import {
+  PayrollCompPlanType,
   PayrollCompRequestStatus,
+  PayrollLeadProvidedBy,
+  PayrollLeadSource,
   PayrollLoanChannel,
   PayrollProcessingType,
+  PayrollUserClassification,
 } from '@prisma/client';
 
 export function formatCurrency(value: number) {
@@ -63,4 +67,42 @@ export function processingTypeLabel(type: PayrollProcessingType) {
     OTHER: 'Other',
   };
   return labels[type];
+}
+
+export function payrollUserClassificationLabel(type: PayrollUserClassification) {
+  const labels: Record<PayrollUserClassification, string> = {
+    BROKER: 'Broker',
+    RETAIL: 'Retail',
+    SUPPORT_STAFF: 'Support Staff',
+  };
+  return labels[type];
+}
+
+export function payrollPlanTypeLabel(type: PayrollCompPlanType) {
+  const labels: Record<PayrollCompPlanType, string> = {
+    BROKER: 'Broker Split',
+    RETAIL: 'Retail Split',
+  };
+  return labels[type];
+}
+
+export function payrollLeadSourceLabel(source: PayrollLeadSource) {
+  const labels: Record<PayrollLeadSource, string> = {
+    LEAD_BUY: 'Lead Buy',
+    MAILER: 'Mailer',
+    WARM_TRANSFER: 'Warm Transfer',
+    REFERRAL: 'Referral',
+    RETURN_CLIENT: 'Return Client',
+    OTHER: 'Other',
+  };
+  return labels[source];
+}
+
+export function payrollLeadProvidedByLabel(provider: PayrollLeadProvidedBy) {
+  const labels: Record<PayrollLeadProvidedBy, string> = {
+    SELF_SOURCED: 'Self Sourced',
+    COMPANY_PROVIDED: 'Company Provided',
+    BRANCH_PROVIDED: 'Branch Provided',
+  };
+  return labels[provider];
 }

@@ -3,9 +3,13 @@
 import { getServerSession } from 'next-auth';
 import { revalidatePath } from 'next/cache';
 import {
+  PayrollCompPlanType,
   PayrollCompRequestStatus,
+  PayrollLeadProvidedBy,
+  PayrollLeadSource,
   PayrollLoanChannel,
   PayrollProcessingType,
+  PayrollUserClassification,
   Prisma,
   UserRole,
 } from '@prisma/client';
@@ -32,10 +36,19 @@ export type PayrollCompSplitInput = {
 
 export type PayrollCompPlanInput = {
   loanOfficerId: string;
+  userClassification?: PayrollUserClassification;
+  planType?: PayrollCompPlanType;
   baseSplitPercent: number;
   active?: boolean;
   notes?: string;
   splits: PayrollCompSplitInput[];
+};
+
+export type PayrollCompPlanSettingsInput = {
+  loanOfficerId: string;
+  userClassification: PayrollUserClassification;
+  brokerPlan: Omit<PayrollCompPlanInput, 'loanOfficerId' | 'userClassification' | 'planType'>;
+  retailPlan?: Omit<PayrollCompPlanInput, 'loanOfficerId' | 'userClassification' | 'planType'> | null;
 };
 
 export type PayrollCompRequestInput = {
@@ -45,12 +58,15 @@ export type PayrollCompRequestInput = {
   lender: string;
   loanChannel: PayrollLoanChannel;
   processingType: PayrollProcessingType;
+  leadSource: PayrollLeadSource;
+  leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue: number;
   submitterNotes?: string;
 };
 
 export type PayrollAdminEditRequestInput = PayrollCompRequestInput & {
   requestId: string;
+  appliedPlanType: PayrollCompPlanType;
   adminNotes?: string;
 };
 
@@ -91,6 +107,9 @@ export type PayrollRequestRow = {
   lender: string;
   loanChannel: PayrollLoanChannel;
   processingType: PayrollProcessingType;
+  leadSource: PayrollLeadSource;
+  leadProvidedBy: PayrollLeadProvidedBy;
+  appliedPlanType: PayrollCompPlanType;
   expectedRevenue: number;
   status: PayrollCompRequestStatus;
   submittedAt: string;
@@ -103,13 +122,9 @@ export type PayrollRequestRow = {
   splits: PayrollSplitSnapshot[];
 };
 
-export type PayrollUserPlanRow = {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  plan: {
+export type PayrollUserPlanDetail = {
     id: string;
+    planType: PayrollCompPlanType;
     baseSplitPercent: number;
     active: boolean;
     notes: string | null;
@@ -123,7 +138,16 @@ export type PayrollUserPlanRow = {
       splitPercent: number;
       sortOrder: number;
     }>;
-  } | null;
+};
+
+export type PayrollUserPlanRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  userClassification: PayrollUserClassification;
+  plan: PayrollUserPlanDetail | null;
+  retailPlan: PayrollUserPlanDetail | null;
 };
 
 type SessionActor = {
@@ -150,6 +174,16 @@ const requestInclude = {
     },
   },
 };
+
+const RETAIL_TRIGGER_LEAD_SOURCES = new Set<PayrollLeadSource>([
+  PayrollLeadSource.LEAD_BUY,
+  PayrollLeadSource.MAILER,
+  PayrollLeadSource.WARM_TRANSFER,
+]);
+const RETAIL_TRIGGER_PROVIDERS = new Set<PayrollLeadProvidedBy>([
+  PayrollLeadProvidedBy.COMPANY_PROVIDED,
+  PayrollLeadProvidedBy.BRANCH_PROVIDED,
+]);
 
 function normalizeRoleList(role?: string, roles?: string[]): UserRole[] {
   const values = roles && roles.length > 0 ? roles : role ? [role] : [];
@@ -230,6 +264,25 @@ function ensureMoney(value: number, label: string) {
   return money(value);
 }
 
+function resolveAppliedPlanType({
+  userClassification,
+  leadSource,
+  leadProvidedBy,
+  override,
+}: {
+  userClassification: PayrollUserClassification;
+  leadSource: PayrollLeadSource;
+  leadProvidedBy: PayrollLeadProvidedBy;
+  override?: PayrollCompPlanType | null;
+}) {
+  if (override) return override;
+  if (userClassification !== PayrollUserClassification.BROKER) return PayrollCompPlanType.BROKER;
+  if (RETAIL_TRIGGER_LEAD_SOURCES.has(leadSource) || RETAIL_TRIGGER_PROVIDERS.has(leadProvidedBy)) {
+    return PayrollCompPlanType.RETAIL;
+  }
+  return PayrollCompPlanType.BROKER;
+}
+
 function datesFromFilters(filters: PayrollRequestFilters | PayrollReportFilters) {
   const start = filters.startDate ? new Date(`${filters.startDate}T00:00:00`) : null;
   const end = filters.endDate ? new Date(`${filters.endDate}T23:59:59.999`) : null;
@@ -251,6 +304,9 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     lender: request.lender,
     loanChannel: request.loanChannel,
     processingType: request.processingType,
+    leadSource: request.leadSource,
+    leadProvidedBy: request.leadProvidedBy,
+    appliedPlanType: request.appliedPlanType,
     expectedRevenue: decimalToNumber(request.expectedRevenue),
     status: request.status,
     submittedAt: request.submittedAt.toISOString(),
@@ -273,13 +329,21 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
   };
 }
 
-async function buildSplitSnapshots(loanOfficerId: string, expectedRevenue: number) {
-  const [loanOfficer, plan] = await Promise.all([
+async function buildSplitSnapshots(
+  loanOfficerId: string,
+  expectedRevenue: number,
+  context?: {
+    leadSource?: PayrollLeadSource;
+    leadProvidedBy?: PayrollLeadProvidedBy;
+    appliedPlanType?: PayrollCompPlanType | null;
+  }
+) {
+  const [loanOfficer, plans] = await Promise.all([
     prisma.user.findUnique({
       where: { id: loanOfficerId },
       select: { id: true, name: true, email: true },
     }),
-    prisma.payrollCompPlan.findFirst({
+    prisma.payrollCompPlan.findMany({
       where: { loanOfficerId, active: true },
       orderBy: { effectiveStart: 'desc' },
       include: {
@@ -293,20 +357,33 @@ async function buildSplitSnapshots(loanOfficerId: string, expectedRevenue: numbe
   ]);
 
   if (!loanOfficer) throw new Error('Loan officer was not found.');
+  const classification = plans[0]?.userClassification ?? PayrollUserClassification.BROKER;
+  const selectedPlanType = resolveAppliedPlanType({
+    userClassification: classification,
+    leadSource: context?.leadSource ?? PayrollLeadSource.OTHER,
+    leadProvidedBy: context?.leadProvidedBy ?? PayrollLeadProvidedBy.SELF_SOURCED,
+    override: context?.appliedPlanType,
+  });
+  const selectedPlan =
+    plans.find((item) => item.planType === selectedPlanType) ??
+    plans.find((item) => item.planType === PayrollCompPlanType.BROKER) ??
+    plans[0] ??
+    null;
+  const effectivePlanType = selectedPlan?.planType ?? selectedPlanType;
 
-  const rawSplits = plan
+  const rawSplits = selectedPlan
     ? [
         {
-          planId: plan.id,
+          planId: selectedPlan.id,
           recipientUserId: loanOfficer.id,
           recipientName: loanOfficer.name,
           recipientEmail: loanOfficer.email,
           roleLabel: 'Loan Officer',
-          splitPercent: decimalToNumber(plan.baseSplitPercent),
+          splitPercent: decimalToNumber(selectedPlan.baseSplitPercent),
           sortOrder: 0,
         },
-        ...plan.splits.map((split, index) => ({
-          planId: plan.id,
+        ...selectedPlan.splits.map((split, index) => ({
+          planId: selectedPlan.id,
           recipientUserId: split.recipientUser?.id ?? null,
           recipientName: split.recipientUser?.name ?? split.recipientName ?? 'Unknown recipient',
           recipientEmail: split.recipientUser?.email ?? split.recipientEmail ?? null,
@@ -342,6 +419,7 @@ async function buildSplitSnapshots(loanOfficerId: string, expectedRevenue: numbe
     return {
       ...split,
       amount: calculated,
+      appliedPlanType: effectivePlanType,
     };
   });
 }
@@ -381,7 +459,6 @@ export async function getPayrollUsersWithPlans(): Promise<PayrollUserPlanRow[]> 
       payrollCompPlans: {
         where: { active: true },
         orderBy: { effectiveStart: 'desc' },
-        take: 1,
         include: {
           splits: {
             where: { active: true },
@@ -393,39 +470,43 @@ export async function getPayrollUsersWithPlans(): Promise<PayrollUserPlanRow[]> 
     },
   });
 
+  const serializePlan = (plan: (typeof users)[number]['payrollCompPlans'][number] | null): PayrollUserPlanDetail | null =>
+    plan
+      ? {
+          id: plan.id,
+          planType: plan.planType,
+          baseSplitPercent: decimalToNumber(plan.baseSplitPercent),
+          active: plan.active,
+          notes: plan.notes,
+          updatedAt: plan.updatedAt.toISOString(),
+          splits: plan.splits.map((split) => ({
+            id: split.id,
+            recipientUserId: split.recipientUserId,
+            recipientName: split.recipientUser?.name ?? split.recipientName ?? 'Unknown recipient',
+            recipientEmail: split.recipientUser?.email ?? split.recipientEmail,
+            roleLabel: split.roleLabel,
+            splitPercent: decimalToNumber(split.splitPercent),
+            sortOrder: split.sortOrder,
+          })),
+        }
+      : null;
+
   return users.map((user) => {
-    const plan = user.payrollCompPlans[0] ?? null;
+    const brokerPlan = user.payrollCompPlans.find((plan) => plan.planType === PayrollCompPlanType.BROKER) ?? user.payrollCompPlans[0] ?? null;
+    const retailPlan = user.payrollCompPlans.find((plan) => plan.planType === PayrollCompPlanType.RETAIL) ?? null;
     return {
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
-      plan: plan
-        ? {
-            id: plan.id,
-            baseSplitPercent: decimalToNumber(plan.baseSplitPercent),
-            active: plan.active,
-            notes: plan.notes,
-            updatedAt: plan.updatedAt.toISOString(),
-            splits: plan.splits.map((split) => ({
-              id: split.id,
-              recipientUserId: split.recipientUserId,
-              recipientName: split.recipientUser?.name ?? split.recipientName ?? 'Unknown recipient',
-              recipientEmail: split.recipientUser?.email ?? split.recipientEmail,
-              roleLabel: split.roleLabel,
-              splitPercent: decimalToNumber(split.splitPercent),
-              sortOrder: split.sortOrder,
-            })),
-          }
-        : null,
+      userClassification: brokerPlan?.userClassification ?? retailPlan?.userClassification ?? PayrollUserClassification.BROKER,
+      plan: serializePlan(brokerPlan),
+      retailPlan: serializePlan(retailPlan),
     };
   });
 }
 
-export async function savePayrollCompPlan(input: PayrollCompPlanInput) {
-  await assertPayrollAdmin();
-
-  const loanOfficerId = cleanText(input.loanOfficerId, 'Loan officer');
+function normalizePlanInput(input: Omit<PayrollCompPlanInput, 'loanOfficerId' | 'userClassification' | 'planType'>) {
   const baseSplitPercent = ensurePercent(input.baseSplitPercent, 'Base split');
   const splits = input.splits.map((split, index) => ({
     recipientUserId: split.recipientUserId?.trim() || null,
@@ -439,6 +520,39 @@ export async function savePayrollCompPlan(input: PayrollCompPlanInput) {
   if (Math.abs(total - 100) > 0.0001) {
     throw new Error('Compensation split percentages must add up to 100%.');
   }
+  return { baseSplitPercent, splits, notes: input.notes?.trim() || null, active: input.active ?? true };
+}
+
+export async function savePayrollCompPlan(input: PayrollCompPlanInput) {
+  return savePayrollCompPlanSettings({
+    loanOfficerId: input.loanOfficerId,
+    userClassification: input.userClassification ?? PayrollUserClassification.BROKER,
+    brokerPlan: {
+      baseSplitPercent: input.baseSplitPercent,
+      active: input.active,
+      notes: input.notes,
+      splits: input.splits,
+    },
+    retailPlan: input.planType === PayrollCompPlanType.RETAIL
+      ? {
+          baseSplitPercent: input.baseSplitPercent,
+          active: input.active,
+          notes: input.notes,
+          splits: input.splits,
+        }
+      : null,
+  });
+}
+
+export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettingsInput) {
+  await assertPayrollAdmin();
+
+  const loanOfficerId = cleanText(input.loanOfficerId, 'Loan officer');
+  const userClassification = input.userClassification;
+  const brokerPlan = normalizePlanInput(input.brokerPlan);
+  const retailPlan = userClassification === PayrollUserClassification.BROKER && input.retailPlan
+    ? normalizePlanInput(input.retailPlan)
+    : null;
 
   const user = await prisma.user.findUnique({
     where: { id: loanOfficerId },
@@ -451,24 +565,33 @@ export async function savePayrollCompPlan(input: PayrollCompPlanInput) {
       where: { loanOfficerId, active: true },
       data: { active: false, effectiveEnd: new Date() },
     });
-    await tx.payrollCompPlan.create({
-      data: {
-        loanOfficerId,
-        baseSplitPercent,
-        active: input.active ?? true,
-        notes: input.notes?.trim() || null,
-        splits: {
-          create: splits.map((split) => ({
-            recipientUserId: split.recipientUserId,
-            recipientName: split.recipientName,
-            recipientEmail: split.recipientEmail,
-            roleLabel: split.roleLabel,
-            splitPercent: split.splitPercent,
-            sortOrder: split.sortOrder,
-          })),
+
+    const createPlan = (planType: PayrollCompPlanType, plan: typeof brokerPlan) =>
+      tx.payrollCompPlan.create({
+        data: {
+          loanOfficerId,
+          userClassification,
+          planType,
+          baseSplitPercent: plan.baseSplitPercent,
+          active: plan.active,
+          notes: plan.notes,
+          splits: {
+            create: plan.splits.map((split) => ({
+              recipientUserId: split.recipientUserId,
+              recipientName: split.recipientName,
+              recipientEmail: split.recipientEmail,
+              roleLabel: split.roleLabel,
+              splitPercent: split.splitPercent,
+              sortOrder: split.sortOrder,
+            })),
+          },
         },
-      },
-    });
+      });
+
+    await createPlan(PayrollCompPlanType.BROKER, brokerPlan);
+    if (retailPlan) {
+      await createPlan(PayrollCompPlanType.RETAIL, retailPlan);
+    }
   });
 
   revalidatePayroll();
@@ -477,7 +600,10 @@ export async function savePayrollCompPlan(input: PayrollCompPlanInput) {
 export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
   const actor = await assertPayrollPortalUser();
   const expectedRevenue = ensureMoney(input.expectedRevenue, 'Expected revenue');
-  const snapshots = await buildSplitSnapshots(actor.userId, expectedRevenue);
+  const snapshots = await buildSplitSnapshots(actor.userId, expectedRevenue, {
+    leadSource: input.leadSource,
+    leadProvidedBy: input.leadProvidedBy,
+  });
   return snapshots.map((split) => ({
     recipientName: split.recipientName,
     recipientEmail: split.recipientEmail,
@@ -491,7 +617,11 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
 export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   const actor = await assertPayrollPortalUser();
   const expectedRevenue = ensureMoney(input.expectedRevenue, 'Expected revenue');
-  const snapshots = await buildSplitSnapshots(actor.userId, expectedRevenue);
+  const snapshots = await buildSplitSnapshots(actor.userId, expectedRevenue, {
+    leadSource: input.leadSource,
+    leadProvidedBy: input.leadProvidedBy,
+  });
+  const appliedPlanType = snapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
 
   await prisma.payrollCompRequest.create({
     data: {
@@ -502,6 +632,9 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
       lender: cleanText(input.lender, 'Lender'),
       loanChannel: input.loanChannel,
       processingType: input.processingType,
+      leadSource: input.leadSource,
+      leadProvidedBy: input.leadProvidedBy,
+      appliedPlanType,
       expectedRevenue,
       submitterNotes: input.submitterNotes?.trim() || null,
       splits: {
@@ -573,10 +706,21 @@ export async function getPayrollRequests(filters: PayrollRequestFilters = {}) {
 async function replaceRequestSplits(requestId: string) {
   const request = await prisma.payrollCompRequest.findUnique({
     where: { id: requestId },
-    select: { id: true, loanOfficerId: true, expectedRevenue: true },
+    select: {
+      id: true,
+      loanOfficerId: true,
+      expectedRevenue: true,
+      leadSource: true,
+      leadProvidedBy: true,
+      appliedPlanType: true,
+    },
   });
   if (!request) throw new Error('Payroll request was not found.');
-  const snapshots = await buildSplitSnapshots(request.loanOfficerId, decimalToNumber(request.expectedRevenue));
+  const snapshots = await buildSplitSnapshots(request.loanOfficerId, decimalToNumber(request.expectedRevenue), {
+    leadSource: request.leadSource,
+    leadProvidedBy: request.leadProvidedBy,
+    appliedPlanType: request.appliedPlanType,
+  });
   await prisma.$transaction([
     prisma.payrollCompRequestSplit.deleteMany({ where: { requestId } }),
     prisma.payrollCompRequestSplit.createMany({
@@ -607,7 +751,11 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
   }
 
   const expectedRevenue = ensureMoney(input.expectedRevenue, 'Expected revenue');
-  const snapshots = await buildSplitSnapshots(request.loanOfficerId, expectedRevenue);
+  const snapshots = await buildSplitSnapshots(request.loanOfficerId, expectedRevenue, {
+    leadSource: input.leadSource,
+    leadProvidedBy: input.leadProvidedBy,
+    appliedPlanType: input.appliedPlanType,
+  });
 
   await prisma.$transaction(async (tx) => {
     await tx.payrollCompRequest.update({
@@ -619,6 +767,9 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         lender: cleanText(input.lender, 'Lender'),
         loanChannel: input.loanChannel,
         processingType: input.processingType,
+        leadSource: input.leadSource,
+        leadProvidedBy: input.leadProvidedBy,
+        appliedPlanType: input.appliedPlanType,
         expectedRevenue,
         submitterNotes: input.submitterNotes?.trim() || null,
         adminNotes: input.adminNotes?.trim() || null,
