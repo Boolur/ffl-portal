@@ -62,6 +62,8 @@ export const canAccessTasks = (roles: UserRole[] = []) =>
   roles.length > 0;
 export const canAccessLeadDistribution = (roles: UserRole[] = []) =>
   (highestAdminTier(roles) ?? 0) >= 2;
+export const canAccessPayroll = (roles: UserRole[] = []) =>
+  (highestAdminTier(roles) ?? 0) >= 2;
 export const canAccessLeadMailbox = (roles: UserRole[] = []) =>
   highestAdminTier(roles) === 3;
 export const canAccessEmailSettings = (roles: UserRole[] = []) =>

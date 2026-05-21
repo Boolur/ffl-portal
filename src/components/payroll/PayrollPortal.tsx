@@ -1,0 +1,318 @@
+'use client';
+
+import React, { useMemo, useState, useTransition } from 'react';
+import { Banknote, CheckCircle2, Clock, Loader2, Plus, ReceiptText, Send, X } from 'lucide-react';
+import { PayrollLoanChannel, PayrollProcessingType } from '@prisma/client';
+import {
+  getPayrollRequestPreview,
+  submitPayrollCompRequest,
+  type PayrollRequestRow,
+} from '@/app/actions/payrollActions';
+import {
+  formatCurrency,
+  formatDate,
+  formatPercent,
+  payrollStatusClasses,
+  payrollStatusLabel,
+} from '@/components/admin/payroll/payrollFormat';
+
+type Props = {
+  rows: PayrollRequestRow[];
+  summary: {
+    totalRequests: number;
+    pendingCount: number;
+    approvedCount: number;
+    rejectedCount: number;
+    paidCount: number;
+    submittedRevenue: number;
+    pendingRevenue: number;
+    approvedRevenue: number;
+    paidRevenue: number;
+  };
+};
+
+type FormState = {
+  loanNumber: string;
+  borrowerName: string;
+  loanType: string;
+  lender: string;
+  loanChannel: PayrollLoanChannel;
+  processingType: PayrollProcessingType;
+  expectedRevenue: string;
+  submitterNotes: string;
+};
+
+const initialForm: FormState = {
+  loanNumber: '',
+  borrowerName: '',
+  loanType: '',
+  lender: '',
+  loanChannel: PayrollLoanChannel.BROKER,
+  processingType: PayrollProcessingType.IN_HOUSE,
+  expectedRevenue: '',
+  submitterNotes: '',
+};
+
+function Kpi({
+  title,
+  value,
+  subtitle,
+  Icon,
+}: {
+  title: string;
+  value: string;
+  subtitle: string;
+  Icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{title}</p>
+          <p className="mt-2 text-2xl font-bold text-slate-950">{value}</p>
+          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+        </div>
+        <Icon className="h-5 w-5 text-emerald-600" />
+      </div>
+    </div>
+  );
+}
+
+export function PayrollPortal({ rows, summary }: Props) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState<FormState>(initialForm);
+  const [preview, setPreview] = useState<Array<{
+    recipientName: string;
+    recipientEmail: string | null;
+    roleLabel: string;
+    splitPercent: number;
+    amount: number;
+    sortOrder: number;
+  }>>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const canPreview = useMemo(() => Number(form.expectedRevenue) > 0, [form.expectedRevenue]);
+
+  const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setError(null);
+  };
+
+  const loadPreview = () => {
+    startTransition(async () => {
+      try {
+        setError(null);
+        const result = await getPayrollRequestPreview({
+          ...form,
+          expectedRevenue: Number(form.expectedRevenue),
+        });
+        setPreview(result);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to calculate split preview.');
+      }
+    });
+  };
+
+  const submit = () => {
+    startTransition(async () => {
+      try {
+        setError(null);
+        await submitPayrollCompRequest({
+          ...form,
+          expectedRevenue: Number(form.expectedRevenue),
+        });
+        setForm(initialForm);
+        setPreview([]);
+        setModalOpen(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to submit payroll request.');
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Kpi title="Submitted" value={formatCurrency(summary.submittedRevenue)} subtitle={`${summary.totalRequests} requests`} Icon={ReceiptText} />
+        <Kpi title="Pending" value={String(summary.pendingCount)} subtitle={formatCurrency(summary.pendingRevenue)} Icon={Clock} />
+        <Kpi title="Approved" value={String(summary.approvedCount)} subtitle={formatCurrency(summary.approvedRevenue)} Icon={CheckCircle2} />
+        <Kpi title="Paid" value={String(summary.paidCount)} subtitle={formatCurrency(summary.paidRevenue)} Icon={Banknote} />
+      </div>
+
+      <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Submit a Funded Loan</h2>
+          <p className="text-sm text-emerald-800/80">Send accounting the loan details and expected revenue for payroll review.</p>
+        </div>
+        <button type="button" className="app-btn-primary" onClick={() => setModalOpen(true)}>
+          <Plus className="h-4 w-4" /> Submit Compensation Request
+        </button>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h2 className="font-bold text-slate-900">My Compensation Requests</h2>
+          <p className="text-sm text-slate-500">Track prior submissions and payroll decisions.</p>
+        </div>
+        {rows.length === 0 ? (
+          <div className="px-6 py-16 text-center">
+            <Banknote className="mx-auto h-10 w-10 text-slate-300" />
+            <p className="mt-3 text-sm font-semibold text-slate-700">No compensation requests yet</p>
+            <p className="mt-1 text-sm text-slate-500">Your funded loan submissions will appear here.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/70">
+                  <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Loan</th>
+                  <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Lender</th>
+                  <th className="px-5 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">Revenue</th>
+                  <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Status</th>
+                  <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Submitted</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.map((row) => (
+                  <tr key={row.id} className="hover:bg-slate-50/70">
+                    <td className="px-5 py-4">
+                      <p className="font-semibold text-slate-900">{row.loanNumber}</p>
+                      <p className="text-xs text-slate-500">{row.borrowerName}</p>
+                    </td>
+                    <td className="px-5 py-4 text-slate-700">{row.lender}</td>
+                    <td className="px-5 py-4 text-right font-semibold text-slate-900">{formatCurrency(row.expectedRevenue)}</td>
+                    <td className="px-5 py-4">
+                      <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${payrollStatusClasses(row.status)}`}>
+                        {payrollStatusLabel(row.status)}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">{formatDate(row.submittedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {modalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
+          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+            <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Submit Compensation Request</h2>
+                <p className="text-sm text-slate-500">Enter the funded loan details for payroll review.</p>
+              </div>
+              <button type="button" className="app-icon-btn" aria-label="Close modal" onClick={() => setModalOpen(false)}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-5 p-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Input label="Loan Number" value={form.loanNumber} onChange={(value) => update('loanNumber', value)} />
+                <Input label="Borrower's Name" value={form.borrowerName} onChange={(value) => update('borrowerName', value)} />
+                <Input label="Loan Type" value={form.loanType} onChange={(value) => update('loanType', value)} placeholder="VA IRRRL, FHA, Conventional" />
+                <Input label="Lender" value={form.lender} onChange={(value) => update('lender', value)} />
+                <label className="block">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Broker or Non-Delegated</span>
+                  <select
+                    value={form.loanChannel}
+                    onChange={(event) => update('loanChannel', event.target.value as PayrollLoanChannel)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="BROKER">Broker</option>
+                    <option value="NON_DELEGATED">Non-Delegated</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Processing Type</span>
+                  <select
+                    value={form.processingType}
+                    onChange={(event) => update('processingType', event.target.value as PayrollProcessingType)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="IN_HOUSE">In-House</option>
+                    <option value="CONTRACT">Contract</option>
+                    <option value="LENDER">Lender</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </label>
+                <Input label="Expected Revenue" value={form.expectedRevenue} onChange={(value) => update('expectedRevenue', value)} placeholder="4500" inputMode="decimal" />
+                <Input label="Notes" value={form.submitterNotes} onChange={(value) => update('submitterNotes', value)} placeholder="Optional" />
+              </div>
+
+              {error && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+                  {error}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-bold text-slate-900">Split Preview</p>
+                    <p className="text-sm text-slate-500">Preview is based on your current payroll setup.</p>
+                  </div>
+                  <button type="button" className="app-btn-secondary" disabled={!canPreview || isPending} onClick={loadPreview}>
+                    {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
+                    Preview
+                  </button>
+                </div>
+                {preview.length > 0 && (
+                  <div className="mt-4 divide-y divide-slate-200 rounded-xl bg-white px-4">
+                    {preview.map((split) => (
+                      <div key={`${split.recipientEmail ?? split.recipientName}:${split.roleLabel}`} className="flex items-center justify-between gap-4 py-3">
+                        <div>
+                          <p className="font-semibold text-slate-900">{split.recipientName}</p>
+                          <p className="text-xs text-slate-500">{split.roleLabel} · {formatPercent(split.splitPercent)}</p>
+                        </div>
+                        <p className="font-bold text-slate-900">{formatCurrency(split.amount)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+                <button type="button" className="app-btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
+                <button type="button" className="app-btn-primary" disabled={isPending} onClick={submit}>
+                  {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Submit Request
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Input({
+  label,
+  value,
+  onChange,
+  placeholder,
+  inputMode,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+}) {
+  return (
+    <label className="block">
+      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        inputMode={inputMode}
+        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+      />
+    </label>
+  );
+}

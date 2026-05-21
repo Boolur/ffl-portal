@@ -5,6 +5,7 @@ import {
   Users,
   CheckSquare,
   BarChart,
+  Banknote,
   HelpCircle,
   Shield,
   Mail,
@@ -21,11 +22,13 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { canAccessLendersDirectory } from '@/lib/lendersPilot';
 import { canAccessLeadsTab } from '@/lib/leadsPilot';
+import { canAccessPayrollPortal } from '@/lib/payrollPilot';
 import {
   canAccessEmailSettings,
   canAccessLeadDistribution,
   canAccessLeadMailbox,
   canAccessLenderManagement,
+  canAccessPayroll,
   canAccessReports,
   canAccessTeamPage,
   canAccessUserManagement,
@@ -51,6 +54,11 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   const canSeeLeadsTab = canAccessLeadsTab({
     role: activeRole,
     email: session?.user?.email || '',
+  });
+  const canSeePayrollTab = canAccessPayrollPortal({
+    role: activeRole,
+    email: session?.user?.email || '',
+    name: session?.user?.name || '',
   });
 
   const emitNavigationIntent = React.useCallback((href: string, name: string) => {
@@ -112,6 +120,12 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       roles: [UserRole.LOAN_OFFICER, UserRole.LOA] as UserRole[],
     },
     {
+      name: 'Payroll',
+      icon: Banknote,
+      href: '/payroll',
+      roles: [UserRole.LOAN_OFFICER] as UserRole[],
+    },
+    {
       name: 'Lenders',
       icon: Building2,
       href: '/lenders',
@@ -130,6 +144,13 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       href: '/reports',
       roles: [] as UserRole[],
       visible: () => canAccessReports(activeRoleArr),
+    },
+    {
+      name: 'Payroll',
+      icon: Banknote,
+      href: '/admin/payroll',
+      roles: [] as UserRole[],
+      visible: () => canAccessPayroll(activeRoleArr),
     },
     {
       name: 'User Management',
@@ -188,6 +209,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       isVisible(item) &&
       (item.name !== 'Lenders' || canSeeLendersDirectory) &&
       (item.name !== 'Leads' || canSeeLeadsTab) &&
+      (item.href !== '/payroll' || canSeePayrollTab) &&
       !MANAGEMENT_NAMES.includes(item.name)
   );
 
