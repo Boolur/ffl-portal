@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useTransition } from 'react';
-import { Banknote, CheckCircle2, Clock, Loader2, Plus, ReceiptText, Send, X } from 'lucide-react';
+import { Banknote, CheckCircle2, Clock, Loader2, Plus, ReceiptText, Send, Upload, X } from 'lucide-react';
 import { PayrollLoanChannel, PayrollProcessingType } from '@prisma/client';
 import {
   getPayrollRequestPreview,
@@ -53,6 +53,112 @@ const initialForm: FormState = {
   submitterNotes: '',
 };
 
+type PayrollMismoPrefill = {
+  loanNumber?: string;
+  borrowerName?: string;
+  loanType?: string;
+  lender?: string;
+  loanChannel?: PayrollLoanChannel;
+};
+
+function parsePayrollMismoXml(xmlText: string, sourceFilename?: string): PayrollMismoPrefill {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length > 0) {
+    throw new Error('Invalid XML');
+  }
+
+  const getText = (parent: Element | Document | null, localName: string) => {
+    if (!parent) return '';
+    const el = parent.getElementsByTagNameNS('*', localName)[0];
+    return el?.textContent?.trim() ?? '';
+  };
+  const getTextFromElement = (el: Element | null, localName: string) => {
+    if (!el) return '';
+    const node = el.getElementsByTagNameNS('*', localName)[0];
+    return node?.textContent?.trim() ?? '';
+  };
+  const getFirstText = (parent: Element | Document | null, localNames: string[]) => {
+    for (const localName of localNames) {
+      const value = getText(parent, localName);
+      if (value) return value;
+    }
+    return '';
+  };
+  const isGuidLike = (value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    );
+  const extractLoanNumberFromFilename = (filename?: string) => {
+    if (!filename) return '';
+    const stem = filename.replace(/\.[^/.]+$/, '');
+    const allNumericRuns = stem.match(/\d{6,}/g);
+    if (!allNumericRuns || allNumericRuns.length === 0) return '';
+    return allNumericRuns.sort((a, b) => b.length - a.length).at(0) || '';
+  };
+  const findPartiesByRole = (roleType: string) =>
+    Array.from(doc.getElementsByTagNameNS('*', 'PARTY')).filter((party) =>
+      Array.from(party.getElementsByTagNameNS('*', 'PartyRoleType')).some(
+        (node) => node.textContent?.trim() === roleType
+      )
+    );
+
+  const borrowerParty = findPartiesByRole('Borrower')[0] ?? null;
+  const borrowerName = [
+    getTextFromElement(borrowerParty, 'FirstName'),
+    getTextFromElement(borrowerParty, 'LastName'),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const loanIdentifiers = Array.from(doc.getElementsByTagNameNS('*', 'LOAN_IDENTIFIER'));
+  const losIdentifierCandidates: string[] = [];
+  for (const id of loanIdentifiers) {
+    const type = getTextFromElement(id, 'LoanIdentifierType');
+    const typeOtherDescription = getTextFromElement(id, 'LoanIdentifierTypeOtherDescription');
+    const identifier = getTextFromElement(id, 'LoanIdentifier');
+    if (!identifier || isGuidLike(identifier)) continue;
+    const isLosIdentifier =
+      type === 'UniversalLoan' ||
+      (type === 'Other' &&
+        /(lwloan|arrive|loan origination system|los)/i.test(typeOtherDescription || ''));
+    if (isLosIdentifier) losIdentifierCandidates.push(identifier.trim());
+  }
+
+  const fallbackLoanNumber = getFirstText(doc, ['LoanOriginationSystemLoanIdentifier']);
+  const loanNumber =
+    extractLoanNumberFromFilename(sourceFilename) ||
+    losIdentifierCandidates[0] ||
+    (!isGuidLike(fallbackLoanNumber) ? fallbackLoanNumber : '');
+
+  const mortgageType = getText(doc, 'MortgageType');
+  const loanPurposeType = getText(doc, 'LoanPurposeType').trim().toUpperCase();
+  const governmentRefinanceType = getText(doc, 'GovernmentRefinanceType').trim().toUpperCase();
+  const refinancePrimaryPurposeType = getText(doc, 'RefinancePrimaryPurposeType').trim().toUpperCase();
+  const isIrrrl =
+    mortgageType.trim().toUpperCase() === 'VA' &&
+    (governmentRefinanceType === 'INTERESTRATEREDUCTIONREFINANCELOAN' ||
+      refinancePrimaryPurposeType === 'INTERESTRATEREDUCTION');
+  const purposeLabel = loanPurposeType === 'PURCHASE' ? 'Purchase' : loanPurposeType === 'REFINANCE' ? 'Refinance' : '';
+  const loanType = [mortgageType, isIrrrl ? 'IRRRL' : purposeLabel].filter(Boolean).join(' ');
+
+  const loanOriginatorType = getText(doc, 'LoanOriginatorType');
+  const loanChannel =
+    loanOriginatorType === 'Broker'
+      ? PayrollLoanChannel.BROKER
+      : loanOriginatorType === 'Correspondent'
+        ? PayrollLoanChannel.NON_DELEGATED
+        : undefined;
+
+  return {
+    loanNumber,
+    borrowerName,
+    loanType,
+    lender: getText(doc, 'ProductProviderName'),
+    loanChannel,
+  };
+}
+
 function Kpi({
   title,
   value,
@@ -81,6 +187,9 @@ function Kpi({
 export function PayrollPortal({ rows, summary }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
+  const [dragActive, setDragActive] = useState(false);
+  const [mismoFileName, setMismoFileName] = useState('');
+  const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [preview, setPreview] = useState<Array<{
     recipientName: string;
     recipientEmail: string | null;
@@ -97,6 +206,30 @@ export function PayrollPortal({ rows, summary }: Props) {
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setError(null);
+  };
+
+  const handleMismoFile = async (file: File | null) => {
+    if (!file) return;
+    setMismoFileName(file.name);
+    setIsParsingMismo(true);
+    try {
+      const text = await file.text();
+      const prefill = parsePayrollMismoXml(text, file.name);
+      setForm((current) => ({
+        ...current,
+        loanNumber: prefill.loanNumber || current.loanNumber,
+        borrowerName: prefill.borrowerName || current.borrowerName,
+        loanType: prefill.loanType || current.loanType,
+        lender: prefill.lender || current.lender,
+        loanChannel: prefill.loanChannel || current.loanChannel,
+      }));
+      setPreview([]);
+      setError(null);
+    } catch {
+      setError('Could not read this MISMO file. Please verify the XML export.');
+    } finally {
+      setIsParsingMismo(false);
+    }
   };
 
   const loadPreview = () => {
@@ -210,8 +343,57 @@ export function PayrollPortal({ rows, summary }: Props) {
             </div>
 
             <div className="space-y-5 p-6">
+              <div
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragActive(false);
+                  void handleMismoFile(event.dataTransfer.files?.[0] || null);
+                }}
+                className={`rounded-2xl border-2 border-dashed p-5 transition ${
+                  dragActive
+                    ? 'border-emerald-400 bg-emerald-50'
+                    : 'border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white'
+                }`}
+              >
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                      {isParsingMismo ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                    </span>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Drop MISMO</p>
+                      <p className="text-sm text-slate-500">
+                        Upload MISMO 3.4 XML to fill Arive loan number, borrower, loan type, lender, and channel when available.
+                      </p>
+                      {(mismoFileName || isParsingMismo) && (
+                        <p className="mt-1 text-xs font-semibold text-emerald-700">
+                          {isParsingMismo ? 'Importing MISMO file...' : `Imported: ${mismoFileName}`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-50">
+                    Choose XML
+                    <input
+                      type="file"
+                      accept=".xml,text/xml,application/xml"
+                      className="hidden"
+                      onChange={(event) => {
+                        void handleMismoFile(event.target.files?.[0] || null);
+                        event.currentTarget.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2">
-                <Input label="Loan Number" value={form.loanNumber} onChange={(value) => update('loanNumber', value)} />
+                <Input label="Arive Loan Number" value={form.loanNumber} onChange={(value) => update('loanNumber', value)} />
                 <Input label="Borrower's Name" value={form.borrowerName} onChange={(value) => update('borrowerName', value)} />
                 <Input label="Loan Type" value={form.loanType} onChange={(value) => update('loanType', value)} placeholder="VA IRRRL, FHA, Conventional" />
                 <Input label="Lender" value={form.lender} onChange={(value) => update('lender', value)} />
