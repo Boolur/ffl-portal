@@ -34,6 +34,11 @@ type PlanDraft = {
   splits: SplitDraft[];
 };
 
+type SalaryDraft = {
+  salaryPerPaycheck: string;
+  salaryNotes: string;
+};
+
 const HOUSE_SPLIT: SplitDraft = {
   recipientUserId: null,
   recipientName: 'House',
@@ -122,6 +127,10 @@ export function PayrollUserSettings({
   const [classification, setClassification] = useState<PayrollUserClassification>(
     selected?.userClassification ?? PayrollUserClassification.BROKER
   );
+  const [salary, setSalary] = useState<SalaryDraft>({
+    salaryPerPaycheck: selected?.plan?.salaryPerPaycheck?.toString() ?? '',
+    salaryNotes: selected?.plan?.salaryNotes ?? '',
+  });
   const [brokerPlan, setBrokerPlan] = useState<PlanDraft>(planToDraft(selected?.plan ?? null));
   const [retailPlan, setRetailPlan] = useState<PlanDraft>(selected?.retailPlan ? planToDraft(selected.retailPlan) : emptyRetailDraft());
   const [isPending, startTransition] = useTransition();
@@ -159,6 +168,10 @@ export function PayrollUserSettings({
     const user = users.find((item) => item.id === id) ?? null;
     setSelectedId(id);
     setClassification(user?.userClassification ?? PayrollUserClassification.BROKER);
+    setSalary({
+      salaryPerPaycheck: user?.plan?.salaryPerPaycheck?.toString() ?? '',
+      salaryNotes: user?.plan?.salaryNotes ?? '',
+    });
     setBrokerPlan(planToDraft(user?.plan ?? null));
     setRetailPlan(user?.retailPlan ? planToDraft(user.retailPlan) : emptyRetailDraft());
   };
@@ -169,6 +182,8 @@ export function PayrollUserSettings({
       await savePayrollCompPlanSettings({
         loanOfficerId: selected.id,
         userClassification: classification,
+        salaryPerPaycheck: salary.salaryPerPaycheck ? Number(salary.salaryPerPaycheck) : null,
+        salaryNotes: salary.salaryNotes,
         brokerPlan: draftToInput(brokerPlan),
         retailPlan: classification === PayrollUserClassification.BROKER ? draftToInput(retailPlan) : null,
       });
@@ -259,6 +274,44 @@ export function PayrollUserSettings({
                       <span className="mt-1 block text-xs text-slate-500">{option.description}</span>
                     </button>
                   ))}
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-bold text-slate-900">Salary Settings</p>
+                    <p className="text-xs text-slate-500">Recurring salary amount paid on the 1st and 16th payroll checks.</p>
+                  </div>
+                  {salary.salaryPerPaycheck ? (
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                      {formatCurrency(Number(salary.salaryPerPaycheck))} / paycheck
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-4 grid gap-4 md:grid-cols-[220px_1fr]">
+                  <label className="block">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Per Paycheck</span>
+                    <div className="mt-1 flex items-center rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+                      <span className="text-sm text-slate-500">$</span>
+                      <input
+                        value={salary.salaryPerPaycheck}
+                        onChange={(event) => setSalary((current) => ({ ...current, salaryPerPaycheck: event.target.value }))}
+                        className="w-full border-0 py-2 pl-1 text-sm outline-none"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Notes</span>
+                    <input
+                      value={salary.salaryNotes}
+                      onChange={(event) => setSalary((current) => ({ ...current, salaryNotes: event.target.value }))}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      placeholder="Optional salary notes"
+                    />
+                  </label>
                 </div>
               </section>
 

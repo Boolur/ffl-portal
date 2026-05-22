@@ -50,6 +50,8 @@ export type PayrollCompPlanInput = {
 export type PayrollCompPlanSettingsInput = {
   loanOfficerId: string;
   userClassification: PayrollUserClassification;
+  salaryPerPaycheck?: number | null;
+  salaryNotes?: string | null;
   brokerPlan: Omit<PayrollCompPlanInput, 'loanOfficerId' | 'userClassification' | 'planType'>;
   retailPlan?: Omit<PayrollCompPlanInput, 'loanOfficerId' | 'userClassification' | 'planType'> | null;
 };
@@ -149,6 +151,8 @@ export type PayrollRequestRow = {
 export type PayrollUserPlanDetail = {
     id: string;
     planType: PayrollCompPlanType;
+    salaryPerPaycheck: number | null;
+    salaryNotes: string | null;
     baseSplitPercent: number;
     active: boolean;
     notes: string | null;
@@ -174,6 +178,15 @@ export type PayrollUserPlanRow = {
   userClassification: PayrollUserClassification;
   plan: PayrollUserPlanDetail | null;
   retailPlan: PayrollUserPlanDetail | null;
+};
+
+export type PayrollNextPaycheckSummary = {
+  paycheckDate: string;
+  periodStart: string;
+  periodEnd: string;
+  salaryAmount: number;
+  commissionAmount: number;
+  totalAmount: number;
 };
 
 type SessionActor = {
@@ -306,6 +319,23 @@ function ensureOptionalMoney(value: number | null | undefined, label: string) {
     throw new Error(`${label} must be zero or greater.`);
   }
   return money(value);
+}
+
+function nextPaycheckWindow(now = new Date()): PayrollNextPaycheckSummary {
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+  const paycheckDate = day < 16 ? new Date(year, month, 16) : new Date(year, month + 1, 1);
+  const periodStart = day < 16 ? new Date(year, month, 1) : new Date(year, month, 16);
+  const periodEnd = paycheckDate;
+  return {
+    paycheckDate: paycheckDate.toISOString(),
+    periodStart: periodStart.toISOString(),
+    periodEnd: periodEnd.toISOString(),
+    salaryAmount: 0,
+    commissionAmount: 0,
+    totalAmount: 0,
+  };
 }
 
 function requiresPercent(payType: PayrollSplitPayType) {
@@ -537,6 +567,8 @@ export async function getPayrollUsersWithPlans(): Promise<PayrollUserPlanRow[]> 
       ? {
           id: plan.id,
           planType: plan.planType,
+          salaryPerPaycheck: decimalToNumber(plan.salaryPerPaycheck) || null,
+          salaryNotes: plan.salaryNotes,
           baseSplitPercent: decimalToNumber(plan.baseSplitPercent),
           active: plan.active,
           notes: plan.notes,
@@ -620,6 +652,8 @@ export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettings
 
   const loanOfficerId = cleanText(input.loanOfficerId, 'Loan officer');
   const userClassification = input.userClassification;
+  const salaryPerPaycheck = ensureOptionalMoney(input.salaryPerPaycheck, 'Salary per paycheck');
+  const salaryNotes = input.salaryNotes?.trim() || null;
   const brokerPlan = normalizePlanInput(input.brokerPlan);
   const retailPlan = userClassification === PayrollUserClassification.BROKER && input.retailPlan
     ? normalizePlanInput(input.retailPlan)
@@ -643,6 +677,8 @@ export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettings
           loanOfficerId,
           userClassification,
           planType,
+          salaryPerPaycheck,
+          salaryNotes,
           baseSplitPercent: plan.baseSplitPercent,
           active: plan.active,
           notes: plan.notes,
@@ -735,14 +771,46 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
 
 export async function getMyPayrollPortalData() {
   const actor = await assertPayrollPortalUser();
-  const requests = await prisma.payrollCompRequest.findMany({
-    where: { loanOfficerId: actor.userId },
-    orderBy: { submittedAt: 'desc' },
-    include: requestInclude,
-  });
+  const window = nextPaycheckWindow();
+  const [requests, plan, nextSplits] = await Promise.all([
+    prisma.payrollCompRequest.findMany({
+      where: { loanOfficerId: actor.userId },
+      orderBy: { submittedAt: 'desc' },
+      include: requestInclude,
+    }),
+    prisma.payrollCompPlan.findFirst({
+      where: { loanOfficerId: actor.userId, active: true, planType: PayrollCompPlanType.BROKER },
+      orderBy: { effectiveStart: 'desc' },
+      select: { salaryPerPaycheck: true },
+    }),
+    prisma.payrollCompRequestSplit.findMany({
+      where: {
+        recipientUserId: actor.userId,
+        request: {
+          status: { in: [PayrollCompRequestStatus.APPROVED, PayrollCompRequestStatus.PAID] },
+          submittedAt: {
+            gte: new Date(window.periodStart),
+            lt: new Date(window.periodEnd),
+          },
+        },
+      },
+      select: { amount: true },
+    }),
+  ]);
   const rows = requests.map(serializeRequest);
   const summary = summarizeRequests(rows);
-  return { rows, summary };
+  const salaryAmount = decimalToNumber(plan?.salaryPerPaycheck);
+  const commissionAmount = money(nextSplits.reduce((sum, split) => sum + decimalToNumber(split.amount), 0));
+  return {
+    rows,
+    summary,
+    nextPaycheck: {
+      ...window,
+      salaryAmount,
+      commissionAmount,
+      totalAmount: money(salaryAmount + commissionAmount),
+    },
+  };
 }
 
 export async function getPayrollRequests(filters: PayrollRequestFilters = {}) {

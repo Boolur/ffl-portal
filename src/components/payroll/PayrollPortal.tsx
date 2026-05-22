@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useTransition } from 'react';
-import { Banknote, Building2, CheckCircle2, Clock, Edit3, Loader2, Megaphone, Plus, ReceiptText, Send, Upload, X } from 'lucide-react';
+import { Banknote, Building2, CheckCircle2, Clock, DollarSign, Edit3, Loader2, Megaphone, Plus, ReceiptText, Send, Upload, X } from 'lucide-react';
 import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollSplitPayType } from '@prisma/client';
 import {
   getPayrollRequestPreview,
@@ -29,6 +29,14 @@ type Props = {
     pendingRevenue: number;
     approvedRevenue: number;
     paidRevenue: number;
+  };
+  nextPaycheck?: {
+    paycheckDate: string;
+    periodStart: string;
+    periodEnd: string;
+    salaryAmount: number;
+    commissionAmount: number;
+    totalAmount: number;
   };
 };
 
@@ -404,7 +412,7 @@ function StatsPanel({
   );
 }
 
-export function PayrollPortal({ rows, summary }: Props) {
+export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
   const [dragActive, setDragActive] = useState(false);
@@ -545,11 +553,17 @@ export function PayrollPortal({ rows, summary }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Kpi title="Submitted" value={formatCurrency(summary.submittedRevenue)} subtitle={`${summary.totalRequests} requests`} Icon={ReceiptText} />
         <Kpi title="Pending" value={String(summary.pendingCount)} subtitle={formatCurrency(summary.pendingRevenue)} Icon={Clock} />
         <Kpi title="Approved" value={String(summary.approvedCount)} subtitle={formatCurrency(summary.approvedRevenue)} Icon={CheckCircle2} />
         <Kpi title="Paid" value={String(summary.paidCount)} subtitle={formatCurrency(summary.paidRevenue)} Icon={Banknote} />
+        <Kpi
+          title="Next Paycheck"
+          value={formatCurrency(nextPaycheck?.totalAmount ?? 0)}
+          subtitle={nextPaycheck ? `${formatDate(nextPaycheck.paycheckDate)} · salary ${formatCurrency(nextPaycheck.salaryAmount)} + commission ${formatCurrency(nextPaycheck.commissionAmount)}` : 'Next 1st/16th payroll'}
+          Icon={DollarSign}
+        />
       </div>
 
       <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">

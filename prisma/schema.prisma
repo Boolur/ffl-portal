@@ -919,6 +919,8 @@ model PayrollCompPlan {
 
   userClassification    PayrollUserClassification @default(BROKER)
   planType              PayrollCompPlanType @default(BROKER)
+  salaryPerPaycheck     Decimal? @db.Decimal(12, 2)
+  salaryNotes           String?
   baseSplitPercent      Decimal  @db.Decimal(7, 4)
   active                Boolean  @default(true)
   effectiveStart        DateTime @default(now())
