@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useTransition } from 'react';
 import { Loader2, Plus, Save, Trash2, UserCog } from 'lucide-react';
-import { PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
+import { PayrollSalaryFrequency, PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
 import {
   savePayrollCompPlanSettings,
   type PayrollUserPlanDetail,
@@ -36,6 +36,7 @@ type PlanDraft = {
 
 type SalaryDraft = {
   salaryPerPaycheck: string;
+  salaryFrequency: PayrollSalaryFrequency;
   salaryNotes: string;
 };
 
@@ -114,6 +115,15 @@ function draftToInput(plan: PlanDraft) {
   };
 }
 
+function salaryFrequencyLabel(frequency: PayrollSalaryFrequency) {
+  const labels: Record<PayrollSalaryFrequency, string> = {
+    SEMI_MONTHLY: 'Semi Monthly',
+    MONTHLY: 'Monthly',
+    ANNUALLY: 'Annually',
+  };
+  return labels[frequency];
+}
+
 export function PayrollUserSettings({
   users,
   eligibleUsers,
@@ -129,6 +139,7 @@ export function PayrollUserSettings({
   );
   const [salary, setSalary] = useState<SalaryDraft>({
     salaryPerPaycheck: selected?.plan?.salaryPerPaycheck?.toString() ?? '',
+    salaryFrequency: selected?.plan?.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY,
     salaryNotes: selected?.plan?.salaryNotes ?? '',
   });
   const [brokerPlan, setBrokerPlan] = useState<PlanDraft>(planToDraft(selected?.plan ?? null));
@@ -170,6 +181,7 @@ export function PayrollUserSettings({
     setClassification(user?.userClassification ?? PayrollUserClassification.BROKER);
     setSalary({
       salaryPerPaycheck: user?.plan?.salaryPerPaycheck?.toString() ?? '',
+      salaryFrequency: user?.plan?.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY,
       salaryNotes: user?.plan?.salaryNotes ?? '',
     });
     setBrokerPlan(planToDraft(user?.plan ?? null));
@@ -183,6 +195,7 @@ export function PayrollUserSettings({
         loanOfficerId: selected.id,
         userClassification: classification,
         salaryPerPaycheck: salary.salaryPerPaycheck ? Number(salary.salaryPerPaycheck) : null,
+        salaryFrequency: salary.salaryFrequency,
         salaryNotes: salary.salaryNotes,
         brokerPlan: draftToInput(brokerPlan),
         retailPlan: classification === PayrollUserClassification.BROKER ? draftToInput(retailPlan) : null,
@@ -281,17 +294,18 @@ export function PayrollUserSettings({
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="font-bold text-slate-900">Salary Settings</p>
-                    <p className="text-xs text-slate-500">Recurring salary amount paid on the 1st and 16th payroll checks.</p>
+                    <p className="text-xs text-slate-500">Enter salary as semi-monthly, monthly, or annual. The portal converts it to the next 1st/16th paycheck.</p>
                   </div>
                   {salary.salaryPerPaycheck ? (
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
                       {formatCurrency(Number(salary.salaryPerPaycheck))} / paycheck
+                      {' '}· {salaryFrequencyLabel(salary.salaryFrequency)}
                     </span>
                   ) : null}
                 </div>
-                <div className="mt-4 grid gap-4 md:grid-cols-[220px_1fr]">
+                <div className="mt-4 grid gap-4 md:grid-cols-[220px_220px_1fr]">
                   <label className="block">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Per Paycheck</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Amount</span>
                     <div className="mt-1 flex items-center rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
                       <span className="text-sm text-slate-500">$</span>
                       <input
@@ -302,6 +316,18 @@ export function PayrollUserSettings({
                         placeholder="0.00"
                       />
                     </div>
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Basis</span>
+                    <select
+                      value={salary.salaryFrequency}
+                      onChange={(event) => setSalary((current) => ({ ...current, salaryFrequency: event.target.value as PayrollSalaryFrequency }))}
+                      className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value={PayrollSalaryFrequency.SEMI_MONTHLY}>Semi Monthly</option>
+                      <option value={PayrollSalaryFrequency.MONTHLY}>Monthly</option>
+                      <option value={PayrollSalaryFrequency.ANNUALLY}>Annually</option>
+                    </select>
                   </label>
                   <label className="block">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Notes</span>

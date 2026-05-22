@@ -9,6 +9,7 @@ import {
   PayrollLeadSource,
   PayrollLoanChannel,
   PayrollProcessingType,
+  PayrollSalaryFrequency,
   PayrollSplitPayType,
   PayrollUserClassification,
   Prisma,
@@ -51,6 +52,7 @@ export type PayrollCompPlanSettingsInput = {
   loanOfficerId: string;
   userClassification: PayrollUserClassification;
   salaryPerPaycheck?: number | null;
+  salaryFrequency?: PayrollSalaryFrequency;
   salaryNotes?: string | null;
   brokerPlan: Omit<PayrollCompPlanInput, 'loanOfficerId' | 'userClassification' | 'planType'>;
   retailPlan?: Omit<PayrollCompPlanInput, 'loanOfficerId' | 'userClassification' | 'planType'> | null;
@@ -152,6 +154,7 @@ export type PayrollUserPlanDetail = {
     id: string;
     planType: PayrollCompPlanType;
     salaryPerPaycheck: number | null;
+    salaryFrequency: PayrollSalaryFrequency;
     salaryNotes: string | null;
     baseSplitPercent: number;
     active: boolean;
@@ -336,6 +339,13 @@ function nextPaycheckWindow(now = new Date()): PayrollNextPaycheckSummary {
     commissionAmount: 0,
     totalAmount: 0,
   };
+}
+
+function salaryPerPaycheckAmount(amount: number, frequency: PayrollSalaryFrequency) {
+  if (amount <= 0) return 0;
+  if (frequency === PayrollSalaryFrequency.MONTHLY) return money(amount / 2);
+  if (frequency === PayrollSalaryFrequency.ANNUALLY) return money(amount / 24);
+  return money(amount);
 }
 
 function requiresPercent(payType: PayrollSplitPayType) {
@@ -568,6 +578,7 @@ export async function getPayrollUsersWithPlans(): Promise<PayrollUserPlanRow[]> 
           id: plan.id,
           planType: plan.planType,
           salaryPerPaycheck: decimalToNumber(plan.salaryPerPaycheck) || null,
+          salaryFrequency: plan.salaryFrequency,
           salaryNotes: plan.salaryNotes,
           baseSplitPercent: decimalToNumber(plan.baseSplitPercent),
           active: plan.active,
@@ -653,6 +664,7 @@ export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettings
   const loanOfficerId = cleanText(input.loanOfficerId, 'Loan officer');
   const userClassification = input.userClassification;
   const salaryPerPaycheck = ensureOptionalMoney(input.salaryPerPaycheck, 'Salary per paycheck');
+  const salaryFrequency = input.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY;
   const salaryNotes = input.salaryNotes?.trim() || null;
   const brokerPlan = normalizePlanInput(input.brokerPlan);
   const retailPlan = userClassification === PayrollUserClassification.BROKER && input.retailPlan
@@ -678,6 +690,7 @@ export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettings
           userClassification,
           planType,
           salaryPerPaycheck,
+          salaryFrequency,
           salaryNotes,
           baseSplitPercent: plan.baseSplitPercent,
           active: plan.active,
@@ -781,7 +794,7 @@ export async function getMyPayrollPortalData() {
     prisma.payrollCompPlan.findFirst({
       where: { loanOfficerId: actor.userId, active: true, planType: PayrollCompPlanType.BROKER },
       orderBy: { effectiveStart: 'desc' },
-      select: { salaryPerPaycheck: true },
+      select: { salaryPerPaycheck: true, salaryFrequency: true },
     }),
     prisma.payrollCompRequestSplit.findMany({
       where: {
@@ -799,7 +812,7 @@ export async function getMyPayrollPortalData() {
   ]);
   const rows = requests.map(serializeRequest);
   const summary = summarizeRequests(rows);
-  const salaryAmount = decimalToNumber(plan?.salaryPerPaycheck);
+  const salaryAmount = salaryPerPaycheckAmount(decimalToNumber(plan?.salaryPerPaycheck), plan?.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY);
   const commissionAmount = money(nextSplits.reduce((sum, split) => sum + decimalToNumber(split.amount), 0));
   return {
     rows,
