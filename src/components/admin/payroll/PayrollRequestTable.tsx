@@ -237,7 +237,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
       {currentRequest && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
           <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-            <div className="bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 px-6 py-5 text-white">
+            <div className="border-b border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 px-6 py-5 text-slate-950">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -251,7 +251,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-sm text-blue-100">{currentRequest.loanOfficerName} · submitted {formatDate(currentRequest.submittedAt)}</p>
+                  <p className="mt-1 text-sm text-slate-500">{currentRequest.loanOfficerName} · submitted {formatDate(currentRequest.submittedAt)}</p>
                 </div>
               <button type="button" className="app-icon-btn" aria-label="Close request" onClick={() => setSelectedRequest(null)}>
                 <X className="h-5 w-5" />
@@ -389,9 +389,9 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function ReviewMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl bg-white/10 px-4 py-3 ring-1 ring-white/15">
-      <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100">{label}</p>
-      <p className="mt-1 truncate text-base font-bold text-white">{value}</p>
+    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-base font-bold text-slate-950">{value}</p>
     </div>
   );
 }
