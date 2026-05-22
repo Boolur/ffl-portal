@@ -6,6 +6,7 @@ import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollPr
 import {
   getPayrollRequestPreview,
   submitPayrollCompRequest,
+  type PayrollMismoDetails,
   type PayrollRequestRow,
 } from '@/app/actions/payrollActions';
 import {
@@ -42,6 +43,7 @@ type FormState = {
   leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue: string;
   submitterNotes: string;
+  mismoDetails: PayrollMismoDetails | null;
 };
 type RequiredFieldKey = Exclude<keyof FormState, 'submitterNotes'>;
 
@@ -56,6 +58,7 @@ const initialForm: FormState = {
   leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
   expectedRevenue: '',
   submitterNotes: '',
+  mismoDetails: null,
 };
 const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
   { key: 'loanNumber', label: 'Arive Loan Number' },
@@ -195,6 +198,7 @@ type PayrollMismoPrefill = {
   loanType?: string;
   lender?: string;
   loanChannel?: PayrollLoanChannel;
+  mismoDetails?: PayrollMismoDetails;
 };
 
 function parsePayrollMismoXml(xmlText: string, sourceFilename?: string): PayrollMismoPrefill {
@@ -220,6 +224,10 @@ function parsePayrollMismoXml(xmlText: string, sourceFilename?: string): Payroll
       if (value) return value;
     }
     return '';
+  };
+  const toNumber = (value: string) => {
+    const numeric = Number(value.replace(/[$,\s]/g, ''));
+    return Number.isFinite(numeric) ? numeric : null;
   };
   const isGuidLike = (value: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -302,6 +310,25 @@ function parsePayrollMismoXml(xmlText: string, sourceFilename?: string): Payroll
     loanType: normalizePayrollLoanType(rawLoanType),
     lender: getText(doc, 'ProductProviderName'),
     loanChannel,
+    mismoDetails: {
+      propertyAddress: [
+        getFirstText(doc, ['AddressLineText', 'AddressLine1Text']),
+        getFirstText(doc, ['AddressLine2Text']),
+      ].filter(Boolean).join(' '),
+      propertyCity: getFirstText(doc, ['CityName']),
+      propertyState: getFirstText(doc, ['StateCode']),
+      propertyZip: getFirstText(doc, ['PostalCode']),
+      loanAmount: toNumber(getFirstText(doc, ['NoteAmount', 'BaseLoanAmount', 'LoanAmount'])),
+      homeValue: toNumber(getFirstText(doc, ['PropertyEstimatedValueAmount', 'EstimatedPropertyValueAmount'])),
+      purchasePrice: toNumber(getFirstText(doc, ['PurchasePriceAmount', 'SalesContractAmount'])),
+      appraisedValue: toNumber(getFirstText(doc, ['PropertyAppraisedValueAmount', 'AppraisedValueAmount'])),
+      occupancy: getFirstText(doc, ['OccupancyType']),
+      loanPurpose: getFirstText(doc, ['LoanPurposeType']),
+      lienPosition: getFirstText(doc, ['LienPriorityType']),
+      noteRate: toNumber(getFirstText(doc, ['NoteRatePercent', 'InterestRatePercent'])),
+      monthlyPayment: toNumber(getFirstText(doc, ['InitialPrincipalAndInterestPaymentAmount', 'MonthlyPrincipalAndInterestAmount'])),
+      borrowerCreditScore: toNumber(getFirstText(doc, ['CreditScoreValue'])),
+    },
   };
 }
 
@@ -462,6 +489,7 @@ export function PayrollPortal({ rows, summary }: Props) {
         loanType: prefill.loanType || current.loanType,
         lender: prefill.lender || current.lender,
         loanChannel: prefill.loanChannel || current.loanChannel,
+        mismoDetails: prefill.mismoDetails ?? current.mismoDetails,
       }));
       setPreview([]);
       setError(null);

@@ -979,6 +979,7 @@ model PayrollCompRequest {
   leadProvidedBy        PayrollLeadProvidedBy @default(SELF_SOURCED)
   appliedPlanType       PayrollCompPlanType @default(BROKER)
   expectedRevenue       Decimal  @db.Decimal(12, 2)
+  mismoDetails          Json?
 
   status                PayrollCompRequestStatus @default(PENDING_REVIEW)
   submitterNotes        String?

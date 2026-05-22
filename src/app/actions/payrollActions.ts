@@ -54,6 +54,23 @@ export type PayrollCompPlanSettingsInput = {
   retailPlan?: Omit<PayrollCompPlanInput, 'loanOfficerId' | 'userClassification' | 'planType'> | null;
 };
 
+export type PayrollMismoDetails = {
+  propertyAddress?: string;
+  propertyCity?: string;
+  propertyState?: string;
+  propertyZip?: string;
+  loanAmount?: number | null;
+  homeValue?: number | null;
+  purchasePrice?: number | null;
+  appraisedValue?: number | null;
+  occupancy?: string;
+  loanPurpose?: string;
+  lienPosition?: string;
+  noteRate?: number | null;
+  monthlyPayment?: number | null;
+  borrowerCreditScore?: number | null;
+};
+
 export type PayrollCompRequestInput = {
   loanNumber: string;
   borrowerName: string;
@@ -65,6 +82,7 @@ export type PayrollCompRequestInput = {
   leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue: number;
   submitterNotes?: string;
+  mismoDetails?: PayrollMismoDetails | null;
 };
 
 export type PayrollAdminEditRequestInput = PayrollCompRequestInput & {
@@ -124,6 +142,7 @@ export type PayrollRequestRow = {
   submitterNotes: string | null;
   adminNotes: string | null;
   rejectionReason: string | null;
+  mismoDetails: PayrollMismoDetails | null;
   splits: PayrollSplitSnapshot[];
 };
 
@@ -183,6 +202,14 @@ const requestInclude = {
     },
   },
 };
+
+function normalizeMismoDetails(details?: PayrollMismoDetails | null): Prisma.InputJsonValue | undefined {
+  if (!details) return undefined;
+  const cleaned = Object.fromEntries(
+    Object.entries(details).filter(([, value]) => value !== undefined && value !== null && value !== '')
+  );
+  return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+}
 
 const RETAIL_TRIGGER_LEAD_SOURCES = new Set<PayrollLeadSource>([
   PayrollLeadSource.LEAD_BUY,
@@ -341,6 +368,7 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     submitterNotes: request.submitterNotes,
     adminNotes: request.adminNotes,
     rejectionReason: request.rejectionReason,
+    mismoDetails: (request.mismoDetails as PayrollMismoDetails | null) ?? null,
     splits: request.splits.map((split) => ({
       id: split.id,
       recipientUserId: split.recipientUserId,
@@ -683,6 +711,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
       leadProvidedBy: input.leadProvidedBy,
       appliedPlanType,
       expectedRevenue,
+      mismoDetails: normalizeMismoDetails(input.mismoDetails),
       submitterNotes: input.submitterNotes?.trim() || null,
       splits: {
         create: snapshots.map((split) => ({
@@ -822,6 +851,7 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         leadProvidedBy: input.leadProvidedBy,
         appliedPlanType: input.appliedPlanType,
         expectedRevenue,
+        mismoDetails: normalizeMismoDetails(input.mismoDetails) ?? Prisma.JsonNull,
         submitterNotes: input.submitterNotes?.trim() || null,
         adminNotes: input.adminNotes?.trim() || null,
         editedAt: new Date(),
