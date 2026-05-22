@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useTransition } from 'react';
 import { Banknote, Building2, CheckCircle2, Clock, Edit3, Loader2, Megaphone, Plus, ReceiptText, Send, Upload, X } from 'lucide-react';
-import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType } from '@prisma/client';
+import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollSplitPayType } from '@prisma/client';
 import {
   getPayrollRequestPreview,
   submitPayrollCompRequest,
@@ -391,7 +391,9 @@ export function PayrollPortal({ rows, summary }: Props) {
     recipientName: string;
     recipientEmail: string | null;
     roleLabel: string;
+    payType: PayrollSplitPayType;
     splitPercent: number;
+    flatAmount: number | null;
     amount: number;
     sortOrder: number;
   }>>([]);
@@ -835,7 +837,10 @@ export function PayrollPortal({ rows, summary }: Props) {
                       <div key={`${split.recipientEmail ?? split.recipientName}:${split.roleLabel}`} className="flex items-center justify-between gap-4 py-3">
                         <div>
                           <p className="font-semibold text-slate-900">{split.recipientName}</p>
-                          <p className="text-xs text-slate-500">{split.roleLabel} · {formatPercent(split.splitPercent)}</p>
+                          <p className="text-xs text-slate-500">
+                            {split.roleLabel} · {split.payType !== PayrollSplitPayType.FLAT ? formatPercent(split.splitPercent) : 'Flat fee'}
+                            {split.payType !== PayrollSplitPayType.PERCENT && split.flatAmount ? ` + ${formatCurrency(split.flatAmount)}` : ''}
+                          </p>
                         </div>
                         <p className="font-bold text-slate-900">{formatCurrency(split.amount)}</p>
                       </div>

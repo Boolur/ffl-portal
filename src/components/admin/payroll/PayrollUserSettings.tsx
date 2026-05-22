@@ -2,13 +2,13 @@
 
 import React, { useMemo, useState, useTransition } from 'react';
 import { Loader2, Plus, Save, Trash2, UserCog } from 'lucide-react';
-import { PayrollUserClassification } from '@prisma/client';
+import { PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
 import {
   savePayrollCompPlanSettings,
   type PayrollUserPlanDetail,
   type PayrollUserPlanRow,
 } from '@/app/actions/payrollActions';
-import { formatPercent } from './payrollFormat';
+import { formatCurrency, formatPercent } from './payrollFormat';
 
 type EligibleUser = {
   id: string;
@@ -22,7 +22,9 @@ type SplitDraft = {
   recipientName: string;
   recipientEmail?: string | null;
   roleLabel: string;
+  payType: PayrollSplitPayType;
   splitPercent: string;
+  flatAmount: string;
   mandatory?: boolean;
 };
 
@@ -37,7 +39,9 @@ const HOUSE_SPLIT: SplitDraft = {
   recipientName: 'House',
   recipientEmail: null,
   roleLabel: 'House',
+  payType: PayrollSplitPayType.PERCENT,
   splitPercent: '0',
+  flatAmount: '',
   mandatory: true,
 };
 
@@ -52,6 +56,8 @@ function withMandatoryHouseSplit(splits: SplitDraft[]) {
           recipientName: existingHouse.recipientName || 'House',
           recipientEmail: null,
           roleLabel: 'House',
+          payType: existingHouse.payType ?? PayrollSplitPayType.PERCENT,
+          flatAmount: existingHouse.flatAmount ?? '',
           mandatory: true,
         }
       : HOUSE_SPLIT,
@@ -69,7 +75,9 @@ function planToDraft(plan: PayrollUserPlanDetail | null): PlanDraft {
         recipientName: split.recipientName,
         recipientEmail: split.recipientEmail,
         roleLabel: split.roleLabel,
+        payType: split.payType,
         splitPercent: split.splitPercent.toString(),
+        flatAmount: split.flatAmount?.toString() ?? '',
       })) ?? []
     ),
   };
@@ -94,7 +102,9 @@ function draftToInput(plan: PlanDraft) {
         recipientName: split.recipientName,
         recipientEmail: split.recipientEmail,
         roleLabel: split.roleLabel,
+        payType: split.payType,
         splitPercent: Number(split.splitPercent),
+        flatAmount: split.flatAmount ? Number(split.flatAmount) : null,
       })),
   };
 }
@@ -130,12 +140,20 @@ export function PayrollUserSettings({
 
   const brokerTotal = useMemo(() => {
     const base = Number(brokerPlan.baseSplit) || 0;
-    return base + brokerPlan.splits.reduce((sum, split) => sum + (Number(split.splitPercent) || 0), 0);
+    return base + brokerPlan.splits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.FLAT ? Number(split.splitPercent) || 0 : 0), 0);
   }, [brokerPlan]);
   const retailTotal = useMemo(() => {
     const base = Number(retailPlan.baseSplit) || 0;
-    return base + retailPlan.splits.reduce((sum, split) => sum + (Number(split.splitPercent) || 0), 0);
+    return base + retailPlan.splits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.FLAT ? Number(split.splitPercent) || 0 : 0), 0);
   }, [retailPlan]);
+  const brokerFlatTotal = useMemo(
+    () => brokerPlan.splits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.PERCENT ? Number(split.flatAmount) || 0 : 0), 0),
+    [brokerPlan.splits]
+  );
+  const retailFlatTotal = useMemo(
+    () => retailPlan.splits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.PERCENT ? Number(split.flatAmount) || 0 : 0), 0),
+    [retailPlan.splits]
+  );
 
   const chooseUser = (id: string) => {
     const user = users.find((item) => item.id === id) ?? null;
@@ -251,6 +269,7 @@ export function PayrollUserSettings({
                 setPlan={setBrokerPlan}
                 recipientOptions={recipientOptions}
                 total={brokerTotal}
+                flatTotal={brokerFlatTotal}
               />
 
               {classification === PayrollUserClassification.BROKER && (
@@ -261,6 +280,7 @@ export function PayrollUserSettings({
                   setPlan={setRetailPlan}
                   recipientOptions={recipientOptions}
                   total={retailTotal}
+                  flatTotal={retailFlatTotal}
                 />
               )}
             </div>
@@ -280,6 +300,7 @@ function SplitPlanEditor({
   setPlan,
   recipientOptions,
   total,
+  flatTotal,
 }: {
   title: string;
   subtitle: string;
@@ -287,6 +308,7 @@ function SplitPlanEditor({
   setPlan: React.Dispatch<React.SetStateAction<PlanDraft>>;
   recipientOptions: EligibleUser[];
   total: number;
+  flatTotal: number;
 }) {
   const updateSplit = (index: number, nextSplit: SplitDraft) => {
     setPlan((current) => ({
@@ -338,7 +360,7 @@ function SplitPlanEditor({
             onClick={() =>
               setPlan((current) => ({
                 ...current,
-                splits: [...current.splits, { recipientUserId: '', recipientName: '', recipientEmail: null, roleLabel: 'Manager', splitPercent: '0' }],
+                splits: [...current.splits, { recipientUserId: '', recipientName: '', recipientEmail: null, roleLabel: 'Manager', payType: PayrollSplitPayType.PERCENT, splitPercent: '0', flatAmount: '' }],
               }))
             }
           >
@@ -348,7 +370,7 @@ function SplitPlanEditor({
 
         <div className="divide-y divide-slate-100">
           {plan.splits.map((split, index) => (
-            <div key={index} className="grid items-center gap-3 px-4 py-4 md:grid-cols-[minmax(260px,1.35fr)_minmax(180px,1fr)_140px_92px]">
+            <div key={index} className="grid items-center gap-3 px-4 py-4 md:grid-cols-[minmax(230px,1.25fr)_minmax(150px,0.8fr)_130px_120px_120px_92px]">
               {split.mandatory ? (
                 <div className="flex h-10 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-800">
                   House
@@ -380,14 +402,34 @@ function SplitPlanEditor({
                 className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-50 disabled:text-slate-700"
                 placeholder="Manager, VP, LOA"
               />
+              <select
+                value={split.payType}
+                onChange={(event) => updateSplit(index, { ...split, payType: event.target.value as PayrollSplitPayType })}
+                className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              >
+                <option value={PayrollSplitPayType.PERCENT}>Percent</option>
+                <option value={PayrollSplitPayType.FLAT}>Dollar</option>
+                <option value={PayrollSplitPayType.BOTH}>Both</option>
+              </select>
               <div className="flex h-10 items-center rounded-lg border border-slate-200 px-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
                 <input
                   value={split.splitPercent}
                   onChange={(event) => updateSplit(index, { ...split, splitPercent: event.target.value })}
+                  disabled={split.payType === PayrollSplitPayType.FLAT}
                   className="w-full border-0 py-2 text-sm outline-none"
                   inputMode="decimal"
                 />
                 <span className="text-sm text-slate-500">%</span>
+              </div>
+              <div className="flex h-10 items-center rounded-lg border border-slate-200 px-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+                <span className="text-sm text-slate-500">$</span>
+                <input
+                  value={split.flatAmount}
+                  onChange={(event) => updateSplit(index, { ...split, flatAmount: event.target.value })}
+                  disabled={split.payType === PayrollSplitPayType.PERCENT}
+                  className="w-full border-0 py-2 pl-1 text-sm outline-none"
+                  inputMode="decimal"
+                />
               </div>
               <div className="flex h-10 items-center justify-center">
                 {split.mandatory ? (
@@ -411,7 +453,8 @@ function SplitPlanEditor({
       </div>
 
       <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${Math.abs(total - 100) < 0.0001 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-        Current total: {formatPercent(total)}. Splits must total 100% before saving.
+        Percentage total: {formatPercent(total)}. Splits must total 100% before saving.
+        {flatTotal > 0 ? <span className="ml-2">Flat fees: {formatCurrency(flatTotal)} per file.</span> : null}
       </div>
     </section>
   );

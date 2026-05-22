@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useTransition } from 'react';
 import { Check, DollarSign, Edit3, Loader2, RefreshCw, Save, X } from 'lucide-react';
-import { PayrollCompPlanType, PayrollCompRequestStatus, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType } from '@prisma/client';
+import { PayrollCompPlanType, PayrollCompRequestStatus, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollSplitPayType } from '@prisma/client';
 import {
   approvePayrollRequest,
   editPayrollRequest,
@@ -408,7 +408,10 @@ function SplitSnapshot({ request }: { request: PayrollRequestRow }) {
           <div key={split.id} className="flex items-center justify-between gap-4 py-2">
             <div>
               <p className="font-medium text-slate-900">{split.recipientName}</p>
-              <p className="text-xs text-slate-500">{split.roleLabel} · {formatPercent(split.splitPercent)}</p>
+              <p className="text-xs text-slate-500">
+                {split.roleLabel} · {split.payType !== PayrollSplitPayType.FLAT ? formatPercent(split.splitPercent) : 'Flat fee'}
+                {split.payType !== PayrollSplitPayType.PERCENT && split.flatAmount ? ` + ${formatCurrency(split.flatAmount)}` : ''}
+              </p>
             </div>
             <p className="font-semibold text-slate-900">{formatCurrency(split.amount)}</p>
           </div>

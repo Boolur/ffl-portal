@@ -9,6 +9,7 @@ import {
   PayrollLeadSource,
   PayrollLoanChannel,
   PayrollProcessingType,
+  PayrollSplitPayType,
   PayrollUserClassification,
   Prisma,
   UserRole,
@@ -31,7 +32,9 @@ export type PayrollCompSplitInput = {
   recipientName?: string | null;
   recipientEmail?: string | null;
   roleLabel: string;
+  payType?: PayrollSplitPayType;
   splitPercent: number;
+  flatAmount?: number | null;
 };
 
 export type PayrollCompPlanInput = {
@@ -91,7 +94,9 @@ export type PayrollSplitSnapshot = {
   recipientName: string;
   recipientEmail: string | null;
   roleLabel: string;
+  payType: PayrollSplitPayType;
   splitPercent: number;
+  flatAmount: number | null;
   amount: number;
   sortOrder: number;
 };
@@ -135,7 +140,9 @@ export type PayrollUserPlanDetail = {
       recipientName: string;
       recipientEmail: string | null;
       roleLabel: string;
+      payType: PayrollSplitPayType;
       splitPercent: number;
+      flatAmount: number | null;
       sortOrder: number;
     }>;
 };
@@ -168,7 +175,9 @@ const requestInclude = {
       recipientName: true,
       recipientEmail: true,
       roleLabel: true,
+      payType: true,
       splitPercent: true,
+      flatAmount: true,
       amount: true,
       sortOrder: true,
     },
@@ -264,6 +273,22 @@ function ensureMoney(value: number, label: string) {
   return money(value);
 }
 
+function ensureOptionalMoney(value: number | null | undefined, label: string) {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be zero or greater.`);
+  }
+  return money(value);
+}
+
+function requiresPercent(payType: PayrollSplitPayType) {
+  return payType === PayrollSplitPayType.PERCENT || payType === PayrollSplitPayType.BOTH;
+}
+
+function requiresFlatAmount(payType: PayrollSplitPayType) {
+  return payType === PayrollSplitPayType.FLAT || payType === PayrollSplitPayType.BOTH;
+}
+
 function resolveAppliedPlanType({
   userClassification,
   leadSource,
@@ -322,7 +347,9 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
       recipientName: split.recipientName,
       recipientEmail: split.recipientEmail,
       roleLabel: split.roleLabel,
+      payType: split.payType,
       splitPercent: decimalToNumber(split.splitPercent),
+      flatAmount: decimalToNumber(split.flatAmount) || null,
       amount: decimalToNumber(split.amount),
       sortOrder: split.sortOrder,
     })),
@@ -379,7 +406,9 @@ async function buildSplitSnapshots(
           recipientName: loanOfficer.name,
           recipientEmail: loanOfficer.email,
           roleLabel: 'Loan Officer',
+          payType: PayrollSplitPayType.PERCENT,
           splitPercent: decimalToNumber(selectedPlan.baseSplitPercent),
+          flatAmount: null,
           sortOrder: 0,
         },
         ...selectedPlan.splits.map((split, index) => ({
@@ -388,7 +417,9 @@ async function buildSplitSnapshots(
           recipientName: split.recipientUser?.name ?? split.recipientName ?? 'Unknown recipient',
           recipientEmail: split.recipientUser?.email ?? split.recipientEmail ?? null,
           roleLabel: split.roleLabel,
+          payType: split.payType,
           splitPercent: decimalToNumber(split.splitPercent),
+          flatAmount: decimalToNumber(split.flatAmount) || null,
           sortOrder: index + 1,
         })),
       ]
@@ -399,12 +430,14 @@ async function buildSplitSnapshots(
           recipientName: loanOfficer.name,
           recipientEmail: loanOfficer.email,
           roleLabel: 'Loan Officer',
+          payType: PayrollSplitPayType.PERCENT,
           splitPercent: 100,
+          flatAmount: null,
           sortOrder: 0,
         },
       ];
 
-  const totalPercent = percent(rawSplits.reduce((sum, split) => sum + split.splitPercent, 0));
+  const totalPercent = percent(rawSplits.reduce((sum, split) => sum + (requiresPercent(split.payType) ? split.splitPercent : 0), 0));
   if (Math.abs(totalPercent - 100) > 0.0001) {
     throw new Error('Compensation split percentages must add up to 100%.');
   }
@@ -412,10 +445,11 @@ async function buildSplitSnapshots(
   let assigned = 0;
   return rawSplits.map((split, index) => {
     const isLast = index === rawSplits.length - 1;
-    const calculated = isLast
+    const percentAmount = isLast
       ? money(expectedRevenue - assigned)
       : money((expectedRevenue * split.splitPercent) / 100);
-    assigned += calculated;
+    const calculated = money((requiresPercent(split.payType) ? percentAmount : 0) + (split.flatAmount ?? 0));
+    if (requiresPercent(split.payType)) assigned += percentAmount;
     return {
       ...split,
       amount: calculated,
@@ -485,7 +519,9 @@ export async function getPayrollUsersWithPlans(): Promise<PayrollUserPlanRow[]> 
             recipientName: split.recipientUser?.name ?? split.recipientName ?? 'Unknown recipient',
             recipientEmail: split.recipientUser?.email ?? split.recipientEmail,
             roleLabel: split.roleLabel,
+            payType: split.payType,
             splitPercent: decimalToNumber(split.splitPercent),
+            flatAmount: decimalToNumber(split.flatAmount) || null,
             sortOrder: split.sortOrder,
           })),
         }
@@ -513,10 +549,17 @@ function normalizePlanInput(input: Omit<PayrollCompPlanInput, 'loanOfficerId' | 
     recipientName: cleanText(split.recipientName ?? '', 'Split recipient'),
     recipientEmail: split.recipientEmail?.trim() || null,
     roleLabel: cleanText(split.roleLabel, 'Split role'),
-    splitPercent: ensurePercent(split.splitPercent, 'Split percent'),
+    payType: split.payType ?? PayrollSplitPayType.PERCENT,
+    splitPercent: ensurePercent(requiresPercent(split.payType ?? PayrollSplitPayType.PERCENT) ? split.splitPercent : 0, 'Split percent'),
+    flatAmount: ensureOptionalMoney(split.flatAmount, 'Flat fee'),
     sortOrder: index + 1,
   }));
-  const total = percent(baseSplitPercent + splits.reduce((sum, split) => sum + split.splitPercent, 0));
+  for (const split of splits) {
+    if (requiresFlatAmount(split.payType) && (!split.flatAmount || split.flatAmount <= 0)) {
+      throw new Error(`${split.roleLabel} flat fee must be greater than 0.`);
+    }
+  }
+  const total = percent(baseSplitPercent + splits.reduce((sum, split) => sum + (requiresPercent(split.payType) ? split.splitPercent : 0), 0));
   if (Math.abs(total - 100) > 0.0001) {
     throw new Error('Compensation split percentages must add up to 100%.');
   }
@@ -581,7 +624,9 @@ export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettings
               recipientName: split.recipientName,
               recipientEmail: split.recipientEmail,
               roleLabel: split.roleLabel,
+              payType: split.payType,
               splitPercent: split.splitPercent,
+              flatAmount: split.flatAmount,
               sortOrder: split.sortOrder,
             })),
           },
@@ -608,7 +653,9 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
     recipientName: split.recipientName,
     recipientEmail: split.recipientEmail,
     roleLabel: split.roleLabel,
+    payType: split.payType,
     splitPercent: split.splitPercent,
+    flatAmount: split.flatAmount,
     amount: split.amount,
     sortOrder: split.sortOrder,
   }));
@@ -644,7 +691,9 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
           recipientName: split.recipientName,
           recipientEmail: split.recipientEmail,
           roleLabel: split.roleLabel,
+          payType: split.payType,
           splitPercent: split.splitPercent,
+          flatAmount: split.flatAmount,
           amount: split.amount,
           sortOrder: split.sortOrder,
         })),
@@ -731,7 +780,9 @@ async function replaceRequestSplits(requestId: string) {
         recipientName: split.recipientName,
         recipientEmail: split.recipientEmail,
         roleLabel: split.roleLabel,
+        payType: split.payType,
         splitPercent: split.splitPercent,
+        flatAmount: split.flatAmount,
         amount: split.amount,
         sortOrder: split.sortOrder,
       })),
@@ -786,7 +837,9 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         recipientName: split.recipientName,
         recipientEmail: split.recipientEmail,
         roleLabel: split.roleLabel,
+        payType: split.payType,
         splitPercent: split.splitPercent,
+        flatAmount: split.flatAmount,
         amount: split.amount,
         sortOrder: split.sortOrder,
       })),
