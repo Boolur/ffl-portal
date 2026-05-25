@@ -8,6 +8,10 @@ import {
   type PayrollUserPlanDetail,
   type PayrollUserPlanRow,
 } from '@/app/actions/payrollActions';
+import {
+  LeadUserTeamManager,
+  type LeadUserTeamSummary,
+} from '@/components/admin/leads/LeadUserTeamManager';
 import { formatCurrency, formatPercent } from './payrollFormat';
 
 type EligibleUser = {
@@ -127,12 +131,15 @@ function salaryFrequencyLabel(frequency: PayrollSalaryFrequency) {
 export function PayrollUserSettings({
   users,
   eligibleUsers,
+  teams = [],
 }: {
   users: PayrollUserPlanRow[];
   eligibleUsers: EligibleUser[];
+  teams?: LeadUserTeamSummary[];
 }) {
   const [selectedId, setSelectedId] = useState(users[0]?.id ?? '');
   const [userSearch, setUserSearch] = useState('');
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const selected = users.find((user) => user.id === selectedId) ?? users[0] ?? null;
   const [classification, setClassification] = useState<PayrollUserClassification>(
     selected?.userClassification ?? PayrollUserClassification.BROKER
@@ -150,13 +157,24 @@ export function PayrollUserSettings({
     () => eligibleUsers.filter((user) => user.id !== selected?.id),
     [eligibleUsers, selected?.id]
   );
+  const selectedTeamMemberIds = useMemo(() => {
+    if (!selectedTeamId) return null;
+    const team = teams.find((item) => item.id === selectedTeamId);
+    return team ? new Set(team.memberIds) : null;
+  }, [selectedTeamId, teams]);
   const filteredUsers = useMemo(() => {
     const term = userSearch.trim().toLowerCase();
-    if (!term) return users;
-    return users.filter((user) =>
-      [user.name, user.email].some((value) => value.toLowerCase().includes(term))
-    );
-  }, [userSearch, users]);
+    let list = users;
+    if (selectedTeamMemberIds) {
+      list = list.filter((user) => selectedTeamMemberIds.has(user.id));
+    }
+    if (term) {
+      list = list.filter((user) =>
+        [user.name, user.email].some((value) => value.toLowerCase().includes(term))
+      );
+    }
+    return list;
+  }, [selectedTeamMemberIds, userSearch, users]);
 
   const brokerTotal = useMemo(() => {
     const base = Number(brokerPlan.baseSplit) || 0;
@@ -209,12 +227,32 @@ export function PayrollUserSettings({
         <div className="shrink-0 border-b border-slate-100 px-5 py-4">
           <h2 className="text-base font-bold text-slate-900">Loan Officers</h2>
           <p className="text-sm text-slate-500">Select a user to configure payroll splits.</p>
+          <div className="mt-3">
+            <LeadUserTeamManager
+              teams={teams}
+              users={eligibleUsers}
+              selectedTeamId={selectedTeamId}
+              onSelectTeam={setSelectedTeamId}
+              emptyMessage="No teams yet — create one to filter payroll users in one click."
+              modalDescription="Teams are shared with Lead Distribution and Payroll Users. Updating membership here updates the same team everywhere in the portal."
+              deleteDescription="Deleting a team is permanent and removes the shared filter from Lead Distribution and Payroll Users. Users keep their lead campaign assignments and payroll settings."
+            />
+          </div>
           <input
             value={userSearch}
             onChange={(event) => setUserSearch(event.target.value)}
             placeholder="Search loan officers..."
             className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
           />
+          {selectedTeamId ? (
+            <p className="mt-2 text-xs text-slate-500">
+              Showing {filteredUsers.length} payroll user{filteredUsers.length === 1 ? '' : 's'} in{' '}
+              <span className="font-semibold text-slate-700">
+                {teams.find((team) => team.id === selectedTeamId)?.name ?? 'selected team'}
+              </span>
+              .
+            </p>
+          ) : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {filteredUsers.map((user) => (

@@ -49,6 +49,9 @@ type Props = {
   // manager is purely for CRUD with no filterable list above it.
   selectedTeamId?: string | null;
   onSelectTeam?: (teamId: string | null) => void;
+  emptyMessage?: string;
+  modalDescription?: string;
+  deleteDescription?: string;
 };
 
 // Palette shared with CampaignGroupManager so teams and campaign groups
@@ -136,6 +139,9 @@ export function LeadUserTeamManager({
   users,
   selectedTeamId = null,
   onSelectTeam,
+  emptyMessage = 'No teams yet — create one to batch-assign LOs to campaigns in one click.',
+  modalDescription = 'Teams show up as one-click chips above the user list in the Campaign editor. They don\u2019t affect distribution or quotas on their own.',
+  deleteDescription = 'Deleting a team is permanent and only removes the team itself. Users stay assigned to whatever campaigns they\u2019re already on — teams are just a selection shortcut.',
 }: Props) {
   const router = useRouter();
   const [editingTeam, setEditingTeam] = useState<LeadUserTeamSummary | null>(
@@ -199,7 +205,7 @@ export function LeadUserTeamManager({
 
         {teams.length === 0 && (
           <span className="text-[11px] text-slate-400 italic">
-            No teams yet — create one to batch-assign LOs to campaigns in one click.
+            {emptyMessage}
           </span>
         )}
 
@@ -267,6 +273,8 @@ export function LeadUserTeamManager({
           team={editingTeam}
           isCreating={isCreating}
           users={users}
+          modalDescription={modalDescription}
+          deleteDescription={deleteDescription}
           onClose={closeModal}
           onSaved={() => {
             closeModal();
@@ -282,12 +290,16 @@ function TeamEditModal({
   team,
   isCreating,
   users,
+  modalDescription,
+  deleteDescription,
   onClose,
   onSaved,
 }: {
   team: LeadUserTeamSummary | null;
   isCreating: boolean;
   users: EligibleUser[];
+  modalDescription: string;
+  deleteDescription: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -467,9 +479,7 @@ function TeamEditModal({
               {isCreating ? 'Create team' : `Edit team \u2022 ${team?.name}`}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Teams show up as one-click chips above the user list in the
-              Campaign editor. They don&apos;t affect distribution or quotas on
-              their own.
+              {modalDescription}
             </p>
           </div>
           <button className="app-icon-btn" onClick={onClose} aria-label="Close">
@@ -748,9 +758,7 @@ function TeamEditModal({
                 </button>
               </div>
               <p className="mt-2 text-[11px] text-slate-500">
-                Deleting a team is permanent and only removes the team itself.
-                Users stay assigned to whatever campaigns they&apos;re already
-                on — teams are just a selection shortcut.
+                {deleteDescription}
               </p>
               {confirmDeleteOpen && (
                 <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 space-y-2">

@@ -7,13 +7,15 @@ import {
   getPayrollEligibleUsers,
   getPayrollUsersWithPlans,
 } from '@/app/actions/payrollActions';
+import { getLeadUserTeams } from '@/app/actions/leadActions';
 import { authOptions } from '@/lib/auth';
 
 export default async function PayrollUsersPage() {
   const session = await getServerSession(authOptions);
-  const [users, eligibleUsers] = await Promise.all([
+  const [users, eligibleUsers, teams] = await Promise.all([
     getPayrollUsersWithPlans(),
     getPayrollEligibleUsers(),
+    getLeadUserTeams(),
   ]);
   const user = {
     name: session?.user?.name || 'Admin',
@@ -36,7 +38,7 @@ export default async function PayrollUsersPage() {
           </div>
         </div>
       </div>
-      <PayrollUserSettings users={users} eligibleUsers={eligibleUsers} />
+      <PayrollUserSettings users={users} eligibleUsers={eligibleUsers} teams={teams} />
     </DashboardShell>
   );
 }

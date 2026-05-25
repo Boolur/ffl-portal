@@ -1483,6 +1483,7 @@ function normalizeTeamColors(
 function revalidateTeamPaths() {
   revalidatePath('/admin/leads/users');
   revalidatePath('/admin/leads/campaigns');
+  revalidatePath('/admin/payroll/users');
 }
 
 export type LeadUserTeamSummary = {
