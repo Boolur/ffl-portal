@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useTransition } from 'react';
-import { Banknote, Building2, CheckCircle2, Clock, DollarSign, Edit3, Loader2, Megaphone, Plus, ReceiptText, Send, Upload, X } from 'lucide-react';
+import { Banknote, Building2, Calculator, CheckCircle2, Clock, DollarSign, Edit3, FilePlus2, Landmark, Loader2, Megaphone, Plus, ReceiptText, Send, Upload, WalletCards, X } from 'lucide-react';
 import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollSplitPayType } from '@prisma/client';
 import {
   getPayrollRequestPreview,
@@ -869,10 +869,13 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                 </label>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/70 to-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm font-bold text-slate-900">Compensation Before Split</p>
+                    <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                      <Calculator className="h-4 w-4 text-emerald-700" />
+                      Compensation Before Split
+                    </p>
                     <p className="text-sm text-slate-500">These fields calculate the split basis first. Add-backs below are applied after the split.</p>
                   </div>
                   <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-blue-700">Calculate Split</span>
@@ -880,13 +883,16 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   {form.loanChannel === PayrollLoanChannel.BROKER ? (
                     <>
-                      <Input label="Broker Comp" value={form.brokerComp} onChange={(value) => update('brokerComp', value)} onBlur={() => markTouched('brokerComp')} error={shouldHighlight('brokerComp')} placeholder="4500" inputMode="decimal" currencyPrefix="$" />
+                      <Input label="Broker Comp" Icon={DollarSign} value={form.brokerComp} onChange={(value) => update('brokerComp', value)} onBlur={() => markTouched('brokerComp')} error={shouldHighlight('brokerComp')} placeholder="0" inputMode="decimal" currencyPrefix="+$" green />
                       <label className="block">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Broker Compensation Type</span>
+                        <span className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-900">
+                          <WalletCards className="h-4 w-4 text-emerald-700" />
+                          Broker Compensation Type
+                        </span>
                         <select
                           value={form.brokerPaidBy}
                           onChange={(event) => update('brokerPaidBy', event.target.value as FormState['brokerPaidBy'])}
-                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                          className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-3 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                         >
                           {BROKER_PAID_BY_OPTIONS.map((option) => (
                             <option key={option.value} value={option.value}>{option.label}</option>
@@ -896,33 +902,36 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                     </>
                   ) : (
                     <>
-                      <Input label="Section A" value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="10000" inputMode="decimal" currencyPrefix="$" />
-                      <Input label="YSP (enter as negative)" value={form.yspAmount} onChange={(value) => update('yspAmount', value)} placeholder="-2000" inputMode="decimal" helper="Shows negative from the loan file, but payroll treats it as positive comp." />
+                      <Input label="Section A" Icon={Landmark} value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="0" inputMode="decimal" currencyPrefix="+$" green />
+                      <Input label="YSP (enter as negative)" Icon={DollarSign} value={form.yspAmount} onChange={(value) => update('yspAmount', value)} placeholder="0" inputMode="decimal" helper="Shows negative from the loan file, but payroll treats it as positive comp." currencyPrefix="+$" green />
                     </>
                   )}
-                  <Input label="Tolerance Cure" value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
+                  <Input label="Tolerance Cure" Icon={ReceiptText} value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
                   {form.loanChannel === PayrollLoanChannel.NON_DELEGATED && (
                     <>
-                      <Input label="1 Day of Interest" value={form.oneDayInterest} onChange={(value) => update('oneDayInterest', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
-                      <Input label="Wire Fee" value={form.wireFee} onChange={(value) => update('wireFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
-                      <Input label="Underwriting Fee" value={form.underwritingFee} onChange={(value) => update('underwritingFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
-                      <Input label="Lender Credit" value={form.lenderCredit} onChange={(value) => update('lenderCredit', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
-                      <Input label="Origination Fee" value={form.originationFee} onChange={(value) => update('originationFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
+                      <Input label="1 Day of Interest" Icon={Clock} value={form.oneDayInterest} onChange={(value) => update('oneDayInterest', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Wire Fee" Icon={ReceiptText} value={form.wireFee} onChange={(value) => update('wireFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Underwriting Fee" Icon={ReceiptText} value={form.underwritingFee} onChange={(value) => update('underwritingFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Lender Credit" Icon={DollarSign} value={form.lenderCredit} onChange={(value) => update('lenderCredit', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Origination Fee" Icon={ReceiptText} value={form.originationFee} onChange={(value) => update('originationFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
                     </>
                   )}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
-                <p className="text-sm font-bold text-slate-900">Post-Split Add-Backs</p>
+              <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white p-4">
+                <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                  <FilePlus2 className="h-4 w-4 text-emerald-700" />
+                  Post-Split Add-Backs
+                </p>
                 <p className="text-sm text-slate-600">These are added after the split is calculated, if needed.</p>
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <Input label="Appraisal" value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} placeholder="0" inputMode="decimal" />
-                  <Input label="Credit" value={form.creditAddBack} onChange={(value) => update('creditAddBack', value)} placeholder="0" inputMode="decimal" />
-                  <Input label="VOE" value={form.voeAddBack} onChange={(value) => update('voeAddBack', value)} placeholder="0" inputMode="decimal" />
-                  <Input label="Termite" value={form.termiteAddBack} onChange={(value) => update('termiteAddBack', value)} placeholder="0" inputMode="decimal" />
-                  <Input label="Appraisal Reinspection" value={form.appraisalReinspectionAddBack} onChange={(value) => update('appraisalReinspectionAddBack', value)} placeholder="0" inputMode="decimal" />
-                  <Input label="Water Test" value={form.waterTestAddBack} onChange={(value) => update('waterTestAddBack', value)} placeholder="0" inputMode="decimal" />
+                  <Input label="Appraisal" Icon={FilePlus2} value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Credit" Icon={DollarSign} value={form.creditAddBack} onChange={(value) => update('creditAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="VOE" Icon={FilePlus2} value={form.voeAddBack} onChange={(value) => update('voeAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Termite" Icon={FilePlus2} value={form.termiteAddBack} onChange={(value) => update('termiteAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Appraisal Reinspection" Icon={FilePlus2} value={form.appraisalReinspectionAddBack} onChange={(value) => update('appraisalReinspectionAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Water Test" Icon={FilePlus2} value={form.waterTestAddBack} onChange={(value) => update('waterTestAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
                 </div>
               </div>
 
@@ -1030,6 +1039,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
 
 function Input({
   label,
+  Icon,
   value,
   onChange,
   onBlur,
@@ -1038,9 +1048,11 @@ function Input({
   helper,
   type = 'text',
   currencyPrefix,
+  green = false,
   error = false,
 }: {
   label: string;
+  Icon?: React.ComponentType<{ className?: string }>;
   value: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
@@ -1048,15 +1060,21 @@ function Input({
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   helper?: string;
   type?: React.HTMLInputTypeAttribute;
-  currencyPrefix?: '$' | '-$';
+  currencyPrefix?: '$' | '+$' | '-$';
+  green?: boolean;
   error?: boolean;
 }) {
   return (
     <label className="block">
-      <span className={`text-[11px] font-bold uppercase tracking-wider ${error ? 'text-rose-600' : 'text-slate-500'}`}>{label}</span>
+      <span className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider ${error ? 'text-rose-600' : green ? 'text-slate-950' : 'text-slate-500'}`}>
+        {Icon && <Icon className={`h-4 w-4 ${error ? 'text-rose-600' : green ? 'text-emerald-700' : 'text-slate-400'}`} />}
+        {label}
+      </span>
       <div className="relative mt-1">
         {currencyPrefix && (
-          <span className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold ${currencyPrefix === '-$' ? 'text-rose-600' : 'text-slate-500'}`}>
+          <span className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold ${
+            currencyPrefix === '-$' ? 'text-rose-600' : currencyPrefix === '+$' ? 'text-emerald-700' : 'text-slate-500'
+          }`}>
             {currencyPrefix}
           </span>
         )}
@@ -1068,12 +1086,14 @@ function Input({
           placeholder={placeholder}
           inputMode={inputMode}
           aria-invalid={error}
-          className={`w-full rounded-lg border py-2 text-sm outline-none focus:ring-2 ${
+          className={`w-full rounded-xl border bg-white py-3 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:ring-2 ${
             currencyPrefix ? 'pl-9 pr-3' : 'px-3'
           } ${
             error
               ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
-              : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+              : green
+                ? 'border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/20'
+                : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
           }`}
         />
       </div>
