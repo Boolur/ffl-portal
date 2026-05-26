@@ -17,6 +17,7 @@ import {
   payrollStatusClasses,
   payrollStatusLabel,
 } from '@/components/admin/payroll/payrollFormat';
+import { PAYROLL_LENDER_OPTIONS } from './payrollOptions';
 
 type Props = {
   rows: PayrollRequestRow[];
@@ -127,77 +128,6 @@ const LOAN_TYPE_OPTIONS = [
   'Reverse Mortgage',
 ];
 const LOAN_TYPE_OPTION_SET = new Set(LOAN_TYPE_OPTIONS.map((option) => option.toUpperCase()));
-const LENDER_OPTIONS = [
-  'UWM',
-  'Button Finance',
-  'Figure',
-  'Kind Lending',
-  'SunWest Mortgage',
-  'EPM',
-  'Spring EQ',
-  '11 Mortgage',
-  'Acra Lending',
-  'AD Mortgage',
-  'Ameritrust TPO',
-  'AmWest Funding',
-  'Angel Oak',
-  'Arc Home',
-  'Ardri',
-  'Brokers Choice',
-  'Brokers First Funding',
-  'Cardinal Financial',
-  'Carrington',
-  'Champions Funding',
-  'Change Wholesale',
-  'Click N Close',
-  'Deephaven Mortgage',
-  'Emporium TPO',
-  'Everstream Mortgage',
-  'Finance of America Reverse',
-  'First National Bank of America',
-  'Forward Lending',
-  'Foundation Mortgage',
-  'Freedom Mortgage',
-  'Fund Loans',
-  'Giant Lending',
-  'HomeBridge Wholesale',
-  'HomeXpress Mortgage',
-  'JMAC Lending',
-  'Kiavi Hard Money',
-  'LenderMAC',
-  'LendingXpress',
-  'Loan United',
-  'LoanDepot',
-  'LoanStream',
-  'Logan Finance',
-  'Longbridge Financial',
-  'Luminate Bank',
-  'Mutual Of Omaha',
-  'Nations Direct Lending',
-  'NewFi Wholesale',
-  'NewRez',
-  'NexBank Wholesale',
-  'NFTYDoor',
-  'OakTree Funding',
-  'Open Wholesale',
-  'Orion Lending',
-  'PennyMac',
-  'Plaza Home Mortgage',
-  'PRMG',
-  'REMN',
-  'Smartfi Home Loans',
-  'Splitero',
-  'Symmetry Lending',
-  'The Lender',
-  'The Loan Store',
-  'The Loan Store - FIGURE',
-  'TMAC',
-  'Triad Financial Services',
-  'Val Chris',
-  'Velocity Mortgage',
-  'Village Capital',
-  'Windsor Mortgage',
-];
 const LEAD_SOURCE_OPTIONS = [
   PayrollLeadSource.LEAD_BUY,
   PayrollLeadSource.MAILER,
@@ -548,8 +478,8 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   }, [rows]);
   const filteredLenders = useMemo(() => {
     const term = lenderSearch.trim().toLowerCase();
-    if (!term) return LENDER_OPTIONS;
-    return LENDER_OPTIONS.filter((lender) => lender.toLowerCase().includes(term));
+    if (!term) return PAYROLL_LENDER_OPTIONS;
+    return PAYROLL_LENDER_OPTIONS.filter((lender) => lender.toLowerCase().includes(term));
   }, [lenderSearch]);
   const missingFields = useMemo(() => {
     return REQUIRED_FIELDS.filter(({ key }) => {

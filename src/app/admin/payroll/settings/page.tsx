@@ -25,7 +25,7 @@ export default async function PayrollSettingsDatabaseRoute() {
             <Database className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="app-page-title !mb-0">Payroll Settings & Database</h1>
+            <h1 className="app-page-title !mb-0">Settings & Database</h1>
             <p className="text-sm text-slate-500">Manage lender fees, required compensation checks, and lender-specific submission rules.</p>
           </div>
         </div>

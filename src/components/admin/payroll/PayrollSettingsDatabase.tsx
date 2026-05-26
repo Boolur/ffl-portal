@@ -8,6 +8,7 @@ import {
   savePayrollLenderRequirement,
   type PayrollSettingsDatabase,
 } from '@/app/actions/payrollActions';
+import { PAYROLL_LENDER_OPTIONS } from '@/components/payroll/payrollOptions';
 import { formatCurrency, loanChannelLabel } from './payrollFormat';
 
 type Props = {
@@ -66,10 +67,24 @@ const initialRequirement: RequirementForm = {
 export function PayrollSettingsDatabase({ data }: Props) {
   const [feeForm, setFeeForm] = useState(initialFee);
   const [requirementForm, setRequirementForm] = useState(initialRequirement);
+  const [feeLenderOpen, setFeeLenderOpen] = useState(false);
+  const [requirementLenderOpen, setRequirementLenderOpen] = useState(false);
+  const [feeLenderSearch, setFeeLenderSearch] = useState('');
+  const [requirementLenderSearch, setRequirementLenderSearch] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const activeFees = useMemo(() => data.feeRules.filter((rule) => rule.active), [data.feeRules]);
   const inactiveFees = useMemo(() => data.feeRules.filter((rule) => !rule.active), [data.feeRules]);
+  const filteredFeeLenders = useMemo(() => {
+    const term = feeLenderSearch.trim().toLowerCase();
+    if (!term) return PAYROLL_LENDER_OPTIONS;
+    return PAYROLL_LENDER_OPTIONS.filter((lender) => lender.toLowerCase().includes(term));
+  }, [feeLenderSearch]);
+  const filteredRequirementLenders = useMemo(() => {
+    const term = requirementLenderSearch.trim().toLowerCase();
+    if (!term) return PAYROLL_LENDER_OPTIONS;
+    return PAYROLL_LENDER_OPTIONS.filter((lender) => lender.toLowerCase().includes(term));
+  }, [requirementLenderSearch]);
 
   const saveFee = () => {
     startTransition(async () => {
@@ -120,7 +135,16 @@ export function PayrollSettingsDatabase({ data }: Props) {
           <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
             <p className="font-bold text-slate-900">Add or Update Fee Rule</p>
             <div className="mt-4 grid gap-3">
-              <Input label="Lender" value={feeForm.lender} onChange={(value) => setFeeForm((current) => ({ ...current, lender: value }))} />
+              <SearchableLenderSelect
+                label="Lender"
+                value={feeForm.lender}
+                open={feeLenderOpen}
+                search={feeLenderSearch}
+                options={filteredFeeLenders}
+                onOpenChange={setFeeLenderOpen}
+                onSearchChange={setFeeLenderSearch}
+                onChange={(value) => setFeeForm((current) => ({ ...current, lender: value }))}
+              />
               <Input label="Fee Label" value={feeForm.label} onChange={(value) => setFeeForm((current) => ({ ...current, label: value }))} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Select label="Channel" value={feeForm.loanChannel} onChange={(value) => setFeeForm((current) => ({ ...current, loanChannel: value as PayrollLoanChannel }))} options={[PayrollLoanChannel.BROKER, PayrollLoanChannel.NON_DELEGATED]} labels={{ BROKER: 'Broker', NON_DELEGATED: 'Non-Del' }} />
@@ -171,7 +195,16 @@ export function PayrollSettingsDatabase({ data }: Props) {
           <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
             <p className="font-bold text-slate-900">Add Lender Requirement</p>
             <div className="mt-4 grid gap-3">
-              <Input label="Lender" value={requirementForm.lender} onChange={(value) => setRequirementForm((current) => ({ ...current, lender: value }))} />
+              <SearchableLenderSelect
+                label="Lender"
+                value={requirementForm.lender}
+                open={requirementLenderOpen}
+                search={requirementLenderSearch}
+                options={filteredRequirementLenders}
+                onOpenChange={setRequirementLenderOpen}
+                onSearchChange={setRequirementLenderSearch}
+                onChange={(value) => setRequirementForm((current) => ({ ...current, lender: value }))}
+              />
               <Checkbox label="Require loan amount prior to fees" checked={requirementForm.requiresLoanAmountPriorToFees} onChange={(checked) => setRequirementForm((current) => ({ ...current, requiresLoanAmountPriorToFees: checked }))} />
               <Checkbox label="Require funded/details screenshot" checked={requirementForm.requiresFundedDetailsAttachment} onChange={(checked) => setRequirementForm((current) => ({ ...current, requiresFundedDetailsAttachment: checked }))} />
               <Checkbox label="Require recession date" checked={requirementForm.requiresRecessionDate} onChange={(checked) => setRequirementForm((current) => ({ ...current, requiresRecessionDate: checked }))} />
@@ -214,6 +247,74 @@ function Input({ label, value, onChange, inputMode }: { label: string; value: st
       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
       <input value={value} onChange={(event) => onChange(event.target.value)} inputMode={inputMode} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20" />
     </label>
+  );
+}
+
+function SearchableLenderSelect({
+  label,
+  value,
+  open,
+  search,
+  options,
+  onOpenChange,
+  onSearchChange,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  open: boolean;
+  search: string;
+  options: string[];
+  onOpenChange: (open: boolean) => void;
+  onSearchChange: (value: string) => void;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="relative">
+      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
+      <button
+        type="button"
+        onClick={() => onOpenChange(!open)}
+        className="mt-1 flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+      >
+        <span className={value ? 'text-slate-900' : 'text-slate-400'}>{value || 'Select lender...'}</span>
+        <span className="text-slate-400">⌄</span>
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-100 p-2">
+            <input
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="Search lenders..."
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto py-1">
+            {options.length === 0 ? (
+              <p className="px-3 py-3 text-sm text-slate-500">No lenders found.</p>
+            ) : options.map((lender) => (
+              <button
+                key={lender}
+                type="button"
+                className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-purple-50 hover:text-purple-700 ${
+                  value === lender ? 'bg-purple-50 font-semibold text-purple-700' : 'text-slate-700'
+                }`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  onChange(lender);
+                  onSearchChange('');
+                  onOpenChange(false);
+                }}
+              >
+                {lender}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

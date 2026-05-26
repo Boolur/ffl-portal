@@ -125,7 +125,7 @@ export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests
         </Link>
         <Link href="/admin/payroll/settings" className="group rounded-2xl border border-purple-200 bg-white p-5 shadow-sm transition hover:border-purple-300 hover:shadow-md">
           <Database className="h-8 w-8 rounded-xl bg-purple-600 p-1.5 text-white" />
-          <h2 className="mt-4 text-base font-bold text-slate-900">Payroll Settings & Database</h2>
+          <h2 className="mt-4 text-base font-bold text-slate-900">Settings & Database</h2>
           <p className="mt-1 text-sm text-slate-500">Manage lender fees, required checks, and calculation rules.</p>
           <span className="mt-4 inline-flex rounded-xl bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700 group-hover:bg-purple-600 group-hover:text-white">Manage Rules</span>
         </Link>
