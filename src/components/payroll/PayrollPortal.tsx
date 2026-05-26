@@ -53,6 +53,7 @@ type FormState = {
   leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue: string;
   brokerComp: string;
+  brokerPaidBy: 'BORROWER_PAID' | 'LENDER_PAID';
   sectionAComp: string;
   yspAmount: string;
   toleranceCure: string;
@@ -86,6 +87,7 @@ const initialForm: FormState = {
   leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
   expectedRevenue: '',
   brokerComp: '',
+  brokerPaidBy: 'BORROWER_PAID',
   sectionAComp: '',
   yspAmount: '',
   toleranceCure: '',
@@ -154,6 +156,10 @@ const LEAD_PROVIDED_BY_LABELS: Record<PayrollLeadProvidedBy, string> = {
   COMPANY_PROVIDED: 'Company Provided',
   BRANCH_PROVIDED: 'Branch Provided',
 };
+const BROKER_PAID_BY_OPTIONS = [
+  { value: 'BORROWER_PAID', label: 'Borrower Paid' },
+  { value: 'LENDER_PAID', label: 'Lender Paid' },
+] as const;
 const MONEY_FIELDS = [
   'brokerComp',
   'sectionAComp',
@@ -858,11 +864,27 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   {form.loanChannel === PayrollLoanChannel.BROKER ? (
-                    <Input label="Broker Comp" value={form.brokerComp} onChange={(value) => update('brokerComp', value)} onBlur={() => markTouched('brokerComp')} error={shouldHighlight('brokerComp')} placeholder="4500" inputMode="decimal" />
+                    <>
+                      <Input label="Broker Comp" value={form.brokerComp} onChange={(value) => update('brokerComp', value)} onBlur={() => markTouched('brokerComp')} error={shouldHighlight('brokerComp')} placeholder="4500" inputMode="decimal" />
+                      <label className="block">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Broker Compensation Type</span>
+                        <select
+                          value={form.brokerPaidBy}
+                          onChange={(event) => update('brokerPaidBy', event.target.value as FormState['brokerPaidBy'])}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                        >
+                          {BROKER_PAID_BY_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </>
                   ) : (
-                    <Input label="Section A" value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="4500" inputMode="decimal" />
+                    <>
+                      <Input label="Section A" value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="4500" inputMode="decimal" />
+                      <Input label="YSP (enter as negative)" value={form.yspAmount} onChange={(value) => update('yspAmount', value)} placeholder="-2000" inputMode="decimal" helper="Shows negative from the loan file, but payroll treats it as positive comp." />
+                    </>
                   )}
-                  <Input label="YSP (enter as negative)" value={form.yspAmount} onChange={(value) => update('yspAmount', value)} placeholder="-2000" inputMode="decimal" helper="Shows negative from the loan file, but payroll treats it as positive comp." />
                   <Input label="Tolerance Cure" value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" />
                   {form.loanChannel === PayrollLoanChannel.NON_DELEGATED && (
                     <>

@@ -584,7 +584,9 @@ function calculatePayrollCompensation(
     throw new Error(input.loanChannel === PayrollLoanChannel.BROKER ? 'Broker Comp is required.' : 'Section A is required.');
   }
 
-  const yspAmount = ensureSignedMoney(input.yspAmount, 'YSP');
+  const yspAmount = input.loanChannel === PayrollLoanChannel.NON_DELEGATED
+    ? ensureSignedMoney(input.yspAmount, 'YSP')
+    : null;
   if (yspAmount !== null && yspAmount > 0) {
     throw new Error('YSP should be entered as a negative amount because that is how it appears in the loan file.');
   }
