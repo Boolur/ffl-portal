@@ -1573,6 +1573,17 @@ export async function rejectPayrollRequest(requestId: string, rejectionReason: s
   revalidatePayroll();
 }
 
+export async function deletePayrollRequest(requestId: string) {
+  await assertPayrollAdmin();
+  const request = await prisma.payrollCompRequest.findUnique({
+    where: { id: requestId },
+    select: { id: true },
+  });
+  if (!request) throw new Error('Payroll request was not found.');
+  await prisma.payrollCompRequest.delete({ where: { id: requestId } });
+  revalidatePayroll();
+}
+
 export async function markPayrollRequestPaid(requestId: string, adminNotes?: string) {
   const actor = await assertPayrollAdmin();
   const request = await prisma.payrollCompRequest.findUnique({

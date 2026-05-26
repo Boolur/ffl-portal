@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useTransition } from 'react';
-import { Banknote as BanknoteIcon, Check, DollarSign, Edit3, Eye, FileText, Home, Loader2, RefreshCw, Save, UserRound, X } from 'lucide-react';
+import { Banknote as BanknoteIcon, Check, DollarSign, Edit3, Eye, FileText, Home, Loader2, RefreshCw, Save, Trash2, UserRound, X } from 'lucide-react';
 import { PayrollCompPlanType, PayrollCompRequestStatus, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollSplitPayType } from '@prisma/client';
 import {
   approvePayrollRequest,
+  deletePayrollRequest,
   editPayrollRequest,
   markPayrollRequestPaid,
   rejectPayrollRequest,
@@ -187,6 +188,16 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
   const openRequest = (row: PayrollRequestRow) => {
     setSelectedRequest(row);
     setEditMode(false);
+  };
+  const deleteRequest = () => {
+    if (!currentRequest) return;
+    const confirmed = window.confirm(`Delete payroll request ${currentRequest.loanNumber} for ${currentRequest.borrowerName}? This cannot be undone.`);
+    if (!confirmed) return;
+    runAction(currentRequest.id, async () => {
+      await deletePayrollRequest(currentRequest.id);
+      setSelectedRequest(null);
+      setEditMode(false);
+    });
   };
   const saveEdits = () => {
     if (!currentRequest) return;
@@ -444,50 +455,61 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                 </div>
               )}
 
-              <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 pt-5">
-                {editMode ? (
-                  <>
-                    <button type="button" className="app-btn-secondary" onClick={() => setEditMode(false)}>Cancel Edit</button>
-                    <button type="button" className="app-btn-primary" disabled={isPending} onClick={saveEdits}>
-                      {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      Save Changes
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    {currentRequest.status !== PayrollCompRequestStatus.PAID && (
-                      <button type="button" className="app-btn-secondary" onClick={() => setEditMode(true)}>
-                        <Edit3 className="h-4 w-4" /> Edit Request
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isPending}
+                  onClick={deleteRequest}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete Request
+                </button>
+                <div className="flex flex-wrap justify-end gap-3">
+                  {editMode ? (
+                    <>
+                      <button type="button" className="app-btn-secondary" onClick={() => setEditMode(false)}>Cancel Edit</button>
+                      <button type="button" className="app-btn-primary" disabled={isPending} onClick={saveEdits}>
+                        {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        Save Changes
                       </button>
-                    )}
-                    {currentRequest.status !== PayrollCompRequestStatus.PAID && (
-                      <button
-                        type="button"
-                        className="app-btn-secondary text-rose-700"
-                        disabled={isPending}
-                        onClick={() => runAction(currentRequest.id, () => rejectPayrollRequest(currentRequest.id, editForm.rejectionReason || 'Rejected by payroll admin', editForm.adminNotes))}
-                      >
-                        <X className="h-4 w-4" /> Reject
-                      </button>
-                    )}
-                    {currentRequest.status === PayrollCompRequestStatus.PENDING_REVIEW || currentRequest.status === PayrollCompRequestStatus.REJECTED ? (
-                      <button type="button" className="app-btn-primary" disabled={isPending} onClick={() => runAction(currentRequest.id, () => approvePayrollRequest(currentRequest.id, editForm.adminNotes))}>
-                        {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                        Approve
-                      </button>
-                    ) : null}
-                    {currentRequest.status === PayrollCompRequestStatus.APPROVED && (
-                      <>
-                        <button type="button" className="app-btn-secondary" disabled={isPending} onClick={() => runAction(currentRequest.id, () => reopenPayrollRequest(currentRequest.id))}>
-                          <RefreshCw className="h-4 w-4" /> Reopen
+                    </>
+                  ) : (
+                    <>
+                      {currentRequest.status !== PayrollCompRequestStatus.PAID && (
+                        <button type="button" className="app-btn-secondary" onClick={() => setEditMode(true)}>
+                          <Edit3 className="h-4 w-4" /> Edit Request
                         </button>
-                        <button type="button" className="app-btn-primary" disabled={isPending} onClick={() => runAction(currentRequest.id, () => markPayrollRequestPaid(currentRequest.id, editForm.adminNotes))}>
-                          <DollarSign className="h-4 w-4" /> Mark Paid
+                      )}
+                      {currentRequest.status !== PayrollCompRequestStatus.PAID && (
+                        <button
+                          type="button"
+                          className="app-btn-secondary text-rose-700"
+                          disabled={isPending}
+                          onClick={() => runAction(currentRequest.id, () => rejectPayrollRequest(currentRequest.id, editForm.rejectionReason || 'Rejected by payroll admin', editForm.adminNotes))}
+                        >
+                          <X className="h-4 w-4" /> Reject
                         </button>
-                      </>
-                    )}
-                  </>
-                )}
+                      )}
+                      {currentRequest.status === PayrollCompRequestStatus.PENDING_REVIEW || currentRequest.status === PayrollCompRequestStatus.REJECTED ? (
+                        <button type="button" className="app-btn-primary" disabled={isPending} onClick={() => runAction(currentRequest.id, () => approvePayrollRequest(currentRequest.id, editForm.adminNotes))}>
+                          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                          Approve
+                        </button>
+                      ) : null}
+                      {currentRequest.status === PayrollCompRequestStatus.APPROVED && (
+                        <>
+                          <button type="button" className="app-btn-secondary" disabled={isPending} onClick={() => runAction(currentRequest.id, () => reopenPayrollRequest(currentRequest.id))}>
+                            <RefreshCw className="h-4 w-4" /> Reopen
+                          </button>
+                          <button type="button" className="app-btn-primary" disabled={isPending} onClick={() => runAction(currentRequest.id, () => markPayrollRequestPaid(currentRequest.id, editForm.adminNotes))}>
+                            <DollarSign className="h-4 w-4" /> Mark Paid
+                          </button>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
