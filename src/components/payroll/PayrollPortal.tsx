@@ -6,6 +6,7 @@ import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollPr
 import {
   getPayrollRequestPreview,
   submitPayrollCompRequest,
+  type PayrollCalculationSnapshot,
   type PayrollMismoDetails,
   type PayrollRequestRow,
 } from '@/app/actions/payrollActions';
@@ -50,10 +51,28 @@ type FormState = {
   leadSource: PayrollLeadSource;
   leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue: string;
+  brokerComp: string;
+  sectionAComp: string;
+  yspAmount: string;
+  toleranceCure: string;
+  oneDayInterest: string;
+  wireFee: string;
+  underwritingFee: string;
+  lenderCredit: string;
+  originationFee: string;
+  appraisalAddBack: string;
+  creditAddBack: string;
+  voeAddBack: string;
+  termiteAddBack: string;
+  appraisalReinspectionAddBack: string;
+  waterTestAddBack: string;
+  loanAmountPriorToFees: string;
+  recessionDate: string;
+  figureNftyAttachmentName: string;
   submitterNotes: string;
   mismoDetails: PayrollMismoDetails | null;
 };
-type RequiredFieldKey = Exclude<keyof FormState, 'submitterNotes'>;
+type RequiredFieldKey = 'loanNumber' | 'borrowerName' | 'loanType' | 'lender' | 'loanChannel' | 'processingType' | 'leadSource' | 'leadProvidedBy' | 'brokerComp' | 'sectionAComp';
 
 const initialForm: FormState = {
   loanNumber: '',
@@ -65,6 +84,24 @@ const initialForm: FormState = {
   leadSource: PayrollLeadSource.OTHER,
   leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
   expectedRevenue: '',
+  brokerComp: '',
+  sectionAComp: '',
+  yspAmount: '',
+  toleranceCure: '',
+  oneDayInterest: '',
+  wireFee: '',
+  underwritingFee: '',
+  lenderCredit: '',
+  originationFee: '',
+  appraisalAddBack: '',
+  creditAddBack: '',
+  voeAddBack: '',
+  termiteAddBack: '',
+  appraisalReinspectionAddBack: '',
+  waterTestAddBack: '',
+  loanAmountPriorToFees: '',
+  recessionDate: '',
+  figureNftyAttachmentName: '',
   submitterNotes: '',
   mismoDetails: null,
 };
@@ -77,7 +114,8 @@ const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
   { key: 'processingType', label: 'Processing Type' },
   { key: 'leadSource', label: 'Lead Source' },
   { key: 'leadProvidedBy', label: 'Lead Provided By' },
-  { key: 'expectedRevenue', label: 'Expected Revenue' },
+  { key: 'brokerComp', label: 'Broker Comp' },
+  { key: 'sectionAComp', label: 'Section A' },
 ];
 const LOAN_TYPE_OPTIONS = [
   'Conventional',
@@ -186,6 +224,51 @@ const LEAD_PROVIDED_BY_LABELS: Record<PayrollLeadProvidedBy, string> = {
   COMPANY_PROVIDED: 'Company Provided',
   BRANCH_PROVIDED: 'Branch Provided',
 };
+const MONEY_FIELDS = [
+  'brokerComp',
+  'sectionAComp',
+  'yspAmount',
+  'toleranceCure',
+  'oneDayInterest',
+  'wireFee',
+  'underwritingFee',
+  'lenderCredit',
+  'originationFee',
+  'appraisalAddBack',
+  'creditAddBack',
+  'voeAddBack',
+  'termiteAddBack',
+  'appraisalReinspectionAddBack',
+  'waterTestAddBack',
+  'loanAmountPriorToFees',
+] as const;
+type MoneyField = (typeof MONEY_FIELDS)[number];
+
+function toOptionalNumber(value: string) {
+  const cleaned = value.trim();
+  if (!cleaned) return null;
+  const numeric = Number(cleaned.replace(/[$,\s]/g, ''));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function buildCompInput(form: FormState) {
+  const amounts = Object.fromEntries(
+    MONEY_FIELDS.map((field) => [field, toOptionalNumber(form[field])])
+  ) as Record<MoneyField, number | null>;
+  return {
+    ...form,
+    ...amounts,
+    expectedRevenue: amounts.brokerComp ?? amounts.sectionAComp ?? 0,
+    recessionDate: form.recessionDate || null,
+    figureNftyAttachmentName: form.figureNftyAttachmentName || null,
+    figureNftyAttachmentUrl: form.figureNftyAttachmentName || null,
+  };
+}
+
+function isFigureNftyLender(lender: string) {
+  const normalized = lender.trim().toUpperCase();
+  return normalized.includes('FIGURE') || normalized.includes('NFTY');
+}
 
 function normalizePayrollLoanType(value: string) {
   const normalized = value.trim().toUpperCase();
@@ -422,7 +505,9 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   const [lenderSearch, setLenderSearch] = useState('');
   const [touchedFields, setTouchedFields] = useState<Set<RequiredFieldKey>>(new Set());
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
-  const [preview, setPreview] = useState<Array<{
+  const [preview, setPreview] = useState<{
+    calculation: PayrollCalculationSnapshot;
+    splits: Array<{
     recipientName: string;
     recipientEmail: string | null;
     roleLabel: string;
@@ -431,11 +516,16 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
     flatAmount: number | null;
     amount: number;
     sortOrder: number;
-  }>>([]);
+    }>;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const canPreview = useMemo(() => Number(form.expectedRevenue) > 0, [form.expectedRevenue]);
+  const canPreview = useMemo(() => {
+    const base = form.loanChannel === PayrollLoanChannel.BROKER ? form.brokerComp : form.sectionAComp;
+    return Number(base) > 0;
+  }, [form.brokerComp, form.loanChannel, form.sectionAComp]);
+  const figureNftyRequired = useMemo(() => isFigureNftyLender(form.lender), [form.lender]);
   const lenderStats = useMemo(() => {
     const counts = new Map<string, number>();
     for (const row of rows) {
@@ -464,8 +554,11 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   const missingFields = useMemo(() => {
     return REQUIRED_FIELDS.filter(({ key }) => {
       const value = form[key];
-      if (key === 'expectedRevenue') {
-        return !Number.isFinite(Number(value)) || Number(value) <= 0;
+      if (key === 'brokerComp') {
+        return form.loanChannel === PayrollLoanChannel.BROKER && (!Number.isFinite(Number(value)) || Number(value) <= 0);
+      }
+      if (key === 'sectionAComp') {
+        return form.loanChannel === PayrollLoanChannel.NON_DELEGATED && (!Number.isFinite(Number(value)) || Number(value) <= 0);
       }
       return !String(value).trim();
     });
@@ -499,7 +592,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
         loanChannel: prefill.loanChannel || current.loanChannel,
         mismoDetails: prefill.mismoDetails ?? current.mismoDetails,
       }));
-      setPreview([]);
+      setPreview(null);
       setError(null);
     } catch {
       setError('Could not read this MISMO file. Please verify the XML export.');
@@ -512,10 +605,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
     startTransition(async () => {
       try {
         setError(null);
-        const result = await getPayrollRequestPreview({
-          ...form,
-          expectedRevenue: Number(form.expectedRevenue),
-        });
+        const result = await getPayrollRequestPreview(buildCompInput(form));
         setPreview(result);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to calculate split preview.');
@@ -533,14 +623,11 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
     startTransition(async () => {
       try {
         setError(null);
-        await submitPayrollCompRequest({
-          ...form,
-          expectedRevenue: Number(form.expectedRevenue),
-        });
+        await submitPayrollCompRequest(buildCompInput(form));
         setForm(initialForm);
         setTouchedFields(new Set());
         setAttemptedSubmit(false);
-        setPreview([]);
+        setPreview(null);
         setModalOpen(false);
       } catch (err) {
         const message = err instanceof Error && err.message && !err.message.includes('digest')
@@ -829,9 +916,60 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                     <option value="OTHER">Other</option>
                   </select>
                 </label>
-                <Input label="Expected Revenue" value={form.expectedRevenue} onChange={(value) => update('expectedRevenue', value)} onBlur={() => markTouched('expectedRevenue')} error={shouldHighlight('expectedRevenue')} placeholder="4500" inputMode="decimal" />
-                <Input label="Notes" value={form.submitterNotes} onChange={(value) => update('submitterNotes', value)} placeholder="Optional" />
               </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Compensation Before Split</p>
+                    <p className="text-sm text-slate-500">These fields calculate the split basis first. Add-backs below are applied after the split.</p>
+                  </div>
+                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-blue-700">Calculate Split</span>
+                </div>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  {form.loanChannel === PayrollLoanChannel.BROKER ? (
+                    <Input label="Broker Comp" value={form.brokerComp} onChange={(value) => update('brokerComp', value)} onBlur={() => markTouched('brokerComp')} error={shouldHighlight('brokerComp')} placeholder="4500" inputMode="decimal" />
+                  ) : (
+                    <Input label="Section A" value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="4500" inputMode="decimal" />
+                  )}
+                  <Input label="YSP (enter as negative)" value={form.yspAmount} onChange={(value) => update('yspAmount', value)} placeholder="-2000" inputMode="decimal" helper="Shows negative from the loan file, but payroll treats it as positive comp." />
+                  <Input label="Tolerance Cure" value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" />
+                  {form.loanChannel === PayrollLoanChannel.NON_DELEGATED && (
+                    <>
+                      <Input label="1 Day of Interest" value={form.oneDayInterest} onChange={(value) => update('oneDayInterest', value)} placeholder="0" inputMode="decimal" />
+                      <Input label="Wire Fee" value={form.wireFee} onChange={(value) => update('wireFee', value)} placeholder="0" inputMode="decimal" />
+                      <Input label="Underwriting Fee" value={form.underwritingFee} onChange={(value) => update('underwritingFee', value)} placeholder="0" inputMode="decimal" />
+                      <Input label="Lender Credit" value={form.lenderCredit} onChange={(value) => update('lenderCredit', value)} placeholder="0" inputMode="decimal" />
+                      <Input label="Origination Fee" value={form.originationFee} onChange={(value) => update('originationFee', value)} placeholder="0" inputMode="decimal" />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+                <p className="text-sm font-bold text-slate-900">Post-Split Add-Backs</p>
+                <p className="text-sm text-slate-600">These are added after the split is calculated, if needed.</p>
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <Input label="Appraisal" value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} placeholder="0" inputMode="decimal" />
+                  <Input label="Credit" value={form.creditAddBack} onChange={(value) => update('creditAddBack', value)} placeholder="0" inputMode="decimal" />
+                  <Input label="VOE" value={form.voeAddBack} onChange={(value) => update('voeAddBack', value)} placeholder="0" inputMode="decimal" />
+                  <Input label="Termite" value={form.termiteAddBack} onChange={(value) => update('termiteAddBack', value)} placeholder="0" inputMode="decimal" />
+                  <Input label="Appraisal Reinspection" value={form.appraisalReinspectionAddBack} onChange={(value) => update('appraisalReinspectionAddBack', value)} placeholder="0" inputMode="decimal" />
+                  <Input label="Water Test" value={form.waterTestAddBack} onChange={(value) => update('waterTestAddBack', value)} placeholder="0" inputMode="decimal" />
+                </div>
+              </div>
+
+              {figureNftyRequired && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-bold text-amber-900">Figure/NFTY Required Details</p>
+                  <p className="text-sm text-amber-800">These fields are required before this lender can be submitted.</p>
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <Input label="Loan Amount Prior to Fees" value={form.loanAmountPriorToFees} onChange={(value) => update('loanAmountPriorToFees', value)} placeholder="0" inputMode="decimal" helper="Use loan amount prior to fees." />
+                    <Input label="Recession Date" value={form.recessionDate} onChange={(value) => update('recessionDate', value)} type="date" />
+                    <Input label="Funded/Details Screenshot Name" value={form.figureNftyAttachmentName} onChange={(value) => update('figureNftyAttachmentName', value)} placeholder="Screenshot uploaded/available" />
+                  </div>
+                </div>
+              )}
 
               <div className="grid gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/90 to-blue-50/70 p-4 md:grid-cols-2">
                 <LeadSelect
@@ -873,9 +1011,20 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                     Preview
                   </button>
                 </div>
-                {preview.length > 0 && (
-                  <div className="mt-4 divide-y divide-slate-200 rounded-xl bg-white px-4">
-                    {preview.map((split) => (
+                {preview && (
+                  <div className="mt-4 space-y-4">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <SummaryPill label="Split Basis" value={formatCurrency(preview.calculation.splitBasisAmount)} tone="blue" />
+                      <SummaryPill label="Post-Split Add-Backs" value={formatCurrency(preview.calculation.postSplitAddBackTotal)} tone="emerald" />
+                      <SummaryPill label="Final Comp" value={formatCurrency(preview.calculation.netCompAmount)} tone="slate" />
+                    </div>
+                    {preview.calculation.warnings.length > 0 && (
+                      <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                        {preview.calculation.warnings.map((warning) => <p key={warning}>{warning}</p>)}
+                      </div>
+                    )}
+                    <div className="divide-y divide-slate-200 rounded-xl bg-white px-4">
+                    {preview.splits.map((split) => (
                       <div key={`${split.recipientEmail ?? split.recipientName}:${split.roleLabel}`} className="flex items-center justify-between gap-4 py-3">
                         <div>
                           <p className="font-semibold text-slate-900">{split.recipientName}</p>
@@ -887,6 +1036,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                         <p className="font-bold text-slate-900">{formatCurrency(split.amount)}</p>
                       </div>
                     ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -918,6 +1068,8 @@ function Input({
   onBlur,
   placeholder,
   inputMode,
+  helper,
+  type = 'text',
   error = false,
 }: {
   label: string;
@@ -926,6 +1078,8 @@ function Input({
   onBlur?: () => void;
   placeholder?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  helper?: string;
+  type?: React.HTMLInputTypeAttribute;
   error?: boolean;
 }) {
   return (
@@ -933,6 +1087,7 @@ function Input({
       <span className={`text-[11px] font-bold uppercase tracking-wider ${error ? 'text-rose-600' : 'text-slate-500'}`}>{label}</span>
       <input
         value={value}
+        type={type}
         onChange={(event) => onChange(event.target.value)}
         onBlur={onBlur}
         placeholder={placeholder}
@@ -944,7 +1099,22 @@ function Input({
             : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
         }`}
       />
+      {helper && <span className={`mt-1 block text-xs ${error ? 'text-rose-600' : 'text-slate-500'}`}>{helper}</span>}
     </label>
+  );
+}
+
+function SummaryPill({ label, value, tone }: { label: string; value: string; tone: 'blue' | 'emerald' | 'slate' }) {
+  const classes = {
+    blue: 'border-blue-100 bg-blue-50 text-blue-700',
+    emerald: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+    slate: 'border-slate-200 bg-slate-50 text-slate-800',
+  }[tone];
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${classes}`}>
+      <p className="text-[11px] font-bold uppercase tracking-wider opacity-80">{label}</p>
+      <p className="mt-1 text-lg font-bold">{value}</p>
+    </div>
   );
 }
 

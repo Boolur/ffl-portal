@@ -185,6 +185,22 @@ enum PayrollSalaryFrequency {
   ANNUALLY
 }
 
+enum PayrollSettingValueType {
+  MONEY
+  NUMBER
+  TEXT
+  BOOLEAN
+}
+
+enum PayrollFeeRuleKind {
+  WIRE_FEE
+  UNDERWRITING_FEE
+  ORIGINATION_FEE
+  ONE_DAY_INTEREST
+  LENDER_CREDIT
+  OTHER
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
@@ -236,6 +252,7 @@ model User {
   payrollPaidRequests   PayrollCompRequest[] @relation("PayrollCompRequestPaidBy")
   payrollEditedRequests PayrollCompRequest[] @relation("PayrollCompRequestEditedBy")
   payrollRequestSplits  PayrollCompRequestSplit[] @relation("PayrollCompRequestSplitRecipient")
+  payrollUserSettings   PayrollUserSetting?
 }
 
 model Loan {
@@ -925,6 +942,7 @@ model PayrollCompPlan {
 
   userClassification    PayrollUserClassification @default(BROKER)
   planType              PayrollCompPlanType @default(BROKER)
+  requiresOriginationFeeWarning Boolean @default(false)
   salaryPerPaycheck     Decimal? @db.Decimal(12, 2)
   salaryFrequency       PayrollSalaryFrequency @default(SEMI_MONTHLY)
   salaryNotes           String?
@@ -988,6 +1006,32 @@ model PayrollCompRequest {
   leadProvidedBy        PayrollLeadProvidedBy @default(SELF_SOURCED)
   appliedPlanType       PayrollCompPlanType @default(BROKER)
   expectedRevenue       Decimal  @db.Decimal(12, 2)
+  brokerComp            Decimal? @db.Decimal(12, 2)
+  sectionAComp          Decimal? @db.Decimal(12, 2)
+  yspAmount             Decimal? @db.Decimal(12, 2)
+  toleranceCure         Decimal? @db.Decimal(12, 2)
+  oneDayInterest        Decimal? @db.Decimal(12, 2)
+  wireFee               Decimal? @db.Decimal(12, 2)
+  underwritingFee       Decimal? @db.Decimal(12, 2)
+  lenderCredit          Decimal? @db.Decimal(12, 2)
+  originationFee        Decimal? @db.Decimal(12, 2)
+  appraisalAddBack      Decimal? @db.Decimal(12, 2)
+  creditAddBack         Decimal? @db.Decimal(12, 2)
+  voeAddBack            Decimal? @db.Decimal(12, 2)
+  termiteAddBack        Decimal? @db.Decimal(12, 2)
+  appraisalReinspectionAddBack Decimal? @db.Decimal(12, 2)
+  waterTestAddBack      Decimal? @db.Decimal(12, 2)
+  loanAmountPriorToFees Decimal? @db.Decimal(12, 2)
+  recessionDate         DateTime?
+  figureNftyAttachmentName String?
+  figureNftyAttachmentUrl  String?
+  grossCompAmount       Decimal? @db.Decimal(12, 2)
+  preSplitAddBackTotal  Decimal? @db.Decimal(12, 2)
+  preSplitDeductionTotal Decimal? @db.Decimal(12, 2)
+  splitBasisAmount      Decimal? @db.Decimal(12, 2)
+  postSplitAddBackTotal Decimal? @db.Decimal(12, 2)
+  netCompAmount         Decimal? @db.Decimal(12, 2)
+  calculationSnapshot   Json?
   mismoDetails          Json?
 
   status                PayrollCompRequestStatus @default(PENDING_REVIEW)
@@ -1015,6 +1059,57 @@ model PayrollCompRequest {
   @@index([paidAt])
   @@index([loanNumber])
   @@index([loanId])
+}
+
+model PayrollSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  label       String
+  description String?
+  valueType   PayrollSettingValueType @default(TEXT)
+  value       String
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PayrollLenderFeeRule {
+  id          String   @id @default(uuid())
+  lender      String
+  loanChannel PayrollLoanChannel?
+  feeKind     PayrollFeeRuleKind
+  label       String
+  amount      Decimal  @db.Decimal(12, 2)
+  required    Boolean  @default(true)
+  active      Boolean  @default(true)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([lender, loanChannel, feeKind])
+  @@index([lender, active])
+  @@index([loanChannel, active])
+}
+
+model PayrollLenderRequirement {
+  id                         String   @id @default(uuid())
+  lender                     String   @unique
+  requiresLoanAmountPriorToFees Boolean @default(false)
+  requiresFundedDetailsAttachment Boolean @default(false)
+  requiresRecessionDate      Boolean @default(false)
+  active                     Boolean  @default(true)
+  notes                      String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
+model PayrollUserSetting {
+  id                              String   @id @default(uuid())
+  userId                          String   @unique
+  user                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requiresOriginationFeeWarning   Boolean  @default(false)
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
 }
 
 model PayrollCompRequestSplit {

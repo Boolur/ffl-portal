@@ -5,11 +5,15 @@ import { revalidatePath } from 'next/cache';
 import {
   PayrollCompPlanType,
   PayrollCompRequestStatus,
+  PayrollFeeRuleKind,
   PayrollLeadProvidedBy,
   PayrollLeadSource,
+  PayrollLenderFeeRule,
+  PayrollLenderRequirement,
   PayrollLoanChannel,
   PayrollProcessingType,
   PayrollSalaryFrequency,
+  PayrollSettingValueType,
   PayrollSplitPayType,
   PayrollUserClassification,
   Prisma,
@@ -25,6 +29,7 @@ const PAYROLL_ADMIN_PATHS = [
   '/admin/payroll/users',
   '/admin/payroll/requests',
   '/admin/payroll/reporting',
+  '/admin/payroll/settings',
 ];
 const PAYROLL_PORTAL_PATH = '/payroll';
 
@@ -84,7 +89,26 @@ export type PayrollCompRequestInput = {
   processingType: PayrollProcessingType;
   leadSource: PayrollLeadSource;
   leadProvidedBy: PayrollLeadProvidedBy;
-  expectedRevenue: number;
+  expectedRevenue?: number;
+  brokerComp?: number | null;
+  sectionAComp?: number | null;
+  yspAmount?: number | null;
+  toleranceCure?: number | null;
+  oneDayInterest?: number | null;
+  wireFee?: number | null;
+  underwritingFee?: number | null;
+  lenderCredit?: number | null;
+  originationFee?: number | null;
+  appraisalAddBack?: number | null;
+  creditAddBack?: number | null;
+  voeAddBack?: number | null;
+  termiteAddBack?: number | null;
+  appraisalReinspectionAddBack?: number | null;
+  waterTestAddBack?: number | null;
+  loanAmountPriorToFees?: number | null;
+  recessionDate?: string | null;
+  figureNftyAttachmentName?: string | null;
+  figureNftyAttachmentUrl?: string | null;
   submitterNotes?: string;
   mismoDetails?: PayrollMismoDetails | null;
 };
@@ -123,6 +147,37 @@ export type PayrollSplitSnapshot = {
   sortOrder: number;
 };
 
+export type PayrollCalculationLine = {
+  key: string;
+  label: string;
+  enteredAmount: number | null;
+  calculatedAmount: number;
+  stage: 'BASE' | 'PRE_SPLIT' | 'MISSING_FEE' | 'POST_SPLIT';
+  treatment: 'BASE' | 'ADD_BACK' | 'DEDUCTION' | 'SATISFIED' | 'INFO';
+  required?: boolean;
+  missing?: boolean;
+  note?: string;
+};
+
+export type PayrollCalculationSnapshot = {
+  grossCompAmount: number;
+  preSplitAddBackTotal: number;
+  preSplitDeductionTotal: number;
+  splitBasisAmount: number;
+  postSplitAddBackTotal: number;
+  netCompAmount: number;
+  lines: PayrollCalculationLine[];
+  warnings: string[];
+  requirements: {
+    figureNftyRequired: boolean;
+    requiresLoanAmountPriorToFees: boolean;
+    requiresFundedDetailsAttachment: boolean;
+    requiresRecessionDate: boolean;
+    recessionBlocksSubmission: boolean;
+    recessionEligibleDate: string | null;
+  };
+};
+
 export type PayrollRequestRow = {
   id: string;
   loanOfficerId: string;
@@ -138,6 +193,32 @@ export type PayrollRequestRow = {
   leadProvidedBy: PayrollLeadProvidedBy;
   appliedPlanType: PayrollCompPlanType;
   expectedRevenue: number;
+  brokerComp: number | null;
+  sectionAComp: number | null;
+  yspAmount: number | null;
+  toleranceCure: number | null;
+  oneDayInterest: number | null;
+  wireFee: number | null;
+  underwritingFee: number | null;
+  lenderCredit: number | null;
+  originationFee: number | null;
+  appraisalAddBack: number | null;
+  creditAddBack: number | null;
+  voeAddBack: number | null;
+  termiteAddBack: number | null;
+  appraisalReinspectionAddBack: number | null;
+  waterTestAddBack: number | null;
+  loanAmountPriorToFees: number | null;
+  recessionDate: string | null;
+  figureNftyAttachmentName: string | null;
+  figureNftyAttachmentUrl: string | null;
+  grossCompAmount: number | null;
+  preSplitAddBackTotal: number | null;
+  preSplitDeductionTotal: number | null;
+  splitBasisAmount: number | null;
+  postSplitAddBackTotal: number | null;
+  netCompAmount: number | null;
+  calculationSnapshot: PayrollCalculationSnapshot | null;
   status: PayrollCompRequestStatus;
   submittedAt: string;
   reviewedAt: string | null;
@@ -148,6 +229,38 @@ export type PayrollRequestRow = {
   rejectionReason: string | null;
   mismoDetails: PayrollMismoDetails | null;
   splits: PayrollSplitSnapshot[];
+};
+
+export type PayrollSettingsDatabase = {
+  settings: Array<{
+    id: string;
+    key: string;
+    label: string;
+    description: string | null;
+    valueType: PayrollSettingValueType;
+    value: string;
+    active: boolean;
+  }>;
+  feeRules: Array<{
+    id: string;
+    lender: string;
+    loanChannel: PayrollLoanChannel | null;
+    feeKind: PayrollFeeRuleKind;
+    label: string;
+    amount: number;
+    required: boolean;
+    active: boolean;
+    notes: string | null;
+  }>;
+  lenderRequirements: Array<{
+    id: string;
+    lender: string;
+    requiresLoanAmountPriorToFees: boolean;
+    requiresFundedDetailsAttachment: boolean;
+    requiresRecessionDate: boolean;
+    active: boolean;
+    notes: string | null;
+  }>;
 };
 
 export type PayrollUserPlanDetail = {
@@ -316,12 +429,38 @@ function ensureMoney(value: number, label: string) {
   return money(value);
 }
 
+function ensureSignedMoney(value: number | null | undefined, label: string) {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  if (!Number.isFinite(value)) {
+    throw new Error(`${label} must be a valid amount.`);
+  }
+  return money(value);
+}
+
 function ensureOptionalMoney(value: number | null | undefined, label: string) {
   if (value === null || value === undefined || Number.isNaN(value)) return null;
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${label} must be zero or greater.`);
   }
   return money(value);
+}
+
+function parseOptionalDate(value?: string | null, label = 'Date') {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error(`${label} is invalid.`);
+  return date;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function isFigureNftyLender(lender: string) {
+  const normalized = lender.trim().toUpperCase();
+  return normalized.includes('FIGURE') || normalized.includes('NFTY');
 }
 
 function nextPaycheckWindow(now = new Date()): PayrollNextPaycheckSummary {
@@ -384,7 +523,218 @@ function datesFromFilters(filters: PayrollRequestFilters | PayrollReportFilters)
   };
 }
 
+async function getPayrollRulesForRequest(input: Pick<PayrollCompRequestInput, 'lender' | 'loanChannel'>) {
+  const [feeRules, requirement] = await Promise.all([
+    prisma.payrollLenderFeeRule.findMany({
+      where: {
+        lender: { equals: input.lender, mode: 'insensitive' },
+        active: true,
+        OR: [{ loanChannel: input.loanChannel }, { loanChannel: null }],
+      },
+    }),
+    prisma.payrollLenderRequirement.findFirst({
+      where: {
+        lender: { equals: input.lender, mode: 'insensitive' },
+        active: true,
+      },
+    }),
+  ]);
+  return { feeRules, requirement };
+}
+
+function missingRequiredFeeLine(
+  rule: PayrollLenderFeeRule,
+  enteredAmount: number | null,
+  key: string
+): PayrollCalculationLine {
+  const missing = rule.required && (!enteredAmount || enteredAmount <= 0);
+  return {
+    key,
+    label: rule.label,
+    enteredAmount,
+    calculatedAmount: missing ? -money(decimalToNumber(rule.amount)) : 0,
+    stage: 'MISSING_FEE',
+    treatment: missing ? 'DEDUCTION' : 'SATISFIED',
+    required: rule.required,
+    missing,
+    note: missing
+      ? `${rule.label} is required for this lender and is reducing the split basis.`
+      : `${rule.label} entered; no compensation reduction.`,
+  };
+}
+
+function feeAmountForKind(rules: PayrollLenderFeeRule[], kind: PayrollFeeRuleKind) {
+  return rules.find((rule) => rule.feeKind === kind && rule.required);
+}
+
+function calculatePayrollCompensation(
+  input: PayrollCompRequestInput,
+  rules: {
+    feeRules: PayrollLenderFeeRule[];
+    requirement: PayrollLenderRequirement | null;
+  },
+  now = new Date()
+): PayrollCalculationSnapshot {
+  const brokerComp = ensureOptionalMoney(input.brokerComp, 'Broker comp');
+  const sectionAComp = ensureOptionalMoney(input.sectionAComp, 'Section A');
+  const baseAmount = input.loanChannel === PayrollLoanChannel.BROKER
+    ? brokerComp
+    : sectionAComp;
+  if (!baseAmount || baseAmount <= 0) {
+    throw new Error(input.loanChannel === PayrollLoanChannel.BROKER ? 'Broker Comp is required.' : 'Section A is required.');
+  }
+
+  const yspAmount = ensureSignedMoney(input.yspAmount, 'YSP');
+  if (yspAmount !== null && yspAmount > 0) {
+    throw new Error('YSP should be entered as a negative amount because that is how it appears in the loan file.');
+  }
+  const toleranceCure = ensureOptionalMoney(input.toleranceCure, 'Tolerance cure');
+  const oneDayInterest = ensureOptionalMoney(input.oneDayInterest, '1 day of interest');
+  const wireFee = ensureOptionalMoney(input.wireFee, 'Wire fee');
+  const underwritingFee = ensureOptionalMoney(input.underwritingFee, 'Underwriting fee');
+  const lenderCredit = ensureOptionalMoney(input.lenderCredit, 'Lender credit');
+  const originationFee = ensureOptionalMoney(input.originationFee, 'Origination fee');
+  const appraisalAddBack = ensureOptionalMoney(input.appraisalAddBack, 'Appraisal add-back');
+  const creditAddBack = ensureOptionalMoney(input.creditAddBack, 'Credit add-back');
+  const voeAddBack = ensureOptionalMoney(input.voeAddBack, 'VOE add-back');
+  const termiteAddBack = ensureOptionalMoney(input.termiteAddBack, 'Termite add-back');
+  const appraisalReinspectionAddBack = ensureOptionalMoney(input.appraisalReinspectionAddBack, 'Appraisal reinspection add-back');
+  const waterTestAddBack = ensureOptionalMoney(input.waterTestAddBack, 'Water test add-back');
+  const loanAmountPriorToFees = ensureOptionalMoney(input.loanAmountPriorToFees, 'Loan amount prior to fees');
+  const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
+
+  const lines: PayrollCalculationLine[] = [
+    {
+      key: input.loanChannel === PayrollLoanChannel.BROKER ? 'brokerComp' : 'sectionAComp',
+      label: input.loanChannel === PayrollLoanChannel.BROKER ? 'Broker Comp' : 'Section A',
+      enteredAmount: baseAmount,
+      calculatedAmount: baseAmount,
+      stage: 'BASE',
+      treatment: 'BASE',
+      required: true,
+    },
+  ];
+  if (yspAmount !== null && yspAmount < 0) {
+    lines.push({
+      key: 'yspAmount',
+      label: 'YSP Credit / Additional Comp',
+      enteredAmount: yspAmount,
+      calculatedAmount: Math.abs(yspAmount),
+      stage: 'PRE_SPLIT',
+      treatment: 'ADD_BACK',
+      note: 'Displayed as negative from the loan file, treated as positive compensation.',
+    });
+  }
+  if (toleranceCure) {
+    lines.push({ key: 'toleranceCure', label: 'Tolerance Cure', enteredAmount: toleranceCure, calculatedAmount: -toleranceCure, stage: 'PRE_SPLIT', treatment: 'DEDUCTION' });
+  }
+  if (oneDayInterest) {
+    lines.push({ key: 'oneDayInterest', label: '1 Day of Interest', enteredAmount: oneDayInterest, calculatedAmount: -oneDayInterest, stage: 'PRE_SPLIT', treatment: 'DEDUCTION' });
+  }
+  if (lenderCredit) {
+    lines.push({ key: 'lenderCredit', label: 'Lender Credit', enteredAmount: lenderCredit, calculatedAmount: -lenderCredit, stage: 'PRE_SPLIT', treatment: 'DEDUCTION' });
+  }
+
+  const feeLines = [
+    { kind: PayrollFeeRuleKind.WIRE_FEE, value: wireFee, key: 'wireFee', fallbackLabel: 'Wire Fee' },
+    { kind: PayrollFeeRuleKind.UNDERWRITING_FEE, value: underwritingFee, key: 'underwritingFee', fallbackLabel: 'Underwriting Fee' },
+    { kind: PayrollFeeRuleKind.ORIGINATION_FEE, value: originationFee, key: 'originationFee', fallbackLabel: 'Origination Fee' },
+  ].map((item) => {
+    const rule = feeAmountForKind(rules.feeRules, item.kind);
+    if (rule) return missingRequiredFeeLine(rule, item.value, item.key);
+    if (!item.value) return null;
+    return {
+      key: item.key,
+      label: item.fallbackLabel,
+      enteredAmount: item.value,
+      calculatedAmount: 0,
+      stage: 'MISSING_FEE' as const,
+      treatment: 'SATISFIED' as const,
+      note: `${item.fallbackLabel} entered; no compensation reduction.`,
+    };
+  }).filter(Boolean) as PayrollCalculationLine[];
+  lines.push(...feeLines);
+
+  const preSplitAddBackTotal = money(lines
+    .filter((line) => line.stage === 'PRE_SPLIT' && line.calculatedAmount > 0)
+    .reduce((sum, line) => sum + line.calculatedAmount, 0));
+  const preSplitDeductionTotal = money(Math.abs(lines
+    .filter((line) => (line.stage === 'PRE_SPLIT' || line.stage === 'MISSING_FEE') && line.calculatedAmount < 0)
+    .reduce((sum, line) => sum + line.calculatedAmount, 0)));
+
+  const postSplitFields = [
+    { key: 'appraisalAddBack', label: 'Appraisal', value: appraisalAddBack },
+    { key: 'creditAddBack', label: 'Credit', value: creditAddBack },
+    { key: 'voeAddBack', label: 'VOE', value: voeAddBack },
+    { key: 'termiteAddBack', label: 'Termite', value: termiteAddBack },
+    { key: 'appraisalReinspectionAddBack', label: 'Appraisal Reinspection', value: appraisalReinspectionAddBack },
+    { key: 'waterTestAddBack', label: 'Water Test', value: waterTestAddBack },
+  ];
+  for (const field of postSplitFields) {
+    if (!field.value) continue;
+    lines.push({
+      key: field.key,
+      label: field.label,
+      enteredAmount: field.value,
+      calculatedAmount: field.value,
+      stage: 'POST_SPLIT',
+      treatment: 'ADD_BACK',
+      note: 'Applied after split calculation.',
+    });
+  }
+  const postSplitAddBackTotal = money(postSplitFields.reduce((sum, field) => sum + (field.value ?? 0), 0));
+
+  const splitBasisAmount = money(baseAmount + preSplitAddBackTotal - preSplitDeductionTotal);
+  if (splitBasisAmount <= 0) {
+    throw new Error('Split basis must be greater than 0 after pre-split adjustments.');
+  }
+  const netCompAmount = money(splitBasisAmount + postSplitAddBackTotal);
+
+  const figureNftyRequired = isFigureNftyLender(input.lender);
+  const requirement = rules.requirement;
+  const requiresLoanAmountPriorToFees = figureNftyRequired || Boolean(requirement?.requiresLoanAmountPriorToFees);
+  const requiresFundedDetailsAttachment = figureNftyRequired || Boolean(requirement?.requiresFundedDetailsAttachment);
+  const requiresRecessionDate = figureNftyRequired || Boolean(requirement?.requiresRecessionDate);
+  const recessionEligibleDate = recessionDate ? addDays(recessionDate, 3) : null;
+  const currentWindow = nextPaycheckWindow(now);
+  const recessionBlocksSubmission = Boolean(
+    requiresRecessionDate &&
+    recessionEligibleDate &&
+    recessionEligibleDate >= new Date(currentWindow.periodEnd)
+  );
+  const warnings: string[] = [];
+  if (requiresLoanAmountPriorToFees && !loanAmountPriorToFees) warnings.push('Loan amount prior to fees is required for this lender.');
+  if (requiresFundedDetailsAttachment && !input.figureNftyAttachmentName && !input.figureNftyAttachmentUrl) warnings.push('Funded/details screenshot attachment is required for this lender.');
+  if (requiresRecessionDate && !recessionDate) warnings.push('Recession date is required for this lender.');
+  if (recessionBlocksSubmission) warnings.push('The recession period pushes this file into the next pay period.');
+  for (const line of lines) {
+    if (line.missing) warnings.push(`${line.label} is missing and reducing compensation.`);
+  }
+
+  return {
+    grossCompAmount: baseAmount,
+    preSplitAddBackTotal,
+    preSplitDeductionTotal,
+    splitBasisAmount,
+    postSplitAddBackTotal,
+    netCompAmount,
+    lines,
+    warnings,
+    requirements: {
+      figureNftyRequired,
+      requiresLoanAmountPriorToFees,
+      requiresFundedDetailsAttachment,
+      requiresRecessionDate,
+      recessionBlocksSubmission,
+      recessionEligibleDate: recessionEligibleDate?.toISOString() ?? null,
+    },
+  };
+}
+
 function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include: typeof requestInclude }>): PayrollRequestRow {
+  const calculationSnapshot = (request.calculationSnapshot as PayrollCalculationSnapshot | null) ?? null;
+  const splitBasisAmount = decimalToNumber(request.splitBasisAmount) || decimalToNumber(request.expectedRevenue);
+  const netCompAmount = decimalToNumber(request.netCompAmount) || splitBasisAmount;
   return {
     id: request.id,
     loanOfficerId: request.loanOfficerId,
@@ -400,6 +750,32 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     leadProvidedBy: request.leadProvidedBy,
     appliedPlanType: request.appliedPlanType,
     expectedRevenue: decimalToNumber(request.expectedRevenue),
+    brokerComp: decimalToNumber(request.brokerComp) || null,
+    sectionAComp: decimalToNumber(request.sectionAComp) || null,
+    yspAmount: decimalToNumber(request.yspAmount) || null,
+    toleranceCure: decimalToNumber(request.toleranceCure) || null,
+    oneDayInterest: decimalToNumber(request.oneDayInterest) || null,
+    wireFee: decimalToNumber(request.wireFee) || null,
+    underwritingFee: decimalToNumber(request.underwritingFee) || null,
+    lenderCredit: decimalToNumber(request.lenderCredit) || null,
+    originationFee: decimalToNumber(request.originationFee) || null,
+    appraisalAddBack: decimalToNumber(request.appraisalAddBack) || null,
+    creditAddBack: decimalToNumber(request.creditAddBack) || null,
+    voeAddBack: decimalToNumber(request.voeAddBack) || null,
+    termiteAddBack: decimalToNumber(request.termiteAddBack) || null,
+    appraisalReinspectionAddBack: decimalToNumber(request.appraisalReinspectionAddBack) || null,
+    waterTestAddBack: decimalToNumber(request.waterTestAddBack) || null,
+    loanAmountPriorToFees: decimalToNumber(request.loanAmountPriorToFees) || null,
+    recessionDate: request.recessionDate?.toISOString() ?? null,
+    figureNftyAttachmentName: request.figureNftyAttachmentName,
+    figureNftyAttachmentUrl: request.figureNftyAttachmentUrl,
+    grossCompAmount: request.grossCompAmount !== null ? decimalToNumber(request.grossCompAmount) : calculationSnapshot?.grossCompAmount ?? null,
+    preSplitAddBackTotal: request.preSplitAddBackTotal !== null ? decimalToNumber(request.preSplitAddBackTotal) : calculationSnapshot?.preSplitAddBackTotal ?? null,
+    preSplitDeductionTotal: request.preSplitDeductionTotal !== null ? decimalToNumber(request.preSplitDeductionTotal) : calculationSnapshot?.preSplitDeductionTotal ?? null,
+    splitBasisAmount,
+    postSplitAddBackTotal: request.postSplitAddBackTotal !== null ? decimalToNumber(request.postSplitAddBackTotal) : calculationSnapshot?.postSplitAddBackTotal ?? null,
+    netCompAmount,
+    calculationSnapshot,
     status: request.status,
     submittedAt: request.submittedAt.toISOString(),
     reviewedAt: request.reviewedAt?.toISOString() ?? null,
@@ -721,31 +1097,49 @@ export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettings
 
 export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
   const actor = await assertPayrollPortalUser();
-  const expectedRevenue = ensureMoney(input.expectedRevenue, 'Expected revenue');
-  const snapshots = await buildSplitSnapshots(actor.userId, expectedRevenue, {
+  const rules = await getPayrollRulesForRequest(input);
+  const calculation = calculatePayrollCompensation(input, rules);
+  const snapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
   });
-  return snapshots.map((split) => ({
-    recipientName: split.recipientName,
-    recipientEmail: split.recipientEmail,
-    roleLabel: split.roleLabel,
-    payType: split.payType,
-    splitPercent: split.splitPercent,
-    flatAmount: split.flatAmount,
-    amount: split.amount,
-    sortOrder: split.sortOrder,
-  }));
+  return {
+    calculation,
+    splits: snapshots.map((split) => ({
+      recipientName: split.recipientName,
+      recipientEmail: split.recipientEmail,
+      roleLabel: split.roleLabel,
+      payType: split.payType,
+      splitPercent: split.splitPercent,
+      flatAmount: split.flatAmount,
+      amount: split.amount,
+      sortOrder: split.sortOrder,
+    })),
+  };
 }
 
 export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   const actor = await assertPayrollPortalUser();
-  const expectedRevenue = ensureMoney(input.expectedRevenue, 'Expected revenue');
-  const snapshots = await buildSplitSnapshots(actor.userId, expectedRevenue, {
+  const rules = await getPayrollRulesForRequest(input);
+  const calculation = calculatePayrollCompensation(input, rules);
+  if (calculation.requirements.recessionBlocksSubmission) {
+    throw new Error('This Figure/NFTY file cannot be submitted until the recession period falls into the eligible pay period.');
+  }
+  if (calculation.requirements.requiresLoanAmountPriorToFees && !input.loanAmountPriorToFees) {
+    throw new Error('Loan amount prior to fees is required for this lender.');
+  }
+  if (calculation.requirements.requiresFundedDetailsAttachment && !input.figureNftyAttachmentName && !input.figureNftyAttachmentUrl) {
+    throw new Error('Funded/details screenshot is required for this lender.');
+  }
+  if (calculation.requirements.requiresRecessionDate && !input.recessionDate) {
+    throw new Error('Recession date is required for this lender.');
+  }
+  const snapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
   });
   const appliedPlanType = snapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
+  const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
 
   await prisma.payrollCompRequest.create({
     data: {
@@ -759,7 +1153,33 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
       leadSource: input.leadSource,
       leadProvidedBy: input.leadProvidedBy,
       appliedPlanType,
-      expectedRevenue,
+      expectedRevenue: calculation.splitBasisAmount,
+      brokerComp: ensureOptionalMoney(input.brokerComp, 'Broker comp'),
+      sectionAComp: ensureOptionalMoney(input.sectionAComp, 'Section A'),
+      yspAmount: ensureSignedMoney(input.yspAmount, 'YSP'),
+      toleranceCure: ensureOptionalMoney(input.toleranceCure, 'Tolerance cure'),
+      oneDayInterest: ensureOptionalMoney(input.oneDayInterest, '1 day of interest'),
+      wireFee: ensureOptionalMoney(input.wireFee, 'Wire fee'),
+      underwritingFee: ensureOptionalMoney(input.underwritingFee, 'Underwriting fee'),
+      lenderCredit: ensureOptionalMoney(input.lenderCredit, 'Lender credit'),
+      originationFee: ensureOptionalMoney(input.originationFee, 'Origination fee'),
+      appraisalAddBack: ensureOptionalMoney(input.appraisalAddBack, 'Appraisal add-back'),
+      creditAddBack: ensureOptionalMoney(input.creditAddBack, 'Credit add-back'),
+      voeAddBack: ensureOptionalMoney(input.voeAddBack, 'VOE add-back'),
+      termiteAddBack: ensureOptionalMoney(input.termiteAddBack, 'Termite add-back'),
+      appraisalReinspectionAddBack: ensureOptionalMoney(input.appraisalReinspectionAddBack, 'Appraisal reinspection add-back'),
+      waterTestAddBack: ensureOptionalMoney(input.waterTestAddBack, 'Water test add-back'),
+      loanAmountPriorToFees: ensureOptionalMoney(input.loanAmountPriorToFees, 'Loan amount prior to fees'),
+      recessionDate,
+      figureNftyAttachmentName: input.figureNftyAttachmentName?.trim() || null,
+      figureNftyAttachmentUrl: input.figureNftyAttachmentUrl?.trim() || null,
+      grossCompAmount: calculation.grossCompAmount,
+      preSplitAddBackTotal: calculation.preSplitAddBackTotal,
+      preSplitDeductionTotal: calculation.preSplitDeductionTotal,
+      splitBasisAmount: calculation.splitBasisAmount,
+      postSplitAddBackTotal: calculation.postSplitAddBackTotal,
+      netCompAmount: calculation.netCompAmount,
+      calculationSnapshot: calculation as unknown as Prisma.InputJsonValue,
       mismoDetails: normalizeMismoDetails(input.mismoDetails),
       submitterNotes: input.submitterNotes?.trim() || null,
       splits: {
@@ -862,6 +1282,118 @@ export async function getPayrollRequests(filters: PayrollRequestFilters = {}) {
   return requests.map(serializeRequest);
 }
 
+export async function getPayrollSettingsDatabase(): Promise<PayrollSettingsDatabase> {
+  await assertPayrollAdmin();
+  const [settings, feeRules, lenderRequirements] = await Promise.all([
+    prisma.payrollSetting.findMany({ orderBy: [{ active: 'desc' }, { label: 'asc' }] }),
+    prisma.payrollLenderFeeRule.findMany({ orderBy: [{ active: 'desc' }, { lender: 'asc' }, { label: 'asc' }] }),
+    prisma.payrollLenderRequirement.findMany({ orderBy: [{ active: 'desc' }, { lender: 'asc' }] }),
+  ]);
+  return {
+    settings: settings.map((setting) => ({
+      id: setting.id,
+      key: setting.key,
+      label: setting.label,
+      description: setting.description,
+      valueType: setting.valueType,
+      value: setting.value,
+      active: setting.active,
+    })),
+    feeRules: feeRules.map((rule) => ({
+      id: rule.id,
+      lender: rule.lender,
+      loanChannel: rule.loanChannel,
+      feeKind: rule.feeKind,
+      label: rule.label,
+      amount: decimalToNumber(rule.amount),
+      required: rule.required,
+      active: rule.active,
+      notes: rule.notes,
+    })),
+    lenderRequirements: lenderRequirements.map((requirement) => ({
+      id: requirement.id,
+      lender: requirement.lender,
+      requiresLoanAmountPriorToFees: requirement.requiresLoanAmountPriorToFees,
+      requiresFundedDetailsAttachment: requirement.requiresFundedDetailsAttachment,
+      requiresRecessionDate: requirement.requiresRecessionDate,
+      active: requirement.active,
+      notes: requirement.notes,
+    })),
+  };
+}
+
+export type PayrollLenderFeeRuleInput = {
+  id?: string;
+  lender: string;
+  loanChannel?: PayrollLoanChannel | null;
+  feeKind: PayrollFeeRuleKind;
+  label: string;
+  amount: number;
+  required?: boolean;
+  active?: boolean;
+  notes?: string | null;
+};
+
+export async function savePayrollLenderFeeRule(input: PayrollLenderFeeRuleInput) {
+  await assertPayrollAdmin();
+  const data = {
+    lender: cleanText(input.lender, 'Lender'),
+    loanChannel: input.loanChannel ?? null,
+    feeKind: input.feeKind,
+    label: cleanText(input.label, 'Fee label'),
+    amount: ensureOptionalMoney(input.amount, 'Fee amount') ?? 0,
+    required: input.required ?? true,
+    active: input.active ?? true,
+    notes: input.notes?.trim() || null,
+  };
+  if (input.id) {
+    await prisma.payrollLenderFeeRule.update({ where: { id: input.id }, data });
+  } else {
+    const existing = await prisma.payrollLenderFeeRule.findFirst({
+      where: { lender: data.lender, loanChannel: data.loanChannel, feeKind: data.feeKind },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.payrollLenderFeeRule.update({ where: { id: existing.id }, data });
+    } else {
+      await prisma.payrollLenderFeeRule.create({ data });
+    }
+  }
+  revalidatePayroll();
+}
+
+export type PayrollLenderRequirementInput = {
+  id?: string;
+  lender: string;
+  requiresLoanAmountPriorToFees?: boolean;
+  requiresFundedDetailsAttachment?: boolean;
+  requiresRecessionDate?: boolean;
+  active?: boolean;
+  notes?: string | null;
+};
+
+export async function savePayrollLenderRequirement(input: PayrollLenderRequirementInput) {
+  await assertPayrollAdmin();
+  const data = {
+    lender: cleanText(input.lender, 'Lender'),
+    requiresLoanAmountPriorToFees: input.requiresLoanAmountPriorToFees ?? false,
+    requiresFundedDetailsAttachment: input.requiresFundedDetailsAttachment ?? false,
+    requiresRecessionDate: input.requiresRecessionDate ?? false,
+    active: input.active ?? true,
+    notes: input.notes?.trim() || null,
+  };
+  if (input.id) {
+    await prisma.payrollLenderRequirement.update({ where: { id: input.id }, data });
+  } else {
+    await prisma.payrollLenderRequirement.upsert({
+      where: { lender: data.lender },
+      update: data,
+      create: data,
+    });
+  }
+  revalidatePayroll();
+}
+
 async function replaceRequestSplits(requestId: string) {
   const request = await prisma.payrollCompRequest.findUnique({
     where: { id: requestId },
@@ -869,13 +1401,14 @@ async function replaceRequestSplits(requestId: string) {
       id: true,
       loanOfficerId: true,
       expectedRevenue: true,
+      splitBasisAmount: true,
       leadSource: true,
       leadProvidedBy: true,
       appliedPlanType: true,
     },
   });
   if (!request) throw new Error('Payroll request was not found.');
-  const snapshots = await buildSplitSnapshots(request.loanOfficerId, decimalToNumber(request.expectedRevenue), {
+  const snapshots = await buildSplitSnapshots(request.loanOfficerId, decimalToNumber(request.splitBasisAmount) || decimalToNumber(request.expectedRevenue), {
     leadSource: request.leadSource,
     leadProvidedBy: request.leadProvidedBy,
     appliedPlanType: request.appliedPlanType,
@@ -911,12 +1444,14 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
     throw new Error('Paid requests cannot be edited.');
   }
 
-  const expectedRevenue = ensureMoney(input.expectedRevenue, 'Expected revenue');
-  const snapshots = await buildSplitSnapshots(request.loanOfficerId, expectedRevenue, {
+  const rules = await getPayrollRulesForRequest(input);
+  const calculation = calculatePayrollCompensation(input, rules);
+  const snapshots = await buildSplitSnapshots(request.loanOfficerId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
     appliedPlanType: input.appliedPlanType,
   });
+  const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
 
   await prisma.$transaction(async (tx) => {
     await tx.payrollCompRequest.update({
@@ -931,7 +1466,33 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         leadSource: input.leadSource,
         leadProvidedBy: input.leadProvidedBy,
         appliedPlanType: input.appliedPlanType,
-        expectedRevenue,
+        expectedRevenue: calculation.splitBasisAmount,
+        brokerComp: ensureOptionalMoney(input.brokerComp, 'Broker comp'),
+        sectionAComp: ensureOptionalMoney(input.sectionAComp, 'Section A'),
+        yspAmount: ensureSignedMoney(input.yspAmount, 'YSP'),
+        toleranceCure: ensureOptionalMoney(input.toleranceCure, 'Tolerance cure'),
+        oneDayInterest: ensureOptionalMoney(input.oneDayInterest, '1 day of interest'),
+        wireFee: ensureOptionalMoney(input.wireFee, 'Wire fee'),
+        underwritingFee: ensureOptionalMoney(input.underwritingFee, 'Underwriting fee'),
+        lenderCredit: ensureOptionalMoney(input.lenderCredit, 'Lender credit'),
+        originationFee: ensureOptionalMoney(input.originationFee, 'Origination fee'),
+        appraisalAddBack: ensureOptionalMoney(input.appraisalAddBack, 'Appraisal add-back'),
+        creditAddBack: ensureOptionalMoney(input.creditAddBack, 'Credit add-back'),
+        voeAddBack: ensureOptionalMoney(input.voeAddBack, 'VOE add-back'),
+        termiteAddBack: ensureOptionalMoney(input.termiteAddBack, 'Termite add-back'),
+        appraisalReinspectionAddBack: ensureOptionalMoney(input.appraisalReinspectionAddBack, 'Appraisal reinspection add-back'),
+        waterTestAddBack: ensureOptionalMoney(input.waterTestAddBack, 'Water test add-back'),
+        loanAmountPriorToFees: ensureOptionalMoney(input.loanAmountPriorToFees, 'Loan amount prior to fees'),
+        recessionDate,
+        figureNftyAttachmentName: input.figureNftyAttachmentName?.trim() || null,
+        figureNftyAttachmentUrl: input.figureNftyAttachmentUrl?.trim() || null,
+        grossCompAmount: calculation.grossCompAmount,
+        preSplitAddBackTotal: calculation.preSplitAddBackTotal,
+        preSplitDeductionTotal: calculation.preSplitDeductionTotal,
+        splitBasisAmount: calculation.splitBasisAmount,
+        postSplitAddBackTotal: calculation.postSplitAddBackTotal,
+        netCompAmount: calculation.netCompAmount,
+        calculationSnapshot: calculation as unknown as Prisma.InputJsonValue,
         mismoDetails: normalizeMismoDetails(input.mismoDetails) ?? Prisma.JsonNull,
         submitterNotes: input.submitterNotes?.trim() || null,
         adminNotes: input.adminNotes?.trim() || null,

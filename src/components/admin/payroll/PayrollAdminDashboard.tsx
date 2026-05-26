@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Banknote, CheckCircle2, Clock, DollarSign, Users } from 'lucide-react';
+import { Banknote, CheckCircle2, Clock, Database, DollarSign, Users } from 'lucide-react';
 import type { getPayrollAdminDashboardData } from '@/app/actions/payrollActions';
 import { formatCurrency } from './payrollFormat';
 import { PayrollRequestTable } from './PayrollRequestTable';
@@ -104,7 +104,7 @@ export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests
         <KpiCard title="Submitted Revenue" value={formatCurrency(summary.submittedRevenue)} subtitle={`${summary.totalRequests} total requests`} Icon={Banknote} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-4">
         <Link href="/admin/payroll/users" className="group rounded-2xl border border-orange-200 bg-white p-5 shadow-sm transition hover:border-orange-300 hover:shadow-md">
           <Users className="h-8 w-8 rounded-xl bg-orange-500 p-1.5 text-white" />
           <h2 className="mt-4 text-base font-bold text-slate-900">User Split Settings</h2>
@@ -122,6 +122,12 @@ export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests
           <h2 className="mt-4 text-base font-bold text-slate-900">Payroll Reporting</h2>
           <p className="mt-1 text-sm text-slate-500">Summarize revenue and payout splits by user.</p>
           <span className="mt-4 inline-flex rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white">View Reports</span>
+        </Link>
+        <Link href="/admin/payroll/settings" className="group rounded-2xl border border-purple-200 bg-white p-5 shadow-sm transition hover:border-purple-300 hover:shadow-md">
+          <Database className="h-8 w-8 rounded-xl bg-purple-600 p-1.5 text-white" />
+          <h2 className="mt-4 text-base font-bold text-slate-900">Payroll Settings & Database</h2>
+          <p className="mt-1 text-sm text-slate-500">Manage lender fees, required checks, and calculation rules.</p>
+          <span className="mt-4 inline-flex rounded-xl bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700 group-hover:bg-purple-600 group-hover:text-white">Manage Rules</span>
         </Link>
       </div>
 
