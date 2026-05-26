@@ -552,14 +552,14 @@ function missingRequiredFeeLine(
     key,
     label: rule.label,
     enteredAmount,
-    calculatedAmount: missing ? -money(decimalToNumber(rule.amount)) : 0,
+    calculatedAmount: missing ? -money(decimalToNumber(rule.amount)) : -money(enteredAmount ?? 0),
     stage: 'MISSING_FEE',
-    treatment: missing ? 'DEDUCTION' : 'SATISFIED',
+    treatment: 'DEDUCTION',
     required: rule.required,
     missing,
     note: missing
       ? `${rule.label} is required for this lender and is reducing the split basis.`
-      : `${rule.label} entered; no compensation reduction.`,
+      : `${rule.label} is included in Section A and reduces the split basis.`,
   };
 }
 
@@ -649,10 +649,10 @@ function calculatePayrollCompensation(
       key: item.key,
       label: item.fallbackLabel,
       enteredAmount: item.value,
-      calculatedAmount: 0,
+      calculatedAmount: -item.value,
       stage: 'MISSING_FEE' as const,
-      treatment: 'SATISFIED' as const,
-      note: `${item.fallbackLabel} entered; no compensation reduction.`,
+      treatment: 'DEDUCTION' as const,
+      note: `${item.fallbackLabel} is included in Section A and reduces the split basis.`,
     };
   }).filter(Boolean) as PayrollCalculationLine[];
   lines.push(...feeLines);

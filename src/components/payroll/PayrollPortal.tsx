@@ -187,13 +187,28 @@ function toOptionalNumber(value: string) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function toDeductionNumber(value: string) {
+  const numeric = toOptionalNumber(value);
+  if (numeric === null) return null;
+  return Math.abs(numeric);
+}
+
 function buildCompInput(form: FormState) {
   const amounts = Object.fromEntries(
     MONEY_FIELDS.map((field) => [field, toOptionalNumber(form[field])])
   ) as Record<MoneyField, number | null>;
+  const deductionAmounts = {
+    toleranceCure: toDeductionNumber(form.toleranceCure),
+    oneDayInterest: toDeductionNumber(form.oneDayInterest),
+    wireFee: toDeductionNumber(form.wireFee),
+    underwritingFee: toDeductionNumber(form.underwritingFee),
+    lenderCredit: toDeductionNumber(form.lenderCredit),
+    originationFee: toDeductionNumber(form.originationFee),
+  };
   return {
     ...form,
     ...amounts,
+    ...deductionAmounts,
     expectedRevenue: amounts.brokerComp ?? amounts.sectionAComp ?? 0,
     recessionDate: form.recessionDate || null,
     figureNftyAttachmentName: form.figureNftyAttachmentName || null,
@@ -865,7 +880,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   {form.loanChannel === PayrollLoanChannel.BROKER ? (
                     <>
-                      <Input label="Broker Comp" value={form.brokerComp} onChange={(value) => update('brokerComp', value)} onBlur={() => markTouched('brokerComp')} error={shouldHighlight('brokerComp')} placeholder="4500" inputMode="decimal" />
+                      <Input label="Broker Comp" value={form.brokerComp} onChange={(value) => update('brokerComp', value)} onBlur={() => markTouched('brokerComp')} error={shouldHighlight('brokerComp')} placeholder="4500" inputMode="decimal" currencyPrefix="$" />
                       <label className="block">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Broker Compensation Type</span>
                         <select
@@ -881,18 +896,18 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                     </>
                   ) : (
                     <>
-                      <Input label="Section A" value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="4500" inputMode="decimal" />
+                      <Input label="Section A" value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="10000" inputMode="decimal" currencyPrefix="$" />
                       <Input label="YSP (enter as negative)" value={form.yspAmount} onChange={(value) => update('yspAmount', value)} placeholder="-2000" inputMode="decimal" helper="Shows negative from the loan file, but payroll treats it as positive comp." />
                     </>
                   )}
-                  <Input label="Tolerance Cure" value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" />
+                  <Input label="Tolerance Cure" value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
                   {form.loanChannel === PayrollLoanChannel.NON_DELEGATED && (
                     <>
-                      <Input label="1 Day of Interest" value={form.oneDayInterest} onChange={(value) => update('oneDayInterest', value)} placeholder="0" inputMode="decimal" />
-                      <Input label="Wire Fee" value={form.wireFee} onChange={(value) => update('wireFee', value)} placeholder="0" inputMode="decimal" />
-                      <Input label="Underwriting Fee" value={form.underwritingFee} onChange={(value) => update('underwritingFee', value)} placeholder="0" inputMode="decimal" />
-                      <Input label="Lender Credit" value={form.lenderCredit} onChange={(value) => update('lenderCredit', value)} placeholder="0" inputMode="decimal" />
-                      <Input label="Origination Fee" value={form.originationFee} onChange={(value) => update('originationFee', value)} placeholder="0" inputMode="decimal" />
+                      <Input label="1 Day of Interest" value={form.oneDayInterest} onChange={(value) => update('oneDayInterest', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
+                      <Input label="Wire Fee" value={form.wireFee} onChange={(value) => update('wireFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
+                      <Input label="Underwriting Fee" value={form.underwritingFee} onChange={(value) => update('underwritingFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
+                      <Input label="Lender Credit" value={form.lenderCredit} onChange={(value) => update('lenderCredit', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
+                      <Input label="Origination Fee" value={form.originationFee} onChange={(value) => update('originationFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" />
                     </>
                   )}
                 </div>
@@ -1022,6 +1037,7 @@ function Input({
   inputMode,
   helper,
   type = 'text',
+  currencyPrefix,
   error = false,
 }: {
   label: string;
@@ -1032,25 +1048,35 @@ function Input({
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   helper?: string;
   type?: React.HTMLInputTypeAttribute;
+  currencyPrefix?: '$' | '-$';
   error?: boolean;
 }) {
   return (
     <label className="block">
       <span className={`text-[11px] font-bold uppercase tracking-wider ${error ? 'text-rose-600' : 'text-slate-500'}`}>{label}</span>
-      <input
-        value={value}
-        type={type}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={onBlur}
-        placeholder={placeholder}
-        inputMode={inputMode}
-        aria-invalid={error}
-        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 ${
-          error
-            ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
-            : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
-        }`}
-      />
+      <div className="relative mt-1">
+        {currencyPrefix && (
+          <span className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold ${currencyPrefix === '-$' ? 'text-rose-600' : 'text-slate-500'}`}>
+            {currencyPrefix}
+          </span>
+        )}
+        <input
+          value={value}
+          type={type}
+          onChange={(event) => onChange(event.target.value)}
+          onBlur={onBlur}
+          placeholder={placeholder}
+          inputMode={inputMode}
+          aria-invalid={error}
+          className={`w-full rounded-lg border py-2 text-sm outline-none focus:ring-2 ${
+            currencyPrefix ? 'pl-9 pr-3' : 'px-3'
+          } ${
+            error
+              ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
+              : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+          }`}
+        />
+      </div>
       {helper && <span className={`mt-1 block text-xs ${error ? 'text-rose-600' : 'text-slate-500'}`}>{helper}</span>}
     </label>
   );
