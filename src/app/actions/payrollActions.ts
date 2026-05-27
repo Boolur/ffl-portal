@@ -1122,6 +1122,18 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
 
 export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   const actor = await assertPayrollPortalUser();
+  const loanNumber = cleanText(input.loanNumber, 'Loan number');
+  const existingRequest = await prisma.payrollCompRequest.findFirst({
+    where: {
+      loanOfficerId: actor.userId,
+      loanNumber: { equals: loanNumber, mode: 'insensitive' },
+      status: { not: PayrollCompRequestStatus.REJECTED },
+    },
+    select: { id: true, status: true },
+  });
+  if (existingRequest) {
+    throw new Error('A compensation request for this Arive loan number already exists. Delete or reject the existing request before submitting another one.');
+  }
   const rules = await getPayrollRulesForRequest(input);
   const calculation = calculatePayrollCompensation(input, rules);
   if (calculation.requirements.recessionBlocksSubmission) {
@@ -1146,7 +1158,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   await prisma.payrollCompRequest.create({
     data: {
       loanOfficerId: actor.userId,
-      loanNumber: cleanText(input.loanNumber, 'Loan number'),
+      loanNumber,
       borrowerName: cleanText(input.borrowerName, "Borrower's name"),
       loanType: cleanText(input.loanType, 'Loan type'),
       lender: cleanText(input.lender, 'Lender'),
