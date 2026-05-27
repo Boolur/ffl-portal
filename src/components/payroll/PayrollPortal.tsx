@@ -199,6 +199,12 @@ function toNegativeNumber(value: string) {
   return -Math.abs(numeric);
 }
 
+function formatNegativeInputValue(value: string) {
+  const numeric = toOptionalNumber(value);
+  if (numeric === null || numeric === 0) return '';
+  return `-${Math.abs(numeric)}`;
+}
+
 function buildCompInput(form: FormState) {
   const amounts = Object.fromEntries(
     MONEY_FIELDS.map((field) => [field, toOptionalNumber(form[field])])
@@ -910,7 +916,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                   ) : (
                     <>
                       <Input label="Section A" Icon={Landmark} value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="0" inputMode="decimal" currencyPrefix="+$" green />
-                      <Input label="YSP" Icon={DollarSign} value={form.yspAmount} onChange={(value) => update('yspAmount', value.replace(/-/g, ''))} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="YSP" Icon={DollarSign} value={formatNegativeInputValue(form.yspAmount)} onChange={(value) => update('yspAmount', value.replace(/-/g, ''))} placeholder="-0" inputMode="decimal" green />
                     </>
                   )}
                   <Input label="Tolerance Cure" Icon={ShieldCheck} value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
@@ -996,32 +1002,48 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                 </div>
                 {preview && (
                   <div className="mt-4 space-y-4">
+                    {(() => {
+                      const loanOfficerSplit = preview.splits.find((split) => split.roleLabel === 'Loan Officer');
+                      const postSplitAddBack = preview.splits.find((split) => split.roleLabel === 'Post-Split Add-Backs');
+                      const hiddenSplits = preview.splits.filter((split) => split.roleLabel !== 'Loan Officer' && split.roleLabel !== 'Post-Split Add-Backs');
+                      const hiddenSplitAmount = hiddenSplits.reduce((sum, split) => sum + split.amount, 0);
+                      const hiddenSplitPercent = hiddenSplits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.FLAT ? split.splitPercent : 0), 0);
+                      const loanOfficerFinalComp = (loanOfficerSplit?.amount ?? 0) + (postSplitAddBack?.amount ?? 0);
+                      return (
+                        <>
                     {preview.calculation.warnings.length > 0 && (
                       <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                         {preview.calculation.warnings.map((warning) => <p key={warning}>{warning}</p>)}
                       </div>
                     )}
                     <div className="divide-y divide-slate-200 rounded-xl bg-white px-4">
-                    {preview.splits.map((split) => {
-                      const isPostSplitAddBack = split.roleLabel === 'Post-Split Add-Backs';
-                      return (
-                      <div key={`${split.recipientEmail ?? split.recipientName}:${split.roleLabel}`} className="flex items-center justify-between gap-4 py-3">
+                      {loanOfficerSplit && (
+                      <div className="flex items-center justify-between gap-4 py-3">
                         <div>
-                          <p className="font-semibold text-slate-900">
-                            {isPostSplitAddBack ? 'Post-Split Add-Backs Back to LO' : split.recipientName}
-                          </p>
-                          <p className={`text-xs ${isPostSplitAddBack ? 'font-semibold text-emerald-700' : 'text-slate-500'}`}>
-                            {isPostSplitAddBack
-                              ? 'Paid only to the loan officer'
-                              : `${split.roleLabel} · ${split.payType !== PayrollSplitPayType.FLAT ? formatPercent(split.splitPercent) : 'Flat fee'}${split.payType !== PayrollSplitPayType.PERCENT && split.flatAmount ? ` + ${formatCurrency(split.flatAmount)}` : ''}`}
-                          </p>
+                          <p className="font-semibold text-slate-900">{loanOfficerSplit.recipientName}</p>
+                          <p className="text-xs text-slate-500">Loan Officer · {formatPercent(loanOfficerSplit.splitPercent)}</p>
                         </div>
-                        <p className={`font-bold ${isPostSplitAddBack ? 'text-emerald-700' : 'text-slate-900'}`}>
-                          {isPostSplitAddBack ? `+ ${formatCurrency(split.amount)}` : formatCurrency(split.amount)}
-                        </p>
+                        <p className="font-bold text-slate-900">{formatCurrency(loanOfficerSplit.amount)}</p>
                       </div>
-                      );
-                    })}
+                      )}
+                      {hiddenSplitAmount > 0 && (
+                      <div className="flex items-center justify-between gap-4 py-3">
+                        <div>
+                          <p className="font-semibold text-slate-900">Splits</p>
+                          <p className="text-xs text-slate-500">{formatPercent(hiddenSplitPercent)} total split allocation</p>
+                        </div>
+                        <p className="font-bold text-slate-900">{formatCurrency(hiddenSplitAmount)}</p>
+                      </div>
+                      )}
+                      {postSplitAddBack && (
+                      <div className="flex items-center justify-between gap-4 py-3">
+                        <div>
+                          <p className="font-semibold text-slate-900">Post-Split Add-Backs Back to LO</p>
+                          <p className="text-xs font-semibold text-emerald-700">Paid only to the loan officer</p>
+                        </div>
+                        <p className="font-bold text-emerald-700">+ {formatCurrency(postSplitAddBack.amount)}</p>
+                      </div>
+                      )}
                       <div className="flex items-center justify-between gap-4 py-4">
                         <div className="flex items-center gap-3">
                           <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
@@ -1032,9 +1054,12 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                             <p className="text-xs font-semibold text-emerald-700">Loan officer split plus post-split add-backs</p>
                           </div>
                         </div>
-                        <p className="text-lg font-extrabold text-emerald-700">{formatCurrency(preview.calculation.netCompAmount)}</p>
+                        <p className="text-lg font-extrabold text-emerald-700">{formatCurrency(loanOfficerFinalComp)}</p>
                       </div>
                     </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
