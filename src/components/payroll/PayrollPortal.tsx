@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useTransition } from 'react';
-import { Banknote, Building2, Calculator, CheckCircle2, Clock, DollarSign, Edit3, FilePlus2, Landmark, Loader2, Megaphone, Plus, ReceiptText, Send, Upload, WalletCards, X } from 'lucide-react';
+import { Banknote, Building2, Bug, Calculator, CheckCircle2, Clock, Droplets, DollarSign, Edit3, FileCheck2, FilePlus2, Landmark, Loader2, Megaphone, Percent, Plus, ReceiptText, RefreshCw, Send, ShieldCheck, Upload, WalletCards, Waves, X } from 'lucide-react';
 import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollSplitPayType } from '@prisma/client';
 import {
   getPayrollRequestPreview,
@@ -906,14 +906,14 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                       <Input label="YSP (enter as negative)" Icon={DollarSign} value={form.yspAmount} onChange={(value) => update('yspAmount', value)} placeholder="0" inputMode="decimal" helper="Shows negative from the loan file, but payroll treats it as positive comp." currencyPrefix="+$" green />
                     </>
                   )}
-                  <Input label="Tolerance Cure" Icon={ReceiptText} value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                  <Input label="Tolerance Cure" Icon={ShieldCheck} value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
                   {form.loanChannel === PayrollLoanChannel.NON_DELEGATED && (
                     <>
                       <Input label="1 Day of Interest" Icon={Clock} value={form.oneDayInterest} onChange={(value) => update('oneDayInterest', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
-                      <Input label="Wire Fee" Icon={ReceiptText} value={form.wireFee} onChange={(value) => update('wireFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
-                      <Input label="Underwriting Fee" Icon={ReceiptText} value={form.underwritingFee} onChange={(value) => update('underwritingFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Wire Fee" Icon={Waves} value={form.wireFee} onChange={(value) => update('wireFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Underwriting Fee" Icon={FileCheck2} value={form.underwritingFee} onChange={(value) => update('underwritingFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
                       <Input label="Lender Credit" Icon={DollarSign} value={form.lenderCredit} onChange={(value) => update('lenderCredit', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
-                      <Input label="Origination Fee" Icon={ReceiptText} value={form.originationFee} onChange={(value) => update('originationFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Origination Fee" Icon={Percent} value={form.originationFee} onChange={(value) => update('originationFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
                     </>
                   )}
                 </div>
@@ -926,12 +926,12 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                 </p>
                 <p className="text-sm text-slate-600">These are added after the split is calculated, if needed.</p>
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <Input label="Appraisal" Icon={FilePlus2} value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="Credit" Icon={DollarSign} value={form.creditAddBack} onChange={(value) => update('creditAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="VOE" Icon={FilePlus2} value={form.voeAddBack} onChange={(value) => update('voeAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="Termite" Icon={FilePlus2} value={form.termiteAddBack} onChange={(value) => update('termiteAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="Appraisal Reinspection" Icon={FilePlus2} value={form.appraisalReinspectionAddBack} onChange={(value) => update('appraisalReinspectionAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="Water Test" Icon={FilePlus2} value={form.waterTestAddBack} onChange={(value) => update('waterTestAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Appraisal" Icon={Landmark} value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Credit Report" Icon={ReceiptText} value={form.creditAddBack} onChange={(value) => update('creditAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="VOE" Icon={FileCheck2} value={form.voeAddBack} onChange={(value) => update('voeAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Termite" Icon={Bug} value={form.termiteAddBack} onChange={(value) => update('termiteAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Appraisal Reinspection" Icon={RefreshCw} value={form.appraisalReinspectionAddBack} onChange={(value) => update('appraisalReinspectionAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Water Test" Icon={Droplets} value={form.waterTestAddBack} onChange={(value) => update('waterTestAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
                 </div>
               </div>
 
