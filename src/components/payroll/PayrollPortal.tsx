@@ -215,8 +215,15 @@ function toNegativeNumber(value: string) {
 
 function formatNegativeInputValue(value: string) {
   const numeric = toOptionalNumber(value);
-  if (numeric === null || numeric === 0) return '';
+  if (!value.trim()) return '';
+  if (numeric === null) return '';
+  if (numeric === 0) return '-0';
   return `-${Math.abs(numeric)}`;
+}
+
+function missingFieldMessage(fields: Array<{ label: string }>) {
+  const labelList = fields.map((field) => field.label).join(', ');
+  return `Please fix the missing fields before continuing. Enter 0 for any amount that does not apply.${labelList ? ` Missing: ${labelList}.` : ''}`;
 }
 
 function buildCompInput(form: FormState) {
@@ -586,13 +593,23 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   };
 
   const loadPreview = () => {
+    setAttemptedSubmit(true);
+    if (missingFields.length > 0) {
+      setTouchedFields(new Set(REQUIRED_FIELDS.map((field) => field.key)));
+      setPreview(null);
+      setError(missingFieldMessage(missingFields));
+      return;
+    }
     startTransition(async () => {
       try {
         setError(null);
         const result = await getPayrollRequestPreview(buildCompInput(form));
         setPreview(result);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unable to calculate split preview.');
+        const message = err instanceof Error && err.message && !err.message.includes('digest')
+          ? err.message
+          : 'Unable to calculate the preview. Please fix the missing fields and enter 0 for any amount that does not apply.';
+        setError(message);
       }
     });
   };
@@ -601,7 +618,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
     setAttemptedSubmit(true);
     if (missingFields.length > 0) {
       setTouchedFields(new Set(REQUIRED_FIELDS.map((field) => field.key)));
-      setError(`Please complete: ${missingFields.map((field) => field.label).join(', ')}.`);
+      setError(missingFieldMessage(missingFields));
       return;
     }
     startTransition(async () => {
