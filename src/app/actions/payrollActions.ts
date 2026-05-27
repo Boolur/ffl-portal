@@ -460,6 +460,20 @@ function ensureOptionalMoney(value: number | null | undefined, label: string) {
   return money(value);
 }
 
+function ensureRequiredOptionalMoney(value: number | null | undefined, label: string) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    throw new Error(`${label} is required. Enter 0 if it does not apply.`);
+  }
+  return ensureOptionalMoney(value, label);
+}
+
+function ensureRequiredSignedMoney(value: number | null | undefined, label: string) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    throw new Error(`${label} is required. Enter 0 if it does not apply.`);
+  }
+  return ensureSignedMoney(value, label);
+}
+
 function parseOptionalDate(value?: string | null, label = 'Date') {
   if (!value) return null;
   const date = new Date(value);
@@ -633,6 +647,21 @@ function calculatePayrollCompensation(
 ): PayrollCalculationSnapshot {
   const brokerComp = ensureOptionalMoney(input.brokerComp, 'Broker comp');
   const sectionAComp = ensureOptionalMoney(input.sectionAComp, 'Section A');
+  ensureRequiredOptionalMoney(input.toleranceCure, 'Tolerance cure');
+  ensureRequiredOptionalMoney(input.appraisalAddBack, 'Appraisal add-back');
+  ensureRequiredOptionalMoney(input.creditAddBack, 'Credit report add-back');
+  ensureRequiredOptionalMoney(input.voeAddBack, 'VOE add-back');
+  ensureRequiredOptionalMoney(input.termiteAddBack, 'Termite add-back');
+  ensureRequiredOptionalMoney(input.appraisalReinspectionAddBack, 'Appraisal reinspection add-back');
+  ensureRequiredOptionalMoney(input.waterTestAddBack, 'Water test add-back');
+  if (input.loanChannel === PayrollLoanChannel.NON_DELEGATED) {
+    ensureRequiredSignedMoney(input.yspAmount, 'YSP');
+    ensureRequiredOptionalMoney(input.oneDayInterest, '1 day of interest');
+    ensureRequiredOptionalMoney(input.wireFee, 'Wire fee');
+    ensureRequiredOptionalMoney(input.underwritingFee, 'Underwriting fee');
+    ensureRequiredOptionalMoney(input.lenderCredit, 'Lender credit');
+    ensureRequiredOptionalMoney(input.originationFee, 'Origination fee');
+  }
   const baseAmount = input.loanChannel === PayrollLoanChannel.BROKER
     ? brokerComp
     : sectionAComp;

@@ -74,7 +74,7 @@ type FormState = {
   submitterNotes: string;
   mismoDetails: PayrollMismoDetails | null;
 };
-type RequiredFieldKey = 'loanNumber' | 'borrowerName' | 'loanType' | 'lender' | 'loanChannel' | 'processingType' | 'leadSource' | 'leadProvidedBy' | 'brokerComp' | 'sectionAComp';
+type RequiredFieldKey = Exclude<keyof FormState, 'expectedRevenue' | 'brokerPaidBy' | 'submitterNotes' | 'mismoDetails' | 'recessionDate' | 'figureNftyAttachmentName'>;
 
 const initialForm: FormState = {
   loanNumber: '',
@@ -119,6 +119,20 @@ const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
   { key: 'leadProvidedBy', label: 'Lead Provided By' },
   { key: 'brokerComp', label: 'Broker Comp' },
   { key: 'sectionAComp', label: 'Section A' },
+  { key: 'yspAmount', label: 'YSP' },
+  { key: 'toleranceCure', label: 'Tolerance Cure' },
+  { key: 'oneDayInterest', label: '1 Day of Interest' },
+  { key: 'wireFee', label: 'Wire Fee' },
+  { key: 'underwritingFee', label: 'Underwriting Fee' },
+  { key: 'lenderCredit', label: 'Lender Credit' },
+  { key: 'originationFee', label: 'Origination Fee' },
+  { key: 'appraisalAddBack', label: 'Appraisal' },
+  { key: 'creditAddBack', label: 'Credit Report' },
+  { key: 'voeAddBack', label: 'VOE' },
+  { key: 'termiteAddBack', label: 'Termite' },
+  { key: 'appraisalReinspectionAddBack', label: 'Appraisal Reinspection' },
+  { key: 'waterTestAddBack', label: 'Water Test' },
+  { key: 'loanAmountPriorToFees', label: 'Loan Amount Prior to Fees' },
 ];
 const LOAN_TYPE_OPTIONS = [
   'Conventional',
@@ -524,9 +538,15 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
       if (key === 'sectionAComp') {
         return form.loanChannel === PayrollLoanChannel.NON_DELEGATED && (!Number.isFinite(Number(value)) || Number(value) <= 0);
       }
+      if (MONEY_FIELDS.includes(key as MoneyField)) {
+        if (key === 'yspAmount' && form.loanChannel !== PayrollLoanChannel.NON_DELEGATED) return false;
+        if (['oneDayInterest', 'wireFee', 'underwritingFee', 'lenderCredit', 'originationFee'].includes(key) && form.loanChannel !== PayrollLoanChannel.NON_DELEGATED) return false;
+        if (key === 'loanAmountPriorToFees' && !figureNftyRequired) return false;
+        return !String(value).trim() || !Number.isFinite(Number(String(value).replace(/[$,\s-]/g, '')));
+      }
       return !String(value).trim();
     });
-  }, [form]);
+  }, [figureNftyRequired, form]);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -916,17 +936,17 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                   ) : (
                     <>
                       <Input label="Section A" Icon={Landmark} value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="0" inputMode="decimal" currencyPrefix="+$" green />
-                      <Input label="YSP" Icon={DollarSign} value={formatNegativeInputValue(form.yspAmount)} onChange={(value) => update('yspAmount', value.replace(/-/g, ''))} placeholder="-0" inputMode="decimal" green />
+                      <Input label="YSP" Icon={DollarSign} value={formatNegativeInputValue(form.yspAmount)} onChange={(value) => update('yspAmount', value.replace(/-/g, ''))} error={shouldHighlight('yspAmount')} onBlur={() => markTouched('yspAmount')} placeholder="-0" inputMode="decimal" green />
                     </>
                   )}
-                  <Input label="Tolerance Cure" Icon={ShieldCheck} value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                  <Input label="Tolerance Cure" Icon={ShieldCheck} value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} error={shouldHighlight('toleranceCure')} onBlur={() => markTouched('toleranceCure')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
                   {form.loanChannel === PayrollLoanChannel.NON_DELEGATED && (
                     <>
-                      <Input label="1 Day of Interest" Icon={Clock} value={form.oneDayInterest} onChange={(value) => update('oneDayInterest', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
-                      <Input label="Wire Fee" Icon={Waves} value={form.wireFee} onChange={(value) => update('wireFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
-                      <Input label="Underwriting Fee" Icon={FileCheck2} value={form.underwritingFee} onChange={(value) => update('underwritingFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
-                      <Input label="Lender Credit" Icon={DollarSign} value={form.lenderCredit} onChange={(value) => update('lenderCredit', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
-                      <Input label="Origination Fee" Icon={Percent} value={form.originationFee} onChange={(value) => update('originationFee', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="1 Day of Interest" Icon={Clock} value={form.oneDayInterest} onChange={(value) => update('oneDayInterest', value)} error={shouldHighlight('oneDayInterest')} onBlur={() => markTouched('oneDayInterest')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Wire Fee" Icon={Waves} value={form.wireFee} onChange={(value) => update('wireFee', value)} error={shouldHighlight('wireFee')} onBlur={() => markTouched('wireFee')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Underwriting Fee" Icon={FileCheck2} value={form.underwritingFee} onChange={(value) => update('underwritingFee', value)} error={shouldHighlight('underwritingFee')} onBlur={() => markTouched('underwritingFee')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Lender Credit" Icon={DollarSign} value={form.lenderCredit} onChange={(value) => update('lenderCredit', value)} error={shouldHighlight('lenderCredit')} onBlur={() => markTouched('lenderCredit')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                      <Input label="Origination Fee" Icon={Percent} value={form.originationFee} onChange={(value) => update('originationFee', value)} error={shouldHighlight('originationFee')} onBlur={() => markTouched('originationFee')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
                     </>
                   )}
                 </div>
@@ -939,12 +959,12 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                 </p>
                 <p className="text-sm text-slate-600">These are added after the split is calculated, if needed.</p>
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <Input label="Appraisal" Icon={Landmark} value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="Credit Report" Icon={ReceiptText} value={form.creditAddBack} onChange={(value) => update('creditAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="VOE" Icon={FileCheck2} value={form.voeAddBack} onChange={(value) => update('voeAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="Termite" Icon={Bug} value={form.termiteAddBack} onChange={(value) => update('termiteAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="Appraisal Reinspection" Icon={RefreshCw} value={form.appraisalReinspectionAddBack} onChange={(value) => update('appraisalReinspectionAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
-                  <Input label="Water Test" Icon={Droplets} value={form.waterTestAddBack} onChange={(value) => update('waterTestAddBack', value)} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Appraisal" Icon={Landmark} value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} error={shouldHighlight('appraisalAddBack')} onBlur={() => markTouched('appraisalAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Credit Report" Icon={ReceiptText} value={form.creditAddBack} onChange={(value) => update('creditAddBack', value)} error={shouldHighlight('creditAddBack')} onBlur={() => markTouched('creditAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="VOE" Icon={FileCheck2} value={form.voeAddBack} onChange={(value) => update('voeAddBack', value)} error={shouldHighlight('voeAddBack')} onBlur={() => markTouched('voeAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Termite" Icon={Bug} value={form.termiteAddBack} onChange={(value) => update('termiteAddBack', value)} error={shouldHighlight('termiteAddBack')} onBlur={() => markTouched('termiteAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Appraisal Reinspection" Icon={RefreshCw} value={form.appraisalReinspectionAddBack} onChange={(value) => update('appraisalReinspectionAddBack', value)} error={shouldHighlight('appraisalReinspectionAddBack')} onBlur={() => markTouched('appraisalReinspectionAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
+                  <Input label="Water Test" Icon={Droplets} value={form.waterTestAddBack} onChange={(value) => update('waterTestAddBack', value)} error={shouldHighlight('waterTestAddBack')} onBlur={() => markTouched('waterTestAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
                 </div>
               </div>
 
@@ -953,7 +973,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                   <p className="text-sm font-bold text-amber-900">Figure/NFTY Required Details</p>
                   <p className="text-sm text-amber-800">These fields are required before this lender can be submitted.</p>
                   <div className="mt-4 grid gap-4 md:grid-cols-3">
-                    <Input label="Loan Amount Prior to Fees" value={form.loanAmountPriorToFees} onChange={(value) => update('loanAmountPriorToFees', value)} placeholder="0" inputMode="decimal" helper="Use loan amount prior to fees." />
+                    <Input label="Loan Amount Prior to Fees" value={form.loanAmountPriorToFees} onChange={(value) => update('loanAmountPriorToFees', value)} error={shouldHighlight('loanAmountPriorToFees')} onBlur={() => markTouched('loanAmountPriorToFees')} placeholder="0" inputMode="decimal" helper="Use loan amount prior to fees." />
                     <Input label="Recession Date" value={form.recessionDate} onChange={(value) => update('recessionDate', value)} type="date" />
                     <Input label="Funded/Details Screenshot Name" value={form.figureNftyAttachmentName} onChange={(value) => update('figureNftyAttachmentName', value)} placeholder="Screenshot uploaded/available" />
                   </div>
