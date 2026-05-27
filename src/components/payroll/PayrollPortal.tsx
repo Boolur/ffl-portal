@@ -83,7 +83,7 @@ const initialForm: FormState = {
   lender: '',
   loanChannel: PayrollLoanChannel.BROKER,
   processingType: PayrollProcessingType.IN_HOUSE,
-  leadSource: PayrollLeadSource.OTHER,
+  leadSource: PayrollLeadSource.LEAD_BUY,
   leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
   expectedRevenue: '',
   brokerComp: '',
@@ -989,29 +989,32 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                 </div>
                 {preview && (
                   <div className="mt-4 space-y-4">
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <SummaryPill label="Split Basis" value={formatCurrency(preview.calculation.splitBasisAmount)} tone="blue" />
-                      <SummaryPill label="Post-Split Add-Backs" value={formatCurrency(preview.calculation.postSplitAddBackTotal)} tone="emerald" />
-                      <SummaryPill label="Final Comp" value={formatCurrency(preview.calculation.netCompAmount)} tone="slate" />
-                    </div>
                     {preview.calculation.warnings.length > 0 && (
                       <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                         {preview.calculation.warnings.map((warning) => <p key={warning}>{warning}</p>)}
                       </div>
                     )}
                     <div className="divide-y divide-slate-200 rounded-xl bg-white px-4">
-                    {preview.splits.map((split) => (
+                    {preview.splits.map((split) => {
+                      const isPostSplitAddBack = split.roleLabel === 'Post-Split Add-Backs';
+                      return (
                       <div key={`${split.recipientEmail ?? split.recipientName}:${split.roleLabel}`} className="flex items-center justify-between gap-4 py-3">
                         <div>
-                          <p className="font-semibold text-slate-900">{split.recipientName}</p>
-                          <p className="text-xs text-slate-500">
-                            {split.roleLabel} · {split.payType !== PayrollSplitPayType.FLAT ? formatPercent(split.splitPercent) : 'Flat fee'}
-                            {split.payType !== PayrollSplitPayType.PERCENT && split.flatAmount ? ` + ${formatCurrency(split.flatAmount)}` : ''}
+                          <p className="font-semibold text-slate-900">
+                            {isPostSplitAddBack ? 'Post-Split Add-Backs Back to LO' : split.recipientName}
+                          </p>
+                          <p className={`text-xs ${isPostSplitAddBack ? 'font-semibold text-emerald-700' : 'text-slate-500'}`}>
+                            {isPostSplitAddBack
+                              ? 'Added after split calculation, paid only to the loan officer'
+                              : `${split.roleLabel} · ${split.payType !== PayrollSplitPayType.FLAT ? formatPercent(split.splitPercent) : 'Flat fee'}${split.payType !== PayrollSplitPayType.PERCENT && split.flatAmount ? ` + ${formatCurrency(split.flatAmount)}` : ''}`}
                           </p>
                         </div>
-                        <p className="font-bold text-slate-900">{formatCurrency(split.amount)}</p>
+                        <p className={`font-bold ${isPostSplitAddBack ? 'text-emerald-700' : 'text-slate-900'}`}>
+                          {isPostSplitAddBack ? `+ ${formatCurrency(split.amount)}` : formatCurrency(split.amount)}
+                        </p>
                       </div>
-                    ))}
+                      );
+                    })}
                     </div>
                   </div>
                 )}

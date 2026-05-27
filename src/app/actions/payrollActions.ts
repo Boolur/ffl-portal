@@ -904,6 +904,30 @@ async function buildSplitSnapshots(
   });
 }
 
+type BuiltPayrollSplitSnapshot = Awaited<ReturnType<typeof buildSplitSnapshots>>[number];
+
+function withPostSplitAddBacks(
+  snapshots: BuiltPayrollSplitSnapshot[],
+  calculation: PayrollCalculationSnapshot
+) {
+  if (calculation.postSplitAddBackTotal <= 0) return snapshots;
+  const loanOfficerSplit = snapshots[0];
+  if (!loanOfficerSplit) return snapshots;
+  return [
+    ...snapshots,
+    {
+      ...loanOfficerSplit,
+      planId: null,
+      roleLabel: 'Post-Split Add-Backs',
+      payType: PayrollSplitPayType.FLAT,
+      splitPercent: 0,
+      flatAmount: calculation.postSplitAddBackTotal,
+      amount: calculation.postSplitAddBackTotal,
+      sortOrder: snapshots.length,
+    },
+  ];
+}
+
 export async function getPayrollEligibleUsers() {
   await assertPayrollAdmin();
   const users = await prisma.user.findMany({
@@ -1101,10 +1125,11 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
   const actor = await assertPayrollPortalUser();
   const rules = await getPayrollRulesForRequest(input);
   const calculation = calculatePayrollCompensation(input, rules);
-  const snapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
+  const splitSnapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
   });
+  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation);
   return {
     calculation,
     splits: snapshots.map((split) => ({
@@ -1148,10 +1173,11 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   if (calculation.requirements.requiresRecessionDate && !input.recessionDate) {
     throw new Error('Recession date is required for this lender.');
   }
-  const snapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
+  const splitSnapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
   });
+  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation);
   const appliedPlanType = snapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
   const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
 
@@ -1419,14 +1445,17 @@ async function replaceRequestSplits(requestId: string) {
       leadSource: true,
       leadProvidedBy: true,
       appliedPlanType: true,
+      calculationSnapshot: true,
     },
   });
   if (!request) throw new Error('Payroll request was not found.');
-  const snapshots = await buildSplitSnapshots(request.loanOfficerId, decimalToNumber(request.splitBasisAmount) || decimalToNumber(request.expectedRevenue), {
+  const splitSnapshots = await buildSplitSnapshots(request.loanOfficerId, decimalToNumber(request.splitBasisAmount) || decimalToNumber(request.expectedRevenue), {
     leadSource: request.leadSource,
     leadProvidedBy: request.leadProvidedBy,
     appliedPlanType: request.appliedPlanType,
   });
+  const calculation = (request.calculationSnapshot as PayrollCalculationSnapshot | null) ?? null;
+  const snapshots = calculation ? withPostSplitAddBacks(splitSnapshots, calculation) : splitSnapshots;
   await prisma.$transaction([
     prisma.payrollCompRequestSplit.deleteMany({ where: { requestId } }),
     prisma.payrollCompRequestSplit.createMany({
@@ -1460,11 +1489,12 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
 
   const rules = await getPayrollRulesForRequest(input);
   const calculation = calculatePayrollCompensation(input, rules);
-  const snapshots = await buildSplitSnapshots(request.loanOfficerId, calculation.splitBasisAmount, {
+  const splitSnapshots = await buildSplitSnapshots(request.loanOfficerId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
     appliedPlanType: input.appliedPlanType,
   });
+  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation);
   const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
 
   await prisma.$transaction(async (tx) => {
