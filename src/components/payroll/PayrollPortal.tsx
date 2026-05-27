@@ -82,7 +82,7 @@ const initialForm: FormState = {
   loanType: '',
   lender: '',
   loanChannel: PayrollLoanChannel.BROKER,
-  processingType: PayrollProcessingType.IN_HOUSE,
+  processingType: PayrollProcessingType.CONTRACT,
   leadSource: PayrollLeadSource.LEAD_BUY,
   leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
   expectedRevenue: '',
@@ -193,11 +193,18 @@ function toDeductionNumber(value: string) {
   return Math.abs(numeric);
 }
 
+function toNegativeNumber(value: string) {
+  const numeric = toOptionalNumber(value);
+  if (numeric === null) return null;
+  return -Math.abs(numeric);
+}
+
 function buildCompInput(form: FormState) {
   const amounts = Object.fromEntries(
     MONEY_FIELDS.map((field) => [field, toOptionalNumber(form[field])])
   ) as Record<MoneyField, number | null>;
   const deductionAmounts = {
+    yspAmount: toNegativeNumber(form.yspAmount),
     toleranceCure: toDeductionNumber(form.toleranceCure),
     oneDayInterest: toDeductionNumber(form.oneDayInterest),
     wireFee: toDeductionNumber(form.wireFee),
@@ -861,8 +868,8 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                         : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
                     }`}
                   >
-                    <option value="IN_HOUSE">In-House</option>
                     <option value="CONTRACT">Contract</option>
+                    <option value="IN_HOUSE">In-House</option>
                     <option value="LENDER">Lender</option>
                     <option value="OTHER">Other</option>
                   </select>
@@ -903,7 +910,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                   ) : (
                     <>
                       <Input label="Section A" Icon={Landmark} value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="0" inputMode="decimal" currencyPrefix="+$" green />
-                      <Input label="YSP (enter as negative)" Icon={DollarSign} value={form.yspAmount} onChange={(value) => update('yspAmount', value)} placeholder="0" inputMode="decimal" helper="Shows negative from the loan file, but payroll treats it as positive comp." currencyPrefix="+$" green />
+                      <Input label="YSP" Icon={DollarSign} value={form.yspAmount} onChange={(value) => update('yspAmount', value.replace(/-/g, ''))} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
                     </>
                   )}
                   <Input label="Tolerance Cure" Icon={ShieldCheck} value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
@@ -1005,7 +1012,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                           </p>
                           <p className={`text-xs ${isPostSplitAddBack ? 'font-semibold text-emerald-700' : 'text-slate-500'}`}>
                             {isPostSplitAddBack
-                              ? 'Added after split calculation, paid only to the loan officer'
+                              ? 'Paid only to the loan officer'
                               : `${split.roleLabel} · ${split.payType !== PayrollSplitPayType.FLAT ? formatPercent(split.splitPercent) : 'Flat fee'}${split.payType !== PayrollSplitPayType.PERCENT && split.flatAmount ? ` + ${formatCurrency(split.flatAmount)}` : ''}`}
                           </p>
                         </div>
@@ -1015,6 +1022,18 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                       </div>
                       );
                     })}
+                      <div className="flex items-center justify-between gap-4 py-4">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                            <Banknote className="h-5 w-5" />
+                          </span>
+                          <div>
+                            <p className="text-base font-bold text-slate-950">Final Comp</p>
+                            <p className="text-xs font-semibold text-emerald-700">Loan officer split plus post-split add-backs</p>
+                          </div>
+                        </div>
+                        <p className="text-lg font-extrabold text-emerald-700">{formatCurrency(preview.calculation.netCompAmount)}</p>
+                      </div>
                     </div>
                   </div>
                 )}

@@ -261,6 +261,10 @@ export type PayrollSettingsDatabase = {
     active: boolean;
     notes: string | null;
   }>;
+  brokerRetailRouting: {
+    leadSources: PayrollLeadSource[];
+    leadProvidedBy: PayrollLeadProvidedBy[];
+  };
 };
 
 export type PayrollUserPlanDetail = {
@@ -349,6 +353,17 @@ const RETAIL_TRIGGER_PROVIDERS = new Set<PayrollLeadProvidedBy>([
   PayrollLeadProvidedBy.COMPANY_PROVIDED,
   PayrollLeadProvidedBy.BRANCH_PROVIDED,
 ]);
+const BROKER_RETAIL_LEAD_SOURCE_SETTING = 'payroll.brokerRetailLeadSources';
+const BROKER_RETAIL_LEAD_PROVIDER_SETTING = 'payroll.brokerRetailLeadProviders';
+const DEFAULT_BROKER_RETAIL_LEAD_SOURCES = [
+  PayrollLeadSource.LEAD_BUY,
+  PayrollLeadSource.MAILER,
+  PayrollLeadSource.WARM_TRANSFER,
+];
+const DEFAULT_BROKER_RETAIL_LEAD_PROVIDERS = [
+  PayrollLeadProvidedBy.COMPANY_PROVIDED,
+  PayrollLeadProvidedBy.BRANCH_PROVIDED,
+];
 
 function normalizeRoleList(role?: string, roles?: string[]): UserRole[] {
   const values = roles && roles.length > 0 ? roles : role ? [role] : [];
@@ -499,19 +514,60 @@ function resolveAppliedPlanType({
   userClassification,
   leadSource,
   leadProvidedBy,
+  retailLeadSources,
+  retailLeadProviders,
   override,
 }: {
   userClassification: PayrollUserClassification;
   leadSource: PayrollLeadSource;
   leadProvidedBy: PayrollLeadProvidedBy;
+  retailLeadSources?: Set<PayrollLeadSource>;
+  retailLeadProviders?: Set<PayrollLeadProvidedBy>;
   override?: PayrollCompPlanType | null;
 }) {
   if (override) return override;
   if (userClassification !== PayrollUserClassification.BROKER) return PayrollCompPlanType.BROKER;
-  if (RETAIL_TRIGGER_LEAD_SOURCES.has(leadSource) || RETAIL_TRIGGER_PROVIDERS.has(leadProvidedBy)) {
+  const sourceTriggers = retailLeadSources ?? RETAIL_TRIGGER_LEAD_SOURCES;
+  const providerTriggers = retailLeadProviders ?? RETAIL_TRIGGER_PROVIDERS;
+  if (sourceTriggers.has(leadSource) || providerTriggers.has(leadProvidedBy)) {
     return PayrollCompPlanType.RETAIL;
   }
   return PayrollCompPlanType.BROKER;
+}
+
+function parseEnumArray<T extends string>(value: string | null | undefined, allowed: readonly T[], fallback: readonly T[]) {
+  if (!value) return [...fallback];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [...fallback];
+    const allowedSet = new Set(allowed);
+    return parsed.filter((item): item is T => typeof item === 'string' && allowedSet.has(item as T));
+  } catch {
+    return [...fallback];
+  }
+}
+
+async function getBrokerRetailRoutingSettings() {
+  const settings = await prisma.payrollSetting.findMany({
+    where: {
+      key: { in: [BROKER_RETAIL_LEAD_SOURCE_SETTING, BROKER_RETAIL_LEAD_PROVIDER_SETTING] },
+      active: true,
+    },
+    select: { key: true, value: true },
+  });
+  const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+  return {
+    leadSources: parseEnumArray(
+      byKey.get(BROKER_RETAIL_LEAD_SOURCE_SETTING),
+      Object.values(PayrollLeadSource),
+      DEFAULT_BROKER_RETAIL_LEAD_SOURCES
+    ),
+    leadProvidedBy: parseEnumArray(
+      byKey.get(BROKER_RETAIL_LEAD_PROVIDER_SETTING),
+      Object.values(PayrollLeadProvidedBy),
+      DEFAULT_BROKER_RETAIL_LEAD_PROVIDERS
+    ),
+  };
 }
 
 function datesFromFilters(filters: PayrollRequestFilters | PayrollReportFilters) {
@@ -809,6 +865,10 @@ async function buildSplitSnapshots(
     leadSource?: PayrollLeadSource;
     leadProvidedBy?: PayrollLeadProvidedBy;
     appliedPlanType?: PayrollCompPlanType | null;
+    brokerRetailRouting?: {
+      leadSources: PayrollLeadSource[];
+      leadProvidedBy: PayrollLeadProvidedBy[];
+    };
   }
 ) {
   const [loanOfficer, plans] = await Promise.all([
@@ -835,13 +895,19 @@ async function buildSplitSnapshots(
     userClassification: classification,
     leadSource: context?.leadSource ?? PayrollLeadSource.OTHER,
     leadProvidedBy: context?.leadProvidedBy ?? PayrollLeadProvidedBy.SELF_SOURCED,
+    retailLeadSources: context?.brokerRetailRouting ? new Set(context.brokerRetailRouting.leadSources) : undefined,
+    retailLeadProviders: context?.brokerRetailRouting ? new Set(context.brokerRetailRouting.leadProvidedBy) : undefined,
     override: context?.appliedPlanType,
   });
+  const requestedPlan = plans.find((item) => item.planType === selectedPlanType);
+  const brokerPlan = plans.find((item) => item.planType === PayrollCompPlanType.BROKER);
+  const requestedPlanHasRecipients = requestedPlan
+    ? requestedPlan.splits.some((split) => split.active && (requiresPercent(split.payType) ? decimalToNumber(split.splitPercent) > 0 : decimalToNumber(split.flatAmount) > 0))
+    : false;
   const selectedPlan =
-    plans.find((item) => item.planType === selectedPlanType) ??
-    plans.find((item) => item.planType === PayrollCompPlanType.BROKER) ??
-    plans[0] ??
-    null;
+    requestedPlanHasRecipients || selectedPlanType === PayrollCompPlanType.BROKER
+      ? requestedPlan ?? brokerPlan ?? plans[0] ?? null
+      : brokerPlan ?? requestedPlan ?? plans[0] ?? null;
   const effectivePlanType = selectedPlan?.planType ?? selectedPlanType;
 
   const rawSplits = selectedPlan
@@ -1123,11 +1189,15 @@ export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettings
 
 export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
   const actor = await assertPayrollPortalUser();
-  const rules = await getPayrollRulesForRequest(input);
+  const [rules, brokerRetailRouting] = await Promise.all([
+    getPayrollRulesForRequest(input),
+    getBrokerRetailRoutingSettings(),
+  ]);
   const calculation = calculatePayrollCompensation(input, rules);
   const splitSnapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
+    brokerRetailRouting,
   });
   const snapshots = withPostSplitAddBacks(splitSnapshots, calculation);
   return {
@@ -1159,7 +1229,10 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   if (existingRequest) {
     throw new Error('A compensation request for this Arive loan number already exists. Delete or reject the existing request before submitting another one.');
   }
-  const rules = await getPayrollRulesForRequest(input);
+  const [rules, brokerRetailRouting] = await Promise.all([
+    getPayrollRulesForRequest(input),
+    getBrokerRetailRoutingSettings(),
+  ]);
   const calculation = calculatePayrollCompensation(input, rules);
   if (calculation.requirements.recessionBlocksSubmission) {
     throw new Error('This Figure/NFTY file cannot be submitted until the recession period falls into the eligible pay period.');
@@ -1176,6 +1249,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   const splitSnapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
+    brokerRetailRouting,
   });
   const snapshots = withPostSplitAddBacks(splitSnapshots, calculation);
   const appliedPlanType = snapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
@@ -1324,10 +1398,11 @@ export async function getPayrollRequests(filters: PayrollRequestFilters = {}) {
 
 export async function getPayrollSettingsDatabase(): Promise<PayrollSettingsDatabase> {
   await assertPayrollAdmin();
-  const [settings, feeRules, lenderRequirements] = await Promise.all([
+  const [settings, feeRules, lenderRequirements, brokerRetailRouting] = await Promise.all([
     prisma.payrollSetting.findMany({ orderBy: [{ active: 'desc' }, { label: 'asc' }] }),
     prisma.payrollLenderFeeRule.findMany({ orderBy: [{ active: 'desc' }, { lender: 'asc' }, { label: 'asc' }] }),
     prisma.payrollLenderRequirement.findMany({ orderBy: [{ active: 'desc' }, { lender: 'asc' }] }),
+    getBrokerRetailRoutingSettings(),
   ]);
   return {
     settings: settings.map((setting) => ({
@@ -1359,6 +1434,7 @@ export async function getPayrollSettingsDatabase(): Promise<PayrollSettingsDatab
       active: requirement.active,
       notes: requirement.notes,
     })),
+    brokerRetailRouting,
   };
 }
 
@@ -1412,6 +1488,50 @@ export type PayrollLenderRequirementInput = {
   notes?: string | null;
 };
 
+export type PayrollBrokerRetailRoutingInput = {
+  leadSources: PayrollLeadSource[];
+  leadProvidedBy: PayrollLeadProvidedBy[];
+};
+
+export async function savePayrollBrokerRetailRouting(input: PayrollBrokerRetailRoutingInput) {
+  await assertPayrollAdmin();
+  const allowedSources = new Set(Object.values(PayrollLeadSource));
+  const allowedProviders = new Set(Object.values(PayrollLeadProvidedBy));
+  const leadSources = input.leadSources.filter((source) => allowedSources.has(source));
+  const leadProvidedBy = input.leadProvidedBy.filter((provider) => allowedProviders.has(provider));
+  await prisma.$transaction([
+    prisma.payrollSetting.upsert({
+      where: { key: BROKER_RETAIL_LEAD_SOURCE_SETTING },
+      update: {
+        value: JSON.stringify(leadSources),
+        active: true,
+      },
+      create: {
+        key: BROKER_RETAIL_LEAD_SOURCE_SETTING,
+        label: 'Broker Retail Split Lead Sources',
+        description: 'Lead sources that force Broker loan officers onto their Retail split.',
+        valueType: PayrollSettingValueType.TEXT,
+        value: JSON.stringify(leadSources),
+      },
+    }),
+    prisma.payrollSetting.upsert({
+      where: { key: BROKER_RETAIL_LEAD_PROVIDER_SETTING },
+      update: {
+        value: JSON.stringify(leadProvidedBy),
+        active: true,
+      },
+      create: {
+        key: BROKER_RETAIL_LEAD_PROVIDER_SETTING,
+        label: 'Broker Retail Split Lead Provided By',
+        description: 'Lead providers that force Broker loan officers onto their Retail split.',
+        valueType: PayrollSettingValueType.TEXT,
+        value: JSON.stringify(leadProvidedBy),
+      },
+    }),
+  ]);
+  revalidatePayroll();
+}
+
 export async function savePayrollLenderRequirement(input: PayrollLenderRequirementInput) {
   await assertPayrollAdmin();
   const data = {
@@ -1449,10 +1569,12 @@ async function replaceRequestSplits(requestId: string) {
     },
   });
   if (!request) throw new Error('Payroll request was not found.');
+  const brokerRetailRouting = await getBrokerRetailRoutingSettings();
   const splitSnapshots = await buildSplitSnapshots(request.loanOfficerId, decimalToNumber(request.splitBasisAmount) || decimalToNumber(request.expectedRevenue), {
     leadSource: request.leadSource,
     leadProvidedBy: request.leadProvidedBy,
     appliedPlanType: request.appliedPlanType,
+    brokerRetailRouting,
   });
   const calculation = (request.calculationSnapshot as PayrollCalculationSnapshot | null) ?? null;
   const snapshots = calculation ? withPostSplitAddBacks(splitSnapshots, calculation) : splitSnapshots;
@@ -1487,12 +1609,16 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
     throw new Error('Paid requests cannot be edited.');
   }
 
-  const rules = await getPayrollRulesForRequest(input);
+  const [rules, brokerRetailRouting] = await Promise.all([
+    getPayrollRulesForRequest(input),
+    getBrokerRetailRoutingSettings(),
+  ]);
   const calculation = calculatePayrollCompensation(input, rules);
   const splitSnapshots = await buildSplitSnapshots(request.loanOfficerId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
     appliedPlanType: input.appliedPlanType,
+    brokerRetailRouting,
   });
   const snapshots = withPostSplitAddBacks(splitSnapshots, calculation);
   const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');

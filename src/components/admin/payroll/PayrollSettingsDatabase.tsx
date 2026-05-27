@@ -1,15 +1,16 @@
 'use client';
 
 import React, { useMemo, useState, useTransition } from 'react';
-import { Database, Loader2, Plus, Save, Settings2 } from 'lucide-react';
-import { PayrollFeeRuleKind, PayrollLoanChannel } from '@prisma/client';
+import { Database, Loader2, Plus, Save, Settings2, Split } from 'lucide-react';
+import { PayrollFeeRuleKind, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel } from '@prisma/client';
 import {
+  savePayrollBrokerRetailRouting,
   savePayrollLenderFeeRule,
   savePayrollLenderRequirement,
   type PayrollSettingsDatabase,
 } from '@/app/actions/payrollActions';
 import { PAYROLL_LENDER_OPTIONS } from '@/components/payroll/payrollOptions';
-import { formatCurrency, loanChannelLabel } from './payrollFormat';
+import { formatCurrency, loanChannelLabel, payrollLeadProvidedByLabel, payrollLeadSourceLabel } from './payrollFormat';
 
 type Props = {
   data: PayrollSettingsDatabase;
@@ -43,6 +44,8 @@ const FEE_KIND_LABELS: Record<PayrollFeeRuleKind, string> = {
   LENDER_CREDIT: 'Lender Credit',
   OTHER: 'Other',
 };
+const LEAD_SOURCE_OPTIONS = Object.values(PayrollLeadSource);
+const LEAD_PROVIDED_BY_OPTIONS = Object.values(PayrollLeadProvidedBy);
 
 const initialFee: FeeForm = {
   lender: '',
@@ -67,6 +70,8 @@ const initialRequirement: RequirementForm = {
 export function PayrollSettingsDatabase({ data }: Props) {
   const [feeForm, setFeeForm] = useState(initialFee);
   const [requirementForm, setRequirementForm] = useState(initialRequirement);
+  const [routingLeadSources, setRoutingLeadSources] = useState<PayrollLeadSource[]>(data.brokerRetailRouting.leadSources);
+  const [routingLeadProvidedBy, setRoutingLeadProvidedBy] = useState<PayrollLeadProvidedBy[]>(data.brokerRetailRouting.leadProvidedBy);
   const [feeLenderOpen, setFeeLenderOpen] = useState(false);
   const [requirementLenderOpen, setRequirementLenderOpen] = useState(false);
   const [feeLenderSearch, setFeeLenderSearch] = useState('');
@@ -112,6 +117,16 @@ export function PayrollSettingsDatabase({ data }: Props) {
       setMessage('Lender requirement saved.');
     });
   };
+  const saveRouting = () => {
+    startTransition(async () => {
+      setMessage(null);
+      await savePayrollBrokerRetailRouting({
+        leadSources: routingLeadSources,
+        leadProvidedBy: routingLeadProvidedBy,
+      });
+      setMessage('Broker split routing saved.');
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -120,6 +135,38 @@ export function PayrollSettingsDatabase({ data }: Props) {
           {message}
         </div>
       )}
+
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h2 className="flex items-center gap-2 font-bold text-slate-900">
+            <Split className="h-5 w-5 text-emerald-600" />
+            Broker Split Routing
+          </h2>
+          <p className="text-sm text-slate-500">Choose which lead values force Broker loan officers onto their Retail split.</p>
+        </div>
+        <div className="grid gap-5 p-5 xl:grid-cols-2">
+          <RoutingPicker
+            title="Retail Split Lead Sources"
+            options={LEAD_SOURCE_OPTIONS}
+            selected={routingLeadSources}
+            labelFor={payrollLeadSourceLabel}
+            onToggle={(value) => setRoutingLeadSources((current) => toggleValue(current, value))}
+          />
+          <RoutingPicker
+            title="Retail Split Lead Provided By"
+            options={LEAD_PROVIDED_BY_OPTIONS}
+            selected={routingLeadProvidedBy}
+            labelFor={payrollLeadProvidedByLabel}
+            onToggle={(value) => setRoutingLeadProvidedBy((current) => toggleValue(current, value))}
+          />
+        </div>
+        <div className="flex justify-end border-t border-slate-100 px-5 py-4">
+          <button type="button" className="app-btn-primary" disabled={isPending} onClick={saveRouting}>
+            {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save Broker Routing
+          </button>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
@@ -247,6 +294,50 @@ function Input({ label, value, onChange, inputMode }: { label: string; value: st
       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
       <input value={value} onChange={(event) => onChange(event.target.value)} inputMode={inputMode} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20" />
     </label>
+  );
+}
+
+function toggleValue<T extends string>(values: T[], value: T) {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+}
+
+function RoutingPicker<T extends string>({
+  title,
+  options,
+  selected,
+  labelFor,
+  onToggle,
+}: {
+  title: string;
+  options: T[];
+  selected: T[];
+  labelFor: (value: T) => string;
+  onToggle: (value: T) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+      <p className="font-bold text-slate-900">{title}</p>
+      <p className="mt-1 text-sm text-slate-600">Selected values will use the Broker user's Retail split.</p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {options.map((option) => {
+          const active = selected.includes(option);
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onToggle(option)}
+              className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
+                active
+                  ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:text-emerald-700'
+              }`}
+            >
+              {labelFor(option)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
