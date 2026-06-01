@@ -431,7 +431,11 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
 
       const dateCsv = (val: string) => {
         const date = new Date(val);
-        return Number.isNaN(date.getTime()) ? val : date.toISOString();
+        if (Number.isNaN(date.getTime())) return val;
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        const yyyy = date.getFullYear();
+        return `${mm}-${dd}-${yyyy}`;
       };
 
       const priceCsv = (price: number | null, priceRaw: string | null) => {
