@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState, useTransition } from 'react';
+import React, { useCallback, useMemo, useState, useTransition } from 'react';
 import {
   AlertTriangle,
   Banknote,
@@ -9,6 +9,7 @@ import {
   CalendarDays,
   ChevronDown,
   ChevronRight,
+  Download,
   Filter,
   Landmark,
   Loader2,
@@ -19,6 +20,7 @@ import {
   Users,
 } from 'lucide-react';
 import {
+  getLeadSpendExportRows,
   getLeadSpendReport,
   type LeadBillingFocus,
   type LeadReportingFilterOptions,
@@ -306,6 +308,7 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
     direction: SortDirection;
   }>({ key: 'totalSpend', direction: 'desc' });
   const [isPending, startTransition] = useTransition();
+  const [exportLoading, setExportLoading] = useState(false);
 
   const filteredCampaigns = useMemo(() => {
     if (vendorIds.length === 0) return options.campaigns;
@@ -399,6 +402,81 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
     runReport();
   }
 
+  const handleExportCsv = useCallback(async () => {
+    setExportLoading(true);
+    try {
+      const rows = await getLeadSpendExportRows({
+        startDate: report.filters.startDate,
+        endDate: report.filters.endDate,
+        vendorIds: report.filters.vendorIds,
+        campaignIds: report.filters.campaignIds,
+        assignedUserIds: report.filters.assignedUserIds,
+        billingFocus: report.filters.billingFocus,
+        includeUnassigned: report.filters.includeUnassigned,
+        includeMissingPrice: report.filters.includeMissingPrice,
+      });
+      if (rows.length === 0) {
+        window.alert('No leads matched the current filters to export.');
+        return;
+      }
+
+      const escCsv = (val: unknown) => {
+        if (val == null || val === '') return '';
+        const s = String(val);
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+
+      const dateCsv = (val: string) => {
+        const date = new Date(val);
+        return Number.isNaN(date.getTime()) ? val : date.toISOString();
+      };
+
+      const priceCsv = (price: number | null, priceRaw: string | null) => {
+        if (price !== null) return String(price);
+        return priceRaw ?? '';
+      };
+
+      const csvHeaders = [
+        'Assignee/Loan Officer',
+        'Vendor Name',
+        'Campaign Name',
+        'Lead Price',
+        'Created Date',
+      ];
+
+      const csvRows = rows.map((row) =>
+        [
+          escCsv(row.loanOfficerName),
+          escCsv(row.vendorName),
+          escCsv(row.campaignName),
+          escCsv(priceCsv(row.price, row.priceRaw)),
+          escCsv(dateCsv(row.createdDate)),
+        ].join(',')
+      );
+
+      const csvContent = [csvHeaders.join(','), ...csvRows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const start = dateInputValue(report.filters.startDate);
+      const end = dateInputValue(report.filters.endDate);
+      link.href = url;
+      link.download = `lead-spend-report-${start}-to-${end}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('[lead-spend-export] failed', error);
+      window.alert('Export failed. Please try again or narrow your filters.');
+    } finally {
+      setExportLoading(false);
+    }
+  }, [report.filters]);
+
   function toggleOfficer(id: string) {
     setExpandedOfficerIds((prev) => {
       const next = new Set(prev);
@@ -458,15 +536,30 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
               Narrow spend by billing model, date range, source, campaign, or loan officer.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={refreshReport}
-            disabled={isPending}
-            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-bold text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-60"
-          >
-            {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Apply filters
-          </button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[11rem]">
+            <button
+              type="button"
+              onClick={refreshReport}
+              disabled={isPending}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-bold text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-60"
+            >
+              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Apply filters
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleExportCsv()}
+              disabled={exportLoading || isPending}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 py-2.5 text-sm font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60"
+            >
+              {exportLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Export
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[1.05fr_1fr]">
@@ -907,7 +1000,8 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
               Audit detail
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              Latest 300 matching leads for spot-checking billing records.
+              Latest 300 matching leads for spot-checking. Use Export above for the
+              full filtered set ({formatNumber(report.summary.totalLeadCount)} leads).
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">

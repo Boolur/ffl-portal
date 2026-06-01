@@ -115,6 +115,15 @@ export type LeadSpendDetailRow = {
   status: string;
 };
 
+export type LeadSpendExportRow = {
+  loanOfficerName: string;
+  vendorName: string;
+  campaignName: string;
+  price: number | null;
+  priceRaw: string | null;
+  createdDate: string;
+};
+
 type SpendAccumulator = {
   totalSpend: number;
   leadCount: number;
@@ -190,6 +199,64 @@ function average(totalSpend: number, pricedLeadCount: number): number {
     : 0;
 }
 
+type ParsedLeadSpendFilters = {
+  startDate: Date;
+  endDate: Date;
+  billingFocus: LeadBillingFocus;
+  vendorIds: string[];
+  campaignIds: string[];
+  assignedUserIds: string[];
+  includeUnassigned: boolean;
+  includeMissingPrice: boolean;
+};
+
+function parseLeadSpendFilters(
+  filters: LeadSpendReportFilters
+): ParsedLeadSpendFilters {
+  const now = new Date();
+  const defaultStart = new Date(now);
+  defaultStart.setDate(defaultStart.getDate() - 7);
+
+  return {
+    startDate: parseDate(filters.startDate, defaultStart),
+    endDate: parseDate(filters.endDate, now),
+    billingFocus: filters.billingFocus ?? 'company_paid',
+    vendorIds: cleanIds(filters.vendorIds),
+    campaignIds: cleanIds(filters.campaignIds),
+    assignedUserIds: cleanIds(filters.assignedUserIds),
+    includeUnassigned: filters.includeUnassigned ?? true,
+    includeMissingPrice: filters.includeMissingPrice ?? true,
+  };
+}
+
+function buildLeadSpendWhere(parsed: ParsedLeadSpendFilters) {
+  const {
+    startDate,
+    endDate,
+    billingFocus,
+    vendorIds,
+    campaignIds,
+    assignedUserIds,
+    includeUnassigned,
+  } = parsed;
+
+  return {
+    receivedAt: { gte: startDate, lte: endDate },
+    ...(vendorIds.length > 0 ? { vendorId: { in: vendorIds } } : {}),
+    ...(campaignIds.length > 0 ? { campaignId: { in: campaignIds } } : {}),
+    ...(assignedUserIds.length > 0
+      ? { assignedUserId: { in: assignedUserIds } }
+      : includeUnassigned
+        ? {}
+        : { assignedUserId: { not: null } }),
+    ...(billingFocus === 'company_paid'
+      ? { vendor: { slug: { in: Array.from(COMPANY_PAID_VENDOR_SLUGS) } } }
+      : billingFocus === 'direct_billed'
+        ? { vendor: { slug: { in: Array.from(DIRECT_BILLED_VENDOR_SLUGS) } } }
+        : {}),
+  };
+}
+
 export async function getLeadReportingFilterOptions(): Promise<LeadReportingFilterOptions> {
   await assertDistributionAdmin();
 
@@ -236,39 +303,63 @@ export async function getLeadReportingFilterOptions(): Promise<LeadReportingFilt
   };
 }
 
+export async function getLeadSpendExportRows(
+  filters: LeadSpendReportFilters
+): Promise<LeadSpendExportRow[]> {
+  await assertDistributionAdmin();
+
+  const parsed = parseLeadSpendFilters(filters);
+  const where = buildLeadSpendWhere(parsed);
+
+  const leads = await prisma.lead.findMany({
+    where,
+    orderBy: { receivedAt: 'desc' },
+    select: {
+      price: true,
+      receivedAt: true,
+      vendor: { select: { name: true } },
+      campaign: { select: { name: true } },
+      assignedUser: { select: { name: true } },
+    },
+  });
+
+  const rows: LeadSpendExportRow[] = [];
+
+  for (const lead of leads) {
+    const price = parseLeadPrice(lead.price);
+    if (price === null && !parsed.includeMissingPrice) continue;
+
+    rows.push({
+      loanOfficerName: lead.assignedUser?.name ?? 'Unassigned',
+      vendorName: lead.vendor.name,
+      campaignName: lead.campaign?.name ?? 'No campaign',
+      price,
+      priceRaw: lead.price,
+      createdDate: lead.receivedAt.toISOString(),
+    });
+  }
+
+  return rows;
+}
+
 export async function getLeadSpendReport(
   filters: LeadSpendReportFilters
 ): Promise<LeadSpendReport> {
   await assertDistributionAdmin();
 
-  const now = new Date();
-  const defaultStart = new Date(now);
-  defaultStart.setDate(defaultStart.getDate() - 7);
+  const parsed = parseLeadSpendFilters(filters);
+  const {
+    startDate,
+    endDate,
+    billingFocus,
+    vendorIds,
+    campaignIds,
+    assignedUserIds,
+    includeUnassigned,
+    includeMissingPrice,
+  } = parsed;
 
-  const startDate = parseDate(filters.startDate, defaultStart);
-  const endDate = parseDate(filters.endDate, now);
-  const billingFocus = filters.billingFocus ?? 'company_paid';
-  const vendorIds = cleanIds(filters.vendorIds);
-  const campaignIds = cleanIds(filters.campaignIds);
-  const assignedUserIds = cleanIds(filters.assignedUserIds);
-  const includeUnassigned = filters.includeUnassigned ?? true;
-  const includeMissingPrice = filters.includeMissingPrice ?? true;
-
-  const where = {
-    receivedAt: { gte: startDate, lte: endDate },
-    ...(vendorIds.length > 0 ? { vendorId: { in: vendorIds } } : {}),
-    ...(campaignIds.length > 0 ? { campaignId: { in: campaignIds } } : {}),
-    ...(assignedUserIds.length > 0
-      ? { assignedUserId: { in: assignedUserIds } }
-      : includeUnassigned
-        ? {}
-        : { assignedUserId: { not: null } }),
-    ...(billingFocus === 'company_paid'
-      ? { vendor: { slug: { in: Array.from(COMPANY_PAID_VENDOR_SLUGS) } } }
-      : billingFocus === 'direct_billed'
-        ? { vendor: { slug: { in: Array.from(DIRECT_BILLED_VENDOR_SLUGS) } } }
-        : {}),
-  };
+  const where = buildLeadSpendWhere(parsed);
 
   const leads = await prisma.lead.findMany({
     where,
