@@ -1,37 +1,41 @@
 import React from 'react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { prisma } from '@/lib/prisma';
+import { TaskList } from '@/components/tasks/TaskList';
 import { TaskBucketsBoard } from '@/components/tasks/TaskBucketsBoard';
 import { TaskDeskSection } from '@/components/tasks/TaskDeskSection';
 import { TasksRouteSyncGate } from '@/components/tasks/TasksRouteSyncGate';
 import { LoVaBorrowerProgressList } from '@/components/loanOfficer/LoVaBorrowerProgressList';
-import { PaginatedTaskList } from '@/components/tasks/PaginatedTaskList';
 import { buildLoVaBorrowerProgress } from '@/lib/loVaProgress';
+import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import { isAdmin } from '@/lib/adminTiers';
 import { canDeleteTasks } from '@/lib/taskPermissions';
-import { UserRole } from '@prisma/client';
+import {
+  DisclosureDecisionReason,
+  TaskAttachmentPurpose,
+  Prisma,
+  TaskKind,
+  TaskStatus,
+  TaskWorkflowState,
+  UserRole,
+} from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { ClipboardCheck, FileCheck2, Home, Landmark, ShieldCheck } from 'lucide-react';
-import { startPerfTimer } from '@/lib/perf';
-import {
-  getBucketDefinitionsForRole,
-  getLoPilotBucketSets,
-  getManagerDeskBucketSets,
-  getManagerVaDeskBucketSets,
-} from '@/lib/tasks/bucketDefinitions';
-import { buildPaginatedBucketsForView } from '@/lib/tasks/buildPaginatedBuckets';
-import { fetchTaskBucketPage, getScopedTaskCount } from '@/lib/tasks/fetchTaskRows';
-import { getLoVaProgressTasks } from '@/lib/tasks/loVaProgressQuery';
-import { defaultSortForRole } from '@/lib/tasks/taskBucketSort';
-import { isTaskBucketId, type TaskBucketId } from '@/lib/tasks/types';
-import type { Task } from '@/components/tasks/TaskList';
+import { startPerfTimer, withPerfMetric } from '@/lib/perf';
 
+// In a real app, we'd get the current user from the session
 const MOCK_USER = {
   id: 'mock-user-id',
   name: 'Sarah Disclosure',
   role: UserRole.DISCLOSURE_SPECIALIST,
 };
+
+const VA_TASK_KINDS: TaskKind[] = [
+  TaskKind.VA_TITLE,
+  TaskKind.VA_PAYOFF,
+  TaskKind.VA_APPRAISAL,
+];
 
 function normalizeRole(role?: string | null): UserRole {
   if (!role) return MOCK_USER.role;
@@ -41,9 +45,1094 @@ function normalizeRole(role?: string | null): UserRole {
   return normalized as UserRole;
 }
 
-function normalizeBucketFilter(value?: string): TaskBucketId | null {
-  if (value && isTaskBucketId(value)) return value;
+type TaskBucketFilter =
+  | 'all'
+  | 'new'
+  | 'pending-lo'
+  | 'completed'
+  | 'new-disclosure'
+  | 'waiting-missing'
+  | 'waiting-approval'
+  | 'lo-responded'
+  | 'completed-disclosure'
+  | 'submitted-disclosures'
+  | 'action-required'
+  | 'returned-to-disclosure'
+  | 'disclosures-sent-completed'
+  | 'submitted-qc'
+  | 'action-required-qc'
+  | 'returned-to-qc'
+  | 'qc-completed'
+  | 'qc-new'
+  | 'qc-waiting-missing'
+  | 'qc-lo-responded'
+  | 'qc-completed-requests'
+  | 'va-new-request'
+  | 'jr-my-requests'
+  | 'va-title-started'
+  | 'va-completed-requests'
+  | 'va-payoff-new'
+  | 'va-payoff-started'
+  | 'va-payoff-waiting-missing'
+  | 'va-payoff-lo-responded'
+  | 'va-payoff-completed'
+  | 'va-appraisal-new'
+  | 'va-appraisal-started'
+  | 'va-appraisal-waiting-missing'
+  | 'va-appraisal-lo-responded'
+  | 'va-appraisal-completed';
+
+function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
+  if (
+    value === 'all' ||
+    value === 'new' ||
+    value === 'pending-lo' ||
+    value === 'completed' ||
+    value === 'new-disclosure' ||
+    value === 'waiting-missing' ||
+    value === 'waiting-approval' ||
+    value === 'lo-responded' ||
+    value === 'completed-disclosure' ||
+    value === 'submitted-disclosures' ||
+    value === 'action-required' ||
+    value === 'returned-to-disclosure' ||
+    value === 'disclosures-sent-completed' ||
+    value === 'submitted-qc' ||
+    value === 'action-required-qc' ||
+    value === 'returned-to-qc' ||
+    value === 'qc-completed' ||
+    value === 'qc-new' ||
+    value === 'qc-waiting-missing' ||
+    value === 'qc-lo-responded' ||
+    value === 'qc-completed-requests' ||
+    value === 'va-new-request' ||
+    value === 'jr-my-requests' ||
+    value === 'va-title-started' ||
+    value === 'va-completed-requests' ||
+    value === 'va-payoff-new' ||
+    value === 'va-payoff-started' ||
+    value === 'va-payoff-waiting-missing' ||
+    value === 'va-payoff-lo-responded' ||
+    value === 'va-payoff-completed' ||
+    value === 'va-appraisal-new' ||
+    value === 'va-appraisal-started' ||
+    value === 'va-appraisal-waiting-missing' ||
+    value === 'va-appraisal-lo-responded' ||
+    value === 'va-appraisal-completed'
+  ) {
+    return value;
+  }
   return null;
+}
+
+type TaskRow = {
+  id: string;
+  loanId: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  updatedAt: Date;
+  dueDate: Date | null;
+  kind: TaskKind | null;
+  workflowState: TaskWorkflowState;
+  disclosureReason: DisclosureDecisionReason | null;
+  parentTaskId: string | null;
+  parentTask: {
+    kind: TaskKind | null;
+    assignedRole: UserRole | null;
+    title: string;
+    submissionData: Prisma.JsonValue | null;
+  } | null;
+  loanOfficerApprovedAt: Date | null;
+  submissionData: Prisma.JsonValue | null;
+  loan: {
+    loanNumber: string;
+    borrowerName: string;
+    stage: string;
+    loanOfficer: {
+      name: string;
+    } | null;
+    secondaryLoanOfficer: {
+      name: string;
+    } | null;
+  };
+  assignedRole: UserRole | null;
+  assignedUser: {
+    id: string;
+    name: string;
+  } | null;
+  attachments: {
+    id: string;
+    filename: string;
+    purpose: TaskAttachmentPurpose;
+    createdAt: Date;
+    uploadedByName: string | null;
+    uploadedByRole: UserRole | null;
+    sourceTaskKind: TaskKind | null;
+    sourceTaskAssignedRole: UserRole | null;
+    sourceTaskCreatedAt: Date | null;
+  }[];
+  timelineAttachments: {
+    id: string;
+    filename: string;
+    purpose: TaskAttachmentPurpose;
+    createdAt: Date;
+    uploadedByName: string | null;
+    uploadedByRole: UserRole | null;
+    sourceTaskKind: TaskKind | null;
+    sourceTaskAssignedRole: UserRole | null;
+    sourceTaskCreatedAt: Date | null;
+  }[];
+  vaCompletionSummary?: {
+    titleDone: boolean;
+    payoffDone: boolean;
+    appraisalDone: boolean;
+  };
+};
+
+async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
+  const endPerf = startPerfTimer('page.tasks.getTasks.total', {
+    role,
+  });
+  // Fetch tasks assigned to this role OR specifically to this user
+  // For LOs, we want to see tasks for loans they own OR tasks assigned to them
+  const isLoanOfficer = role === UserRole.LOAN_OFFICER;
+  const isLoanOfficerAssistant = role === UserRole.LOA;
+  const isAdminOrManager = isAdmin(role) || role === UserRole.MANAGER;
+  const isGenericVa = role === UserRole.VA;
+  
+  const where: Prisma.TaskWhereInput = isAdminOrManager ? {} : {};
+
+  if (isAdminOrManager || isLoanOfficerAssistant) {
+    // no-op: managers/admins can review all queues
+  } else if (isLoanOfficer && userId) {
+    // LO scope includes primary, secondary, and submitter fallback visibility.
+    Object.assign(where, buildLoanOfficerTaskWhere(userId));
+  } else if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    where.OR = [
+      { assignedRole: role as UserRole },
+      { kind: TaskKind.SUBMIT_DISCLOSURES },
+    ];
+  } else if (role === UserRole.QC) {
+    where.OR = [
+      { assignedRole: role as UserRole },
+      { kind: TaskKind.SUBMIT_QC },
+    ];
+  } else if (isGenericVa) {
+    where.OR = [
+      { kind: { in: VA_TASK_KINDS } },
+      ...(userId ? [{ assignedUserId: userId }] : []),
+      { assignedRole: UserRole.VA },
+    ];
+  } else if (role === UserRole.PROCESSOR_JR) {
+    // JR queue scoping:
+    // - Public New: unassigned + pending + initial workflow
+    // - Private middle bucket: assigned to current JR (not completed)
+    // - Completed: visible for reporting/history
+    if (userId) {
+      where.OR = [
+        {
+          kind: TaskKind.VA_HOI,
+          status: TaskStatus.PENDING,
+          workflowState: TaskWorkflowState.NONE,
+          assignedUserId: null,
+        },
+        {
+          kind: TaskKind.VA_HOI,
+          status: { not: TaskStatus.COMPLETED },
+          assignedUserId: userId,
+        },
+        {
+          kind: TaskKind.VA_HOI,
+          status: TaskStatus.COMPLETED,
+        },
+      ];
+    } else {
+      where.OR = [{ kind: TaskKind.VA_HOI }];
+    }
+  } else if (
+    (role === UserRole.VA_TITLE ||
+      role === UserRole.VA_PAYOFF ||
+      role === UserRole.VA_APPRAISAL) &&
+    userId
+  ) {
+    // VA specialist scoping mirrors the JR pattern:
+    // - Public New: unassigned + pending + initial workflow
+    // - Private middle buckets: assigned to current VA (not completed)
+    // - Completed: visible for reporting/history
+    const specialistKind =
+      role === UserRole.VA_TITLE
+        ? TaskKind.VA_TITLE
+        : role === UserRole.VA_PAYOFF
+        ? TaskKind.VA_PAYOFF
+        : TaskKind.VA_APPRAISAL;
+    where.OR = [
+      {
+        kind: specialistKind,
+        status: TaskStatus.PENDING,
+        workflowState: TaskWorkflowState.NONE,
+        assignedUserId: null,
+      },
+      {
+        kind: specialistKind,
+        status: { not: TaskStatus.COMPLETED },
+        assignedUserId: userId,
+      },
+      {
+        kind: specialistKind,
+        status: TaskStatus.COMPLETED,
+      },
+    ];
+  } else {
+    where.OR = [
+      { assignedRole: role as UserRole },
+      // { assignedUserId: userId } // Add this later for other roles
+    ];
+  }
+
+  const tasks = await withPerfMetric(
+    'query.tasks.findMany.primary',
+    () =>
+      prisma.task.findMany({
+    where,
+    include: {
+      loan: {
+        select: {
+          loanNumber: true,
+          borrowerName: true,
+          stage: true, // Include stage
+          loanOfficer: {
+            select: {
+              name: true,
+            },
+          },
+          secondaryLoanOfficer: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+      attachments: {
+        select: {
+          id: true,
+          filename: true,
+          purpose: true,
+          createdAt: true,
+          uploadedBy: {
+            select: {
+              name: true,
+              role: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      },
+      assignedUser: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+        },
+      },
+      parentTask: {
+        select: {
+          kind: true,
+          assignedRole: true,
+          title: true,
+          submissionData: true,
+        },
+      },
+    },
+    orderBy: {
+      dueDate: 'asc', // Urgent first
+    },
+      }),
+    {
+      role,
+      hasUserId: Boolean(userId),
+    }
+  );
+
+  const jrLoanIds =
+    role === UserRole.PROCESSOR_JR
+      ? Array.from(
+          new Set(
+            tasks
+              .filter((task) => task.kind === TaskKind.VA_HOI)
+              .map((task) => task.loanId)
+              .filter((loanId): loanId is string => Boolean(loanId))
+          )
+        )
+      : [];
+
+  const vaCompletionByLoanId = new Map<
+    string,
+    {
+      titleDone: boolean;
+      payoffDone: boolean;
+      appraisalDone: boolean;
+    }
+  >();
+
+  if (jrLoanIds.length > 0) {
+    const jrRelatedVaTasks = await withPerfMetric(
+      'query.tasks.findMany.jrVaSummary',
+      () =>
+        prisma.task.findMany({
+          where: {
+            loanId: { in: jrLoanIds },
+            kind: {
+              in: [TaskKind.VA_TITLE, TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL],
+            },
+          },
+          select: {
+            loanId: true,
+            kind: true,
+            status: true,
+          },
+        }),
+      {
+        role,
+        loanCount: jrLoanIds.length,
+      }
+    );
+
+    for (const row of jrRelatedVaTasks) {
+      const existing = vaCompletionByLoanId.get(row.loanId) || {
+        titleDone: false,
+        payoffDone: false,
+        appraisalDone: false,
+      };
+      if (row.kind === TaskKind.VA_TITLE && row.status === TaskStatus.COMPLETED) {
+        existing.titleDone = true;
+      } else if (row.kind === TaskKind.VA_PAYOFF && row.status === TaskStatus.COMPLETED) {
+        existing.payoffDone = true;
+      } else if (row.kind === TaskKind.VA_APPRAISAL && row.status === TaskStatus.COMPLETED) {
+        existing.appraisalDone = true;
+      }
+      vaCompletionByLoanId.set(row.loanId, existing);
+    }
+  }
+
+  const hasTimelineRelevantTasks = tasks.some(
+    (task) =>
+      task.kind === TaskKind.VA_TITLE ||
+      task.kind === TaskKind.VA_PAYOFF ||
+      task.kind === TaskKind.VA_APPRAISAL ||
+      task.kind === TaskKind.VA_HOI ||
+      task.parentTaskId
+  );
+  const includeCrossTaskTimelineAttachments =
+    (isLoanOfficer || isAdminOrManager) &&
+    hasTimelineRelevantTasks &&
+    process.env.TASK_TIMELINE_EAGER !== 'false';
+
+  const taskIds = tasks.map((task) => task.id);
+  const parentTaskIds = Array.from(
+    new Set(
+      tasks
+        .map((task) => task.parentTaskId)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  const relatedTasks =
+    includeCrossTaskTimelineAttachments && taskIds.length > 0
+      ? await withPerfMetric(
+          'query.tasks.findMany.related',
+          () =>
+            prisma.task.findMany({
+          where: {
+            OR: [
+              { id: { in: taskIds } },
+              { parentTaskId: { in: taskIds } },
+              ...(parentTaskIds.length > 0
+                ? [
+                    { id: { in: parentTaskIds } },
+                    { parentTaskId: { in: parentTaskIds } },
+                  ]
+                : []),
+            ],
+          },
+          select: {
+            id: true,
+            parentTaskId: true,
+          },
+            }),
+          {
+            role,
+            taskCount: taskIds.length,
+          }
+        )
+      : [];
+
+  const childrenByParent = new Map<string, string[]>();
+  for (const rel of relatedTasks) {
+    if (!rel.parentTaskId) continue;
+    const existing = childrenByParent.get(rel.parentTaskId) || [];
+    existing.push(rel.id);
+    childrenByParent.set(rel.parentTaskId, existing);
+  }
+
+  const allRelatedIds = Array.from(new Set(relatedTasks.map((task) => task.id)));
+  const timelineAttachmentsRows =
+    includeCrossTaskTimelineAttachments && allRelatedIds.length > 0
+      ? await withPerfMetric(
+          'query.taskAttachments.findMany.timeline',
+          () =>
+            prisma.taskAttachment.findMany({
+          where: {
+            taskId: { in: allRelatedIds },
+          },
+          select: {
+            id: true,
+            taskId: true,
+            filename: true,
+            purpose: true,
+            storagePath: true,
+            createdAt: true,
+            task: {
+              select: {
+                kind: true,
+                assignedRole: true,
+                createdAt: true,
+              },
+            },
+            uploadedBy: {
+              select: {
+                name: true,
+                role: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+            }),
+          {
+            role,
+            relatedIds: allRelatedIds.length,
+          }
+        )
+      : [];
+
+  const attachmentsByTaskId = new Map<string, typeof timelineAttachmentsRows>();
+  for (const att of timelineAttachmentsRows) {
+    const existing = attachmentsByTaskId.get(att.taskId) || [];
+    existing.push(att);
+    attachmentsByTaskId.set(att.taskId, existing);
+  }
+
+  const hydratedTasks = tasks.map((task) => {
+    const parentId = task.parentTaskId || task.id;
+    const chainIds = [parentId, ...(childrenByParent.get(parentId) || [])];
+
+    const timelineAttachmentsMap = new Map<
+      string,
+      {
+        id: string;
+        filename: string;
+        purpose: TaskAttachmentPurpose;
+        createdAt: Date;
+        uploadedByName: string | null;
+        uploadedByRole: UserRole | null;
+        sourceTaskKind: TaskKind | null;
+        sourceTaskAssignedRole: UserRole | null;
+        sourceTaskCreatedAt: Date | null;
+      }
+    >();
+
+    for (const chainTaskId of chainIds) {
+      const chainAttachments = attachmentsByTaskId.get(chainTaskId) || [];
+      for (const att of chainAttachments) {
+        // Parent/child workflow tasks can carry mirrored attachment rows.
+        // Dedupe by storagePath so one bucket transition shows one attachment event.
+        const dedupeKey = `${att.storagePath}::${att.purpose}`;
+        if (timelineAttachmentsMap.has(dedupeKey)) continue;
+        timelineAttachmentsMap.set(dedupeKey, {
+          id: att.id,
+          filename: att.filename,
+          purpose: att.purpose,
+          createdAt: att.createdAt,
+          uploadedByName: att.uploadedBy?.name || null,
+          uploadedByRole: att.uploadedBy?.role || null,
+          sourceTaskKind: att.task?.kind || null,
+          sourceTaskAssignedRole: att.task?.assignedRole || null,
+          sourceTaskCreatedAt: att.task?.createdAt || null,
+        });
+      }
+    }
+
+    const timelineAttachments = Array.from(timelineAttachmentsMap.values()).sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+
+    return {
+      ...task,
+      attachments: task.attachments.map((att) => ({
+        id: att.id,
+        filename: att.filename,
+        purpose: att.purpose,
+        createdAt: att.createdAt,
+        uploadedByName: att.uploadedBy?.name || null,
+        uploadedByRole: att.uploadedBy?.role || null,
+        sourceTaskKind: task.kind,
+        sourceTaskAssignedRole: task.assignedRole,
+        sourceTaskCreatedAt: task.createdAt,
+      })),
+      timelineAttachments,
+      vaCompletionSummary:
+        task.kind === TaskKind.VA_HOI
+          ? vaCompletionByLoanId.get(task.loanId) || {
+              titleDone: false,
+              payoffDone: false,
+              appraisalDone: false,
+            }
+          : undefined,
+    };
+  }) as TaskRow[];
+
+  endPerf({
+    taskCount: hydratedTasks.length,
+  });
+  return hydratedTasks;
+}
+
+function isDisclosureSubmissionTask(task: TaskRow) {
+  return (
+    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+    (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
+      task.title.toLowerCase().includes('disclosure'))
+  );
+}
+
+function isQcSubmissionTask(task: TaskRow) {
+  return (
+    task.kind === TaskKind.SUBMIT_QC ||
+    (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
+  );
+}
+
+function isLoResponseTask(task: TaskRow) {
+  return task.kind === TaskKind.LO_NEEDS_INFO;
+}
+
+function isDisclosureSubmissionTaskRef(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+  title: string;
+}) {
+  return (
+    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+    (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
+      task.title.toLowerCase().includes('disclosure'))
+  );
+}
+
+function isQcSubmissionTaskRef(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+  title: string;
+}) {
+  return (
+    task.kind === TaskKind.SUBMIT_QC ||
+    (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
+  );
+}
+
+type RoleBucket = {
+  id: TaskBucketFilter;
+  label: string;
+  chipLabel: string;
+  chipClassName: string;
+  isCompleted?: boolean;
+  tasks: TaskRow[];
+};
+
+function getLoPilotRows(allTasks: TaskRow[]) {
+  const disclosureTasks = allTasks.filter(isDisclosureSubmissionTask);
+  const qcTasks = allTasks.filter(isQcSubmissionTask);
+  const loResponseTasks = allTasks.filter(isLoResponseTask);
+
+  const disclosureActionRequired = loResponseTasks.filter((task) => {
+    if (!task.parentTask) return true;
+    return isDisclosureSubmissionTaskRef(task.parentTask);
+  });
+  const qcActionRequired = loResponseTasks.filter((task) => {
+    if (!task.parentTask) return false;
+    return isQcSubmissionTaskRef(task.parentTask);
+  });
+
+  const disclosureBuckets: RoleBucket[] = [
+    {
+      id: 'submitted-disclosures',
+      label: 'Submitted for Disclosures',
+      chipLabel: 'Submitted',
+      chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+      tasks: disclosureTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.NONE
+      ),
+    },
+    {
+      id: 'action-required',
+      label: 'Action Required (Approve Figures / Missing Info)',
+      chipLabel: 'Action Required',
+      chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+      tasks: disclosureActionRequired.filter(
+        (task) => task.status !== TaskStatus.COMPLETED
+      ),
+    },
+    {
+      id: 'returned-to-disclosure',
+      label: 'Returned to Disclosure',
+      chipLabel: 'Tracking',
+      chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+      tasks: disclosureTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+      ),
+    },
+    {
+      id: 'disclosures-sent-completed',
+      label: 'Disclosures Sent / Completed',
+      chipLabel: 'Completed',
+      chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      isCompleted: true,
+      tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+    },
+  ];
+
+  const qcBuckets: RoleBucket[] = [
+    {
+      id: 'submitted-qc',
+      label: 'Submitted for QC',
+      chipLabel: 'Submitted',
+      chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+      tasks: qcTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.NONE
+      ),
+    },
+    {
+      id: 'action-required-qc',
+      label: 'Action Required (QC Info / Approval)',
+      chipLabel: 'Action Required',
+      chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+      tasks: qcActionRequired.filter((task) => task.status !== TaskStatus.COMPLETED),
+    },
+    {
+      id: 'returned-to-qc',
+      label: 'Returned to QC',
+      chipLabel: 'Tracking',
+      chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
+      tasks: qcTasks.filter(
+        (task) =>
+          task.status !== TaskStatus.COMPLETED &&
+          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+      ),
+    },
+    {
+      id: 'qc-completed',
+      label: 'QC Sent / Completed',
+      chipLabel: 'Completed',
+      chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      isCompleted: true,
+      tasks: qcTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+    },
+  ];
+
+  return { disclosureBuckets, qcBuckets };
+}
+
+function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
+  if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    const disclosureTasks = allTasks.filter(isDisclosureSubmissionTask);
+    return [
+      {
+        id: 'new-disclosure',
+        label: 'New Disclosure Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.NONE
+        ),
+      },
+      {
+        id: 'waiting-missing',
+        label: 'Waiting Missing/Incomplete',
+        chipLabel: 'Pending LO',
+        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO
+        ),
+      },
+      {
+        id: 'lo-responded',
+        label: 'LO Responded (Review)',
+        chipLabel: 'Needs Review',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'waiting-approval',
+        label: 'Waiting for Approval',
+        chipLabel: 'Awaiting Approval',
+        chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
+        ),
+      },
+      {
+        id: 'completed-disclosure',
+        label: 'Completed Disclosure Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.LOAN_OFFICER) {
+    const disclosureTasks = allTasks.filter(isDisclosureSubmissionTask);
+    const loResponseTasks = allTasks.filter(isLoResponseTask);
+    return [
+      {
+        id: 'submitted-disclosures',
+        label: 'Submitted for Disclosures',
+        chipLabel: 'Submitted',
+        chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.NONE
+        ),
+      },
+      {
+        id: 'action-required',
+        label: 'Action Required (Approve Figures / Missing Info)',
+        chipLabel: 'Action Required',
+        chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+        tasks: loResponseTasks.filter(
+          (task) => task.status !== TaskStatus.COMPLETED
+        ),
+      },
+      {
+        id: 'returned-to-disclosure',
+        label: 'Returned to Disclosure',
+        chipLabel: 'Tracking',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: disclosureTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'disclosures-sent-completed',
+        label: 'Disclosures Sent / Completed',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.QC) {
+    const qcTasks = allTasks.filter(isQcSubmissionTask);
+    return [
+      {
+        id: 'qc-new',
+        label: 'New QC Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+        tasks: qcTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.NONE
+        ),
+      },
+      {
+        id: 'qc-waiting-missing',
+        label: 'Waiting Missing/Incomplete',
+        chipLabel: 'Pending LO',
+        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+        tasks: qcTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            (task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
+              task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL)
+        ),
+      },
+      {
+        id: 'qc-lo-responded',
+        label: 'LO Responded (Review)',
+        chipLabel: 'Needs Review',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: qcTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'qc-completed-requests',
+        label: 'Completed QC Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: qcTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.VA_TITLE) {
+    const vaTitleTasks = allTasks.filter((task) => task.kind === TaskKind.VA_TITLE);
+    return [
+      {
+        id: 'va-new-request',
+        label: 'New VA Title Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
+        tasks: vaTitleTasks.filter(
+          (task) =>
+            task.status === TaskStatus.PENDING &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !task.assignedUser?.id
+        ),
+      },
+      {
+        id: 'va-title-started',
+        label: 'Started / Ordered VA Title Requests',
+        chipLabel: 'In Progress',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaTitleTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            !(
+              task.status === TaskStatus.PENDING &&
+              task.workflowState === TaskWorkflowState.NONE &&
+              !task.assignedUser?.id
+            )
+        ),
+      },
+      {
+        id: 'va-completed-requests',
+        label: 'Completed VA Title Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: vaTitleTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.PROCESSOR_JR) {
+    const vaHoiTasks = allTasks.filter((task) => task.kind === TaskKind.VA_HOI);
+    return [
+      {
+        id: 'va-new-request',
+        label: 'New JR Processor Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
+        tasks: vaHoiTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.status === TaskStatus.PENDING &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !task.assignedUser?.id
+        ),
+      },
+      {
+        id: 'jr-my-requests',
+        label: 'My Requests',
+        chipLabel: 'In Progress',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaHoiTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            !(
+              task.status === TaskStatus.PENDING &&
+              task.workflowState === TaskWorkflowState.NONE &&
+              !task.assignedUser?.id
+            )
+        ),
+      },
+      {
+        id: 'va-completed-requests',
+        label: 'Completed JR Processor Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: vaHoiTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.VA_PAYOFF) {
+    const vaPayoffTasks = allTasks.filter((task) => task.kind === TaskKind.VA_PAYOFF);
+    return [
+      {
+        id: 'va-payoff-new',
+        label: 'New VA Payoff Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
+        tasks: vaPayoffTasks.filter(
+          (task) =>
+            task.status === TaskStatus.PENDING &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !task.assignedUser?.id
+        ),
+      },
+      {
+        id: 'va-payoff-started',
+        label: 'Started / Ordered VA Payoff Requests',
+        chipLabel: 'In Progress',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaPayoffTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !(
+              task.status === TaskStatus.PENDING &&
+              !task.assignedUser?.id
+            )
+        ),
+      },
+      {
+        id: 'va-payoff-waiting-missing',
+        label: 'Waiting Missing/Incomplete',
+        chipLabel: 'Pending LO',
+        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+        tasks: vaPayoffTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO
+        ),
+      },
+      {
+        id: 'va-payoff-lo-responded',
+        label: 'LO Responded (Review)',
+        chipLabel: 'Needs Review',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaPayoffTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'va-payoff-completed',
+        label: 'Completed VA Payoff Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: vaPayoffTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  if (role === UserRole.VA_APPRAISAL) {
+    const vaAppraisalTasks = allTasks.filter((task) => task.kind === TaskKind.VA_APPRAISAL);
+    return [
+      {
+        id: 'va-appraisal-new',
+        label: 'New Appraisal Specialist Requests',
+        chipLabel: 'New',
+        chipClassName: 'border-rose-200 bg-rose-50 text-rose-700',
+        tasks: vaAppraisalTasks.filter(
+          (task) =>
+            task.status === TaskStatus.PENDING &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !task.assignedUser?.id
+        ),
+      },
+      {
+        id: 'va-appraisal-started',
+        label: 'Started / Ordered Appraisal Requests',
+        chipLabel: 'In Progress',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaAppraisalTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.NONE &&
+            !(
+              task.status === TaskStatus.PENDING &&
+              !task.assignedUser?.id
+            )
+        ),
+      },
+      {
+        id: 'va-appraisal-waiting-missing',
+        label: 'Waiting Missing/Incomplete',
+        chipLabel: 'Pending LO',
+        chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
+        tasks: vaAppraisalTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.WAITING_ON_LO
+        ),
+      },
+      {
+        id: 'va-appraisal-lo-responded',
+        label: 'LO Responded (Review)',
+        chipLabel: 'Needs Review',
+        chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+        tasks: vaAppraisalTasks.filter(
+          (task) =>
+            task.status !== TaskStatus.COMPLETED &&
+            task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
+        ),
+      },
+      {
+        id: 'va-appraisal-completed',
+        label: 'Completed Appraisal Specialist Requests',
+        chipLabel: 'Completed',
+        chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        isCompleted: true,
+        tasks: vaAppraisalTasks.filter((task) => task.status === TaskStatus.COMPLETED),
+      },
+    ];
+  }
+
+  return [];
+}
+
+function getManagerDeskRows(allTasks: TaskRow[]) {
+  return {
+    disclosureBuckets: getRoleBuckets(UserRole.DISCLOSURE_SPECIALIST, allTasks),
+    qcBuckets: getRoleBuckets(UserRole.QC, allTasks),
+  };
+}
+
+function getManagerVaDeskRows(allTasks: TaskRow[]) {
+  const vaHoiBuckets = getRoleBuckets(UserRole.PROCESSOR_JR, allTasks).map((bucket) =>
+    bucket.id === 'jr-my-requests'
+      ? { ...bucket, label: 'Assigned Requests' }
+      : bucket
+  );
+  return {
+    vaTitleBuckets: getRoleBuckets(UserRole.VA_TITLE, allTasks),
+    vaHoiBuckets,
+    vaPayoffBuckets: getRoleBuckets(UserRole.VA_PAYOFF, allTasks),
+    vaAppraisalBuckets: getRoleBuckets(UserRole.VA_APPRAISAL, allTasks),
+  };
 }
 
 type TasksPageProps = {
@@ -68,29 +1157,15 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       ? rawTaskId.trim()
       : null;
   const bucket =
-    normalizeBucketFilter(typeof rawBucket === 'string' ? rawBucket : undefined) || 'all';
-
-  const userId = sessionUser.id || undefined;
-  const isManagerLike = sessionRole === UserRole.MANAGER || isAdmin(sessionRole);
-  const isDualDeskMode =
-    sessionRole === UserRole.LOAN_OFFICER ||
-    sessionRole === UserRole.LOA ||
-    isManagerLike;
-
-  const [
-    scopedTaskCount,
-    jrAssigneeOptions,
-    roleBucketDefs,
-    loPilotDefs,
-    managerDeskDefs,
-    managerVaDefs,
-    loVaProgressTasks,
-  ] = await Promise.all([
-    getScopedTaskCount(sessionRole, userId),
+    normalizeBucketFilter(
+    typeof rawBucket === 'string' ? rawBucket : undefined
+  ) || 'all';
+  const allTasks = await getTasks(sessionRole, sessionUser.id);
+  const jrAssigneeOptions =
     isAdmin(sessionRole) ||
     sessionRole === UserRole.MANAGER ||
     sessionRole === UserRole.PROCESSOR_JR
-      ? prisma.user.findMany({
+      ? await prisma.user.findMany({
           where: {
             active: true,
             OR: [
@@ -98,110 +1173,45 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
               { roles: { has: UserRole.PROCESSOR_JR } },
             ],
           },
-          select: { id: true, name: true },
+          select: {
+            id: true,
+            name: true,
+          },
           orderBy: { name: 'asc' },
         })
-      : Promise.resolve([]),
-    Promise.resolve(getBucketDefinitionsForRole(sessionRole)),
-    sessionRole === UserRole.LOAN_OFFICER || sessionRole === UserRole.LOA
-      ? Promise.resolve(getLoPilotBucketSets())
-      : Promise.resolve(null),
-    isManagerLike ? Promise.resolve(getManagerDeskBucketSets()) : Promise.resolve(null),
-    isManagerLike || sessionRole === UserRole.VA
-      ? Promise.resolve(getManagerVaDeskBucketSets())
-      : Promise.resolve(null),
-    sessionRole === UserRole.LOAN_OFFICER ||
-    sessionRole === UserRole.LOA ||
-    isManagerLike
-      ? getLoVaProgressTasks(sessionRole, userId)
-      : Promise.resolve([]),
-  ]);
-
-  const [
-    roleBuckets,
-    dualDeskDisclosureBuckets,
-    dualDeskQcBuckets,
-    managerVaAppraisalBuckets,
-    managerVaPayoffBuckets,
-    managerVaTitleBuckets,
-    managerVaHoiBuckets,
-    flatListInitialPage,
-  ] = await Promise.all([
-    buildPaginatedBucketsForView(roleBucketDefs, sessionRole, userId),
-    loPilotDefs
-      ? buildPaginatedBucketsForView(loPilotDefs.disclosureBuckets, sessionRole, userId)
-      : Promise.resolve([]),
-    loPilotDefs
-      ? buildPaginatedBucketsForView(loPilotDefs.qcBuckets, sessionRole, userId)
-      : Promise.resolve([]),
-    managerVaDefs && (isManagerLike || sessionRole === UserRole.VA)
-      ? buildPaginatedBucketsForView(managerVaDefs.vaAppraisalBuckets, sessionRole, userId)
-      : Promise.resolve([]),
-    managerVaDefs && (isManagerLike || sessionRole === UserRole.VA)
-      ? buildPaginatedBucketsForView(managerVaDefs.vaPayoffBuckets, sessionRole, userId)
-      : Promise.resolve([]),
-    managerVaDefs && (isManagerLike || sessionRole === UserRole.VA)
-      ? buildPaginatedBucketsForView(managerVaDefs.vaTitleBuckets, sessionRole, userId)
-      : Promise.resolve([]),
-    managerVaDefs && isManagerLike
-      ? buildPaginatedBucketsForView(managerVaDefs.vaHoiBuckets, sessionRole, userId)
-      : Promise.resolve([]),
-    !isDualDeskMode && roleBucketDefs.length === 0 && sessionRole !== UserRole.VA
-      ? fetchTaskBucketPage({
-          bucketId: '__all__',
-          role: sessionRole,
-          userId,
-          sort: defaultSortForRole(sessionRole),
-        }).then((page) => ({
-          tasks: page.tasks as Task[],
-          nextCursor: page.nextCursor,
-          totalMatching: page.totalMatching,
-          hasMore: page.hasMore,
-        }))
-      : Promise.resolve(null),
-  ]);
-
-  const managerDisclosureBuckets = managerDeskDefs
-    ? await buildPaginatedBucketsForView(managerDeskDefs.disclosureBuckets, sessionRole, userId)
-    : [];
-  const managerQcBuckets = managerDeskDefs
-    ? await buildPaginatedBucketsForView(managerDeskDefs.qcBuckets, sessionRole, userId)
-    : [];
-
-  const dualDeskRows = isDualDeskMode
-    ? {
-        disclosureBuckets:
-          sessionRole === UserRole.LOAN_OFFICER || sessionRole === UserRole.LOA
-            ? dualDeskDisclosureBuckets
-            : managerDisclosureBuckets,
-        qcBuckets:
-          sessionRole === UserRole.LOAN_OFFICER || sessionRole === UserRole.LOA
-            ? dualDeskQcBuckets
-            : managerQcBuckets,
-      }
+      : [];
+  const roleBuckets = getRoleBuckets(sessionRole, allTasks);
+  // Admins (all tiers) share the Manager Tasks experience: dual Disclosure+QC
+  // desks, the four VA/JR desks, and the LO VA progress list. Anything that
+  // used to check "sessionRole === MANAGER" now also runs for admins.
+  const isManagerLike = sessionRole === UserRole.MANAGER || isAdmin(sessionRole);
+  const dualDeskRows = sessionRole === UserRole.LOAN_OFFICER
+    ? getLoPilotRows(allTasks)
+    : sessionRole === UserRole.LOA
+    ? getLoPilotRows(allTasks)
+    : isManagerLike
+    ? getManagerDeskRows(allTasks)
     : null;
-
   const managerVaRows =
-    managerVaDefs && (isManagerLike || sessionRole === UserRole.VA)
-      ? {
-          vaAppraisalBuckets: managerVaAppraisalBuckets,
-          vaPayoffBuckets: managerVaPayoffBuckets,
-          vaTitleBuckets: managerVaTitleBuckets,
-          vaHoiBuckets: managerVaHoiBuckets,
-        }
+    isManagerLike || sessionRole === UserRole.VA
+      ? getManagerVaDeskRows(allTasks)
       : null;
-
-  const loVaProgressItems = buildLoVaBorrowerProgress(loVaProgressTasks);
   const showLoVaPilot = sessionRole === UserRole.LOAN_OFFICER;
+  const loVaProgressItems = showLoVaPilot ? buildLoVaBorrowerProgress(allTasks) : [];
+  const loaVaProgressItems =
+    sessionRole === UserRole.LOA ? buildLoVaBorrowerProgress(allTasks) : [];
+  const managerLoVaProgressItems = isManagerLike
+    ? buildLoVaBorrowerProgress(allTasks)
+    : [];
+  const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete = canDeleteTasks(sessionRole);
-  const showBuckets = roleBuckets.length > 0;
-  const activeBucket = roleBuckets.find((b) => b.id === bucket)?.id || null;
-
   const roleTaskSubtitle: Record<string, string> = {
     [UserRole.LOAN_OFFICER]:
       'Manage submitted requests, complete LO actions, and track returns sent back to Disclosure.',
     [UserRole.LOA]:
       'Submit requests and monitor all loan officer workflows across Disclosure, QC, VA, and JR desks.',
+    // Admins (all tiers) mirror the Manager copy so the Tasks surface reads
+    // the same for every leadership role.
     ADMIN: 'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
     ADMIN_I: 'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
     ADMIN_II: 'Oversee Disclosure, QC, and VA queues with full desk-level actions.',
@@ -220,6 +1230,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     [UserRole.PROCESSOR_SR]: 'Handle advanced processing tasks and escalations.',
   };
 
+  const showBuckets = roleBuckets.length > 0;
+  const activeBucket = roleBuckets.find((b) => b.id === bucket)?.id || null;
   const taskPageSubtitle =
     sessionRole === UserRole.VA
       ? ''
@@ -229,227 +1241,235 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     <DashboardShell user={sessionUser}>
       <TasksRouteSyncGate>
         <div className="app-page-header flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="app-page-title">Tasks</h1>
-            {taskPageSubtitle && <p className="app-page-subtitle">{taskPageSubtitle}</p>}
-          </div>
-          <div className="flex shrink-0 space-x-3">
-            <span className="app-count-badge">{scopedTaskCount} Total Tasks</span>
-          </div>
+        <div className="min-w-0">
+          <h1 className="app-page-title">Tasks</h1>
+          {taskPageSubtitle && (
+            <p className="app-page-subtitle">
+              {taskPageSubtitle}
+            </p>
+          )}
         </div>
+        <div className="flex shrink-0 space-x-3">
+          <span className="app-count-badge">
+            {allTasks.length} Total Tasks
+          </span>
+        </div>
+      </div>
 
-        {dualDeskRows && (
-          <div className="space-y-5">
-            <TaskDeskSection
-              title="Disclosure Requests"
-              icon={<ClipboardCheck className="h-5 w-5" />}
-              iconClassName="bg-blue-50 text-blue-600 ring-blue-100"
-              buckets={dualDeskRows.disclosureBuckets}
-              activeBucketId={
-                dualDeskRows.disclosureBuckets.find((b) => b.id === bucket)?.id || null
-              }
-              canDelete={canDelete}
-              currentRole={sessionRole}
-              currentUserId={sessionUser.id}
-              jrAssigneeOptions={jrAssigneeOptions}
-              initialFocusedTaskId={focusedTaskId}
-              bucketScrollMode="fixed"
-              fixedScrollClassName="h-[540px] overflow-y-auto pr-1"
-            />
-            <TaskDeskSection
-              title="QC Requests"
-              icon={<ShieldCheck className="h-5 w-5" />}
-              iconClassName="bg-violet-50 text-violet-600 ring-violet-100"
-              buckets={dualDeskRows.qcBuckets}
-              activeBucketId={dualDeskRows.qcBuckets.find((b) => b.id === bucket)?.id || null}
-              canDelete={canDelete}
-              currentRole={sessionRole}
-              currentUserId={sessionUser.id}
-              jrAssigneeOptions={jrAssigneeOptions}
-              initialFocusedTaskId={focusedTaskId}
-              bucketScrollMode="fixed"
-              fixedScrollClassName="h-[540px] overflow-y-auto pr-1"
-            />
-            {showLoVaPilot && (
-              <LoVaBorrowerProgressList items={loVaProgressItems} currentRole={sessionRole} />
-            )}
-            {sessionRole === UserRole.LOA && (
-              <LoVaBorrowerProgressList items={loVaProgressItems} currentRole={sessionRole} />
-            )}
-            {isManagerLike && managerVaRows && (
-              <>
-                <TaskDeskSection
-                  title="Appraisal Requests"
-                  icon={<ShieldCheck className="h-5 w-5" />}
-                  iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
-                  buckets={managerVaRows.vaAppraisalBuckets}
-                  activeBucketId={
-                    managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
-                  }
-                  canDelete={canDelete}
-                  currentRole={sessionRole}
-                  currentUserId={sessionUser.id}
-                  jrAssigneeOptions={jrAssigneeOptions}
-                  initialFocusedTaskId={focusedTaskId}
-                  bucketScrollMode="fixed"
-                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-                  enableBatchDelete
-                />
-                <TaskDeskSection
-                  title="Payoff Requests"
-                  icon={<Landmark className="h-5 w-5" />}
-                  iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
-                  buckets={managerVaRows.vaPayoffBuckets}
-                  activeBucketId={
-                    managerVaRows.vaPayoffBuckets.find((b) => b.id === bucket)?.id || null
-                  }
-                  canDelete={canDelete}
-                  currentRole={sessionRole}
-                  currentUserId={sessionUser.id}
-                  jrAssigneeOptions={jrAssigneeOptions}
-                  initialFocusedTaskId={focusedTaskId}
-                  bucketScrollMode="fixed"
-                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-                  enableBatchDelete
-                />
-                <TaskDeskSection
-                  title="Title Requests"
-                  icon={<FileCheck2 className="h-5 w-5" />}
-                  iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
-                  buckets={managerVaRows.vaTitleBuckets}
-                  activeBucketId={
-                    managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null
-                  }
-                  canDelete={canDelete}
-                  currentRole={sessionRole}
-                  currentUserId={sessionUser.id}
-                  jrAssigneeOptions={jrAssigneeOptions}
-                  initialFocusedTaskId={focusedTaskId}
-                  bucketScrollMode="fixed"
-                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-                  enableBatchDelete
-                />
-                <TaskDeskSection
-                  title="JR Processor Requests"
-                  icon={<Home className="h-5 w-5" />}
-                  iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
-                  buckets={managerVaRows.vaHoiBuckets}
-                  activeBucketId={
-                    managerVaRows.vaHoiBuckets.find((b) => b.id === bucket)?.id || null
-                  }
-                  canDelete={canDelete}
-                  currentRole={sessionRole}
-                  currentUserId={sessionUser.id}
-                  jrAssigneeOptions={jrAssigneeOptions}
-                  initialFocusedTaskId={focusedTaskId}
-                  bucketScrollMode="fixed"
-                  fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-                  enableBatchDelete
-                />
-                <LoVaBorrowerProgressList
-                  items={loVaProgressItems}
-                  mode="completed_only"
-                  className="pt-1"
-                  currentRole={sessionRole}
-                />
-              </>
-            )}
-          </div>
-        )}
-
-        {!isDualDeskMode && sessionRole === UserRole.VA && managerVaRows && (
-          <div className="space-y-5">
-            <TaskDeskSection
-              title="Appraisals"
-              icon={<ShieldCheck className="h-5 w-5" />}
-              iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
-              buckets={managerVaRows.vaAppraisalBuckets}
-              activeBucketId={
-                managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
-              }
-              canDelete={canDelete}
-              currentRole={sessionRole}
-              currentUserId={sessionUser.id}
-              jrAssigneeOptions={jrAssigneeOptions}
-              initialFocusedTaskId={focusedTaskId}
-              bucketScrollMode="fixed"
-              fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-            />
-            <TaskDeskSection
-              title="Payoffs"
-              icon={<Landmark className="h-5 w-5" />}
-              iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
-              buckets={managerVaRows.vaPayoffBuckets}
-              activeBucketId={
-                managerVaRows.vaPayoffBuckets.find((b) => b.id === bucket)?.id || null
-              }
-              canDelete={canDelete}
-              currentRole={sessionRole}
-              currentUserId={sessionUser.id}
-              jrAssigneeOptions={jrAssigneeOptions}
-              initialFocusedTaskId={focusedTaskId}
-              bucketScrollMode="fixed"
-              fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-            />
-            <TaskDeskSection
-              title="Title"
-              icon={<FileCheck2 className="h-5 w-5" />}
-              iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
-              buckets={managerVaRows.vaTitleBuckets}
-              activeBucketId={
-                managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null
-              }
-              canDelete={canDelete}
-              currentRole={sessionRole}
-              currentUserId={sessionUser.id}
-              jrAssigneeOptions={jrAssigneeOptions}
-              initialFocusedTaskId={focusedTaskId}
-              bucketScrollMode="fixed"
-              fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
-            />
-          </div>
-        )}
-
-        {!isDualDeskMode && sessionRole !== UserRole.VA && showBuckets && (
-          <TaskBucketsBoard
-            buckets={roleBuckets}
-            activeBucketId={activeBucket}
+      {isDualDeskMode && dualDeskRows && (
+        <div className="space-y-5">
+          <TaskDeskSection
+            title="Disclosure Requests"
+            icon={<ClipboardCheck className="h-5 w-5" />}
+            iconClassName="bg-blue-50 text-blue-600 ring-blue-100"
+            buckets={dualDeskRows.disclosureBuckets}
+            activeBucketId={
+              dualDeskRows.disclosureBuckets.find((b) => b.id === bucket)?.id || null
+            }
             canDelete={canDelete}
             currentRole={sessionRole}
             currentUserId={sessionUser.id}
             jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
-            bucketScrollMode={
-              sessionRole === UserRole.DISCLOSURE_SPECIALIST || sessionRole === UserRole.QC
-                ? 'fixed'
-                : 'auto'
-            }
-            fixedScrollClassName={
-              sessionRole === UserRole.DISCLOSURE_SPECIALIST || sessionRole === UserRole.QC
-                ? 'h-[540px] overflow-y-auto pr-1'
-                : undefined
-            }
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[540px] overflow-y-auto pr-1"
           />
-        )}
+          <TaskDeskSection
+            title="QC Requests"
+            icon={<ShieldCheck className="h-5 w-5" />}
+            iconClassName="bg-violet-50 text-violet-600 ring-violet-100"
+            buckets={dualDeskRows.qcBuckets}
+            activeBucketId={dualDeskRows.qcBuckets.find((b) => b.id === bucket)?.id || null}
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[540px] overflow-y-auto pr-1"
+          />
+          {sessionRole === UserRole.LOAN_OFFICER && showLoVaPilot && (
+            <LoVaBorrowerProgressList items={loVaProgressItems} currentRole={sessionRole} />
+          )}
+          {sessionRole === UserRole.LOA && (
+            <LoVaBorrowerProgressList items={loaVaProgressItems} currentRole={sessionRole} />
+          )}
+          {isManagerLike && managerVaRows && (
+            <>
+              <TaskDeskSection
+                title="Appraisal Requests"
+                icon={<ShieldCheck className="h-5 w-5" />}
+                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+                buckets={managerVaRows.vaAppraisalBuckets}
+                activeBucketId={
+                  managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
+                }
+                canDelete={canDelete}
+                currentRole={sessionRole}
+                currentUserId={sessionUser.id}
+                jrAssigneeOptions={jrAssigneeOptions}
+                initialFocusedTaskId={focusedTaskId}
+                bucketScrollMode="fixed"
+                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                enableBatchDelete
+              />
+              <TaskDeskSection
+                title="Payoff Requests"
+                icon={<Landmark className="h-5 w-5" />}
+                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+                buckets={managerVaRows.vaPayoffBuckets}
+                activeBucketId={
+                  managerVaRows.vaPayoffBuckets.find((b) => b.id === bucket)?.id || null
+                }
+                canDelete={canDelete}
+                currentRole={sessionRole}
+                currentUserId={sessionUser.id}
+                jrAssigneeOptions={jrAssigneeOptions}
+                initialFocusedTaskId={focusedTaskId}
+                bucketScrollMode="fixed"
+                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                enableBatchDelete
+              />
+              <TaskDeskSection
+                title="Title Requests"
+                icon={<FileCheck2 className="h-5 w-5" />}
+                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+                buckets={managerVaRows.vaTitleBuckets}
+                activeBucketId={managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null}
+                canDelete={canDelete}
+                currentRole={sessionRole}
+                currentUserId={sessionUser.id}
+                jrAssigneeOptions={jrAssigneeOptions}
+                initialFocusedTaskId={focusedTaskId}
+                bucketScrollMode="fixed"
+                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                enableBatchDelete
+              />
+              <TaskDeskSection
+                title="JR Processor Requests"
+                icon={<Home className="h-5 w-5" />}
+                iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+                buckets={managerVaRows.vaHoiBuckets}
+                activeBucketId={managerVaRows.vaHoiBuckets.find((b) => b.id === bucket)?.id || null}
+                canDelete={canDelete}
+                currentRole={sessionRole}
+                currentUserId={sessionUser.id}
+                jrAssigneeOptions={jrAssigneeOptions}
+                initialFocusedTaskId={focusedTaskId}
+                bucketScrollMode="fixed"
+                fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+                enableBatchDelete
+              />
+              <LoVaBorrowerProgressList
+                items={managerLoVaProgressItems}
+                mode="completed_only"
+                className="pt-1"
+                currentRole={sessionRole}
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      {!isDualDeskMode && sessionRole === UserRole.VA && managerVaRows && (
+        <div className="space-y-5">
+          <TaskDeskSection
+            title="Appraisals"
+            icon={<ShieldCheck className="h-5 w-5" />}
+            iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+            buckets={managerVaRows.vaAppraisalBuckets}
+            activeBucketId={
+              managerVaRows.vaAppraisalBuckets.find((b) => b.id === bucket)?.id || null
+            }
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+          />
+          <TaskDeskSection
+            title="Payoffs"
+            icon={<Landmark className="h-5 w-5" />}
+            iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+            buckets={managerVaRows.vaPayoffBuckets}
+            activeBucketId={
+              managerVaRows.vaPayoffBuckets.find((b) => b.id === bucket)?.id || null
+            }
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+          />
+          <TaskDeskSection
+            title="Title"
+            icon={<FileCheck2 className="h-5 w-5" />}
+            iconClassName="bg-rose-50 text-rose-600 ring-rose-100"
+            buckets={managerVaRows.vaTitleBuckets}
+            activeBucketId={managerVaRows.vaTitleBuckets.find((b) => b.id === bucket)?.id || null}
+            canDelete={canDelete}
+            currentRole={sessionRole}
+            currentUserId={sessionUser.id}
+            jrAssigneeOptions={jrAssigneeOptions}
+            initialFocusedTaskId={focusedTaskId}
+            bucketScrollMode="fixed"
+            fixedScrollClassName="h-[300px] overflow-y-auto pr-1"
+          />
+        </div>
+      )}
+
+      {!isDualDeskMode && sessionRole !== UserRole.VA && showBuckets && (
+        <TaskBucketsBoard
+          buckets={roleBuckets}
+          activeBucketId={activeBucket}
+          canDelete={canDelete}
+          currentRole={sessionRole}
+          currentUserId={sessionUser.id}
+          jrAssigneeOptions={jrAssigneeOptions}
+          initialFocusedTaskId={focusedTaskId}
+          // Disclosure Specialists and QC role users land here (they're not
+          // manager-like, so they skip the dual-desk path above). Cap their
+          // bucket columns the same way admins/managers now see them —
+          // otherwise "Completed QC Requests" grows unbounded and stretches
+          // the whole page. Keep `auto` for every other fallback consumer
+          // (LOAN_OFFICER, LOA, PROCESSOR_JR, etc.) so their task views
+          // remain unchanged.
+          bucketScrollMode={
+            sessionRole === UserRole.DISCLOSURE_SPECIALIST ||
+            sessionRole === UserRole.QC
+              ? 'fixed'
+              : 'auto'
+          }
+          fixedScrollClassName={
+            sessionRole === UserRole.DISCLOSURE_SPECIALIST ||
+            sessionRole === UserRole.QC
+              ? 'h-[540px] overflow-y-auto pr-1'
+              : undefined
+          }
+        />
+      )}
 
         {!isDualDeskMode && sessionRole !== UserRole.VA && !showBuckets && (
-          <PaginatedTaskList
+          <TaskList
+            tasks={allTasks}
             canDelete={canDelete}
             currentRole={sessionRole}
             currentUserId={sessionUser.id}
             jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
-            initialPage={flatListInitialPage ?? undefined}
-            totalCount={scopedTaskCount}
           />
         )}
       </TasksRouteSyncGate>
     </DashboardShell>
   );
-
   endPerf({
     role: sessionRole,
-    taskCount: scopedTaskCount,
+    taskCount: allTasks.length,
   });
   return pageOutput;
 }
+

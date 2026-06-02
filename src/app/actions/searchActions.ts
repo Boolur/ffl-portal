@@ -1,10 +1,11 @@
 'use server';
 
-import { Prisma, TaskStatus, UserRole } from '@prisma/client';
+import { Prisma, TaskKind, TaskStatus, UserRole } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { buildRoleScopedTaskWhere } from '@/lib/tasks/taskScope';
+import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
+import { isAdmin } from '@/lib/adminTiers';
 
 type SearchResultItem = {
   id: string;
@@ -17,6 +18,49 @@ type SearchResultItem = {
   assignedRole: UserRole | null;
   href: string;
 };
+
+function getRoleScopedTaskWhere(role: UserRole, userId?: string): Prisma.TaskWhereInput {
+  const isLoanOfficer = role === UserRole.LOAN_OFFICER;
+  const isAdminOrManager =
+    isAdmin(role) || role === UserRole.MANAGER || role === UserRole.LOA;
+  const isGenericVa = role === UserRole.VA;
+
+  if (isAdminOrManager) return {};
+
+  if (isLoanOfficer && userId) {
+    return buildLoanOfficerTaskWhere(userId);
+  }
+
+  if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    return {
+      OR: [{ assignedRole: role }, { kind: TaskKind.SUBMIT_DISCLOSURES }],
+    };
+  }
+
+  if (role === UserRole.QC) {
+    return {
+      OR: [{ assignedRole: role }, { kind: TaskKind.SUBMIT_QC }],
+    };
+  }
+
+  if (isGenericVa) {
+    return {
+      OR: [
+        { kind: { in: [TaskKind.VA_TITLE, TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL] } },
+        ...(userId ? [{ assignedUserId: userId }] : []),
+        { assignedRole: UserRole.VA },
+      ],
+    };
+  }
+
+  if (role === UserRole.PROCESSOR_JR) {
+    return {
+      OR: [{ assignedRole: UserRole.PROCESSOR_JR }, { kind: TaskKind.VA_HOI }],
+    };
+  }
+
+  return { OR: [{ assignedRole: role }] };
+}
 
 export async function searchPortal(query: string): Promise<{
   success: boolean;
@@ -33,7 +77,7 @@ export async function searchPortal(query: string): Promise<{
     const role = (session?.user?.activeRole || session?.user?.role || UserRole.LOAN_OFFICER) as UserRole;
     const userId = session?.user?.id || undefined;
 
-    const scopedWhere = buildRoleScopedTaskWhere(role, userId);
+    const scopedWhere = getRoleScopedTaskWhere(role, userId);
     const searchWhere: Prisma.TaskWhereInput = {
       AND: [
         scopedWhere,

@@ -4,9 +4,18 @@ import React, { useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import {
   TaskBucketsBoard,
-  type PaginatedBucketConfig,
   type TaskBucketsBoardHandle,
 } from '@/components/tasks/TaskBucketsBoard';
+import type { Task } from '@/components/tasks/TaskList';
+
+type BucketConfig = {
+  id: string;
+  label: string;
+  chipLabel: string;
+  chipClassName: string;
+  isCompleted?: boolean;
+  tasks: Task[];
+};
 
 export function TaskDeskSection({
   title,
@@ -26,7 +35,7 @@ export function TaskDeskSection({
   title: string;
   icon: React.ReactNode;
   iconClassName: string;
-  buckets: PaginatedBucketConfig[];
+  buckets: BucketConfig[];
   activeBucketId: string | null;
   canDelete: boolean;
   currentRole: string;
