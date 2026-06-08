@@ -52,6 +52,7 @@ type Props = {
   emptyMessage?: string;
   modalDescription?: string;
   deleteDescription?: string;
+  renderTeamActions?: (team: LeadUserTeamSummary) => React.ReactNode;
 };
 
 // Palette shared with CampaignGroupManager so teams and campaign groups
@@ -142,6 +143,7 @@ export function LeadUserTeamManager({
   emptyMessage = 'No teams yet — create one to batch-assign LOs to campaigns in one click.',
   modalDescription = 'Teams show up as one-click chips above the user list in the Campaign editor. They don\u2019t affect distribution or quotas on their own.',
   deleteDescription = 'Deleting a team is permanent and only removes the team itself. Users stay assigned to whatever campaigns they\u2019re already on — teams are just a selection shortcut.',
+  renderTeamActions,
 }: Props) {
   const router = useRouter();
   const [editingTeam, setEditingTeam] = useState<LeadUserTeamSummary | null>(
@@ -220,39 +222,42 @@ export function LeadUserTeamManager({
             : t.description ||
               `${t.memberCount} members • ${t.managerCount} managers • click to edit`;
           return (
-            <div key={t.id} className="relative group/chip">
-              <button
-                type="button"
-                onClick={() => handleChipClick(t)}
-                className={`inline-flex items-center gap-1.5 rounded-full border pl-2.5 pr-8 py-1.5 text-xs font-medium transition-colors ${
-                  isActive ? cls.chipActive : cls.chipInactive
-                } ${isActive ? `ring-1 ${cls.ring}` : ''}`}
-                title={chipTitle}
-              >
-                {renderTeamDots(t.colors ?? [accent])}
-                <span className="truncate max-w-[160px]">{t.name}</span>
-                <span className="text-[10px] font-semibold opacity-70 tabular-nums">
-                  {t.memberCount}
-                </span>
-              </button>
-              {filterMode ? (
+            <div key={t.id} className="inline-flex items-center gap-1">
+              <div className="relative group/chip">
                 <button
                   type="button"
-                  onClick={() => openEdit(t)}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-white/60"
-                  aria-label={`Edit ${t.name}`}
-                  title="Edit team"
+                  onClick={() => handleChipClick(t)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border pl-2.5 pr-8 py-1.5 text-xs font-medium transition-colors ${
+                    isActive ? cls.chipActive : cls.chipInactive
+                  } ${isActive ? `ring-1 ${cls.ring}` : ''}`}
+                  title={chipTitle}
                 >
-                  <Pencil className="h-3 w-3" />
+                  {renderTeamDots(t.colors ?? [accent])}
+                  <span className="truncate max-w-[160px]">{t.name}</span>
+                  <span className="text-[10px] font-semibold opacity-70 tabular-nums">
+                    {t.memberCount}
+                  </span>
                 </button>
-              ) : (
-                <span
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-slate-400 pointer-events-none"
-                  aria-hidden
-                >
-                  <Pencil className="h-3 w-3" />
-                </span>
-              )}
+                {filterMode ? (
+                  <button
+                    type="button"
+                    onClick={() => openEdit(t)}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-white/60"
+                    aria-label={`Edit ${t.name}`}
+                    title="Edit team"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                ) : (
+                  <span
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-slate-400 pointer-events-none"
+                    aria-hidden
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </span>
+                )}
+              </div>
+              {renderTeamActions?.(t)}
             </div>
           );
         })}

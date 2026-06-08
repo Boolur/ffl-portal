@@ -123,7 +123,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       name: 'Payroll',
       icon: Banknote,
       href: '/payroll',
-      roles: [UserRole.LOAN_OFFICER] as UserRole[],
+      roles: [UserRole.LOAN_OFFICER, UserRole.MANAGER] as UserRole[],
     },
     {
       name: 'Lenders',

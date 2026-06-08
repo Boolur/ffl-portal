@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { Loader2, Plus, Save, Trash2, UserCog } from 'lucide-react';
 import { PayrollSalaryFrequency, PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
 import {
   savePayrollCompPlanSettings,
+  savePayrollTeamCompPlanSettings,
   type PayrollUserPlanDetail,
   type PayrollUserPlanRow,
 } from '@/app/actions/payrollActions';
@@ -137,9 +139,12 @@ export function PayrollUserSettings({
   eligibleUsers: EligibleUser[];
   teams?: LeadUserTeamSummary[];
 }) {
+  const router = useRouter();
   const [selectedId, setSelectedId] = useState(users[0]?.id ?? '');
   const [userSearch, setUserSearch] = useState('');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [editingPayrollTeam, setEditingPayrollTeam] = useState<LeadUserTeamSummary | null>(null);
+  const [teamSaveMessage, setTeamSaveMessage] = useState<string | null>(null);
   const selected = users.find((user) => user.id === selectedId) ?? users[0] ?? null;
   const [classification, setClassification] = useState<PayrollUserClassification>(
     selected?.userClassification ?? PayrollUserClassification.BROKER
@@ -236,8 +241,27 @@ export function PayrollUserSettings({
               emptyMessage="No teams yet — create one to filter payroll users in one click."
               modalDescription="Teams are shared with Lead Distribution and Payroll Users. Updating membership here updates the same team everywhere in the portal."
               deleteDescription="Deleting a team is permanent and removes the shared filter from Lead Distribution and Payroll Users. Users keep their lead campaign assignments and payroll settings."
+              renderTeamActions={(team) => (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPayrollTeam(team);
+                    setTeamSaveMessage(null);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 transition-colors hover:border-emerald-300 hover:bg-emerald-100"
+                  title={`Edit payroll splits for ${team.name}`}
+                >
+                  <UserCog className="h-3.5 w-3.5" />
+                  Edit Payroll
+                </button>
+              )}
             />
           </div>
+          {teamSaveMessage ? (
+            <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+              {teamSaveMessage}
+            </p>
+          ) : null}
           <input
             value={userSearch}
             onChange={(event) => setUserSearch(event.target.value)}
@@ -303,109 +327,41 @@ export function PayrollUserSettings({
             </div>
 
             <div className="space-y-6 p-6">
-              <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Payroll Classification</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  {[
-                    { value: PayrollUserClassification.BROKER, title: 'Broker', description: 'Default split plus optional retail split.' },
-                    { value: PayrollUserClassification.RETAIL, title: 'Retail', description: 'Uses the default retail-style split only.' },
-                    { value: PayrollUserClassification.SUPPORT_STAFF, title: 'Support Staff', description: 'Payroll participant for split visibility.' },
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setClassification(option.value)}
-                      className={`rounded-xl border px-4 py-3 text-left transition ${
-                        classification === option.value
-                          ? 'border-emerald-300 bg-white text-emerald-950 shadow-sm ring-2 ring-emerald-100'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                      }`}
-                    >
-                      <span className="block font-bold">{option.title}</span>
-                      <span className="mt-1 block text-xs text-slate-500">{option.description}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-bold text-slate-900">Salary Settings</p>
-                    <p className="text-xs text-slate-500">Enter salary as semi-monthly, monthly, or annual. The portal converts it to the next 1st/16th paycheck.</p>
-                  </div>
-                  {salary.salaryPerPaycheck ? (
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                      {formatCurrency(Number(salary.salaryPerPaycheck))} / paycheck
-                      {' '}· {salaryFrequencyLabel(salary.salaryFrequency)}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-4 grid gap-4 md:grid-cols-[220px_220px_1fr]">
-                  <label className="block">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Amount</span>
-                    <div className="mt-1 flex items-center rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
-                      <span className="text-sm text-slate-500">$</span>
-                      <input
-                        value={salary.salaryPerPaycheck}
-                        onChange={(event) => setSalary((current) => ({ ...current, salaryPerPaycheck: event.target.value }))}
-                        className="w-full border-0 py-2 pl-1 text-sm outline-none"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </label>
-                  <label className="block">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Basis</span>
-                    <select
-                      value={salary.salaryFrequency}
-                      onChange={(event) => setSalary((current) => ({ ...current, salaryFrequency: event.target.value as PayrollSalaryFrequency }))}
-                      className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                    >
-                      <option value={PayrollSalaryFrequency.SEMI_MONTHLY}>Semi Monthly</option>
-                      <option value={PayrollSalaryFrequency.MONTHLY}>Monthly</option>
-                      <option value={PayrollSalaryFrequency.ANNUALLY}>Annually</option>
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Notes</span>
-                    <input
-                      value={salary.salaryNotes}
-                      onChange={(event) => setSalary((current) => ({ ...current, salaryNotes: event.target.value }))}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                      placeholder="Optional salary notes"
-                    />
-                  </label>
-                </div>
-              </section>
-
-              <SplitPlanEditor
-                title={classification === PayrollUserClassification.BROKER ? 'Broker / Default Split' : 'Default Split'}
-                subtitle="Used for self-sourced or normal compensation scenarios."
-                plan={brokerPlan}
-                setPlan={setBrokerPlan}
+              <PayrollPlanEditorContent
+                classification={classification}
+                setClassification={setClassification}
+                salary={salary}
+                setSalary={setSalary}
+                brokerPlan={brokerPlan}
+                setBrokerPlan={setBrokerPlan}
+                retailPlan={retailPlan}
+                setRetailPlan={setRetailPlan}
                 recipientOptions={recipientOptions}
-                total={brokerTotal}
-                flatTotal={brokerFlatTotal}
+                brokerTotal={brokerTotal}
+                retailTotal={retailTotal}
+                brokerFlatTotal={brokerFlatTotal}
+                retailFlatTotal={retailFlatTotal}
               />
-
-              {classification === PayrollUserClassification.BROKER && (
-                <SplitPlanEditor
-                  title="Retail Split"
-                  subtitle="Used automatically for company, branch, lead buy, mailer, or warm transfer scenarios."
-                  plan={retailPlan}
-                  setPlan={setRetailPlan}
-                  recipientOptions={recipientOptions}
-                  total={retailTotal}
-                  flatTotal={retailFlatTotal}
-                />
-              )}
             </div>
           </>
         ) : (
           <div className="px-6 py-16 text-center text-sm text-slate-500">No loan officers available for payroll setup.</div>
         )}
       </div>
+      {editingPayrollTeam ? (
+        <TeamPayrollEditModal
+          team={editingPayrollTeam}
+          users={users}
+          eligibleUsers={eligibleUsers}
+          seedUser={selected}
+          onClose={() => setEditingPayrollTeam(null)}
+          onSaved={(message) => {
+            setEditingPayrollTeam(null);
+            setTeamSaveMessage(message);
+            router.refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -574,5 +530,291 @@ function SplitPlanEditor({
         {flatTotal > 0 ? <span className="ml-2">Flat fees: {formatCurrency(flatTotal)} per file.</span> : null}
       </div>
     </section>
+  );
+}
+
+function PayrollPlanEditorContent({
+  classification,
+  setClassification,
+  salary,
+  setSalary,
+  brokerPlan,
+  setBrokerPlan,
+  retailPlan,
+  setRetailPlan,
+  recipientOptions,
+  brokerTotal,
+  retailTotal,
+  brokerFlatTotal,
+  retailFlatTotal,
+}: {
+  classification: PayrollUserClassification;
+  setClassification: React.Dispatch<React.SetStateAction<PayrollUserClassification>>;
+  salary: SalaryDraft;
+  setSalary: React.Dispatch<React.SetStateAction<SalaryDraft>>;
+  brokerPlan: PlanDraft;
+  setBrokerPlan: React.Dispatch<React.SetStateAction<PlanDraft>>;
+  retailPlan: PlanDraft;
+  setRetailPlan: React.Dispatch<React.SetStateAction<PlanDraft>>;
+  recipientOptions: EligibleUser[];
+  brokerTotal: number;
+  retailTotal: number;
+  brokerFlatTotal: number;
+  retailFlatTotal: number;
+}) {
+  return (
+    <>
+      <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Payroll Classification</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          {[
+            { value: PayrollUserClassification.BROKER, title: 'Broker', description: 'Default split plus optional retail split.' },
+            { value: PayrollUserClassification.RETAIL, title: 'Retail', description: 'Uses the default retail-style split only.' },
+            { value: PayrollUserClassification.SUPPORT_STAFF, title: 'Support Staff', description: 'Payroll participant for split visibility.' },
+          ].map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setClassification(option.value)}
+              className={`rounded-xl border px-4 py-3 text-left transition ${
+                classification === option.value
+                  ? 'border-emerald-300 bg-white text-emerald-950 shadow-sm ring-2 ring-emerald-100'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+              }`}
+            >
+              <span className="block font-bold">{option.title}</span>
+              <span className="mt-1 block text-xs text-slate-500">{option.description}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="font-bold text-slate-900">Salary Settings</p>
+            <p className="text-xs text-slate-500">Enter salary as semi-monthly, monthly, or annual. The portal converts it to the next 1st/16th paycheck.</p>
+          </div>
+          {salary.salaryPerPaycheck ? (
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+              {formatCurrency(Number(salary.salaryPerPaycheck))} / paycheck
+              {' '}· {salaryFrequencyLabel(salary.salaryFrequency)}
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-[220px_220px_1fr]">
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Amount</span>
+            <div className="mt-1 flex items-center rounded-lg border border-slate-200 bg-white px-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+              <span className="text-sm text-slate-500">$</span>
+              <input
+                value={salary.salaryPerPaycheck}
+                onChange={(event) => setSalary((current) => ({ ...current, salaryPerPaycheck: event.target.value }))}
+                className="w-full border-0 py-2 pl-1 text-sm outline-none"
+                inputMode="decimal"
+                placeholder="0.00"
+              />
+            </div>
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Basis</span>
+            <select
+              value={salary.salaryFrequency}
+              onChange={(event) => setSalary((current) => ({ ...current, salaryFrequency: event.target.value as PayrollSalaryFrequency }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            >
+              <option value={PayrollSalaryFrequency.SEMI_MONTHLY}>Semi Monthly</option>
+              <option value={PayrollSalaryFrequency.MONTHLY}>Monthly</option>
+              <option value={PayrollSalaryFrequency.ANNUALLY}>Annually</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salary Notes</span>
+            <input
+              value={salary.salaryNotes}
+              onChange={(event) => setSalary((current) => ({ ...current, salaryNotes: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              placeholder="Optional salary notes"
+            />
+          </label>
+        </div>
+      </section>
+
+      <SplitPlanEditor
+        title={classification === PayrollUserClassification.BROKER ? 'Broker / Default Split' : 'Default Split'}
+        subtitle="Used for self-sourced or normal compensation scenarios."
+        plan={brokerPlan}
+        setPlan={setBrokerPlan}
+        recipientOptions={recipientOptions}
+        total={brokerTotal}
+        flatTotal={brokerFlatTotal}
+      />
+
+      {classification === PayrollUserClassification.BROKER && (
+        <SplitPlanEditor
+          title="Retail Split"
+          subtitle="Used automatically for company, branch, lead buy, mailer, or warm transfer scenarios."
+          plan={retailPlan}
+          setPlan={setRetailPlan}
+          recipientOptions={recipientOptions}
+          total={retailTotal}
+          flatTotal={retailFlatTotal}
+        />
+      )}
+    </>
+  );
+}
+
+function TeamPayrollEditModal({
+  team,
+  users,
+  eligibleUsers,
+  seedUser,
+  onClose,
+  onSaved,
+}: {
+  team: LeadUserTeamSummary;
+  users: PayrollUserPlanRow[];
+  eligibleUsers: EligibleUser[];
+  seedUser: PayrollUserPlanRow | null;
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const [classification, setClassification] = useState<PayrollUserClassification>(
+    seedUser?.userClassification ?? PayrollUserClassification.BROKER
+  );
+  const [salary, setSalary] = useState<SalaryDraft>({
+    salaryPerPaycheck: seedUser?.plan?.salaryPerPaycheck?.toString() ?? '',
+    salaryFrequency: seedUser?.plan?.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY,
+    salaryNotes: seedUser?.plan?.salaryNotes ?? '',
+  });
+  const [brokerPlan, setBrokerPlan] = useState<PlanDraft>(planToDraft(seedUser?.plan ?? null));
+  const [retailPlan, setRetailPlan] = useState<PlanDraft>(seedUser?.retailPlan ? planToDraft(seedUser.retailPlan) : emptyRetailDraft());
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [confirmApply, setConfirmApply] = useState(false);
+
+  const affectedUsers = useMemo(
+    () => users.filter((user) => team.memberIds.includes(user.id)),
+    [team.memberIds, users]
+  );
+  const affectedCount = affectedUsers.length;
+  const affectedUserIds = useMemo(
+    () => new Set(affectedUsers.map((user) => user.id)),
+    [affectedUsers]
+  );
+  const recipientOptions = useMemo(
+    () => eligibleUsers.filter((user) => !affectedUserIds.has(user.id)),
+    [affectedUserIds, eligibleUsers]
+  );
+  const brokerTotal = useMemo(() => {
+    const base = Number(brokerPlan.baseSplit) || 0;
+    return base + brokerPlan.splits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.FLAT ? Number(split.splitPercent) || 0 : 0), 0);
+  }, [brokerPlan]);
+  const retailTotal = useMemo(() => {
+    const base = Number(retailPlan.baseSplit) || 0;
+    return base + retailPlan.splits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.FLAT ? Number(split.splitPercent) || 0 : 0), 0);
+  }, [retailPlan]);
+  const brokerFlatTotal = useMemo(
+    () => brokerPlan.splits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.PERCENT ? Number(split.flatAmount) || 0 : 0), 0),
+    [brokerPlan.splits]
+  );
+  const retailFlatTotal = useMemo(
+    () => retailPlan.splits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.PERCENT ? Number(split.flatAmount) || 0 : 0), 0),
+    [retailPlan.splits]
+  );
+
+  const saveTeam = () => {
+    if (affectedCount === 0) {
+      setError('This team does not have any payroll users to update.');
+      return;
+    }
+    if (!confirmApply) {
+      setConfirmApply(true);
+      setError(null);
+      return;
+    }
+    startTransition(async () => {
+      try {
+        setError(null);
+        const result = await savePayrollTeamCompPlanSettings({
+          teamId: team.id,
+          userClassification: classification,
+          salaryPerPaycheck: salary.salaryPerPaycheck ? Number(salary.salaryPerPaycheck) : null,
+          salaryFrequency: salary.salaryFrequency,
+          salaryNotes: salary.salaryNotes,
+          brokerPlan: draftToInput(brokerPlan),
+          retailPlan: classification === PayrollUserClassification.BROKER ? draftToInput(retailPlan) : null,
+        });
+        onSaved(`Applied payroll splits to ${result.updatedCount} ${result.teamName} team member${result.updatedCount === 1 ? '' : 's'}.`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to apply payroll splits to this team.');
+      }
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Team Payroll Editor</p>
+            <h2 className="mt-1 text-xl font-bold text-slate-950">{team.name}</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Apply one payroll split setup to {affectedCount} payroll user{affectedCount === 1 ? '' : 's'} in this team.
+            </p>
+          </div>
+          <button type="button" className="app-btn-secondary" onClick={onClose} disabled={isPending}>
+            Cancel
+          </button>
+        </div>
+        <div className="max-h-[calc(90vh-150px)] overflow-y-auto p-6">
+          <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <p className="font-bold text-amber-900">Bulk update warning</p>
+            <p className="mt-1">
+              Saving will replace the active payroll split settings for every active loan officer in this team. Existing submitted payroll requests will keep their saved split snapshots.
+            </p>
+          </div>
+          {error ? (
+            <div className="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+              {error}
+            </div>
+          ) : null}
+          <div className="space-y-6">
+            <PayrollPlanEditorContent
+              classification={classification}
+              setClassification={setClassification}
+              salary={salary}
+              setSalary={setSalary}
+              brokerPlan={brokerPlan}
+              setBrokerPlan={setBrokerPlan}
+              retailPlan={retailPlan}
+              setRetailPlan={setRetailPlan}
+              recipientOptions={recipientOptions}
+              brokerTotal={brokerTotal}
+              retailTotal={retailTotal}
+              brokerFlatTotal={brokerFlatTotal}
+              retailFlatTotal={retailFlatTotal}
+            />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
+          <p className="text-sm text-slate-500">
+            {confirmApply
+              ? `Click Apply Team Splits again to confirm updating ${affectedCount} user${affectedCount === 1 ? '' : 's'}.`
+              : 'Review the template, then apply it to the team.'}
+          </p>
+          <div className="flex items-center gap-3">
+            <button type="button" className="app-btn-secondary" onClick={onClose} disabled={isPending}>
+              Cancel
+            </button>
+            <button type="button" className="app-btn-primary" onClick={saveTeam} disabled={isPending || affectedCount === 0}>
+              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {confirmApply ? 'Confirm Apply' : 'Apply Team Splits'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

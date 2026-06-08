@@ -63,6 +63,10 @@ export type PayrollCompPlanSettingsInput = {
   retailPlan?: Omit<PayrollCompPlanInput, 'loanOfficerId' | 'userClassification' | 'planType'> | null;
 };
 
+export type PayrollTeamCompPlanSettingsInput = Omit<PayrollCompPlanSettingsInput, 'loanOfficerId'> & {
+  teamId: string;
+};
+
 export type PayrollMismoDetails = {
   propertyAddress?: string;
   propertyCity?: string;
@@ -1134,6 +1138,63 @@ function normalizePlanInput(input: Omit<PayrollCompPlanInput, 'loanOfficerId' | 
   return { baseSplitPercent, splits, notes: input.notes?.trim() || null, active: input.active ?? true };
 }
 
+async function createPayrollPlansForUsers(
+  tx: Prisma.TransactionClient,
+  loanOfficerIds: string[],
+  options: {
+    userClassification: PayrollUserClassification;
+    salaryPerPaycheck: number | null;
+    salaryFrequency: PayrollSalaryFrequency;
+    salaryNotes: string | null;
+    brokerPlan: ReturnType<typeof normalizePlanInput>;
+    retailPlan: ReturnType<typeof normalizePlanInput> | null;
+  }
+) {
+  const effectiveEnd = new Date();
+  await tx.payrollCompPlan.updateMany({
+    where: { loanOfficerId: { in: loanOfficerIds }, active: true },
+    data: { active: false, effectiveEnd },
+  });
+
+  const createPlan = (
+    loanOfficerId: string,
+    planType: PayrollCompPlanType,
+    plan: ReturnType<typeof normalizePlanInput>
+  ) =>
+    tx.payrollCompPlan.create({
+      data: {
+        loanOfficerId,
+        userClassification: options.userClassification,
+        planType,
+        salaryPerPaycheck: options.salaryPerPaycheck,
+        salaryFrequency: options.salaryFrequency,
+        salaryNotes: options.salaryNotes,
+        baseSplitPercent: plan.baseSplitPercent,
+        active: plan.active,
+        notes: plan.notes,
+        splits: {
+          create: plan.splits.map((split) => ({
+            recipientUserId: split.recipientUserId,
+            recipientName: split.recipientName,
+            recipientEmail: split.recipientEmail,
+            roleLabel: split.roleLabel,
+            payType: split.payType,
+            splitPercent: split.splitPercent,
+            flatAmount: split.flatAmount,
+            sortOrder: split.sortOrder,
+          })),
+        },
+      },
+    });
+
+  for (const loanOfficerId of loanOfficerIds) {
+    await createPlan(loanOfficerId, PayrollCompPlanType.BROKER, options.brokerPlan);
+    if (options.retailPlan) {
+      await createPlan(loanOfficerId, PayrollCompPlanType.RETAIL, options.retailPlan);
+    }
+  }
+}
+
 export async function savePayrollCompPlan(input: PayrollCompPlanInput) {
   return savePayrollCompPlanSettings({
     loanOfficerId: input.loanOfficerId,
@@ -1175,45 +1236,69 @@ export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettings
   if (!user) throw new Error('Loan officer was not found.');
 
   await prisma.$transaction(async (tx) => {
-    await tx.payrollCompPlan.updateMany({
-      where: { loanOfficerId, active: true },
-      data: { active: false, effectiveEnd: new Date() },
+    await createPayrollPlansForUsers(tx, [loanOfficerId], {
+      userClassification,
+      salaryPerPaycheck,
+      salaryFrequency,
+      salaryNotes,
+      brokerPlan,
+      retailPlan,
     });
-
-    const createPlan = (planType: PayrollCompPlanType, plan: typeof brokerPlan) =>
-      tx.payrollCompPlan.create({
-        data: {
-          loanOfficerId,
-          userClassification,
-          planType,
-          salaryPerPaycheck,
-          salaryFrequency,
-          salaryNotes,
-          baseSplitPercent: plan.baseSplitPercent,
-          active: plan.active,
-          notes: plan.notes,
-          splits: {
-            create: plan.splits.map((split) => ({
-              recipientUserId: split.recipientUserId,
-              recipientName: split.recipientName,
-              recipientEmail: split.recipientEmail,
-              roleLabel: split.roleLabel,
-              payType: split.payType,
-              splitPercent: split.splitPercent,
-              flatAmount: split.flatAmount,
-              sortOrder: split.sortOrder,
-            })),
-          },
-        },
-      });
-
-    await createPlan(PayrollCompPlanType.BROKER, brokerPlan);
-    if (retailPlan) {
-      await createPlan(PayrollCompPlanType.RETAIL, retailPlan);
-    }
   });
 
   revalidatePayroll();
+}
+
+export async function savePayrollTeamCompPlanSettings(input: PayrollTeamCompPlanSettingsInput) {
+  await assertPayrollAdmin();
+
+  const teamId = cleanText(input.teamId, 'Team');
+  const userClassification = input.userClassification;
+  const salaryPerPaycheck = ensureOptionalMoney(input.salaryPerPaycheck, 'Salary per paycheck');
+  const salaryFrequency = input.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY;
+  const salaryNotes = input.salaryNotes?.trim() || null;
+  const brokerPlan = normalizePlanInput(input.brokerPlan);
+  const retailPlan = userClassification === PayrollUserClassification.BROKER && input.retailPlan
+    ? normalizePlanInput(input.retailPlan)
+    : null;
+
+  const team = await prisma.leadUserTeam.findUnique({
+    where: { id: teamId },
+    include: {
+      members: {
+        select: {
+          user: { select: { id: true, active: true, role: true, roles: true } },
+        },
+      },
+    },
+  });
+  if (!team) throw new Error('Team was not found.');
+
+  const payrollUserIds = team.members
+    .map((member) => member.user)
+    .filter((user) =>
+      user.active &&
+      (user.role === UserRole.LOAN_OFFICER || user.roles.includes(UserRole.LOAN_OFFICER))
+    )
+    .map((user) => user.id);
+  const uniquePayrollUserIds = Array.from(new Set(payrollUserIds));
+  if (uniquePayrollUserIds.length === 0) {
+    throw new Error('This team does not have any active loan officers to update.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await createPayrollPlansForUsers(tx, uniquePayrollUserIds, {
+      userClassification,
+      salaryPerPaycheck,
+      salaryFrequency,
+      salaryNotes,
+      brokerPlan,
+      retailPlan,
+    });
+  });
+
+  revalidatePayroll();
+  return { updatedCount: uniquePayrollUserIds.length, teamName: team.name };
 }
 
 export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
