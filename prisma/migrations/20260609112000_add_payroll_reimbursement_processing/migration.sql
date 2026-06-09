@@ -1,4 +1,4 @@
-﻿CREATE TYPE "PayrollReimbursementTarget" AS ENUM ('SELF', 'MANAGER');
+CREATE TYPE "PayrollReimbursementTarget" AS ENUM ('SELF', 'MANAGER');
 
 ALTER TABLE "PayrollCompRequest"
   ADD COLUMN "reimbursementTarget" "PayrollReimbursementTarget" NOT NULL DEFAULT 'SELF',
