@@ -56,6 +56,7 @@ const HOUSE_SPLIT: SplitDraft = {
   flatAmount: '',
   mandatory: true,
 };
+const SPLIT_ROLE_OPTIONS = ['Manager', 'Pipeline Coordinator', 'Loan Officer Assistant'] as const;
 
 function withMandatoryHouseSplit(splits: SplitDraft[]) {
   const existingHouse = splits.find((split) => split.mandatory || split.roleLabel.trim().toLowerCase() === 'house');
@@ -468,13 +469,26 @@ function SplitPlanEditor({
                   ))}
                 </select>
               )}
-              <input
-                value={split.roleLabel}
-                onChange={(event) => updateSplit(index, { ...split, roleLabel: event.target.value })}
-                disabled={split.mandatory}
-                className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-50 disabled:text-slate-700"
-                placeholder="Manager, VP, LOA"
-              />
+              {split.mandatory ? (
+                <input
+                  value={split.roleLabel}
+                  disabled
+                  className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none disabled:bg-slate-50 disabled:text-slate-700"
+                />
+              ) : (
+                <select
+                  value={SPLIT_ROLE_OPTIONS.includes(split.roleLabel as (typeof SPLIT_ROLE_OPTIONS)[number]) ? split.roleLabel : ''}
+                  onChange={(event) => updateSplit(index, { ...split, roleLabel: event.target.value || split.roleLabel })}
+                  className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                >
+                  {!SPLIT_ROLE_OPTIONS.includes(split.roleLabel as (typeof SPLIT_ROLE_OPTIONS)[number]) && split.roleLabel ? (
+                    <option value="">{split.roleLabel} (legacy)</option>
+                  ) : null}
+                  {SPLIT_ROLE_OPTIONS.map((role) => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+              )}
               <select
                 value={split.payType}
                 onChange={(event) => updateSplit(index, { ...split, payType: event.target.value as PayrollSplitPayType })}

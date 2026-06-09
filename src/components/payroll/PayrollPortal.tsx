@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useTransition } from 'react';
 import { Banknote, Building2, Bug, Calculator, CheckCircle2, Clock, Droplets, DollarSign, Edit3, FileCheck2, FilePlus2, Landmark, Loader2, Megaphone, Percent, Plus, ReceiptText, RefreshCw, Send, ShieldCheck, Upload, WalletCards, Waves, X } from 'lucide-react';
-import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollSplitPayType } from '@prisma/client';
+import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType } from '@prisma/client';
 import {
   getPayrollRequestPreview,
   submitPayrollCompRequest,
@@ -62,6 +62,7 @@ type FormState = {
   underwritingFee: string;
   lenderCredit: string;
   originationFee: string;
+  processingFee: string;
   appraisalAddBack: string;
   creditAddBack: string;
   voeAddBack: string;
@@ -72,9 +73,10 @@ type FormState = {
   recessionDate: string;
   figureNftyAttachmentName: string;
   submitterNotes: string;
+  reimbursementTarget: PayrollReimbursementTarget;
   mismoDetails: PayrollMismoDetails | null;
 };
-type RequiredFieldKey = Exclude<keyof FormState, 'expectedRevenue' | 'brokerPaidBy' | 'submitterNotes' | 'mismoDetails' | 'recessionDate' | 'figureNftyAttachmentName'>;
+type RequiredFieldKey = Exclude<keyof FormState, 'expectedRevenue' | 'brokerPaidBy' | 'submitterNotes' | 'mismoDetails' | 'recessionDate' | 'figureNftyAttachmentName' | 'reimbursementTarget'>;
 
 const initialForm: FormState = {
   loanNumber: '',
@@ -96,6 +98,7 @@ const initialForm: FormState = {
   underwritingFee: '',
   lenderCredit: '',
   originationFee: '',
+  processingFee: '',
   appraisalAddBack: '',
   creditAddBack: '',
   voeAddBack: '',
@@ -106,6 +109,7 @@ const initialForm: FormState = {
   recessionDate: '',
   figureNftyAttachmentName: '',
   submitterNotes: '',
+  reimbursementTarget: PayrollReimbursementTarget.SELF,
   mismoDetails: null,
 };
 const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
@@ -126,6 +130,7 @@ const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
   { key: 'underwritingFee', label: 'Underwriting Fee' },
   { key: 'lenderCredit', label: 'Lender Credit' },
   { key: 'originationFee', label: 'Origination Fee' },
+  { key: 'processingFee', label: 'Processing Fee' },
   { key: 'appraisalAddBack', label: 'Appraisal' },
   { key: 'creditAddBack', label: 'Credit Report' },
   { key: 'voeAddBack', label: 'VOE' },
@@ -154,7 +159,6 @@ const LEAD_SOURCE_OPTIONS = [
 ];
 const LEAD_PROVIDED_BY_OPTIONS = [
   PayrollLeadProvidedBy.SELF_SOURCED,
-  PayrollLeadProvidedBy.COMPANY_PROVIDED,
   PayrollLeadProvidedBy.BRANCH_PROVIDED,
 ];
 const LEAD_SOURCE_LABELS: Record<PayrollLeadSource, string> = {
@@ -184,6 +188,7 @@ const MONEY_FIELDS = [
   'underwritingFee',
   'lenderCredit',
   'originationFee',
+  'processingFee',
   'appraisalAddBack',
   'creditAddBack',
   'voeAddBack',
@@ -238,6 +243,7 @@ function buildCompInput(form: FormState) {
     underwritingFee: toDeductionNumber(form.underwritingFee),
     lenderCredit: toDeductionNumber(form.lenderCredit),
     originationFee: toDeductionNumber(form.originationFee),
+    processingFee: toDeductionNumber(form.processingFee),
   };
   return {
     ...form,
@@ -502,6 +508,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
     amount: number;
     sortOrder: number;
     }>;
+    hasManagerReimbursementRecipients: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -548,6 +555,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
       if (MONEY_FIELDS.includes(key as MoneyField)) {
         if (key === 'yspAmount' && form.loanChannel !== PayrollLoanChannel.NON_DELEGATED) return false;
         if (['oneDayInterest', 'wireFee', 'underwritingFee', 'lenderCredit', 'originationFee'].includes(key) && form.loanChannel !== PayrollLoanChannel.NON_DELEGATED) return false;
+        if (key === 'processingFee' && form.processingType !== PayrollProcessingType.IN_HOUSE) return false;
         if (key === 'loanAmountPriorToFees' && !figureNftyRequired) return false;
         return !String(value).trim() || !Number.isFinite(Number(String(value).replace(/[$,\s-]/g, '')));
       }
@@ -593,6 +601,9 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   };
 
   const loadPreview = () => {
+    if (form.reimbursementTarget === PayrollReimbursementTarget.MANAGER && !preview?.hasManagerReimbursementRecipients) {
+      setForm((current) => ({ ...current, reimbursementTarget: PayrollReimbursementTarget.SELF }));
+    }
     setAttemptedSubmit(true);
     if (missingFields.length > 0) {
       setTouchedFields(new Set(REQUIRED_FIELDS.map((field) => field.key)));
@@ -957,6 +968,9 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                     </>
                   )}
                   <Input label="Tolerance Cure" Icon={ShieldCheck} value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} error={shouldHighlight('toleranceCure')} onBlur={() => markTouched('toleranceCure')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                  {form.processingType === PayrollProcessingType.IN_HOUSE && (
+                    <Input label="Processing Fee" Icon={ReceiptText} value={form.processingFee} onChange={(value) => update('processingFee', value)} error={shouldHighlight('processingFee')} onBlur={() => markTouched('processingFee')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
+                  )}
                   {form.loanChannel === PayrollLoanChannel.NON_DELEGATED && (
                     <>
                       <Input label="1 Day of Interest" Icon={Clock} value={form.oneDayInterest} onChange={(value) => update('oneDayInterest', value)} error={shouldHighlight('oneDayInterest')} onBlur={() => markTouched('oneDayInterest')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
@@ -970,11 +984,28 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
               </div>
 
               <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white p-4">
-                <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
-                  <FilePlus2 className="h-4 w-4 text-emerald-700" />
-                  Post-Split Add-Backs
-                </p>
-                <p className="text-sm text-slate-600">These are added after the split is calculated, if needed.</p>
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                      <FilePlus2 className="h-4 w-4 text-emerald-700" />
+                      Post-Split Add-Backs
+                    </p>
+                    <p className="text-sm text-slate-600">These are added after the split is calculated, if needed.</p>
+                  </div>
+                  <label className="block min-w-[220px]">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-900">Reimbursement to:</span>
+                    <select
+                      value={form.reimbursementTarget}
+                      onChange={(event) => update('reimbursementTarget', event.target.value as PayrollReimbursementTarget)}
+                      className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                    >
+                      <option value={PayrollReimbursementTarget.SELF}>Self Reimbursed</option>
+                      {preview?.hasManagerReimbursementRecipients && (
+                        <option value={PayrollReimbursementTarget.MANAGER}>Manager</option>
+                      )}
+                    </select>
+                  </label>
+                </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
                   <Input label="Appraisal" Icon={Landmark} value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} error={shouldHighlight('appraisalAddBack')} onBlur={() => markTouched('appraisalAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
                   <Input label="Credit Report" Icon={ReceiptText} value={form.creditAddBack} onChange={(value) => update('creditAddBack', value)} error={shouldHighlight('creditAddBack')} onBlur={() => markTouched('creditAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
@@ -1042,7 +1073,9 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                     {(() => {
                       const loanOfficerSplit = preview.splits.find((split) => split.roleLabel === 'Loan Officer');
                       const postSplitAddBack = preview.splits.find((split) => split.roleLabel === 'Post-Split Add-Backs');
-                      const hiddenSplits = preview.splits.filter((split) => split.roleLabel !== 'Loan Officer' && split.roleLabel !== 'Post-Split Add-Backs');
+                      const managerReimbursements = preview.splits.filter((split) => split.roleLabel === 'Manager Reimbursement');
+                      const managerReimbursementAmount = managerReimbursements.reduce((sum, split) => sum + split.amount, 0);
+                      const hiddenSplits = preview.splits.filter((split) => split.roleLabel !== 'Loan Officer' && split.roleLabel !== 'Post-Split Add-Backs' && split.roleLabel !== 'Manager Reimbursement');
                       const hiddenSplitAmount = hiddenSplits.reduce((sum, split) => sum + split.amount, 0);
                       const hiddenSplitPercent = hiddenSplits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.FLAT ? split.splitPercent : 0), 0);
                       const loanOfficerFinalComp = (loanOfficerSplit?.amount ?? 0) + (postSplitAddBack?.amount ?? 0);
@@ -1079,6 +1112,15 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                           <p className="text-xs font-semibold text-emerald-700">Paid only to the loan officer</p>
                         </div>
                         <p className="font-bold text-emerald-700">+ {formatCurrency(postSplitAddBack.amount)}</p>
+                      </div>
+                      )}
+                      {managerReimbursementAmount > 0 && (
+                      <div className="flex items-center justify-between gap-4 py-3">
+                        <div>
+                          <p className="font-semibold text-slate-900">Post-Split Add-Backs to Manager</p>
+                          <p className="text-xs font-semibold text-amber-700">Split equally across manager recipients</p>
+                        </div>
+                        <p className="font-bold text-amber-700">+ {formatCurrency(managerReimbursementAmount)}</p>
                       </div>
                       )}
                       <div className="flex items-center justify-between gap-4 py-4">

@@ -12,6 +12,7 @@ import {
   PayrollLenderRequirement,
   PayrollLoanChannel,
   PayrollProcessingType,
+  PayrollReimbursementTarget,
   PayrollSalaryFrequency,
   PayrollSettingValueType,
   PayrollSplitPayType,
@@ -103,6 +104,7 @@ export type PayrollCompRequestInput = {
   underwritingFee?: number | null;
   lenderCredit?: number | null;
   originationFee?: number | null;
+  processingFee?: number | null;
   appraisalAddBack?: number | null;
   creditAddBack?: number | null;
   voeAddBack?: number | null;
@@ -114,6 +116,7 @@ export type PayrollCompRequestInput = {
   figureNftyAttachmentName?: string | null;
   figureNftyAttachmentUrl?: string | null;
   submitterNotes?: string;
+  reimbursementTarget?: PayrollReimbursementTarget;
   mismoDetails?: PayrollMismoDetails | null;
 };
 
@@ -196,6 +199,7 @@ export type PayrollRequestRow = {
   leadSource: PayrollLeadSource;
   leadProvidedBy: PayrollLeadProvidedBy;
   appliedPlanType: PayrollCompPlanType;
+  reimbursementTarget: PayrollReimbursementTarget;
   expectedRevenue: number;
   brokerComp: number | null;
   sectionAComp: number | null;
@@ -206,6 +210,7 @@ export type PayrollRequestRow = {
   underwritingFee: number | null;
   lenderCredit: number | null;
   originationFee: number | null;
+  processingFee: number | null;
   appraisalAddBack: number | null;
   creditAddBack: number | null;
   voeAddBack: number | null;
@@ -658,6 +663,9 @@ function calculatePayrollCompensation(
   ensureRequiredOptionalMoney(input.termiteAddBack, 'Termite add-back');
   ensureRequiredOptionalMoney(input.appraisalReinspectionAddBack, 'Appraisal reinspection add-back');
   ensureRequiredOptionalMoney(input.waterTestAddBack, 'Water test add-back');
+  if (input.processingType === PayrollProcessingType.IN_HOUSE) {
+    ensureRequiredOptionalMoney(input.processingFee, 'Processing fee');
+  }
   if (input.loanChannel === PayrollLoanChannel.NON_DELEGATED) {
     ensureRequiredSignedMoney(input.yspAmount, 'YSP');
     ensureRequiredOptionalMoney(input.oneDayInterest, '1 day of interest');
@@ -685,6 +693,7 @@ function calculatePayrollCompensation(
   const underwritingFee = ensureOptionalMoney(input.underwritingFee, 'Underwriting fee');
   const lenderCredit = ensureOptionalMoney(input.lenderCredit, 'Lender credit');
   const originationFee = ensureOptionalMoney(input.originationFee, 'Origination fee');
+  const processingFee = ensureOptionalMoney(input.processingFee, 'Processing fee');
   const appraisalAddBack = ensureOptionalMoney(input.appraisalAddBack, 'Appraisal add-back');
   const creditAddBack = ensureOptionalMoney(input.creditAddBack, 'Credit add-back');
   const voeAddBack = ensureOptionalMoney(input.voeAddBack, 'VOE add-back');
@@ -725,13 +734,13 @@ function calculatePayrollCompensation(
   if (lenderCredit) {
     lines.push({ key: 'lenderCredit', label: 'Lender Credit', enteredAmount: lenderCredit, calculatedAmount: -lenderCredit, stage: 'PRE_SPLIT', treatment: 'DEDUCTION' });
   }
-
   const feeLines = [
+    { kind: null, value: processingFee, key: 'processingFee', fallbackLabel: 'Processing Fee' },
     { kind: PayrollFeeRuleKind.WIRE_FEE, value: wireFee, key: 'wireFee', fallbackLabel: 'Wire Fee' },
     { kind: PayrollFeeRuleKind.UNDERWRITING_FEE, value: underwritingFee, key: 'underwritingFee', fallbackLabel: 'Underwriting Fee' },
     { kind: PayrollFeeRuleKind.ORIGINATION_FEE, value: originationFee, key: 'originationFee', fallbackLabel: 'Origination Fee' },
   ].map((item) => {
-    const rule = feeAmountForKind(rules.feeRules, item.kind);
+    const rule = item.kind ? feeAmountForKind(rules.feeRules, item.kind) : null;
     if (rule) return missingRequiredFeeLine(rule, item.value, item.key);
     if (!item.value) return null;
     return {
@@ -840,6 +849,7 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     leadSource: request.leadSource,
     leadProvidedBy: request.leadProvidedBy,
     appliedPlanType: request.appliedPlanType,
+    reimbursementTarget: request.reimbursementTarget,
     expectedRevenue: decimalToNumber(request.expectedRevenue),
     brokerComp: decimalToNumber(request.brokerComp) || null,
     sectionAComp: decimalToNumber(request.sectionAComp) || null,
@@ -850,6 +860,7 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     underwritingFee: decimalToNumber(request.underwritingFee) || null,
     lenderCredit: decimalToNumber(request.lenderCredit) || null,
     originationFee: decimalToNumber(request.originationFee) || null,
+    processingFee: decimalToNumber(request.processingFee) || null,
     appraisalAddBack: decimalToNumber(request.appraisalAddBack) || null,
     creditAddBack: decimalToNumber(request.creditAddBack) || null,
     voeAddBack: decimalToNumber(request.voeAddBack) || null,
@@ -1007,11 +1018,37 @@ type BuiltPayrollSplitSnapshot = Awaited<ReturnType<typeof buildSplitSnapshots>>
 
 function withPostSplitAddBacks(
   snapshots: BuiltPayrollSplitSnapshot[],
-  calculation: PayrollCalculationSnapshot
+  calculation: PayrollCalculationSnapshot,
+  reimbursementTarget: PayrollReimbursementTarget = PayrollReimbursementTarget.SELF
 ) {
   if (calculation.postSplitAddBackTotal <= 0) return snapshots;
   const loanOfficerSplit = snapshots[0];
   if (!loanOfficerSplit) return snapshots;
+  if (reimbursementTarget === PayrollReimbursementTarget.MANAGER) {
+    const managerSplits = snapshots.filter((split) => split.roleLabel.trim().toLowerCase() === 'manager');
+    if (managerSplits.length === 0) {
+      throw new Error('Manager reimbursement requires at least one Manager split recipient.');
+    }
+    let assigned = 0;
+    const reimbursements = managerSplits.map((split, index) => {
+      const isLast = index === managerSplits.length - 1;
+      const amount = isLast
+        ? money(calculation.postSplitAddBackTotal - assigned)
+        : money(calculation.postSplitAddBackTotal / managerSplits.length);
+      assigned = money(assigned + amount);
+      return {
+        ...split,
+        planId: null,
+        roleLabel: 'Manager Reimbursement',
+        payType: PayrollSplitPayType.FLAT,
+        splitPercent: 0,
+        flatAmount: amount,
+        amount,
+        sortOrder: snapshots.length + index,
+      };
+    });
+    return [...snapshots, ...reimbursements];
+  }
   return [
     ...snapshots,
     {
@@ -1313,7 +1350,8 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
     leadProvidedBy: input.leadProvidedBy,
     brokerRetailRouting,
   });
-  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation);
+  const reimbursementTarget = input.reimbursementTarget ?? PayrollReimbursementTarget.SELF;
+  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
   return {
     calculation,
     splits: snapshots.map((split) => ({
@@ -1326,6 +1364,7 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
       amount: split.amount,
       sortOrder: split.sortOrder,
     })),
+    hasManagerReimbursementRecipients: splitSnapshots.some((split) => split.roleLabel.trim().toLowerCase() === 'manager'),
   };
 }
 
@@ -1365,7 +1404,8 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
     leadProvidedBy: input.leadProvidedBy,
     brokerRetailRouting,
   });
-  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation);
+  const reimbursementTarget = input.reimbursementTarget ?? PayrollReimbursementTarget.SELF;
+  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
   const appliedPlanType = snapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
   const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
 
@@ -1381,6 +1421,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
       leadSource: input.leadSource,
       leadProvidedBy: input.leadProvidedBy,
       appliedPlanType,
+      reimbursementTarget,
       expectedRevenue: calculation.splitBasisAmount,
       brokerComp: ensureOptionalMoney(input.brokerComp, 'Broker comp'),
       sectionAComp: ensureOptionalMoney(input.sectionAComp, 'Section A'),
@@ -1391,6 +1432,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
       underwritingFee: ensureOptionalMoney(input.underwritingFee, 'Underwriting fee'),
       lenderCredit: ensureOptionalMoney(input.lenderCredit, 'Lender credit'),
       originationFee: ensureOptionalMoney(input.originationFee, 'Origination fee'),
+      processingFee: ensureOptionalMoney(input.processingFee, 'Processing fee'),
       appraisalAddBack: ensureOptionalMoney(input.appraisalAddBack, 'Appraisal add-back'),
       creditAddBack: ensureOptionalMoney(input.creditAddBack, 'Credit add-back'),
       voeAddBack: ensureOptionalMoney(input.voeAddBack, 'VOE add-back'),
@@ -1679,6 +1721,7 @@ async function replaceRequestSplits(requestId: string) {
       leadSource: true,
       leadProvidedBy: true,
       appliedPlanType: true,
+      reimbursementTarget: true,
       calculationSnapshot: true,
     },
   });
@@ -1691,7 +1734,7 @@ async function replaceRequestSplits(requestId: string) {
     brokerRetailRouting,
   });
   const calculation = (request.calculationSnapshot as PayrollCalculationSnapshot | null) ?? null;
-  const snapshots = calculation ? withPostSplitAddBacks(splitSnapshots, calculation) : splitSnapshots;
+  const snapshots = calculation ? withPostSplitAddBacks(splitSnapshots, calculation, request.reimbursementTarget) : splitSnapshots;
   await prisma.$transaction([
     prisma.payrollCompRequestSplit.deleteMany({ where: { requestId } }),
     prisma.payrollCompRequestSplit.createMany({
@@ -1734,7 +1777,8 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
     appliedPlanType: input.appliedPlanType,
     brokerRetailRouting,
   });
-  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation);
+  const reimbursementTarget = input.reimbursementTarget ?? PayrollReimbursementTarget.SELF;
+  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
   const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
 
   await prisma.$transaction(async (tx) => {
@@ -1750,6 +1794,7 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         leadSource: input.leadSource,
         leadProvidedBy: input.leadProvidedBy,
         appliedPlanType: input.appliedPlanType,
+        reimbursementTarget,
         expectedRevenue: calculation.splitBasisAmount,
         brokerComp: ensureOptionalMoney(input.brokerComp, 'Broker comp'),
         sectionAComp: ensureOptionalMoney(input.sectionAComp, 'Section A'),
@@ -1760,6 +1805,7 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         underwritingFee: ensureOptionalMoney(input.underwritingFee, 'Underwriting fee'),
         lenderCredit: ensureOptionalMoney(input.lenderCredit, 'Lender credit'),
         originationFee: ensureOptionalMoney(input.originationFee, 'Origination fee'),
+        processingFee: ensureOptionalMoney(input.processingFee, 'Processing fee'),
         appraisalAddBack: ensureOptionalMoney(input.appraisalAddBack, 'Appraisal add-back'),
         creditAddBack: ensureOptionalMoney(input.creditAddBack, 'Credit add-back'),
         voeAddBack: ensureOptionalMoney(input.voeAddBack, 'VOE add-back'),

@@ -173,6 +173,11 @@ enum PayrollLeadProvidedBy {
   BRANCH_PROVIDED
 }
 
+enum PayrollReimbursementTarget {
+  SELF
+  MANAGER
+}
+
 enum PayrollSplitPayType {
   PERCENT
   FLAT
@@ -1005,11 +1010,13 @@ model PayrollCompRequest {
   leadSource            PayrollLeadSource @default(OTHER)
   leadProvidedBy        PayrollLeadProvidedBy @default(SELF_SOURCED)
   appliedPlanType       PayrollCompPlanType @default(BROKER)
+  reimbursementTarget   PayrollReimbursementTarget @default(SELF)
   expectedRevenue       Decimal  @db.Decimal(12, 2)
   brokerComp            Decimal? @db.Decimal(12, 2)
   sectionAComp          Decimal? @db.Decimal(12, 2)
   yspAmount             Decimal? @db.Decimal(12, 2)
   toleranceCure         Decimal? @db.Decimal(12, 2)
+  processingFee         Decimal? @db.Decimal(12, 2)
   oneDayInterest        Decimal? @db.Decimal(12, 2)
   wireFee               Decimal? @db.Decimal(12, 2)
   underwritingFee       Decimal? @db.Decimal(12, 2)

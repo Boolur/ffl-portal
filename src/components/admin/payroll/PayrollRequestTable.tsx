@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useTransition } from 'react';
 import { Banknote as BanknoteIcon, Check, DollarSign, Edit3, Eye, FileText, Home, Loader2, RefreshCw, Save, Trash2, UserRound, X } from 'lucide-react';
-import { PayrollCompPlanType, PayrollCompRequestStatus, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollSplitPayType } from '@prisma/client';
+import { PayrollCompPlanType, PayrollCompRequestStatus, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType } from '@prisma/client';
 import {
   approvePayrollRequest,
   deletePayrollRequest,
@@ -40,6 +40,7 @@ type AdminEditForm = {
   leadSource: PayrollLeadSource;
   leadProvidedBy: PayrollLeadProvidedBy;
   appliedPlanType: PayrollCompPlanType;
+  reimbursementTarget: PayrollReimbursementTarget;
   expectedRevenue: string;
   brokerComp: string;
   sectionAComp: string;
@@ -50,6 +51,7 @@ type AdminEditForm = {
   underwritingFee: string;
   lenderCredit: string;
   originationFee: string;
+  processingFee: string;
   appraisalAddBack: string;
   creditAddBack: string;
   voeAddBack: string;
@@ -83,7 +85,6 @@ const LEAD_SOURCE_OPTIONS = [
 ];
 const LEAD_PROVIDED_BY_OPTIONS = [
   PayrollLeadProvidedBy.SELF_SOURCED,
-  PayrollLeadProvidedBy.COMPANY_PROVIDED,
   PayrollLeadProvidedBy.BRANCH_PROVIDED,
 ];
 
@@ -107,6 +108,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
     leadSource: PayrollLeadSource.OTHER,
     leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
     appliedPlanType: PayrollCompPlanType.BROKER,
+    reimbursementTarget: PayrollReimbursementTarget.SELF,
     expectedRevenue: '',
     brokerComp: '',
     sectionAComp: '',
@@ -117,6 +119,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
     underwritingFee: '',
     lenderCredit: '',
     originationFee: '',
+    processingFee: '',
     appraisalAddBack: '',
     creditAddBack: '',
     voeAddBack: '',
@@ -150,6 +153,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
       leadSource: currentRequest.leadSource,
       leadProvidedBy: currentRequest.leadProvidedBy,
       appliedPlanType: currentRequest.appliedPlanType,
+      reimbursementTarget: currentRequest.reimbursementTarget,
       expectedRevenue: String(currentRequest.expectedRevenue),
       brokerComp: currentRequest.brokerComp ? String(currentRequest.brokerComp) : '',
       sectionAComp: currentRequest.sectionAComp ? String(currentRequest.sectionAComp) : '',
@@ -160,6 +164,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
       underwritingFee: currentRequest.underwritingFee ? String(currentRequest.underwritingFee) : '',
       lenderCredit: currentRequest.lenderCredit ? String(currentRequest.lenderCredit) : '',
       originationFee: currentRequest.originationFee ? String(currentRequest.originationFee) : '',
+      processingFee: currentRequest.processingFee ? String(currentRequest.processingFee) : '',
       appraisalAddBack: currentRequest.appraisalAddBack ? String(currentRequest.appraisalAddBack) : '',
       creditAddBack: currentRequest.creditAddBack ? String(currentRequest.creditAddBack) : '',
       voeAddBack: currentRequest.voeAddBack ? String(currentRequest.voeAddBack) : '',
@@ -213,6 +218,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
         leadSource: editForm.leadSource,
         leadProvidedBy: editForm.leadProvidedBy,
         appliedPlanType: editForm.appliedPlanType,
+        reimbursementTarget: editForm.reimbursementTarget,
         expectedRevenue: Number(editForm.expectedRevenue),
         brokerComp: numberOrNull(editForm.brokerComp),
         sectionAComp: numberOrNull(editForm.sectionAComp),
@@ -223,6 +229,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
         underwritingFee: numberOrNull(editForm.underwritingFee),
         lenderCredit: numberOrNull(editForm.lenderCredit),
         originationFee: numberOrNull(editForm.originationFee),
+        processingFee: numberOrNull(editForm.processingFee),
         appraisalAddBack: numberOrNull(editForm.appraisalAddBack),
         creditAddBack: numberOrNull(editForm.creditAddBack),
         voeAddBack: numberOrNull(editForm.voeAddBack),
@@ -368,6 +375,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                   <AdminSelect label="Lead Source" value={editForm.leadSource} onChange={(value) => setEditForm((current) => ({ ...current, leadSource: value as PayrollLeadSource }))} options={LEAD_SOURCE_OPTIONS} labels={{ LEAD_BUY: 'Lead Buy', MAILER: 'Mailer', WARM_TRANSFER: 'Warm Transfer', REFERRAL: 'Referral', RETURN_CLIENT: 'Return Client', OTHER: 'Other' }} />
                   <AdminSelect label="Lead Provided By" value={editForm.leadProvidedBy} onChange={(value) => setEditForm((current) => ({ ...current, leadProvidedBy: value as PayrollLeadProvidedBy }))} options={LEAD_PROVIDED_BY_OPTIONS} labels={{ SELF_SOURCED: 'Self Sourced', COMPANY_PROVIDED: 'Company Provided', BRANCH_PROVIDED: 'Branch Provided' }} />
                   <AdminSelect label="Applied Split Type" value={editForm.appliedPlanType} onChange={(value) => setEditForm((current) => ({ ...current, appliedPlanType: value as PayrollCompPlanType }))} options={[PayrollCompPlanType.BROKER, PayrollCompPlanType.RETAIL]} labels={{ BROKER: 'Broker Split', RETAIL: 'Retail Split' }} />
+                  <AdminSelect label="Reimbursement To" value={editForm.reimbursementTarget} onChange={(value) => setEditForm((current) => ({ ...current, reimbursementTarget: value as PayrollReimbursementTarget }))} options={[PayrollReimbursementTarget.SELF, PayrollReimbursementTarget.MANAGER]} labels={{ SELF: 'Self Reimbursed', MANAGER: 'Manager' }} />
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                     <p className="text-sm font-bold text-slate-900">Pre-Split Calculation</p>
                     <div className="mt-3 grid gap-4 md:grid-cols-3">
@@ -383,6 +391,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                       <AdminInput label="Underwriting Fee" value={editForm.underwritingFee} onChange={(value) => setEditForm((current) => ({ ...current, underwritingFee: value }))} inputMode="decimal" />
                       <AdminInput label="Lender Credit" value={editForm.lenderCredit} onChange={(value) => setEditForm((current) => ({ ...current, lenderCredit: value }))} inputMode="decimal" />
                       <AdminInput label="Origination Fee" value={editForm.originationFee} onChange={(value) => setEditForm((current) => ({ ...current, originationFee: value }))} inputMode="decimal" />
+                      <AdminInput label="Processing Fee" value={editForm.processingFee} onChange={(value) => setEditForm((current) => ({ ...current, processingFee: value }))} inputMode="decimal" />
                     </div>
                   </div>
                   <div className="md:col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
@@ -422,6 +431,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                       <Detail label="Lead Source" value={payrollLeadSourceLabel(currentRequest.leadSource)} />
                       <Detail label="Provided By" value={payrollLeadProvidedByLabel(currentRequest.leadProvidedBy)} />
                       <Detail label="Split Type" value={payrollPlanTypeLabel(currentRequest.appliedPlanType)} />
+                      <Detail label="Reimbursement To" value={currentRequest.reimbursementTarget === PayrollReimbursementTarget.MANAGER ? 'Manager' : 'Self Reimbursed'} />
                       <Detail label="Split Basis" value={formatCurrency(currentRequest.splitBasisAmount ?? currentRequest.expectedRevenue)} />
                       <Detail label="Final Comp" value={formatCurrency(currentRequest.netCompAmount ?? currentRequest.expectedRevenue)} />
                       <Detail label="Edited" value={formatDate(currentRequest.editedAt)} />
@@ -712,6 +722,9 @@ function AdminSelect({
         onChange={(event) => onChange(event.target.value)}
         className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
       >
+        {value && !options.includes(value) ? (
+          <option value={value}>{labels?.[value] ?? value}</option>
+        ) : null}
         {options.map((option) => (
           <option key={option} value={option}>{labels?.[option] ?? option}</option>
         ))}
