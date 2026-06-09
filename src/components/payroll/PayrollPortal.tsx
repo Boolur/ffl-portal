@@ -1079,6 +1079,9 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                       const hiddenSplitAmount = hiddenSplits.reduce((sum, split) => sum + split.amount, 0);
                       const hiddenSplitPercent = hiddenSplits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.FLAT ? split.splitPercent : 0), 0);
                       const loanOfficerFinalComp = (loanOfficerSplit?.amount ?? 0) + (postSplitAddBack?.amount ?? 0);
+                      const baseLines = preview.calculation.lines.filter((line) => line.stage === 'BASE');
+                      const preSplitLines = preview.calculation.lines.filter((line) => line.stage === 'PRE_SPLIT' || line.stage === 'MISSING_FEE');
+                      const postSplitLines = preview.calculation.lines.filter((line) => line.stage === 'POST_SPLIT');
                       return (
                         <>
                     {preview.calculation.warnings.length > 0 && (
@@ -1086,6 +1089,74 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                         {preview.calculation.warnings.map((warning) => <p key={warning}>{warning}</p>)}
                       </div>
                     )}
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-slate-900">Calculation Worksheet</p>
+                          <p className="text-xs text-slate-500">Base comp minus pre-split deductions determines the split basis. Post-split add-backs are paid after the split.</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Split Basis</p>
+                          <p className="font-extrabold text-slate-950">{formatCurrency(preview.calculation.splitBasisAmount)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                        <WorksheetColumn title="Compensation Before Split">
+                          {baseLines.map((line) => (
+                            <WorksheetLine key={line.key} label={line.label} value={line.calculatedAmount} tone="base" />
+                          ))}
+                          {preSplitLines.length === 0 ? (
+                            <p className="text-xs text-slate-500">No pre-split adjustments entered.</p>
+                          ) : (
+                            preSplitLines.map((line) => (
+                              <WorksheetLine
+                                key={line.key}
+                                label={line.label}
+                                value={line.calculatedAmount}
+                                tone={line.calculatedAmount < 0 ? 'deduction' : 'add'}
+                              />
+                            ))
+                          )}
+                          <WorksheetTotal label="Pre-Split Add-Backs" value={preview.calculation.preSplitAddBackTotal} tone="add" />
+                          <WorksheetTotal label="Pre-Split Deductions" value={preview.calculation.preSplitDeductionTotal} tone="deduction" />
+                        </WorksheetColumn>
+
+                        <WorksheetColumn title="Split Allocation">
+                          {loanOfficerSplit && (
+                            <WorksheetLine label={`Loan Officer · ${formatPercent(loanOfficerSplit.splitPercent)}`} value={loanOfficerSplit.amount} tone="base" />
+                          )}
+                          {hiddenSplits.length === 0 ? (
+                            <p className="text-xs text-slate-500">No other split recipients.</p>
+                          ) : (
+                            hiddenSplits.map((split) => (
+                              <WorksheetLine
+                                key={`${split.roleLabel}-${split.recipientName}-${split.sortOrder}`}
+                                label={`${split.roleLabel} · ${split.payType !== PayrollSplitPayType.FLAT ? formatPercent(split.splitPercent) : 'Flat fee'}`}
+                                value={split.amount}
+                                tone="deduction"
+                              />
+                            ))
+                          )}
+                          <WorksheetTotal label="All Non-LO Splits" value={hiddenSplitAmount} tone="deduction" />
+                        </WorksheetColumn>
+
+                        <WorksheetColumn title="Post-Split Add-Backs">
+                          {postSplitLines.length === 0 ? (
+                            <p className="text-xs text-slate-500">No post-split add-backs entered.</p>
+                          ) : (
+                            postSplitLines.map((line) => (
+                              <WorksheetLine key={line.key} label={line.label} value={line.calculatedAmount} tone="add" />
+                            ))
+                          )}
+                          {managerReimbursementAmount > 0 ? (
+                            <WorksheetTotal label="Routed to Manager" value={managerReimbursementAmount} tone="deduction" />
+                          ) : (
+                            <WorksheetTotal label="Back to LO" value={postSplitAddBack?.amount ?? 0} tone="add" />
+                          )}
+                        </WorksheetColumn>
+                      </div>
+                    </div>
                     <div className="divide-y divide-slate-200 rounded-xl bg-white px-4">
                       {loanOfficerSplit && (
                       <div className="flex items-center justify-between gap-4 py-3">
@@ -1226,6 +1297,57 @@ function Input({
       {helper && <span className={`mt-1 block text-xs ${error ? 'text-rose-600' : 'text-slate-500'}`}>{helper}</span>}
     </label>
   );
+}
+
+function WorksheetColumn({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{title}</p>
+      <div className="mt-3 space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function WorksheetLine({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: 'base' | 'add' | 'deduction';
+}) {
+  const color = tone === 'deduction' ? 'text-rose-700' : tone === 'add' ? 'text-emerald-700' : 'text-slate-900';
+  const prefix = tone === 'deduction' && value !== 0 ? '-' : tone === 'add' && value > 0 ? '+' : '';
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="text-slate-600">{label}</span>
+      <span className={`font-bold ${color}`}>{prefix}{formatCurrency(Math.abs(value))}</span>
+    </div>
+  );
+}
+
+function WorksheetTotal({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: 'add' | 'deduction' | 'base';
+}) {
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-200 pt-2 text-sm font-bold">
+      <span className="text-slate-800">{label}</span>
+      <WorksheetAmount value={value} tone={tone} />
+    </div>
+  );
+}
+
+function WorksheetAmount({ value, tone }: { value: number; tone: 'add' | 'deduction' | 'base' }) {
+  const color = tone === 'deduction' ? 'text-rose-700' : tone === 'add' ? 'text-emerald-700' : 'text-slate-900';
+  const prefix = tone === 'deduction' && value !== 0 ? '-' : tone === 'add' && value > 0 ? '+' : '';
+  return <span className={color}>{prefix}{formatCurrency(Math.abs(value))}</span>;
 }
 
 function SummaryPill({ label, value, tone }: { label: string; value: string; tone: 'blue' | 'emerald' | 'slate' }) {
