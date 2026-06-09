@@ -354,7 +354,6 @@ function normalizeMismoDetails(details?: PayrollMismoDetails | null): Prisma.Inp
 }
 
 const RETAIL_TRIGGER_LEAD_SOURCES = new Set<PayrollLeadSource>([
-  PayrollLeadSource.LEAD_BUY,
   PayrollLeadSource.MAILER,
   PayrollLeadSource.WARM_TRANSFER,
 ]);
@@ -365,7 +364,6 @@ const RETAIL_TRIGGER_PROVIDERS = new Set<PayrollLeadProvidedBy>([
 const BROKER_RETAIL_LEAD_SOURCE_SETTING = 'payroll.brokerRetailLeadSources';
 const BROKER_RETAIL_LEAD_PROVIDER_SETTING = 'payroll.brokerRetailLeadProviders';
 const DEFAULT_BROKER_RETAIL_LEAD_SOURCES = [
-  PayrollLeadSource.LEAD_BUY,
   PayrollLeadSource.MAILER,
   PayrollLeadSource.WARM_TRANSFER,
 ];
@@ -584,7 +582,7 @@ async function getBrokerRetailRoutingSettings() {
       byKey.get(BROKER_RETAIL_LEAD_SOURCE_SETTING),
       Object.values(PayrollLeadSource),
       DEFAULT_BROKER_RETAIL_LEAD_SOURCES
-    ),
+    ).filter((source) => source !== PayrollLeadSource.LEAD_BUY),
     leadProvidedBy: parseEnumArray(
       byKey.get(BROKER_RETAIL_LEAD_PROVIDER_SETTING),
       Object.values(PayrollLeadProvidedBy),
@@ -1653,7 +1651,7 @@ export async function savePayrollBrokerRetailRouting(input: PayrollBrokerRetailR
   await assertPayrollAdmin();
   const allowedSources = new Set(Object.values(PayrollLeadSource));
   const allowedProviders = new Set(Object.values(PayrollLeadProvidedBy));
-  const leadSources = input.leadSources.filter((source) => allowedSources.has(source));
+  const leadSources = input.leadSources.filter((source) => allowedSources.has(source) && source !== PayrollLeadSource.LEAD_BUY);
   const leadProvidedBy = input.leadProvidedBy.filter((provider) => allowedProviders.has(provider));
   await prisma.$transaction([
     prisma.payrollSetting.upsert({

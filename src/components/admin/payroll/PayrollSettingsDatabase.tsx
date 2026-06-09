@@ -44,7 +44,9 @@ const FEE_KIND_LABELS: Record<PayrollFeeRuleKind, string> = {
   LENDER_CREDIT: 'Lender Credit',
   OTHER: 'Other',
 };
-const LEAD_SOURCE_OPTIONS = Object.values(PayrollLeadSource);
+const LEAD_SOURCE_OPTIONS = Object.values(PayrollLeadSource).filter(
+  (source) => source !== PayrollLeadSource.LEAD_BUY
+);
 const LEAD_PROVIDED_BY_OPTIONS = Object.values(PayrollLeadProvidedBy);
 
 const initialFee: FeeForm = {
@@ -70,7 +72,9 @@ const initialRequirement: RequirementForm = {
 export function PayrollSettingsDatabase({ data }: Props) {
   const [feeForm, setFeeForm] = useState(initialFee);
   const [requirementForm, setRequirementForm] = useState(initialRequirement);
-  const [routingLeadSources, setRoutingLeadSources] = useState<PayrollLeadSource[]>(data.brokerRetailRouting.leadSources);
+  const [routingLeadSources, setRoutingLeadSources] = useState<PayrollLeadSource[]>(
+    data.brokerRetailRouting.leadSources.filter((source) => source !== PayrollLeadSource.LEAD_BUY)
+  );
   const [routingLeadProvidedBy, setRoutingLeadProvidedBy] = useState<PayrollLeadProvidedBy[]>(data.brokerRetailRouting.leadProvidedBy);
   const [feeLenderOpen, setFeeLenderOpen] = useState(false);
   const [requirementLenderOpen, setRequirementLenderOpen] = useState(false);
