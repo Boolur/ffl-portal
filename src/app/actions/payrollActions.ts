@@ -33,6 +33,7 @@ const PAYROLL_ADMIN_PATHS = [
   '/admin/payroll/settings',
 ];
 const PAYROLL_PORTAL_PATH = '/payroll';
+export const PAYROLL_COMPANY_DEFAULT_FEE_LENDER = 'Company Default';
 
 export type PayrollCompSplitInput = {
   recipientUserId?: string | null;
@@ -427,6 +428,10 @@ function money(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function moneyLabel(value: number) {
+  return `$${money(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function percent(value: number) {
   return Math.round(value * 10000) / 10000;
 }
@@ -604,9 +609,12 @@ async function getPayrollRulesForRequest(input: Pick<PayrollCompRequestInput, 'l
   const [feeRules, requirement] = await Promise.all([
     prisma.payrollLenderFeeRule.findMany({
       where: {
-        lender: { equals: input.lender, mode: 'insensitive' },
+        OR: [
+          { lender: { equals: input.lender, mode: 'insensitive' } },
+          { lender: { equals: PAYROLL_COMPANY_DEFAULT_FEE_LENDER, mode: 'insensitive' } },
+        ],
         active: true,
-        OR: [{ loanChannel: input.loanChannel }, { loanChannel: null }],
+        AND: [{ OR: [{ loanChannel: input.loanChannel }, { loanChannel: null }] }],
       },
     }),
     prisma.payrollLenderRequirement.findFirst({
@@ -625,23 +633,47 @@ function missingRequiredFeeLine(
   key: string
 ): PayrollCalculationLine {
   const missing = rule.required && (!enteredAmount || enteredAmount <= 0);
+  const cureAmount = money(decimalToNumber(rule.amount));
   return {
     key,
-    label: rule.label,
+    label: missing ? `${rule.label} Cure (not charged)` : rule.label,
     enteredAmount,
-    calculatedAmount: missing ? -money(decimalToNumber(rule.amount)) : -money(enteredAmount ?? 0),
+    calculatedAmount: missing ? -cureAmount : -money(enteredAmount ?? 0),
     stage: 'MISSING_FEE',
     treatment: 'DEDUCTION',
     required: rule.required,
     missing,
     note: missing
-      ? `${rule.label} is required for this lender and is reducing the split basis.`
+      ? `${rule.label} was entered as $0, so the ${moneyLabel(cureAmount)} cure is reducing the split basis.`
       : `${rule.label} is included in Section A and reduces the split basis.`,
   };
 }
 
-function feeAmountForKind(rules: PayrollLenderFeeRule[], kind: PayrollFeeRuleKind) {
-  return rules.find((rule) => rule.feeKind === kind && rule.required);
+function feeAmountForKind(rules: PayrollLenderFeeRule[], kind: PayrollFeeRuleKind, lender: string) {
+  const matchingRules = rules.filter((rule) => rule.feeKind === kind && rule.required);
+  return matchingRules.find((rule) => rule.lender.toLowerCase() === lender.toLowerCase())
+    ?? matchingRules.find((rule) => rule.lender.toLowerCase() === PAYROLL_COMPANY_DEFAULT_FEE_LENDER.toLowerCase());
+}
+
+function defaultFeeCureLine(
+  feeKind: PayrollFeeRuleKind | null,
+  enteredAmount: number | null,
+  key: string,
+  label: string
+): PayrollCalculationLine | null {
+  if (enteredAmount === null || enteredAmount === undefined) return null;
+  if (enteredAmount > 0) {
+    return {
+      key,
+      label,
+      enteredAmount,
+      calculatedAmount: -money(enteredAmount),
+      stage: 'MISSING_FEE',
+      treatment: 'DEDUCTION',
+      note: `${label} is included in Section A and reduces the split basis.`,
+    };
+  }
+  return null;
 }
 
 function calculatePayrollCompensation(
@@ -738,18 +770,9 @@ function calculatePayrollCompensation(
     { kind: PayrollFeeRuleKind.UNDERWRITING_FEE, value: underwritingFee, key: 'underwritingFee', fallbackLabel: 'Underwriting Fee' },
     { kind: PayrollFeeRuleKind.ORIGINATION_FEE, value: originationFee, key: 'originationFee', fallbackLabel: 'Origination Fee' },
   ].map((item) => {
-    const rule = item.kind ? feeAmountForKind(rules.feeRules, item.kind) : null;
+    const rule = item.kind ? feeAmountForKind(rules.feeRules, item.kind, input.lender) : null;
     if (rule) return missingRequiredFeeLine(rule, item.value, item.key);
-    if (!item.value) return null;
-    return {
-      key: item.key,
-      label: item.fallbackLabel,
-      enteredAmount: item.value,
-      calculatedAmount: -item.value,
-      stage: 'MISSING_FEE' as const,
-      treatment: 'DEDUCTION' as const,
-      note: `${item.fallbackLabel} is included in Section A and reduces the split basis.`,
-    };
+    return defaultFeeCureLine(item.kind, item.value, item.key, item.fallbackLabel);
   }).filter(Boolean) as PayrollCalculationLine[];
   lines.push(...feeLines);
 
