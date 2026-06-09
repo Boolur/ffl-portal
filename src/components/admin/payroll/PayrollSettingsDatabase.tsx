@@ -4,12 +4,12 @@ import React, { useMemo, useState, useTransition } from 'react';
 import { Database, Loader2, Plus, Save, Settings2, Split } from 'lucide-react';
 import { PayrollFeeRuleKind, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel } from '@prisma/client';
 import {
-  PAYROLL_COMPANY_DEFAULT_FEE_LENDER,
   savePayrollBrokerRetailRouting,
   savePayrollLenderFeeRule,
   savePayrollLenderRequirement,
   type PayrollSettingsDatabase,
 } from '@/app/actions/payrollActions';
+import { PAYROLL_COMPANY_DEFAULT_FEE_LENDER } from '@/lib/payrollFeeRules';
 import { PAYROLL_LENDER_OPTIONS } from '@/components/payroll/payrollOptions';
 import { formatCurrency, loanChannelLabel, payrollLeadProvidedByLabel, payrollLeadSourceLabel } from './payrollFormat';
 

@@ -22,6 +22,7 @@ import {
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { canAccessPayroll } from '@/lib/adminTiers';
+import { PAYROLL_COMPANY_DEFAULT_FEE_LENDER } from '@/lib/payrollFeeRules';
 import { canAccessPayrollPortal } from '@/lib/payrollPilot';
 import { prisma } from '@/lib/prisma';
 
@@ -33,7 +34,6 @@ const PAYROLL_ADMIN_PATHS = [
   '/admin/payroll/settings',
 ];
 const PAYROLL_PORTAL_PATH = '/payroll';
-export const PAYROLL_COMPANY_DEFAULT_FEE_LENDER = 'Company Default';
 
 export type PayrollCompSplitInput = {
   recipientUserId?: string | null;
