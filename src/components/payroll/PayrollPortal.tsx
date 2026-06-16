@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useTransition } from 'react';
 import { Banknote, Building2, Bug, Calculator, CheckCircle2, Clock, Droplets, DollarSign, Edit3, FileCheck2, FilePlus2, Landmark, Loader2, Megaphone, Percent, Plus, ReceiptText, RefreshCw, Send, ShieldCheck, Upload, WalletCards, Waves, X } from 'lucide-react';
-import { PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType } from '@prisma/client';
+import { PayrollCompPlanType, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType } from '@prisma/client';
 import {
   getPayrollRequestPreview,
   submitPayrollCompRequest,
@@ -509,6 +509,8 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
     sortOrder: number;
     }>;
     hasManagerReimbursementRecipients: boolean;
+    appliedPlanType: PayrollCompPlanType;
+    reimbursementTarget: PayrollReimbursementTarget;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -992,19 +994,27 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                     </p>
                     <p className="text-sm text-slate-600">These are added after the split is calculated, if needed.</p>
                   </div>
-                  <label className="block min-w-[220px]">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-900">Reimbursement to:</span>
-                    <select
-                      value={form.reimbursementTarget}
-                      onChange={(event) => update('reimbursementTarget', event.target.value as PayrollReimbursementTarget)}
-                      className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                    >
-                      <option value={PayrollReimbursementTarget.SELF}>Self Reimbursed</option>
-                      {preview?.hasManagerReimbursementRecipients && (
-                        <option value={PayrollReimbursementTarget.MANAGER}>Manager</option>
-                      )}
-                    </select>
-                  </label>
+                  {preview?.appliedPlanType === PayrollCompPlanType.RETAIL ? (
+                    <div className="min-w-[220px] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 shadow-sm">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900">Reimbursement to:</span>
+                      <p className="mt-1 text-sm font-extrabold text-amber-900">Manager</p>
+                      <p className="text-xs font-semibold text-amber-700">Automatic for Retail split requests</p>
+                    </div>
+                  ) : (
+                    <label className="block min-w-[220px]">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-900">Reimbursement to:</span>
+                      <select
+                        value={form.reimbursementTarget}
+                        onChange={(event) => update('reimbursementTarget', event.target.value as PayrollReimbursementTarget)}
+                        className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                      >
+                        <option value={PayrollReimbursementTarget.SELF}>Self Reimbursed</option>
+                        {preview?.hasManagerReimbursementRecipients && (
+                          <option value={PayrollReimbursementTarget.MANAGER}>Manager</option>
+                        )}
+                      </select>
+                    </label>
+                  )}
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
                   <Input label="Appraisal" Icon={Landmark} value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} error={shouldHighlight('appraisalAddBack')} onBlur={() => markTouched('appraisalAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
@@ -1201,7 +1211,9 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                           </span>
                           <div>
                             <p className="text-base font-bold text-slate-950">Final Comp</p>
-                            <p className="text-xs font-semibold text-emerald-700">Loan officer split plus post-split add-backs</p>
+                            <p className="text-xs font-semibold text-emerald-700">
+                              {managerReimbursementAmount > 0 ? 'Loan officer split only; add-backs routed to Manager' : 'Loan officer split plus post-split add-backs'}
+                            </p>
                           </div>
                         </div>
                         <p className="text-lg font-extrabold text-emerald-700">{formatCurrency(loanOfficerFinalComp)}</p>

@@ -1085,6 +1085,15 @@ function withPostSplitAddBacks(
   ];
 }
 
+function resolvePortalReimbursementTarget(
+  splitSnapshots: BuiltPayrollSplitSnapshot[],
+  requestedTarget: PayrollReimbursementTarget | undefined
+) {
+  const appliedPlanType = splitSnapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
+  if (appliedPlanType === PayrollCompPlanType.RETAIL) return PayrollReimbursementTarget.MANAGER;
+  return requestedTarget ?? PayrollReimbursementTarget.SELF;
+}
+
 export async function getPayrollEligibleUsers() {
   await assertPayrollAdmin();
   const users = await prisma.user.findMany({
@@ -1371,7 +1380,7 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
     leadProvidedBy: input.leadProvidedBy,
     brokerRetailRouting,
   });
-  const reimbursementTarget = input.reimbursementTarget ?? PayrollReimbursementTarget.SELF;
+  const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, input.reimbursementTarget);
   const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
   return {
     calculation,
@@ -1386,6 +1395,8 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
       sortOrder: split.sortOrder,
     })),
     hasManagerReimbursementRecipients: splitSnapshots.some((split) => split.roleLabel.trim().toLowerCase() === 'manager'),
+    appliedPlanType: splitSnapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER,
+    reimbursementTarget,
   };
 }
 
@@ -1425,7 +1436,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
     leadProvidedBy: input.leadProvidedBy,
     brokerRetailRouting,
   });
-  const reimbursementTarget = input.reimbursementTarget ?? PayrollReimbursementTarget.SELF;
+  const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, input.reimbursementTarget);
   const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
   const appliedPlanType = snapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
   const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
