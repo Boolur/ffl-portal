@@ -36,7 +36,12 @@ export default async function PayrollPage() {
           </div>
         </div>
       </div>
-      <PayrollPortal rows={data.rows} summary={data.summary} />
+      <PayrollPortal
+        rows={data.rows}
+        summary={data.summary}
+        userClassification={data.userClassification}
+        brokerRetailRouting={data.brokerRetailRouting}
+      />
     </DashboardShell>
   );
 }

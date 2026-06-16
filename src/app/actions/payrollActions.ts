@@ -552,6 +552,7 @@ function resolveAppliedPlanType({
   override?: PayrollCompPlanType | null;
 }) {
   if (override) return override;
+  if (userClassification === PayrollUserClassification.RETAIL) return PayrollCompPlanType.RETAIL;
   if (userClassification !== PayrollUserClassification.BROKER) return PayrollCompPlanType.BROKER;
   const sourceTriggers = retailLeadSources ?? RETAIL_TRIGGER_LEAD_SOURCES;
   const providerTriggers = retailLeadProviders ?? RETAIL_TRIGGER_PROVIDERS;
@@ -973,7 +974,7 @@ async function buildSplitSnapshots(
     requestedPlanHasRecipients || selectedPlanType === PayrollCompPlanType.BROKER
       ? requestedPlan ?? brokerPlan ?? plans[0] ?? null
       : brokerPlan ?? requestedPlan ?? plans[0] ?? null;
-  const effectivePlanType = selectedPlan?.planType ?? selectedPlanType;
+  const effectivePlanType = selectedPlanType;
 
   const rawSplits = selectedPlan
     ? [
@@ -1263,6 +1264,69 @@ async function createPayrollPlansForUsers(
   }
 }
 
+async function recalculatePendingPayrollRequestsForUsers(loanOfficerIds: string[]) {
+  const uniqueLoanOfficerIds = Array.from(new Set(loanOfficerIds)).filter(Boolean);
+  if (uniqueLoanOfficerIds.length === 0) return;
+
+  const [brokerRetailRouting, requests] = await Promise.all([
+    getBrokerRetailRoutingSettings(),
+    prisma.payrollCompRequest.findMany({
+      where: {
+        loanOfficerId: { in: uniqueLoanOfficerIds },
+        status: PayrollCompRequestStatus.PENDING_REVIEW,
+      },
+      select: {
+        id: true,
+        loanOfficerId: true,
+        expectedRevenue: true,
+        splitBasisAmount: true,
+        leadSource: true,
+        leadProvidedBy: true,
+        calculationSnapshot: true,
+      },
+    }),
+  ]);
+
+  for (const request of requests) {
+    const splitBasisAmount = decimalToNumber(request.splitBasisAmount) || decimalToNumber(request.expectedRevenue);
+    const splitSnapshots = await buildSplitSnapshots(request.loanOfficerId, splitBasisAmount, {
+      leadSource: request.leadSource,
+      leadProvidedBy: request.leadProvidedBy,
+      brokerRetailRouting,
+    });
+    const calculation = (request.calculationSnapshot as PayrollCalculationSnapshot | null) ?? null;
+    const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, undefined);
+    const snapshots = calculation ? withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget) : splitSnapshots;
+    const appliedPlanType = splitSnapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
+
+    await prisma.$transaction([
+      prisma.payrollCompRequest.update({
+        where: { id: request.id },
+        data: {
+          appliedPlanType,
+          reimbursementTarget,
+        },
+      }),
+      prisma.payrollCompRequestSplit.deleteMany({ where: { requestId: request.id } }),
+      prisma.payrollCompRequestSplit.createMany({
+        data: snapshots.map((split) => ({
+          requestId: request.id,
+          planId: split.planId,
+          recipientUserId: split.recipientUserId,
+          recipientName: split.recipientName,
+          recipientEmail: split.recipientEmail,
+          roleLabel: split.roleLabel,
+          payType: split.payType,
+          splitPercent: split.splitPercent,
+          flatAmount: split.flatAmount,
+          amount: split.amount,
+          sortOrder: split.sortOrder,
+        })),
+      }),
+    ]);
+  }
+}
+
 export async function savePayrollCompPlan(input: PayrollCompPlanInput) {
   return savePayrollCompPlanSettings({
     loanOfficerId: input.loanOfficerId,
@@ -1314,6 +1378,7 @@ export async function savePayrollCompPlanSettings(input: PayrollCompPlanSettings
     });
   });
 
+  await recalculatePendingPayrollRequestsForUsers([loanOfficerId]);
   revalidatePayroll();
 }
 
@@ -1365,6 +1430,7 @@ export async function savePayrollTeamCompPlanSettings(input: PayrollTeamCompPlan
     });
   });
 
+  await recalculatePendingPayrollRequestsForUsers(uniquePayrollUserIds);
   revalidatePayroll();
   return { updatedCount: uniquePayrollUserIds.length, teamName: team.name };
 }
@@ -1508,7 +1574,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
 export async function getMyPayrollPortalData() {
   const actor = await assertPayrollPortalUser();
   const window = nextPaycheckWindow();
-  const [requests, plan, nextSplits] = await Promise.all([
+  const [requests, plan, nextSplits, brokerRetailRouting] = await Promise.all([
     prisma.payrollCompRequest.findMany({
       where: { loanOfficerId: actor.userId },
       orderBy: { submittedAt: 'desc' },
@@ -1517,7 +1583,7 @@ export async function getMyPayrollPortalData() {
     prisma.payrollCompPlan.findFirst({
       where: { loanOfficerId: actor.userId, active: true, planType: PayrollCompPlanType.BROKER },
       orderBy: { effectiveStart: 'desc' },
-      select: { salaryPerPaycheck: true, salaryFrequency: true },
+      select: { salaryPerPaycheck: true, salaryFrequency: true, userClassification: true },
     }),
     prisma.payrollCompRequestSplit.findMany({
       where: {
@@ -1532,6 +1598,7 @@ export async function getMyPayrollPortalData() {
       },
       select: { amount: true },
     }),
+    getBrokerRetailRoutingSettings(),
   ]);
   const rows = requests.map(serializeRequest);
   const summary = summarizeRequests(rows);
@@ -1540,6 +1607,8 @@ export async function getMyPayrollPortalData() {
   return {
     rows,
     summary,
+    userClassification: plan?.userClassification ?? PayrollUserClassification.BROKER,
+    brokerRetailRouting,
     nextPaycheck: {
       ...window,
       salaryAmount,

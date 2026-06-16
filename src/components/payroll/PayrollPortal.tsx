@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useTransition } from 'react';
 import { Banknote, Building2, Bug, Calculator, CheckCircle2, Clock, Droplets, DollarSign, Edit3, FileCheck2, FilePlus2, Landmark, Loader2, Megaphone, Percent, Plus, ReceiptText, RefreshCw, Send, ShieldCheck, Upload, WalletCards, Waves, X } from 'lucide-react';
-import { PayrollCompPlanType, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType } from '@prisma/client';
+import { PayrollCompPlanType, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
 import {
   getPayrollRequestPreview,
   submitPayrollCompRequest,
@@ -39,6 +39,11 @@ type Props = {
     salaryAmount: number;
     commissionAmount: number;
     totalAmount: number;
+  };
+  userClassification?: PayrollUserClassification;
+  brokerRetailRouting?: {
+    leadSources: PayrollLeadSource[];
+    leadProvidedBy: PayrollLeadProvidedBy[];
   };
 };
 
@@ -487,9 +492,19 @@ function StatsPanel({
   );
 }
 
-export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
+export function PayrollPortal({
+  rows,
+  summary,
+  nextPaycheck,
+  userClassification = PayrollUserClassification.BROKER,
+  brokerRetailRouting = { leadSources: [], leadProvidedBy: [] },
+}: Props) {
+  const defaultReimbursementTarget = userClassification === PayrollUserClassification.RETAIL
+    ? PayrollReimbursementTarget.MANAGER
+    : PayrollReimbursementTarget.SELF;
+  const initialFormForUser = { ...initialForm, reimbursementTarget: defaultReimbursementTarget };
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<FormState>(initialForm);
+  const [form, setForm] = useState<FormState>(initialFormForUser);
   const [dragActive, setDragActive] = useState(false);
   const [mismoFileName, setMismoFileName] = useState('');
   const [isParsingMismo, setIsParsingMismo] = useState(false);
@@ -516,6 +531,12 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const selectedLeadRoutesRetail = userClassification === PayrollUserClassification.BROKER && (
+    brokerRetailRouting.leadSources.includes(form.leadSource) ||
+    brokerRetailRouting.leadProvidedBy.includes(form.leadProvidedBy)
+  );
+  const isRetailReimbursementContext = preview?.appliedPlanType === PayrollCompPlanType.RETAIL ||
+    (!preview && (userClassification === PayrollUserClassification.RETAIL || selectedLeadRoutesRetail));
 
   const canPreview = useMemo(() => {
     const base = form.loanChannel === PayrollLoanChannel.BROKER ? form.brokerComp : form.sectionAComp;
@@ -568,7 +589,23 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   }, [figureNftyRequired, form]);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => {
+      const next = { ...current, [key]: value };
+      if (!reimbursementTargetTouched && (key === 'leadSource' || key === 'leadProvidedBy')) {
+        const nextLeadRoutesRetail = userClassification === PayrollUserClassification.RETAIL || (
+          userClassification === PayrollUserClassification.BROKER &&
+          (
+            brokerRetailRouting.leadSources.includes(next.leadSource) ||
+            brokerRetailRouting.leadProvidedBy.includes(next.leadProvidedBy)
+          )
+        );
+        next.reimbursementTarget = nextLeadRoutesRetail
+          ? PayrollReimbursementTarget.MANAGER
+          : PayrollReimbursementTarget.SELF;
+      }
+      return next;
+    });
+    if (key === 'leadSource' || key === 'leadProvidedBy') setPreview(null);
     setError(null);
   };
   const markTouched = (key: RequiredFieldKey) => {
@@ -605,7 +642,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   };
 
   const loadPreview = () => {
-    if (form.reimbursementTarget === PayrollReimbursementTarget.MANAGER && !preview?.hasManagerReimbursementRecipients) {
+    if (preview && form.reimbursementTarget === PayrollReimbursementTarget.MANAGER && !preview.hasManagerReimbursementRecipients) {
       setForm((current) => ({ ...current, reimbursementTarget: PayrollReimbursementTarget.SELF }));
     }
     setAttemptedSubmit(true);
@@ -649,7 +686,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
           form,
           reimbursementTargetTouched ? form.reimbursementTarget : undefined
         ));
-        setForm(initialForm);
+        setForm(initialFormForUser);
         setReimbursementTargetTouched(false);
         setTouchedFields(new Set());
         setAttemptedSubmit(false);
@@ -687,7 +724,12 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
         <button
           type="button"
           className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
-          onClick={() => setModalOpen(true)}
+          onClick={() => {
+            setForm(initialFormForUser);
+            setReimbursementTargetTouched(false);
+            setPreview(null);
+            setModalOpen(true);
+          }}
         >
           <Plus className="h-4 w-4" /> Submit Compensation Request
         </button>
@@ -1015,20 +1057,20 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                         update('reimbursementTarget', event.target.value as PayrollReimbursementTarget);
                       }}
                       className={`mt-1 w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:ring-2 ${
-                        preview?.appliedPlanType === PayrollCompPlanType.RETAIL
+                        isRetailReimbursementContext
                           ? 'border-amber-200 focus:border-amber-500 focus:ring-amber-500/20'
                           : 'border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/20'
                       }`}
                     >
-                      {preview?.appliedPlanType === PayrollCompPlanType.RETAIL && (
+                      {isRetailReimbursementContext && (
                         <option value={PayrollReimbursementTarget.MANAGER}>Manager</option>
                       )}
                       <option value={PayrollReimbursementTarget.SELF}>Self Reimbursed</option>
-                      {preview?.appliedPlanType !== PayrollCompPlanType.RETAIL && preview?.hasManagerReimbursementRecipients && (
+                      {!isRetailReimbursementContext && preview?.hasManagerReimbursementRecipients && (
                         <option value={PayrollReimbursementTarget.MANAGER}>Manager</option>
                       )}
                     </select>
-                    {preview?.appliedPlanType === PayrollCompPlanType.RETAIL && (
+                    {isRetailReimbursementContext && (
                       <p className="mt-1 text-xs font-semibold text-amber-700">Retail defaults to Manager, but you can choose Self Reimbursed.</p>
                     )}
                   </label>
