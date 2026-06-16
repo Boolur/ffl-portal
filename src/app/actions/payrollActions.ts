@@ -1090,6 +1090,7 @@ function resolvePortalReimbursementTarget(
   requestedTarget: PayrollReimbursementTarget | undefined
 ) {
   const appliedPlanType = splitSnapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
+  if (requestedTarget) return requestedTarget;
   if (appliedPlanType === PayrollCompPlanType.RETAIL) return PayrollReimbursementTarget.MANAGER;
   return requestedTarget ?? PayrollReimbursementTarget.SELF;
 }

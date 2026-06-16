@@ -231,7 +231,7 @@ function missingFieldMessage(fields: Array<{ label: string }>) {
   return `Please fix the missing fields before continuing. Enter 0 for any amount that does not apply.${labelList ? ` Missing: ${labelList}.` : ''}`;
 }
 
-function buildCompInput(form: FormState) {
+function buildCompInput(form: FormState, reimbursementTarget?: PayrollReimbursementTarget) {
   const amounts = Object.fromEntries(
     MONEY_FIELDS.map((field) => [field, toOptionalNumber(form[field])])
   ) as Record<MoneyField, number | null>;
@@ -253,6 +253,7 @@ function buildCompInput(form: FormState) {
     recessionDate: form.recessionDate || null,
     figureNftyAttachmentName: form.figureNftyAttachmentName || null,
     figureNftyAttachmentUrl: form.figureNftyAttachmentName || null,
+    reimbursementTarget,
   };
 }
 
@@ -496,6 +497,7 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
   const [lenderSearch, setLenderSearch] = useState('');
   const [touchedFields, setTouchedFields] = useState<Set<RequiredFieldKey>>(new Set());
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+  const [reimbursementTargetTouched, setReimbursementTargetTouched] = useState(false);
   const [preview, setPreview] = useState<{
     calculation: PayrollCalculationSnapshot;
     splits: Array<{
@@ -616,8 +618,14 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
     startTransition(async () => {
       try {
         setError(null);
-        const result = await getPayrollRequestPreview(buildCompInput(form));
+        const result = await getPayrollRequestPreview(buildCompInput(
+          form,
+          reimbursementTargetTouched ? form.reimbursementTarget : undefined
+        ));
         setPreview(result);
+        if (!reimbursementTargetTouched && form.reimbursementTarget !== result.reimbursementTarget) {
+          setForm((current) => ({ ...current, reimbursementTarget: result.reimbursementTarget }));
+        }
       } catch (err) {
         const message = err instanceof Error && err.message && !err.message.includes('digest')
           ? err.message
@@ -637,8 +645,12 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
     startTransition(async () => {
       try {
         setError(null);
-        await submitPayrollCompRequest(buildCompInput(form));
+        await submitPayrollCompRequest(buildCompInput(
+          form,
+          reimbursementTargetTouched ? form.reimbursementTarget : undefined
+        ));
         setForm(initialForm);
+        setReimbursementTargetTouched(false);
         setTouchedFields(new Set());
         setAttemptedSubmit(false);
         setPreview(null);
@@ -994,27 +1006,32 @@ export function PayrollPortal({ rows, summary, nextPaycheck }: Props) {
                     </p>
                     <p className="text-sm text-slate-600">These are added after the split is calculated, if needed.</p>
                   </div>
-                  {preview?.appliedPlanType === PayrollCompPlanType.RETAIL ? (
-                    <div className="min-w-[220px] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 shadow-sm">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900">Reimbursement to:</span>
-                      <p className="mt-1 text-sm font-extrabold text-amber-900">Manager</p>
-                      <p className="text-xs font-semibold text-amber-700">Automatic for Retail split requests</p>
-                    </div>
-                  ) : (
-                    <label className="block min-w-[220px]">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-900">Reimbursement to:</span>
-                      <select
-                        value={form.reimbursementTarget}
-                        onChange={(event) => update('reimbursementTarget', event.target.value as PayrollReimbursementTarget)}
-                        className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                      >
-                        <option value={PayrollReimbursementTarget.SELF}>Self Reimbursed</option>
-                        {preview?.hasManagerReimbursementRecipients && (
-                          <option value={PayrollReimbursementTarget.MANAGER}>Manager</option>
-                        )}
-                      </select>
-                    </label>
-                  )}
+                  <label className="block min-w-[220px]">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-900">Reimbursement to:</span>
+                    <select
+                      value={form.reimbursementTarget}
+                      onChange={(event) => {
+                        setReimbursementTargetTouched(true);
+                        update('reimbursementTarget', event.target.value as PayrollReimbursementTarget);
+                      }}
+                      className={`mt-1 w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-semibold text-slate-950 shadow-sm outline-none focus:ring-2 ${
+                        preview?.appliedPlanType === PayrollCompPlanType.RETAIL
+                          ? 'border-amber-200 focus:border-amber-500 focus:ring-amber-500/20'
+                          : 'border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/20'
+                      }`}
+                    >
+                      {preview?.appliedPlanType === PayrollCompPlanType.RETAIL && (
+                        <option value={PayrollReimbursementTarget.MANAGER}>Manager</option>
+                      )}
+                      <option value={PayrollReimbursementTarget.SELF}>Self Reimbursed</option>
+                      {preview?.appliedPlanType !== PayrollCompPlanType.RETAIL && preview?.hasManagerReimbursementRecipients && (
+                        <option value={PayrollReimbursementTarget.MANAGER}>Manager</option>
+                      )}
+                    </select>
+                    {preview?.appliedPlanType === PayrollCompPlanType.RETAIL && (
+                      <p className="mt-1 text-xs font-semibold text-amber-700">Retail defaults to Manager, but you can choose Self Reimbursed.</p>
+                    )}
+                  </label>
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
                   <Input label="Appraisal" Icon={Landmark} value={form.appraisalAddBack} onChange={(value) => update('appraisalAddBack', value)} error={shouldHighlight('appraisalAddBack')} onBlur={() => markTouched('appraisalAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
