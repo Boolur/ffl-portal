@@ -12,7 +12,9 @@ import { isAdmin } from '@/lib/adminTiers';
 import { canDeleteTasks } from '@/lib/taskPermissions';
 import {
   TASK_BUCKET_PAGE_SIZE,
-  queryInitialManagerTaskBuckets,
+  canUsePagedTaskBuckets,
+  queryInitialTaskBucketsForRole,
+  queryLoVaProgressSeedTasks,
   queryManagerLoVaProgressSeedTasks,
   type PagedTaskBucket,
   type TaskBucketSort,
@@ -627,29 +629,6 @@ function isLoResponseTask(task: TaskRow) {
   return task.kind === TaskKind.LO_NEEDS_INFO;
 }
 
-function isDisclosureSubmissionTaskRef(task: {
-  kind: TaskKind | null;
-  assignedRole: UserRole | null;
-  title: string;
-}) {
-  return (
-    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
-    (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
-      task.title.toLowerCase().includes('disclosure'))
-  );
-}
-
-function isQcSubmissionTaskRef(task: {
-  kind: TaskKind | null;
-  assignedRole: UserRole | null;
-  title: string;
-}) {
-  return (
-    task.kind === TaskKind.SUBMIT_QC ||
-    (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
-  );
-}
-
 type RoleBucket = {
   id: TaskBucketFilter;
   sectionId?: string;
@@ -664,105 +643,6 @@ type RoleBucket = {
   serverSort?: TaskBucketSort;
   enableBatchDelete?: boolean;
 };
-
-function getLoPilotRows(allTasks: TaskRow[]) {
-  const disclosureTasks = allTasks.filter(isDisclosureSubmissionTask);
-  const qcTasks = allTasks.filter(isQcSubmissionTask);
-  const loResponseTasks = allTasks.filter(isLoResponseTask);
-
-  const disclosureActionRequired = loResponseTasks.filter((task) => {
-    if (!task.parentTask) return true;
-    return isDisclosureSubmissionTaskRef(task.parentTask);
-  });
-  const qcActionRequired = loResponseTasks.filter((task) => {
-    if (!task.parentTask) return false;
-    return isQcSubmissionTaskRef(task.parentTask);
-  });
-
-  const disclosureBuckets: RoleBucket[] = [
-    {
-      id: 'submitted-disclosures',
-      label: 'Submitted for Disclosures',
-      chipLabel: 'Submitted',
-      chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
-      tasks: disclosureTasks.filter(
-        (task) =>
-          task.status !== TaskStatus.COMPLETED &&
-          task.workflowState === TaskWorkflowState.NONE
-      ),
-    },
-    {
-      id: 'action-required',
-      label: 'Action Required (Approve Figures / Missing Info)',
-      chipLabel: 'Action Required',
-      chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
-      tasks: disclosureActionRequired.filter(
-        (task) => task.status !== TaskStatus.COMPLETED
-      ),
-    },
-    {
-      id: 'returned-to-disclosure',
-      label: 'Returned to Disclosure',
-      chipLabel: 'Tracking',
-      chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
-      tasks: disclosureTasks.filter(
-        (task) =>
-          task.status !== TaskStatus.COMPLETED &&
-          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
-      ),
-    },
-    {
-      id: 'disclosures-sent-completed',
-      label: 'Disclosures Sent / Completed',
-      chipLabel: 'Completed',
-      chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-      isCompleted: true,
-      tasks: disclosureTasks.filter((task) => task.status === TaskStatus.COMPLETED),
-    },
-  ];
-
-  const qcBuckets: RoleBucket[] = [
-    {
-      id: 'submitted-qc',
-      label: 'Submitted for QC',
-      chipLabel: 'Submitted',
-      chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
-      tasks: qcTasks.filter(
-        (task) =>
-          task.status !== TaskStatus.COMPLETED &&
-          task.workflowState === TaskWorkflowState.NONE
-      ),
-    },
-    {
-      id: 'action-required-qc',
-      label: 'Action Required (QC Info / Approval)',
-      chipLabel: 'Action Required',
-      chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
-      tasks: qcActionRequired.filter((task) => task.status !== TaskStatus.COMPLETED),
-    },
-    {
-      id: 'returned-to-qc',
-      label: 'Returned to QC',
-      chipLabel: 'Tracking',
-      chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
-      tasks: qcTasks.filter(
-        (task) =>
-          task.status !== TaskStatus.COMPLETED &&
-          task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
-      ),
-    },
-    {
-      id: 'qc-completed',
-      label: 'QC Sent / Completed',
-      chipLabel: 'Completed',
-      chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-      isCompleted: true,
-      tasks: qcTasks.filter((task) => task.status === TaskStatus.COMPLETED),
-    },
-  ];
-
-  return { disclosureBuckets, qcBuckets };
-}
 
 function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
@@ -1172,15 +1052,19 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   // desks, the four VA/JR desks, and the LO VA progress list. Anything that
   // used to check "sessionRole === MANAGER" now also runs for admins.
   const isManagerLike = sessionRole === UserRole.MANAGER || isAdmin(sessionRole);
-  const [pagedManagerBuckets, managerProgressSeedTasks, managerTotalTaskCount] =
-    isManagerLike
+  const usePagedBuckets = canUsePagedTaskBuckets(sessionRole);
+  const [pagedTaskBuckets, managerProgressSeedTasks, loVaProgressSeedTasks, fallbackTotalTaskCount] =
+    usePagedBuckets
       ? await Promise.all([
-          queryInitialManagerTaskBuckets(sessionRole),
-          queryManagerLoVaProgressSeedTasks(sessionRole),
-          prisma.task.count(),
+          queryInitialTaskBucketsForRole(sessionRole, sessionUser.id),
+          isManagerLike ? queryManagerLoVaProgressSeedTasks(sessionRole) : Promise.resolve([]),
+          sessionRole === UserRole.LOAN_OFFICER || sessionRole === UserRole.LOA
+            ? queryLoVaProgressSeedTasks(sessionRole, sessionUser.id)
+            : Promise.resolve([]),
+          isManagerLike ? prisma.task.count() : Promise.resolve(0),
         ])
-      : [null, [], 0] as const;
-  const allTasks = isManagerLike ? [] : await getTasks(sessionRole, sessionUser.id);
+      : [null, [], [], 0] as const;
+  const allTasks = usePagedBuckets ? [] : await getTasks(sessionRole, sessionUser.id);
   const jrAssigneeOptions =
     isAdmin(sessionRole) ||
     sessionRole === UserRole.MANAGER ||
@@ -1202,38 +1086,60 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
       : [];
   const asRoleBuckets = (buckets: PagedTaskBucket[] = []) =>
     buckets as unknown as RoleBucket[];
-  const roleBuckets = isManagerLike ? [] : getRoleBuckets(sessionRole, allTasks);
+  const roleBuckets = usePagedBuckets
+    ? asRoleBuckets(pagedTaskBuckets?.roleBuckets)
+    : getRoleBuckets(sessionRole, allTasks);
   const dualDeskRows = sessionRole === UserRole.LOAN_OFFICER
-    ? getLoPilotRows(allTasks)
+    ? {
+        disclosureBuckets: asRoleBuckets(pagedTaskBuckets?.disclosureBuckets),
+        qcBuckets: asRoleBuckets(pagedTaskBuckets?.qcBuckets),
+      }
     : sessionRole === UserRole.LOA
-    ? getLoPilotRows(allTasks)
+    ? {
+        disclosureBuckets: asRoleBuckets(pagedTaskBuckets?.disclosureBuckets),
+        qcBuckets: asRoleBuckets(pagedTaskBuckets?.qcBuckets),
+      }
     : isManagerLike
     ? {
-        disclosureBuckets: asRoleBuckets(pagedManagerBuckets?.disclosureBuckets),
-        qcBuckets: asRoleBuckets(pagedManagerBuckets?.qcBuckets),
+        disclosureBuckets: asRoleBuckets(pagedTaskBuckets?.disclosureBuckets),
+        qcBuckets: asRoleBuckets(pagedTaskBuckets?.qcBuckets),
       }
     : null;
   const managerVaRows =
-    isManagerLike && pagedManagerBuckets
+    usePagedBuckets && (isManagerLike || sessionRole === UserRole.VA) && pagedTaskBuckets
       ? {
-          vaTitleBuckets: asRoleBuckets(pagedManagerBuckets.vaTitleBuckets),
-          vaHoiBuckets: asRoleBuckets(pagedManagerBuckets.vaHoiBuckets),
-          vaPayoffBuckets: asRoleBuckets(pagedManagerBuckets.vaPayoffBuckets),
-          vaAppraisalBuckets: asRoleBuckets(pagedManagerBuckets.vaAppraisalBuckets),
+          vaTitleBuckets: asRoleBuckets(pagedTaskBuckets.vaTitleBuckets),
+          vaHoiBuckets: asRoleBuckets(pagedTaskBuckets.vaHoiBuckets),
+          vaPayoffBuckets: asRoleBuckets(pagedTaskBuckets.vaPayoffBuckets),
+          vaAppraisalBuckets: asRoleBuckets(pagedTaskBuckets.vaAppraisalBuckets),
         }
       : sessionRole === UserRole.VA
       ? getManagerVaDeskRows(allTasks)
       : null;
   const showLoVaPilot = sessionRole === UserRole.LOAN_OFFICER;
-  const loVaProgressItems = showLoVaPilot ? buildLoVaBorrowerProgress(allTasks) : [];
+  const loVaProgressItems = showLoVaPilot
+    ? buildLoVaBorrowerProgress(usePagedBuckets ? [...loVaProgressSeedTasks] : allTasks).slice(
+        0,
+        TASK_BUCKET_PAGE_SIZE
+      )
+    : [];
   const loaVaProgressItems =
-    sessionRole === UserRole.LOA ? buildLoVaBorrowerProgress(allTasks) : [];
+    sessionRole === UserRole.LOA
+      ? buildLoVaBorrowerProgress(usePagedBuckets ? [...loVaProgressSeedTasks] : allTasks).slice(
+          0,
+          TASK_BUCKET_PAGE_SIZE
+        )
+      : [];
   const managerLoVaProgressItems = isManagerLike
     ? buildLoVaBorrowerProgress([...managerProgressSeedTasks])
         .filter((item) => item.isFullyComplete)
         .slice(0, TASK_BUCKET_PAGE_SIZE)
     : [];
-  const totalTaskCount = isManagerLike ? managerTotalTaskCount : allTasks.length;
+  const totalTaskCount = usePagedBuckets
+    ? isManagerLike
+      ? fallbackTotalTaskCount
+      : pagedTaskBuckets?.totalCount || 0
+    : allTasks.length;
   const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete = canDeleteTasks(sessionRole);
   const roleTaskSubtitle: Record<string, string> = {
@@ -1462,20 +1368,15 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           currentUserId={sessionUser.id}
           jrAssigneeOptions={jrAssigneeOptions}
           initialFocusedTaskId={focusedTaskId}
-          // Disclosure Specialists and QC role users land here (they're not
-          // manager-like, so they skip the dual-desk path above). Cap their
-          // bucket columns the same way admins/managers now see them —
-          // otherwise "Completed QC Requests" grows unbounded and stretches
-          // the whole page. Keep `auto` for every other fallback consumer
-          // (LOAN_OFFICER, LOA, PROCESSOR_JR, etc.) so their task views
-          // remain unchanged.
           bucketScrollMode={
+            usePagedBuckets ||
             sessionRole === UserRole.DISCLOSURE_SPECIALIST ||
             sessionRole === UserRole.QC
               ? 'fixed'
               : 'auto'
           }
           fixedScrollClassName={
+            usePagedBuckets ||
             sessionRole === UserRole.DISCLOSURE_SPECIALIST ||
             sessionRole === UserRole.QC
               ? 'h-[540px] overflow-y-auto pr-1'

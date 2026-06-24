@@ -4827,6 +4827,7 @@ export async function loadTaskBucketPage(input: {
       bucketId: input.bucketId,
       sectionId: input.sectionId,
       role,
+      userId: session?.user?.id || undefined,
       cursor: input.cursor || null,
       search: input.search,
       globalSearch: input.globalSearch,

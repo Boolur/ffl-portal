@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminTiers';
+import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import {
   DisclosureDecisionReason,
   Prisma,
@@ -58,7 +59,7 @@ export type TaskBucketCursor = {
 } | null;
 
 export type TaskBucketSpec = {
-  id: ManagerTaskBucketId;
+  id: string;
   sectionId: TaskBucketSectionId;
   label: string;
   chipLabel: string;
@@ -139,6 +140,17 @@ export type PagedTaskBucket = Omit<TaskBucketSpec, 'where' | 'defaultSort'> & {
   nextCursor: TaskBucketCursor;
   serverPagination: true;
   serverSort: TaskBucketSort;
+};
+
+export type PagedTaskBucketsBySection = {
+  disclosureBuckets: PagedTaskBucket[];
+  qcBuckets: PagedTaskBucket[];
+  vaAppraisalBuckets: PagedTaskBucket[];
+  vaPayoffBuckets: PagedTaskBucket[];
+  vaTitleBuckets: PagedTaskBucket[];
+  vaHoiBuckets: PagedTaskBucket[];
+  roleBuckets: PagedTaskBucket[];
+  totalCount: number;
 };
 
 function disclosureSubmissionWhere(): Prisma.TaskWhereInput {
@@ -506,16 +518,254 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
   },
 ];
 
+const LO_PILOT_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
+  {
+    id: 'submitted-disclosures',
+    sectionId: 'disclosure',
+    label: 'Submitted for Disclosures',
+    chipLabel: 'Submitted',
+    chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+    defaultSort: 'updated_desc',
+    where: andWhere(disclosureSubmissionWhere(), notCompleted, {
+      workflowState: TaskWorkflowState.NONE,
+    }),
+  },
+  {
+    id: 'action-required',
+    sectionId: 'disclosure',
+    label: 'Action Required (Approve Figures / Missing Info)',
+    chipLabel: 'Action Required',
+    chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+    defaultSort: 'updated_desc',
+    where: {
+      kind: TaskKind.LO_NEEDS_INFO,
+      status: { not: TaskStatus.COMPLETED },
+      parentTask: {
+        is: disclosureSubmissionWhere(),
+      },
+    },
+  },
+  {
+    id: 'returned-to-disclosure',
+    sectionId: 'disclosure',
+    label: 'Returned to Disclosure',
+    chipLabel: 'Tracking',
+    chipClassName: 'border-sky-200 bg-sky-50 text-sky-700',
+    defaultSort: 'updated_desc',
+    where: andWhere(disclosureSubmissionWhere(), notCompleted, {
+      workflowState: TaskWorkflowState.READY_TO_COMPLETE,
+    }),
+  },
+  {
+    id: 'disclosures-sent-completed',
+    sectionId: 'disclosure',
+    label: 'Disclosures Sent / Completed',
+    chipLabel: 'Completed',
+    chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    isCompleted: true,
+    defaultSort: 'updated_desc',
+    where: andWhere(disclosureSubmissionWhere(), { status: TaskStatus.COMPLETED }),
+  },
+  {
+    id: 'submitted-qc',
+    sectionId: 'qc',
+    label: 'Submitted for QC',
+    chipLabel: 'Submitted',
+    chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+    defaultSort: 'updated_desc',
+    where: andWhere(qcSubmissionWhere(), notCompleted, {
+      workflowState: TaskWorkflowState.NONE,
+    }),
+  },
+  {
+    id: 'action-required-qc',
+    sectionId: 'qc',
+    label: 'Action Required (QC Info / Approval)',
+    chipLabel: 'Action Required',
+    chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+    defaultSort: 'updated_desc',
+    where: {
+      kind: TaskKind.LO_NEEDS_INFO,
+      status: { not: TaskStatus.COMPLETED },
+      parentTask: {
+        is: qcSubmissionWhere(),
+      },
+    },
+  },
+  {
+    id: 'returned-to-qc',
+    sectionId: 'qc',
+    label: 'Returned to QC',
+    chipLabel: 'Tracking',
+    chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
+    defaultSort: 'updated_desc',
+    where: andWhere(qcSubmissionWhere(), notCompleted, {
+      workflowState: TaskWorkflowState.READY_TO_COMPLETE,
+    }),
+  },
+  {
+    id: 'qc-completed',
+    sectionId: 'qc',
+    label: 'QC Sent / Completed',
+    chipLabel: 'Completed',
+    chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    isCompleted: true,
+    defaultSort: 'updated_desc',
+    where: andWhere(qcSubmissionWhere(), { status: TaskStatus.COMPLETED }),
+  },
+];
+
+const ALL_PAGED_TASK_ROLES = new Set<UserRole>([
+  UserRole.MANAGER,
+  UserRole.LOAN_OFFICER,
+  UserRole.LOA,
+  UserRole.DISCLOSURE_SPECIALIST,
+  UserRole.QC,
+  UserRole.VA,
+  UserRole.PROCESSOR_JR,
+  UserRole.VA_TITLE,
+  UserRole.VA_PAYOFF,
+  UserRole.VA_APPRAISAL,
+]);
+
 export function canUsePagedTaskBuckets(role: UserRole) {
-  return role === UserRole.MANAGER || isAdmin(role);
+  return isAdmin(role) || ALL_PAGED_TASK_ROLES.has(role);
 }
 
-export function getManagerTaskBucketSpec(
+function withBaseWhere(specs: TaskBucketSpec[], baseWhere: Prisma.TaskWhereInput) {
+  if (Object.keys(baseWhere).length === 0) return specs;
+  return specs.map((spec) => ({
+    ...spec,
+    where: andWhere(baseWhere, spec.where),
+  }));
+}
+
+function bySections(...sectionIds: TaskBucketSectionId[]) {
+  const allowed = new Set(sectionIds);
+  return MANAGER_TASK_BUCKET_SPECS.filter((spec) => allowed.has(spec.sectionId));
+}
+
+function buildVaSpecialistBaseWhere(role: UserRole, userId?: string): Prisma.TaskWhereInput {
+  const specialistKind =
+    role === UserRole.VA_TITLE
+      ? TaskKind.VA_TITLE
+      : role === UserRole.VA_PAYOFF
+      ? TaskKind.VA_PAYOFF
+      : TaskKind.VA_APPRAISAL;
+  if (!userId) {
+    return { kind: specialistKind };
+  }
+  return {
+    OR: [
+      {
+        kind: specialistKind,
+        status: TaskStatus.PENDING,
+        workflowState: TaskWorkflowState.NONE,
+        assignedUserId: null,
+      },
+      {
+        kind: specialistKind,
+        status: { not: TaskStatus.COMPLETED },
+        assignedUserId: userId,
+      },
+      {
+        kind: specialistKind,
+        status: TaskStatus.COMPLETED,
+      },
+    ],
+  };
+}
+
+function getRoleBaseWhere(role: UserRole, userId?: string): Prisma.TaskWhereInput {
+  if (role === UserRole.LOAN_OFFICER && userId) return buildLoanOfficerTaskWhere(userId);
+  if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    return {
+      OR: [{ assignedRole: role }, { kind: TaskKind.SUBMIT_DISCLOSURES }],
+    };
+  }
+  if (role === UserRole.QC) {
+    return {
+      OR: [{ assignedRole: role }, { kind: TaskKind.SUBMIT_QC }],
+    };
+  }
+  if (role === UserRole.VA) {
+    return {
+      OR: [
+        { kind: { in: [TaskKind.VA_TITLE, TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL] } },
+        ...(userId ? [{ assignedUserId: userId }] : []),
+        { assignedRole: UserRole.VA },
+      ],
+    };
+  }
+  if (role === UserRole.PROCESSOR_JR) {
+    if (!userId) return { kind: TaskKind.VA_HOI };
+    return {
+      OR: [
+        {
+          kind: TaskKind.VA_HOI,
+          status: TaskStatus.PENDING,
+          workflowState: TaskWorkflowState.NONE,
+          assignedUserId: null,
+        },
+        {
+          kind: TaskKind.VA_HOI,
+          status: { not: TaskStatus.COMPLETED },
+          assignedUserId: userId,
+        },
+        {
+          kind: TaskKind.VA_HOI,
+          status: TaskStatus.COMPLETED,
+        },
+      ],
+    };
+  }
+  if (
+    role === UserRole.VA_TITLE ||
+    role === UserRole.VA_PAYOFF ||
+    role === UserRole.VA_APPRAISAL
+  ) {
+    return buildVaSpecialistBaseWhere(role, userId);
+  }
+  return {};
+}
+
+export function getTaskBucketSpecsForRole(role: UserRole, userId?: string): TaskBucketSpec[] {
+  if (isAdmin(role) || role === UserRole.MANAGER) return MANAGER_TASK_BUCKET_SPECS;
+  if (role === UserRole.LOAN_OFFICER || role === UserRole.LOA) {
+    return withBaseWhere(LO_PILOT_TASK_BUCKET_SPECS, getRoleBaseWhere(role, userId));
+  }
+  if (role === UserRole.DISCLOSURE_SPECIALIST) {
+    return withBaseWhere(bySections('disclosure'), getRoleBaseWhere(role, userId));
+  }
+  if (role === UserRole.QC) {
+    return withBaseWhere(bySections('qc'), getRoleBaseWhere(role, userId));
+  }
+  if (role === UserRole.VA) {
+    return withBaseWhere(bySections('appraisal', 'payoff', 'title'), getRoleBaseWhere(role, userId));
+  }
+  if (role === UserRole.PROCESSOR_JR) {
+    return withBaseWhere(bySections('jr'), getRoleBaseWhere(role, userId));
+  }
+  if (role === UserRole.VA_TITLE) {
+    return withBaseWhere(bySections('title'), getRoleBaseWhere(role, userId));
+  }
+  if (role === UserRole.VA_PAYOFF) {
+    return withBaseWhere(bySections('payoff'), getRoleBaseWhere(role, userId));
+  }
+  if (role === UserRole.VA_APPRAISAL) {
+    return withBaseWhere(bySections('appraisal'), getRoleBaseWhere(role, userId));
+  }
+  return [];
+}
+
+export function getTaskBucketSpec(
+  role: UserRole,
   bucketId: string,
-  sectionId?: string
+  sectionId?: string,
+  userId?: string
 ): TaskBucketSpec | null {
   return (
-    MANAGER_TASK_BUCKET_SPECS.find(
+    getTaskBucketSpecsForRole(role, userId).find(
       (spec) => spec.id === bucketId && (!sectionId || spec.sectionId === sectionId)
     ) || null
   );
@@ -782,6 +1032,7 @@ export async function queryTaskBucketPage({
   bucketId,
   sectionId,
   role,
+  userId,
   cursor,
   pageSize = TASK_BUCKET_PAGE_SIZE,
   search,
@@ -792,6 +1043,7 @@ export async function queryTaskBucketPage({
   bucketId: string;
   sectionId?: string;
   role: UserRole;
+  userId?: string;
   cursor?: TaskBucketCursor;
   pageSize?: number;
   search?: string;
@@ -802,7 +1054,7 @@ export async function queryTaskBucketPage({
   if (!canUsePagedTaskBuckets(role)) {
     throw new Error('Role cannot use paged task buckets.');
   }
-  const spec = getManagerTaskBucketSpec(bucketId, sectionId);
+  const spec = getTaskBucketSpec(role, bucketId, sectionId, userId);
   if (!spec) {
     throw new Error('Unknown task bucket.');
   }
@@ -839,23 +1091,22 @@ export async function queryTaskBucketPage({
   };
 }
 
-export async function queryInitialManagerTaskBuckets(role: UserRole) {
-  const buckets = await Promise.all(
-    MANAGER_TASK_BUCKET_SPECS.map((spec) =>
-      queryTaskBucketPage({
-        bucketId: spec.id,
-        sectionId: spec.sectionId,
-        role,
-        pageSize: TASK_BUCKET_PAGE_SIZE,
-        sort: spec.defaultSort,
-      })
-    )
-  );
-
+function toPagedBucketsBySection(
+  buckets: Array<{
+    spec: TaskBucketSpec;
+    tasks: TaskBucketQueryRow[];
+    totalCount: number;
+    nextCursor: TaskBucketCursor;
+    serverSort: TaskBucketSort;
+  }>,
+  role: UserRole
+): PagedTaskBucketsBySection {
   const bySection = new Map<TaskBucketSectionId, PagedTaskBucket[]>();
+  let totalCount = 0;
+  const roleBuckets: PagedTaskBucket[] = [];
   for (const bucket of buckets) {
     const sectionBuckets = bySection.get(bucket.spec.sectionId) || [];
-    sectionBuckets.push({
+    const pagedBucket: PagedTaskBucket = {
       id: bucket.spec.id,
       sectionId: bucket.spec.sectionId,
       label: bucket.spec.label,
@@ -868,8 +1119,21 @@ export async function queryInitialManagerTaskBuckets(role: UserRole) {
       nextCursor: bucket.nextCursor,
       serverPagination: true,
       serverSort: bucket.serverSort,
-    });
+    };
+    totalCount += bucket.totalCount;
+    sectionBuckets.push(pagedBucket);
     bySection.set(bucket.spec.sectionId, sectionBuckets);
+
+    if (
+      role === UserRole.DISCLOSURE_SPECIALIST ||
+      role === UserRole.QC ||
+      role === UserRole.PROCESSOR_JR ||
+      role === UserRole.VA_TITLE ||
+      role === UserRole.VA_PAYOFF ||
+      role === UserRole.VA_APPRAISAL
+    ) {
+      roleBuckets.push(pagedBucket);
+    }
   }
 
   return {
@@ -879,7 +1143,64 @@ export async function queryInitialManagerTaskBuckets(role: UserRole) {
     vaPayoffBuckets: bySection.get('payoff') || [],
     vaTitleBuckets: bySection.get('title') || [],
     vaHoiBuckets: bySection.get('jr') || [],
+    roleBuckets,
+    totalCount,
   };
+}
+
+export async function queryInitialTaskBucketsForRole(role: UserRole, userId?: string) {
+  const specs = getTaskBucketSpecsForRole(role, userId);
+  const buckets = await Promise.all(
+    specs.map((spec) =>
+      queryTaskBucketPage({
+        bucketId: spec.id,
+        sectionId: spec.sectionId,
+        role,
+        userId,
+        pageSize: TASK_BUCKET_PAGE_SIZE,
+        sort: spec.defaultSort,
+      })
+    )
+  );
+
+  return toPagedBucketsBySection(buckets, role);
+}
+
+export async function queryInitialManagerTaskBuckets(role: UserRole) {
+  return queryInitialTaskBucketsForRole(role);
+}
+
+export async function queryLoVaProgressSeedTasks(role: UserRole, userId?: string) {
+  if (!canUsePagedTaskBuckets(role)) return [];
+  const baseWhere =
+    role === UserRole.LOAN_OFFICER && userId
+      ? buildLoanOfficerTaskWhere(userId)
+      : {};
+  const rawTasks = await prisma.task.findMany({
+    where: andWhere(baseWhere, {
+      OR: [
+        {
+          kind: {
+            in: [TaskKind.VA_TITLE, TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL, TaskKind.VA_HOI],
+          },
+        },
+        {
+          kind: TaskKind.LO_NEEDS_INFO,
+          parentTask: {
+            is: {
+              kind: {
+                in: [TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL, TaskKind.VA_HOI],
+              },
+            },
+          },
+        },
+      ],
+    }),
+    include: TASK_BUCKET_QUERY_INCLUDE,
+    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    take: 120,
+  });
+  return hydrateTaskRows(rawTasks, role);
 }
 
 export async function queryManagerLoVaProgressSeedTasks(role: UserRole) {
