@@ -11,7 +11,7 @@ import React, {
 import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { TaskList, type Task } from '@/components/tasks/TaskList';
-import { deleteTask } from '@/app/actions/taskActions';
+import { deleteTask, loadTaskBucketPage } from '@/app/actions/taskActions';
 
 type SortOption =
   | 'updated_desc'
@@ -21,20 +21,33 @@ type SortOption =
   | 'borrower_asc'
   | 'borrower_desc';
 type LocalSortOption = 'global' | SortOption;
+type TaskBucketCursor = { id: string } | null;
 
 type BucketConfig = {
   id: string;
+  sectionId?: string;
   label: string;
   chipLabel: string;
   chipClassName: string;
   isCompleted?: boolean;
   tasks: Task[];
+  totalCount?: number;
+  nextCursor?: TaskBucketCursor;
+  serverPagination?: true;
+  serverSort?: SortOption;
 };
 
 type BucketControls = {
   collapsed: boolean;
   search: string;
   sort: LocalSortOption;
+};
+
+type ServerBucketState = {
+  queryKey: string;
+  tasks: Task[];
+  totalCount: number;
+  nextCursor: TaskBucketCursor;
 };
 
 const defaultControls: BucketControls = {
@@ -194,6 +207,8 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   );
   const [batchDeletingBucketId, setBatchDeletingBucketId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [serverBucketState, setServerBucketState] = useState<Record<string, ServerBucketState>>({});
+  const [loadingBucketIds, setLoadingBucketIds] = useState<Set<string>>(() => new Set());
   const deferredGlobalSearch = useDeferredValue(globalSearch.trim().toLowerCase());
   const searchableTextByTaskId = useMemo(() => {
     const next = new Map<string, string>();
@@ -215,16 +230,71 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
     }));
   };
 
+  const getSelectedSort = useCallback(
+    (bucket: BucketConfig, bucketControls: BucketControls): SortOption =>
+      bucketControls.sort === 'global'
+        ? bucket.isCompleted
+          ? 'updated_desc'
+          : globalSort
+        : bucketControls.sort,
+    [globalSort]
+  );
+
+  const getServerQueryKey = useCallback(
+    (bucket: BucketConfig, bucketControls: BucketControls, selectedSort: SortOption) =>
+      JSON.stringify({
+        globalSearch: deferredGlobalSearch,
+        bucketSearch: bucketControls.search.trim().toLowerCase(),
+        sort: selectedSort,
+        sectionId: bucket.sectionId || '',
+      }),
+    [deferredGlobalSearch]
+  );
+
+  const isInitialServerQuery = useCallback(
+    (bucket: BucketConfig, bucketControls: BucketControls, selectedSort: SortOption) =>
+      !deferredGlobalSearch &&
+      !bucketControls.search.trim() &&
+      bucketControls.sort === 'global' &&
+      selectedSort === (bucket.serverSort || (bucket.isCompleted ? 'updated_desc' : defaultGlobalSort)),
+    [defaultGlobalSort, deferredGlobalSearch]
+  );
+
   const processedBuckets = useMemo(() => {
     return buckets.map((bucket) => {
       const bucketControls = controlsByBucket[bucket.id] || defaultControls;
       const deferredLocalSearch = bucketControls.search.trim().toLowerCase();
-      const selectedSort =
-        bucketControls.sort === 'global'
-          ? bucket.isCompleted
-            ? 'updated_desc'
-            : globalSort
-          : bucketControls.sort;
+      const selectedSort = getSelectedSort(bucket, bucketControls);
+      const serverQueryKey = getServerQueryKey(bucket, bucketControls, selectedSort);
+      const state = serverBucketState[bucket.id];
+      const hasMatchingServerState = state?.queryKey === serverQueryKey;
+      const useInitialServerPage =
+        bucket.serverPagination &&
+        !hasMatchingServerState &&
+        isInitialServerQuery(bucket, bucketControls, selectedSort);
+      if (bucket.serverPagination) {
+        const serverTasks = hasMatchingServerState
+          ? state.tasks
+          : useInitialServerPage
+          ? bucket.tasks
+          : [];
+        return {
+          ...bucket,
+          visibleTasks: serverTasks,
+          totalCount: hasMatchingServerState
+            ? state.totalCount
+            : bucket.totalCount ?? serverTasks.length,
+          nextCursor: hasMatchingServerState
+            ? state.nextCursor
+            : useInitialServerPage
+            ? bucket.nextCursor ?? null
+            : null,
+          controls: bucketControls,
+          selectedSort,
+          serverQueryKey,
+          isServerLoading: loadingBucketIds.has(bucket.id),
+        };
+      }
       const filtered = bucket.tasks.filter((task) => {
         const searchable = searchableTextByTaskId.get(task.id) || '';
         if (deferredGlobalSearch && !searchable.includes(deferredGlobalSearch)) return false;
@@ -236,9 +306,86 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
         ...bucket,
         visibleTasks: sorted,
         controls: bucketControls,
+        selectedSort,
+        serverQueryKey,
+        isServerLoading: false,
       };
     });
-  }, [buckets, controlsByBucket, deferredGlobalSearch, globalSort, searchableTextByTaskId]);
+  }, [
+    buckets,
+    controlsByBucket,
+    deferredGlobalSearch,
+    getSelectedSort,
+    getServerQueryKey,
+    isInitialServerQuery,
+    loadingBucketIds,
+    searchableTextByTaskId,
+    serverBucketState,
+  ]);
+
+  const loadServerBucket = useCallback(
+    async (
+      bucket: (typeof processedBuckets)[number],
+      cursor: TaskBucketCursor,
+      mode: 'replace' | 'append'
+    ) => {
+      if (!bucket.serverPagination || loadingBucketIds.has(bucket.id)) return;
+      setLoadingBucketIds((prev) => {
+        const next = new Set(prev);
+        next.add(bucket.id);
+        return next;
+      });
+      try {
+        const result = await loadTaskBucketPage({
+          bucketId: bucket.id,
+          sectionId: bucket.sectionId,
+          cursor,
+          globalSearch: deferredGlobalSearch,
+          bucketSearch: bucket.controls.search,
+          sort: bucket.selectedSort,
+        });
+        if (!result.success) return;
+        setServerBucketState((prev) => {
+          const previous = prev[bucket.id];
+          const shouldAppend = mode === 'append' && previous?.queryKey === bucket.serverQueryKey;
+          return {
+            ...prev,
+            [bucket.id]: {
+              queryKey: bucket.serverQueryKey,
+              tasks: shouldAppend
+                ? [...previous.tasks, ...(result.tasks || [])]
+                : result.tasks || [],
+              totalCount: result.totalCount || 0,
+              nextCursor: result.nextCursor || null,
+            },
+          };
+        });
+      } finally {
+        setLoadingBucketIds((prev) => {
+          const next = new Set(prev);
+          next.delete(bucket.id);
+          return next;
+        });
+      }
+    },
+    [deferredGlobalSearch, loadingBucketIds]
+  );
+
+  useEffect(() => {
+    for (const bucket of processedBuckets) {
+      if (!bucket.serverPagination) continue;
+      if (loadingBucketIds.has(bucket.id)) continue;
+      if (serverBucketState[bucket.id]?.queryKey === bucket.serverQueryKey) continue;
+      if (isInitialServerQuery(bucket, bucket.controls, bucket.selectedSort)) continue;
+      void loadServerBucket(bucket, null, 'replace');
+    }
+  }, [
+    isInitialServerQuery,
+    loadServerBucket,
+    loadingBucketIds,
+    processedBuckets,
+    serverBucketState,
+  ]);
 
   const setAllBucketsCollapsed = useCallback(
     (collapsed: boolean) => {
@@ -398,7 +545,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
-                      {bucket.visibleTasks.length}
+                      {bucket.totalCount ?? bucket.visibleTasks.length}
                     </span>
                     <button
                       type="button"
@@ -518,6 +665,16 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                       ? fixedScrollClassName
                       : undefined
                   }
+                  onScroll={(event) => {
+                    if (!bucket.serverPagination || !bucket.nextCursor || bucket.isServerLoading) {
+                      return;
+                    }
+                    const target = event.currentTarget;
+                    const remaining =
+                      target.scrollHeight - target.scrollTop - target.clientHeight;
+                    if (remaining > 120) return;
+                    void loadServerBucket(bucket, bucket.nextCursor, 'append');
+                  }}
                 >
                   <TaskList
                     tasks={bucket.visibleTasks}
@@ -551,6 +708,36 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                         : 'all_caught_up'
                     }
                   />
+                  {bucket.serverPagination && (
+                    <div className="mt-3 flex flex-col items-center gap-2 border-t border-slate-100 pt-3">
+                      {bucket.nextCursor ? (
+                        <button
+                          type="button"
+                          disabled={bucket.isServerLoading}
+                          onClick={() => {
+                            if (!bucket.nextCursor) return;
+                            void loadServerBucket(bucket, bucket.nextCursor, 'append');
+                          }}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {bucket.isServerLoading
+                            ? 'Loading...'
+                            : `Load more (${Math.max(
+                                0,
+                                (bucket.totalCount || 0) - bucket.visibleTasks.length
+                              )} remaining)`}
+                        </button>
+                      ) : bucket.isServerLoading ? (
+                        <span className="text-[11px] font-semibold text-slate-500">
+                          Loading...
+                        </span>
+                      ) : bucket.visibleTasks.length > 0 ? (
+                        <span className="text-[11px] font-semibold text-slate-400">
+                          All matching tasks loaded
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -22,6 +22,13 @@ import { isAdmin, canAccessEmailSettings } from '@/lib/adminTiers';
 import { canDeleteTask, canDeleteTasks } from '@/lib/taskPermissions';
 import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
 import { canLoanOfficerViewLoan } from '@/lib/loanOfficerVisibility';
+import {
+  TASK_BUCKET_PAGE_SIZE,
+  canUsePagedTaskBuckets,
+  queryTaskBucketPage,
+  type TaskBucketCursor,
+  type TaskBucketSort,
+} from '@/lib/taskBucketQueries';
 
 function isSubmissionTask(task: {
   kind: TaskKind | null;
@@ -35,6 +42,14 @@ function isSubmissionTask(task: {
       task.title.toLowerCase().includes('disclosure')) ||
     (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
   );
+}
+
+function normalizeSessionTaskRole(role?: string | null): UserRole | null {
+  if (!role) return null;
+  const normalized = role.trim().toUpperCase();
+  return (Object.values(UserRole) as string[]).includes(normalized)
+    ? (normalized as UserRole)
+    : null;
 }
 
 function isDisclosureSubmissionTask(task: {
@@ -4788,6 +4803,48 @@ export async function deleteTask(taskId: string) {
     recordPerfMetric('action.deleteTask', Date.now() - perfStartedAt, {
       taskId,
     });
+  }
+}
+
+export async function loadTaskBucketPage(input: {
+  bucketId: string;
+  sectionId?: string;
+  cursor?: TaskBucketCursor;
+  search?: string;
+  globalSearch?: string;
+  bucketSearch?: string;
+  sort?: TaskBucketSort;
+  pageSize?: number;
+}) {
+  const session = await getServerSession(authOptions);
+  const role = normalizeSessionTaskRole(session?.user?.activeRole || session?.user?.role);
+  if (!role || !canUsePagedTaskBuckets(role)) {
+    return { success: false, error: 'Not authorized to load this task bucket.' };
+  }
+
+  try {
+    const page = await queryTaskBucketPage({
+      bucketId: input.bucketId,
+      sectionId: input.sectionId,
+      role,
+      cursor: input.cursor || null,
+      search: input.search,
+      globalSearch: input.globalSearch,
+      bucketSearch: input.bucketSearch,
+      sort: input.sort,
+      pageSize: input.pageSize || TASK_BUCKET_PAGE_SIZE,
+    });
+
+    return {
+      success: true,
+      tasks: page.tasks,
+      totalCount: page.totalCount,
+      nextCursor: page.nextCursor,
+      serverSort: page.serverSort,
+    };
+  } catch (error) {
+    console.error('Failed to load task bucket page:', error);
+    return { success: false, error: 'Failed to load task bucket.' };
   }
 }
 

@@ -11,6 +11,13 @@ import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import { isAdmin } from '@/lib/adminTiers';
 import { canDeleteTasks } from '@/lib/taskPermissions';
 import {
+  TASK_BUCKET_PAGE_SIZE,
+  queryInitialManagerTaskBuckets,
+  queryManagerLoVaProgressSeedTasks,
+  type PagedTaskBucket,
+  type TaskBucketSort,
+} from '@/lib/taskBucketQueries';
+import {
   DisclosureDecisionReason,
   TaskAttachmentPurpose,
   Prisma,
@@ -131,8 +138,10 @@ type TaskRow = {
   title: string;
   description: string | null;
   status: TaskStatus;
+  createdAt: Date;
   updatedAt: Date;
   dueDate: Date | null;
+  completedAt: Date | null;
   kind: TaskKind | null;
   workflowState: TaskWorkflowState;
   disclosureReason: DisclosureDecisionReason | null;
@@ -643,11 +652,17 @@ function isQcSubmissionTaskRef(task: {
 
 type RoleBucket = {
   id: TaskBucketFilter;
+  sectionId?: string;
   label: string;
   chipLabel: string;
   chipClassName: string;
   isCompleted?: boolean;
   tasks: TaskRow[];
+  totalCount?: number;
+  nextCursor?: { id: string } | null;
+  serverPagination?: true;
+  serverSort?: TaskBucketSort;
+  enableBatchDelete?: boolean;
 };
 
 function getLoPilotRows(allTasks: TaskRow[]) {
@@ -1114,13 +1129,6 @@ function getRoleBuckets(role: UserRole, allTasks: TaskRow[]): RoleBucket[] {
   return [];
 }
 
-function getManagerDeskRows(allTasks: TaskRow[]) {
-  return {
-    disclosureBuckets: getRoleBuckets(UserRole.DISCLOSURE_SPECIALIST, allTasks),
-    qcBuckets: getRoleBuckets(UserRole.QC, allTasks),
-  };
-}
-
 function getManagerVaDeskRows(allTasks: TaskRow[]) {
   const vaHoiBuckets = getRoleBuckets(UserRole.PROCESSOR_JR, allTasks).map((bucket) =>
     bucket.id === 'jr-my-requests'
@@ -1160,7 +1168,19 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     normalizeBucketFilter(
     typeof rawBucket === 'string' ? rawBucket : undefined
   ) || 'all';
-  const allTasks = await getTasks(sessionRole, sessionUser.id);
+  // Admins (all tiers) share the Manager Tasks experience: dual Disclosure+QC
+  // desks, the four VA/JR desks, and the LO VA progress list. Anything that
+  // used to check "sessionRole === MANAGER" now also runs for admins.
+  const isManagerLike = sessionRole === UserRole.MANAGER || isAdmin(sessionRole);
+  const [pagedManagerBuckets, managerProgressSeedTasks, managerTotalTaskCount] =
+    isManagerLike
+      ? await Promise.all([
+          queryInitialManagerTaskBuckets(sessionRole),
+          queryManagerLoVaProgressSeedTasks(sessionRole),
+          prisma.task.count(),
+        ])
+      : [null, [], 0] as const;
+  const allTasks = isManagerLike ? [] : await getTasks(sessionRole, sessionUser.id);
   const jrAssigneeOptions =
     isAdmin(sessionRole) ||
     sessionRole === UserRole.MANAGER ||
@@ -1180,20 +1200,28 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           orderBy: { name: 'asc' },
         })
       : [];
-  const roleBuckets = getRoleBuckets(sessionRole, allTasks);
-  // Admins (all tiers) share the Manager Tasks experience: dual Disclosure+QC
-  // desks, the four VA/JR desks, and the LO VA progress list. Anything that
-  // used to check "sessionRole === MANAGER" now also runs for admins.
-  const isManagerLike = sessionRole === UserRole.MANAGER || isAdmin(sessionRole);
+  const asRoleBuckets = (buckets: PagedTaskBucket[] = []) =>
+    buckets as unknown as RoleBucket[];
+  const roleBuckets = isManagerLike ? [] : getRoleBuckets(sessionRole, allTasks);
   const dualDeskRows = sessionRole === UserRole.LOAN_OFFICER
     ? getLoPilotRows(allTasks)
     : sessionRole === UserRole.LOA
     ? getLoPilotRows(allTasks)
     : isManagerLike
-    ? getManagerDeskRows(allTasks)
+    ? {
+        disclosureBuckets: asRoleBuckets(pagedManagerBuckets?.disclosureBuckets),
+        qcBuckets: asRoleBuckets(pagedManagerBuckets?.qcBuckets),
+      }
     : null;
   const managerVaRows =
-    isManagerLike || sessionRole === UserRole.VA
+    isManagerLike && pagedManagerBuckets
+      ? {
+          vaTitleBuckets: asRoleBuckets(pagedManagerBuckets.vaTitleBuckets),
+          vaHoiBuckets: asRoleBuckets(pagedManagerBuckets.vaHoiBuckets),
+          vaPayoffBuckets: asRoleBuckets(pagedManagerBuckets.vaPayoffBuckets),
+          vaAppraisalBuckets: asRoleBuckets(pagedManagerBuckets.vaAppraisalBuckets),
+        }
+      : sessionRole === UserRole.VA
       ? getManagerVaDeskRows(allTasks)
       : null;
   const showLoVaPilot = sessionRole === UserRole.LOAN_OFFICER;
@@ -1201,8 +1229,11 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const loaVaProgressItems =
     sessionRole === UserRole.LOA ? buildLoVaBorrowerProgress(allTasks) : [];
   const managerLoVaProgressItems = isManagerLike
-    ? buildLoVaBorrowerProgress(allTasks)
+    ? buildLoVaBorrowerProgress([...managerProgressSeedTasks])
+        .filter((item) => item.isFullyComplete)
+        .slice(0, TASK_BUCKET_PAGE_SIZE)
     : [];
+  const totalTaskCount = isManagerLike ? managerTotalTaskCount : allTasks.length;
   const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete = canDeleteTasks(sessionRole);
   const roleTaskSubtitle: Record<string, string> = {
@@ -1251,7 +1282,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         </div>
         <div className="flex shrink-0 space-x-3">
           <span className="app-count-badge">
-            {allTasks.length} Total Tasks
+            {totalTaskCount} Total Tasks
           </span>
         </div>
       </div>
@@ -1468,7 +1499,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   );
   endPerf({
     role: sessionRole,
-    taskCount: allTasks.length,
+    taskCount: totalTaskCount,
   });
   return pageOutput;
 }
