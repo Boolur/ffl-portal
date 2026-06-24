@@ -272,6 +272,8 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
         bucket.serverPagination &&
         !hasMatchingServerState &&
         isInitialServerQuery(bucket, bucketControls, selectedSort);
+      const isServerPending =
+        Boolean(bucket.serverPagination) && !hasMatchingServerState && !useInitialServerPage;
       if (bucket.serverPagination) {
         const serverTasks = hasMatchingServerState
           ? state.tasks
@@ -292,7 +294,8 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
           controls: bucketControls,
           selectedSort,
           serverQueryKey,
-          isServerLoading: loadingBucketIds.has(bucket.id),
+          isServerLoading: loadingBucketIds.has(bucket.id) || isServerPending,
+          isServerPending,
         };
       }
       const filtered = bucket.tasks.filter((task) => {
@@ -309,6 +312,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
         selectedSort,
         serverQueryKey,
         isServerLoading: false,
+        isServerPending: false,
       };
     });
   }, [
@@ -676,39 +680,50 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                     void loadServerBucket(bucket, bucket.nextCursor, 'append');
                   }}
                 >
-                  <TaskList
-                    tasks={bucket.visibleTasks}
-                    canDelete={canDelete}
-                    currentRole={currentRole}
-                    currentUserId={currentUserId}
-                    jrAssigneeOptions={jrAssigneeOptions}
-                    initialFocusedTaskId={initialFocusedTaskId}
-                    enableTaskSelection={enableBatchDelete}
-                    selectedTaskIds={new Set(selectedIds)}
-                    onToggleTaskSelection={(taskId, selected) => {
-                      setSelectedTaskIdsByBucket((prev) => {
-                        const existing = prev[bucket.id] || [];
-                        const has = existing.includes(taskId);
-                        if (selected && !has) {
-                          return { ...prev, [bucket.id]: [...existing, taskId] };
-                        }
-                        if (!selected && has) {
-                          return {
-                            ...prev,
-                            [bucket.id]: existing.filter((id) => id !== taskId),
-                          };
-                        }
-                        return prev;
-                      });
-                    }}
-                    emptyState={
-                      bucket.visibleTasks.length === 0 &&
-                      Boolean(deferredGlobalSearch || bucket.controls.search.trim())
-                        ? 'no_results'
-                        : 'all_caught_up'
-                    }
-                  />
-                  {bucket.serverPagination && (
+                  {bucket.isServerPending && bucket.visibleTasks.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <div className="mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
+                      <h3 className="text-sm font-bold text-slate-900">Loading...</h3>
+                      <p className="mt-1 text-xs font-medium text-slate-500">
+                        Searching this bucket.
+                      </p>
+                    </div>
+                  ) : (
+                    <TaskList
+                      tasks={bucket.visibleTasks}
+                      canDelete={canDelete}
+                      currentRole={currentRole}
+                      currentUserId={currentUserId}
+                      jrAssigneeOptions={jrAssigneeOptions}
+                      initialFocusedTaskId={initialFocusedTaskId}
+                      enableTaskSelection={enableBatchDelete}
+                      selectedTaskIds={new Set(selectedIds)}
+                      onToggleTaskSelection={(taskId, selected) => {
+                        setSelectedTaskIdsByBucket((prev) => {
+                          const existing = prev[bucket.id] || [];
+                          const has = existing.includes(taskId);
+                          if (selected && !has) {
+                            return { ...prev, [bucket.id]: [...existing, taskId] };
+                          }
+                          if (!selected && has) {
+                            return {
+                              ...prev,
+                              [bucket.id]: existing.filter((id) => id !== taskId),
+                            };
+                          }
+                          return prev;
+                        });
+                      }}
+                      emptyState={
+                        bucket.visibleTasks.length === 0 &&
+                        Boolean(deferredGlobalSearch || bucket.controls.search.trim())
+                          ? 'no_results'
+                          : 'all_caught_up'
+                      }
+                    />
+                  )}
+                  {bucket.serverPagination &&
+                    !(bucket.isServerPending && bucket.visibleTasks.length === 0) && (
                     <div className="mt-3 flex flex-col items-center gap-2 border-t border-slate-100 pt-3">
                       {bucket.nextCursor ? (
                         <button
