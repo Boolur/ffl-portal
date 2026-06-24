@@ -1053,7 +1053,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   // used to check "sessionRole === MANAGER" now also runs for admins.
   const isManagerLike = sessionRole === UserRole.MANAGER || isAdmin(sessionRole);
   const usePagedBuckets = canUsePagedTaskBuckets(sessionRole);
-  const [pagedTaskBuckets, managerProgressSeedTasks, loVaProgressSeedTasks, fallbackTotalTaskCount] =
+  const [pagedTaskBuckets, managerProgressSeedTasks, loVaProgressSeedTasks] =
     usePagedBuckets
       ? await Promise.all([
           queryInitialTaskBucketsForRole(sessionRole, sessionUser.id),
@@ -1061,9 +1061,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           sessionRole === UserRole.LOAN_OFFICER || sessionRole === UserRole.LOA
             ? queryLoVaProgressSeedTasks(sessionRole, sessionUser.id)
             : Promise.resolve([]),
-          isManagerLike ? prisma.task.count() : Promise.resolve(0),
         ])
-      : [null, [], [], 0] as const;
+      : [null, [], []] as const;
   const allTasks = usePagedBuckets ? [] : await getTasks(sessionRole, sessionUser.id);
   const jrAssigneeOptions =
     isAdmin(sessionRole) ||
@@ -1136,10 +1135,12 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         .slice(0, TASK_BUCKET_PAGE_SIZE)
     : [];
   const totalTaskCount = usePagedBuckets
-    ? isManagerLike
-      ? fallbackTotalTaskCount
-      : pagedTaskBuckets?.totalCount || 0
+    ? pagedTaskBuckets?.totalCount || 0
     : allTasks.length;
+  const totalTaskCountLabel =
+    usePagedBuckets && pagedTaskBuckets && !pagedTaskBuckets.totalCountIsExact
+      ? `${totalTaskCount}+`
+      : String(totalTaskCount);
   const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete = canDeleteTasks(sessionRole);
   const roleTaskSubtitle: Record<string, string> = {
@@ -1188,7 +1189,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         </div>
         <div className="flex shrink-0 space-x-3">
           <span className="app-count-badge">
-            {totalTaskCount} Total Tasks
+            {totalTaskCountLabel} Total Tasks
           </span>
         </div>
       </div>

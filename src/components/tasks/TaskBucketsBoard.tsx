@@ -11,7 +11,7 @@ import React, {
 import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { TaskList, type Task } from '@/components/tasks/TaskList';
-import { deleteTask, loadTaskBucketPage } from '@/app/actions/taskActions';
+import { deleteTask, loadTaskBucketCount, loadTaskBucketPage } from '@/app/actions/taskActions';
 
 type SortOption =
   | 'updated_desc'
@@ -32,6 +32,7 @@ type BucketConfig = {
   isCompleted?: boolean;
   tasks: Task[];
   totalCount?: number;
+  totalCountIsExact?: boolean;
   nextCursor?: TaskBucketCursor;
   serverPagination?: true;
   serverSort?: SortOption;
@@ -47,6 +48,7 @@ type ServerBucketState = {
   queryKey: string;
   tasks: Task[];
   totalCount: number;
+  totalCountIsExact: boolean;
   nextCursor: TaskBucketCursor;
 };
 
@@ -209,6 +211,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [serverBucketState, setServerBucketState] = useState<Record<string, ServerBucketState>>({});
   const [loadingBucketIds, setLoadingBucketIds] = useState<Set<string>>(() => new Set());
+  const [loadingCountBucketIds, setLoadingCountBucketIds] = useState<Set<string>>(() => new Set());
   const deferredGlobalSearch = useDeferredValue(globalSearch.trim().toLowerCase());
   const searchableTextByTaskId = useMemo(() => {
     const next = new Map<string, string>();
@@ -286,6 +289,9 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
           totalCount: hasMatchingServerState
             ? state.totalCount
             : bucket.totalCount ?? serverTasks.length,
+          totalCountIsExact: hasMatchingServerState
+            ? state.totalCountIsExact
+            : bucket.totalCountIsExact ?? !bucket.nextCursor,
           nextCursor: hasMatchingServerState
             ? state.nextCursor
             : useInitialServerPage
@@ -360,6 +366,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                 ? [...previous.tasks, ...(result.tasks || [])]
                 : result.tasks || [],
               totalCount: result.totalCount || 0,
+              totalCountIsExact: true,
               nextCursor: result.nextCursor || null,
             },
           };
@@ -390,6 +397,51 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
     processedBuckets,
     serverBucketState,
   ]);
+
+  useEffect(() => {
+    for (const bucket of processedBuckets) {
+      if (!bucket.serverPagination) continue;
+      if (bucket.totalCountIsExact) continue;
+      if (bucket.isServerPending) continue;
+      if (loadingCountBucketIds.has(bucket.id)) continue;
+      const countKey = bucket.serverQueryKey;
+      setLoadingCountBucketIds((prev) => {
+        const next = new Set(prev);
+        next.add(bucket.id);
+        return next;
+      });
+      void loadTaskBucketCount({
+        bucketId: bucket.id,
+        sectionId: bucket.sectionId,
+        globalSearch: deferredGlobalSearch,
+        bucketSearch: bucket.controls.search,
+      })
+        .then((result) => {
+          if (!result.success) return;
+          setServerBucketState((prev) => {
+            const previous = prev[bucket.id];
+            if (previous && previous.queryKey !== countKey) return prev;
+            return {
+              ...prev,
+              [bucket.id]: {
+                queryKey: countKey,
+                tasks: previous?.tasks || bucket.visibleTasks,
+                totalCount: result.totalCount || 0,
+                totalCountIsExact: true,
+                nextCursor: previous?.nextCursor ?? bucket.nextCursor ?? null,
+              },
+            };
+          });
+        })
+        .finally(() => {
+          setLoadingCountBucketIds((prev) => {
+            const next = new Set(prev);
+            next.delete(bucket.id);
+            return next;
+          });
+        });
+    }
+  }, [deferredGlobalSearch, loadingCountBucketIds, processedBuckets]);
 
   const setAllBucketsCollapsed = useCallback(
     (collapsed: boolean) => {
@@ -498,6 +550,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
           const isCollapsed = bucket.controls.collapsed;
           const selectedIds = selectedTaskIdsByBucket[bucket.id] || [];
           const selectedCount = selectedIds.length;
+          const displayedCount = bucket.totalCount ?? bucket.visibleTasks.length;
           const isLoReturnedBucket =
             currentRole === 'LOAN_OFFICER' && bucket.id === 'returned-to-disclosure';
           return (
@@ -549,7 +602,9 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
-                      {bucket.totalCount ?? bucket.visibleTasks.length}
+                      {bucket.serverPagination && !bucket.totalCountIsExact
+                        ? `${displayedCount}+`
+                        : displayedCount}
                     </span>
                     <button
                       type="button"

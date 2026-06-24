@@ -26,6 +26,7 @@ import {
   TASK_BUCKET_PAGE_SIZE,
   canUsePagedTaskBuckets,
   queryTaskBucketPage,
+  queryTaskBucketCount,
   type TaskBucketCursor,
   type TaskBucketSort,
 } from '@/lib/taskBucketQueries';
@@ -4846,6 +4847,40 @@ export async function loadTaskBucketPage(input: {
   } catch (error) {
     console.error('Failed to load task bucket page:', error);
     return { success: false, error: 'Failed to load task bucket.' };
+  }
+}
+
+export async function loadTaskBucketCount(input: {
+  bucketId: string;
+  sectionId?: string;
+  search?: string;
+  globalSearch?: string;
+  bucketSearch?: string;
+}) {
+  const session = await getServerSession(authOptions);
+  const role = normalizeSessionTaskRole(session?.user?.activeRole || session?.user?.role);
+  if (!role || !canUsePagedTaskBuckets(role)) {
+    return { success: false, error: 'Not authorized to load this task bucket.' };
+  }
+
+  try {
+    const totalCount = await queryTaskBucketCount({
+      bucketId: input.bucketId,
+      sectionId: input.sectionId,
+      role,
+      userId: session?.user?.id || undefined,
+      search: input.search,
+      globalSearch: input.globalSearch,
+      bucketSearch: input.bucketSearch,
+    });
+
+    return {
+      success: true,
+      totalCount,
+    };
+  } catch (error) {
+    console.error('Failed to load task bucket count:', error);
+    return { success: false, error: 'Failed to load task bucket count.' };
   }
 }
 

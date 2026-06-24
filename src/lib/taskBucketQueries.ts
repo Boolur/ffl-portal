@@ -137,6 +137,7 @@ export type TaskBucketQueryRow = {
 export type PagedTaskBucket = Omit<TaskBucketSpec, 'where' | 'defaultSort'> & {
   tasks: TaskBucketQueryRow[];
   totalCount: number;
+  totalCountIsExact: boolean;
   nextCursor: TaskBucketCursor;
   serverPagination: true;
   serverSort: TaskBucketSort;
@@ -151,6 +152,7 @@ export type PagedTaskBucketsBySection = {
   vaHoiBuckets: PagedTaskBucket[];
   roleBuckets: PagedTaskBucket[];
   totalCount: number;
+  totalCountIsExact: boolean;
 };
 
 function disclosureSubmissionWhere(): Prisma.TaskWhereInput {
@@ -839,9 +841,11 @@ async function hydrateTaskRows(
       include: typeof TASK_BUCKET_QUERY_INCLUDE;
     }>
   >,
-  role: UserRole
+  role: UserRole,
+  includeTimelineAttachments = false
 ): Promise<TaskBucketQueryRow[]> {
   const includeCrossTaskTimelineAttachments =
+    includeTimelineAttachments &&
     (role === UserRole.LOAN_OFFICER || role === UserRole.MANAGER || isAdmin(role)) &&
     tasks.some(
       (task) =>
@@ -1039,6 +1043,8 @@ export async function queryTaskBucketPage({
   globalSearch,
   bucketSearch,
   sort,
+  includeTotalCount = true,
+  includeTimelineAttachments = false,
 }: {
   bucketId: string;
   sectionId?: string;
@@ -1050,6 +1056,8 @@ export async function queryTaskBucketPage({
   globalSearch?: string;
   bucketSearch?: string;
   sort?: TaskBucketSort;
+  includeTotalCount?: boolean;
+  includeTimelineAttachments?: boolean;
 }) {
   if (!canUsePagedTaskBuckets(role)) {
     throw new Error('Role cannot use paged task buckets.');
@@ -1066,8 +1074,8 @@ export async function queryTaskBucketPage({
   );
   const orderBy = getOrderBy(effectiveSort);
 
-  const [totalCount, rawTasks] = await Promise.all([
-    prisma.task.count({ where }),
+  const [exactTotalCount, rawTasks] = await Promise.all([
+    includeTotalCount ? prisma.task.count({ where }) : Promise.resolve(null),
     prisma.task.findMany({
       where,
       include: TASK_BUCKET_QUERY_INCLUDE,
@@ -1079,16 +1087,49 @@ export async function queryTaskBucketPage({
 
   const hasNextPage = rawTasks.length > safePageSize;
   const pageTasks = hasNextPage ? rawTasks.slice(0, safePageSize) : rawTasks;
-  const tasks = await hydrateTaskRows(pageTasks, role);
+  const tasks = await hydrateTaskRows(pageTasks, role, includeTimelineAttachments);
   const lastTask = pageTasks[pageTasks.length - 1];
+  const totalCount = exactTotalCount ?? pageTasks.length + (hasNextPage ? 1 : 0);
 
   return {
     spec,
     tasks,
     totalCount,
+    totalCountIsExact: exactTotalCount !== null || !hasNextPage,
     nextCursor: hasNextPage && lastTask ? { id: lastTask.id } : null,
     serverSort: effectiveSort,
   };
+}
+
+export async function queryTaskBucketCount({
+  bucketId,
+  sectionId,
+  role,
+  userId,
+  search,
+  globalSearch,
+  bucketSearch,
+}: {
+  bucketId: string;
+  sectionId?: string;
+  role: UserRole;
+  userId?: string;
+  search?: string;
+  globalSearch?: string;
+  bucketSearch?: string;
+}) {
+  if (!canUsePagedTaskBuckets(role)) {
+    throw new Error('Role cannot use paged task buckets.');
+  }
+  const spec = getTaskBucketSpec(role, bucketId, sectionId, userId);
+  if (!spec) {
+    throw new Error('Unknown task bucket.');
+  }
+  const where = applySearch(
+    applySearch(spec.where, globalSearch ?? search),
+    bucketSearch
+  );
+  return prisma.task.count({ where });
 }
 
 function toPagedBucketsBySection(
@@ -1096,6 +1137,7 @@ function toPagedBucketsBySection(
     spec: TaskBucketSpec;
     tasks: TaskBucketQueryRow[];
     totalCount: number;
+    totalCountIsExact: boolean;
     nextCursor: TaskBucketCursor;
     serverSort: TaskBucketSort;
   }>,
@@ -1103,6 +1145,7 @@ function toPagedBucketsBySection(
 ): PagedTaskBucketsBySection {
   const bySection = new Map<TaskBucketSectionId, PagedTaskBucket[]>();
   let totalCount = 0;
+  let totalCountIsExact = true;
   const roleBuckets: PagedTaskBucket[] = [];
   for (const bucket of buckets) {
     const sectionBuckets = bySection.get(bucket.spec.sectionId) || [];
@@ -1116,11 +1159,13 @@ function toPagedBucketsBySection(
       enableBatchDelete: bucket.spec.enableBatchDelete,
       tasks: bucket.tasks,
       totalCount: bucket.totalCount,
+      totalCountIsExact: bucket.totalCountIsExact,
       nextCursor: bucket.nextCursor,
       serverPagination: true,
       serverSort: bucket.serverSort,
     };
     totalCount += bucket.totalCount;
+    totalCountIsExact = totalCountIsExact && bucket.totalCountIsExact;
     sectionBuckets.push(pagedBucket);
     bySection.set(bucket.spec.sectionId, sectionBuckets);
 
@@ -1145,6 +1190,7 @@ function toPagedBucketsBySection(
     vaHoiBuckets: bySection.get('jr') || [],
     roleBuckets,
     totalCount,
+    totalCountIsExact,
   };
 }
 
@@ -1159,6 +1205,8 @@ export async function queryInitialTaskBucketsForRole(role: UserRole, userId?: st
         userId,
         pageSize: TASK_BUCKET_PAGE_SIZE,
         sort: spec.defaultSort,
+        includeTotalCount: false,
+        includeTimelineAttachments: false,
       })
     )
   );
@@ -1200,7 +1248,7 @@ export async function queryLoVaProgressSeedTasks(role: UserRole, userId?: string
     orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     take: 120,
   });
-  return hydrateTaskRows(rawTasks, role);
+  return hydrateTaskRows(rawTasks, role, false);
 }
 
 export async function queryManagerLoVaProgressSeedTasks(role: UserRole) {
@@ -1216,5 +1264,5 @@ export async function queryManagerLoVaProgressSeedTasks(role: UserRole) {
     orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     take: 120,
   });
-  return hydrateTaskRows(rawTasks, role);
+  return hydrateTaskRows(rawTasks, role, false);
 }
