@@ -29,6 +29,7 @@ Paste this into the **Content** field of every LMB Service you create. The **onl
   "number3": "{WorkPhone}",
   "dob": "{dob}",
   "ssn": "{social}",
+  "social": "{Social}",
 
   "property_address": "{phys_address}",
   "property_city": "{phys_city}",
@@ -84,6 +85,7 @@ Key things to know:
 
 - `routing_tag` starts empty (`""`) — you must fill it in per service with the value from the tables in section 3. The webhook falls back to the Unassigned Pool if it doesn't match.
 - `lead_id` becomes the portal lead's `vendorLeadId` (for cross-referencing back to LMB).
+- `ssn` keeps the original `{social}` token and `social` is a fallback for `{Social}`. The bridge maps both payload keys to `Lead.ssn` and ignores blanks/placeholders, so the fallback fills SSN when Lead Mailbox only resolves the capitalized token.
 - The `property_*` block (using `{phys_*}`) stays first so the subject property wins when LMB populates it. The `mailing_*` block (using `{Mail_*}`) is now stored on the dedicated `Lead.mailing*` columns instead of collapsing into `property*`, so investor leads with a genuinely different mailing vs subject property preserve both. To keep the "address always lights up" guarantee for vendors whose `{phys_*}` placeholders are often blank (notably LendingTree and FreeRateUpdate), `ingestLeadMailboxWebhook` mirrors `mailing*` onto `property*` whenever `property*` ended up blank — same observable behavior as before for the Broker Launch email and lead detail UI, but Bonzo, CSV exports, and any future outbound integration that reads `Lead.mailingAddress` directly now see the real mailing address too.
 - The Bonzo forwarder ([src/lib/bonzoForward.ts](../src/lib/bonzoForward.ts)) keeps its own `mailingAddress ?? propertyAddress` fallback for the borrower address block (`address` / `city` / `state` / `zip`) and additionally falls back `phone -> homePhone -> workPhone` (and the same chain for `co_phone`). FRU leads whose only number arrived as `{HomePhone}` / `number2` were previously sent to Bonzo as `phone: null` — the fallback fixes that without changing what's stored on the lead. Bonzo also now receives `home_phone`, `work_phone`, `co_home_phone`, and `co_work_phone` as distinct keys, plus `loan_term` mirroring `loan_program` so triggers that key on either name fire correctly.
 - `property_ltv: "{Field_011}"` and `loan_rate: "{Field_037}"` reference numbered custom fields — these IDs are assigned per-customer in LMB's admin and match the ones configured for this org today. `price: "{Price}"` is the vendor-provided lead cost that appears in the portal's Price field and Broker Launch email. If an LMB admin renumbers a field, update it in [src/lib/leadMailboxBridge.ts](../src/lib/leadMailboxBridge.ts) and re-copy.

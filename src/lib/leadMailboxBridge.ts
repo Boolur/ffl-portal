@@ -222,6 +222,7 @@ export function buildLeadMailboxJsonTemplate(): string {
       number3: '{WorkPhone}',
       dob: '{dob}',
       ssn: '{social}',
+      social: '{Social}',
 
       // Subject property address. LMB populates `{phys_*}` reliably for
       // most vendors (e.g. LeadPoint, Lendgo), so it stays first and wins

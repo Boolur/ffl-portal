@@ -34,6 +34,7 @@ const CAMPAIGN_BATCHES = [
       { name: '(FFL07) VA C/O (700+) Grade A', routingTag: '928788' },
       { name: '(FFL07) VA C/O (700+) Grade B', routingTag: '928789' },
       { name: '(FFL07) HELO/CHELOANCredit(620-699)0-80LTVGradeB_DC', routingTag: '928779' },
+      { name: '(FFL07) HELOC/HELOAN Credit 620-699 |0-80LTV(Grade B)ALL', routingTag: '928780' },
       { name: '(FFL07) HELOC/HELOAN_Credit (700+) 0-80LTV(GRADE B)', routingTag: '928732' },
       { name: '(FFL07) HELOC/HELOANCredit(620-699) 0-80LTV(GradeA)', routingTag: '928781' },
       { name: '(FFL07) HELOC/HELOANCredit(700+)0-80 LTV(GradeB)_DC', routingTag: '928778' },
