@@ -61,6 +61,7 @@ enum TaskKind {
   SUBMIT_DISCLOSURES
   SUBMIT_QC // Legacy workflow retained for historical reporting.
   SUBMIT_PROCESSING
+  SUBMIT_PLUS_ONE
   LO_NEEDS_INFO
   VA_TITLE
   VA_HOI
@@ -98,6 +99,7 @@ enum NotificationOutboxStatus {
 enum NotificationOutboxEventType {
   TASK_WORKFLOW
   VA_FANOUT
+  PLUS_ONE_SUBMITTED
 }
 
 enum LenderLinkType {

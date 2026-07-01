@@ -25,6 +25,13 @@ export type EmailSendReceipt = {
   acceptedAt: string;
 };
 
+type InlineEmailAttachment = {
+  name: string;
+  contentType: string;
+  contentBytes: string;
+  contentId: string;
+};
+
 function isRetryableStatus(status: number) {
   return status === 408 || status === 429 || status >= 500;
 }
@@ -96,14 +103,16 @@ export async function sendEmail({
   subject,
   html,
   text,
+  inlineAttachments,
   maxAttempts = MAX_SEND_ATTEMPTS,
   timeoutMs = SEND_TIMEOUT_MS,
   label = 'email',
 }: {
-  to: string;
+  to: string | string[];
   subject: string;
   html?: string;
   text?: string;
+  inlineAttachments?: InlineEmailAttachment[];
   maxAttempts?: number;
   timeoutMs?: number;
   label?: string;
@@ -114,6 +123,12 @@ export async function sendEmail({
 
   const contentType = html ? 'HTML' : 'Text';
   const content = html || text || '';
+  const recipients = (Array.isArray(to) ? to : [to])
+    .map((address) => address.trim())
+    .filter(Boolean);
+  if (recipients.length === 0) {
+    throw new Error('At least one email recipient is required.');
+  }
   let lastError: string | null = null;
   const attempts = Math.max(1, Math.floor(maxAttempts));
   const sendTimeoutMs = Math.max(1_000, Math.floor(timeoutMs));
@@ -136,7 +151,21 @@ export async function sendEmail({
             message: {
               subject,
               body: { contentType, content },
-              toRecipients: [{ emailAddress: { address: to } }],
+              toRecipients: recipients.map((address) => ({
+                emailAddress: { address },
+              })),
+              ...(inlineAttachments?.length
+                ? {
+                    attachments: inlineAttachments.map((attachment) => ({
+                      '@odata.type': '#microsoft.graph.fileAttachment',
+                      name: attachment.name,
+                      contentType: attachment.contentType,
+                      contentBytes: attachment.contentBytes,
+                      contentId: attachment.contentId,
+                      isInline: true,
+                    })),
+                  }
+                : {}),
             },
             saveToSentItems: true,
           }),

@@ -17,6 +17,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { sendEmail } from '@/lib/email';
 import { randomUUID } from 'crypto';
+import { readFile } from 'fs/promises';
 import { recordPerfMetric } from '@/lib/perf';
 import { isAdmin, canAccessEmailSettings } from '@/lib/adminTiers';
 import { canDeleteTask, canDeleteTasks } from '@/lib/taskPermissions';
@@ -349,7 +350,7 @@ function getNotificationDeliveryMode(): NotificationDeliveryMode {
   return 'async';
 }
 
-async function kickInlineOutboxDrain(source: 'task-workflow' | 'va-fanout') {
+async function kickInlineOutboxDrain(source: 'task-workflow' | 'va-fanout' | 'plus-one') {
   try {
     await drainNotificationOutboxBatch({ batchSize: INLINE_OUTBOX_DRAIN_BATCH_SIZE });
   } catch (error) {
@@ -678,6 +679,11 @@ type VaFanoutNotificationPayload = {
   changedBy?: string | null;
 };
 
+type PlusOneSubmittedNotificationPayload = {
+  taskId: string;
+  changedBy?: string | null;
+};
+
 function getExponentialBackoffMs(attempt: number) {
   const clampedAttempt = Math.max(1, Math.min(6, attempt));
   const baseMs = 15_000 * 2 ** (clampedAttempt - 1);
@@ -714,6 +720,242 @@ function asSubmissionObject(
     return { ...(value as Record<string, unknown>) };
   }
   return {};
+}
+
+function valueText(value: unknown, fallback = 'Not provided') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
+}
+
+function formatCurrencyForEmail(value: unknown) {
+  const raw = String(value ?? '').replace(/[$,\s]/g, '').trim();
+  const amount = Number(raw);
+  if (!Number.isFinite(amount)) return valueText(value);
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+async function getInlineBrandLogoAttachment() {
+  try {
+    const content = await readFile(`${process.cwd()}/public/logo.png`);
+    return {
+      logoUrl: 'cid:plus-one-brand-logo',
+      inlineAttachments: [
+        {
+          name: 'bisu-home-loans-logo.png',
+          contentType: 'image/png',
+          contentBytes: content.toString('base64'),
+          contentId: 'plus-one-brand-logo',
+        },
+      ],
+    };
+  } catch (error) {
+    console.error('[email] Failed to load inline brand logo; falling back to logo URL.', error);
+    const portalBaseUrl = getPortalBaseUrl();
+    return {
+      logoUrl: process.env.EMAIL_BRAND_LOGO_URL?.trim() || `${portalBaseUrl}/logo.png`,
+      inlineAttachments: [],
+    };
+  }
+}
+
+function buildPlusOneShowcaseEmailHtml(input: {
+  logoUrl: string;
+  taskUrl: string;
+  borrowerName: string;
+  loanNumber: string;
+  primaryLoanOfficerName: string;
+  secondaryLoanOfficerName: string;
+  loanAmount: string;
+  projectedRevenue: string;
+  lender: string;
+  loanType: string;
+  loanProgram: string;
+  channel: string;
+  leadSource: string;
+  leadVendor?: string | null;
+  nextMilestone: string;
+  notes?: string | null;
+}) {
+  const metricCards = [
+    { label: 'Loan Amount', value: input.loanAmount },
+    { label: 'Projected Revenue', value: input.projectedRevenue },
+    { label: 'Lender', value: input.lender },
+  ];
+  const metricHtml = metricCards
+    .map(
+      (card) => `
+        <td style="width:33.333%;padding:0 6px 12px;vertical-align:middle;text-align:center;">
+          <table role="presentation" style="width:100%;height:116px;border-collapse:separate;border-spacing:0;border:1px solid #bfdbfe;background:#eff6ff;border-radius:16px;">
+            <tr>
+              <td style="height:116px;padding:18px 14px;text-align:center;vertical-align:middle;">
+                <p style="margin:0 0 8px;color:#2f88c7;font-size:11px;line-height:1.2;font-weight:800;letter-spacing:.08em;text-transform:uppercase;">${escapeHtml(card.label)}</p>
+                <p style="margin:0;color:#1e5f97;font-size:21px;line-height:1.15;font-weight:900;">${escapeHtml(card.value)}</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      `
+    )
+    .join('');
+
+  return `
+  <div style="margin:0;padding:28px;background:#eef7fd;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" style="max-width:760px;width:100%;margin:0 auto;background:#ffffff;border:1px solid #bfdbfe;border-radius:24px;overflow:hidden;box-shadow:0 18px 50px rgba(47,136,199,.16);">
+      <tr>
+        <td style="padding:24px 28px;background:linear-gradient(135deg,#f8fbff,#e7f3fb 48%,#dbeafe);border-bottom:1px solid #bfdbfe;">
+          <table role="presentation" style="width:100%;">
+            <tr>
+              <td style="vertical-align:middle;">
+                <img src="${escapeHtml(input.logoUrl)}" alt="BISU Home Loans" width="210" style="display:block;width:210px;max-width:210px;height:auto;max-height:56px;border:0;outline:none;text-decoration:none;object-fit:contain;" />
+              </td>
+              <td style="vertical-align:middle;text-align:right;">
+                <span style="display:inline-block;padding:8px 12px;border-radius:999px;background:#10b981;color:#ffffff;font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;">New +1 Submitted</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:34px 28px 12px;text-align:center;">
+          <p style="margin:0 0 10px;color:#2f88c7;font-size:13px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;">Production Spotlight</p>
+          <h1 style="margin:0 auto 10px;max-width:620px;color:#1e5f97;font-size:32px;line-height:1.15;font-weight:950;">${escapeHtml(input.primaryLoanOfficerName)} just submitted a new +1</h1>
+          <p style="margin:0 auto;max-width:560px;color:#475569;font-size:15px;line-height:1.7;">
+            The sales floor has a new file to celebrate. Here are the key details for ${escapeHtml(input.borrowerName)}.
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:18px 22px 32px;">
+          <table role="presentation" align="center" style="width:100%;max-width:690px;margin:0 auto;border-collapse:separate;border-spacing:0;">
+            <tr>${metricHtml}</tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </div>
+  `;
+}
+
+async function sendPlusOneSubmittedNotifications(input: PlusOneSubmittedNotificationPayload) {
+  const task = await prisma.task.findUnique({
+    where: { id: input.taskId },
+    select: {
+      id: true,
+      kind: true,
+      submissionData: true,
+      loan: {
+        select: {
+          loanNumber: true,
+          borrowerName: true,
+          amount: true,
+          loanOfficer: { select: { name: true } },
+          secondaryLoanOfficer: { select: { name: true } },
+        },
+      },
+    },
+  });
+  if (!task || task.kind !== TaskKind.SUBMIT_PLUS_ONE) return false;
+
+  const data = asSubmissionObject(task.submissionData);
+  const primaryLoanOfficerName = valueText(data.loanOfficer, task.loan.loanOfficer?.name || 'Loan Officer');
+  const secondaryLoanOfficerName =
+    valueText(data.secondaryLoanOfficerName, task.loan.secondaryLoanOfficer?.name || '') ||
+    'N/A';
+  const borrowerName = task.loan.borrowerName;
+  const loanNumber = task.loan.loanNumber;
+  const portalBaseUrl = getPortalBaseUrl();
+  const brandLogo = await getInlineBrandLogoAttachment();
+  const taskUrl = `${portalBaseUrl}/`;
+  const leadSource = valueText(data.leadSource);
+  const leadVendor = leadSource === 'Lead Buy' ? valueText(data.leadVendor, '') : '';
+
+  const emailInput = {
+    logoUrl: brandLogo.logoUrl,
+    taskUrl,
+    borrowerName,
+    loanNumber,
+    primaryLoanOfficerName,
+    secondaryLoanOfficerName,
+    loanAmount: formatCurrencyForEmail(data.loanAmount ?? task.loan.amount),
+    projectedRevenue: formatCurrencyForEmail(data.projectedRevenue),
+    lender: valueText(data.lender),
+    loanType: valueText(data.loanType),
+    loanProgram: valueText(data.loanProgram),
+    channel: valueText(data.channel, 'Not specified'),
+    leadSource,
+    leadVendor,
+    nextMilestone: valueText(data.nextMilestone),
+    notes: String(data.notes ?? '').trim() || null,
+  };
+  const subject = `[BISU] New +1 Submitted: ${borrowerName} (${loanNumber})`;
+  const html = buildPlusOneShowcaseEmailHtml(emailInput);
+  const text = [
+    'New +1 Submitted',
+    `Primary Loan Officer: ${emailInput.primaryLoanOfficerName}`,
+    `Secondary Loan Officer: ${emailInput.secondaryLoanOfficerName}`,
+    `Borrower: ${borrowerName}`,
+    `Loan Number: ${loanNumber}`,
+    `Loan Amount: ${emailInput.loanAmount}`,
+    `Projected Revenue: ${emailInput.projectedRevenue}`,
+    `Lender: ${emailInput.lender}`,
+    `Loan Type: ${emailInput.loanType}`,
+    `Loan Program: ${emailInput.loanProgram}`,
+    `Channel: ${emailInput.channel}`,
+    `Lead Source: ${emailInput.leadSource}`,
+    emailInput.leadVendor ? `Lead Vendor: ${emailInput.leadVendor}` : null,
+    `Next Milestone: ${emailInput.nextMilestone}`,
+    emailInput.notes ? `Notes: ${emailInput.notes}` : null,
+    `View in Portal: ${taskUrl}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const recipients = await prisma.user.findMany({
+    where: {
+      active: true,
+      OR: [
+        { role: { in: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
+        { roles: { hasSome: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
+      ],
+    },
+    select: { id: true, email: true },
+  });
+  const uniqueRecipients = Array.from(
+    new Map(
+      recipients
+        .map((user) => ({ ...user, email: user.email.trim().toLowerCase() }))
+        .filter((user) => user.email)
+        .map((user) => [user.email, user])
+    ).values()
+  );
+  if (uniqueRecipients.length === 0) return false;
+
+  await prisma.notification.createMany({
+    data: uniqueRecipients.map((user) => ({
+      userId: user.id,
+      taskId: task.id,
+      eventLabel: 'Submit +1 Submitted',
+      title: `New +1: ${borrowerName}`,
+      message: `${primaryLoanOfficerName} submitted a +1 for ${borrowerName} (${loanNumber}).`,
+      href: '/',
+    })),
+    skipDuplicates: true,
+  });
+
+  await sendEmail({
+    to: uniqueRecipients.map((recipient) => recipient.email),
+    subject,
+    html,
+    text,
+    inlineAttachments: brandLogo.inlineAttachments,
+    label: 'plus-one-submitted',
+  });
+
+  return true;
 }
 
 function hasRenderableSubmissionFields(data: Record<string, unknown>): boolean {
@@ -1446,6 +1688,47 @@ async function dispatchVaFanoutNotifications(input: VaFanoutNotificationPayload)
   await kickInlineOutboxDrain('va-fanout');
 }
 
+async function dispatchPlusOneSubmittedNotification(input: PlusOneSubmittedNotificationPayload) {
+  try {
+    const mode = getNotificationDeliveryMode();
+    const payload: Prisma.JsonObject = {
+      taskId: input.taskId,
+      changedBy: input.changedBy ?? null,
+    };
+    const enqueue = async () =>
+      enqueueNotificationOutboxEvent({
+        eventType: NotificationOutboxEventType.PLUS_ONE_SUBMITTED,
+        payload,
+        idempotencyKey: `plus-one:${input.taskId}:${Date.now()}:${randomUUID()}`,
+      });
+
+    if (mode === 'sync') {
+      await sendPlusOneSubmittedNotifications(input);
+      return;
+    }
+    try {
+      await enqueue();
+    } catch (error) {
+      console.error(
+        '[notifications.outbox] enqueue failed for +1; falling back to synchronous send',
+        error
+      );
+      await sendPlusOneSubmittedNotifications(input);
+      return;
+    }
+    if (mode === 'dual') {
+      await sendPlusOneSubmittedNotifications(input);
+      return;
+    }
+    await kickInlineOutboxDrain('plus-one');
+  } catch (error) {
+    console.error(
+      '[notifications.outbox] +1 dispatch failed; continuing without blocking submission',
+      error
+    );
+  }
+}
+
 type DrainNotificationOutboxResult = {
   processed: number;
   sent: number;
@@ -1502,6 +1785,20 @@ function parseVaFanoutPayload(payload: Prisma.JsonValue): VaFanoutNotificationPa
   return { loanId, changedBy, createdTasks };
 }
 
+function parsePlusOneSubmittedPayload(
+  payload: Prisma.JsonValue
+): PlusOneSubmittedNotificationPayload | null {
+  if (!isRecord(payload)) return null;
+  const taskId = String(payload.taskId ?? '').trim();
+  const changedByRaw = payload.changedBy;
+  const changedBy =
+    typeof changedByRaw === 'string' && changedByRaw.trim().length > 0
+      ? changedByRaw.trim()
+      : null;
+  if (!taskId) return null;
+  return { taskId, changedBy };
+}
+
 async function processNotificationOutboxJob(job: {
   id: string;
   eventType: NotificationOutboxEventType;
@@ -1523,6 +1820,12 @@ async function processNotificationOutboxJob(job: {
     }
     await sendVaFanoutNotifications(parsed);
     delivered = true;
+  } else if (job.eventType === NotificationOutboxEventType.PLUS_ONE_SUBMITTED) {
+    const parsed = parsePlusOneSubmittedPayload(job.payload);
+    if (!parsed) {
+      throw new Error('Invalid PLUS_ONE_SUBMITTED payload.');
+    }
+    delivered = await sendPlusOneSubmittedNotifications(parsed);
   }
 
   if (!delivered) {
@@ -2069,6 +2372,221 @@ export async function updateTaskStatus(
     recordPerfMetric('action.updateTaskStatus', Date.now() - perfStartedAt, {
       taskId,
       newStatus,
+    });
+  }
+}
+
+type PlusOnePayload = {
+  loanOfficerName?: string;
+  loanOfficerId?: string;
+  secondaryLoanOfficerId?: string | null;
+  borrowerFirstName: string;
+  borrowerLastName: string;
+  borrowerPhone?: string;
+  borrowerEmail?: string;
+  arriveLoanNumber: string;
+  loanAmount?: string;
+  notes?: string;
+  submissionData?: Prisma.InputJsonValue;
+};
+
+function parseMoneyNumber(value: unknown) {
+  const raw = String(value ?? '').replace(/[$,\s]/g, '').trim();
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function createPlusOneSubmission(payload: PlusOnePayload) {
+  const perfStartedAt = Date.now();
+  try {
+    const session = await getServerSession(authOptions);
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
+    const sessionUserId = session?.user?.id as string | undefined;
+    if (!role || !sessionUserId) return { success: false, error: 'Not authenticated.' };
+    if (role !== UserRole.LOAN_OFFICER && role !== UserRole.LOA) {
+      return { success: false, error: 'Only Loan Officers and LO Assistants can submit +1.' };
+    }
+
+    const normalizedArriveLoanNumber = payload.arriveLoanNumber.trim();
+    if (!normalizedArriveLoanNumber) {
+      return { success: false, error: 'Arrive Loan Number is required.' };
+    }
+    if (!payload.loanOfficerId) {
+      return { success: false, error: 'Please select the Primary Loan Officer.' };
+    }
+    if (payload.secondaryLoanOfficerId === undefined) {
+      return { success: false, error: 'Please select the Secondary Loan Officer (or N/A).' };
+    }
+    const normalizedSecondaryLoanOfficerId = payload.secondaryLoanOfficerId?.trim() || null;
+    if (
+      normalizedSecondaryLoanOfficerId &&
+      normalizedSecondaryLoanOfficerId === payload.loanOfficerId
+    ) {
+      return { success: false, error: 'Primary and Secondary Loan Officer must be different users.' };
+    }
+
+    const submissionObject =
+      payload.submissionData &&
+      typeof payload.submissionData === 'object' &&
+      !Array.isArray(payload.submissionData)
+        ? (payload.submissionData as Record<string, unknown>)
+        : {};
+    const requiredFields: Array<{ key: string; label: string }> = [
+      { key: 'borrowerFirstName', label: 'Borrower First Name' },
+      { key: 'borrowerLastName', label: 'Borrower Last Name' },
+      { key: 'arriveLoanNumber', label: 'Arrive Loan Number' },
+      { key: 'lender', label: 'Lender' },
+      { key: 'loanType', label: 'Loan Type' },
+      { key: 'loanAmount', label: 'Loan Amount' },
+      { key: 'projectedRevenue', label: 'Projected Revenue' },
+      { key: 'leadSource', label: 'Lead Source' },
+      { key: 'nextMilestone', label: 'Next Milestone' },
+    ];
+    const leadSource = String(submissionObject.leadSource ?? '').trim();
+    if (leadSource === 'Lead Buy') {
+      requiredFields.push({ key: 'leadVendor', label: 'Lead Vendor' });
+    }
+    const missingFields = requiredFields
+      .filter(({ key }) => !String(submissionObject[key] ?? '').trim())
+      .map(({ label }) => label);
+    if (missingFields.length > 0) {
+      return {
+        success: false,
+        error: `Please complete required fields before submitting: ${missingFields.join(', ')}.`,
+      };
+    }
+
+    const loanOfficerUser = await prisma.user.findUnique({
+      where: { id: payload.loanOfficerId },
+      select: { id: true, name: true, role: true, roles: true },
+    });
+    const hasLoanOfficerRole =
+      loanOfficerUser?.role === UserRole.LOAN_OFFICER ||
+      loanOfficerUser?.roles.includes(UserRole.LOAN_OFFICER);
+    if (!loanOfficerUser || !hasLoanOfficerRole) {
+      return { success: false, error: 'Selected Primary Loan Officer is invalid.' };
+    }
+
+    let secondaryLoanOfficerUser:
+      | { id: string; name: string; role: UserRole; roles: UserRole[] }
+      | null = null;
+    if (normalizedSecondaryLoanOfficerId) {
+      secondaryLoanOfficerUser = await prisma.user.findUnique({
+        where: { id: normalizedSecondaryLoanOfficerId },
+        select: { id: true, name: true, role: true, roles: true },
+      });
+      const hasSecondaryLoanOfficerRole =
+        secondaryLoanOfficerUser?.role === UserRole.LOAN_OFFICER ||
+        secondaryLoanOfficerUser?.roles.includes(UserRole.LOAN_OFFICER);
+      if (!secondaryLoanOfficerUser || !hasSecondaryLoanOfficerRole) {
+        return { success: false, error: 'Selected Secondary Loan Officer is invalid.' };
+      }
+    }
+
+    const visibilitySubmitterUserId =
+      sessionUserId &&
+      sessionUserId !== loanOfficerUser.id &&
+      sessionUserId !== normalizedSecondaryLoanOfficerId
+        ? sessionUserId
+        : null;
+    const borrowerName = `${payload.borrowerFirstName} ${payload.borrowerLastName}`.trim();
+
+    let loan = await prisma.loan.findFirst({
+      where: { loanNumber: normalizedArriveLoanNumber },
+    });
+    if (!loan) {
+      loan = await prisma.loan.create({
+        data: {
+          loanNumber: normalizedArriveLoanNumber,
+          borrowerName,
+          borrowerPhone: payload.borrowerPhone?.trim() || null,
+          borrowerEmail: payload.borrowerEmail?.trim() || null,
+          amount: parseMoneyNumber(payload.loanAmount),
+          program: String(submissionObject.loanProgram ?? '').trim() || null,
+          loanOfficerId: loanOfficerUser.id,
+          secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId,
+          visibilitySubmitterUserId,
+        },
+      });
+    } else {
+      const shouldReassignLoanOfficer = loan.loanOfficerId !== loanOfficerUser.id;
+      const shouldUpdateSecondaryLoanOfficer =
+        (loan.secondaryLoanOfficerId || null) !== normalizedSecondaryLoanOfficerId;
+      const shouldUpdateVisibilitySubmitter =
+        (loan.visibilitySubmitterUserId || null) !== visibilitySubmitterUserId;
+      if (
+        shouldReassignLoanOfficer ||
+        shouldUpdateSecondaryLoanOfficer ||
+        shouldUpdateVisibilitySubmitter
+      ) {
+        loan = await prisma.loan.update({
+          where: { id: loan.id },
+          data: {
+            ...(shouldReassignLoanOfficer ? { loanOfficerId: loanOfficerUser.id } : {}),
+            ...(shouldUpdateSecondaryLoanOfficer
+              ? { secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId }
+              : {}),
+            ...(shouldUpdateVisibilitySubmitter ? { visibilitySubmitterUserId } : {}),
+            borrowerPhone: payload.borrowerPhone?.trim() || loan.borrowerPhone || null,
+            borrowerEmail: payload.borrowerEmail?.trim() || loan.borrowerEmail || null,
+          },
+        });
+      }
+    }
+
+    const finalSubmissionData: Prisma.JsonObject = {
+      ...submissionObject,
+      workflowVersion: 'plus-one-v1',
+      submittedAt: new Date().toISOString(),
+      submittedById: sessionUserId,
+      submittedByName: session?.user?.name || payload.loanOfficerName || loanOfficerUser.name,
+      loanOfficer: loanOfficerUser.name,
+      loanOfficerId: loanOfficerUser.id,
+      secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId,
+      secondaryLoanOfficerName: secondaryLoanOfficerUser?.name || 'N/A',
+      arriveLoanNumber: normalizedArriveLoanNumber,
+      borrowerFirstName: payload.borrowerFirstName,
+      borrowerLastName: payload.borrowerLastName,
+      borrowerPhone: payload.borrowerPhone || '',
+      borrowerEmail: payload.borrowerEmail || '',
+      loanAmount: payload.loanAmount || String(submissionObject.loanAmount ?? ''),
+      notes: payload.notes || String(submissionObject.notes ?? ''),
+    };
+    if (role === UserRole.LOA && session?.user?.email) {
+      finalSubmissionData.loaSubmitterEmail = session.user.email.trim().toLowerCase();
+      finalSubmissionData.loaSubmitterName =
+        session.user.name || payload.loanOfficerName || 'Loan Officer Assistant';
+      finalSubmissionData.loaSubmitterId = sessionUserId;
+    }
+
+    const createdTask = await prisma.task.create({
+      data: {
+        loanId: loan.id,
+        title: 'Submit +1',
+        kind: TaskKind.SUBMIT_PLUS_ONE,
+        description: payload.notes || null,
+        submissionData: finalSubmissionData,
+        status: TaskStatus.COMPLETED,
+        priority: TaskPriority.NORMAL,
+        completedAt: new Date(),
+      },
+    });
+
+    await dispatchPlusOneSubmittedNotification({
+      taskId: createdTask.id,
+      changedBy: session?.user?.name || loanOfficerUser.name,
+    });
+
+    revalidatePath('/');
+    return { success: true, taskId: createdTask.id, loanId: loan.id };
+  } catch (error) {
+    console.error('Failed to create +1 submission:', error);
+    return { success: false, error: 'Failed to submit +1. Please try again.' };
+  } finally {
+    recordPerfMetric('action.createPlusOneSubmission', Date.now() - perfStartedAt, {
+      loanNumber: payload.arriveLoanNumber,
     });
   }
 }

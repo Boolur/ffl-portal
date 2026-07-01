@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Loader2, FileText, Upload, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { createSubmissionTask } from '@/app/actions/taskActions';
+import { createPlusOneSubmission, createSubmissionTask } from '@/app/actions/taskActions';
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
 import { TaskAttachmentPurpose } from '@prisma/client';
 
@@ -214,6 +214,10 @@ export function NewTaskModal({
               lenderOptions={lenderOptions}
               onStepChange={setCurrentStep}
               currentStep={currentStep}
+              onSubmissionOverlay={setSubmissionOverlay}
+              onSubmitted={() => {
+                setSubmissionOverlay('success');
+              }}
             />
           ) : type === 'DISCLOSURES' ? (
             <DisclosuresForm
@@ -780,15 +784,20 @@ function PlusOneForm({
   isLoanOfficerAssistant,
   loanOfficerOptions,
   lenderOptions,
+  onSubmitted,
   onStepChange,
   currentStep,
+  onSubmissionOverlay,
 }: {
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
   lenderOptions: Array<{ id: string; name: string }>;
+  onSubmitted: () => void;
   onStepChange: (step: 1 | 2) => void;
   currentStep: 1 | 2;
+  onSubmissionOverlay: (phase: null | 'submitting' | 'success') => void;
 }) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [importError, setImportError] = useState('');
@@ -873,8 +882,9 @@ function PlusOneForm({
     }
   };
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (isSubmitting) return;
     setShowValidationErrors(true);
     setSubmitMessage('');
     const missingLabels = requiredFields
@@ -884,9 +894,31 @@ function PlusOneForm({
       setSubmitMessage(`Please complete required fields: ${missingLabels.join(', ')}.`);
       return;
     }
-    setSubmitMessage(
-      'Submit +1 details are ready. Backend tracking/reporting will be wired in the next implementation step.'
-    );
+    setIsSubmitting(true);
+    onSubmissionOverlay('submitting');
+    const result = await createPlusOneSubmission({
+      loanOfficerName: form.loanOfficer,
+      loanOfficerId: form.loanOfficerId || undefined,
+      secondaryLoanOfficerId:
+        form.secondaryLoanOfficerId === SECONDARY_LO_NA_VALUE
+          ? null
+          : form.secondaryLoanOfficerId || undefined,
+      borrowerFirstName: form.borrowerFirstName,
+      borrowerLastName: form.borrowerLastName,
+      borrowerPhone: form.borrowerPhone,
+      borrowerEmail: form.borrowerEmail,
+      arriveLoanNumber: form.arriveLoanNumber,
+      loanAmount: form.loanAmount,
+      notes: form.notes,
+      submissionData: form,
+    });
+    if (!result.success) {
+      setSubmitMessage(result.error || 'Failed to submit +1.');
+      setIsSubmitting(false);
+      onSubmissionOverlay(null);
+      return;
+    }
+    onSubmitted();
   };
 
   return (
@@ -1042,9 +1074,11 @@ function PlusOneForm({
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="submit"
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-600"
+              disabled={isSubmitting}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              Prepare Submit +1
+              {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isSubmitting ? 'Submitting +1...' : 'Submit +1'}
             </button>
           </div>
         </>
