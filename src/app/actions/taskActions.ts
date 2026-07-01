@@ -727,6 +727,32 @@ function valueText(value: unknown, fallback = 'Not provided') {
   return text || fallback;
 }
 
+function normalizeLenderNameForMatch(value: unknown) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+async function resolveLenderDisplayName(value: unknown) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 'Not provided';
+  const normalizedRaw = normalizeLenderNameForMatch(raw);
+  const lenders = await prisma.lender.findMany({
+    where: { active: true },
+    select: { name: true },
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+  });
+  const exactMatch = lenders.find(
+    (lender) => lender.name.trim().toLowerCase() === raw.toLowerCase()
+  );
+  if (exactMatch) return exactMatch.name;
+  const normalizedMatch = lenders.find(
+    (lender) => normalizeLenderNameForMatch(lender.name) === normalizedRaw
+  );
+  return normalizedMatch?.name || raw;
+}
+
 function formatCurrencyForEmail(value: unknown) {
   const raw = String(value ?? '').replace(/[$,\s]/g, '').trim();
   const amount = Number(raw);
@@ -788,12 +814,14 @@ function buildPlusOneShowcaseEmailHtml(input: {
   const metricHtml = metricCards
     .map(
       (card) => `
-        <td style="width:33.333%;padding:0 6px 12px;vertical-align:middle;text-align:center;">
-          <table role="presentation" style="width:100%;height:116px;border-collapse:separate;border-spacing:0;border:1px solid #bfdbfe;background:#eff6ff;border-radius:16px;">
+        <td width="33.333%" align="center" valign="middle" style="width:33.333%;padding:0 8px 12px;text-align:center;vertical-align:middle;">
+          <table role="presentation" width="100%" height="138" align="center" style="width:100%;height:138px;border-collapse:separate;border-spacing:0;border:1px solid #93c5fd;background:#eff6ff;border-radius:18px;">
             <tr>
-              <td style="height:116px;padding:18px 14px;text-align:center;vertical-align:middle;">
-                <p style="margin:0 0 8px;color:#2f88c7;font-size:11px;line-height:1.2;font-weight:800;letter-spacing:.08em;text-transform:uppercase;">${escapeHtml(card.label)}</p>
-                <p style="margin:0;color:#1e5f97;font-size:21px;line-height:1.15;font-weight:900;">${escapeHtml(card.value)}</p>
+              <td height="138" align="center" valign="middle" style="height:138px;padding:0 14px;text-align:center;vertical-align:middle;">
+                <center>
+                  <div style="width:100%;margin:0 auto;text-align:center;color:#2f88c7;font-size:13px;line-height:1.25;font-weight:900;letter-spacing:.04em;text-transform:uppercase;">${escapeHtml(card.label)}</div>
+                  <div style="width:100%;margin:10px auto 0;text-align:center;color:#165a93;font-size:30px;line-height:1.05;font-weight:950;">${escapeHtml(card.value)}</div>
+                </center>
               </td>
             </tr>
           </table>
@@ -829,7 +857,7 @@ function buildPlusOneShowcaseEmailHtml(input: {
         </td>
       </tr>
       <tr>
-        <td style="padding:18px 22px 32px;">
+        <td style="padding:18px 18px 28px;">
           <table role="presentation" align="center" style="width:100%;max-width:690px;margin:0 auto;border-collapse:separate;border-spacing:0;">
             <tr>${metricHtml}</tr>
           </table>
@@ -882,7 +910,7 @@ async function sendPlusOneSubmittedNotifications(input: PlusOneSubmittedNotifica
     secondaryLoanOfficerName,
     loanAmount: formatCurrencyForEmail(data.loanAmount ?? task.loan.amount),
     projectedRevenue: formatCurrencyForEmail(data.projectedRevenue),
-    lender: valueText(data.lender),
+    lender: await resolveLenderDisplayName(data.lender),
     loanType: valueText(data.loanType),
     loanProgram: valueText(data.loanProgram),
     channel: valueText(data.channel, 'Not specified'),
@@ -2536,6 +2564,7 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
       }
     }
 
+    const resolvedLenderName = await resolveLenderDisplayName(submissionObject.lender);
     const finalSubmissionData: Prisma.JsonObject = {
       ...submissionObject,
       workflowVersion: 'plus-one-v1',
@@ -2551,6 +2580,7 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
       borrowerLastName: payload.borrowerLastName,
       borrowerPhone: payload.borrowerPhone || '',
       borrowerEmail: payload.borrowerEmail || '',
+      lender: resolvedLenderName,
       loanAmount: payload.loanAmount || String(submissionObject.loanAmount ?? ''),
       notes: payload.notes || String(submissionObject.notes ?? ''),
     };
