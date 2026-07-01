@@ -52,6 +52,15 @@ type UserManagementProps = {
 // it exists only for enum stability and is backfilled to ADMIN_III at the DB
 // layer. All role filters below are role-tier aware.
 const ALL_ROLE_OPTIONS: UserRole[] = Object.values(UserRole).filter((r) => r !== UserRole.ADMIN);
+const ACTIVE_ROLE_OPTIONS: UserRole[] = ALL_ROLE_OPTIONS.filter(
+  (r) =>
+    r !== UserRole.QC &&
+    r !== UserRole.VA &&
+    r !== UserRole.VA_TITLE &&
+    r !== UserRole.VA_PAYOFF &&
+    r !== UserRole.VA_APPRAISAL &&
+    r !== UserRole.VA_HOI
+);
 
 export function UserManagement({
   users,
@@ -67,12 +76,12 @@ export function UserManagement({
   // assign. If they lack any assignable admin roles we still want to show
   // non-admin roles in order.
   const creatableRoles = useMemo(
-    () => ALL_ROLE_OPTIONS.filter((r) => assignableSet.has(r)),
+    () => ACTIVE_ROLE_OPTIONS.filter((r) => assignableSet.has(r)),
     [assignableSet],
   );
   // Filter dropdown can still show every role — it's a search tool, not a
   // mutation surface.
-  const filterRoles = ALL_ROLE_OPTIONS;
+  const filterRoles = ACTIVE_ROLE_OPTIONS;
   const defaultCreatableRole = creatableRoles.includes(UserRole.LOAN_OFFICER)
     ? UserRole.LOAN_OFFICER
     : (creatableRoles[0] ?? UserRole.LOAN_OFFICER);
@@ -679,7 +688,7 @@ export function UserManagement({
                                     })
                                   }
                                 />
-                                QC Submit
+                                Processing Submit
                               </label>
                               <p className="text-[10px] text-slate-500">
                                 Applies to LO submission access.
@@ -851,7 +860,7 @@ export function UserManagement({
                                 })
                               }
                             />
-                            QC Submit
+                            Processing Submit
                           </label>
                         </div>
                         <p className="mt-1.5 text-[10px] text-slate-500">

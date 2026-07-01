@@ -13,6 +13,14 @@ import {
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
 
 const formatRole = (role: string) => getRoleDisplayLabel(role);
+const retiredWorkflowRoles = new Set<UserRole>([
+  UserRole.QC,
+  UserRole.VA,
+  UserRole.VA_TITLE,
+  UserRole.VA_PAYOFF,
+  UserRole.VA_APPRAISAL,
+  UserRole.VA_HOI,
+]);
 const getRoleChipClass = (role: UserRole) => {
   if (role === UserRole.LOAN_OFFICER) {
     return 'border-amber-200 bg-amber-50 text-amber-700';
@@ -99,6 +107,7 @@ export function TopNav({
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const notificationRef = useRef<HTMLDivElement | null>(null);
+  const activeAvailableRoles = availableRoles.filter((role) => !retiredWorkflowRoles.has(role));
 
   const loadNotifications = React.useCallback(async (showLoader = false) => {
     if (showLoader) setIsLoadingNotifications(true);
@@ -323,13 +332,13 @@ export function TopNav({
                   {formatRole(user.role)}
                 </p>
               </div>
-              {availableRoles.length > 1 && (
+              {activeAvailableRoles.length > 1 && (
                 <div className="px-3 pt-2 pb-1">
                   <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                     Switch Role
                   </p>
                   <div className="space-y-1">
-                    {availableRoles.map((role) => (
+                    {activeAvailableRoles.map((role) => (
                       <button
                         key={role}
                         onClick={() => handleRoleSelect(role)}

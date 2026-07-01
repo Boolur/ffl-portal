@@ -161,7 +161,7 @@ export function NewTaskModal({
           <div>
             <h2 className="text-xl font-bold text-slate-900">New Task Submission</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Complete each step to submit your {type === 'QC' ? 'QC' : 'Disclosure'} request.
+              Complete each step to submit your {type === 'QC' ? 'Processing' : 'Disclosure'} request.
             </p>
           </div>
           <button
@@ -675,7 +675,7 @@ function SubmissionProgress({
   const progressPercent = (clampedStep / totalSteps) * 100;
   const isQcTone = type === 'QC';
   const stepLabels =
-    isQcTone ? ['Upload MISMO', 'QC Details'] : ['Upload MISMO', 'Disclosure Details'];
+    isQcTone ? ['Upload MISMO', 'Processing Details'] : ['Upload MISMO', 'Disclosure Details'];
 
   const containerClass = isQcTone
     ? 'border-violet-200 bg-violet-50/40'
@@ -694,7 +694,7 @@ function SubmissionProgress({
     <div className={`rounded-xl border p-4 ${containerClass}`}>
       <div className="mb-2 flex items-center justify-between">
         <p className="text-sm font-semibold text-slate-900">
-          {type === 'QC' ? 'Submit for QC' : 'Submit for Disclosures'}
+          {type === 'QC' ? 'Submit for Processing' : 'Submit for Disclosures'}
         </p>
         <p className={`text-xs font-semibold uppercase tracking-wide ${stepMetaClass}`}>
           Step {clampedStep} of {totalSteps}
@@ -1592,14 +1592,14 @@ function QcForm({
       });
     } catch (error) {
       console.error(error);
-      setSubmitError('Failed to submit QC task.');
+      setSubmitError('Failed to submit Processing task.');
       setIsSubmitting(false);
       onSubmissionOverlay(null);
       return;
     }
 
     if (!res.success) {
-      setSubmitError(res.error || 'Failed to submit QC task.');
+      setSubmitError(res.error || 'Failed to submit Processing task.');
       setIsSubmitting(false);
       onSubmissionOverlay(null);
       return;
@@ -1824,7 +1824,7 @@ function QcForm({
           className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-          {isSubmitting ? 'Processing...' : 'Submit for QC'}
+          {isSubmitting ? 'Processing...' : 'Submit for Processing'}
         </button>
       </div>
         </>

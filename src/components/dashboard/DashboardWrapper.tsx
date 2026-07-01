@@ -5,8 +5,6 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LoanOfficerDashboard } from '@/components/dashboard/LoanOfficerDashboard';
 import { DisclosureOverview } from '@/components/dashboard/DisclosureOverview';
 import { QcOverview } from '@/components/dashboard/QcOverview';
-import { VaOverview } from '@/components/dashboard/VaOverview';
-import type { VaRole } from '@/components/dashboard/VaOverview';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useImpersonation } from '@/lib/impersonation';
 import { isAdmin } from '@/lib/adminTiers';
@@ -85,23 +83,16 @@ type DashboardWrapperProps = {
 
 function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: DashboardWrapperProps) {
   const { activeRole } = useImpersonation();
-  const isVaTaskKind = (kind: TaskKind | null) =>
-    kind === TaskKind.VA_TITLE ||
-    kind === TaskKind.VA_PAYOFF ||
-    kind === TaskKind.VA_APPRAISAL;
   const roleTasks = adminTasks.filter((t) => {
-    if (activeRole === UserRole.VA) {
-      return isVaTaskKind(t.kind);
-    }
     if (activeRole === UserRole.PROCESSOR_JR) {
-      return t.kind === TaskKind.VA_HOI || t.assignedRole === UserRole.PROCESSOR_JR;
+      return t.kind === TaskKind.SUBMIT_PROCESSING || t.assignedRole === UserRole.PROCESSOR_JR;
     }
     if (t.assignedRole === activeRole) return true;
     if (activeRole === UserRole.DISCLOSURE_SPECIALIST) {
       return t.kind === TaskKind.SUBMIT_DISCLOSURES;
     }
     if (activeRole === UserRole.QC) {
-      return t.kind === TaskKind.SUBMIT_QC;
+      return false;
     }
     return false;
   });
@@ -119,23 +110,23 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
     // screen is one consistent experience for every leadership role.
     [UserRole.ADMIN]: {
       title: 'Desk Overview',
-      subtitle: 'Monitor both Disclosure and QC queues in one view.',
+      subtitle: 'Monitor both Disclosure and Jr Processing queues in one view.',
     },
     [UserRole.ADMIN_I]: {
       title: 'Desk Overview',
-      subtitle: 'Monitor both Disclosure and QC queues in one view.',
+      subtitle: 'Monitor both Disclosure and Jr Processing queues in one view.',
     },
     [UserRole.ADMIN_II]: {
       title: 'Desk Overview',
-      subtitle: 'Monitor both Disclosure and QC queues in one view.',
+      subtitle: 'Monitor both Disclosure and Jr Processing queues in one view.',
     },
     [UserRole.ADMIN_III]: {
       title: 'Desk Overview',
-      subtitle: 'Monitor both Disclosure and QC queues in one view.',
+      subtitle: 'Monitor both Disclosure and Jr Processing queues in one view.',
     },
     [UserRole.MANAGER]: {
       title: 'Desk Overview',
-      subtitle: 'Monitor both Disclosure and QC queues in one view.',
+      subtitle: 'Monitor both Disclosure and Jr Processing queues in one view.',
     },
     [UserRole.DISCLOSURE_SPECIALIST]: {
       title: 'Disclosure Queue',
@@ -158,12 +149,12 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
       subtitle: 'Complete Appraisal Specialist tasks and upload proof before finishing.',
     },
     [UserRole.QC]: {
-      title: 'QC Queue',
-      subtitle: 'Review and complete quality control tasks.',
+      title: 'Retired QC Queue',
+      subtitle: 'QC has been retired from active task queues.',
     },
     [UserRole.PROCESSOR_JR]: {
-      title: 'JR Processor Queue',
-      subtitle: 'Complete JR Processor requests and upload proof before finishing.',
+      title: 'Jr Processing Queue',
+      subtitle: 'Review and complete processing requests.',
     },
     [UserRole.PROCESSOR_SR]: {
       title: 'Processor Queue',
@@ -175,10 +166,6 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
     title: 'Overview',
     subtitle: 'Manage your assigned work and activity.',
   };
-  const isVaDeskRole =
-    activeRole === UserRole.VA_TITLE ||
-    activeRole === UserRole.VA_PAYOFF ||
-    activeRole === UserRole.VA_APPRAISAL;
   const isProcessorTaskListRole = activeRole === UserRole.PROCESSOR_SR;
 
   return (
@@ -211,77 +198,16 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
           </section>
           <section className="space-y-4">
             <div className="app-page-header">
-              <h2 className="app-page-title">QC Desk</h2>
-              <p className="app-page-subtitle">Live QC request workload and status mix.</p>
+              <h2 className="app-page-title">Jr Processing Desk</h2>
+              <p className="app-page-subtitle">Live processing request workload and status mix.</p>
             </div>
             <QcOverview tasks={adminTasks} />
           </section>
-          <section className="space-y-4">
-            <div className="app-page-header">
-              <h2 className="app-page-title">Appraisal Specialist Desk</h2>
-              <p className="app-page-subtitle">Live Appraisal Specialist workload and status mix.</p>
-            </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_APPRAISAL} />
-          </section>
-          <section className="space-y-4">
-            <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - Payoff</h2>
-              <p className="app-page-subtitle">Live VA Payoff workload and status mix.</p>
-            </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_PAYOFF} />
-          </section>
-          <section className="space-y-4">
-            <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - Title</h2>
-              <p className="app-page-subtitle">Live VA Title workload and status mix.</p>
-            </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_TITLE} />
-          </section>
-          <section className="space-y-4">
-            <div className="app-page-header">
-              <h2 className="app-page-title">JR Processor Desk</h2>
-              <p className="app-page-subtitle">Live JR Processor workload and status mix.</p>
-            </div>
-            <VaOverview tasks={adminTasks} role={UserRole.PROCESSOR_JR} />
-          </section>
         </div>
-      )}
-
-      {activeRole === UserRole.VA && (
-        <div className="space-y-8">
-          <section className="space-y-4">
-            <div className="app-page-header">
-              <h2 className="app-page-title">Appraisal Specialist Desk</h2>
-              <p className="app-page-subtitle">Live Appraisal Specialist workload and status mix.</p>
-            </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_APPRAISAL} />
-          </section>
-          <section className="space-y-4">
-            <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - Payoff</h2>
-              <p className="app-page-subtitle">Live VA Payoff workload and status mix.</p>
-            </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_PAYOFF} />
-          </section>
-          <section className="space-y-4">
-            <div className="app-page-header">
-              <h2 className="app-page-title">VA Desk - Title</h2>
-              <p className="app-page-subtitle">Live VA Title workload and status mix.</p>
-            </div>
-            <VaOverview tasks={adminTasks} role={UserRole.VA_TITLE} />
-          </section>
-        </div>
-      )}
-
-      {isVaDeskRole && (
-        <VaOverview
-          tasks={roleTasks}
-          role={activeRole as VaRole}
-        />
       )}
 
       {activeRole === UserRole.PROCESSOR_JR && (
-        <VaOverview tasks={roleTasks} role={UserRole.PROCESSOR_JR} />
+        <QcOverview tasks={roleTasks} />
       )}
 
       {/* Processor SR keeps the standard task list view */}

@@ -16,6 +16,15 @@ export const ANY_ADMIN_ROLES: UserRole[] = [
   ...ADMIN_TIER_ROLES,
 ];
 
+const RETIRED_ASSIGNABLE_ROLES = new Set<UserRole>([
+  UserRole.QC,
+  UserRole.VA,
+  UserRole.VA_TITLE,
+  UserRole.VA_PAYOFF,
+  UserRole.VA_APPRAISAL,
+  UserRole.VA_HOI,
+]);
+
 export type AdminTier = 1 | 2 | 3;
 
 // Treats the legacy UserRole.ADMIN value as ADMIN_III so any stray rows that
@@ -118,7 +127,7 @@ export function canAssignRole(
 export function assignableRolesFor(actorRoles: UserRole[] | undefined | null): UserRole[] {
   // The legacy ADMIN value is never presented as an assignable option.
   const candidates = Object.values(UserRole).filter(
-    (r) => r !== UserRole.ADMIN,
+    (r) => r !== UserRole.ADMIN && !RETIRED_ASSIGNABLE_ROLES.has(r as UserRole),
   ) as UserRole[];
   return candidates.filter((r) => canAssignRole(actorRoles, r));
 }

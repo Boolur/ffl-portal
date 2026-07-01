@@ -19,7 +19,7 @@ type QcTask = {
 };
 
 function isQcTask(task: QcTask) {
-  return task.kind === TaskKind.SUBMIT_QC;
+  return task.kind === TaskKind.SUBMIT_PROCESSING;
 }
 
 export function QcOverview({ tasks }: { tasks: QcTask[] }) {
@@ -51,12 +51,12 @@ export function QcOverview({ tasks }: { tasks: QcTask[] }) {
   const cards = [
     {
       id: 'qc-new',
-      title: 'New QC Requests',
+      title: 'New Processing Requests',
       chipLabel: 'New',
       chipClassName: 'border-blue-200 bg-blue-50 text-blue-700 shadow-sm',
       icon: Inbox,
       iconClassName: 'bg-blue-100 text-blue-600',
-      subtitle: 'Newly submitted QC files ready for first review.',
+      subtitle: 'Newly submitted processing files ready for first review.',
       count: newCount,
       href: '/tasks?bucket=qc-new',
     },
@@ -84,12 +84,12 @@ export function QcOverview({ tasks }: { tasks: QcTask[] }) {
     },
     {
       id: 'qc-completed-requests',
-      title: 'Completed QC Requests',
+      title: 'Completed Processing Requests',
       chipLabel: 'Completed',
       chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm',
       icon: CheckCircle2,
       iconClassName: 'bg-emerald-100 text-emerald-600',
-      subtitle: 'QC flow finished and marked complete.',
+      subtitle: 'Processing flow finished and marked complete.',
       count: completedCount,
       href: '/tasks?bucket=qc-completed-requests',
     },
@@ -109,11 +109,11 @@ export function QcOverview({ tasks }: { tasks: QcTask[] }) {
             />
           </div>
           <div>
-            <p className="text-lg font-extrabold tracking-tight text-violet-950">New QC Requests in Queue</p>
+            <p className="text-lg font-extrabold tracking-tight text-violet-950">New Processing Requests in Queue</p>
             <p className="text-sm font-medium text-violet-800/80">
               {newCount > 0
                 ? `${newCount} request${newCount === 1 ? '' : 's'} ready for first review.`
-                : 'No new QC requests waiting right now.'}
+                : 'No new processing requests waiting right now.'}
             </p>
           </div>
         </div>

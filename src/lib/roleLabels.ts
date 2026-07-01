@@ -2,6 +2,12 @@ import { UserRole } from '@prisma/client';
 
 const ROLE_LABEL_OVERRIDES: Partial<Record<UserRole, string>> = {
   [UserRole.VA_APPRAISAL]: 'Appraisal Specialist',
+  [UserRole.PROCESSOR_JR]: 'Jr Processor',
+  [UserRole.QC]: 'QC (Legacy)',
+  [UserRole.VA]: 'VA (Legacy)',
+  [UserRole.VA_TITLE]: 'VA Title (Legacy)',
+  [UserRole.VA_PAYOFF]: 'VA Payoff (Legacy)',
+  [UserRole.VA_HOI]: 'VA HOI (Legacy)',
   // Any lingering legacy ADMIN row renders as Admin III for visual parity
   // with the backfill migration.
   [UserRole.ADMIN]: 'Admin III',

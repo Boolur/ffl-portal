@@ -19,7 +19,14 @@ import {
 // The legacy `UserRole.ADMIN` value should never be assigned to new users;
 // admins must pick one of the explicit tiers instead.
 const ALLOWED_ROLES: UserRole[] = Object.values(UserRole).filter(
-  (role) => role !== UserRole.ADMIN,
+  (role) =>
+    role !== UserRole.ADMIN &&
+    role !== UserRole.QC &&
+    role !== UserRole.VA &&
+    role !== UserRole.VA_TITLE &&
+    role !== UserRole.VA_PAYOFF &&
+    role !== UserRole.VA_APPRAISAL &&
+    role !== UserRole.VA_HOI,
 );
 const INVITE_TTL_DAYS = 7;
 const INVITE_TTL_HOURS = INVITE_TTL_DAYS * 24;

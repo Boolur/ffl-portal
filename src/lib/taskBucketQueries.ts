@@ -170,10 +170,10 @@ function disclosureSubmissionWhere(): Prisma.TaskWhereInput {
 function qcSubmissionWhere(): Prisma.TaskWhereInput {
   return {
     OR: [
-      { kind: TaskKind.SUBMIT_QC },
+      { kind: TaskKind.SUBMIT_PROCESSING },
       {
-        assignedRole: UserRole.QC,
-        title: { contains: 'qc', mode: 'insensitive' },
+        assignedRole: UserRole.PROCESSOR_JR,
+        title: { contains: 'processing', mode: 'insensitive' },
       },
     ],
   };
@@ -243,7 +243,7 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
   {
     id: 'qc-new',
     sectionId: 'qc',
-    label: 'New QC Requests',
+    label: 'New Processing Requests',
     chipLabel: 'New',
     chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
     defaultSort: 'created_asc',
@@ -279,7 +279,7 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
   {
     id: 'qc-completed-requests',
     sectionId: 'qc',
-    label: 'Completed QC Requests',
+    label: 'Completed Processing Requests',
     chipLabel: 'Completed',
     chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     isCompleted: true,
@@ -571,7 +571,7 @@ const LO_PILOT_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
   {
     id: 'submitted-qc',
     sectionId: 'qc',
-    label: 'Submitted for QC',
+    label: 'Submitted for Processing',
     chipLabel: 'Submitted',
     chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
     defaultSort: 'updated_desc',
@@ -582,7 +582,7 @@ const LO_PILOT_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
   {
     id: 'action-required-qc',
     sectionId: 'qc',
-    label: 'Action Required (QC Info / Approval)',
+    label: 'Action Required (Processing Info / Approval)',
     chipLabel: 'Action Required',
     chipClassName: 'border-indigo-200 bg-indigo-50 text-indigo-700',
     defaultSort: 'updated_desc',
@@ -597,7 +597,7 @@ const LO_PILOT_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
   {
     id: 'returned-to-qc',
     sectionId: 'qc',
-    label: 'Returned to QC',
+    label: 'Returned to Processing',
     chipLabel: 'Tracking',
     chipClassName: 'border-violet-200 bg-violet-50 text-violet-700',
     defaultSort: 'updated_desc',
@@ -608,7 +608,7 @@ const LO_PILOT_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
   {
     id: 'qc-completed',
     sectionId: 'qc',
-    label: 'QC Sent / Completed',
+    label: 'Processing Sent / Completed',
     chipLabel: 'Completed',
     chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     isCompleted: true,
@@ -622,12 +622,7 @@ const ALL_PAGED_TASK_ROLES = new Set<UserRole>([
   UserRole.LOAN_OFFICER,
   UserRole.LOA,
   UserRole.DISCLOSURE_SPECIALIST,
-  UserRole.QC,
-  UserRole.VA,
   UserRole.PROCESSOR_JR,
-  UserRole.VA_TITLE,
-  UserRole.VA_PAYOFF,
-  UserRole.VA_APPRAISAL,
 ]);
 
 export function canUsePagedTaskBuckets(role: UserRole) {
@@ -700,22 +695,22 @@ function getRoleBaseWhere(role: UserRole, userId?: string): Prisma.TaskWhereInpu
     };
   }
   if (role === UserRole.PROCESSOR_JR) {
-    if (!userId) return { kind: TaskKind.VA_HOI };
+    if (!userId) return qcSubmissionWhere();
     return {
       OR: [
         {
-          kind: TaskKind.VA_HOI,
+          kind: TaskKind.SUBMIT_PROCESSING,
           status: TaskStatus.PENDING,
           workflowState: TaskWorkflowState.NONE,
           assignedUserId: null,
         },
         {
-          kind: TaskKind.VA_HOI,
+          kind: TaskKind.SUBMIT_PROCESSING,
           status: { not: TaskStatus.COMPLETED },
           assignedUserId: userId,
         },
         {
-          kind: TaskKind.VA_HOI,
+          kind: TaskKind.SUBMIT_PROCESSING,
           status: TaskStatus.COMPLETED,
         },
       ],
@@ -732,7 +727,9 @@ function getRoleBaseWhere(role: UserRole, userId?: string): Prisma.TaskWhereInpu
 }
 
 export function getTaskBucketSpecsForRole(role: UserRole, userId?: string): TaskBucketSpec[] {
-  if (isAdmin(role) || role === UserRole.MANAGER) return MANAGER_TASK_BUCKET_SPECS;
+  if (isAdmin(role) || role === UserRole.MANAGER) {
+    return bySections('disclosure', 'qc');
+  }
   if (role === UserRole.LOAN_OFFICER || role === UserRole.LOA) {
     return withBaseWhere(LO_PILOT_TASK_BUCKET_SPECS, getRoleBaseWhere(role, userId));
   }
@@ -740,22 +737,22 @@ export function getTaskBucketSpecsForRole(role: UserRole, userId?: string): Task
     return withBaseWhere(bySections('disclosure'), getRoleBaseWhere(role, userId));
   }
   if (role === UserRole.QC) {
-    return withBaseWhere(bySections('qc'), getRoleBaseWhere(role, userId));
+    return [];
   }
   if (role === UserRole.VA) {
-    return withBaseWhere(bySections('appraisal', 'payoff', 'title'), getRoleBaseWhere(role, userId));
+    return [];
   }
   if (role === UserRole.PROCESSOR_JR) {
-    return withBaseWhere(bySections('jr'), getRoleBaseWhere(role, userId));
+    return withBaseWhere(bySections('qc'), getRoleBaseWhere(role, userId));
   }
   if (role === UserRole.VA_TITLE) {
-    return withBaseWhere(bySections('title'), getRoleBaseWhere(role, userId));
+    return [];
   }
   if (role === UserRole.VA_PAYOFF) {
-    return withBaseWhere(bySections('payoff'), getRoleBaseWhere(role, userId));
+    return [];
   }
   if (role === UserRole.VA_APPRAISAL) {
-    return withBaseWhere(bySections('appraisal'), getRoleBaseWhere(role, userId));
+    return [];
   }
   return [];
 }
@@ -1219,50 +1216,12 @@ export async function queryInitialManagerTaskBuckets(role: UserRole) {
 }
 
 export async function queryLoVaProgressSeedTasks(role: UserRole, userId?: string) {
-  if (!canUsePagedTaskBuckets(role)) return [];
-  const baseWhere =
-    role === UserRole.LOAN_OFFICER && userId
-      ? buildLoanOfficerTaskWhere(userId)
-      : {};
-  const rawTasks = await prisma.task.findMany({
-    where: andWhere(baseWhere, {
-      OR: [
-        {
-          kind: {
-            in: [TaskKind.VA_TITLE, TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL, TaskKind.VA_HOI],
-          },
-        },
-        {
-          kind: TaskKind.LO_NEEDS_INFO,
-          parentTask: {
-            is: {
-              kind: {
-                in: [TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL, TaskKind.VA_HOI],
-              },
-            },
-          },
-        },
-      ],
-    }),
-    include: TASK_BUCKET_QUERY_INCLUDE,
-    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-    take: 120,
-  });
-  return hydrateTaskRows(rawTasks, role, false);
+  void role;
+  void userId;
+  return [];
 }
 
 export async function queryManagerLoVaProgressSeedTasks(role: UserRole) {
-  if (!canUsePagedTaskBuckets(role)) return [];
-  const rawTasks = await prisma.task.findMany({
-    where: {
-      kind: {
-        in: [TaskKind.VA_TITLE, TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL, TaskKind.VA_HOI],
-      },
-      status: TaskStatus.COMPLETED,
-    },
-    include: TASK_BUCKET_QUERY_INCLUDE,
-    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-    take: 120,
-  });
-  return hydrateTaskRows(rawTasks, role, false);
+  void role;
+  return [];
 }

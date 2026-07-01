@@ -83,7 +83,7 @@ const qcReasonOptions: Array<{
 }> = [
   {
     value: DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES,
-    label: 'Complete QC',
+    label: 'Complete Processing',
   },
   { value: DisclosureDecisionReason.MISSING_ITEMS, label: 'Missing Items' },
 ];
@@ -478,7 +478,7 @@ function buildQcChecklistSummary(items: QcChecklistDraftItem[]) {
   const yellow = items.filter(
     (item) => getQcChecklistStatusFromOption(item.noteOption) === 'YELLOW'
   ).length;
-  return `QC checklist: ${green} green, ${red} red, ${yellow} other.`;
+  return `Processing checklist: ${green} green, ${red} red, ${yellow} other.`;
 }
 
 function getChecklistNoteOptionLabel(option: QcChecklistNoteOption) {
@@ -1196,7 +1196,11 @@ function getLifecycleBucketBubbleClass(
       ) {
         return 'border-rose-300 bg-rose-100 text-rose-800';
       }
-      if (taskKind === TaskKind.SUBMIT_QC || taskKind === TaskKind.SUBMIT_DISCLOSURES) {
+      if (
+        taskKind === TaskKind.SUBMIT_QC ||
+        taskKind === TaskKind.SUBMIT_PROCESSING ||
+        taskKind === TaskKind.SUBMIT_DISCLOSURES
+      ) {
         return 'border-blue-300 bg-blue-100 text-blue-800';
       }
       if (taskKind === TaskKind.LO_NEEDS_INFO) {
@@ -1242,7 +1246,7 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
   const role = currentRole as UserRole;
   const isLoanOfficerLikeRole = role === UserRole.LOAN_OFFICER || role === UserRole.LOA;
   const isDisclosure = taskKind === TaskKind.SUBMIT_DISCLOSURES;
-  const isQc = taskKind === TaskKind.SUBMIT_QC;
+  const isQc = taskKind === TaskKind.SUBMIT_QC || taskKind === TaskKind.SUBMIT_PROCESSING;
   const isVaAppraisal = taskKind === TaskKind.VA_APPRAISAL;
   const isVaTitle = taskKind === TaskKind.VA_TITLE;
   const isVaPayoff = taskKind === TaskKind.VA_PAYOFF;
@@ -1283,12 +1287,12 @@ function getLifecycleBucketLabelProfile(currentRole: string, taskKind: TaskKind 
 
   if (isQc) {
     return {
-      newLabel: 'New QC Requests',
-      startedLabel: 'Started by QC',
+      newLabel: 'New Processing Requests',
+      startedLabel: 'Started by Jr Processing',
       waitingLabel: 'Waiting Missing/Incomplete',
       reviewLabel: 'LO Responded (Review)',
       approvalLabel: 'Waiting Missing/Incomplete',
-      completedLabel: 'Completed QC Requests',
+      completedLabel: 'Completed Processing Requests',
     };
   }
 
@@ -1440,6 +1444,7 @@ function getOrderedLifecycleRows(
   const prefersWorkflowBuckets =
     taskKind === TaskKind.SUBMIT_DISCLOSURES ||
     taskKind === TaskKind.SUBMIT_QC ||
+    taskKind === TaskKind.SUBMIT_PROCESSING ||
     taskKind === TaskKind.VA_APPRAISAL ||
     taskKind === TaskKind.VA_TITLE ||
     taskKind === TaskKind.VA_PAYOFF ||
@@ -2236,7 +2241,10 @@ export function TaskList({
       const next = { ...prev };
 
       for (const task of tasks) {
-        if (task.kind !== TaskKind.SUBMIT_QC || next[task.id]) continue;
+        if (
+          (task.kind !== TaskKind.SUBMIT_QC && task.kind !== TaskKind.SUBMIT_PROCESSING) ||
+          next[task.id]
+        ) continue;
         const parsedSubmissionData =
           task.submissionData &&
           typeof task.submissionData === 'object' &&
@@ -2978,7 +2986,7 @@ export function TaskList({
       isVaRouteTask && vaOptionalNote
         ? `${message}${message ? '\n\n' : ''}VA Note: ${vaOptionalNote}`
         : message;
-    const isQcTask = task.kind === TaskKind.SUBMIT_QC;
+    const isQcTask = task.kind === TaskKind.SUBMIT_QC || task.kind === TaskKind.SUBMIT_PROCESSING;
     let qcChecklistPayload:
       | {
           items: QcChecklistItem[];
@@ -2990,7 +2998,7 @@ export function TaskList({
       const checklistRows = getQcChecklistRows(task.id);
       const missingRequiredChecklistFields = hasQcChecklistMissingSelections(checklistRows);
       if (missingRequiredChecklistFields) {
-        alert('Please complete all QC checklist items before routing this task.');
+        alert('Please complete all Processing checklist items before routing this task.');
         return;
       }
       const checklistItems: QcChecklistItem[] = checklistRows.map((row) => ({
@@ -3006,7 +3014,7 @@ export function TaskList({
         hasRedXItems &&
         reason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
       ) {
-        alert('Complete QC is blocked while checklist items are marked Red X. Use Missing Items.');
+        alert('Complete Processing is blocked while checklist items are marked Red X. Use Missing Items.');
         return;
       }
       if (
@@ -3017,7 +3025,7 @@ export function TaskList({
         return;
       }
       if (!message) {
-        alert('Please add general QC notes before routing this task.');
+        alert('Please add general Processing notes before routing this task.');
         return;
       }
       qcChecklistPayload = {
@@ -3076,7 +3084,7 @@ export function TaskList({
     setStartingQcId(taskId);
     const result = await startQcRequest(taskId);
     if (!result.success) {
-      const errorMessage = result.error || 'Failed to start QC request.';
+      const errorMessage = result.error || 'Failed to start Processing request.';
       const isStaleState =
         errorMessage.includes('already moved beyond the new-request queue') ||
         errorMessage.includes('already started by');
@@ -3251,13 +3259,15 @@ export function TaskList({
   const isLoanOfficerLikeCurrentRole =
     currentRole === UserRole.LOAN_OFFICER || currentRole === UserRole.LOA;
   const isQcRole = currentRole === UserRole.QC;
+  const isProcessingRole = currentRole === UserRole.PROCESSOR_JR;
   const isManagerRole = currentRole === UserRole.MANAGER;
   const canManageVaDesk = !isLoanOfficerAssistantRole && (isManagerRole || isVaSubRole);
   const canManageDisclosureDesk = !isLoanOfficerAssistantRole && (isDisclosureRole || isManagerRole);
-  const canManageQcDesk = !isLoanOfficerAssistantRole && (isQcRole || isManagerRole);
+  const canManageQcDesk = !isLoanOfficerAssistantRole && (isProcessingRole || isManagerRole);
   const isDisclosureSubmissionTask = (task: Task) =>
     task.kind === TaskKind.SUBMIT_DISCLOSURES;
-  const isQcSubmissionTask = (task: Task) => task.kind === TaskKind.SUBMIT_QC;
+  const isQcSubmissionTask = (task: Task) =>
+    task.kind === TaskKind.SUBMIT_QC || task.kind === TaskKind.SUBMIT_PROCESSING;
   const isLoResponseTask = (task: Task) => task.kind === TaskKind.LO_NEEDS_INFO;
 
   if (tasks.length === 0) {
@@ -3396,8 +3406,11 @@ export function TaskList({
           isLoResponseTask(task) &&
           Boolean(task.parentTask) &&
           (task.parentTask?.kind === TaskKind.SUBMIT_QC ||
+            task.parentTask?.kind === TaskKind.SUBMIT_PROCESSING ||
             (task.parentTask?.assignedRole === UserRole.QC &&
-              task.parentTask?.title.toLowerCase().includes('qc')));
+              task.parentTask?.title.toLowerCase().includes('qc')) ||
+            (task.parentTask?.assignedRole === UserRole.PROCESSOR_JR &&
+              task.parentTask?.title.toLowerCase().includes('processing')));
         const isVaAppraisalLinkedLoResponseTask =
           isLoResponseTask(task) &&
           Boolean(task.parentTask) &&
@@ -3414,7 +3427,7 @@ export function TaskList({
           : isVaPayoffLinkedLoResponseTask
           ? 'Payoff VA'
           : isQcLinkedLoResponseTask
-          ? 'QC'
+          ? 'Processing'
           : 'Disclosure';
         const isLoanOfficerSubmissionTask =
           (currentRole === UserRole.LOAN_OFFICER || currentRole === UserRole.LOA) &&
@@ -3604,7 +3617,7 @@ export function TaskList({
         const deskStartLabel = isDisclosureDeskStartLockTask
           ? 'Start Disclosure Request'
           : isQcDeskStartLockTask
-          ? 'Start QC Request'
+          ? 'Start Processing Request'
           : isJrDeskStartLockTask
           ? 'Start JR Task'
           : 'Start VA Task';
@@ -3917,6 +3930,7 @@ export function TaskList({
           (isDisclosureRole ||
             isLoanOfficerRole ||
             isQcRole ||
+            isProcessingRole ||
             isManagerRole ||
             isVaSubRole ||
             isAdmin(currentRole as UserRole)) &&
@@ -5746,7 +5760,7 @@ export function TaskList({
                           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
                             <MessageSquare className="h-4 w-4" />
                           </div>
-                          <h4 className="text-sm font-bold text-violet-900">QC Action Checklist</h4>
+                          <h4 className="text-sm font-bold text-violet-900">Processing Action Checklist</h4>
                         </div>
                         {qcChecklistMissingFields && (
                           <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
@@ -5860,7 +5874,7 @@ export function TaskList({
                       </div>
                       <div className="rounded-xl border border-violet-200 bg-white p-4 shadow-sm">
                         <p className="mb-2 text-[11px] font-bold uppercase tracking-widest text-violet-700">
-                          QC Final Decision
+                          Processing Final Decision
                         </p>
                         <select
                           value={selectedQcReason}
@@ -5881,7 +5895,7 @@ export function TaskList({
                         <div className="mt-3 space-y-2">
                           <div className="flex items-center justify-between gap-2">
                             <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
-                              QC General Notes
+                              Processing General Notes
                             </label>
                             <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700">
                               Required
@@ -5895,7 +5909,7 @@ export function TaskList({
                                 [task.id]: event.target.value,
                               }))
                             }
-                            placeholder="Add general QC context for LO (summary, what is missing, next steps)..."
+                            placeholder="Add general Processing context for LO (summary, what is missing, next steps)..."
                             className={`w-full rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm min-h-[88px] focus:border-violet-500 focus:ring-1 focus:ring-violet-500 ${
                               qcGeneralNotesMissing ? 'border-rose-300' : 'border-slate-200'
                             }`}
@@ -5904,12 +5918,12 @@ export function TaskList({
                         <div className="mt-2 min-h-[18px]">
                           {qcGeneralNotesMissing && (
                             <p className="text-xs font-semibold text-rose-700">
-                              Add general QC notes before submitting this decision.
+                              Add general Processing notes before submitting this decision.
                             </p>
                           )}
                           {qcChecklistBlocksCompleteAction && (
                             <p className="text-xs font-semibold text-amber-700">
-                              Complete QC is blocked because at least one checklist item is Red X. Use Missing Items.
+                              Complete Processing is blocked because at least one checklist item is Red X. Use Missing Items.
                             </p>
                           )}
                           {qcChecklistBlocksMissingItemsAction && (
@@ -6269,7 +6283,7 @@ export function TaskList({
                           ? 'Send Back to LO'
                           : selectedQcReason ===
                             DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-                          ? 'Complete QC'
+                          ? 'Complete Processing'
                           : 'Send Back to LO'}
                       </button>
                         );

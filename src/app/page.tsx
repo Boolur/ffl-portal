@@ -11,11 +11,7 @@ import { isAdmin } from '@/lib/adminTiers';
 
 const LO_DASHBOARD_TASK_KINDS: TaskKind[] = [
   TaskKind.SUBMIT_DISCLOSURES,
-  TaskKind.SUBMIT_QC,
-  TaskKind.VA_TITLE,
-  TaskKind.VA_PAYOFF,
-  TaskKind.VA_APPRAISAL,
-  TaskKind.VA_HOI,
+  TaskKind.SUBMIT_PROCESSING,
 ];
 
 async function getLoans(role?: string | null, userId?: string | null) {

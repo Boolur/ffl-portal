@@ -59,7 +59,8 @@ enum TaskPriority {
 
 enum TaskKind {
   SUBMIT_DISCLOSURES
-  SUBMIT_QC
+  SUBMIT_QC // Legacy workflow retained for historical reporting.
+  SUBMIT_PROCESSING
   LO_NEEDS_INFO
   VA_TITLE
   VA_HOI

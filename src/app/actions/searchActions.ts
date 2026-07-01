@@ -38,24 +38,16 @@ function getRoleScopedTaskWhere(role: UserRole, userId?: string): Prisma.TaskWhe
   }
 
   if (role === UserRole.QC) {
-    return {
-      OR: [{ assignedRole: role }, { kind: TaskKind.SUBMIT_QC }],
-    };
+    return { id: '__none__' };
   }
 
   if (isGenericVa) {
-    return {
-      OR: [
-        { kind: { in: [TaskKind.VA_TITLE, TaskKind.VA_PAYOFF, TaskKind.VA_APPRAISAL] } },
-        ...(userId ? [{ assignedUserId: userId }] : []),
-        { assignedRole: UserRole.VA },
-      ],
-    };
+    return { id: '__none__' };
   }
 
   if (role === UserRole.PROCESSOR_JR) {
     return {
-      OR: [{ assignedRole: UserRole.PROCESSOR_JR }, { kind: TaskKind.VA_HOI }],
+      OR: [{ assignedRole: UserRole.PROCESSOR_JR }, { kind: TaskKind.SUBMIT_PROCESSING }],
     };
   }
 
@@ -78,9 +70,23 @@ export async function searchPortal(query: string): Promise<{
     const userId = session?.user?.id || undefined;
 
     const scopedWhere = getRoleScopedTaskWhere(role, userId);
+    const activeTaskWhere: Prisma.TaskWhereInput = {
+      OR: [
+        { kind: { in: [TaskKind.SUBMIT_DISCLOSURES, TaskKind.SUBMIT_PROCESSING] } },
+        {
+          kind: TaskKind.LO_NEEDS_INFO,
+          parentTask: {
+            is: {
+              kind: { in: [TaskKind.SUBMIT_DISCLOSURES, TaskKind.SUBMIT_PROCESSING] },
+            },
+          },
+        },
+      ],
+    };
     const searchWhere: Prisma.TaskWhereInput = {
       AND: [
         scopedWhere,
+        activeTaskWhere,
         {
           OR: [
             { title: { contains: q, mode: 'insensitive' } },

@@ -39,6 +39,7 @@ function isStartLockedDeskAttachmentTask(task: {
   const isDeskKind =
     task.kind === TaskKind.SUBMIT_DISCLOSURES ||
     task.kind === TaskKind.SUBMIT_QC ||
+    task.kind === TaskKind.SUBMIT_PROCESSING ||
     task.kind === TaskKind.VA_TITLE ||
     task.kind === TaskKind.VA_PAYOFF ||
     task.kind === TaskKind.VA_APPRAISAL ||
@@ -50,7 +51,11 @@ function isJrTaskOwnedByDifferentUser(task: {
   kind: TaskKind | null;
   assignedUserId: string | null;
 }, userId: string) {
-  return task.kind === TaskKind.VA_HOI && Boolean(task.assignedUserId) && task.assignedUserId !== userId;
+  return (
+    (task.kind === TaskKind.VA_HOI || task.kind === TaskKind.SUBMIT_PROCESSING) &&
+    Boolean(task.assignedUserId) &&
+    task.assignedUserId !== userId
+  );
 }
 
 async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId: string) {
@@ -110,7 +115,9 @@ export async function createTaskAttachmentUploadUrl(input: {
 }) {
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
@@ -174,7 +181,9 @@ export async function finalizeTaskAttachment(input: {
 }) {
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 

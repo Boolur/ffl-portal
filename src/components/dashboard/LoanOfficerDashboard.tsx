@@ -54,19 +54,14 @@ export function LoanOfficerDashboard({
     : submissions;
   const isLoDashboardCountKind = (kind: TaskKind | null) =>
     kind === TaskKind.SUBMIT_DISCLOSURES ||
-    kind === TaskKind.SUBMIT_QC ||
-    kind === TaskKind.VA_TITLE ||
-    kind === TaskKind.VA_PAYOFF ||
-    kind === TaskKind.VA_APPRAISAL ||
-    kind === TaskKind.VA_HOI;
+    kind === TaskKind.SUBMIT_PROCESSING;
 
-  // Include Disclosure/QC request tasks plus downstream VA/JR workflow tasks.
-  // This keeps LO counters aligned after removing the separate VA/JR dashboard buckets.
+  // Include only active top-level request tasks in the dashboard counters.
   const countSubmissions = scopedSubmissions.filter((t) => isLoDashboardCountKind(t.kind));
 
   // Keep recent list aligned to top-level LO request queues only.
   const requestSubmissions = scopedSubmissions.filter(
-    (t) => t.kind === TaskKind.SUBMIT_DISCLOSURES || t.kind === TaskKind.SUBMIT_QC
+    (t) => t.kind === TaskKind.SUBMIT_DISCLOSURES || t.kind === TaskKind.SUBMIT_PROCESSING
   );
   const pendingCount = countSubmissions.filter((t) => t.status === TaskStatus.PENDING).length;
   const inProgressCount = countSubmissions.filter((t) => t.status === TaskStatus.IN_PROGRESS).length;
@@ -134,7 +129,7 @@ export function LoanOfficerDashboard({
             openTaskModal('QC');
           }}
           disabled={!qcEnabled}
-          title={qcEnabled ? 'Submit for QC' : 'Submit for QC is disabled for this user by Admin.'}
+          title={qcEnabled ? 'Submit for Processing' : 'Submit for Processing is disabled for this user by Admin.'}
           className={`group relative flex flex-col items-start p-6 sm:p-8 rounded-2xl border shadow-sm text-left overflow-hidden ${
             qcEnabled
               ? 'border-violet-200 bg-white hover:shadow-md hover:border-violet-300 transition-all'
@@ -153,14 +148,14 @@ export function LoanOfficerDashboard({
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h3 className={`text-xl sm:text-2xl font-bold ${qcEnabled ? 'text-slate-900' : 'text-slate-700'}`}>
-              Submit for QC
+              Submit for Processing
             </h3>
             <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
               {qcEnabled ? 'Active' : 'Disabled'}
             </span>
           </div>
           <p className="text-slate-500 mb-8 max-w-sm">
-            Send a completed loan file to the Quality Control team for final review and approval.
+            Send a completed loan file to the Jr Processing team for review and completion.
           </p>
           <div
             className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold ${

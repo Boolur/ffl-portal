@@ -39,9 +39,12 @@ function isSubmissionTask(task: {
   return (
     task.kind === TaskKind.SUBMIT_DISCLOSURES ||
     task.kind === TaskKind.SUBMIT_QC ||
+    task.kind === TaskKind.SUBMIT_PROCESSING ||
     (task.assignedRole === UserRole.DISCLOSURE_SPECIALIST &&
       task.title.toLowerCase().includes('disclosure')) ||
-    (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
+    (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc')) ||
+    (task.assignedRole === UserRole.PROCESSOR_JR &&
+      task.title.toLowerCase().includes('processing'))
   );
 }
 
@@ -74,6 +77,26 @@ function isQcSubmissionTask(task: {
     task.kind === TaskKind.SUBMIT_QC ||
     (task.assignedRole === UserRole.QC && task.title.toLowerCase().includes('qc'))
   );
+}
+
+function isProcessingSubmissionTask(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+  title: string;
+}) {
+  return (
+    task.kind === TaskKind.SUBMIT_PROCESSING ||
+    (task.assignedRole === UserRole.PROCESSOR_JR &&
+      task.title.toLowerCase().includes('processing'))
+  );
+}
+
+function isQcStyleSubmissionTask(task: {
+  kind: TaskKind | null;
+  assignedRole: UserRole | null;
+  title: string;
+}) {
+  return isQcSubmissionTask(task) || isProcessingSubmissionTask(task);
 }
 
 const VA_TASK_BLUEPRINTS: Array<{
@@ -365,7 +388,7 @@ function getRoleSpecificEmailContent(input: {
     input.deskType === 'QC'
       ? 'QC Desk'
       : input.deskType === 'JR'
-      ? 'JR Processor'
+      ? 'Jr Processing'
       : input.deskType === 'VA'
       ? 'VA Desk'
       : 'Disclosure Desk';
@@ -429,10 +452,10 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] Returned to ${isQcTask ? 'QC' : isJrTask ? 'JR Processor' : isVaTask ? 'Appraisal VA' : 'Disclosure'}: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[FFL Portal] Returned to ${isQcTask ? 'QC' : isJrTask ? 'Jr Processing' : isVaTask ? 'Appraisal VA' : 'Disclosure'}: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'LO Responded - Review Needed',
       intro:
-        `Loan Officer response has been received. Review details and complete the next ${isQcTask ? 'QC' : isJrTask ? 'JR Processor' : isVaTask ? 'appraisal VA' : 'disclosure'} action.`,
+        `Loan Officer response has been received. Review details and complete the next ${isQcTask ? 'QC' : isJrTask ? 'Jr Processing' : isVaTask ? 'appraisal VA' : 'disclosure'} action.`,
       ctaLabel: 'Review Response in Portal',
       statusLabel: 'REVIEW NEEDED',
       workflowLabel: isQcTask
@@ -505,16 +528,16 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] New ${isQcTask ? 'QC' : isJrTask ? 'JR Processor' : isVaTask ? 'VA' : 'Disclosure'} Request: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[FFL Portal] New ${isQcTask ? 'QC' : isJrTask ? 'Processing' : isVaTask ? 'VA' : 'Disclosure'} Request: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'New Request Submitted',
       intro:
-        `A new ${isQcTask ? 'QC' : isJrTask ? 'JR Processor' : isVaTask ? 'VA' : 'disclosure'} request is in your queue. Review details and take action.`,
+        `A new ${isQcTask ? 'QC' : isJrTask ? 'processing' : isVaTask ? 'VA' : 'disclosure'} request is in your queue. Review details and take action.`,
       ctaLabel: 'Open New Request',
       statusLabel: 'NEW',
       workflowLabel: isQcTask
         ? 'New QC Request'
         : isJrTask
-        ? 'New JR Processor Request'
+        ? 'New Processing Request'
         : isVaTask
         ? 'New VA Request'
         : 'New Disclosure Request',
@@ -545,27 +568,28 @@ function getRoleSpecificEmailContent(input: {
     };
   }
 
-  if (input.eventLabel === 'QC Request Started') {
-    const starterName = input.changedBy?.trim() || 'QC Desk';
+  if (input.eventLabel === 'QC Request Started' || input.eventLabel === 'Processing Request Started') {
+    const isProcessingStarted = input.eventLabel === 'Processing Request Started';
+    const starterName = input.changedBy?.trim() || (isProcessingStarted ? 'Jr Processing' : 'QC Desk');
     if (input.audience === 'LO') {
       return {
         ...base,
-        subject: `[FFL Portal] ${starterName} started your QC request: ${input.borrowerName} (${input.loanNumber})`,
-        eventLabel: 'QC Request Started',
-        intro: `${starterName} has started your QC request and is actively working this file.`,
-        ctaLabel: 'Track QC Request',
+        subject: `[FFL Portal] ${starterName} started your ${isProcessingStarted ? 'processing' : 'QC'} request: ${input.borrowerName} (${input.loanNumber})`,
+        eventLabel: isProcessingStarted ? 'Processing Request Started' : 'QC Request Started',
+        intro: `${starterName} has started your ${isProcessingStarted ? 'processing' : 'QC'} request and is actively working this file.`,
+        ctaLabel: isProcessingStarted ? 'Track Processing Request' : 'Track QC Request',
         statusLabel: 'IN PROGRESS',
-        workflowLabel: 'New QC Request',
+        workflowLabel: isProcessingStarted ? 'New Processing Request' : 'New QC Request',
       };
     }
     return {
       ...base,
-      subject: `[FFL Portal] QC Request Started: ${input.borrowerName} (${input.loanNumber})`,
-      eventLabel: 'QC Request Started',
-      intro: `${starterName} claimed this QC request and has started working it.`,
+      subject: `[FFL Portal] ${isProcessingStarted ? 'Processing' : 'QC'} Request Started: ${input.borrowerName} (${input.loanNumber})`,
+      eventLabel: isProcessingStarted ? 'Processing Request Started' : 'QC Request Started',
+      intro: `${starterName} claimed this ${isProcessingStarted ? 'processing' : 'QC'} request and has started working it.`,
       ctaLabel: 'Track Task in Portal',
       statusLabel: 'IN PROGRESS',
-      workflowLabel: 'New QC Request',
+      workflowLabel: isProcessingStarted ? 'New Processing Request' : 'New QC Request',
     };
   }
 
@@ -590,7 +614,7 @@ function getRoleSpecificEmailContent(input: {
       workflowLabel: isQcTask
         ? 'QC Queue'
         : isJrTask
-        ? 'JR Processor Queue'
+        ? 'Jr Processing Queue'
         : isVaTask
         ? 'VA Queue'
         : 'Disclosure Queue',
@@ -1117,8 +1141,11 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     if (!task) return false;
 
     const vaRole = getVaAssignedRoleForTask(task);
+    const processingSubmissionTask = isProcessingSubmissionTask(task);
     const isJrDeskTask = task.kind === TaskKind.VA_HOI || vaRole === UserRole.PROCESSOR_JR;
-    const deskType: DeskType = isVaTaskKind(task.kind)
+    const deskType: DeskType = processingSubmissionTask
+      ? 'JR'
+      : isVaTaskKind(task.kind)
       ? isJrDeskTask
         ? 'JR'
         : 'VA'
@@ -1130,7 +1157,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       isQcTask
         ? 'QC Desk'
         : deskType === 'JR'
-        ? 'JR Processor'
+        ? 'Jr Processing'
         : deskType === 'VA'
         ? 'VA Desk'
         : 'Disclosure Desk';
@@ -1694,7 +1721,9 @@ export async function updateTaskStatus(
   const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) {
       return { success: false, error: 'Not authenticated.' };
@@ -1801,7 +1830,7 @@ export async function updateTaskStatus(
       newStatus === TaskStatus.COMPLETED &&
       (isVaKind ||
         isVaRole ||
-        (isSubmissionWorkflowTask && !isQcSubmissionTask(existing)))
+        (isSubmissionWorkflowTask && !isQcStyleSubmissionTask(existing)))
     ) {
       const proofCount = await prisma.taskAttachment.count({
         where: { taskId, purpose: 'PROOF' },
@@ -1865,7 +1894,7 @@ export async function updateTaskStatus(
     }
 
     const actorName = session?.user?.name || 'Unknown';
-    const isQcSubmissionWorkflowTask = isQcSubmissionTask(existing);
+    const isQcSubmissionWorkflowTask = isQcStyleSubmissionTask(existing);
     const shouldAppendStatusHistory = isQcSubmissionWorkflowTask || isVaKind;
     const statusHistoryMessage = `Status changed to ${newStatus.replace('_', ' ')}.`;
     let submissionDataWithTimeline = shouldAppendStatusHistory
@@ -2294,7 +2323,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       ) {
         return {
           success: false,
-          error: 'Submit for QC is disabled for your user by Admin.',
+          error: 'Submit for Processing is disabled for your user by Admin.',
         };
       }
       if (!sessionUserId) {
@@ -2311,7 +2340,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       if (!qcInvestor || !QC_INVESTOR_ALLOWED_VALUES.has(qcInvestor)) {
         return {
           success: false,
-          error: 'Investor is required before submitting QC.',
+          error: 'Investor is required before submitting Processing.',
         };
       }
       const qcNotes = String(notes ?? submissionObject?.notesGoals ?? '').trim();
@@ -2328,7 +2357,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         return {
           success: false,
           error:
-            'Cash Back and Projected Revenue are required before submitting QC.',
+            'Cash Back and Projected Revenue are required before submitting Processing.',
         };
       }
     }
@@ -2421,7 +2450,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     });
 
     const targetStage =
-      submissionType === 'QC' ? 'QC_REVIEW' : 'DISCLOSURES_PENDING';
+      submissionType === 'QC' ? 'PROCESSING' : 'DISCLOSURES_PENDING';
 
     if (!loan) {
       loan = await prisma.loan.create({
@@ -2472,18 +2501,27 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 
     const taskTitle =
       submissionType === 'QC'
-        ? 'Submit for QC'
+        ? 'Submit for Processing'
         : 'Submit for Disclosures';
 
     const assignedRole =
       submissionType === 'QC'
-        ? UserRole.QC
+        ? UserRole.PROCESSOR_JR
         : UserRole.DISCLOSURE_SPECIALIST;
 
     const kind =
-      submissionType === 'QC' ? TaskKind.SUBMIT_QC : TaskKind.SUBMIT_DISCLOSURES;
+      submissionType === 'QC' ? TaskKind.SUBMIT_PROCESSING : TaskKind.SUBMIT_DISCLOSURES;
 
     let finalSubmissionData = submissionData;
+    if (submissionType === 'QC') {
+      const dataObj =
+        finalSubmissionData && typeof finalSubmissionData === 'object' && !Array.isArray(finalSubmissionData)
+          ? { ...(finalSubmissionData as Record<string, unknown>) }
+          : {};
+      dataObj.workflowVersion = 'processing-v1';
+      dataObj.legacyWorkflow = false;
+      finalSubmissionData = dataObj as Prisma.JsonObject;
+    }
     if (notes?.trim()) {
       const dataObj = (submissionData && typeof submissionData === 'object')
         ? { ...(submissionData as Record<string, unknown>) }
@@ -2685,7 +2723,9 @@ function appendSubmissionHistoryEntry(
 export async function addTaskNote(taskId: string, message: string) {
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
@@ -2965,6 +3005,7 @@ function isStartLockedDeskTask(task: {
   const isDeskKind =
     task.kind === TaskKind.SUBMIT_DISCLOSURES ||
     task.kind === TaskKind.SUBMIT_QC ||
+    task.kind === TaskKind.SUBMIT_PROCESSING ||
     task.kind === TaskKind.VA_TITLE ||
     task.kind === TaskKind.VA_PAYOFF ||
     task.kind === TaskKind.VA_APPRAISAL ||
@@ -3940,11 +3981,11 @@ export async function startQcRequest(taskId: string) {
     const canStart =
       isAdmin(role) ||
       role === UserRole.MANAGER ||
-      role === UserRole.QC;
+      role === UserRole.PROCESSOR_JR;
     if (!canStart) {
       return {
         success: false,
-        error: 'Only QC, Manager, or Admin can start this request.',
+        error: 'Only Jr Processors, Manager, or Admin can start this request.',
       };
     }
 
@@ -3964,10 +4005,10 @@ export async function startQcRequest(taskId: string) {
     });
 
     if (!task) return { success: false, error: 'Task not found.' };
-    if (!isQcSubmissionTask(task)) {
+    if (!isQcStyleSubmissionTask(task)) {
       return {
         success: false,
-        error: 'Only QC submission requests can be started here.',
+        error: 'Only Processing submission requests can be started here.',
       };
     }
     if (task.status === TaskStatus.COMPLETED) {
@@ -3991,7 +4032,7 @@ export async function startQcRequest(taskId: string) {
     let updatedSubmissionData = appendSubmissionHistoryEntry(task.submissionData, {
       author: session?.user?.name || 'Unknown',
       role,
-      message: 'QC request started.',
+      message: 'Processing request started.',
       entryType: 'status',
     });
     updatedSubmissionData = appendLifecycleHistoryEvent(updatedSubmissionData, {
@@ -4007,8 +4048,8 @@ export async function startQcRequest(taskId: string) {
       fromAssignedUserName: task.assignedUser?.name || null,
       toAssignedUserName: actorName,
       fromAssignedRole: task.assignedRole,
-      toAssignedRole: UserRole.QC,
-      note: 'QC request started.',
+      toAssignedRole: UserRole.PROCESSOR_JR,
+      note: 'Processing request started.',
     }) as Prisma.JsonObject;
 
     const updateResult = await prisma.task.updateMany({
@@ -4020,7 +4061,7 @@ export async function startQcRequest(taskId: string) {
       },
       data: {
         assignedUserId: userId,
-        assignedRole: UserRole.QC,
+        assignedRole: UserRole.PROCESSOR_JR,
         status: TaskStatus.IN_PROGRESS,
         submissionData: updatedSubmissionData,
       },
@@ -4040,7 +4081,7 @@ export async function startQcRequest(taskId: string) {
 
     await dispatchTaskWorkflowNotification({
       taskId,
-      eventLabel: 'QC Request Started',
+      eventLabel: 'Processing Request Started',
       changedBy: session?.user?.name,
     });
 
@@ -4048,8 +4089,8 @@ export async function startQcRequest(taskId: string) {
     revalidatePath('/');
     return { success: true };
   } catch (error) {
-    console.error('Failed to start QC request:', error);
-    return { success: false, error: 'Failed to start QC request.' };
+    console.error('Failed to start processing request:', error);
+    return { success: false, error: 'Failed to start processing request.' };
   } finally {
     recordPerfMetric('action.startQcRequest', Date.now() - perfStartedAt, {
       taskId,
@@ -4068,12 +4109,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     const canRequest =
       isAdmin(role) ||
       role === UserRole.MANAGER ||
-      role === UserRole.QC ||
       role === UserRole.DISCLOSURE_SPECIALIST ||
-      role === UserRole.VA ||
-      role === UserRole.VA_TITLE ||
-      role === UserRole.VA_PAYOFF ||
-      role === UserRole.VA_APPRAISAL ||
       role === UserRole.PROCESSOR_JR;
 
     if (!canRequest) {
@@ -4105,7 +4141,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       return {
         success: false,
         error:
-          'This action is only supported for disclosure/QC submissions and Appraisal Specialist/Payoff tasks.',
+          'This action is only supported for disclosure/processing submissions and legacy Appraisal Specialist/Payoff tasks.',
       };
     }
     if (!canBypassDeskStartLock(role) && isStartLockedDeskTask(task)) {
@@ -4114,7 +4150,8 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         error: 'Start this task before sending updates back to the Loan Officer.',
       };
     }
-    const qcSubmissionTask = isQcSubmissionTask(task);
+    const qcSubmissionTask = isQcStyleSubmissionTask(task);
+    const processingSubmissionTask = isProcessingSubmissionTask(task);
     const normalizedReason = input.reason;
     const normalizedMessage = input.message?.trim() || '';
     const parsedQcChecklist = qcSubmissionTask ? parseQcChecklistInput(input.qcChecklist) : null;
@@ -4142,13 +4179,13 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       if (!isAllowedQcAction) {
         return {
           success: false,
-          error: 'QC action must be either Complete QC or Missing Items.',
+          error: 'Processing action must be either Complete Processing or Missing Items.',
         };
       }
       if (!parsedQcChecklist) {
         return {
           success: false,
-          error: 'Please complete the QC checklist before submitting the action.',
+          error: 'Please complete the Processing checklist before submitting the action.',
         };
       }
       if (
@@ -4157,7 +4194,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       ) {
         return {
           success: false,
-          error: 'Complete QC is blocked while any checklist item is marked Red X.',
+          error: 'Complete Processing is blocked while any checklist item is marked Red X.',
         };
       }
       if (
@@ -4172,7 +4209,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       if (!normalizedMessage) {
         return {
           success: false,
-          error: 'Please add general QC notes before submitting the QC action.',
+          error: 'Please add general Processing notes before submitting the Processing action.',
         };
       }
     }
@@ -4292,7 +4329,9 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
             data: {
               status: TaskStatus.COMPLETED,
               completedAt: new Date(),
-              description: 'Closed automatically after QC completion.',
+              description: processingSubmissionTask
+                ? 'Closed automatically after Processing completion.'
+                : 'Closed automatically after QC completion.',
             },
           });
         }
@@ -4376,7 +4415,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       }
     });
 
-    if (isQcCompleteAction) {
+    if (isQcCompleteAction && task.kind === TaskKind.SUBMIT_QC) {
       const createdVaTasks = await ensureVaTasksForLoanFromQcCompletion(task.loanId, task.id);
       await dispatchVaFanoutNotifications({
         loanId: task.loanId,
@@ -4443,7 +4482,8 @@ export async function respondToDisclosureRequest(
         task.kind === TaskKind.VA_APPRAISAL ||
         task.kind === TaskKind.VA_PAYOFF ||
         task.kind === TaskKind.SUBMIT_DISCLOSURES ||
-        task.kind === TaskKind.SUBMIT_QC;
+        task.kind === TaskKind.SUBMIT_QC ||
+        task.kind === TaskKind.SUBMIT_PROCESSING;
       if (isParentVaOrSubmission) {
         const childLoTask = await prisma.task.findFirst({
           where: {
@@ -4776,7 +4816,7 @@ export async function deleteTask(taskId: string) {
     }
 
     const shouldSendDeleteNotification =
-      isDisclosureSubmissionTask(existing) || isQcSubmissionTask(existing);
+      isDisclosureSubmissionTask(existing) || isQcStyleSubmissionTask(existing);
     if (shouldSendDeleteNotification) {
       await dispatchTaskWorkflowNotification({
         taskId: existing.id,

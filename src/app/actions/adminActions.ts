@@ -18,31 +18,37 @@ export async function getAllTasks(filter?: TaskFilter) {
     isAdmin(role) || role === UserRole.MANAGER || role === UserRole.LOA;
   const isGenericVa = role === UserRole.VA;
   const needsRichTaskPayload = role === UserRole.LOAN_OFFICER || role === UserRole.LOA;
+  const activeTaskWhere = {
+    OR: [
+      { kind: { in: [TaskKind.SUBMIT_DISCLOSURES, TaskKind.SUBMIT_PROCESSING] } },
+      {
+        kind: TaskKind.LO_NEEDS_INFO,
+        parentTask: {
+          is: {
+            kind: { in: [TaskKind.SUBMIT_DISCLOSURES, TaskKind.SUBMIT_PROCESSING] },
+          },
+        },
+      },
+    ],
+  };
 
   const where = isAdminOrManager
-    ? undefined
+    ? activeTaskWhere
     : role === UserRole.LOAN_OFFICER
-      ? buildLoanOfficerTaskWhere(userId)
+      ? {
+          AND: [buildLoanOfficerTaskWhere(userId), activeTaskWhere],
+        }
       : isGenericVa
-        ? {
-            OR: [
-              {
-                kind: {
-                  in: [
-                    TaskKind.VA_TITLE,
-                    TaskKind.VA_HOI,
-                    TaskKind.VA_PAYOFF,
-                    TaskKind.VA_APPRAISAL,
-                  ],
-                },
-              },
-              { assignedUserId: userId ?? undefined },
-            ],
-          }
+        ? { id: '__none__' }
       : {
-          OR: [
-            { assignedRole: role ?? undefined },
-            { assignedUserId: userId ?? undefined },
+          AND: [
+            activeTaskWhere,
+            {
+              OR: [
+                { assignedRole: role ?? undefined },
+                { assignedUserId: userId ?? undefined },
+              ],
+            },
           ],
         };
 
