@@ -39,7 +39,7 @@ export default function ResetRequestPage() {
           <div className="relative h-20 w-72">
             <Image
               src="/assets/Federal-First-Lending-text.png"
-              alt="Federal First Lending"
+              alt="BISU Home Loans"
               fill
               className="object-contain drop-shadow-sm"
               priority

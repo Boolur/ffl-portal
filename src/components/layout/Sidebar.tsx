@@ -252,7 +252,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
           <div className={`relative h-12 ${collapsed ? 'w-9' : 'w-full'}`}>
             <Image
               src="/logo.png"
-              alt="Federal First Lending"
+              alt="BISU Home Loans"
               fill
               className="object-contain object-left"
               priority

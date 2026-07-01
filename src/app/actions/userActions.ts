@@ -113,7 +113,7 @@ function buildAccountInviteEmail(input: {
               <td style="vertical-align:middle;">
                 <img src="${escapeHtml(
                   logoUrl
-                )}" alt="Federal First Lending" width="180" style="display:block;width:180px;max-width:180px;height:auto;max-height:44px;object-fit:contain;" />
+                )}" alt="BISU Home Loans" width="180" style="display:block;width:180px;max-width:180px;height:auto;max-height:44px;object-fit:contain;" />
               </td>
               <td style="vertical-align:middle;text-align:right;">
                 <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">Account Invite</span>
@@ -208,7 +208,7 @@ function buildPasswordResetEmail(input: {
               <td style="vertical-align:middle;">
                 <img src="${escapeHtml(
                   logoUrl
-                )}" alt="Federal First Lending" width="180" style="display:block;width:180px;max-width:180px;height:auto;max-height:44px;object-fit:contain;" />
+                )}" alt="BISU Home Loans" width="180" style="display:block;width:180px;max-width:180px;height:auto;max-height:44px;object-fit:contain;" />
               </td>
               <td style="vertical-align:middle;text-align:right;">
                 <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">Security</span>
