@@ -49,7 +49,7 @@ export default function LoginPage() {
       <div className="w-full max-w-[420px] relative z-10">
         {/* Company Logo */}
         <div className="flex justify-center mb-8">
-          <div className="relative h-20 w-72">
+          <div className="relative h-28 w-80">
             <Image
               src="/assets/Federal-First-Lending-text.png"
               alt="BISU Home Loans"

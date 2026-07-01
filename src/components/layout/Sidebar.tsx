@@ -247,14 +247,14 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         } ${collapsed ? 'md:w-20' : 'md:w-64'} md:translate-x-0`}
       >
-      <div className={`border-b border-slate-200/80 ${collapsed ? 'p-3' : 'p-5'}`}>
+      <div className={`border-b border-slate-200/80 ${collapsed ? 'p-3' : 'p-4'}`}>
         <div className="flex items-center justify-center">
-          <div className={`relative h-12 ${collapsed ? 'w-9' : 'w-full'}`}>
+          <div className={`relative overflow-hidden ${collapsed ? 'h-10 w-10' : 'h-20 w-full'}`}>
             <Image
               src="/logo.png"
               alt="BISU Home Loans"
               fill
-              className="object-contain object-left"
+              className={collapsed ? 'object-cover object-left' : 'object-contain object-left'}
               priority
             />
           </div>

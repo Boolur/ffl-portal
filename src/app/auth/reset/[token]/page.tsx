@@ -59,7 +59,7 @@ export default function ResetPasswordPage() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(37,99,235,0.1),transparent_50%)]" />
       <div className="w-full max-w-[460px] relative z-10">
         <div className="flex justify-center mb-8">
-          <div className="relative h-20 w-72">
+          <div className="relative h-28 w-80">
             <Image
               src="/assets/Federal-First-Lending-text.png"
               alt="BISU Home Loans"
