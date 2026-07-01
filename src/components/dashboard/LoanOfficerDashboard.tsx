@@ -33,6 +33,10 @@ type LoanOfficerDashboardProps = {
     id: string;
     name: string;
   }>;
+  lenderOptions?: Array<{
+    id: string;
+    name: string;
+  }>;
   disclosureEnabled?: boolean;
   qcEnabled?: boolean;
 };
@@ -42,11 +46,12 @@ export function LoanOfficerDashboard({
   loanOfficerName,
   isLoanOfficerAssistant = false,
   loanOfficerOptions = [],
+  lenderOptions = [],
   disclosureEnabled = true,
   qcEnabled = false,
 }: LoanOfficerDashboardProps) {
   const [showNewTask, setShowNewTask] = useState(false);
-  const [initialTaskType, setInitialTaskType] = useState<'DISCLOSURES' | 'QC'>('DISCLOSURES');
+  const [initialTaskType, setInitialTaskType] = useState<'PLUS_ONE' | 'DISCLOSURES' | 'QC'>('DISCLOSURES');
   const scopedSubmissions = isLoanOfficerAssistant
     ? submissions
     : loanOfficerName
@@ -67,7 +72,7 @@ export function LoanOfficerDashboard({
   const inProgressCount = countSubmissions.filter((t) => t.status === TaskStatus.IN_PROGRESS).length;
   const completedCount = countSubmissions.filter((t) => t.status === TaskStatus.COMPLETED).length;
 
-  const openTaskModal = (type: 'DISCLOSURES' | 'QC') => {
+  const openTaskModal = (type: 'PLUS_ONE' | 'DISCLOSURES' | 'QC') => {
     setInitialTaskType(type);
     setShowNewTask(true);
   };
@@ -75,7 +80,35 @@ export function LoanOfficerDashboard({
   return (
     <div className="space-y-8">
       {/* Primary Action Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <button
+          type="button"
+          onClick={() => openTaskModal('PLUS_ONE')}
+          title="Submit +1"
+          className="group relative flex flex-col items-start p-6 sm:p-8 rounded-2xl border border-emerald-200 bg-white shadow-sm text-left overflow-hidden transition-all hover:shadow-md hover:border-emerald-300"
+        >
+          <div className="absolute top-0 right-0 p-8 opacity-10 transition-opacity group-hover:opacity-15">
+            <span className="block text-7xl font-black tracking-tight text-emerald-500">+1</span>
+          </div>
+          <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-6 bg-emerald-500 text-white shadow-sm transition-transform group-hover:scale-105">
+            <span className="text-lg font-black tracking-tight">+1</span>
+          </div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h3 className="text-xl sm:text-2xl font-bold text-slate-900">
+              Submit +1
+            </h3>
+            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+              Active
+            </span>
+          </div>
+          <p className="text-slate-500 mb-8 max-w-sm">
+            Quickly log originated clients and files getting ready for disclosures or processing.
+          </p>
+          <div className="mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold bg-emerald-50 text-emerald-700 transition-colors group-hover:bg-emerald-500 group-hover:text-white">
+            Start Request
+          </div>
+        </button>
+
         <button
           type="button"
           onClick={() => {
@@ -228,6 +261,7 @@ export function LoanOfficerDashboard({
         onClose={() => setShowNewTask(false)}
         isLoanOfficerAssistant={isLoanOfficerAssistant}
         loanOfficerOptions={loanOfficerOptions}
+        lenderOptions={lenderOptions}
         initialType={initialTaskType}
         disclosureEnabled={disclosureEnabled}
         qcEnabled={qcEnabled}

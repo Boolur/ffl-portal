@@ -15,12 +15,16 @@ type NewTaskModalProps = {
     id: string;
     name: string;
   }>;
+  lenderOptions?: Array<{
+    id: string;
+    name: string;
+  }>;
   initialType?: SubmissionType;
   disclosureEnabled?: boolean;
   qcEnabled?: boolean;
 };
 
-type SubmissionType = 'DISCLOSURES' | 'QC';
+type SubmissionType = 'PLUS_ONE' | 'DISCLOSURES' | 'QC';
 
 const investorOptions = [
   'UWM',
@@ -59,12 +63,14 @@ export function NewTaskModal({
   onClose,
   isLoanOfficerAssistant = false,
   loanOfficerOptions = [],
+  lenderOptions = [],
   initialType = 'DISCLOSURES',
   disclosureEnabled = true,
   qcEnabled = false,
 }: NewTaskModalProps) {
   const resolveAvailableType = useCallback(
     (requestedType: SubmissionType): SubmissionType => {
+      if (requestedType === 'PLUS_ONE') return 'PLUS_ONE';
       if (requestedType === 'QC') {
         if (qcEnabled) return 'QC';
         return disclosureEnabled ? 'DISCLOSURES' : 'QC';
@@ -142,7 +148,13 @@ export function NewTaskModal({
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-2xl bg-white/90 backdrop-blur-sm">
             {submissionOverlay === 'submitting' ? (
               <>
-                <Loader2 className={`h-12 w-12 animate-spin ${type === 'QC' ? 'text-violet-600' : 'text-blue-600'}`} />
+                <Loader2 className={`h-12 w-12 animate-spin ${
+                  type === 'PLUS_ONE'
+                    ? 'text-emerald-500'
+                    : type === 'QC'
+                    ? 'text-violet-600'
+                    : 'text-blue-600'
+                }`} />
                 <p className="mt-4 text-lg font-semibold text-slate-700">
                   Submitting your request&hellip;
                 </p>
@@ -161,7 +173,13 @@ export function NewTaskModal({
           <div>
             <h2 className="text-xl font-bold text-slate-900">New Task Submission</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Complete each step to submit your {type === 'QC' ? 'Processing' : 'Disclosure'} request.
+              Complete each step to submit your {
+                type === 'PLUS_ONE'
+                  ? '+1'
+                  : type === 'QC'
+                  ? 'Processing'
+                  : 'Disclosure'
+              } request.
             </p>
           </div>
           <button
@@ -189,7 +207,15 @@ export function NewTaskModal({
         </div>
 
         <div className="mt-6 overflow-y-auto pr-1">
-          {type === 'DISCLOSURES' ? (
+          {type === 'PLUS_ONE' ? (
+            <PlusOneForm
+              isLoanOfficerAssistant={isLoanOfficerAssistant}
+              loanOfficerOptions={loanOfficerOptions}
+              lenderOptions={lenderOptions}
+              onStepChange={setCurrentStep}
+              currentStep={currentStep}
+            />
+          ) : type === 'DISCLOSURES' ? (
             <DisclosuresForm
               isLoanOfficerAssistant={isLoanOfficerAssistant}
               loanOfficerOptions={loanOfficerOptions}
@@ -674,27 +700,44 @@ function SubmissionProgress({
   const clampedStep = Math.min(Math.max(currentStep, 1), totalSteps);
   const progressPercent = (clampedStep / totalSteps) * 100;
   const isQcTone = type === 'QC';
+  const isPlusOneTone = type === 'PLUS_ONE';
   const stepLabels =
-    isQcTone ? ['Upload MISMO', 'Processing Details'] : ['Upload MISMO', 'Disclosure Details'];
+    isPlusOneTone
+      ? ['Upload MISMO', '+1 Details']
+      : isQcTone
+      ? ['Upload MISMO', 'Processing Details']
+      : ['Upload MISMO', 'Disclosure Details'];
 
-  const containerClass = isQcTone
+  const containerClass = isPlusOneTone
+    ? 'border-emerald-200 bg-emerald-50/40'
+    : isQcTone
     ? 'border-violet-200 bg-violet-50/40'
     : 'border-blue-200 bg-blue-50/40';
-  const stepMetaClass = isQcTone ? 'text-violet-700' : 'text-blue-700';
-  const trackClass = isQcTone ? 'bg-violet-100' : 'bg-blue-100';
-  const fillClass = isQcTone ? 'bg-violet-500' : 'bg-blue-500';
-  const completedStepClass = isQcTone
+  const stepMetaClass = isPlusOneTone ? 'text-emerald-700' : isQcTone ? 'text-violet-700' : 'text-blue-700';
+  const trackClass = isPlusOneTone ? 'bg-emerald-100' : isQcTone ? 'bg-violet-100' : 'bg-blue-100';
+  const fillClass = isPlusOneTone ? 'bg-emerald-500' : isQcTone ? 'bg-violet-500' : 'bg-blue-500';
+  const completedStepClass = isPlusOneTone
+    ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+    : isQcTone
     ? 'border-violet-300 bg-violet-100 text-violet-800'
     : 'border-blue-300 bg-blue-100 text-blue-800';
-  const activeStepClass = isQcTone
+  const activeStepClass = isPlusOneTone
+    ? 'border-emerald-300 bg-white text-emerald-700'
+    : isQcTone
     ? 'border-violet-300 bg-white text-violet-700'
     : 'border-blue-300 bg-white text-blue-700';
+  const title =
+    type === 'PLUS_ONE'
+      ? 'Submit +1'
+      : type === 'QC'
+      ? 'Submit for Processing'
+      : 'Submit for Disclosures';
 
   return (
     <div className={`rounded-xl border p-4 ${containerClass}`}>
       <div className="mb-2 flex items-center justify-between">
         <p className="text-sm font-semibold text-slate-900">
-          {type === 'QC' ? 'Submit for Processing' : 'Submit for Disclosures'}
+          {title}
         </p>
         <p className={`text-xs font-semibold uppercase tracking-wide ${stepMetaClass}`}>
           Step {clampedStep} of {totalSteps}
@@ -730,6 +773,253 @@ function SubmissionProgress({
         })}
       </div>
     </div>
+  );
+}
+
+function PlusOneForm({
+  isLoanOfficerAssistant,
+  loanOfficerOptions,
+  lenderOptions,
+  onStepChange,
+  currentStep,
+}: {
+  isLoanOfficerAssistant: boolean;
+  loanOfficerOptions: Array<{ id: string; name: string }>;
+  lenderOptions: Array<{ id: string; name: string }>;
+  onStepChange: (step: 1 | 2) => void;
+  currentStep: 1 | 2;
+}) {
+  const [isParsingMismo, setIsParsingMismo] = useState(false);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [submitMessage, setSubmitMessage] = useState('');
+  const [form, setForm] = useState({
+    loanOfficer: '',
+    loanOfficerId: '',
+    secondaryLoanOfficerId: '',
+    borrowerFirstName: '',
+    borrowerLastName: '',
+    borrowerPhone: '',
+    borrowerEmail: '',
+    arriveLoanNumber: '',
+    lender: '',
+    loanType: '',
+    loanProgram: '',
+    loanAmount: '',
+    projectedRevenue: '',
+    nextMilestone: '',
+    notes: '',
+  });
+
+  const update = (key: keyof typeof form, value: string) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
+  const lenderNames = Array.from(
+    new Set([
+      ...lenderOptions.map((lender) => lender.name),
+      ...(form.lender.trim() ? [form.lender.trim()] : []),
+    ])
+  );
+  const requiredFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
+    { key: 'loanOfficerId', label: 'Primary Loan Officer' },
+    { key: 'secondaryLoanOfficerId', label: 'Secondary Loan Officer' },
+    { key: 'borrowerFirstName', label: 'Borrower First Name' },
+    { key: 'borrowerLastName', label: 'Borrower Last Name' },
+    { key: 'arriveLoanNumber', label: 'Arrive Loan Number' },
+    { key: 'lender', label: 'Lender' },
+    { key: 'loanType', label: 'Loan Type' },
+    { key: 'loanAmount', label: 'Loan Amount' },
+    { key: 'projectedRevenue', label: 'Projected Revenue' },
+    { key: 'nextMilestone', label: 'Next Milestone' },
+  ];
+  const missingKeys = new Set<keyof typeof form>(
+    requiredFields
+      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .map(({ key }) => key)
+  );
+  const highlightedMissingFields = showValidationErrors ? missingKeys : new Set<keyof typeof form>();
+
+  const handleFileUpload = async (file: File | null) => {
+    if (!file) return;
+    setIsParsingMismo(true);
+    try {
+      const text = await file.text();
+      const prefill = parseMismoXml(text, file.name);
+      setImportError('');
+      setSubmitMessage('');
+      setForm((prev) => ({
+        ...prev,
+        borrowerFirstName: prefill.borrowerFirstName || prev.borrowerFirstName,
+        borrowerLastName: prefill.borrowerLastName || prev.borrowerLastName,
+        borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
+        borrowerEmail: prefill.borrowerEmail || prev.borrowerEmail,
+        arriveLoanNumber: prefill.arriveLoanNumber || prev.arriveLoanNumber,
+        lender: prefill.investor || prev.lender,
+        loanType: prefill.loanType || prev.loanType,
+        loanProgram: prefill.loanProgram || prev.loanProgram,
+        loanAmount: prefill.loanAmount || prev.loanAmount,
+      }));
+      onStepChange(2);
+    } catch {
+      setImportError('Could not read this MISMO file. Please verify the XML export.');
+      onStepChange(1);
+    } finally {
+      setIsParsingMismo(false);
+    }
+  };
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setShowValidationErrors(true);
+    setSubmitMessage('');
+    const missingLabels = requiredFields
+      .filter(({ key }) => !String(form[key] ?? '').trim())
+      .map(({ label }) => label);
+    if (missingLabels.length > 0) {
+      setSubmitMessage(`Please complete required fields: ${missingLabels.join(', ')}.`);
+      return;
+    }
+    setSubmitMessage(
+      'Submit +1 details are ready. Backend tracking/reporting will be wired in the next implementation step.'
+    );
+  };
+
+  return (
+    <form onSubmit={submit} noValidate className="space-y-4">
+      {currentStep === 1 ? (
+        <DisclosureMismoStep
+          onFileSelected={handleFileUpload}
+          isParsing={isParsingMismo}
+          importError={importError}
+          tone="green"
+        />
+      ) : (
+        <>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <p className="text-sm font-bold text-emerald-900">Submit +1 Details</p>
+            <p className="mt-1 text-xs font-medium text-emerald-800">
+              Use this to capture originated clients and files approaching disclosures or processing for upper-management visibility.
+              {isLoanOfficerAssistant ? ' Choose the loan officer this +1 should count toward.' : ''}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="space-y-1 text-sm">
+              <span
+                className={
+                  highlightedMissingFields.has('loanOfficerId')
+                    ? 'font-medium text-red-700'
+                    : 'text-slate-700 font-medium'
+                }
+              >
+                Primary Loan Officer *
+              </span>
+              <select
+                className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                  highlightedMissingFields.has('loanOfficerId')
+                    ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
+                    : 'border border-slate-200 bg-white focus:border-emerald-500 focus:ring-emerald-500/20'
+                }`}
+                value={form.loanOfficerId}
+                onChange={(event) => {
+                  const selectedId = event.target.value;
+                  const selectedLoanOfficer =
+                    loanOfficerOptions.find((option) => option.id === selectedId) || null;
+                  setForm((prev) => ({
+                    ...prev,
+                    loanOfficerId: selectedId,
+                    loanOfficer: selectedLoanOfficer?.name || '',
+                  }));
+                }}
+                required
+              >
+                <option value="">Select primary loan officer...</option>
+                {loanOfficerOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span
+                className={
+                  highlightedMissingFields.has('secondaryLoanOfficerId')
+                    ? 'font-medium text-red-700'
+                    : 'text-slate-700 font-medium'
+                }
+              >
+                Secondary Loan Officer *
+              </span>
+              <select
+                className={`w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                  highlightedMissingFields.has('secondaryLoanOfficerId')
+                    ? 'border border-red-300 bg-red-50/40 text-red-900 focus:border-red-500 focus:ring-red-500/20'
+                    : 'border border-slate-200 bg-white focus:border-emerald-500 focus:ring-emerald-500/20'
+                }`}
+                value={form.secondaryLoanOfficerId}
+                onChange={(event) => update('secondaryLoanOfficerId', event.target.value)}
+                required
+              >
+                <option value="">Select secondary loan officer...</option>
+                <option value={SECONDARY_LO_NA_VALUE}>N/A</option>
+                {loanOfficerOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required invalid={highlightedMissingFields.has('borrowerFirstName')} />
+            <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required invalid={highlightedMissingFields.has('borrowerLastName')} />
+            <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} />
+            <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} />
+            <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
+            <Select label="Lender" value={form.lender} onChange={(v) => update('lender', v)} options={lenderNames} required invalid={highlightedMissingFields.has('lender')} />
+            <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required invalid={highlightedMissingFields.has('loanType')} />
+            <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} />
+            <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
+            <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} required invalid={highlightedMissingFields.has('projectedRevenue')} />
+            <Select
+              label="Next Milestone"
+              value={form.nextMilestone}
+              onChange={(v) => update('nextMilestone', v)}
+              options={['Getting ready for disclosures', 'Submitting to disclosures', 'Getting ready for processing', 'Submitting to processing']}
+              required
+              invalid={highlightedMissingFields.has('nextMilestone')}
+            />
+          </div>
+
+          <Textarea
+            label="Notes"
+            value={form.notes}
+            onChange={(v) => update('notes', v)}
+          />
+
+          {submitMessage && (
+            <p
+              className={`text-sm rounded-lg border px-3 py-2 ${
+                missingKeys.size > 0
+                  ? 'border-red-200 bg-red-50 text-red-700'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              }`}
+            >
+              {submitMessage}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-600"
+            >
+              Prepare Submit +1
+            </button>
+          </div>
+        </>
+      )}
+    </form>
   );
 }
 
@@ -1846,7 +2136,7 @@ function DisclosureMismoStep({
   onFileSelected: (file: File | null) => void | Promise<void>;
   isParsing: boolean;
   importError: string;
-  tone?: 'blue' | 'violet';
+  tone?: 'blue' | 'violet' | 'green';
 }) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedName, setSelectedName] = useState('');
@@ -1857,8 +2147,18 @@ function DisclosureMismoStep({
     await onFileSelected(file);
   };
 
-  const accentBorderClass = tone === 'violet' ? 'border-violet-400 bg-violet-50' : 'border-blue-400 bg-blue-50';
-  const accentIconClass = tone === 'violet' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700';
+  const accentBorderClass =
+    tone === 'green'
+      ? 'border-emerald-400 bg-emerald-50'
+      : tone === 'violet'
+      ? 'border-violet-400 bg-violet-50'
+      : 'border-blue-400 bg-blue-50';
+  const accentIconClass =
+    tone === 'green'
+      ? 'bg-emerald-100 text-emerald-700'
+      : tone === 'violet'
+      ? 'bg-violet-100 text-violet-700'
+      : 'bg-blue-100 text-blue-700';
 
   return (
     <div className="space-y-4">

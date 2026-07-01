@@ -159,9 +159,19 @@ export default async function Home() {
       userFlags?.loDisclosureSubmissionEnabled ?? true,
     loQcSubmissionEnabled: userFlags?.loQcSubmissionEnabled ?? true,
   };
-  const [loans, adminTasks] = await Promise.all([
+  const [loans, adminTasks, lenderOptions] = await Promise.all([
     getLoans(user.role, user.id),
     getDashboardTasks(user.role as UserRole, user.id),
+    user.role === UserRole.LOA || user.role === UserRole.LOAN_OFFICER
+      ? prisma.lender.findMany({
+          where: { active: true },
+          select: {
+            id: true,
+            name: true,
+          },
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        })
+      : Promise.resolve([]),
   ]);
   const loanOfficerOptions =
     user.role === UserRole.LOA || user.role === UserRole.LOAN_OFFICER
@@ -187,6 +197,7 @@ export default async function Home() {
       adminTasks={adminTasks}
       user={user}
       loanOfficerOptions={loanOfficerOptions}
+      lenderOptions={lenderOptions}
     />
   );
   endPerf({

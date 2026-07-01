@@ -71,6 +71,10 @@ type DashboardWrapperProps = {
     id: string;
     name: string;
   }>;
+  lenderOptions?: Array<{
+    id: string;
+    name: string;
+  }>;
   user: {
     name: string;
     role: string;
@@ -81,7 +85,13 @@ type DashboardWrapperProps = {
   };
 };
 
-function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: DashboardWrapperProps) {
+function DashboardContent({
+  loans,
+  adminTasks,
+  user,
+  loanOfficerOptions = [],
+  lenderOptions = [],
+}: DashboardWrapperProps) {
   const { activeRole } = useImpersonation();
   const roleTasks = adminTasks.filter((t) => {
     if (activeRole === UserRole.PROCESSOR_JR) {
@@ -182,6 +192,7 @@ function DashboardContent({ loans, adminTasks, user, loanOfficerOptions = [] }: 
           loanOfficerName={user.name}
           isLoanOfficerAssistant={activeRole === UserRole.LOA}
           loanOfficerOptions={loanOfficerOptions}
+          lenderOptions={lenderOptions}
           disclosureEnabled={user.loDisclosureSubmissionEnabled ?? true}
           qcEnabled={user.loQcSubmissionEnabled ?? true}
         />
