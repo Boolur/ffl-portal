@@ -807,6 +807,8 @@ function PlusOneForm({
     loanProgram: '',
     loanAmount: '',
     projectedRevenue: '',
+    leadSource: '',
+    leadVendor: '',
     nextMilestone: '',
     notes: '',
   });
@@ -829,6 +831,10 @@ function PlusOneForm({
     { key: 'loanType', label: 'Loan Type' },
     { key: 'loanAmount', label: 'Loan Amount' },
     { key: 'projectedRevenue', label: 'Projected Revenue' },
+    { key: 'leadSource', label: 'Lead Source' },
+    ...(form.leadSource === 'Lead Buy'
+      ? ([{ key: 'leadVendor', label: 'Lead Vendor' }] as const)
+      : []),
     { key: 'nextMilestone', label: 'Next Milestone' },
   ];
   const missingKeys = new Set<keyof typeof form>(
@@ -981,6 +987,30 @@ function PlusOneForm({
             <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} />
             <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
             <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} required invalid={highlightedMissingFields.has('projectedRevenue')} />
+            <Select
+              label="Lead Source"
+              value={form.leadSource}
+              onChange={(value) =>
+                setForm((prev) => ({
+                  ...prev,
+                  leadSource: value,
+                  leadVendor: value === 'Lead Buy' ? prev.leadVendor : '',
+                }))
+              }
+              options={['Lead Buy', 'Mailer', 'Warm Transfer', 'Self Generated']}
+              required
+              invalid={highlightedMissingFields.has('leadSource')}
+            />
+            {form.leadSource === 'Lead Buy' && (
+              <Select
+                label="Lead Vendor"
+                value={form.leadVendor}
+                onChange={(value) => update('leadVendor', value)}
+                options={['Lending Tree', 'Freerate Update', 'Lead Point']}
+                required
+                invalid={highlightedMissingFields.has('leadVendor')}
+              />
+            )}
             <Select
               label="Next Milestone"
               value={form.nextMilestone}
