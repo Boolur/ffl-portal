@@ -151,7 +151,7 @@ function endOfDay(date: Date) {
 }
 
 function resolveDateRange(filters: PipelineReportFilters = {}) {
-  const preset = filters.preset || 'ytd';
+  const preset = filters.preset || 'monthly';
   const now = new Date();
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
