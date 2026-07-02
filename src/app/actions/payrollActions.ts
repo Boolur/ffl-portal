@@ -1436,35 +1436,45 @@ export async function savePayrollTeamCompPlanSettings(input: PayrollTeamCompPlan
 }
 
 export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
-  const actor = await assertPayrollPortalUser();
-  const [rules, brokerRetailRouting] = await Promise.all([
-    getPayrollRulesForRequest(input),
-    getBrokerRetailRoutingSettings(),
-  ]);
-  const calculation = calculatePayrollCompensation(input, rules);
-  const splitSnapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
-    leadSource: input.leadSource,
-    leadProvidedBy: input.leadProvidedBy,
-    brokerRetailRouting,
-  });
-  const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, input.reimbursementTarget);
-  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
-  return {
-    calculation,
-    splits: snapshots.map((split) => ({
-      recipientName: split.recipientName,
-      recipientEmail: split.recipientEmail,
-      roleLabel: split.roleLabel,
-      payType: split.payType,
-      splitPercent: split.splitPercent,
-      flatAmount: split.flatAmount,
-      amount: split.amount,
-      sortOrder: split.sortOrder,
-    })),
-    hasManagerReimbursementRecipients: splitSnapshots.some((split) => split.roleLabel.trim().toLowerCase() === 'manager'),
-    appliedPlanType: splitSnapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER,
-    reimbursementTarget,
-  };
+  try {
+    const actor = await assertPayrollPortalUser();
+    const [rules, brokerRetailRouting] = await Promise.all([
+      getPayrollRulesForRequest(input),
+      getBrokerRetailRoutingSettings(),
+    ]);
+    const calculation = calculatePayrollCompensation(input, rules);
+    const splitSnapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
+      leadSource: input.leadSource,
+      leadProvidedBy: input.leadProvidedBy,
+      brokerRetailRouting,
+    });
+    const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, input.reimbursementTarget);
+    const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
+    return {
+      ok: true as const,
+      preview: {
+        calculation,
+        splits: snapshots.map((split) => ({
+          recipientName: split.recipientName,
+          recipientEmail: split.recipientEmail,
+          roleLabel: split.roleLabel,
+          payType: split.payType,
+          splitPercent: split.splitPercent,
+          flatAmount: split.flatAmount,
+          amount: split.amount,
+          sortOrder: split.sortOrder,
+        })),
+        hasManagerReimbursementRecipients: splitSnapshots.some((split) => split.roleLabel.trim().toLowerCase() === 'manager'),
+        appliedPlanType: splitSnapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER,
+        reimbursementTarget,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error && err.message
+      ? err.message
+      : 'Unable to calculate the preview. Please review the compensation details and try again.';
+    return { ok: false as const, error: message };
+  }
 }
 
 export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {

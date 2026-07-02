@@ -659,14 +659,19 @@ export function PayrollPortal({
           form,
           reimbursementTargetTouched ? form.reimbursementTarget : undefined
         ));
-        setPreview(result);
-        if (!reimbursementTargetTouched && form.reimbursementTarget !== result.reimbursementTarget) {
-          setForm((current) => ({ ...current, reimbursementTarget: result.reimbursementTarget }));
+        if (!result.ok) {
+          setPreview(null);
+          setError(result.error);
+          return;
+        }
+        setPreview(result.preview);
+        if (!reimbursementTargetTouched && form.reimbursementTarget !== result.preview.reimbursementTarget) {
+          setForm((current) => ({ ...current, reimbursementTarget: result.preview.reimbursementTarget }));
         }
       } catch (err) {
         const message = err instanceof Error && err.message && !err.message.includes('digest')
           ? err.message
-          : 'Unable to calculate the preview. Please fix the missing fields and enter 0 for any amount that does not apply.';
+          : 'Unable to calculate the preview. Please review the compensation details and try again.';
         setError(message);
       }
     });
