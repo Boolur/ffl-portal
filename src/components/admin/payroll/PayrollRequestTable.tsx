@@ -384,7 +384,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                       ) : (
                         <AdminInput label="Section A" value={editForm.sectionAComp} onChange={(value) => setEditForm((current) => ({ ...current, sectionAComp: value }))} inputMode="decimal" />
                       )}
-                      <AdminInput label="YSP (negative display)" value={editForm.yspAmount} onChange={(value) => setEditForm((current) => ({ ...current, yspAmount: value }))} inputMode="decimal" />
+                      <AdminInput label="YSP (+ deducts / - adds)" value={editForm.yspAmount} onChange={(value) => setEditForm((current) => ({ ...current, yspAmount: value }))} inputMode="decimal" />
                       <AdminInput label="Tolerance Cure" value={editForm.toleranceCure} onChange={(value) => setEditForm((current) => ({ ...current, toleranceCure: value }))} inputMode="decimal" />
                       <AdminInput label="1 Day Interest" value={editForm.oneDayInterest} onChange={(value) => setEditForm((current) => ({ ...current, oneDayInterest: value }))} inputMode="decimal" />
                       <AdminInput label="Wire Fee" value={editForm.wireFee} onChange={(value) => setEditForm((current) => ({ ...current, wireFee: value }))} inputMode="decimal" />

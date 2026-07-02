@@ -715,9 +715,6 @@ function calculatePayrollCompensation(
   const yspAmount = input.loanChannel === PayrollLoanChannel.NON_DELEGATED
     ? ensureSignedMoney(input.yspAmount, 'YSP')
     : null;
-  if (yspAmount !== null && yspAmount > 0) {
-    throw new Error('YSP should be entered as a negative amount because that is how it appears in the loan file.');
-  }
   const toleranceCure = ensureOptionalMoney(input.toleranceCure, 'Tolerance cure');
   const oneDayInterest = ensureOptionalMoney(input.oneDayInterest, '1 day of interest');
   const wireFee = ensureOptionalMoney(input.wireFee, 'Wire fee');
@@ -754,6 +751,16 @@ function calculatePayrollCompensation(
       stage: 'PRE_SPLIT',
       treatment: 'ADD_BACK',
       note: 'Displayed as negative from the loan file, treated as positive compensation.',
+    });
+  } else if (yspAmount !== null && yspAmount > 0) {
+    lines.push({
+      key: 'yspAmount',
+      label: 'YSP Rate Cost / Deduction',
+      enteredAmount: yspAmount,
+      calculatedAmount: -yspAmount,
+      stage: 'PRE_SPLIT',
+      treatment: 'DEDUCTION',
+      note: 'Entered as a positive rate cost, treated as a pre-split deduction.',
     });
   }
   if (toleranceCure) {

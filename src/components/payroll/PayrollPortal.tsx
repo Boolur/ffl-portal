@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useMemo, useState, useTransition } from 'react';
+import React, { useEffect, useMemo, useState, useTransition } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Banknote, Building2, Bug, Calculator, CheckCircle2, Clock, Droplets, DollarSign, Edit3, FileCheck2, FilePlus2, Landmark, Loader2, Megaphone, Percent, Plus, ReceiptText, RefreshCw, Send, ShieldCheck, Upload, WalletCards, Waves, X } from 'lucide-react';
 import { PayrollCompPlanType, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
 import {
@@ -217,18 +218,32 @@ function toDeductionNumber(value: string) {
   return Math.abs(numeric);
 }
 
-function toNegativeNumber(value: string) {
+function hasExplicitPositiveSign(value: string) {
+  return value.trimStart().startsWith('+');
+}
+
+function toYspNumber(value: string) {
   const numeric = toOptionalNumber(value);
   if (numeric === null) return null;
+  if (hasExplicitPositiveSign(value)) return Math.abs(numeric);
   return -Math.abs(numeric);
 }
 
-function formatNegativeInputValue(value: string) {
+function formatYspInputValue(value: string) {
+  const trimmed = value.trim();
+  if (trimmed === '+') return '+';
+  if (trimmed === '-') return '-';
   const numeric = toOptionalNumber(value);
   if (!value.trim()) return '';
   if (numeric === null) return '';
+  if (hasExplicitPositiveSign(value)) return numeric === 0 ? '+0' : `+${Math.abs(numeric)}`;
   if (numeric === 0) return '-0';
   return `-${Math.abs(numeric)}`;
+}
+
+function isPositiveYspInput(value: string) {
+  const numeric = toYspNumber(value);
+  return numeric !== null && numeric > 0;
 }
 
 function missingFieldMessage(fields: Array<{ label: string }>) {
@@ -241,7 +256,7 @@ function buildCompInput(form: FormState, reimbursementTarget?: PayrollReimbursem
     MONEY_FIELDS.map((field) => [field, toOptionalNumber(form[field])])
   ) as Record<MoneyField, number | null>;
   const deductionAmounts = {
-    yspAmount: toNegativeNumber(form.yspAmount),
+    yspAmount: toYspNumber(form.yspAmount),
     toleranceCure: toDeductionNumber(form.toleranceCure),
     oneDayInterest: toDeductionNumber(form.oneDayInterest),
     wireFee: toDeductionNumber(form.wireFee),
@@ -499,6 +514,8 @@ export function PayrollPortal({
   userClassification = PayrollUserClassification.BROKER,
   brokerRetailRouting = { leadSources: [], leadProvidedBy: [] },
 }: Props) {
+  const searchParams = useSearchParams();
+  const focusedRequestId = searchParams.get('requestId');
   const defaultReimbursementTarget = userClassification === PayrollUserClassification.RETAIL
     ? PayrollReimbursementTarget.MANAGER
     : PayrollReimbursementTarget.SELF;
@@ -537,6 +554,7 @@ export function PayrollPortal({
   );
   const isRetailReimbursementContext = preview?.appliedPlanType === PayrollCompPlanType.RETAIL ||
     (!preview && (userClassification === PayrollUserClassification.RETAIL || selectedLeadRoutesRetail));
+  const positiveYspInput = isPositiveYspInput(form.yspAmount);
 
   const canPreview = useMemo(() => {
     const base = form.loanChannel === PayrollLoanChannel.BROKER ? form.brokerComp : form.sectionAComp;
@@ -568,6 +586,13 @@ export function PayrollPortal({
     if (!term) return PAYROLL_LENDER_OPTIONS;
     return PAYROLL_LENDER_OPTIONS.filter((lender) => lender.toLowerCase().includes(term));
   }, [lenderSearch]);
+  useEffect(() => {
+    if (!focusedRequestId) return;
+    document.getElementById(`payroll-request-${focusedRequestId}`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    });
+  }, [focusedRequestId]);
   const missingFields = useMemo(() => {
     return REQUIRED_FIELDS.filter(({ key }) => {
       const value = form[key];
@@ -766,7 +791,15 @@ export function PayrollPortal({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {rows.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50/70">
+                    <tr
+                      key={row.id}
+                      id={`payroll-request-${row.id}`}
+                      className={`transition ${
+                        focusedRequestId === row.id
+                          ? 'bg-amber-50 ring-2 ring-inset ring-amber-300'
+                          : 'hover:bg-slate-50/70'
+                      }`}
+                    >
                       <td className="px-5 py-4">
                         <p className="flex items-center gap-2 font-semibold text-slate-900">
                           {row.loanNumber}
@@ -1025,7 +1058,19 @@ export function PayrollPortal({
                   ) : (
                     <>
                       <Input label="Section A" Icon={Landmark} value={form.sectionAComp} onChange={(value) => update('sectionAComp', value)} onBlur={() => markTouched('sectionAComp')} error={shouldHighlight('sectionAComp')} placeholder="0" inputMode="decimal" currencyPrefix="+$" green />
-                      <Input label="YSP" Icon={DollarSign} value={formatNegativeInputValue(form.yspAmount)} onChange={(value) => update('yspAmount', value.replace(/-/g, ''))} error={shouldHighlight('yspAmount')} onBlur={() => markTouched('yspAmount')} placeholder="-0" inputMode="decimal" green />
+                      <Input
+                        label="YSP"
+                        Icon={DollarSign}
+                        value={formatYspInputValue(form.yspAmount)}
+                        onChange={(value) => update('yspAmount', value)}
+                        error={shouldHighlight('yspAmount')}
+                        warning={positiveYspInput}
+                        onBlur={() => markTouched('yspAmount')}
+                        placeholder="-0"
+                        inputMode="decimal"
+                        helper={positiveYspInput ? 'Positive YSP is treated as a pre-split deduction.' : undefined}
+                        green
+                      />
                     </>
                   )}
                   <Input label="Tolerance Cure" Icon={ShieldCheck} value={form.toleranceCure} onChange={(value) => update('toleranceCure', value)} error={shouldHighlight('toleranceCure')} onBlur={() => markTouched('toleranceCure')} placeholder="0" inputMode="decimal" currencyPrefix="-$" green />
@@ -1323,6 +1368,7 @@ function Input({
   currencyPrefix,
   green = false,
   error = false,
+  warning = false,
 }: {
   label: string;
   Icon?: React.ComponentType<{ className?: string }>;
@@ -1336,11 +1382,12 @@ function Input({
   currencyPrefix?: '$' | '+$' | '-$';
   green?: boolean;
   error?: boolean;
+  warning?: boolean;
 }) {
   return (
     <label className="block">
-      <span className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider ${error ? 'text-rose-600' : green ? 'text-slate-950' : 'text-slate-500'}`}>
-        {Icon && <Icon className={`h-4 w-4 ${error ? 'text-rose-600' : green ? 'text-emerald-700' : 'text-slate-400'}`} />}
+      <span className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider ${error ? 'text-rose-600' : warning ? 'text-amber-700' : green ? 'text-slate-950' : 'text-slate-500'}`}>
+        {Icon && <Icon className={`h-4 w-4 ${error ? 'text-rose-600' : warning ? 'text-amber-600' : green ? 'text-emerald-700' : 'text-slate-400'}`} />}
         {label}
       </span>
       <div className="relative mt-1">
@@ -1364,13 +1411,15 @@ function Input({
           } ${
             error
               ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
+              : warning
+                ? 'border-amber-300 bg-amber-50 focus:border-amber-500 focus:ring-amber-500/20'
               : green
                 ? 'border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/20'
                 : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
           }`}
         />
       </div>
-      {helper && <span className={`mt-1 block text-xs ${error ? 'text-rose-600' : 'text-slate-500'}`}>{helper}</span>}
+      {helper && <span className={`mt-1 block text-xs ${error ? 'text-rose-600' : warning ? 'text-amber-700' : 'text-slate-500'}`}>{helper}</span>}
     </label>
   );
 }
