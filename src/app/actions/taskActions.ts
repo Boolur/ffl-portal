@@ -835,6 +835,11 @@ function buildPlusOneShowcaseEmailHtml(input: {
       `
     )
     .join('');
+  const secondaryName = input.secondaryLoanOfficerName.trim();
+  const headlineLoanOfficerNames =
+    secondaryName && secondaryName.toUpperCase() !== 'N/A'
+      ? `${input.primaryLoanOfficerName} & ${secondaryName}`
+      : input.primaryLoanOfficerName;
 
   return `
   <div style="margin:0;padding:28px;background:#eef7fd;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;">
@@ -856,7 +861,7 @@ function buildPlusOneShowcaseEmailHtml(input: {
       <tr>
         <td style="padding:34px 28px 12px;text-align:center;">
           <p style="margin:0 0 10px;color:#2f88c7;font-size:13px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;">Production Spotlight</p>
-          <h1 style="margin:0 auto 10px;max-width:620px;color:#1e5f97;font-size:32px;line-height:1.15;font-weight:950;">${escapeHtml(input.primaryLoanOfficerName)} just submitted a new +1</h1>
+          <h1 style="margin:0 auto 10px;max-width:620px;color:#1e5f97;font-size:32px;line-height:1.15;font-weight:950;">${escapeHtml(headlineLoanOfficerNames)} just submitted a new +1</h1>
           <p style="margin:0 auto;max-width:560px;color:#475569;font-size:15px;line-height:1.7;">
             The sales floor has a new file to celebrate. Here are the key details for ${escapeHtml(input.borrowerName)}.
           </p>
@@ -951,10 +956,7 @@ async function sendPlusOneSubmittedNotifications(input: PlusOneSubmittedNotifica
   const recipients = await prisma.user.findMany({
     where: {
       active: true,
-      OR: [
-        { role: { in: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
-        { roles: { hasSome: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
-      ],
+      role: { in: [UserRole.LOAN_OFFICER, UserRole.MANAGER] },
     },
     select: { id: true, email: true },
   });
