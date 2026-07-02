@@ -873,6 +873,13 @@ function PlusOneForm({
     }
   };
 
+  const handleSkipMismo = () => {
+    setImportError('');
+    setSubmitMessage('');
+    setShowValidationErrors(false);
+    onStepChange(2);
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (isSubmitting) return;
@@ -920,6 +927,7 @@ function PlusOneForm({
           isParsing={isParsingMismo}
           importError={importError}
           tone="green"
+          onSkipMismo={handleSkipMismo}
         />
       ) : (
         <>
@@ -2187,11 +2195,13 @@ function DisclosureMismoStep({
   isParsing,
   importError,
   tone = 'blue',
+  onSkipMismo,
 }: {
   onFileSelected: (file: File | null) => void | Promise<void>;
   isParsing: boolean;
   importError: string;
   tone?: 'blue' | 'violet' | 'green';
+  onSkipMismo?: () => void;
 }) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedName, setSelectedName] = useState('');
@@ -2217,7 +2227,18 @@ function DisclosureMismoStep({
 
   return (
     <div className="space-y-4">
-      <SectionTitle title="Step 1) Upload MISMO 3.4 File" />
+      <div className="flex flex-wrap items-center gap-3">
+        <SectionTitle title="Step 1) Upload MISMO 3.4 File" />
+        {onSkipMismo && (
+          <button
+            type="button"
+            className="app-btn-secondary h-8 px-3 text-xs"
+            onClick={onSkipMismo}
+          >
+            Skip MISMO
+          </button>
+        )}
+      </div>
       <div
         onDragOver={(e) => {
           e.preventDefault();
