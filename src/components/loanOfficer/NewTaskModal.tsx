@@ -824,12 +824,7 @@ function PlusOneForm({
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
-  const lenderNames = Array.from(
-    new Set([
-      ...lenderOptions.map((lender) => lender.name),
-      ...(form.lender.trim() ? [form.lender.trim()] : []),
-    ])
-  );
+  const lenderNames = lenderOptions.map((lender) => lender.name);
   const requiredFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     { key: 'loanOfficerId', label: 'Primary Loan Officer' },
     { key: 'secondaryLoanOfficerId', label: 'Secondary Loan Officer' },
@@ -868,7 +863,6 @@ function PlusOneForm({
         borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
         borrowerEmail: prefill.borrowerEmail || prev.borrowerEmail,
         arriveLoanNumber: prefill.arriveLoanNumber || prev.arriveLoanNumber,
-        lender: prefill.investor || prev.lender,
         loanType: prefill.loanType || prev.loanType,
         loanProgram: prefill.loanProgram || prev.loanProgram,
         loanAmount: prefill.loanAmount || prev.loanAmount,
