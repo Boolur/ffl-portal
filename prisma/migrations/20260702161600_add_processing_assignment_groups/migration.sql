@@ -1,0 +1,2 @@
+ALTER TABLE "User"
+ADD COLUMN IF NOT EXISTS "processingAssignmentGroups" TEXT[] DEFAULT ARRAY[]::TEXT[];

@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminTiers';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
+import { normalizeProcessingAssignmentGroups } from '@/lib/processingRouting';
 import {
   DisclosureDecisionReason,
   Prisma,
@@ -184,6 +185,32 @@ function andWhere(...clauses: Prisma.TaskWhereInput[]): Prisma.TaskWhereInput {
 }
 
 const notCompleted = { status: { not: TaskStatus.COMPLETED } } satisfies Prisma.TaskWhereInput;
+
+function buildProcessingRoutingWhere(
+  processingAssignmentGroups: string[]
+): Prisma.TaskWhereInput {
+  const groups = normalizeProcessingAssignmentGroups(processingAssignmentGroups);
+  if (groups.length === 0) {
+    return { id: { equals: '__no_processing_routes_enabled__' } };
+  }
+
+  return {
+    OR: [
+      ...groups.map((group) => ({
+        submissionData: {
+          path: ['processingAssignmentGroup'],
+          equals: group,
+        },
+      })),
+      {
+        submissionData: {
+          path: ['processingAssignmentGroup'],
+          equals: Prisma.JsonNull,
+        },
+      },
+    ],
+  };
+}
 
 export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
   {
@@ -690,7 +717,11 @@ function buildVaSpecialistBaseWhere(role: UserRole, userId?: string): Prisma.Tas
   };
 }
 
-function getRoleBaseWhere(role: UserRole, userId?: string): Prisma.TaskWhereInput {
+function getRoleBaseWhere(
+  role: UserRole,
+  userId?: string,
+  processingAssignmentGroups: string[] = []
+): Prisma.TaskWhereInput {
   if (role === UserRole.LOAN_OFFICER && userId) return buildLoanOfficerTaskWhere(userId);
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
     return {
@@ -716,10 +747,15 @@ function getRoleBaseWhere(role: UserRole, userId?: string): Prisma.TaskWhereInpu
     return {
       OR: [
         {
-          kind: TaskKind.SUBMIT_PROCESSING,
-          status: TaskStatus.PENDING,
-          workflowState: TaskWorkflowState.NONE,
-          assignedUserId: null,
+          AND: [
+            {
+              kind: TaskKind.SUBMIT_PROCESSING,
+              status: TaskStatus.PENDING,
+              workflowState: TaskWorkflowState.NONE,
+              assignedUserId: null,
+            },
+            buildProcessingRoutingWhere(processingAssignmentGroups),
+          ],
         },
         {
           kind: TaskKind.SUBMIT_PROCESSING,
@@ -743,7 +779,11 @@ function getRoleBaseWhere(role: UserRole, userId?: string): Prisma.TaskWhereInpu
   return {};
 }
 
-export function getTaskBucketSpecsForRole(role: UserRole, userId?: string): TaskBucketSpec[] {
+export function getTaskBucketSpecsForRole(
+  role: UserRole,
+  userId?: string,
+  processingAssignmentGroups: string[] = []
+): TaskBucketSpec[] {
   if (isAdmin(role) || role === UserRole.MANAGER) {
     return bySections('disclosure', 'qc');
   }
@@ -760,7 +800,10 @@ export function getTaskBucketSpecsForRole(role: UserRole, userId?: string): Task
     return [];
   }
   if (role === UserRole.PROCESSOR_JR) {
-    return withBaseWhere(bySections('qc'), getRoleBaseWhere(role, userId));
+    return withBaseWhere(
+      bySections('qc'),
+      getRoleBaseWhere(role, userId, processingAssignmentGroups)
+    );
   }
   if (role === UserRole.VA_TITLE) {
     return [];
@@ -778,13 +821,23 @@ export function getTaskBucketSpec(
   role: UserRole,
   bucketId: string,
   sectionId?: string,
-  userId?: string
+  userId?: string,
+  processingAssignmentGroups: string[] = []
 ): TaskBucketSpec | null {
   return (
-    getTaskBucketSpecsForRole(role, userId).find(
+    getTaskBucketSpecsForRole(role, userId, processingAssignmentGroups).find(
       (spec) => spec.id === bucketId && (!sectionId || spec.sectionId === sectionId)
     ) || null
   );
+}
+
+async function getProcessingAssignmentGroupsForUser(role: UserRole, userId?: string) {
+  if (role !== UserRole.PROCESSOR_JR || !userId) return [];
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { processingAssignmentGroups: true },
+  });
+  return normalizeProcessingAssignmentGroups(user?.processingAssignmentGroups ?? []);
 }
 
 function applySearch(where: Prisma.TaskWhereInput, search?: string): Prisma.TaskWhereInput {
@@ -1076,7 +1129,14 @@ export async function queryTaskBucketPage({
   if (!canUsePagedTaskBuckets(role)) {
     throw new Error('Role cannot use paged task buckets.');
   }
-  const spec = getTaskBucketSpec(role, bucketId, sectionId, userId);
+  const processingAssignmentGroups = await getProcessingAssignmentGroupsForUser(role, userId);
+  const spec = getTaskBucketSpec(
+    role,
+    bucketId,
+    sectionId,
+    userId,
+    processingAssignmentGroups
+  );
   if (!spec) {
     throw new Error('Unknown task bucket.');
   }
@@ -1135,7 +1195,14 @@ export async function queryTaskBucketCount({
   if (!canUsePagedTaskBuckets(role)) {
     throw new Error('Role cannot use paged task buckets.');
   }
-  const spec = getTaskBucketSpec(role, bucketId, sectionId, userId);
+  const processingAssignmentGroups = await getProcessingAssignmentGroupsForUser(role, userId);
+  const spec = getTaskBucketSpec(
+    role,
+    bucketId,
+    sectionId,
+    userId,
+    processingAssignmentGroups
+  );
   if (!spec) {
     throw new Error('Unknown task bucket.');
   }
@@ -1209,7 +1276,8 @@ function toPagedBucketsBySection(
 }
 
 export async function queryInitialTaskBucketsForRole(role: UserRole, userId?: string) {
-  const specs = getTaskBucketSpecsForRole(role, userId);
+  const processingAssignmentGroups = await getProcessingAssignmentGroupsForUser(role, userId);
+  const specs = getTaskBucketSpecsForRole(role, userId, processingAssignmentGroups);
   const buckets = await Promise.all(
     specs.map((spec) =>
       queryTaskBucketPage({

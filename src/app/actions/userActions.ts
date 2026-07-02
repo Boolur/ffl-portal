@@ -9,6 +9,7 @@ import { sendEmail } from '@/lib/email';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
+import { normalizeProcessingAssignmentGroups } from '@/lib/processingRouting';
 import {
   assignableRolesFor,
   canAccessUserManagement,
@@ -295,6 +296,7 @@ export async function getAllUsers() {
       roles: true,
       loDisclosureSubmissionEnabled: true,
       loQcSubmissionEnabled: true,
+      processingAssignmentGroups: true,
       active: true,
       createdAt: true,
     },
@@ -855,6 +857,46 @@ export async function updateUserDeskPermissions(input: {
   });
 
   revalidatePath('/admin/users');
+  return { success: true };
+}
+
+export async function updateUserProcessingAssignments(input: {
+  userId: string;
+  processingAssignmentGroups: string[];
+}) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
+  if (!input.userId) {
+    return { success: false, error: 'Missing user ID.' };
+  }
+
+  const targetRoles = await loadTargetUserRoles(input.userId);
+  if (!targetRoles) return { success: false, error: 'User not found.' };
+  if (!canManageUser(actor.roles, targetRoles)) {
+    return {
+      success: false,
+      error: 'You cannot manage users at or above your own admin tier.',
+    };
+  }
+  if (!targetRoles.includes(UserRole.PROCESSOR_JR)) {
+    return {
+      success: false,
+      error: 'Processing routing groups can only be assigned to JR Processors.',
+    };
+  }
+
+  await prisma.user.update({
+    where: { id: input.userId },
+    data: {
+      processingAssignmentGroups: normalizeProcessingAssignmentGroups(
+        input.processingAssignmentGroups
+      ),
+    },
+  });
+
+  revalidatePath('/admin/users');
+  revalidatePath('/tasks');
   return { success: true };
 }
 

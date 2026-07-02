@@ -1,11 +1,23 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Loader2, FileText, Upload, CheckCircle } from 'lucide-react';
+import { X, Loader2, FileText, Upload, CheckCircle, Building2, Handshake, UserCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createPlusOneSubmission, createSubmissionTask } from '@/app/actions/taskActions';
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
 import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
+import {
+  PROCESSING_ASSIGNMENT_JACK_NGO,
+  PROCESSING_ASSIGNMENT_KATHY_BUI,
+  PROCESSING_ASSIGNMENT_THIRD_PARTY,
+  PROCESSING_METHOD_IN_HOUSE,
+  PROCESSING_METHOD_OPTIONS,
+  PROCESSING_METHOD_SELF_PROCESSED,
+  PROCESSING_METHOD_THIRD_PARTY,
+  getProcessingAssignmentLabel,
+  getProcessingMethodLabel,
+  type ProcessingMethod,
+} from '@/lib/processingRouting';
 import { TaskAttachmentPurpose } from '@prisma/client';
 
 type NewTaskModalProps = {
@@ -26,6 +38,7 @@ type NewTaskModalProps = {
 };
 
 type SubmissionType = 'PLUS_ONE' | 'DISCLOSURES' | 'QC';
+type SubmissionStep = 1 | 2 | 3;
 
 const investorOptions = [
   'UWM',
@@ -84,7 +97,7 @@ export function NewTaskModal({
   const [type, setType] = useState<SubmissionType>(
     resolveAvailableType(initialType)
   );
-  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [currentStep, setCurrentStep] = useState<SubmissionStep>(1);
   const [submissionOverlay, setSubmissionOverlay] = useState<
     null | 'submitting' | 'success'
   >(null);
@@ -100,11 +113,15 @@ export function NewTaskModal({
   useEffect(() => {
     if (!open) return;
 
-    setType(resolveAvailableType(initialType));
-    setCurrentStep(1);
-    setSubmissionOverlay(null);
+    const timeout = window.setTimeout(() => {
+      setType(resolveAvailableType(initialType));
+      setCurrentStep(1);
+      setSubmissionOverlay(null);
 
-    closeButtonRef.current?.focus();
+      closeButtonRef.current?.focus();
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
   }, [open, initialType, resolveAvailableType]);
 
   useEffect(() => {
@@ -198,10 +215,10 @@ export function NewTaskModal({
           <SubmissionProgress
             type={type}
             currentStep={currentStep}
-            totalSteps={2}
+            totalSteps={type === 'QC' ? 3 : 2}
             onStepRequest={(step) => {
               if (step <= currentStep) {
-                setCurrentStep(step);
+                setCurrentStep(step as SubmissionStep);
               }
             }}
           />
@@ -699,7 +716,7 @@ function SubmissionProgress({
   type: SubmissionType;
   currentStep: number;
   totalSteps: number;
-  onStepRequest: (step: 1 | 2) => void;
+  onStepRequest: (step: SubmissionStep) => void;
 }) {
   const clampedStep = Math.min(Math.max(currentStep, 1), totalSteps);
   const progressPercent = (clampedStep / totalSteps) * 100;
@@ -709,7 +726,7 @@ function SubmissionProgress({
     isPlusOneTone
       ? ['Upload MISMO', '+1 Details']
       : isQcTone
-      ? ['Upload MISMO', 'Processing Details']
+      ? ['Upload MISMO', 'Processing Method', 'Processing Details']
       : ['Upload MISMO', 'Disclosure Details'];
 
   const containerClass = isPlusOneTone
@@ -753,7 +770,7 @@ function SubmissionProgress({
           style={{ width: `${progressPercent}%` }}
         />
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className={`mt-3 grid gap-2 ${totalSteps === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {stepLabels.map((label, idx) => {
           const stepNumber = idx + 1;
           const isComplete = stepNumber < clampedStep;
@@ -762,7 +779,7 @@ function SubmissionProgress({
             <button
               key={label}
               type="button"
-              onClick={() => onStepRequest(stepNumber as 1 | 2)}
+              onClick={() => onStepRequest(stepNumber as SubmissionStep)}
               className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
                 isComplete
                   ? completedStepClass
@@ -791,8 +808,8 @@ function PlusOneForm({
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
   onSubmitted: () => void;
-  onStepChange: (step: 1 | 2) => void;
-  currentStep: 1 | 2;
+  onStepChange: (step: SubmissionStep) => void;
+  currentStep: SubmissionStep;
   onSubmissionOverlay: (phase: null | 'submitting' | 'success') => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1098,8 +1115,8 @@ function DisclosuresForm({
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
   onSubmitted: () => void;
-  onStepChange: (step: 1 | 2) => void;
-  currentStep: 1 | 2;
+  onStepChange: (step: SubmissionStep) => void;
+  currentStep: SubmissionStep;
   onSubmissionOverlay: (phase: null | 'submitting' | 'success') => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1119,6 +1136,9 @@ function DisclosuresForm({
     arriveLoanNumber: '',
     channel: '',
     investor: '',
+    processingMethod: '',
+    processingAssignmentGroup: '',
+    processingAssignmentLabel: '',
     loanType: '',
     loanProgram: '',
     loanAmount: '',
@@ -1813,8 +1833,8 @@ function QcForm({
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
   onSubmitted: () => void;
-  onStepChange: (step: 1 | 2) => void;
-  currentStep: 1 | 2;
+  onStepChange: (step: SubmissionStep) => void;
+  currentStep: SubmissionStep;
   onSubmissionOverlay: (phase: null | 'submitting' | 'success') => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1832,6 +1852,9 @@ function QcForm({
     arriveLoanNumber: '',
     channel: '',
     investor: '',
+    processingMethod: '',
+    processingAssignmentGroup: '',
+    processingAssignmentLabel: '',
     loanType: '',
     loanProgram: '',
     loanAmount: '',
@@ -1896,6 +1919,49 @@ function QcForm({
     for (const key of missingEntryKeys) highlightedMissingFields.add(key);
     if (isOtherInvestor && !form.notesGoals.trim()) highlightedMissingFields.add('notesGoals');
   }
+  const selectedProcessingMethod = form.processingMethod as ProcessingMethod | '';
+  const canContinueFromProcessingMethod =
+    selectedProcessingMethod === PROCESSING_METHOD_SELF_PROCESSED ||
+    selectedProcessingMethod === PROCESSING_METHOD_THIRD_PARTY ||
+    (selectedProcessingMethod === PROCESSING_METHOD_IN_HOUSE &&
+      Boolean(form.processingAssignmentGroup));
+
+  const selectProcessingMethod = (method: ProcessingMethod) => {
+    setForm((prev) => {
+      if (method === PROCESSING_METHOD_THIRD_PARTY) {
+        return {
+          ...prev,
+          processingMethod: method,
+          processingAssignmentGroup: PROCESSING_ASSIGNMENT_THIRD_PARTY,
+          processingAssignmentLabel: getProcessingAssignmentLabel(
+            PROCESSING_ASSIGNMENT_THIRD_PARTY
+          ),
+        };
+      }
+      if (method === PROCESSING_METHOD_SELF_PROCESSED) {
+        return {
+          ...prev,
+          processingMethod: method,
+          processingAssignmentGroup: '',
+          processingAssignmentLabel: '',
+        };
+      }
+      return {
+        ...prev,
+        processingMethod: method,
+        processingAssignmentGroup: '',
+        processingAssignmentLabel: '',
+      };
+    });
+  };
+
+  const selectInHouseProcessor = (assignmentGroup: string) => {
+    setForm((prev) => ({
+      ...prev,
+      processingAssignmentGroup: assignmentGroup,
+      processingAssignmentLabel: getProcessingAssignmentLabel(assignmentGroup),
+    }));
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1909,6 +1975,15 @@ function QcForm({
         return !String(form[key] ?? '').trim();
       })
       .map(({ label }) => label);
+    if (!form.processingMethod) {
+      missingEntryLabels.push('Processing Method');
+    }
+    if (
+      form.processingMethod === PROCESSING_METHOD_IN_HOUSE &&
+      !form.processingAssignmentGroup
+    ) {
+      missingEntryLabels.push('In-House Processor');
+    }
     if (isOtherInvestor && !form.notesGoals.trim()) {
       missingEntryLabels.push('Notes / Goals');
     }
@@ -2005,6 +2080,24 @@ function QcForm({
           isParsing={isParsingMismo}
           importError={importError}
           tone="violet"
+        />
+      ) : qcStep === 2 ? (
+        <ProcessingMethodStep
+          selectedMethod={selectedProcessingMethod}
+          selectedAssignmentGroup={form.processingAssignmentGroup}
+          onSelectMethod={selectProcessingMethod}
+          onSelectInHouseProcessor={selectInHouseProcessor}
+          onBack={() => onStepChange(1)}
+          onContinue={() => {
+            if (!canContinueFromProcessingMethod) {
+              setSubmitError('Please select a processing method before continuing.');
+              return;
+            }
+            setSubmitError('');
+            onStepChange(3);
+          }}
+          canContinue={canContinueFromProcessingMethod}
+          error={submitError}
         />
       ) : (
         <>
@@ -2171,7 +2264,15 @@ function QcForm({
         </p>
       )}
 
-      <div className="flex justify-end gap-3 pt-2">
+      <div className="flex justify-between gap-3 pt-2">
+        <button
+          type="button"
+          onClick={() => onStepChange(2)}
+          disabled={isSubmitting}
+          className="app-btn-secondary disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          Back
+        </button>
         <button
           type="submit"
           disabled={isSubmitting}
@@ -2184,6 +2285,157 @@ function QcForm({
         </>
       )}
     </form>
+  );
+}
+
+function ProcessingMethodStep({
+  selectedMethod,
+  selectedAssignmentGroup,
+  onSelectMethod,
+  onSelectInHouseProcessor,
+  onBack,
+  onContinue,
+  canContinue,
+  error,
+}: {
+  selectedMethod: ProcessingMethod | '';
+  selectedAssignmentGroup: string;
+  onSelectMethod: (method: ProcessingMethod) => void;
+  onSelectInHouseProcessor: (assignmentGroup: string) => void;
+  onBack: () => void;
+  onContinue: () => void;
+  canContinue: boolean;
+  error: string;
+}) {
+  const methodIconByValue: Record<ProcessingMethod, React.ComponentType<{ className?: string }>> = {
+    [PROCESSING_METHOD_IN_HOUSE]: Building2,
+    [PROCESSING_METHOD_THIRD_PARTY]: Handshake,
+    [PROCESSING_METHOD_SELF_PROCESSED]: UserCheck,
+  };
+  const inHouseOptions = [
+    {
+      value: PROCESSING_ASSIGNMENT_KATHY_BUI,
+      label: 'Kathy Bui',
+      description: "Route this file to the JR processors assigned to Kathy's files.",
+    },
+    {
+      value: PROCESSING_ASSIGNMENT_JACK_NGO,
+      label: 'Jack Ngo',
+      description: "Route this file to the JR processors assigned to Jack's files.",
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-blue-50 p-5">
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-700">
+          Step 2
+        </p>
+        <h3 className="mt-2 text-xl font-bold text-slate-950">
+          Select Processing Method
+        </h3>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+          Choose how this file should be processed. This controls which JR processors can see
+          the request in their task queue.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {PROCESSING_METHOD_OPTIONS.map((option) => {
+          const Icon = methodIconByValue[option.value];
+          const selected = selectedMethod === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onSelectMethod(option.value)}
+              className={`group rounded-2xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
+                selected
+                  ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-200'
+                  : 'border-slate-200 bg-white hover:border-violet-200'
+              }`}
+            >
+              <span
+                className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${
+                  selected
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-slate-100 text-slate-600 group-hover:bg-violet-100 group-hover:text-violet-700'
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+              </span>
+              <span className="mt-4 block text-base font-bold text-slate-950">
+                {option.label}
+              </span>
+              <span className="mt-1 block text-sm leading-5 text-slate-600">
+                {option.description}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedMethod === PROCESSING_METHOD_IN_HOUSE && (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+          <p className="text-sm font-bold text-slate-900">Choose In-House Processor</p>
+          <p className="mt-1 text-sm text-slate-600">
+            This selection determines which JR processors are allowed to receive the file.
+          </p>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            {inHouseOptions.map((option) => {
+              const selected = selectedAssignmentGroup === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onSelectInHouseProcessor(option.value)}
+                  className={`rounded-xl border p-4 text-left transition-colors ${
+                    selected
+                      ? 'border-violet-400 bg-white ring-2 ring-violet-200'
+                      : 'border-slate-200 bg-white hover:border-violet-300'
+                  }`}
+                >
+                  <span className="text-sm font-bold text-slate-950">{option.label}</span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-600">
+                    {option.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {selectedMethod && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          <span className="font-semibold">Selected:</span>{' '}
+          {getProcessingMethodLabel(selectedMethod)}
+          {selectedAssignmentGroup
+            ? ` - ${getProcessingAssignmentLabel(selectedAssignmentGroup)}`
+            : ''}
+        </div>
+      )}
+
+      {error && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+
+      <div className="flex justify-between gap-3 pt-2">
+        <button type="button" onClick={onBack} className="app-btn-secondary">
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={onContinue}
+          disabled={!canContinue}
+          className="inline-flex items-center justify-center rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Continue to Processing Details
+        </button>
+      </div>
+    </div>
   );
 }
 

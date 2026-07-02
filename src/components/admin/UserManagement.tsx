@@ -8,6 +8,7 @@ import {
   updateUserRoles,
   updateUserStatus,
   updateUserDeskPermissions,
+  updateUserProcessingAssignments,
   updateUserName,
   resetUserPassword,
   requestPasswordReset,
@@ -20,6 +21,7 @@ import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Mail } from 'lucide-rea
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
 import { FormatDate } from '@/components/ui/FormatDate';
 import { canAssignRole, canManageUser, getAdminTier } from '@/lib/adminTiers';
+import { PROCESSING_ASSIGNMENT_OPTIONS, type ProcessingAssignmentGroup } from '@/lib/processingRouting';
 
 type UserRow = {
   id: string;
@@ -29,6 +31,7 @@ type UserRow = {
   roles: UserRole[];
   loDisclosureSubmissionEnabled: boolean;
   loQcSubmissionEnabled: boolean;
+  processingAssignmentGroups: string[];
   active: boolean;
   createdAt: string;
 };
@@ -280,6 +283,25 @@ export function UserManagement({
       return;
     }
     setDirectoryStatus({ type: 'success', message: 'LO desk permissions updated.' });
+    router.refresh();
+  };
+
+  const handleProcessingAssignmentsChange = async (
+    userId: string,
+    nextGroups: ProcessingAssignmentGroup[]
+  ) => {
+    const result = await updateUserProcessingAssignments({
+      userId,
+      processingAssignmentGroups: nextGroups,
+    });
+    if (!result.success) {
+      setDirectoryStatus({
+        type: 'error',
+        message: result.error || 'Failed to update JR processing routing.',
+      });
+      return;
+    }
+    setDirectoryStatus({ type: 'success', message: 'JR processing routing updated.' });
     router.refresh();
   };
 
@@ -694,6 +716,45 @@ export function UserManagement({
                                 Applies to LO submission access.
                               </p>
                             </div>
+                            {roleList.includes(UserRole.PROCESSOR_JR) && (
+                              <div className="mt-2 space-y-2 rounded-lg border border-violet-200 bg-violet-50/60 p-2.5">
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">
+                                  JR Processing Routing
+                                </p>
+                                {PROCESSING_ASSIGNMENT_OPTIONS.map((option) => {
+                                  const checked = user.processingAssignmentGroups.includes(
+                                    option.value
+                                  );
+                                  return (
+                                    <label
+                                      key={`${user.id}-${option.value}`}
+                                      className="inline-flex items-center gap-2 text-[11px] text-slate-700"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={!manageable}
+                                        onChange={(event) => {
+                                          const nextGroups = event.target.checked
+                                            ? [...user.processingAssignmentGroups, option.value]
+                                            : user.processingAssignmentGroups.filter(
+                                                (group) => group !== option.value
+                                              );
+                                          handleProcessingAssignmentsChange(
+                                            user.id,
+                                            nextGroups as ProcessingAssignmentGroup[]
+                                          );
+                                        }}
+                                      />
+                                      {option.label}
+                                    </label>
+                                  );
+                                })}
+                                <p className="text-[10px] text-slate-500">
+                                  Controls which Processing requests this JR sees.
+                                </p>
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3.5">
                             <label
@@ -867,6 +928,46 @@ export function UserManagement({
                           Applies to LO submission access.
                         </p>
                       </div>
+
+                      {roleList.includes(UserRole.PROCESSOR_JR) && (
+                        <div className="mt-2.5 rounded-lg border border-violet-200 bg-violet-50/60 p-2.5">
+                          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+                            JR Processing Routing
+                          </p>
+                          <div className="grid grid-cols-1 gap-1.5">
+                            {PROCESSING_ASSIGNMENT_OPTIONS.map((option) => {
+                              const checked = user.processingAssignmentGroups.includes(option.value);
+                              return (
+                                <label
+                                  key={`${user.id}-mobile-${option.value}`}
+                                  className="inline-flex items-center gap-2 text-[11px] text-slate-700"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={!manageable}
+                                    onChange={(event) => {
+                                      const nextGroups = event.target.checked
+                                        ? [...user.processingAssignmentGroups, option.value]
+                                        : user.processingAssignmentGroups.filter(
+                                            (group) => group !== option.value
+                                          );
+                                      handleProcessingAssignmentsChange(
+                                        user.id,
+                                        nextGroups as ProcessingAssignmentGroup[]
+                                      );
+                                    }}
+                                  />
+                                  {option.label}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-1.5 text-[10px] text-slate-500">
+                            Controls which Processing requests this JR sees.
+                          </p>
+                        </div>
+                      )}
 
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {inviteEmails.includes(user.email.toLowerCase()) && (

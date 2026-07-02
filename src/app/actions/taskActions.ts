@@ -25,6 +25,18 @@ import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
 import { canLoanOfficerViewLoan } from '@/lib/loanOfficerVisibility';
 import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
 import {
+  PROCESSING_ASSIGNMENT_JACK_NGO,
+  PROCESSING_ASSIGNMENT_KATHY_BUI,
+  PROCESSING_ASSIGNMENT_THIRD_PARTY,
+  PROCESSING_METHOD_IN_HOUSE,
+  PROCESSING_METHOD_SELF_PROCESSED,
+  PROCESSING_METHOD_THIRD_PARTY,
+  getProcessingAssignmentLabel,
+  getProcessingMethodLabel,
+  isProcessingAssignmentGroup,
+  isProcessingMethod,
+} from '@/lib/processingRouting';
+import {
   TASK_BUCKET_PAGE_SIZE,
   canUsePagedTaskBuckets,
   queryTaskBucketPage,
@@ -2895,6 +2907,9 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       };
     }
 
+    let processingMethod = '';
+    let processingAssignmentGroup: string | null = null;
+    let processingAssignmentLabel: string | null = null;
     if (submissionType === 'QC') {
       if (
         role === UserRole.LOAN_OFFICER &&
@@ -2939,6 +2954,43 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
             'Cash Back and Projected Revenue are required before submitting Processing.',
         };
       }
+
+      processingMethod = String(submissionObject?.processingMethod ?? '').trim();
+      if (!isProcessingMethod(processingMethod)) {
+        return {
+          success: false,
+          error: 'Please select a Processing Method before submitting Processing.',
+        };
+      }
+
+      if (processingMethod === PROCESSING_METHOD_IN_HOUSE) {
+        const assignmentGroup = String(submissionObject?.processingAssignmentGroup ?? '').trim();
+        if (
+          assignmentGroup !== PROCESSING_ASSIGNMENT_KATHY_BUI &&
+          assignmentGroup !== PROCESSING_ASSIGNMENT_JACK_NGO
+        ) {
+          return {
+            success: false,
+            error: 'Please select Kathy Bui or Jack Ngo for in-house Processing.',
+          };
+        }
+        processingAssignmentGroup = assignmentGroup;
+      } else if (processingMethod === PROCESSING_METHOD_THIRD_PARTY) {
+        processingAssignmentGroup = PROCESSING_ASSIGNMENT_THIRD_PARTY;
+      } else if (processingMethod === PROCESSING_METHOD_SELF_PROCESSED) {
+        processingAssignmentGroup = null;
+      }
+
+      if (
+        processingAssignmentGroup &&
+        !isProcessingAssignmentGroup(processingAssignmentGroup)
+      ) {
+        return {
+          success: false,
+          error: 'Please select a valid Processing routing group.',
+        };
+      }
+      processingAssignmentLabel = getProcessingAssignmentLabel(processingAssignmentGroup);
     }
 
     if (!loanOfficerId) {
@@ -3099,11 +3151,15 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           : {};
       dataObj.workflowVersion = 'processing-v1';
       dataObj.legacyWorkflow = false;
+      dataObj.processingMethod = processingMethod;
+      dataObj.processingMethodLabel = getProcessingMethodLabel(processingMethod);
+      dataObj.processingAssignmentGroup = processingAssignmentGroup;
+      dataObj.processingAssignmentLabel = processingAssignmentLabel;
       finalSubmissionData = dataObj as Prisma.JsonObject;
     }
     if (notes?.trim()) {
-      const dataObj = (submissionData && typeof submissionData === 'object')
-        ? { ...(submissionData as Record<string, unknown>) }
+      const dataObj = (finalSubmissionData && typeof finalSubmissionData === 'object')
+        ? { ...(finalSubmissionData as Record<string, unknown>) }
         : {};
       
       const initialNote = {
@@ -3134,10 +3190,23 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         kind,
         description: notes || null,
         submissionData: finalSubmissionData ?? undefined,
-        status: TaskStatus.PENDING,
+        status:
+          submissionType === 'QC' && processingMethod === PROCESSING_METHOD_SELF_PROCESSED
+            ? TaskStatus.COMPLETED
+            : TaskStatus.PENDING,
         priority: TaskPriority.NORMAL,
-        assignedRole,
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        assignedRole:
+          submissionType === 'QC' && processingMethod === PROCESSING_METHOD_SELF_PROCESSED
+            ? null
+            : assignedRole,
+        completedAt:
+          submissionType === 'QC' && processingMethod === PROCESSING_METHOD_SELF_PROCESSED
+            ? new Date()
+            : null,
+        dueDate:
+          submissionType === 'QC' && processingMethod === PROCESSING_METHOD_SELF_PROCESSED
+            ? null
+            : new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
     });
 

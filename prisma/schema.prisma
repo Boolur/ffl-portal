@@ -219,6 +219,7 @@ model User {
   loQcTwoRowPilot Boolean @default(false)
   loDisclosureSubmissionEnabled Boolean @default(false)
   loQcSubmissionEnabled Boolean @default(true)
+  processingAssignmentGroups String[] @default([])
   active        Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
