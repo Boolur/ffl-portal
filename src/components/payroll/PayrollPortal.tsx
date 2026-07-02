@@ -1044,6 +1044,29 @@ export function PayrollPortal({
                 </div>
               </div>
 
+              <div className="grid gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/90 to-blue-50/70 p-4 md:grid-cols-2">
+                <LeadSelect
+                  label="Lead Source"
+                  Icon={Megaphone}
+                  value={form.leadSource}
+                  options={LEAD_SOURCE_OPTIONS}
+                  labels={LEAD_SOURCE_LABELS}
+                  error={shouldHighlight('leadSource')}
+                  onBlur={() => markTouched('leadSource')}
+                  onChange={(value) => update('leadSource', value as PayrollLeadSource)}
+                />
+                <LeadSelect
+                  label="Lead Provided By"
+                  Icon={Building2}
+                  value={form.leadProvidedBy}
+                  options={LEAD_PROVIDED_BY_OPTIONS}
+                  labels={LEAD_PROVIDED_BY_LABELS}
+                  error={shouldHighlight('leadProvidedBy')}
+                  onBlur={() => markTouched('leadProvidedBy')}
+                  onChange={(value) => update('leadProvidedBy', value as PayrollLeadProvidedBy)}
+                />
+              </div>
+
               <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white p-4">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -1101,29 +1124,6 @@ export function PayrollPortal({
                   </div>
                 </div>
               )}
-
-              <div className="grid gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/90 to-blue-50/70 p-4 md:grid-cols-2">
-                <LeadSelect
-                  label="Lead Source"
-                  Icon={Megaphone}
-                  value={form.leadSource}
-                  options={LEAD_SOURCE_OPTIONS}
-                  labels={LEAD_SOURCE_LABELS}
-                  error={shouldHighlight('leadSource')}
-                  onBlur={() => markTouched('leadSource')}
-                  onChange={(value) => update('leadSource', value as PayrollLeadSource)}
-                />
-                <LeadSelect
-                  label="Lead Provided By"
-                  Icon={Building2}
-                  value={form.leadProvidedBy}
-                  options={LEAD_PROVIDED_BY_OPTIONS}
-                  labels={LEAD_PROVIDED_BY_LABELS}
-                  error={shouldHighlight('leadProvidedBy')}
-                  onBlur={() => markTouched('leadProvidedBy')}
-                  onChange={(value) => update('leadProvidedBy', value as PayrollLeadProvidedBy)}
-                />
-              </div>
 
               {error && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
