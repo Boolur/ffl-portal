@@ -58,6 +58,7 @@ export type PipelineTeamRow = {
 
 export type PipelineMilestoneRow = {
   id: string;
+  loanId: string | null;
   milestone: PipelineMilestoneKey;
   milestoneLabel: string;
   borrowerName: string;
@@ -85,6 +86,7 @@ export type PipelineReport = {
   trend: PipelineTrendBucket[];
   teamRows: PipelineTeamRow[];
   recentRows: PipelineMilestoneRow[];
+  bucketRows: Record<PipelineMilestoneKey, PipelineMilestoneRow[]>;
 };
 
 type PipelineActor = {
@@ -149,7 +151,7 @@ function endOfDay(date: Date) {
 }
 
 function resolveDateRange(filters: PipelineReportFilters = {}) {
-  const preset = filters.preset || 'monthly';
+  const preset = filters.preset || 'ytd';
   const now = new Date();
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
@@ -407,6 +409,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
           loan: {
             select: {
               loanNumber: true,
+              id: true,
               borrowerName: true,
               amount: true,
               loanOfficerId: true,
@@ -536,6 +539,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     return [
       {
         id: task.id,
+        loanId: task.loan.id,
         milestone,
         milestoneLabel: MILESTONE_LABELS[milestone],
         borrowerName: task.loan.borrowerName,
@@ -552,6 +556,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
 
   const recentFundingRows: PipelineMilestoneRow[] = fundingRows.slice(0, 12).map((funding) => ({
     id: funding.id,
+    loanId: funding.loanId,
     milestone: 'fundings',
     milestoneLabel: MILESTONE_LABELS.fundings,
     borrowerName: funding.borrowerName,
@@ -569,6 +574,48 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
   const recentRows = [...recentTaskRows, ...recentFundingRows]
     .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
     .slice(0, 24);
+  const allTaskRows: PipelineMilestoneRow[] = taskRows.flatMap((task) => {
+    const milestone = taskKindToMilestone(task.kind);
+    if (!milestone) return [];
+    return [
+      {
+        id: task.id,
+        loanId: task.loan.id,
+        milestone,
+        milestoneLabel: MILESTONE_LABELS[milestone],
+        borrowerName: task.loan.borrowerName,
+        loanNumber: task.loan.loanNumber,
+        loanOfficerName: task.loan.loanOfficer.name,
+        sharedLoanOfficerNames: sharedLoanOfficerNames(task.loan),
+        amount: money(task.loan.amount),
+        lender: null,
+        status: task.status,
+        occurredAt: task.createdAt.toISOString(),
+      },
+    ];
+  });
+  const allFundingRows: PipelineMilestoneRow[] = fundingRows.map((funding) => ({
+    id: funding.id,
+    loanId: funding.loanId,
+    milestone: 'fundings',
+    milestoneLabel: MILESTONE_LABELS.fundings,
+    borrowerName: funding.borrowerName,
+    loanNumber: funding.loanNumber,
+    loanOfficerName: funding.loanOfficer.name,
+    sharedLoanOfficerNames: funding.loan
+      ? sharedLoanOfficerNames(funding.loan)
+      : [funding.loanOfficer.name],
+    amount: money(funding.expectedRevenue),
+    lender: funding.lender,
+    status: funding.status,
+    occurredAt: (funding.paidAt || funding.submittedAt).toISOString(),
+  }));
+  const bucketRows = {
+    plusOne: allTaskRows.filter((row) => row.milestone === 'plusOne').slice(0, 100),
+    disclosures: allTaskRows.filter((row) => row.milestone === 'disclosures').slice(0, 100),
+    processing: allTaskRows.filter((row) => row.milestone === 'processing').slice(0, 100),
+    fundings: allFundingRows.slice(0, 100),
+  };
 
   return {
     filters: {
@@ -585,5 +632,6 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     trend,
     teamRows,
     recentRows,
+    bucketRows,
   };
 }

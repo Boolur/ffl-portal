@@ -8,15 +8,18 @@ import {
   CheckCircle2,
   CircleDollarSign,
   ClipboardCheck,
+  FileText,
   GitBranch,
   Loader2,
   RefreshCw,
   TrendingUp,
   UserRound,
+  X,
 } from 'lucide-react';
 import {
   getPipelineReport,
   type PipelineMilestoneKey,
+  type PipelineMilestoneRow,
   type PipelineReport,
   type PipelineReportFilters,
   type PipelineRangePreset,
@@ -33,6 +36,13 @@ const PRESETS: Array<{ value: PipelineRangePreset; label: string }> = [
   { value: 'ytd', label: 'YTD' },
   { value: 'allTime', label: 'All Time' },
   { value: 'custom', label: 'Date Range' },
+];
+
+const BUCKETS: Array<{ key: PipelineMilestoneKey; title: string; helper: string }> = [
+  { key: 'plusOne', title: '+1s', helper: 'Submitted +1 loans' },
+  { key: 'disclosures', title: 'Disclosures', helper: 'Submitted disclosures' },
+  { key: 'processing', title: 'Processing/QC', helper: 'Processing and legacy QC' },
+  { key: 'fundings', title: 'Funded', helper: 'Paid payroll requests' },
 ];
 
 const MILESTONE_TONES: Record<PipelineMilestoneKey, string> = {
@@ -100,6 +110,7 @@ export function PipelinePage({ initialReport }: Props) {
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [loanOfficerId, setLoanOfficerId] = useState<string>(initialReport.filters.loanOfficerId);
+  const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -123,6 +134,7 @@ export function PipelinePage({ initialReport }: Props) {
         setStartDate(dateInputValue(nextReport.filters.startDate));
         setEndDate(dateInputValue(nextReport.filters.endDate));
         setLoanOfficerId(nextReport.filters.loanOfficerId);
+        setSelectedCard(null);
       } catch (err) {
         console.error(err);
         setError('Unable to load Pipeline metrics. Please try again.');
@@ -146,8 +158,7 @@ export function PipelinePage({ initialReport }: Props) {
           </div>
           <h1 className="app-page-title mt-3">Pipeline</h1>
           <p className="app-page-subtitle max-w-3xl">
-            Track production from +1 submissions through disclosures, processing/QC, and fundings.
-            Shared loans appear for both assigned LOs, while edits continue to live on the same underlying loan/task record.
+            Track clients by active pipeline milestone. Shared loans appear for both assigned LOs, while edits continue to live on the same underlying loan/task record.
           </p>
         </div>
         <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
@@ -223,6 +234,119 @@ export function PipelinePage({ initialReport }: Props) {
         </div>
       )}
 
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex flex-col gap-2 px-1 pb-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Client Pipeline Board</h2>
+            <p className="text-sm text-muted-foreground">
+              {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. Click a client card to view details.
+            </p>
+          </div>
+          <span className="app-count-badge">
+            {report.filters.loanOfficerId === 'all' ? 'Team pipeline' : 'My visible pipeline'}
+          </span>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-4">
+          {BUCKETS.map((bucket) => {
+            const rows = report.bucketRows[bucket.key] || [];
+            return (
+              <div key={bucket.key} className="flex min-h-[360px] flex-col rounded-2xl border border-border bg-secondary/50">
+                <div className="border-b border-border p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-bold text-foreground">{bucket.title}</h3>
+                      <p className="text-xs text-muted-foreground">{bucket.helper}</p>
+                    </div>
+                    <span className={cx('rounded-full border px-2.5 py-1 text-xs font-bold', MILESTONE_TONES[bucket.key])}>
+                      {formatNumber(rows.length)}
+                    </span>
+                  </div>
+                </div>
+                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-3">
+                  {rows.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
+                      No clients in this bucket for the selected range.
+                    </div>
+                  ) : (
+                    rows.map((row) => (
+                      <button
+                        key={`${row.milestone}-${row.id}`}
+                        type="button"
+                        onClick={() => setSelectedCard(row)}
+                        className="w-full rounded-xl border border-border bg-card p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-bold text-foreground">{row.borrowerName}</p>
+                            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                              ARIVE #{row.loanNumber}
+                            </p>
+                          </div>
+                          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          <span className="rounded-full bg-secondary px-2 py-1">
+                            {formatDate(row.occurredAt)}
+                          </span>
+                          <span className="rounded-full bg-secondary px-2 py-1">
+                            {formatCurrency(row.amount)}
+                          </span>
+                        </div>
+                        <p className="mt-3 truncate text-xs text-muted-foreground">
+                          {row.sharedLoanOfficerNames.length > 0
+                            ? row.sharedLoanOfficerNames.join(' / ')
+                            : row.loanOfficerName}
+                        </p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-foreground">Milestone Trend</h2>
+            <p className="text-sm text-muted-foreground">Counts by period for the selected range.</p>
+          </div>
+          <BarChart3 className="h-5 w-5 text-muted-foreground" />
+        </div>
+        <div className="mt-5 grid gap-3">
+          {report.trend.map((bucket) => (
+            <div key={bucket.startDate} className="grid gap-2 rounded-xl border border-border bg-background p-3 md:grid-cols-[96px_1fr] md:items-center">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">{bucket.label}</p>
+              <div className="grid gap-2 sm:grid-cols-4">
+                {BUCKETS.map(({ key }) => (
+                  <div key={key}>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
+                      <span>{key === 'plusOne' ? '+1' : key === 'fundings' ? 'Funded' : key}</span>
+                      <span>{bucket[key]}</span>
+                    </div>
+                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className={cx(
+                          'h-full rounded-full',
+                          key === 'plusOne' && 'bg-blue-500',
+                          key === 'disclosures' && 'bg-violet-500',
+                          key === 'processing' && 'bg-amber-500',
+                          key === 'fundings' && 'bg-emerald-500'
+                        )}
+                        style={{ width: `${Math.max(4, (bucket[key] / trendMax) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm xl:col-span-1">
           <div className="flex items-center justify-between gap-3">
@@ -268,109 +392,15 @@ export function PipelinePage({ initialReport }: Props) {
         })}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-base font-bold text-foreground">Pipeline Funnel</h2>
-              <p className="text-sm text-muted-foreground">
-                {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}
-              </p>
-            </div>
-            <span className="app-count-badge">
-              {report.filters.loanOfficerId === 'all' ? 'Team view' : 'Individual view'}
-            </span>
-          </div>
-
-          <div className="mt-6 grid gap-3 lg:grid-cols-4">
-            {report.summary.map((metric, index) => (
-              <React.Fragment key={metric.key}>
-                <div className="rounded-2xl border border-border bg-secondary/50 p-4">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                    Step {index + 1}
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-foreground">{metric.label}</p>
-                  <p className="mt-3 text-2xl font-bold text-foreground">{formatNumber(metric.count)}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {index === 0 ? 'Start' : `${formatPercent(metric.conversionRate)} conversion`}
-                  </p>
-                </div>
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-bold text-foreground">ARIVE Ready</h2>
-              <p className="text-sm text-muted-foreground">Prepared for future status sync.</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary text-muted-foreground">
-              <GitBranch className="h-5 w-5" />
-            </div>
-          </div>
-          <div className="mt-5 space-y-3 text-sm text-muted-foreground">
-            <p>
-              V1 uses portal submissions only. Later, ARIVE loan-status and tracker events can map into these same milestones.
-            </p>
-            <div className="rounded-xl border border-dashed border-border bg-background p-3">
-              <p className="font-semibold text-foreground">Future mapping path</p>
-              <p className="mt-1">Loan Status Updated to Portal milestone history</p>
-              <p>Loan Trackers Updated to funding/document tracker signals</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base font-bold text-foreground">Milestone Trend</h2>
-            <p className="text-sm text-muted-foreground">Counts by period for the selected range.</p>
-          </div>
-          <BarChart3 className="h-5 w-5 text-muted-foreground" />
-        </div>
-        <div className="mt-5 grid gap-3">
-          {report.trend.map((bucket) => (
-            <div key={bucket.startDate} className="grid gap-2 rounded-xl border border-border bg-background p-3 md:grid-cols-[96px_1fr] md:items-center">
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">{bucket.label}</p>
-              <div className="grid gap-2 sm:grid-cols-4">
-                {(['plusOne', 'disclosures', 'processing', 'fundings'] as PipelineMilestoneKey[]).map((key) => (
-                  <div key={key}>
-                    <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
-                      <span>{key === 'plusOne' ? '+1' : key === 'fundings' ? 'Funded' : key}</span>
-                      <span>{bucket[key]}</span>
-                    </div>
-                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-secondary">
-                      <div
-                        className={cx(
-                          'h-full rounded-full',
-                          key === 'plusOne' && 'bg-blue-500',
-                          key === 'disclosures' && 'bg-violet-500',
-                          key === 'processing' && 'bg-amber-500',
-                          key === 'fundings' && 'bg-emerald-500'
-                        )}
-                        style={{ width: `${Math.max(4, (bucket[key] / trendMax) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
       <section className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
         <div className="rounded-2xl border border-border bg-card shadow-sm">
           <div className="border-b border-border px-5 py-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-foreground">LO Performance</h2>
-              <p className="text-sm text-muted-foreground">
-                Co-LO files count for each assigned officer without duplicating the source record.
-              </p>
+                <p className="text-sm text-muted-foreground">
+                  Co-LO files count for each assigned officer without duplicating the source record.
+                </p>
               </div>
               <UserRound className="h-5 w-5 text-muted-foreground" />
             </div>
@@ -474,6 +504,67 @@ export function PipelinePage({ initialReport }: Props) {
           </div>
         </div>
       </div>
+
+      {selectedCard && (
+        <ClientDetailsDrawer row={selectedCard} onClose={() => setSelectedCard(null)} />
+      )}
+    </div>
+  );
+}
+
+function ClientDetailsDrawer({
+  row,
+  onClose,
+}: {
+  row: PipelineMilestoneRow;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex justify-end bg-slate-900/30 backdrop-blur-[1px]">
+      <button
+        type="button"
+        aria-label="Close client details"
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+      />
+      <aside className="relative flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-xl">
+        <div className="border-b border-border p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <span className={cx('inline-flex rounded-full border px-2.5 py-1 text-xs font-bold', MILESTONE_TONES[row.milestone])}>
+                {row.milestoneLabel}
+              </span>
+              <h2 className="mt-3 text-xl font-bold text-foreground">{row.borrowerName}</h2>
+              <p className="mt-1 text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                ARIVE #{row.loanNumber}
+              </p>
+            </div>
+            <button type="button" onClick={onClose} className="app-icon-btn" aria-label="Close details">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          <DetailBlock label="Assigned loan officers" value={row.sharedLoanOfficerNames.join(' / ') || row.loanOfficerName} />
+          <DetailBlock label="Milestone date" value={formatDate(row.occurredAt)} />
+          <DetailBlock label="Amount" value={formatCurrency(row.amount)} />
+          <DetailBlock label="Status" value={row.status.replace(/_/g, ' ')} />
+          {row.lender && <DetailBlock label="Lender" value={row.lender} />}
+          <div className="rounded-2xl border border-dashed border-border bg-secondary/40 p-4 text-sm text-muted-foreground">
+            This drawer is the first pass at client details. The next version can connect this card to full loan history, notes, documents, and custom Pipeline stage controls.
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function DetailBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-background p-4">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-foreground">{value || 'N/A'}</p>
     </div>
   );
 }
