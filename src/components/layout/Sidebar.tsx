@@ -6,6 +6,7 @@ import {
   CheckSquare,
   BarChart,
   Banknote,
+  GitBranch,
   HelpCircle,
   Shield,
   Mail,
@@ -23,6 +24,7 @@ import { useSession } from 'next-auth/react';
 import { canAccessLendersDirectory } from '@/lib/lendersPilot';
 import { canAccessLeadsTab } from '@/lib/leadsPilot';
 import { canAccessPayrollPortal } from '@/lib/payrollPilot';
+import { canAccessPipelinePortal } from '@/lib/pipelinePilot';
 import {
   canAccessEmailSettings,
   canAccessLeadDistribution,
@@ -56,6 +58,11 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     email: session?.user?.email || '',
   });
   const canSeePayrollTab = canAccessPayrollPortal({
+    role: activeRole,
+    email: session?.user?.email || '',
+    name: session?.user?.name || '',
+  });
+  const canSeePipelineTab = canAccessPipelinePortal({
     role: activeRole,
     email: session?.user?.email || '',
     name: session?.user?.name || '',
@@ -102,6 +109,13 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
         UserRole.PROCESSOR_JR,
         UserRole.MANAGER,
       ] as UserRole[],
+      visible: () => isAdmin(activeRole),
+    },
+    {
+      name: 'Pipeline',
+      icon: GitBranch,
+      href: '/pipeline',
+      roles: [UserRole.LOAN_OFFICER, UserRole.MANAGER] as UserRole[],
       visible: () => isAdmin(activeRole),
     },
     {
@@ -204,6 +218,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       isVisible(item) &&
       (item.name !== 'Lenders' || canSeeLendersDirectory) &&
       (item.name !== 'Leads' || canSeeLeadsTab) &&
+      (item.href !== '/pipeline' || canSeePipelineTab) &&
       (item.href !== '/payroll' || canSeePayrollTab) &&
       !MANAGEMENT_NAMES.includes(item.name)
   );
