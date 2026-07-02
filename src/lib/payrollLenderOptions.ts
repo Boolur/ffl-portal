@@ -14,6 +14,7 @@ export const PAYROLL_LENDER_OPTIONS = [
   'Angel Oak',
   'Arc Home',
   'Ardri',
+  'Aven',
   'Brokers Choice',
   'Brokers First Funding',
   'Cardinal Financial',

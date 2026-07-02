@@ -117,6 +117,7 @@ const QC_INVESTOR_ALLOWED_VALUES = new Set([
   'KIND',
   'EPM',
   'SUN WEST',
+  'AVEN',
   'BUTTON',
   'FREEDOM',
   'LOAN UNITED',

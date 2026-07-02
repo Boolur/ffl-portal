@@ -32,6 +32,7 @@ const investorOptions = [
   'Kind',
   'EPM',
   'Sun West',
+  'Aven',
   'Button',
   'Freedom',
   'Loan United',
