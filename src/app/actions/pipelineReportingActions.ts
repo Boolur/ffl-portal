@@ -69,6 +69,34 @@ export type PipelineMilestoneRow = {
   status: string;
   occurredAt: string;
   sharedLoanOfficerNames: string[];
+  updateSignal: {
+    label: string;
+    tone: 'danger' | 'success' | 'info' | 'neutral';
+  } | null;
+  fileDetails: {
+    loan: {
+      borrowerPhone: string | null;
+      borrowerEmail: string | null;
+      program: string | null;
+      propertyAddress: string | null;
+      stage: string | null;
+      createdAt: string | null;
+      updatedAt: string | null;
+    };
+    task: {
+      title: string | null;
+      submittedFields: Array<{ label: string; value: string }>;
+    } | null;
+    payroll: {
+      loanType: string | null;
+      lender: string | null;
+      loanChannel: string | null;
+      processingType: string | null;
+      expectedRevenue: number | null;
+      submittedAt: string | null;
+      paidAt: string | null;
+    } | null;
+  };
 };
 
 export type PipelineReport = {
@@ -207,6 +235,99 @@ function money(value: Prisma.Decimal | number | string | null | undefined) {
   if (value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toReadableLabel(key: string) {
+  const labelOverrides: Record<string, string> = {
+    arriveLoanNumber: 'ARIVE Loan Number',
+    loanOfficer: 'Primary Loan Officer',
+    secondaryLoanOfficerName: 'Secondary Loan Officer',
+    loanAmount: 'Loan Amount',
+    projectedRevenue: 'Projected Revenue',
+    loanType: 'Loan Type',
+    loanProgram: 'Loan Program',
+    cashBack: 'Cash Back',
+    creditReportType: 'Credit Report Type',
+    aus: 'AUS',
+    investor: 'Investor',
+    titleCompany: 'Title Company',
+    appraisalWaiver: 'Appraisal Waiver',
+    notesGoals: 'Notes / Goals',
+  };
+  if (labelOverrides[key]) return labelOverrides[key];
+  const spaced = key
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function submittedFieldsFromJson(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.entries(value as Record<string, unknown>)
+    .filter(([, fieldValue]) => {
+      return (
+        fieldValue !== null &&
+        fieldValue !== undefined &&
+        fieldValue !== '' &&
+        (typeof fieldValue === 'string' ||
+          typeof fieldValue === 'number' ||
+          typeof fieldValue === 'boolean')
+      );
+    })
+    .map(([key, fieldValue]) => ({
+      label: toReadableLabel(key),
+      value: String(fieldValue),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .slice(0, 80);
+}
+
+function loanFileDetails(loan: {
+  borrowerPhone?: string | null;
+  borrowerEmail?: string | null;
+  program?: string | null;
+  propertyAddress?: string | null;
+  stage?: string | null;
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
+}) {
+  return {
+    borrowerPhone: loan.borrowerPhone || null,
+    borrowerEmail: loan.borrowerEmail || null,
+    program: loan.program || null,
+    propertyAddress: loan.propertyAddress || null,
+    stage: loan.stage || null,
+    createdAt: loan.createdAt ? loan.createdAt.toISOString() : null,
+    updatedAt: loan.updatedAt ? loan.updatedAt.toISOString() : null,
+  };
+}
+
+function taskUpdateSignal(task: {
+  status: string;
+  workflowState?: string | null;
+  completedAt?: Date | null;
+}) {
+  if (
+    task.workflowState === 'WAITING_ON_LO' ||
+    task.workflowState === 'WAITING_ON_LO_APPROVAL' ||
+    task.workflowState === 'READY_TO_COMPLETE' ||
+    task.status === 'BLOCKED'
+  ) {
+    return { label: 'Action needed', tone: 'danger' as const };
+  }
+  if (task.completedAt || task.status === 'COMPLETED') {
+    return { label: 'New update', tone: 'danger' as const };
+  }
+  if (task.status === 'IN_PROGRESS') {
+    return { label: 'In progress', tone: 'info' as const };
+  }
+  return null;
+}
+
+function fundingUpdateSignal(status: string) {
+  if (status === 'PAID') return { label: 'Funded', tone: 'success' as const };
+  return null;
 }
 
 function taskKindToMilestone(kind: TaskKind | null): PipelineMilestoneKey | null {
@@ -404,14 +525,25 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         select: {
           id: true,
           kind: true,
+          title: true,
           status: true,
+          workflowState: true,
           createdAt: true,
+          completedAt: true,
+          submissionData: true,
           loan: {
             select: {
               loanNumber: true,
               id: true,
               borrowerName: true,
+              borrowerPhone: true,
+              borrowerEmail: true,
               amount: true,
+              program: true,
+              propertyAddress: true,
+              stage: true,
+              createdAt: true,
+              updatedAt: true,
               loanOfficerId: true,
               secondaryLoanOfficerId: true,
               loanOfficer: { select: { name: true } },
@@ -430,6 +562,9 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
           loanNumber: true,
           expectedRevenue: true,
           lender: true,
+          loanType: true,
+          loanChannel: true,
+          processingType: true,
           status: true,
           paidAt: true,
           submittedAt: true,
@@ -438,6 +573,13 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
           loanOfficer: { select: { name: true } },
           loan: {
             select: {
+              borrowerPhone: true,
+              borrowerEmail: true,
+              program: true,
+              propertyAddress: true,
+              stage: true,
+              createdAt: true,
+              updatedAt: true,
               loanOfficerId: true,
               secondaryLoanOfficerId: true,
               loanOfficer: { select: { name: true } },
@@ -550,6 +692,15 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         lender: null,
         status: task.status,
         occurredAt: task.createdAt.toISOString(),
+        updateSignal: taskUpdateSignal(task),
+        fileDetails: {
+          loan: loanFileDetails(task.loan),
+          task: {
+            title: task.title,
+            submittedFields: submittedFieldsFromJson(task.submissionData),
+          },
+          payroll: null,
+        },
       },
     ];
   });
@@ -569,6 +720,30 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     lender: funding.lender,
     status: funding.status,
     occurredAt: (funding.paidAt || funding.submittedAt).toISOString(),
+    updateSignal: fundingUpdateSignal(funding.status),
+    fileDetails: {
+      loan: funding.loan
+        ? loanFileDetails(funding.loan)
+        : {
+            borrowerPhone: null,
+            borrowerEmail: null,
+            program: null,
+            propertyAddress: null,
+            stage: null,
+            createdAt: null,
+            updatedAt: null,
+          },
+      task: null,
+      payroll: {
+        loanType: funding.loanType,
+        lender: funding.lender,
+        loanChannel: funding.loanChannel,
+        processingType: funding.processingType,
+        expectedRevenue: money(funding.expectedRevenue),
+        submittedAt: funding.submittedAt.toISOString(),
+        paidAt: funding.paidAt ? funding.paidAt.toISOString() : null,
+      },
+    },
   }));
 
   const recentRows = [...recentTaskRows, ...recentFundingRows]
@@ -591,6 +766,15 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         lender: null,
         status: task.status,
         occurredAt: task.createdAt.toISOString(),
+        updateSignal: taskUpdateSignal(task),
+        fileDetails: {
+          loan: loanFileDetails(task.loan),
+          task: {
+            title: task.title,
+            submittedFields: submittedFieldsFromJson(task.submissionData),
+          },
+          payroll: null,
+        },
       },
     ];
   });
@@ -609,6 +793,30 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     lender: funding.lender,
     status: funding.status,
     occurredAt: (funding.paidAt || funding.submittedAt).toISOString(),
+    updateSignal: fundingUpdateSignal(funding.status),
+    fileDetails: {
+      loan: funding.loan
+        ? loanFileDetails(funding.loan)
+        : {
+            borrowerPhone: null,
+            borrowerEmail: null,
+            program: null,
+            propertyAddress: null,
+            stage: null,
+            createdAt: null,
+            updatedAt: null,
+          },
+      task: null,
+      payroll: {
+        loanType: funding.loanType,
+        lender: funding.lender,
+        loanChannel: funding.loanChannel,
+        processingType: funding.processingType,
+        expectedRevenue: money(funding.expectedRevenue),
+        submittedAt: funding.submittedAt.toISOString(),
+        paidAt: funding.paidAt ? funding.paidAt.toISOString() : null,
+      },
+    },
   }));
   const bucketRows = {
     plusOne: allTaskRows.filter((row) => row.milestone === 'plusOne').slice(0, 100),
