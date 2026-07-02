@@ -5,6 +5,7 @@ import { X, Loader2, FileText, Upload, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createPlusOneSubmission, createSubmissionTask } from '@/app/actions/taskActions';
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
+import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
 import { TaskAttachmentPurpose } from '@prisma/client';
 
 type NewTaskModalProps = {
@@ -63,7 +64,6 @@ export function NewTaskModal({
   onClose,
   isLoanOfficerAssistant = false,
   loanOfficerOptions = [],
-  lenderOptions = [],
   initialType = 'DISCLOSURES',
   disclosureEnabled = true,
   qcEnabled = false,
@@ -211,7 +211,6 @@ export function NewTaskModal({
             <PlusOneForm
               isLoanOfficerAssistant={isLoanOfficerAssistant}
               loanOfficerOptions={loanOfficerOptions}
-              lenderOptions={lenderOptions}
               onStepChange={setCurrentStep}
               currentStep={currentStep}
               onSubmissionOverlay={setSubmissionOverlay}
@@ -783,7 +782,6 @@ function SubmissionProgress({
 function PlusOneForm({
   isLoanOfficerAssistant,
   loanOfficerOptions,
-  lenderOptions,
   onSubmitted,
   onStepChange,
   currentStep,
@@ -791,7 +789,6 @@ function PlusOneForm({
 }: {
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
-  lenderOptions: Array<{ id: string; name: string }>;
   onSubmitted: () => void;
   onStepChange: (step: 1 | 2) => void;
   currentStep: 1 | 2;
@@ -824,14 +821,14 @@ function PlusOneForm({
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
-  const lenderNames = lenderOptions.map((lender) => lender.name);
+  const lenderNames = PAYROLL_LENDER_OPTIONS;
   const requiredFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     { key: 'loanOfficerId', label: 'Primary Loan Officer' },
     { key: 'secondaryLoanOfficerId', label: 'Secondary Loan Officer' },
     { key: 'borrowerFirstName', label: 'Borrower First Name' },
     { key: 'borrowerLastName', label: 'Borrower Last Name' },
     { key: 'arriveLoanNumber', label: 'Arrive Loan Number' },
-    { key: 'lender', label: 'Lender' },
+    { key: 'lender', label: 'Lender / Investor' },
     { key: 'loanType', label: 'Loan Type' },
     { key: 'loanAmount', label: 'Loan Amount' },
     { key: 'projectedRevenue', label: 'Projected Revenue' },
@@ -1008,7 +1005,7 @@ function PlusOneForm({
             <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} />
             <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} />
             <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
-            <Select label="Lender" value={form.lender} onChange={(v) => update('lender', v)} options={lenderNames} required invalid={highlightedMissingFields.has('lender')} />
+            <Select label="Lender / Investor" value={form.lender} onChange={(v) => update('lender', v)} options={lenderNames} required invalid={highlightedMissingFields.has('lender')} />
             <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required invalid={highlightedMissingFields.has('loanType')} />
             <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} />
             <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />

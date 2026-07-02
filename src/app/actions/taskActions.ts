@@ -23,6 +23,7 @@ import { isAdmin, canAccessEmailSettings } from '@/lib/adminTiers';
 import { canDeleteTask, canDeleteTasks } from '@/lib/taskPermissions';
 import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
 import { canLoanOfficerViewLoan } from '@/lib/loanOfficerVisibility';
+import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
 import {
   TASK_BUCKET_PAGE_SIZE,
   canUsePagedTaskBuckets,
@@ -734,23 +735,28 @@ function normalizeLenderNameForMatch(value: unknown) {
     .replace(/[^a-z0-9]/g, '');
 }
 
-async function resolveLenderDisplayName(value: unknown) {
+function resolveLenderDisplayName(value: unknown) {
   const raw = String(value ?? '').trim();
   if (!raw) return 'Not provided';
   const normalizedRaw = normalizeLenderNameForMatch(raw);
-  const lenders = await prisma.lender.findMany({
-    where: { active: true },
-    select: { name: true },
-    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-  });
-  const exactMatch = lenders.find(
-    (lender) => lender.name.trim().toLowerCase() === raw.toLowerCase()
+  const exactMatch = PAYROLL_LENDER_OPTIONS.find(
+    (lender) => lender.trim().toLowerCase() === raw.toLowerCase()
   );
-  if (exactMatch) return exactMatch.name;
-  const normalizedMatch = lenders.find(
-    (lender) => normalizeLenderNameForMatch(lender.name) === normalizedRaw
+  if (exactMatch) return exactMatch;
+  const normalizedMatch = PAYROLL_LENDER_OPTIONS.find(
+    (lender) => normalizeLenderNameForMatch(lender) === normalizedRaw
   );
-  return normalizedMatch?.name || raw;
+  return normalizedMatch || raw;
+}
+
+function isPayrollLenderSelection(value: unknown) {
+  const normalizedRaw = normalizeLenderNameForMatch(value);
+  return (
+    normalizedRaw.length > 0 &&
+    PAYROLL_LENDER_OPTIONS.some(
+      (lender) => normalizeLenderNameForMatch(lender) === normalizedRaw
+    )
+  );
 }
 
 function formatCurrencyForEmail(value: unknown) {
@@ -910,7 +916,7 @@ async function sendPlusOneSubmittedNotifications(input: PlusOneSubmittedNotifica
     secondaryLoanOfficerName,
     loanAmount: formatCurrencyForEmail(data.loanAmount ?? task.loan.amount),
     projectedRevenue: formatCurrencyForEmail(data.projectedRevenue),
-    lender: await resolveLenderDisplayName(data.lender),
+    lender: resolveLenderDisplayName(data.lender),
     loanType: valueText(data.loanType),
     loanProgram: valueText(data.loanProgram),
     channel: valueText(data.channel, 'Not specified'),
@@ -2465,7 +2471,7 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
       { key: 'borrowerFirstName', label: 'Borrower First Name' },
       { key: 'borrowerLastName', label: 'Borrower Last Name' },
       { key: 'arriveLoanNumber', label: 'Arrive Loan Number' },
-      { key: 'lender', label: 'Lender' },
+      { key: 'lender', label: 'Lender / Investor' },
       { key: 'loanType', label: 'Loan Type' },
       { key: 'loanAmount', label: 'Loan Amount' },
       { key: 'projectedRevenue', label: 'Projected Revenue' },
@@ -2483,6 +2489,12 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
       return {
         success: false,
         error: `Please complete required fields before submitting: ${missingFields.join(', ')}.`,
+      };
+    }
+    if (!isPayrollLenderSelection(submissionObject.lender)) {
+      return {
+        success: false,
+        error: 'Please select a valid Lender / Investor from the dropdown.',
       };
     }
 
@@ -2564,7 +2576,7 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
       }
     }
 
-    const resolvedLenderName = await resolveLenderDisplayName(submissionObject.lender);
+    const resolvedLenderName = resolveLenderDisplayName(submissionObject.lender);
     const finalSubmissionData: Prisma.JsonObject = {
       ...submissionObject,
       workflowVersion: 'plus-one-v1',
