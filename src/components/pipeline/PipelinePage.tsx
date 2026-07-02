@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   BarChart3,
@@ -176,45 +177,26 @@ function updateSignalClassName(tone: NonNullable<PipelineMilestoneRow['updateSig
   return 'border-slate-200 bg-slate-50 text-slate-600';
 }
 
-function updateSignalKey(row: PipelineMilestoneRow) {
-  return `${row.milestone}:${row.id}:${row.status}:${row.occurredAt}:${row.updateSignal?.label || ''}`;
-}
-
-function visibleUpdateSignal(row: PipelineMilestoneRow, reviewedUpdates: Set<string>) {
-  if (!row.updateSignal) return null;
-  return reviewedUpdates.has(updateSignalKey(row)) ? null : row.updateSignal;
-}
-
 export function PipelinePage({ initialReport }: Props) {
+  const router = useRouter();
   const [report, setReport] = useState(initialReport);
   const [preset, setPreset] = useState<PipelineRangePreset>(initialReport.filters.preset);
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [loanOfficerId, setLoanOfficerId] = useState<string>(initialReport.filters.loanOfficerId);
   const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
-  const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => {
-    if (typeof window === 'undefined') return new Set();
-    try {
-      const raw = window.localStorage.getItem('pipeline-reviewed-updates');
-      if (!raw) return new Set();
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed)
-        ? new Set(parsed.filter((value) => typeof value === 'string'))
-        : new Set();
-    } catch {
-      return new Set();
-    }
-  });
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const trendMax = useMemo(() => highestTrendValue(report), [report]);
 
-  const markUpdateReviewed = (row: PipelineMilestoneRow) => {
-    const next = new Set(reviewedUpdates);
-    next.add(updateSignalKey(row));
-    setReviewedUpdates(next);
-    window.localStorage.setItem('pipeline-reviewed-updates', JSON.stringify(Array.from(next)));
+  const reviewTask = (row: PipelineMilestoneRow) => {
+    if (!row.fileDetails.task) return;
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem('ffl:tasks-sync-pending', '1');
+      window.sessionStorage.setItem('ffl:tasks-sync-pending-at', String(Date.now()));
+    }
+    router.push(`/tasks?taskId=${encodeURIComponent(row.id)}`);
   };
 
   const loadReport = (nextFilters?: Partial<PipelineReportFilters>) => {
@@ -382,7 +364,6 @@ export function PipelinePage({ initialReport }: Props) {
                         key={`${row.milestone}-${row.id}`}
                         row={row}
                         surface={surface}
-                        reviewedUpdates={reviewedUpdates}
                         onSelect={setSelectedCard}
                       />
                     ))
@@ -594,8 +575,7 @@ export function PipelinePage({ initialReport }: Props) {
       {selectedCard && (
         <ClientDetailsModal
           row={selectedCard}
-          reviewedUpdates={reviewedUpdates}
-          onMarkReviewed={() => markUpdateReviewed(selectedCard)}
+          onReviewTask={() => reviewTask(selectedCard)}
           onClose={() => setSelectedCard(null)}
         />
       )}
@@ -606,15 +586,13 @@ export function PipelinePage({ initialReport }: Props) {
 function PipelineCard({
   row,
   surface,
-  reviewedUpdates,
   onSelect,
 }: {
   row: PipelineMilestoneRow;
   surface: (typeof MILESTONE_SURFACES)[PipelineMilestoneKey];
-  reviewedUpdates: Set<string>;
   onSelect: (row: PipelineMilestoneRow) => void;
 }) {
-  const signal = visibleUpdateSignal(row, reviewedUpdates);
+  const signal = row.updateSignal;
   return (
     <button
       type="button"
@@ -627,7 +605,9 @@ function PipelineCard({
       <div className={cx('absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-60 blur-2xl transition group-hover:opacity-90', surface.glow)} />
       <div className={cx('absolute inset-y-3 left-0 w-1 rounded-r-full', surface.accent)} />
       {signal?.tone === 'danger' && (
-        <span className="absolute right-3 top-3 h-3.5 w-3.5 rounded-full bg-rose-600 shadow-sm ring-[3px] ring-white" aria-label="New update" />
+        <span className="absolute right-3 top-3 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-black leading-none text-white shadow-sm ring-2 ring-white" aria-label="New update">
+          1
+        </span>
       )}
       <div className="flex items-start justify-between gap-3">
         <div className="relative min-w-0 pl-2">
@@ -641,7 +621,6 @@ function PipelineCard({
             ARIVE #{row.loanNumber}
           </p>
         </div>
-        <FileText className="relative mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
       </div>
       <div className="relative mt-3 flex flex-wrap gap-2 pl-2 text-xs text-muted-foreground">
         <span className="rounded-full bg-secondary px-2 py-1">
@@ -667,17 +646,15 @@ function PipelineCard({
 
 function ClientDetailsModal({
   row,
-  reviewedUpdates,
-  onMarkReviewed,
+  onReviewTask,
   onClose,
 }: {
   row: PipelineMilestoneRow;
-  reviewedUpdates: Set<string>;
-  onMarkReviewed: () => void;
+  onReviewTask: () => void;
   onClose: () => void;
 }) {
   const submittedFields = row.fileDetails.task?.submittedFields || [];
-  const signal = visibleUpdateSignal(row, reviewedUpdates);
+  const signal = row.updateSignal;
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
@@ -730,15 +707,16 @@ function ClientDetailsModal({
             <div>
               <p className="text-sm font-bold">{signal.label}</p>
               <p className="mt-1 text-sm text-rose-700">
-                Review this file here or work the related item from Tasks. Mark reviewed to clear the Pipeline badge on this device.
+                Open the related Tasks item to respond, complete, or clear the underlying queue status.
               </p>
             </div>
             <button
               type="button"
-              onClick={onMarkReviewed}
+              onClick={onReviewTask}
+              disabled={!row.fileDetails.task}
               className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-white px-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-100"
             >
-              Mark reviewed
+              Review Task
             </button>
           </div>
         )}
