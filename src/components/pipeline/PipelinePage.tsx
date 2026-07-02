@@ -176,6 +176,15 @@ function updateSignalClassName(tone: NonNullable<PipelineMilestoneRow['updateSig
   return 'border-slate-200 bg-slate-50 text-slate-600';
 }
 
+function updateSignalKey(row: PipelineMilestoneRow) {
+  return `${row.milestone}:${row.id}:${row.status}:${row.occurredAt}:${row.updateSignal?.label || ''}`;
+}
+
+function visibleUpdateSignal(row: PipelineMilestoneRow, reviewedUpdates: Set<string>) {
+  if (!row.updateSignal) return null;
+  return reviewedUpdates.has(updateSignalKey(row)) ? null : row.updateSignal;
+}
+
 export function PipelinePage({ initialReport }: Props) {
   const [report, setReport] = useState(initialReport);
   const [preset, setPreset] = useState<PipelineRangePreset>(initialReport.filters.preset);
@@ -183,10 +192,30 @@ export function PipelinePage({ initialReport }: Props) {
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [loanOfficerId, setLoanOfficerId] = useState<string>(initialReport.filters.loanOfficerId);
   const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
+  const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const raw = window.localStorage.getItem('pipeline-reviewed-updates');
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? new Set(parsed.filter((value) => typeof value === 'string'))
+        : new Set();
+    } catch {
+      return new Set();
+    }
+  });
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const trendMax = useMemo(() => highestTrendValue(report), [report]);
+
+  const markUpdateReviewed = (row: PipelineMilestoneRow) => {
+    const next = new Set(reviewedUpdates);
+    next.add(updateSignalKey(row));
+    setReviewedUpdates(next);
+    window.localStorage.setItem('pipeline-reviewed-updates', JSON.stringify(Array.from(next)));
+  };
 
   const loadReport = (nextFilters?: Partial<PipelineReportFilters>) => {
     const filters: PipelineReportFilters = {
@@ -349,55 +378,13 @@ export function PipelinePage({ initialReport }: Props) {
                     </div>
                   ) : (
                     rows.map((row) => (
-                      <button
+                      <PipelineCard
                         key={`${row.milestone}-${row.id}`}
-                        type="button"
-                        onClick={() => setSelectedCard(row)}
-                        className={cx(
-                          'group relative w-full overflow-hidden rounded-2xl border p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
-                          surface.card
-                        )}
-                      >
-                        <div className={cx('absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-60 blur-2xl transition group-hover:opacity-90', surface.glow)} />
-                        <div className={cx('absolute inset-y-3 left-0 w-1 rounded-r-full', surface.accent)} />
-                        {row.updateSignal?.tone === 'danger' && (
-                          <span className="absolute right-3 top-3 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-black leading-none text-white shadow-sm ring-2 ring-white">
-                            1
-                          </span>
-                        )}
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="relative min-w-0 pl-2">
-                            <div className="flex items-center gap-2">
-                              <span className={cx('flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ring-1', MILESTONE_TONES[row.milestone])}>
-                                {initials(row.borrowerName)}
-                              </span>
-                              <p className="truncate font-bold text-foreground">{row.borrowerName}</p>
-                            </div>
-                            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                              ARIVE #{row.loanNumber}
-                            </p>
-                          </div>
-                          <FileText className="relative mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
-                        </div>
-                        <div className="relative mt-3 flex flex-wrap gap-2 pl-2 text-xs text-muted-foreground">
-                          <span className="rounded-full bg-secondary px-2 py-1">
-                            {formatDate(row.occurredAt)}
-                          </span>
-                          <span className="rounded-full bg-secondary px-2 py-1">
-                            {formatCurrency(row.amount)}
-                          </span>
-                          {row.updateSignal && (
-                            <span className={cx('rounded-full border px-2 py-1 font-bold', updateSignalClassName(row.updateSignal.tone))}>
-                              {row.updateSignal.label}
-                            </span>
-                          )}
-                        </div>
-                        <p className="relative mt-3 truncate pl-2 text-xs text-muted-foreground">
-                          {row.sharedLoanOfficerNames.length > 0
-                            ? row.sharedLoanOfficerNames.join(' / ')
-                            : row.loanOfficerName}
-                        </p>
-                      </button>
+                        row={row}
+                        surface={surface}
+                        reviewedUpdates={reviewedUpdates}
+                        onSelect={setSelectedCard}
+                      />
                     ))
                   )}
                 </div>
@@ -605,20 +592,92 @@ export function PipelinePage({ initialReport }: Props) {
       </div>
 
       {selectedCard && (
-        <ClientDetailsModal row={selectedCard} onClose={() => setSelectedCard(null)} />
+        <ClientDetailsModal
+          row={selectedCard}
+          reviewedUpdates={reviewedUpdates}
+          onMarkReviewed={() => markUpdateReviewed(selectedCard)}
+          onClose={() => setSelectedCard(null)}
+        />
       )}
     </div>
   );
 }
 
+function PipelineCard({
+  row,
+  surface,
+  reviewedUpdates,
+  onSelect,
+}: {
+  row: PipelineMilestoneRow;
+  surface: (typeof MILESTONE_SURFACES)[PipelineMilestoneKey];
+  reviewedUpdates: Set<string>;
+  onSelect: (row: PipelineMilestoneRow) => void;
+}) {
+  const signal = visibleUpdateSignal(row, reviewedUpdates);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(row)}
+      className={cx(
+        'group relative w-full overflow-hidden rounded-2xl border p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
+        surface.card
+      )}
+    >
+      <div className={cx('absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-60 blur-2xl transition group-hover:opacity-90', surface.glow)} />
+      <div className={cx('absolute inset-y-3 left-0 w-1 rounded-r-full', surface.accent)} />
+      {signal?.tone === 'danger' && (
+        <span className="absolute right-3 top-3 h-3.5 w-3.5 rounded-full bg-rose-600 shadow-sm ring-[3px] ring-white" aria-label="New update" />
+      )}
+      <div className="flex items-start justify-between gap-3">
+        <div className="relative min-w-0 pl-2">
+          <div className="flex items-center gap-2">
+            <span className={cx('flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ring-1', MILESTONE_TONES[row.milestone])}>
+              {initials(row.borrowerName)}
+            </span>
+            <p className="truncate font-bold text-foreground">{row.borrowerName}</p>
+          </div>
+          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            ARIVE #{row.loanNumber}
+          </p>
+        </div>
+        <FileText className="relative mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+      </div>
+      <div className="relative mt-3 flex flex-wrap gap-2 pl-2 text-xs text-muted-foreground">
+        <span className="rounded-full bg-secondary px-2 py-1">
+          {formatDate(row.occurredAt)}
+        </span>
+        <span className="rounded-full bg-secondary px-2 py-1">
+          {formatCurrency(row.amount)}
+        </span>
+        {signal && (
+          <span className={cx('rounded-full border px-2 py-1 font-bold', updateSignalClassName(signal.tone))}>
+            {signal.label}
+          </span>
+        )}
+      </div>
+      <p className="relative mt-3 truncate pl-2 text-xs text-muted-foreground">
+        {row.sharedLoanOfficerNames.length > 0
+          ? row.sharedLoanOfficerNames.join(' / ')
+          : row.loanOfficerName}
+      </p>
+    </button>
+  );
+}
+
 function ClientDetailsModal({
   row,
+  reviewedUpdates,
+  onMarkReviewed,
   onClose,
 }: {
   row: PipelineMilestoneRow;
+  reviewedUpdates: Set<string>;
+  onMarkReviewed: () => void;
   onClose: () => void;
 }) {
   const submittedFields = row.fileDetails.task?.submittedFields || [];
+  const signal = visibleUpdateSignal(row, reviewedUpdates);
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
@@ -646,9 +705,9 @@ function ClientDetailsModal({
               <span className={cx('inline-flex rounded-full border px-2.5 py-1 text-xs font-bold', MILESTONE_TONES[row.milestone])}>
                 {row.milestoneLabel}
               </span>
-              {row.updateSignal && (
-                <span className={cx('ml-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-bold', updateSignalClassName(row.updateSignal.tone))}>
-                  {row.updateSignal.label}
+              {signal && (
+                <span className={cx('ml-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-bold', updateSignalClassName(signal.tone))}>
+                  {signal.label}
                 </span>
               )}
               <p className="mt-2 text-sm font-medium text-slate-500">
@@ -665,6 +724,24 @@ function ClientDetailsModal({
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {signal && (
+          <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-800 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-bold">{signal.label}</p>
+              <p className="mt-1 text-sm text-rose-700">
+                Review this file here or work the related item from Tasks. Mark reviewed to clear the Pipeline badge on this device.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onMarkReviewed}
+              className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-white px-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-100"
+            >
+              Mark reviewed
+            </button>
+          </div>
+        )}
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-5">
