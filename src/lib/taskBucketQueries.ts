@@ -247,8 +247,25 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
     chipLabel: 'New',
     chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
     defaultSort: 'created_asc',
+    where: andWhere(qcSubmissionWhere(), {
+      status: TaskStatus.PENDING,
+      workflowState: TaskWorkflowState.NONE,
+      assignedUserId: null,
+    }),
+  },
+  {
+    id: 'qc-started',
+    sectionId: 'qc',
+    label: 'Started by Jr Processing',
+    chipLabel: 'Started',
+    chipClassName: 'border-blue-200 bg-blue-50 text-blue-700',
+    defaultSort: 'updated_desc',
     where: andWhere(qcSubmissionWhere(), notCompleted, {
       workflowState: TaskWorkflowState.NONE,
+      NOT: {
+        status: TaskStatus.PENDING,
+        assignedUserId: null,
+      },
     }),
   },
   {

@@ -3608,7 +3608,9 @@ export async function saveJrProcessorChecklist(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) {
       return { success: false, error: 'Not authenticated.' };
@@ -4553,7 +4555,9 @@ export async function startQcRequest(taskId: string) {
   const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
