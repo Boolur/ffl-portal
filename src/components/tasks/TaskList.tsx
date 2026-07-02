@@ -231,6 +231,7 @@ const qcChecklistTemplate: Array<{ id: string; label: string }> = [
   { id: 'income-documents', label: 'Verify Income Documents (Employed / Self Employed / Retired)' },
   { id: 'drivers-license', label: 'Verify IDs' },
   { id: 'dd214-veteran', label: 'Verify Veteran Documentation (COE, if applicable)' },
+  { id: 'signed-initial-disclosure-package', label: 'Signed Initial Disclosure Package' },
 ];
 
 const qcChecklistNoteOptions: Array<{ value: QcChecklistNoteOption; label: string }> = [
