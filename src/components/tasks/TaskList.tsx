@@ -1763,30 +1763,47 @@ function getContributorSummaryFromSubmissionData(
 ): ContributorSummary | null {
   if (!data || typeof data !== 'object') return null;
 
-  const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
-  if (!Array.isArray(notesHistory)) return null;
-
   const uniqueContributors: Array<{ name: string; role: UserRole | null }> = [];
   const seen = new Set<string>();
-
-  // Read newest to oldest so the tag order reflects latest contributors first.
-  for (let i = notesHistory.length - 1; i >= 0; i -= 1) {
-    const entry = notesHistory[i];
-    if (!entry || typeof entry !== 'object') continue;
-    const author = (entry as { author?: unknown }).author;
-    if (typeof author !== 'string') continue;
-    const normalized = author.trim();
-    if (!normalized) continue;
+  const addContributor = (nameValue: unknown, roleValue: unknown) => {
+    if (typeof nameValue !== 'string') return;
+    const normalized = nameValue.trim();
+    if (!normalized || normalized.toLowerCase() === 'system') return;
     const dedupeKey = normalized.toLowerCase();
-    if (seen.has(dedupeKey)) continue;
-    const roleRaw = (entry as { role?: unknown }).role;
+    if (seen.has(dedupeKey)) return;
     const normalizedRole =
-      typeof roleRaw === 'string' &&
-      (Object.values(UserRole) as string[]).includes(roleRaw)
-        ? (roleRaw as UserRole)
+      typeof roleValue === 'string' &&
+      (Object.values(UserRole) as string[]).includes(roleValue)
+        ? (roleValue as UserRole)
         : null;
     seen.add(dedupeKey);
     uniqueContributors.push({ name: normalized, role: normalizedRole });
+  };
+
+  const lifecycleHistory = (data as { lifecycleHistory?: unknown }).lifecycleHistory;
+  if (Array.isArray(lifecycleHistory)) {
+    for (let i = lifecycleHistory.length - 1; i >= 0; i -= 1) {
+      const entry = lifecycleHistory[i];
+      if (!entry || typeof entry !== 'object') continue;
+      addContributor(
+        (entry as { toAssignedUserName?: unknown }).toAssignedUserName,
+        (entry as { toAssignedRole?: unknown }).toAssignedRole
+      );
+      addContributor(
+        (entry as { actorName?: unknown }).actorName,
+        (entry as { actorRole?: unknown }).actorRole
+      );
+    }
+  }
+
+  // Read newest to oldest so the tag order reflects latest contributors first.
+  const notesHistory = (data as { notesHistory?: unknown }).notesHistory;
+  if (Array.isArray(notesHistory)) {
+    for (let i = notesHistory.length - 1; i >= 0; i -= 1) {
+      const entry = notesHistory[i];
+      if (!entry || typeof entry !== 'object') continue;
+      addContributor((entry as { author?: unknown }).author, (entry as { role?: unknown }).role);
+    }
   }
 
   if (uniqueContributors.length === 0) return null;
@@ -1823,8 +1840,8 @@ function WorkedByTags({
             contributor.role
           )}`}
           title={
-            contributor.role === UserRole.LOAN_OFFICER
-              ? `${contributor.name} (Loan Officer)`
+            contributor.role
+              ? `${contributor.name} (${getRoleDisplayLabel(contributor.role)})`
               : contributor.name
           }
         >
