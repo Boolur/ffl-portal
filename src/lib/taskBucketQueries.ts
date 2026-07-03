@@ -1,7 +1,10 @@
 import { prisma } from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminTiers';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
-import { normalizeProcessingAssignmentGroups } from '@/lib/processingRouting';
+import {
+  PROCESSING_ASSIGNMENT_OPTIONS,
+  normalizeProcessingAssignmentGroups,
+} from '@/lib/processingRouting';
 import {
   DisclosureDecisionReason,
   Prisma,
@@ -190,9 +193,18 @@ function buildProcessingRoutingWhere(
   processingAssignmentGroups: string[]
 ): Prisma.TaskWhereInput {
   const groups = normalizeProcessingAssignmentGroups(processingAssignmentGroups);
-  if (groups.length === 0) {
-    return { id: { equals: '__no_processing_routes_enabled__' } };
-  }
+  const unassignedRouteWhere: Prisma.TaskWhereInput = {
+    NOT: {
+      OR: PROCESSING_ASSIGNMENT_OPTIONS.map((option) => ({
+        submissionData: {
+          path: ['processingAssignmentGroup'],
+          equals: option.value,
+        },
+      })),
+    },
+  };
+
+  if (groups.length === 0) return unassignedRouteWhere;
 
   return {
     OR: [
@@ -208,6 +220,7 @@ function buildProcessingRoutingWhere(
           equals: Prisma.JsonNull,
         },
       },
+      unassignedRouteWhere,
     ],
   };
 }

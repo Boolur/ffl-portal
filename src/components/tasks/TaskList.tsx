@@ -39,6 +39,7 @@ import {
   saveJrProcessorChecklist,
   startDisclosureRequest,
   startQcRequest,
+  updateProcessingRoute,
   updateTaskStatus,
 } from '@/app/actions/taskActions';
 import {
@@ -66,8 +67,16 @@ import {
   type TaskLifecycleBreakdown,
 } from '@/lib/taskLifecycleTimeline';
 import {
+  PROCESSING_ASSIGNMENT_JACK_NGO,
+  PROCESSING_ASSIGNMENT_KATHY_BUI,
+  PROCESSING_ASSIGNMENT_THIRD_PARTY,
+  PROCESSING_METHOD_IN_HOUSE,
+  PROCESSING_METHOD_OPTIONS,
+  PROCESSING_METHOD_SELF_PROCESSED,
+  PROCESSING_METHOD_THIRD_PARTY,
   getProcessingAssignmentLabel,
   getProcessingMethodLabel,
+  type ProcessingMethod,
 } from '@/lib/processingRouting';
 
 const disclosureReasonOptions: Array<{
@@ -118,8 +127,15 @@ type SubmissionDetailGroup = {
 };
 
 type ProcessingRoutingSummary = {
+  method: string;
+  assignmentGroup: string;
   methodLabel: string;
   assignmentLabel: string;
+};
+
+type ProcessingRouteDraft = {
+  method: ProcessingMethod | '';
+  assignmentGroup: string;
 };
 
 type NoteHistoryEntry = {
@@ -945,10 +961,14 @@ function getProcessingRoutingSummary(
   const assignmentLabel =
     String(data.processingAssignmentLabel ?? '').trim() ||
     getProcessingAssignmentLabel(data.processingAssignmentGroup);
+  const method = String(data.processingMethod ?? '').trim();
+  const assignmentGroup = String(data.processingAssignmentGroup ?? '').trim();
 
   if (!methodLabel && !assignmentLabel) return null;
 
   return {
+    method,
+    assignmentGroup,
     methodLabel: methodLabel || 'Not selected',
     assignmentLabel:
       assignmentLabel || (methodLabel === 'Self Processed' ? 'No JR processor assigned' : ''),
@@ -2132,6 +2152,14 @@ export function TaskList({
     loanOfficerName: string | null;
   } | null>(null);
   const [attachmentOpenError, setAttachmentOpenError] = React.useState<string | null>(null);
+  const [editingProcessingRouteId, setEditingProcessingRouteId] = React.useState<string | null>(null);
+  const [updatingProcessingRouteId, setUpdatingProcessingRouteId] = React.useState<string | null>(null);
+  const [processingRouteDraftByTask, setProcessingRouteDraftByTask] = React.useState<
+    Record<string, ProcessingRouteDraft>
+  >({});
+  const [processingRouteStatusByTask, setProcessingRouteStatusByTask] = React.useState<
+    Record<string, { type: 'success' | 'error'; message: string }>
+  >({});
 
   const getQcChecklistRows = React.useCallback(
     (taskId: string) => qcChecklistByTask[taskId] ?? createDefaultQcChecklistRows(),
@@ -3392,6 +3420,108 @@ export function TaskList({
     setDeletingId(null);
   };
 
+  const openProcessingRouteEditor = (
+    taskId: string,
+    summary: ProcessingRoutingSummary | null
+  ) => {
+    const currentMethod = PROCESSING_METHOD_OPTIONS.some(
+      (option) => option.value === summary?.method
+    )
+      ? (summary?.method as ProcessingMethod)
+      : '';
+    const currentAssignmentGroup =
+      summary?.assignmentGroup === PROCESSING_ASSIGNMENT_KATHY_BUI ||
+      summary?.assignmentGroup === PROCESSING_ASSIGNMENT_JACK_NGO ||
+      summary?.assignmentGroup === PROCESSING_ASSIGNMENT_THIRD_PARTY
+        ? summary.assignmentGroup
+        : '';
+    setProcessingRouteStatusByTask((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+    setProcessingRouteDraftByTask((prev) => ({
+      ...prev,
+      [taskId]: {
+        method: currentMethod,
+        assignmentGroup: currentAssignmentGroup,
+      },
+    }));
+    setEditingProcessingRouteId(taskId);
+  };
+
+  const updateProcessingRouteDraft = (
+    taskId: string,
+    updates: Partial<ProcessingRouteDraft>
+  ) => {
+    setProcessingRouteDraftByTask((prev) => {
+      const current = prev[taskId] || { method: '', assignmentGroup: '' };
+      const next = { ...current, ...updates };
+      if (updates.method === PROCESSING_METHOD_THIRD_PARTY) {
+        next.assignmentGroup = PROCESSING_ASSIGNMENT_THIRD_PARTY;
+      } else if (updates.method === PROCESSING_METHOD_SELF_PROCESSED) {
+        next.assignmentGroup = '';
+      } else if (
+        updates.method === PROCESSING_METHOD_IN_HOUSE &&
+        next.assignmentGroup !== PROCESSING_ASSIGNMENT_KATHY_BUI &&
+        next.assignmentGroup !== PROCESSING_ASSIGNMENT_JACK_NGO
+      ) {
+        next.assignmentGroup = '';
+      }
+      return { ...prev, [taskId]: next };
+    });
+  };
+
+  const handleProcessingRouteUpdate = async (taskId: string) => {
+    if (updatingProcessingRouteId) return;
+    const draft = processingRouteDraftByTask[taskId];
+    if (!draft?.method) {
+      setProcessingRouteStatusByTask((prev) => ({
+        ...prev,
+        [taskId]: { type: 'error', message: 'Select a processing type first.' },
+      }));
+      return;
+    }
+    if (draft.method === PROCESSING_METHOD_IN_HOUSE && !draft.assignmentGroup) {
+      setProcessingRouteStatusByTask((prev) => ({
+        ...prev,
+        [taskId]: { type: 'error', message: 'Select Kathy Bui or Jack Ngo.' },
+      }));
+      return;
+    }
+    const confirmed = window.confirm(
+      draft.method === PROCESSING_METHOD_SELF_PROCESSED
+        ? 'Mark this Processing request as Self Processed and move it to Completed?'
+        : 'Change this Processing route and send the task back to the matching JR Processing queue?'
+    );
+    if (!confirmed) return;
+
+    setUpdatingProcessingRouteId(taskId);
+    const result = await updateProcessingRoute(taskId, {
+      processingMethod: draft.method,
+      processingAssignmentGroup: draft.assignmentGroup || null,
+    });
+    if (!result.success) {
+      setProcessingRouteStatusByTask((prev) => ({
+        ...prev,
+        [taskId]: {
+          type: 'error',
+          message: result.error || 'Failed to update Processing route.',
+        },
+      }));
+      setUpdatingProcessingRouteId(null);
+      return;
+    }
+    setProcessingRouteStatusByTask((prev) => ({
+      ...prev,
+      [taskId]: { type: 'success', message: 'Processing route updated.' },
+    }));
+    setEditingProcessingRouteId(null);
+    lockTaskActionUntilRefresh(taskId);
+    router.refresh();
+    setUpdatingProcessingRouteId(null);
+  };
+
   const toggleTaskExpanded = (taskId: string) => {
     setExpandedTaskIds((prev) => {
       const next = new Set(prev);
@@ -3935,10 +4065,18 @@ export function TaskList({
         if (processorAssignedNote.trim()) {
           submissionDataWithLoanOfficers.processorAssignedNote = processorAssignedNote.trim();
         }
-        const processingRoutingSummary =
+        const savedProcessingRoutingSummary =
           isQcSubmissionTask(task) || isQcLinkedLoResponseTask
             ? getProcessingRoutingSummary(submissionDataWithLoanOfficers)
             : null;
+        const processingRoutingSummary = isQcSubmissionTask(task)
+          ? savedProcessingRoutingSummary || {
+              method: '',
+              assignmentGroup: '',
+              methodLabel: 'Not selected',
+              assignmentLabel: 'No processor selected',
+            }
+          : savedProcessingRoutingSummary;
         const compactProcessingProcessorLabel =
           isQcSubmissionTask(task)
             ? processingRoutingSummary?.assignmentLabel || ''
@@ -3947,6 +4085,18 @@ export function TaskList({
           isQcSubmissionTask(task) && Boolean(compactProcessingProcessorLabel);
         const shouldShowLoanOfficerProcessingChecklist =
           isLoanOfficerLikeCurrentRole && isQcSubmissionTask(task);
+        const canEditProcessingRoute =
+          task.kind === TaskKind.SUBMIT_PROCESSING &&
+          (currentRole === UserRole.PROCESSOR_JR ||
+            currentRole === UserRole.MANAGER ||
+            isAdmin(currentRole as UserRole));
+        const processingRouteDraft = processingRouteDraftByTask[task.id] || {
+          method: '',
+          assignmentGroup: '',
+        };
+        const processingRouteStatus = processingRouteStatusByTask[task.id] || null;
+        const isEditingProcessingRoute = editingProcessingRouteId === task.id;
+        const isProcessingRouteSaving = updatingProcessingRouteId === task.id;
         const submissionDataGroups = getGroupedSubmissionDetails(submissionDataWithLoanOfficers);
         const isVaSubmissionView =
           isVaTaskKind(task.kind) && (isVaSubRole || isManagerRole);
@@ -4430,6 +4580,118 @@ export function TaskList({
                   )}
 
                   <ProcessingRoutingSummaryCard summary={processingRoutingSummary} />
+
+                  {canEditProcessingRoute && (
+                    <div className="mt-3 rounded-2xl border border-violet-200 bg-white p-4 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-violet-700">
+                            Processing Route Controls
+                          </p>
+                          <p className="mt-0.5 text-xs font-medium text-slate-500">
+                            Change the processing type or selected processor and send the file to the matching queue.
+                          </p>
+                        </div>
+                        {!isEditingProcessingRoute && (
+                          <button
+                            type="button"
+                            onClick={() => openProcessingRouteEditor(task.id, processingRoutingSummary)}
+                            disabled={isTaskActionLocked || isProcessingRouteSaving}
+                            className="inline-flex h-8 items-center rounded-lg border border-violet-300 bg-violet-50 px-3 text-xs font-semibold text-violet-800 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Change Route
+                          </button>
+                        )}
+                      </div>
+
+                      {isEditingProcessingRoute && (
+                        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+                          <label className="space-y-1 text-xs font-semibold text-slate-600">
+                            <span>Processing Type</span>
+                            <select
+                              value={processingRouteDraft.method}
+                              onChange={(event) =>
+                                updateProcessingRouteDraft(task.id, {
+                                  method: event.target.value as ProcessingMethod,
+                                })
+                              }
+                              disabled={isProcessingRouteSaving}
+                              className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <option value="">Select processing type...</option>
+                              {PROCESSING_METHOD_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="space-y-1 text-xs font-semibold text-slate-600">
+                            <span>Processor / Route</span>
+                            {processingRouteDraft.method === PROCESSING_METHOD_IN_HOUSE ? (
+                              <select
+                                value={processingRouteDraft.assignmentGroup}
+                                onChange={(event) =>
+                                  updateProcessingRouteDraft(task.id, {
+                                    assignmentGroup: event.target.value,
+                                  })
+                                }
+                                disabled={isProcessingRouteSaving}
+                                className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <option value="">Select processor...</option>
+                                <option value={PROCESSING_ASSIGNMENT_KATHY_BUI}>Kathy Bui</option>
+                                <option value={PROCESSING_ASSIGNMENT_JACK_NGO}>Jack Ngo</option>
+                              </select>
+                            ) : (
+                              <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-600">
+                                {processingRouteDraft.method === PROCESSING_METHOD_THIRD_PARTY
+                                  ? 'Contract/3rd Party'
+                                  : processingRouteDraft.method === PROCESSING_METHOD_SELF_PROCESSED
+                                  ? 'No JR processor assigned'
+                                  : 'Select processing type first'}
+                              </div>
+                            )}
+                          </label>
+
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleProcessingRouteUpdate(task.id)}
+                              disabled={isProcessingRouteSaving || isTaskActionLocked}
+                              className="inline-flex h-9 items-center rounded-lg bg-violet-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isProcessingRouteSaving && (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              )}
+                              Save Route
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingProcessingRouteId(null)}
+                              disabled={isProcessingRouteSaving}
+                              className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {processingRouteStatus && (
+                        <p
+                          className={`mt-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                            processingRouteStatus.type === 'success'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-rose-200 bg-rose-50 text-rose-700'
+                          }`}
+                        >
+                          {processingRouteStatus.message}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {shouldShowLoanOfficerProcessingChecklist && (
                     <ReadOnlyProcessingChecklist rows={qcChecklistRows} />

@@ -4750,6 +4750,151 @@ export async function startQcRequest(taskId: string) {
   }
 }
 
+export async function updateProcessingRoute(
+  taskId: string,
+  input: {
+    processingMethod: string;
+    processingAssignmentGroup?: string | null;
+  }
+) {
+  const perfStartedAt = Date.now();
+  try {
+    const session = await getServerSession(authOptions);
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
+    const userId = session?.user?.id as string | undefined;
+    if (!role || !userId) return { success: false, error: 'Not authenticated.' };
+
+    const canUpdate =
+      isAdmin(role) || role === UserRole.MANAGER || role === UserRole.PROCESSOR_JR;
+    if (!canUpdate) {
+      return {
+        success: false,
+        error: 'Only Jr Processors, Manager, or Admin can change the Processing route.',
+      };
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        workflowState: true,
+        assignedUserId: true,
+        assignedRole: true,
+        dueDate: true,
+        assignedUser: { select: { name: true } },
+        submissionData: true,
+      },
+    });
+
+    if (!task) return { success: false, error: 'Task not found.' };
+    if (task.kind !== TaskKind.SUBMIT_PROCESSING) {
+      return {
+        success: false,
+        error: 'Only Submit to Processing requests can have their Processing route changed.',
+      };
+    }
+
+    const processingMethod = String(input.processingMethod ?? '').trim();
+    if (!isProcessingMethod(processingMethod)) {
+      return { success: false, error: 'Please select a valid Processing Method.' };
+    }
+
+    let processingAssignmentGroup: string | null = null;
+    if (processingMethod === PROCESSING_METHOD_IN_HOUSE) {
+      const assignmentGroup = String(input.processingAssignmentGroup ?? '').trim();
+      if (
+        assignmentGroup !== PROCESSING_ASSIGNMENT_KATHY_BUI &&
+        assignmentGroup !== PROCESSING_ASSIGNMENT_JACK_NGO
+      ) {
+        return {
+          success: false,
+          error: 'Please select Kathy Bui or Jack Ngo for in-house Processing.',
+        };
+      }
+      processingAssignmentGroup = assignmentGroup;
+    } else if (processingMethod === PROCESSING_METHOD_THIRD_PARTY) {
+      processingAssignmentGroup = PROCESSING_ASSIGNMENT_THIRD_PARTY;
+    } else if (processingMethod === PROCESSING_METHOD_SELF_PROCESSED) {
+      processingAssignmentGroup = null;
+    }
+
+    if (
+      processingAssignmentGroup &&
+      !isProcessingAssignmentGroup(processingAssignmentGroup)
+    ) {
+      return { success: false, error: 'Please select a valid Processing route.' };
+    }
+
+    const methodLabel = getProcessingMethodLabel(processingMethod);
+    const assignmentLabel = getProcessingAssignmentLabel(processingAssignmentGroup);
+    const actorName = session?.user?.name || 'Team Member';
+    const routeText = assignmentLabel ? `${methodLabel} - ${assignmentLabel}` : methodLabel;
+    const dataObj =
+      task.submissionData && typeof task.submissionData === 'object' && !Array.isArray(task.submissionData)
+        ? { ...(task.submissionData as Record<string, unknown>) }
+        : {};
+    dataObj.processingMethod = processingMethod;
+    dataObj.processingMethodLabel = methodLabel;
+    dataObj.processingAssignmentGroup = processingAssignmentGroup;
+    dataObj.processingAssignmentLabel = assignmentLabel;
+
+    let updatedSubmissionData = appendSubmissionHistoryEntry(dataObj as Prisma.JsonObject, {
+      author: actorName,
+      role,
+      message: `Processing route changed to ${routeText}.`,
+      entryType: 'status',
+    });
+
+    const isSelfProcessed = processingMethod === PROCESSING_METHOD_SELF_PROCESSED;
+    updatedSubmissionData = appendLifecycleHistoryEvent(updatedSubmissionData, {
+      actorName,
+      actorRole: role,
+      eventType: isSelfProcessed ? 'COMPLETED' : 'ASSIGNMENT_CHANGED',
+      fromStatus: task.status,
+      toStatus: isSelfProcessed ? TaskStatus.COMPLETED : TaskStatus.PENDING,
+      fromWorkflow: task.workflowState,
+      toWorkflow: TaskWorkflowState.NONE,
+      fromAssignedUserId: task.assignedUserId,
+      toAssignedUserId: null,
+      fromAssignedUserName: task.assignedUser?.name || null,
+      toAssignedUserName: null,
+      fromAssignedRole: task.assignedRole,
+      toAssignedRole: isSelfProcessed ? null : UserRole.PROCESSOR_JR,
+      note: `Processing route changed to ${routeText}.`,
+    }) as Prisma.JsonObject;
+
+    await prisma.task.update({
+      where: { id: task.id },
+      data: {
+        submissionData: updatedSubmissionData,
+        assignedUserId: null,
+        assignedRole: isSelfProcessed ? null : UserRole.PROCESSOR_JR,
+        status: isSelfProcessed ? TaskStatus.COMPLETED : TaskStatus.PENDING,
+        workflowState: TaskWorkflowState.NONE,
+        completedAt: isSelfProcessed ? new Date() : null,
+        dueDate: isSelfProcessed
+          ? null
+          : task.dueDate || new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update processing route:', error);
+    return { success: false, error: 'Failed to update Processing route.' };
+  } finally {
+    recordPerfMetric('action.updateProcessingRoute', Date.now() - perfStartedAt, {
+      taskId,
+    });
+  }
+}
+
 export async function requestInfoFromLoanOfficer(taskId: string, input: RequestInfoInput) {
   const perfStartedAt = Date.now();
   try {
