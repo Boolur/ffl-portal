@@ -102,8 +102,10 @@ async function getDashboardTasks(role: UserRole, userId?: string) {
           parentTaskId: true,
           loanOfficerApprovedAt: true,
           assignedRole: true,
+          assignedUserId: true,
           assignedUser: {
             select: {
+              id: true,
               name: true,
             },
           },

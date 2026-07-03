@@ -16,19 +16,37 @@ type QcTask = {
   kind: TaskKind | null;
   status: TaskStatus;
   workflowState: TaskWorkflowState;
+  assignedUserId?: string | null;
 };
 
 function isQcTask(task: QcTask) {
   return task.kind === TaskKind.SUBMIT_PROCESSING;
 }
 
-export function QcOverview({ tasks }: { tasks: QcTask[] }) {
+export function QcOverview({
+  tasks,
+  currentUserId,
+  personalStarted = false,
+}: {
+  tasks: QcTask[];
+  currentUserId?: string;
+  personalStarted?: boolean;
+}) {
   const qcTasks = tasks.filter(isQcTask);
 
   const newCount = qcTasks.filter(
     (task) =>
+      task.status === TaskStatus.PENDING &&
+      task.workflowState === TaskWorkflowState.NONE &&
+      !task.assignedUserId
+  ).length;
+
+  const startedCount = qcTasks.filter(
+    (task) =>
       task.status !== TaskStatus.COMPLETED &&
-      task.workflowState === TaskWorkflowState.NONE
+      task.workflowState === TaskWorkflowState.NONE &&
+      Boolean(task.assignedUserId) &&
+      (!currentUserId || task.assignedUserId === currentUserId)
   ).length;
 
   const waitingMissingCount = qcTasks.filter(
@@ -59,6 +77,19 @@ export function QcOverview({ tasks }: { tasks: QcTask[] }) {
       subtitle: 'Newly submitted processing files ready for first review.',
       count: newCount,
       href: '/tasks?bucket=qc-new',
+    },
+    {
+      id: 'qc-started',
+      title: personalStarted ? 'My Started Processing Requests' : 'Started Processing Requests',
+      chipLabel: personalStarted ? 'My Started' : 'Started',
+      chipClassName: 'border-sky-200 bg-sky-50 text-sky-700 shadow-sm',
+      icon: Clock,
+      iconClassName: 'bg-sky-100 text-sky-600',
+      subtitle: personalStarted
+        ? 'Files you already started and need to continue working.'
+        : 'Files claimed by Jr Processing and currently in progress.',
+      count: startedCount,
+      href: '/tasks?bucket=qc-started',
     },
     {
       id: 'qc-waiting-missing',
@@ -98,7 +129,7 @@ export function QcOverview({ tasks }: { tasks: QcTask[] }) {
   return (
     <div className="space-y-6">
       <Link
-        href="/tasks?bucket=qc-new"
+        href={startedCount > 0 ? '/tasks?bucket=qc-started' : '/tasks?bucket=qc-new'}
         className="group relative flex items-center justify-between overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50/50 p-5 shadow-sm transition-all hover:shadow-md hover:border-violet-300"
       >
         <div className="absolute -left-6 -top-6 h-24 w-24 rounded-full bg-violet-400 opacity-10 blur-2xl group-hover:opacity-20 transition-opacity"></div>
@@ -111,7 +142,11 @@ export function QcOverview({ tasks }: { tasks: QcTask[] }) {
           <div>
             <p className="text-lg font-extrabold tracking-tight text-violet-950">New Processing Requests in Queue</p>
             <p className="text-sm font-medium text-violet-800/80">
-              {newCount > 0
+              {startedCount > 0
+                ? personalStarted
+                  ? `${startedCount} started request${startedCount === 1 ? '' : 's'} waiting in your personal queue.`
+                  : `${startedCount} started request${startedCount === 1 ? '' : 's'} currently in progress.`
+                : newCount > 0
                 ? `${newCount} request${newCount === 1 ? '' : 's'} ready for first review.`
                 : 'No new processing requests waiting right now.'}
             </p>
@@ -119,7 +154,7 @@ export function QcOverview({ tasks }: { tasks: QcTask[] }) {
         </div>
         <div className="relative flex items-center gap-4">
           <span className="inline-flex h-10 min-w-10 items-center justify-center rounded-full bg-white px-3 text-lg font-black text-violet-700 shadow-sm ring-1 ring-violet-100">
-            {newCount}
+            {startedCount > 0 ? startedCount : newCount}
           </span>
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-100 text-violet-600 opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-1">
             <ArrowRight className="h-4 w-4" />
@@ -127,7 +162,7 @@ export function QcOverview({ tasks }: { tasks: QcTask[] }) {
         </div>
       </Link>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-5">
         {cards.map((card) => (
           <Link
             key={card.id}

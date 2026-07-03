@@ -48,8 +48,9 @@ type DashboardTask = {
   } | null;
   loanOfficerApprovedAt: Date | null;
   submissionData?: Prisma.JsonValue | null;
+  assignedUserId: string | null;
   assignedRole: string | null;
-  assignedUser: { name: string } | null;
+  assignedUser: { id?: string; name: string } | null;
   loan: {
     loanNumber: string;
     borrowerName: string;
@@ -76,6 +77,7 @@ type DashboardWrapperProps = {
     name: string;
   }>;
   user: {
+    id?: string;
     name: string;
     role: string;
     email?: string;
@@ -218,7 +220,7 @@ function DashboardContent({
       )}
 
       {activeRole === UserRole.PROCESSOR_JR && (
-        <QcOverview tasks={roleTasks} />
+        <QcOverview tasks={roleTasks} currentUserId={user.id} personalStarted />
       )}
 
       {/* Processor SR keeps the standard task list view */}

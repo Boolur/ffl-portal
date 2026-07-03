@@ -1,7 +1,7 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
-import { TaskKind, UserRole } from '@prisma/client';
+import { TaskKind, TaskStatus, TaskWorkflowState, UserRole } from '@prisma/client';
 import { withPerfMetric } from '@/lib/perf';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import { isAdmin } from '@/lib/adminTiers';
@@ -17,6 +17,7 @@ export async function getAllTasks(filter?: TaskFilter) {
   const isAdminOrManager =
     isAdmin(role) || role === UserRole.MANAGER || role === UserRole.LOA;
   const isGenericVa = role === UserRole.VA;
+  const isJrProcessor = role === UserRole.PROCESSOR_JR;
   const needsRichTaskPayload = role === UserRole.LOAN_OFFICER || role === UserRole.LOA;
   const activeTaskWhere = {
     OR: [
@@ -40,6 +41,31 @@ export async function getAllTasks(filter?: TaskFilter) {
         }
       : isGenericVa
         ? { id: '__none__' }
+      : isJrProcessor
+        ? {
+            AND: [
+              activeTaskWhere,
+              {
+                OR: [
+                  {
+                    kind: TaskKind.SUBMIT_PROCESSING,
+                    status: TaskStatus.PENDING,
+                    workflowState: TaskWorkflowState.NONE,
+                    assignedUserId: null,
+                  },
+                  {
+                    kind: TaskKind.SUBMIT_PROCESSING,
+                    status: { not: TaskStatus.COMPLETED },
+                    assignedUserId: userId,
+                  },
+                  {
+                    kind: TaskKind.SUBMIT_PROCESSING,
+                    status: TaskStatus.COMPLETED,
+                  },
+                ],
+              },
+            ],
+          }
       : {
           AND: [
             activeTaskWhere,
@@ -86,6 +112,7 @@ export async function getAllTasks(filter?: TaskFilter) {
           },
           assignedUser: {
             select: {
+              id: true,
               name: true,
             },
           },
@@ -125,8 +152,10 @@ export async function getAllTasks(filter?: TaskFilter) {
           parentTaskId: true,
           loanOfficerApprovedAt: true,
           assignedRole: true,
+          assignedUserId: true,
           assignedUser: {
             select: {
+              id: true,
               name: true,
             },
           },

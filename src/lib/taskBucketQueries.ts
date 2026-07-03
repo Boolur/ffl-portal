@@ -803,6 +803,14 @@ export function getTaskBucketSpecsForRole(
     return withBaseWhere(
       bySections('qc'),
       getRoleBaseWhere(role, userId, processingAssignmentGroups)
+    ).map((spec) =>
+      spec.id === 'qc-started'
+        ? {
+            ...spec,
+            label: 'My Started Processing Requests',
+            chipLabel: 'My Started',
+          }
+        : spec
     );
   }
   if (role === UserRole.VA_TITLE) {

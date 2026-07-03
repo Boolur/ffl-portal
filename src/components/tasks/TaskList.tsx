@@ -65,6 +65,10 @@ import {
   formatLifecycleDuration,
   type TaskLifecycleBreakdown,
 } from '@/lib/taskLifecycleTimeline';
+import {
+  getProcessingAssignmentLabel,
+  getProcessingMethodLabel,
+} from '@/lib/processingRouting';
 
 const disclosureReasonOptions: Array<{
   value: DisclosureDecisionReason;
@@ -111,6 +115,11 @@ type SubmissionDetailRow = {
 type SubmissionDetailGroup = {
   title: string;
   rows: SubmissionDetailRow[];
+};
+
+type ProcessingRoutingSummary = {
+  methodLabel: string;
+  assignmentLabel: string;
 };
 
 type NoteHistoryEntry = {
@@ -783,6 +792,8 @@ const submissionDetailLabels: Record<string, string> = {
   mannerInWhichTitleWillBeHeld: 'Manner in Which Title Will be Held',
   channel: 'Channel',
   investor: 'Investor',
+  processingMethodLabel: 'Processing Method',
+  processingAssignmentLabel: 'Selected Processor',
   runId: 'Run ID',
   pricingOption: 'Pricing Option',
   creditReportType: 'Credit Report Type',
@@ -922,6 +933,26 @@ function getGroupedSubmissionDetails(
   }
 
   return groups;
+}
+
+function getProcessingRoutingSummary(
+  data: Record<string, unknown> | null
+): ProcessingRoutingSummary | null {
+  if (!data) return null;
+  const methodLabel =
+    String(data.processingMethodLabel ?? '').trim() ||
+    getProcessingMethodLabel(data.processingMethod);
+  const assignmentLabel =
+    String(data.processingAssignmentLabel ?? '').trim() ||
+    getProcessingAssignmentLabel(data.processingAssignmentGroup);
+
+  if (!methodLabel && !assignmentLabel) return null;
+
+  return {
+    methodLabel: methodLabel || 'Not selected',
+    assignmentLabel:
+      assignmentLabel || (methodLabel === 'Self Processed' ? 'No JR processor assigned' : ''),
+  };
 }
 
 function getVaSubmissionDetails(groups: SubmissionDetailGroup[]): SubmissionDetailGroup[] {
@@ -1800,6 +1831,120 @@ function WorkedByTags({
           <span className="truncate">{contributor.name}</span>
         </span>
       ))}
+    </div>
+  );
+}
+
+function ProcessingRoutingSummaryCard({
+  summary,
+  compact = false,
+}: {
+  summary: ProcessingRoutingSummary | null;
+  compact?: boolean;
+}) {
+  if (!summary) return null;
+
+  if (compact) {
+    return (
+      <div className="mt-2 rounded-xl border border-violet-200 bg-violet-50/70 px-3 py-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">
+          Selected Processing Route
+        </p>
+        <p className="mt-0.5 text-xs font-semibold text-slate-900">
+          {summary.methodLabel}
+          {summary.assignmentLabel ? ` - ${summary.assignmentLabel}` : ''}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-8 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-blue-50 p-5 shadow-sm">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-700">
+            Selected Processing Route
+          </p>
+          <h3 className="mt-1 text-lg font-extrabold text-slate-950">
+            {summary.assignmentLabel || summary.methodLabel}
+          </h3>
+          <p className="mt-1 text-sm font-medium text-slate-600">
+            Processing Method: {summary.methodLabel}
+          </p>
+        </div>
+        <div className="rounded-xl border border-violet-200 bg-white px-4 py-3 text-sm shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            Processor Selected By LO
+          </p>
+          <p className="mt-1 text-base font-bold text-violet-800">
+            {summary.assignmentLabel || 'No JR processor assigned'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReadOnlyProcessingChecklist({
+  rows,
+}: {
+  rows: QcChecklistDraftItem[];
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-8 rounded-2xl border border-violet-100 bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-700">
+            Processing Task List
+          </p>
+          <h3 className="mt-1 text-lg font-extrabold text-slate-950">
+            JR Processor Checklist
+          </h3>
+          <p className="mt-1 text-sm font-medium text-slate-600">
+            Read-only view of the checklist the JR Processor is working through.
+          </p>
+        </div>
+        <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-violet-700">
+          LO View
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {rows.map((row) => {
+          const status = getQcChecklistStatusFromOption(row.noteOption);
+          const statusMeta = getQcChecklistStatusPresentation(status);
+          const StatusIcon = getQcChecklistStatusIcon(status);
+          const noteLabel = row.noteOption
+            ? getChecklistNoteOptionLabel(row.noteOption)
+            : 'Not started yet';
+          return (
+            <div
+              key={row.id}
+              className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3"
+            >
+              <div className="flex items-start gap-3">
+                <span
+                  className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${statusMeta.className}`}
+                  aria-label={status ? statusMeta.label : 'Not started yet'}
+                  title={status ? statusMeta.label : 'Not started yet'}
+                >
+                  <StatusIcon className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-slate-900">{row.label}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-600">{noteLabel}</p>
+                  {row.noteText.trim() && (
+                    <p className="mt-1 text-xs font-medium leading-5 text-slate-500">
+                      {row.noteText.trim()}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -3773,6 +3918,22 @@ export function TaskList({
         if (processorAssignedNote.trim()) {
           submissionDataWithLoanOfficers.processorAssignedNote = processorAssignedNote.trim();
         }
+        const processingRoutingSummary =
+          isQcSubmissionTask(task) || isQcLinkedLoResponseTask
+            ? getProcessingRoutingSummary(submissionDataWithLoanOfficers)
+            : null;
+        const compactProcessingProcessorLabel =
+          isQcSubmissionTask(task)
+            ? processingRoutingSummary?.assignmentLabel || processorAssignedLabel || assignedSpecialistName
+            : '';
+        const shouldShowCompactProcessingProcessor =
+          isQcSubmissionTask(task) && Boolean(compactProcessingProcessorLabel);
+        const shouldShowCompactAssignedJr =
+          shouldShowCompactProcessingProcessor &&
+          Boolean(assignedSpecialistName) &&
+          assignedSpecialistName !== compactProcessingProcessorLabel;
+        const shouldShowLoanOfficerProcessingChecklist =
+          isLoanOfficerLikeCurrentRole && isQcSubmissionTask(task);
         const submissionDataGroups = getGroupedSubmissionDetails(submissionDataWithLoanOfficers);
         const isVaSubmissionView =
           isVaTaskKind(task.kind) && (isVaSubRole || isManagerRole);
@@ -4116,21 +4277,40 @@ export function TaskList({
                         </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleTaskExpanded(task.id);
-                        }}
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                        aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
-                      >
-                        {isExpanded ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
+                      <div className="inline-flex w-full items-start justify-between gap-1.5 sm:w-auto sm:shrink-0 sm:justify-end">
+                        {shouldShowCompactProcessingProcessor && (
+                          <div className="flex min-w-0 flex-col items-start gap-1 sm:items-end">
+                            <p className="inline-flex max-w-full items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-800">
+                              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white text-violet-700 ring-1 ring-violet-200">
+                                <User className="h-2.5 w-2.5" />
+                              </span>
+                              <span className="truncate">
+                                Processor: {compactProcessingProcessorLabel}
+                              </span>
+                            </p>
+                            {shouldShowCompactAssignedJr && (
+                              <p className="inline-flex max-w-full items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-800">
+                                <span className="truncate">JR: {assignedSpecialistName}</span>
+                              </p>
+                            )}
+                          </div>
                         )}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleTaskExpanded(task.id);
+                          }}
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                          aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -4154,6 +4334,7 @@ export function TaskList({
                     )}
                   </div>
                   <WorkedByTags summary={workedBySummary} compact className="mt-1.5" />
+                  <ProcessingRoutingSummaryCard summary={processingRoutingSummary} compact />
                   {isManagerRole && (
                     <div className="mt-2 flex justify-end">
                       <button
@@ -4242,6 +4423,12 @@ export function TaskList({
                         </div>
                       </div>
                     </div>
+                  )}
+
+                  <ProcessingRoutingSummaryCard summary={processingRoutingSummary} />
+
+                  {shouldShowLoanOfficerProcessingChecklist && (
+                    <ReadOnlyProcessingChecklist rows={qcChecklistRows} />
                   )}
 
                   <div className="mt-8">

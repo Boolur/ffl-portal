@@ -68,6 +68,7 @@ type TaskBucketFilter =
   | 'returned-to-qc'
   | 'qc-completed'
   | 'qc-new'
+  | 'qc-started'
   | 'qc-waiting-missing'
   | 'qc-lo-responded'
   | 'qc-completed-requests'
@@ -106,6 +107,7 @@ function normalizeBucketFilter(value?: string): TaskBucketFilter | null {
     value === 'returned-to-qc' ||
     value === 'qc-completed' ||
     value === 'qc-new' ||
+    value === 'qc-started' ||
     value === 'qc-waiting-missing' ||
     value === 'qc-lo-responded' ||
     value === 'qc-completed-requests' ||
