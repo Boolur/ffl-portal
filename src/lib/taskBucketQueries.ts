@@ -1,10 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminTiers';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
-import {
-  PROCESSING_ASSIGNMENT_OPTIONS,
-  normalizeProcessingAssignmentGroups,
-} from '@/lib/processingRouting';
+import { normalizeProcessingAssignmentGroups } from '@/lib/processingRouting';
 import {
   DisclosureDecisionReason,
   Prisma,
@@ -189,40 +186,22 @@ function andWhere(...clauses: Prisma.TaskWhereInput[]): Prisma.TaskWhereInput {
 
 const notCompleted = { status: { not: TaskStatus.COMPLETED } } satisfies Prisma.TaskWhereInput;
 
-function buildProcessingRoutingWhere(
-  processingAssignmentGroups: string[]
-): Prisma.TaskWhereInput {
+async function getVisibleJrNewProcessingTaskIds(processingAssignmentGroups: string[]) {
   const groups = normalizeProcessingAssignmentGroups(processingAssignmentGroups);
-  const unassignedRouteWhere: Prisma.TaskWhereInput = {
-    NOT: {
-      OR: PROCESSING_ASSIGNMENT_OPTIONS.map((option) => ({
-        submissionData: {
-          path: ['processingAssignmentGroup'],
-          equals: option.value,
-        },
-      })),
-    },
-  };
-
-  if (groups.length === 0) return unassignedRouteWhere;
-
-  return {
-    OR: [
-      ...groups.map((group) => ({
-        submissionData: {
-          path: ['processingAssignmentGroup'],
-          equals: group,
-        },
-      })),
-      {
-        submissionData: {
-          path: ['processingAssignmentGroup'],
-          equals: Prisma.JsonNull,
-        },
-      },
-      unassignedRouteWhere,
-    ],
-  };
+  const routeClause =
+    groups.length > 0
+      ? Prisma.sql`(("submissionData"->>'processingAssignmentGroup') IS NULL OR ("submissionData"->>'processingAssignmentGroup') IN (${Prisma.join(groups)}))`
+      : Prisma.sql`("submissionData"->>'processingAssignmentGroup') IS NULL`;
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id"
+    FROM "Task"
+    WHERE "kind" = 'SUBMIT_PROCESSING'
+      AND "status" = 'PENDING'
+      AND "workflowState" = 'NONE'
+      AND "assignedUserId" IS NULL
+      AND ${routeClause}
+  `;
+  return rows.map((row) => row.id);
 }
 
 export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
@@ -730,11 +709,7 @@ function buildVaSpecialistBaseWhere(role: UserRole, userId?: string): Prisma.Tas
   };
 }
 
-function getRoleBaseWhere(
-  role: UserRole,
-  userId?: string,
-  processingAssignmentGroups: string[] = []
-): Prisma.TaskWhereInput {
+function getRoleBaseWhere(role: UserRole, userId?: string): Prisma.TaskWhereInput {
   if (role === UserRole.LOAN_OFFICER && userId) return buildLoanOfficerTaskWhere(userId);
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
     return {
@@ -767,7 +742,6 @@ function getRoleBaseWhere(
               workflowState: TaskWorkflowState.NONE,
               assignedUserId: null,
             },
-            buildProcessingRoutingWhere(processingAssignmentGroups),
           ],
         },
         {
@@ -792,11 +766,7 @@ function getRoleBaseWhere(
   return {};
 }
 
-export function getTaskBucketSpecsForRole(
-  role: UserRole,
-  userId?: string,
-  processingAssignmentGroups: string[] = []
-): TaskBucketSpec[] {
+export function getTaskBucketSpecsForRole(role: UserRole, userId?: string): TaskBucketSpec[] {
   if (isAdmin(role) || role === UserRole.MANAGER) {
     return bySections('disclosure', 'qc');
   }
@@ -815,7 +785,7 @@ export function getTaskBucketSpecsForRole(
   if (role === UserRole.PROCESSOR_JR) {
     return withBaseWhere(
       bySections('qc'),
-      getRoleBaseWhere(role, userId, processingAssignmentGroups)
+      getRoleBaseWhere(role, userId)
     ).map((spec) =>
       spec.id === 'qc-started'
         ? {
@@ -842,11 +812,10 @@ export function getTaskBucketSpec(
   role: UserRole,
   bucketId: string,
   sectionId?: string,
-  userId?: string,
-  processingAssignmentGroups: string[] = []
+  userId?: string
 ): TaskBucketSpec | null {
   return (
-    getTaskBucketSpecsForRole(role, userId, processingAssignmentGroups).find(
+    getTaskBucketSpecsForRole(role, userId).find(
       (spec) => spec.id === bucketId && (!sectionId || spec.sectionId === sectionId)
     ) || null
   );
@@ -1155,16 +1124,24 @@ export async function queryTaskBucketPage({
     role,
     bucketId,
     sectionId,
-    userId,
-    processingAssignmentGroups
+    userId
   );
   if (!spec) {
     throw new Error('Unknown task bucket.');
   }
   const safePageSize = Math.max(1, Math.min(50, Math.floor(pageSize)));
   const effectiveSort = sort || spec.defaultSort;
+  const jrNewProcessingTaskIds =
+    role === UserRole.PROCESSOR_JR && bucketId === 'qc-new'
+      ? await getVisibleJrNewProcessingTaskIds(processingAssignmentGroups)
+      : null;
   const where = applySearch(
-    applySearch(spec.where, globalSearch ?? search),
+    applySearch(
+      jrNewProcessingTaskIds
+        ? andWhere(spec.where, { id: { in: jrNewProcessingTaskIds } })
+        : spec.where,
+      globalSearch ?? search
+    ),
     bucketSearch
   );
   const orderBy = getOrderBy(effectiveSort);
@@ -1221,14 +1198,22 @@ export async function queryTaskBucketCount({
     role,
     bucketId,
     sectionId,
-    userId,
-    processingAssignmentGroups
+    userId
   );
   if (!spec) {
     throw new Error('Unknown task bucket.');
   }
+  const jrNewProcessingTaskIds =
+    role === UserRole.PROCESSOR_JR && bucketId === 'qc-new'
+      ? await getVisibleJrNewProcessingTaskIds(processingAssignmentGroups)
+      : null;
   const where = applySearch(
-    applySearch(spec.where, globalSearch ?? search),
+    applySearch(
+      jrNewProcessingTaskIds
+        ? andWhere(spec.where, { id: { in: jrNewProcessingTaskIds } })
+        : spec.where,
+      globalSearch ?? search
+    ),
     bucketSearch
   );
   return prisma.task.count({ where });
@@ -1297,8 +1282,7 @@ function toPagedBucketsBySection(
 }
 
 export async function queryInitialTaskBucketsForRole(role: UserRole, userId?: string) {
-  const processingAssignmentGroups = await getProcessingAssignmentGroupsForUser(role, userId);
-  const specs = getTaskBucketSpecsForRole(role, userId, processingAssignmentGroups);
+  const specs = getTaskBucketSpecsForRole(role, userId);
   const buckets = await Promise.all(
     specs.map((spec) =>
       queryTaskBucketPage({
