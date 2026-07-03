@@ -2106,6 +2106,9 @@ export function TaskList({
   const [optimisticTaskStatusById, setOptimisticTaskStatusById] = React.useState<
     Record<string, TaskStatus>
   >({});
+  const [locallyStartedDeskTaskIds, setLocallyStartedDeskTaskIds] = React.useState<Set<string>>(
+    () => new Set()
+  );
   const [optimisticallyHiddenTaskIds, setOptimisticallyHiddenTaskIds] = React.useState<Set<string>>(
     () => new Set()
   );
@@ -2613,6 +2616,11 @@ export function TaskList({
     lockedTaskActionTimeoutsRef.current = {};
     setOptimisticTaskStatusById({});
     setOptimisticallyHiddenTaskIds(new Set());
+    setLocallyStartedDeskTaskIds((prev) => {
+      const currentTaskIds = new Set(tasks.map((task) => task.id));
+      const next = new Set(Array.from(prev).filter((taskId) => currentTaskIds.has(taskId)));
+      return next.size === prev.size ? prev : next;
+    });
     Object.values(optimisticTaskResetTimeoutsRef.current).forEach((timerId) => {
       window.clearTimeout(timerId);
     });
@@ -3264,6 +3272,11 @@ export function TaskList({
       return;
     }
     lockTaskActionUntilRefresh(taskId);
+    setLocallyStartedDeskTaskIds((prev) => {
+      const next = new Set(prev);
+      next.add(taskId);
+      return next;
+    });
     applyOptimisticTaskUpdate(taskId, {
       nextStatus: TaskStatus.IN_PROGRESS,
     });
@@ -3288,6 +3301,11 @@ export function TaskList({
       return;
     }
     lockTaskActionUntilRefresh(taskId);
+    setLocallyStartedDeskTaskIds((prev) => {
+      const next = new Set(prev);
+      next.add(taskId);
+      return next;
+    });
     applyOptimisticTaskUpdate(taskId, {
       nextStatus: TaskStatus.IN_PROGRESS,
     });
@@ -3587,9 +3605,22 @@ export function TaskList({
       {tasks
         .filter((task) => !optimisticTaskUiEnabled || !optimisticallyHiddenTaskIds.has(task.id))
         .map((rawTask) => {
-        const task = optimisticTaskUiEnabled && optimisticTaskStatusById[rawTask.id]
-          ? { ...rawTask, status: optimisticTaskStatusById[rawTask.id] }
-          : rawTask;
+        const locallyStartedByCurrentUser = locallyStartedDeskTaskIds.has(rawTask.id);
+        const task =
+          optimisticTaskUiEnabled && (optimisticTaskStatusById[rawTask.id] || locallyStartedByCurrentUser)
+            ? {
+                ...rawTask,
+                status:
+                  optimisticTaskStatusById[rawTask.id] ||
+                  (locallyStartedByCurrentUser ? TaskStatus.IN_PROGRESS : rawTask.status),
+                assignedUser: locallyStartedByCurrentUser
+                  ? {
+                      ...(rawTask.assignedUser || { name: 'Current user' }),
+                      id: currentUserId || rawTask.assignedUser?.id,
+                    }
+                  : rawTask.assignedUser,
+              }
+            : rawTask;
         const isTaskSelected = selectedTaskIds?.has(task.id) ?? false;
         const isTaskActionLocked = lockedTaskActionIds.has(task.id);
         const selectedReason =
@@ -3885,8 +3916,10 @@ export function TaskList({
           isPendingDeskTask &&
           canManageDisclosureDesk &&
           isDisclosureSubmissionTask(task) &&
-          isDisclosureInitialRoutingState;
-        const isQcDeskStartLockTask = isPendingDeskTask && isQcInitialRoutingState;
+          isDisclosureInitialRoutingState &&
+          !isAssignedToCurrentUser;
+        const isQcDeskStartLockTask =
+          isPendingDeskTask && isQcInitialRoutingState && !isAssignedToCurrentUser;
         const isVaDeskStartLockTask =
           isPendingDeskTask &&
           canManageVaDesk &&
