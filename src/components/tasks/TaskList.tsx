@@ -3924,14 +3924,10 @@ export function TaskList({
             : null;
         const compactProcessingProcessorLabel =
           isQcSubmissionTask(task)
-            ? processingRoutingSummary?.assignmentLabel || processorAssignedLabel || assignedSpecialistName
+            ? processingRoutingSummary?.assignmentLabel || ''
             : '';
         const shouldShowCompactProcessingProcessor =
           isQcSubmissionTask(task) && Boolean(compactProcessingProcessorLabel);
-        const shouldShowCompactAssignedJr =
-          shouldShowCompactProcessingProcessor &&
-          Boolean(assignedSpecialistName) &&
-          assignedSpecialistName !== compactProcessingProcessorLabel;
         const shouldShowLoanOfficerProcessingChecklist =
           isLoanOfficerLikeCurrentRole && isQcSubmissionTask(task);
         const submissionDataGroups = getGroupedSubmissionDetails(submissionDataWithLoanOfficers);
@@ -4217,6 +4213,16 @@ export function TaskList({
                           )}
                         </div>
                       )}
+                      {shouldShowCompactProcessingProcessor && (
+                        <p className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-800">
+                          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white text-violet-700 ring-1 ring-violet-200">
+                            <User className="h-2.5 w-2.5" />
+                          </span>
+                          <span className="truncate">
+                            Processor: {compactProcessingProcessorLabel}
+                          </span>
+                        </p>
+                      )}
                     </div>
                     {shouldShowCompletedJrBorrowerBubbles ? (
                       <div className="inline-flex w-full items-start gap-1.5 sm:w-auto sm:shrink-0">
@@ -4277,40 +4283,21 @@ export function TaskList({
                         </button>
                       </div>
                     ) : (
-                      <div className="inline-flex w-full items-start justify-between gap-1.5 sm:w-auto sm:shrink-0 sm:justify-end">
-                        {shouldShowCompactProcessingProcessor && (
-                          <div className="flex min-w-0 flex-col items-start gap-1 sm:items-end">
-                            <p className="inline-flex max-w-full items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-800">
-                              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white text-violet-700 ring-1 ring-violet-200">
-                                <User className="h-2.5 w-2.5" />
-                              </span>
-                              <span className="truncate">
-                                Processor: {compactProcessingProcessorLabel}
-                              </span>
-                            </p>
-                            {shouldShowCompactAssignedJr && (
-                              <p className="inline-flex max-w-full items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-800">
-                                <span className="truncate">JR: {assignedSpecialistName}</span>
-                              </p>
-                            )}
-                          </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleTaskExpanded(task.id);
+                        }}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                        aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
+                      >
+                        {isExpanded ? (
+                          <ChevronUp className="h-4 w-4" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4" />
                         )}
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            toggleTaskExpanded(task.id);
-                          }}
-                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                          aria-label={isExpanded ? 'Collapse task card' : 'Expand task card'}
-                        >
-                          {isExpanded ? (
-                            <ChevronUp className="h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4" />
-                          )}
-                        </button>
-                      </div>
+                      </button>
                     )}
                   </div>
                 </div>
