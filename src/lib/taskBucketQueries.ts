@@ -200,6 +200,13 @@ async function getVisibleJrNewProcessingTaskIds(processingAssignmentGroups: stri
       AND "workflowState" = 'NONE'
       AND "assignedUserId" IS NULL
       AND ${routeClause}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "Task" child
+        WHERE child."parentTaskId" = "Task"."id"
+          AND child."kind" = 'LO_NEEDS_INFO'
+          AND child."status" <> 'COMPLETED'
+      )
   `;
   return rows.map((row) => row.id);
 }
@@ -270,6 +277,12 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
       status: TaskStatus.PENDING,
       workflowState: TaskWorkflowState.NONE,
       assignedUserId: null,
+      childTasks: {
+        none: {
+          kind: TaskKind.LO_NEEDS_INFO,
+          status: { not: TaskStatus.COMPLETED },
+        },
+      },
     }),
   },
   {
@@ -281,6 +294,12 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
     defaultSort: 'updated_desc',
     where: andWhere(qcSubmissionWhere(), notCompleted, {
       workflowState: TaskWorkflowState.NONE,
+      childTasks: {
+        none: {
+          kind: TaskKind.LO_NEEDS_INFO,
+          status: { not: TaskStatus.COMPLETED },
+        },
+      },
       NOT: {
         status: TaskStatus.PENDING,
         assignedUserId: null,
@@ -298,6 +317,14 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
       OR: [
         { workflowState: TaskWorkflowState.WAITING_ON_LO },
         { workflowState: TaskWorkflowState.WAITING_ON_LO_APPROVAL },
+        {
+          childTasks: {
+            some: {
+              kind: TaskKind.LO_NEEDS_INFO,
+              status: { not: TaskStatus.COMPLETED },
+            },
+          },
+        },
       ],
     }),
   },

@@ -4502,7 +4502,9 @@ export async function startDisclosureRequest(taskId: string) {
   const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
@@ -4785,6 +4787,7 @@ export async function updateProcessingRoute(
         assignedUserId: true,
         assignedRole: true,
         dueDate: true,
+        completedAt: true,
         assignedUser: { select: { name: true } },
         submissionData: true,
       },
@@ -4829,6 +4832,14 @@ export async function updateProcessingRoute(
       return { success: false, error: 'Please select a valid Processing route.' };
     }
 
+    const openLoChildCount = await prisma.task.count({
+      where: {
+        parentTaskId: task.id,
+        kind: TaskKind.LO_NEEDS_INFO,
+        status: { not: TaskStatus.COMPLETED },
+      },
+    });
+    const hasOpenLoChild = openLoChildCount > 0;
     const methodLabel = getProcessingMethodLabel(processingMethod);
     const assignmentLabel = getProcessingAssignmentLabel(processingAssignmentGroup);
     const actorName = session?.user?.name || 'Team Member';
@@ -4850,20 +4861,36 @@ export async function updateProcessingRoute(
     });
 
     const isSelfProcessed = processingMethod === PROCESSING_METHOD_SELF_PROCESSED;
+    const shouldRequeue =
+      !isSelfProcessed &&
+      task.workflowState === TaskWorkflowState.NONE &&
+      !hasOpenLoChild;
+    const nextStatus = isSelfProcessed
+      ? TaskStatus.COMPLETED
+      : shouldRequeue
+      ? TaskStatus.PENDING
+      : task.status;
+    const nextWorkflowState = isSelfProcessed
+      ? TaskWorkflowState.NONE
+      : shouldRequeue
+      ? TaskWorkflowState.NONE
+      : task.workflowState;
+    const nextAssignedUserId = shouldRequeue || isSelfProcessed ? null : task.assignedUserId;
+    const nextAssignedRole = isSelfProcessed ? null : task.assignedRole || UserRole.PROCESSOR_JR;
     updatedSubmissionData = appendLifecycleHistoryEvent(updatedSubmissionData, {
       actorName,
       actorRole: role,
       eventType: isSelfProcessed ? 'COMPLETED' : 'ASSIGNMENT_CHANGED',
       fromStatus: task.status,
-      toStatus: isSelfProcessed ? TaskStatus.COMPLETED : TaskStatus.PENDING,
+      toStatus: nextStatus,
       fromWorkflow: task.workflowState,
-      toWorkflow: TaskWorkflowState.NONE,
+      toWorkflow: nextWorkflowState,
       fromAssignedUserId: task.assignedUserId,
-      toAssignedUserId: null,
+      toAssignedUserId: nextAssignedUserId,
       fromAssignedUserName: task.assignedUser?.name || null,
-      toAssignedUserName: null,
+      toAssignedUserName: shouldRequeue || isSelfProcessed ? null : task.assignedUser?.name || null,
       fromAssignedRole: task.assignedRole,
-      toAssignedRole: isSelfProcessed ? null : UserRole.PROCESSOR_JR,
+      toAssignedRole: nextAssignedRole,
       note: `Processing route changed to ${routeText}.`,
     }) as Prisma.JsonObject;
 
@@ -4871,13 +4898,15 @@ export async function updateProcessingRoute(
       where: { id: task.id },
       data: {
         submissionData: updatedSubmissionData,
-        assignedUserId: null,
-        assignedRole: isSelfProcessed ? null : UserRole.PROCESSOR_JR,
-        status: isSelfProcessed ? TaskStatus.COMPLETED : TaskStatus.PENDING,
-        workflowState: TaskWorkflowState.NONE,
-        completedAt: isSelfProcessed ? new Date() : null,
+        assignedUserId: nextAssignedUserId,
+        assignedRole: nextAssignedRole,
+        status: nextStatus,
+        workflowState: nextWorkflowState,
+        completedAt: isSelfProcessed ? new Date() : task.completedAt,
         dueDate: isSelfProcessed
           ? null
+          : nextStatus === TaskStatus.COMPLETED
+          ? task.dueDate
           : task.dueDate || new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
     });
@@ -4899,7 +4928,9 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
   const perfStartedAt = Date.now();
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role =
+      (session?.user?.activeRole as UserRole | undefined) ||
+      (session?.user?.role as UserRole | undefined);
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
