@@ -485,7 +485,10 @@ export function PipelinePage({ initialReport }: Props) {
         </div>
 
         <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div className="flex flex-col items-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
+            <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+              <Home className="h-4 w-4" aria-hidden="true" />
+            </div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
               Volume Total
             </p>
@@ -493,7 +496,10 @@ export function PipelinePage({ initialReport }: Props) {
               {formatCurrency(boardMetrics.volumeTotal)}
             </p>
           </div>
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 shadow-sm">
+          <div className="flex flex-col items-center rounded-xl border border-emerald-100 bg-white px-4 py-3 text-center shadow-sm">
+            <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">
+              <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
+            </div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">
               Revenue Total
             </p>
@@ -501,7 +507,10 @@ export function PipelinePage({ initialReport }: Props) {
               {formatCurrency(boardMetrics.revenueTotal)}
             </p>
           </div>
-          <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 shadow-sm">
+          <div className="flex flex-col items-center rounded-xl border border-blue-100 bg-white px-4 py-3 text-center shadow-sm">
+            <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-blue-700 ring-1 ring-blue-200">
+              <TrendingUp className="h-4 w-4" aria-hidden="true" />
+            </div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">
               Avg. Revenue
             </p>
@@ -509,7 +518,10 @@ export function PipelinePage({ initialReport }: Props) {
               {formatCurrency(boardMetrics.averageRevenue)}
             </p>
           </div>
-          <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3 shadow-sm">
+          <div className="flex flex-col items-center rounded-xl border border-amber-100 bg-white px-4 py-3 text-center shadow-sm">
+            <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-200">
+              <GitBranch className="h-4 w-4" aria-hidden="true" />
+            </div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">
               Lead Sources
             </p>
