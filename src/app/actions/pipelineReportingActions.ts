@@ -15,7 +15,7 @@ import { buildLoanOfficerLoanOrClauses } from '@/lib/loanOfficerVisibility';
 
 export type PipelineRangePreset = 'daily' | 'weekly' | 'monthly' | 'ytd' | 'allTime' | 'custom';
 export type PipelineMilestoneKey = 'plusOne' | 'disclosures' | 'processing' | 'fundings';
-export type PipelineTrendGranularity = 'weekly' | 'daily';
+type PipelineTrendGranularity = 'monthly' | 'weekly' | 'daily';
 
 export type PipelineReportFilters = {
   preset?: PipelineRangePreset;
@@ -25,7 +25,6 @@ export type PipelineReportFilters = {
   trendPreset?: PipelineRangePreset;
   trendStartDate?: string;
   trendEndDate?: string;
-  trendGranularity?: PipelineTrendGranularity;
 };
 
 export type PipelineOfficerOption = {
@@ -113,7 +112,6 @@ export type PipelineReport = {
     trendPreset: PipelineRangePreset;
     trendStartDate: string;
     trendEndDate: string;
-    trendGranularity: PipelineTrendGranularity;
   };
   canViewAll: boolean;
   loanOfficers: PipelineOfficerOption[];
@@ -389,16 +387,18 @@ function fundingDateWhere(start: Date, end: Date): Prisma.PayrollCompRequestWher
   };
 }
 
-function normalizeTrendGranularity(value: unknown): PipelineTrendGranularity {
-  return value === 'daily' ? 'daily' : 'weekly';
-}
-
 function trendDateLabel(date: Date) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date);
 }
 
 function weeklyTrendLabel(start: Date, end: Date) {
   return `${trendDateLabel(start)} - ${trendDateLabel(end)}`;
+}
+
+function trendGranularityForPreset(preset: PipelineRangePreset): PipelineTrendGranularity {
+  if (preset === 'daily') return 'daily';
+  if (preset === 'weekly') return 'weekly';
+  return 'monthly';
 }
 
 function buildTrendBuckets(
@@ -413,11 +413,14 @@ function buildTrendBuckets(
     const bucketStart = new Date(cursor);
     const bucketEnd = new Date(bucketStart);
     if (granularity === 'weekly') bucketEnd.setDate(bucketEnd.getDate() + 6);
+    if (granularity === 'monthly') bucketEnd.setMonth(bucketEnd.getMonth() + 1, 0);
     const cappedBucketEnd = endOfDay(bucketEnd > end ? end : bucketEnd);
     buckets.push({
       label:
         granularity === 'daily'
           ? trendDateLabel(bucketStart)
+          : granularity === 'monthly'
+          ? new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(bucketStart)
           : weeklyTrendLabel(bucketStart, cappedBucketEnd),
       startDate: bucketStart.toISOString(),
       plusOne: 0,
@@ -426,7 +429,8 @@ function buildTrendBuckets(
       fundings: 0,
     });
 
-    cursor.setDate(cursor.getDate() + (granularity === 'daily' ? 1 : 7));
+    if (granularity === 'monthly') cursor.setMonth(cursor.getMonth() + 1, 1);
+    else cursor.setDate(cursor.getDate() + (granularity === 'daily' ? 1 : 7));
   }
 
   return buckets;
@@ -507,7 +511,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     startDate: filters.trendStartDate,
     endDate: filters.trendEndDate,
   });
-  const trendGranularity = normalizeTrendGranularity(filters.trendGranularity);
+  const trendGranularity = trendGranularityForPreset(trendPreset);
   const loanOfficers = canViewAll
     ? await prisma.user.findMany({
         where: {
@@ -899,7 +903,6 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       trendPreset,
       trendStartDate: trendStart.toISOString(),
       trendEndDate: trendEnd.toISOString(),
-      trendGranularity,
     },
     canViewAll,
     loanOfficers,

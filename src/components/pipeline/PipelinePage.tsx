@@ -27,7 +27,6 @@ import {
   type PipelineReport,
   type PipelineReportFilters,
   type PipelineRangePreset,
-  type PipelineTrendGranularity,
 } from '@/app/actions/pipelineReportingActions';
 
 type Props = {
@@ -41,11 +40,6 @@ const PRESETS: Array<{ value: PipelineRangePreset; label: string }> = [
   { value: 'ytd', label: 'YTD' },
   { value: 'allTime', label: 'All Time' },
   { value: 'custom', label: 'Date Range' },
-];
-
-const TREND_GRANULARITIES: Array<{ value: PipelineTrendGranularity; label: string }> = [
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'daily', label: 'Daily' },
 ];
 
 const BUCKETS: Array<{ key: PipelineMilestoneKey; title: string; helper: string }> = [
@@ -209,6 +203,12 @@ function loadReviewedUpdates() {
   }
 }
 
+function trendBreakdownLabel(preset: PipelineRangePreset) {
+  if (preset === 'daily') return 'day';
+  if (preset === 'weekly') return 'week';
+  return 'month';
+}
+
 export function PipelinePage({ initialReport }: Props) {
   const router = useRouter();
   const [report, setReport] = useState(initialReport);
@@ -224,9 +224,6 @@ export function PipelinePage({ initialReport }: Props) {
   );
   const [trendEndDate, setTrendEndDate] = useState(
     dateInputValue(initialReport.filters.trendEndDate)
-  );
-  const [trendGranularity, setTrendGranularity] = useState<PipelineTrendGranularity>(
-    initialReport.filters.trendGranularity
   );
   const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
   const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => loadReviewedUpdates());
@@ -271,7 +268,6 @@ export function PipelinePage({ initialReport }: Props) {
       trendPreset,
       trendStartDate,
       trendEndDate,
-      trendGranularity,
       ...nextFilters,
     };
 
@@ -287,18 +283,12 @@ export function PipelinePage({ initialReport }: Props) {
         setTrendPreset(nextReport.filters.trendPreset);
         setTrendStartDate(dateInputValue(nextReport.filters.trendStartDate));
         setTrendEndDate(dateInputValue(nextReport.filters.trendEndDate));
-        setTrendGranularity(nextReport.filters.trendGranularity);
         setSelectedCard(null);
       } catch (err) {
         console.error(err);
         setError('Unable to load Pipeline metrics. Please try again.');
       }
     });
-  };
-
-  const handleTrendGranularityChange = (nextTrendGranularity: PipelineTrendGranularity) => {
-    setTrendGranularity(nextTrendGranularity);
-    loadReport({ trendGranularity: nextTrendGranularity });
   };
 
   const handleTrendPresetChange = (nextTrendPreset: PipelineRangePreset) => {
@@ -510,7 +500,7 @@ export function PipelinePage({ initialReport }: Props) {
             <h2 className="text-base font-bold text-foreground">Milestone Trend</h2>
             <p className="text-sm text-muted-foreground">
               {formatDate(report.filters.trendStartDate)} - {formatDate(report.filters.trendEndDate)}.
-              Counts grouped by {trendGranularity === 'weekly' ? ' week' : ' day'}.
+              {` Broken down by ${trendBreakdownLabel(trendPreset)}.`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -522,21 +512,6 @@ export function PipelinePage({ initialReport }: Props) {
               aria-label="Milestone trend range"
             >
               {PRESETS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={trendGranularity}
-              onChange={(event) =>
-                handleTrendGranularityChange(event.target.value as PipelineTrendGranularity)
-              }
-              disabled={isPending}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
-              aria-label="Milestone trend grouping"
-            >
-              {TREND_GRANULARITIES.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
