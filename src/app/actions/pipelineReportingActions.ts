@@ -22,6 +22,9 @@ export type PipelineReportFilters = {
   startDate?: string;
   endDate?: string;
   loanOfficerId?: string | 'all' | null;
+  trendPreset?: PipelineRangePreset;
+  trendStartDate?: string;
+  trendEndDate?: string;
   trendGranularity?: PipelineTrendGranularity;
 };
 
@@ -107,6 +110,9 @@ export type PipelineReport = {
     startDate: string;
     endDate: string;
     loanOfficerId: string | 'all';
+    trendPreset: PipelineRangePreset;
+    trendStartDate: string;
+    trendEndDate: string;
     trendGranularity: PipelineTrendGranularity;
   };
   canViewAll: boolean;
@@ -492,6 +498,15 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
   const actor = await assertPipelineActor();
   const canViewAll = actor.role === UserRole.MANAGER || isAdmin(actor.role);
   const { preset, start, end } = resolveDateRange(filters);
+  const {
+    preset: trendPreset,
+    start: trendStart,
+    end: trendEnd,
+  } = resolveDateRange({
+    preset: filters.trendPreset || 'weekly',
+    startDate: filters.trendStartDate,
+    endDate: filters.trendEndDate,
+  });
   const trendGranularity = normalizeTrendGranularity(filters.trendGranularity);
   const loanOfficers = canViewAll
     ? await prisma.user.findMany({
@@ -518,10 +533,22 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         : actor.userId;
 
   const dateWhere = { createdAt: { gte: start, lte: end } };
+  const trendDateWhere = { createdAt: { gte: trendStart, lte: trendEnd } };
   const scopedTaskWhere = taskScopeWhere(selectedLoanOfficerId);
   const scopedPayrollWhere = payrollScopeWhere(selectedLoanOfficerId);
 
-  const [plusOne, disclosures, processing, fundings, taskRows, fundingRows, comparisonTasks, comparisonFundings] =
+  const [
+    plusOne,
+    disclosures,
+    processing,
+    fundings,
+    taskRows,
+    fundingRows,
+    trendTaskRows,
+    trendFundingRows,
+    comparisonTasks,
+    comparisonFundings,
+  ] =
     await Promise.all([
       prisma.task.count({
         where: { ...scopedTaskWhere, kind: TaskKind.SUBMIT_PLUS_ONE, ...dateWhere },
@@ -609,6 +636,26 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         orderBy: [{ paidAt: 'desc' }, { submittedAt: 'desc' }],
         take: 5000,
       }),
+      prisma.task.findMany({
+        where: {
+          ...scopedTaskWhere,
+          kind: { in: [TaskKind.SUBMIT_PLUS_ONE, TaskKind.SUBMIT_DISCLOSURES, ...PROCESSING_KINDS] },
+          ...trendDateWhere,
+        },
+        select: {
+          kind: true,
+          createdAt: true,
+        },
+        take: 10000,
+      }),
+      prisma.payrollCompRequest.findMany({
+        where: { ...scopedPayrollWhere, ...fundingDateWhere(trendStart, trendEnd) },
+        select: {
+          paidAt: true,
+          submittedAt: true,
+        },
+        take: 10000,
+      }),
       canViewAll
         ? prisma.task.findMany({
             where: {
@@ -635,12 +682,12 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     ]);
 
   const totals = { plusOne, disclosures, processing, fundings };
-  const trend = buildTrendBuckets(start, end, trendGranularity);
-  for (const task of taskRows) {
+  const trend = buildTrendBuckets(trendStart, trendEnd, trendGranularity);
+  for (const task of trendTaskRows) {
     const milestone = taskKindToMilestone(task.kind);
     if (milestone) incrementTrend(trend, task.createdAt, milestone);
   }
-  for (const funding of fundingRows) {
+  for (const funding of trendFundingRows) {
     incrementTrend(trend, funding.paidAt || funding.submittedAt, 'fundings');
   }
 
@@ -849,6 +896,9 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       startDate: start.toISOString(),
       endDate: end.toISOString(),
       loanOfficerId: selectedLoanOfficerId,
+      trendPreset,
+      trendStartDate: trendStart.toISOString(),
+      trendEndDate: trendEnd.toISOString(),
       trendGranularity,
     },
     canViewAll,

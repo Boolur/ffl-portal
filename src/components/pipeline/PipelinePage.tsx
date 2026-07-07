@@ -216,6 +216,15 @@ export function PipelinePage({ initialReport }: Props) {
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [loanOfficerId, setLoanOfficerId] = useState<string>(initialReport.filters.loanOfficerId);
+  const [trendPreset, setTrendPreset] = useState<PipelineRangePreset>(
+    initialReport.filters.trendPreset
+  );
+  const [trendStartDate, setTrendStartDate] = useState(
+    dateInputValue(initialReport.filters.trendStartDate)
+  );
+  const [trendEndDate, setTrendEndDate] = useState(
+    dateInputValue(initialReport.filters.trendEndDate)
+  );
   const [trendGranularity, setTrendGranularity] = useState<PipelineTrendGranularity>(
     initialReport.filters.trendGranularity
   );
@@ -259,6 +268,9 @@ export function PipelinePage({ initialReport }: Props) {
       startDate,
       endDate,
       loanOfficerId,
+      trendPreset,
+      trendStartDate,
+      trendEndDate,
       trendGranularity,
       ...nextFilters,
     };
@@ -272,6 +284,9 @@ export function PipelinePage({ initialReport }: Props) {
         setStartDate(dateInputValue(nextReport.filters.startDate));
         setEndDate(dateInputValue(nextReport.filters.endDate));
         setLoanOfficerId(nextReport.filters.loanOfficerId);
+        setTrendPreset(nextReport.filters.trendPreset);
+        setTrendStartDate(dateInputValue(nextReport.filters.trendStartDate));
+        setTrendEndDate(dateInputValue(nextReport.filters.trendEndDate));
         setTrendGranularity(nextReport.filters.trendGranularity);
         setSelectedCard(null);
       } catch (err) {
@@ -284,6 +299,13 @@ export function PipelinePage({ initialReport }: Props) {
   const handleTrendGranularityChange = (nextTrendGranularity: PipelineTrendGranularity) => {
     setTrendGranularity(nextTrendGranularity);
     loadReport({ trendGranularity: nextTrendGranularity });
+  };
+
+  const handleTrendPresetChange = (nextTrendPreset: PipelineRangePreset) => {
+    setTrendPreset(nextTrendPreset);
+    if (nextTrendPreset !== 'custom') {
+      loadReport({ trendPreset: nextTrendPreset });
+    }
   };
 
   const handlePresetChange = (nextPreset: PipelineRangePreset) => {
@@ -377,64 +399,6 @@ export function PipelinePage({ initialReport }: Props) {
           {error}
         </div>
       )}
-
-      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-bold text-foreground">Milestone Trend</h2>
-            <p className="text-sm text-muted-foreground">
-              Counts grouped by {trendGranularity === 'weekly' ? 'week' : 'day'} for the selected range.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={trendGranularity}
-              onChange={(event) =>
-                handleTrendGranularityChange(event.target.value as PipelineTrendGranularity)
-              }
-              disabled={isPending}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
-              aria-label="Milestone trend grouping"
-            >
-              {TREND_GRANULARITIES.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <BarChart3 className="h-5 w-5 text-muted-foreground" />
-          </div>
-        </div>
-        <div className="mt-5 grid gap-3">
-          {report.trend.map((bucket) => (
-            <div key={bucket.startDate} className="grid gap-2 rounded-xl border border-border bg-background p-3 md:grid-cols-[96px_1fr] md:items-center">
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">{bucket.label}</p>
-              <div className="grid gap-2 sm:grid-cols-4">
-                {BUCKETS.map(({ key }) => (
-                  <div key={key}>
-                    <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
-                      <span>{key === 'plusOne' ? '+1' : key === 'fundings' ? 'Funded' : key}</span>
-                      <span>{bucket[key]}</span>
-                    </div>
-                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-secondary">
-                      <div
-                        className={cx(
-                          'h-full rounded-full',
-                          key === 'plusOne' && 'bg-emerald-500',
-                          key === 'disclosures' && 'bg-blue-500',
-                          key === 'processing' && 'bg-purple-500',
-                          key === 'fundings' && 'bg-amber-500'
-                        )}
-                        style={{ width: `${Math.max(4, (bucket[key] / trendMax) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-1">
@@ -537,6 +501,113 @@ export function PipelinePage({ initialReport }: Props) {
               </div>
             );
           })}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-bold text-foreground">Milestone Trend</h2>
+            <p className="text-sm text-muted-foreground">
+              {formatDate(report.filters.trendStartDate)} - {formatDate(report.filters.trendEndDate)}.
+              Counts grouped by {trendGranularity === 'weekly' ? ' week' : ' day'}.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={trendPreset}
+              onChange={(event) => handleTrendPresetChange(event.target.value as PipelineRangePreset)}
+              disabled={isPending}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="Milestone trend range"
+            >
+              {PRESETS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={trendGranularity}
+              onChange={(event) =>
+                handleTrendGranularityChange(event.target.value as PipelineTrendGranularity)
+              }
+              disabled={isPending}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="Milestone trend grouping"
+            >
+              {TREND_GRANULARITIES.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <BarChart3 className="h-5 w-5 text-muted-foreground" />
+          </div>
+        </div>
+        {trendPreset === 'custom' && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/70 p-3">
+            <input
+              type="date"
+              value={trendStartDate}
+              onChange={(event) => setTrendStartDate(event.target.value)}
+              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              aria-label="Milestone trend start date"
+            />
+            <span className="text-xs font-semibold text-muted-foreground">to</span>
+            <input
+              type="date"
+              value={trendEndDate}
+              onChange={(event) => setTrendEndDate(event.target.value)}
+              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              aria-label="Milestone trend end date"
+            />
+            <button
+              type="button"
+              onClick={() =>
+                loadReport({
+                  trendPreset: 'custom',
+                  trendStartDate,
+                  trendEndDate,
+                })
+              }
+              disabled={isPending}
+              className="app-btn-secondary"
+            >
+              Apply Trend Range
+            </button>
+          </div>
+        )}
+        <div className="mt-5 max-h-[420px] overflow-y-auto pr-1">
+          <div className="grid gap-3">
+          {report.trend.map((bucket) => (
+            <div key={bucket.startDate} className="grid gap-2 rounded-xl border border-border bg-background p-3 md:grid-cols-[96px_1fr] md:items-center">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">{bucket.label}</p>
+              <div className="grid gap-2 sm:grid-cols-4">
+                {BUCKETS.map(({ key }) => (
+                  <div key={key}>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
+                      <span>{key === 'plusOne' ? '+1' : key === 'fundings' ? 'Funded' : key}</span>
+                      <span>{bucket[key]}</span>
+                    </div>
+                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className={cx(
+                          'h-full rounded-full',
+                          key === 'plusOne' && 'bg-emerald-500',
+                          key === 'disclosures' && 'bg-blue-500',
+                          key === 'processing' && 'bg-purple-500',
+                          key === 'fundings' && 'bg-amber-500'
+                        )}
+                        style={{ width: `${Math.max(4, (bucket[key] / trendMax) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          </div>
         </div>
       </section>
 
