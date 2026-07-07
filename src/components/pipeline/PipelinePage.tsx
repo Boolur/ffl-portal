@@ -27,6 +27,7 @@ import {
   type PipelineReport,
   type PipelineReportFilters,
   type PipelineRangePreset,
+  type PipelineTrendGranularity,
 } from '@/app/actions/pipelineReportingActions';
 
 type Props = {
@@ -40,6 +41,11 @@ const PRESETS: Array<{ value: PipelineRangePreset; label: string }> = [
   { value: 'ytd', label: 'YTD' },
   { value: 'allTime', label: 'All Time' },
   { value: 'custom', label: 'Date Range' },
+];
+
+const TREND_GRANULARITIES: Array<{ value: PipelineTrendGranularity; label: string }> = [
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'daily', label: 'Daily' },
 ];
 
 const BUCKETS: Array<{ key: PipelineMilestoneKey; title: string; helper: string }> = [
@@ -92,6 +98,8 @@ const MILESTONE_SURFACES: Record<PipelineMilestoneKey, {
     glow: 'bg-amber-100',
   },
 };
+
+const REVIEWED_UPDATES_STORAGE_KEY = 'ffl:pipeline-reviewed-updates';
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
@@ -177,6 +185,30 @@ function updateSignalClassName(tone: NonNullable<PipelineMilestoneRow['updateSig
   return 'border-slate-200 bg-slate-50 text-slate-600';
 }
 
+function updateSignalKey(row: PipelineMilestoneRow) {
+  if (!row.updateSignal) return null;
+  return `${row.milestone}:${row.id}:${row.status}:${row.updateSignal.label}`;
+}
+
+function visibleUpdateSignal(row: PipelineMilestoneRow, reviewedUpdates: Set<string>) {
+  if (!row.updateSignal) return null;
+  if (row.milestone === 'plusOne') return null;
+  const key = updateSignalKey(row);
+  if (key && reviewedUpdates.has(key)) return null;
+  return row.updateSignal;
+}
+
+function loadReviewedUpdates() {
+  if (typeof window === 'undefined') return new Set<string>();
+  try {
+    const raw = window.localStorage.getItem(REVIEWED_UPDATES_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
 export function PipelinePage({ initialReport }: Props) {
   const router = useRouter();
   const [report, setReport] = useState(initialReport);
@@ -184,13 +216,35 @@ export function PipelinePage({ initialReport }: Props) {
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [loanOfficerId, setLoanOfficerId] = useState<string>(initialReport.filters.loanOfficerId);
+  const [trendGranularity, setTrendGranularity] = useState<PipelineTrendGranularity>(
+    initialReport.filters.trendGranularity
+  );
   const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
+  const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => loadReviewedUpdates());
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const trendMax = useMemo(() => highestTrendValue(report), [report]);
 
-  const reviewTask = (row: PipelineMilestoneRow) => {
+  const markUpdateReviewed = (row: PipelineMilestoneRow) => {
+    const key = updateSignalKey(row);
+    if (!key) return;
+    setReviewedUpdates((current) => {
+      const next = new Set(current);
+      next.add(key);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(REVIEWED_UPDATES_STORAGE_KEY, JSON.stringify(Array.from(next)));
+      }
+      return next;
+    });
+  };
+
+  const reviewUpdate = (row: PipelineMilestoneRow) => {
+    markUpdateReviewed(row);
+    if (row.fileDetails.payroll) {
+      router.push(`/payroll?requestId=${encodeURIComponent(row.id)}`);
+      return;
+    }
     if (!row.fileDetails.task) return;
     if (typeof window !== 'undefined') {
       window.sessionStorage.setItem('ffl:tasks-sync-pending', '1');
@@ -205,6 +259,7 @@ export function PipelinePage({ initialReport }: Props) {
       startDate,
       endDate,
       loanOfficerId,
+      trendGranularity,
       ...nextFilters,
     };
 
@@ -217,12 +272,18 @@ export function PipelinePage({ initialReport }: Props) {
         setStartDate(dateInputValue(nextReport.filters.startDate));
         setEndDate(dateInputValue(nextReport.filters.endDate));
         setLoanOfficerId(nextReport.filters.loanOfficerId);
+        setTrendGranularity(nextReport.filters.trendGranularity);
         setSelectedCard(null);
       } catch (err) {
         console.error(err);
         setError('Unable to load Pipeline metrics. Please try again.');
       }
     });
+  };
+
+  const handleTrendGranularityChange = (nextTrendGranularity: PipelineTrendGranularity) => {
+    setTrendGranularity(nextTrendGranularity);
+    loadReport({ trendGranularity: nextTrendGranularity });
   };
 
   const handlePresetChange = (nextPreset: PipelineRangePreset) => {
@@ -317,71 +378,32 @@ export function PipelinePage({ initialReport }: Props) {
         </div>
       )}
 
-      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-        <div className="flex flex-col gap-2 px-1 pb-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-foreground">Client Pipeline Board</h2>
-            <p className="text-sm text-muted-foreground">
-              {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. Click a client card to view details.
-            </p>
-          </div>
-          <span className="app-count-badge">
-            {report.filters.loanOfficerId === 'all' ? 'Team pipeline' : 'My visible pipeline'}
-          </span>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-4">
-          {BUCKETS.map((bucket) => {
-            const rows = report.bucketRows[bucket.key] || [];
-            const Icon = metricIcon(bucket.key);
-            const surface = MILESTONE_SURFACES[bucket.key];
-            return (
-              <div key={bucket.key} className={cx('flex min-h-[360px] flex-col rounded-2xl border', surface.column)}>
-                <div className="border-b border-white/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className={cx('flex h-10 w-10 items-center justify-center rounded-xl ring-1', surface.headerIcon)}>
-                        <Icon className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-foreground">{bucket.title}</h3>
-                        <p className="text-xs text-muted-foreground">{bucket.helper}</p>
-                      </div>
-                    </div>
-                    <span className={cx('rounded-full border px-2.5 py-1 text-xs font-bold', MILESTONE_TONES[bucket.key])}>
-                      {formatNumber(rows.length)}
-                    </span>
-                  </div>
-                </div>
-                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-3">
-                  {rows.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
-                      No clients in this bucket for the selected range.
-                    </div>
-                  ) : (
-                    rows.map((row) => (
-                      <PipelineCard
-                        key={`${row.milestone}-${row.id}`}
-                        row={row}
-                        surface={surface}
-                        onSelect={setSelectedCard}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
       <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-bold text-foreground">Milestone Trend</h2>
-            <p className="text-sm text-muted-foreground">Counts by period for the selected range.</p>
+            <p className="text-sm text-muted-foreground">
+              Counts grouped by {trendGranularity === 'weekly' ? 'week' : 'day'} for the selected range.
+            </p>
           </div>
-          <BarChart3 className="h-5 w-5 text-muted-foreground" />
+          <div className="flex items-center gap-2">
+            <select
+              value={trendGranularity}
+              onChange={(event) =>
+                handleTrendGranularityChange(event.target.value as PipelineTrendGranularity)
+              }
+              disabled={isPending}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="Milestone trend grouping"
+            >
+              {TREND_GRANULARITIES.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <BarChart3 className="h-5 w-5 text-muted-foreground" />
+          </div>
         </div>
         <div className="mt-5 grid gap-3">
           {report.trend.map((bucket) => (
@@ -457,6 +479,65 @@ export function PipelinePage({ initialReport }: Props) {
             </div>
           );
         })}
+      </section>
+
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex flex-col gap-2 px-1 pb-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Client Pipeline Board</h2>
+            <p className="text-sm text-muted-foreground">
+              {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. Click a client card to view details.
+            </p>
+          </div>
+          <span className="app-count-badge">
+            {report.filters.loanOfficerId === 'all' ? 'Team pipeline' : 'My visible pipeline'}
+          </span>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-4">
+          {BUCKETS.map((bucket) => {
+            const rows = report.bucketRows[bucket.key] || [];
+            const Icon = metricIcon(bucket.key);
+            const surface = MILESTONE_SURFACES[bucket.key];
+            return (
+              <div key={bucket.key} className={cx('flex min-h-[360px] flex-col rounded-2xl border', surface.column)}>
+                <div className="border-b border-white/70 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className={cx('flex h-10 w-10 items-center justify-center rounded-xl ring-1', surface.headerIcon)}>
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-foreground">{bucket.title}</h3>
+                        <p className="text-xs text-muted-foreground">{bucket.helper}</p>
+                      </div>
+                    </div>
+                    <span className={cx('rounded-full border px-2.5 py-1 text-xs font-bold', MILESTONE_TONES[bucket.key])}>
+                      {formatNumber(rows.length)}
+                    </span>
+                  </div>
+                </div>
+                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-3">
+                  {rows.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
+                      No clients in this bucket for the selected range.
+                    </div>
+                  ) : (
+                    rows.map((row) => (
+                      <PipelineCard
+                        key={`${row.milestone}-${row.id}`}
+                        row={row}
+                        surface={surface}
+                        signal={visibleUpdateSignal(row, reviewedUpdates)}
+                        onSelect={setSelectedCard}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
@@ -575,7 +656,8 @@ export function PipelinePage({ initialReport }: Props) {
       {selectedCard && (
         <ClientDetailsModal
           row={selectedCard}
-          onReviewTask={() => reviewTask(selectedCard)}
+          signal={visibleUpdateSignal(selectedCard, reviewedUpdates)}
+          onReviewUpdate={() => reviewUpdate(selectedCard)}
           onClose={() => setSelectedCard(null)}
         />
       )}
@@ -586,13 +668,14 @@ export function PipelinePage({ initialReport }: Props) {
 function PipelineCard({
   row,
   surface,
+  signal,
   onSelect,
 }: {
   row: PipelineMilestoneRow;
   surface: (typeof MILESTONE_SURFACES)[PipelineMilestoneKey];
+  signal: PipelineMilestoneRow['updateSignal'];
   onSelect: (row: PipelineMilestoneRow) => void;
 }) {
-  const signal = row.updateSignal;
   return (
     <button
       type="button"
@@ -646,15 +729,17 @@ function PipelineCard({
 
 function ClientDetailsModal({
   row,
-  onReviewTask,
+  signal,
+  onReviewUpdate,
   onClose,
 }: {
   row: PipelineMilestoneRow;
-  onReviewTask: () => void;
+  signal: PipelineMilestoneRow['updateSignal'];
+  onReviewUpdate: () => void;
   onClose: () => void;
 }) {
   const submittedFields = row.fileDetails.task?.submittedFields || [];
-  const signal = row.updateSignal;
+  const reviewLabel = row.fileDetails.payroll ? 'Review Payroll' : 'Review Task';
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
@@ -707,16 +792,18 @@ function ClientDetailsModal({
             <div>
               <p className="text-sm font-bold">{signal.label}</p>
               <p className="mt-1 text-sm text-rose-700">
-                Open the related Tasks item to respond, complete, or clear the underlying queue status.
+                {row.fileDetails.payroll
+                  ? 'Open the related Payroll request to view manager review notes, approval, payment, or revision status.'
+                  : 'Open the related Tasks item to respond, complete, or clear the underlying queue status.'}
               </p>
             </div>
             <button
               type="button"
-              onClick={onReviewTask}
-              disabled={!row.fileDetails.task}
+              onClick={onReviewUpdate}
+              disabled={!row.fileDetails.task && !row.fileDetails.payroll}
               className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-white px-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-100"
             >
-              Review Task
+              {reviewLabel}
             </button>
           </div>
         )}

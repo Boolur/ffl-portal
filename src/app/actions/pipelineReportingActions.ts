@@ -15,12 +15,14 @@ import { buildLoanOfficerLoanOrClauses } from '@/lib/loanOfficerVisibility';
 
 export type PipelineRangePreset = 'daily' | 'weekly' | 'monthly' | 'ytd' | 'allTime' | 'custom';
 export type PipelineMilestoneKey = 'plusOne' | 'disclosures' | 'processing' | 'fundings';
+export type PipelineTrendGranularity = 'weekly' | 'daily';
 
 export type PipelineReportFilters = {
   preset?: PipelineRangePreset;
   startDate?: string;
   endDate?: string;
   loanOfficerId?: string | 'all' | null;
+  trendGranularity?: PipelineTrendGranularity;
 };
 
 export type PipelineOfficerOption = {
@@ -105,6 +107,7 @@ export type PipelineReport = {
     startDate: string;
     endDate: string;
     loanOfficerId: string | 'all';
+    trendGranularity: PipelineTrendGranularity;
   };
   canViewAll: boolean;
   loanOfficers: PipelineOfficerOption[];
@@ -304,10 +307,17 @@ function loanFileDetails(loan: {
 }
 
 function taskUpdateSignal(task: {
+  kind: TaskKind | null;
   status: string;
   workflowState?: string | null;
   completedAt?: Date | null;
 }) {
+  const canNotifyLoanOfficer =
+    task.kind === TaskKind.SUBMIT_DISCLOSURES ||
+    task.kind === TaskKind.SUBMIT_PROCESSING ||
+    task.kind === TaskKind.SUBMIT_QC;
+  if (!canNotifyLoanOfficer) return null;
+
   if (
     task.workflowState === 'WAITING_ON_LO' ||
     task.workflowState === 'WAITING_ON_LO_APPROVAL' ||
@@ -326,7 +336,9 @@ function taskUpdateSignal(task: {
 }
 
 function fundingUpdateSignal(status: string) {
-  if (status === 'PAID') return { label: 'Funded', tone: 'success' as const };
+  if (status === PayrollCompRequestStatus.REJECTED) return { label: 'Revision needed', tone: 'danger' as const };
+  if (status === PayrollCompRequestStatus.APPROVED) return { label: 'Payroll approved', tone: 'danger' as const };
+  if (status === PayrollCompRequestStatus.PAID) return { label: 'Payroll paid', tone: 'danger' as const };
   return null;
 }
 
@@ -371,20 +383,36 @@ function fundingDateWhere(start: Date, end: Date): Prisma.PayrollCompRequestWher
   };
 }
 
-function bucketLabel(date: Date, monthly: boolean) {
-  return new Intl.DateTimeFormat('en-US', monthly ? { month: 'short' } : { month: 'short', day: 'numeric' }).format(date);
+function normalizeTrendGranularity(value: unknown): PipelineTrendGranularity {
+  return value === 'daily' ? 'daily' : 'weekly';
 }
 
-function buildTrendBuckets(start: Date, end: Date): PipelineTrendBucket[] {
-  const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000));
-  const monthly = days > 45;
+function trendDateLabel(date: Date) {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date);
+}
+
+function weeklyTrendLabel(start: Date, end: Date) {
+  return `${trendDateLabel(start)} - ${trendDateLabel(end)}`;
+}
+
+function buildTrendBuckets(
+  start: Date,
+  end: Date,
+  granularity: PipelineTrendGranularity
+): PipelineTrendBucket[] {
   const buckets: PipelineTrendBucket[] = [];
   const cursor = startOfDay(start);
 
   while (cursor <= end) {
     const bucketStart = new Date(cursor);
+    const bucketEnd = new Date(bucketStart);
+    if (granularity === 'weekly') bucketEnd.setDate(bucketEnd.getDate() + 6);
+    const cappedBucketEnd = endOfDay(bucketEnd > end ? end : bucketEnd);
     buckets.push({
-      label: bucketLabel(bucketStart, monthly),
+      label:
+        granularity === 'daily'
+          ? trendDateLabel(bucketStart)
+          : weeklyTrendLabel(bucketStart, cappedBucketEnd),
       startDate: bucketStart.toISOString(),
       plusOne: 0,
       disclosures: 0,
@@ -392,33 +420,23 @@ function buildTrendBuckets(start: Date, end: Date): PipelineTrendBucket[] {
       fundings: 0,
     });
 
-    if (monthly) {
-      cursor.setMonth(cursor.getMonth() + 1, 1);
-    } else {
-      cursor.setDate(cursor.getDate() + 1);
-    }
+    cursor.setDate(cursor.getDate() + (granularity === 'daily' ? 1 : 7));
   }
 
   return buckets;
 }
 
-function bucketKey(date: Date, monthly: boolean) {
-  if (monthly) return `${date.getFullYear()}-${date.getMonth()}`;
-  return date.toISOString().slice(0, 10);
-}
-
 function incrementTrend(
   buckets: PipelineTrendBucket[],
   occurredAt: Date,
-  milestone: PipelineMilestoneKey,
-  monthly: boolean
+  milestone: PipelineMilestoneKey
 ) {
-  const lookup = new Map(
-    buckets.map((bucket, index) => [bucketKey(new Date(bucket.startDate), monthly), index])
-  );
-  const index = lookup.get(bucketKey(occurredAt, monthly));
-  if (index === undefined) return;
-  buckets[index][milestone] += 1;
+  for (let index = buckets.length - 1; index >= 0; index -= 1) {
+    if (occurredAt >= new Date(buckets[index].startDate)) {
+      buckets[index][milestone] += 1;
+      return;
+    }
+  }
 }
 
 function createSummary(totals: Record<PipelineMilestoneKey, number>) {
@@ -474,6 +492,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
   const actor = await assertPipelineActor();
   const canViewAll = actor.role === UserRole.MANAGER || isAdmin(actor.role);
   const { preset, start, end } = resolveDateRange(filters);
+  const trendGranularity = normalizeTrendGranularity(filters.trendGranularity);
   const loanOfficers = canViewAll
     ? await prisma.user.findMany({
         where: {
@@ -616,14 +635,13 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     ]);
 
   const totals = { plusOne, disclosures, processing, fundings };
-  const trend = buildTrendBuckets(start, end);
-  const trendIsMonthly = Math.ceil((end.getTime() - start.getTime()) / 86_400_000) > 45;
+  const trend = buildTrendBuckets(start, end, trendGranularity);
   for (const task of taskRows) {
     const milestone = taskKindToMilestone(task.kind);
-    if (milestone) incrementTrend(trend, task.createdAt, milestone, trendIsMonthly);
+    if (milestone) incrementTrend(trend, task.createdAt, milestone);
   }
   for (const funding of fundingRows) {
-    incrementTrend(trend, funding.paidAt || funding.submittedAt, 'fundings', trendIsMonthly);
+    incrementTrend(trend, funding.paidAt || funding.submittedAt, 'fundings');
   }
 
   const teamMap = new Map<string, PipelineTeamRow>();
@@ -831,6 +849,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       startDate: start.toISOString(),
       endDate: end.toISOString(),
       loanOfficerId: selectedLoanOfficerId,
+      trendGranularity,
     },
     canViewAll,
     loanOfficers,
