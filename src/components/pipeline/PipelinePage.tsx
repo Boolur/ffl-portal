@@ -209,6 +209,10 @@ function trendBreakdownLabel(preset: PipelineRangePreset) {
   return 'month';
 }
 
+function formatLeadSource(value: string) {
+  return value.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 export function PipelinePage({ initialReport }: Props) {
   const router = useRouter();
   const [report, setReport] = useState(initialReport);
@@ -231,6 +235,38 @@ export function PipelinePage({ initialReport }: Props) {
   const [isPending, startTransition] = useTransition();
 
   const trendMax = useMemo(() => highestTrendValue(report), [report]);
+  const boardMetrics = useMemo(() => {
+    const rows = BUCKETS.flatMap((bucket) => report.bucketRows[bucket.key] || []);
+    const volumeByLoan = new Map<string, number>();
+    const revenueByRecord = new Map<string, number>();
+    const leadSourceCounts = new Map<string, number>();
+
+    for (const row of rows) {
+      if (row.amount !== null) {
+        volumeByLoan.set(row.loanId || row.id, row.amount);
+      }
+      if (row.revenue !== null) {
+        revenueByRecord.set(`${row.milestone}:${row.id}`, row.revenue);
+      }
+      if (row.leadSource) {
+        const label = formatLeadSource(row.leadSource);
+        leadSourceCounts.set(label, (leadSourceCounts.get(label) || 0) + 1);
+      }
+    }
+
+    const revenueValues = Array.from(revenueByRecord.values());
+    const revenueTotal = revenueValues.reduce((sum, value) => sum + value, 0);
+    const leadSources = Array.from(leadSourceCounts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([label, count]) => `${label} (${count})`);
+
+    return {
+      volumeTotal: Array.from(volumeByLoan.values()).reduce((sum, value) => sum + value, 0),
+      revenueTotal,
+      averageRevenue: revenueValues.length ? revenueTotal / revenueValues.length : null,
+      leadSources,
+    };
+  }, [report.bucketRows]);
 
   const markUpdateReviewed = (row: PipelineMilestoneRow) => {
     const key = updateSignalKey(row);
@@ -446,6 +482,43 @@ export function PipelinePage({ initialReport }: Props) {
           <span className="app-count-badge">
             {report.filters.loanOfficerId === 'all' ? 'Team pipeline' : 'My visible pipeline'}
           </span>
+        </div>
+
+        <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+              Volume Total
+            </p>
+            <p className="mt-1 text-xl font-extrabold tracking-tight text-slate-950">
+              {formatCurrency(boardMetrics.volumeTotal)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">
+              Revenue Total
+            </p>
+            <p className="mt-1 text-xl font-extrabold tracking-tight text-emerald-950">
+              {formatCurrency(boardMetrics.revenueTotal)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">
+              Avg. Revenue
+            </p>
+            <p className="mt-1 text-xl font-extrabold tracking-tight text-blue-950">
+              {formatCurrency(boardMetrics.averageRevenue)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">
+              Lead Sources
+            </p>
+            <p className="mt-1 line-clamp-2 text-sm font-bold leading-snug text-amber-950">
+              {boardMetrics.leadSources.length > 0
+                ? boardMetrics.leadSources.slice(0, 3).join(' / ')
+                : 'No lead source data'}
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-4">

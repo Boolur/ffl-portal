@@ -69,6 +69,8 @@ export type PipelineMilestoneRow = {
   loanNumber: string;
   loanOfficerName: string;
   amount: number | null;
+  revenue: number | null;
+  leadSource: string | null;
   lender: string | null;
   status: string;
   occurredAt: string;
@@ -288,6 +290,27 @@ function submittedFieldsFromJson(value: unknown) {
     }))
     .sort((a, b) => a.label.localeCompare(b.label))
     .slice(0, 80);
+}
+
+function submissionObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function projectedRevenueFromJson(value: unknown) {
+  const data = submissionObject(value);
+  if (!data) return null;
+  const raw = data.projectedRevenue ?? data.revenue ?? data.expectedRevenue;
+  if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+  return money(raw);
+}
+
+function leadSourceFromJson(value: unknown) {
+  const data = submissionObject(value);
+  if (!data) return null;
+  const raw = data.leadSource ?? data.lead_source;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
 function loanFileDetails(loan: {
@@ -758,6 +781,8 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         loanOfficerName: task.loan.loanOfficer.name,
         sharedLoanOfficerNames: sharedLoanOfficerNames(task.loan),
         amount: money(task.loan.amount),
+        revenue: projectedRevenueFromJson(task.submissionData),
+        leadSource: leadSourceFromJson(task.submissionData),
         lender: null,
         status: task.status,
         occurredAt: task.createdAt.toISOString(),
@@ -786,6 +811,8 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       ? sharedLoanOfficerNames(funding.loan)
       : [funding.loanOfficer.name],
     amount: money(funding.expectedRevenue),
+  revenue: money(funding.expectedRevenue),
+  leadSource: null,
     lender: funding.lender,
     status: funding.status,
     occurredAt: (funding.paidAt || funding.submittedAt).toISOString(),
@@ -832,6 +859,8 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         loanOfficerName: task.loan.loanOfficer.name,
         sharedLoanOfficerNames: sharedLoanOfficerNames(task.loan),
         amount: money(task.loan.amount),
+        revenue: projectedRevenueFromJson(task.submissionData),
+        leadSource: leadSourceFromJson(task.submissionData),
         lender: null,
         status: task.status,
         occurredAt: task.createdAt.toISOString(),
@@ -859,6 +888,8 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       ? sharedLoanOfficerNames(funding.loan)
       : [funding.loanOfficer.name],
     amount: money(funding.expectedRevenue),
+  revenue: money(funding.expectedRevenue),
+  leadSource: null,
     lender: funding.lender,
     status: funding.status,
     occurredAt: (funding.paidAt || funding.submittedAt).toISOString(),
