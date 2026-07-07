@@ -969,7 +969,10 @@ async function sendPlusOneSubmittedNotifications(input: PlusOneSubmittedNotifica
   const recipients = await prisma.user.findMany({
     where: {
       active: true,
-      role: { in: [UserRole.LOAN_OFFICER, UserRole.MANAGER] },
+      OR: [
+        { role: { in: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
+        { roles: { hasSome: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
+      ],
     },
     select: { id: true, email: true },
   });
