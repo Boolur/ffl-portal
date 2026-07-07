@@ -1116,6 +1116,10 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
   const showBuckets = roleBuckets.length > 0;
   const activeBucket = roleBuckets.find((b) => b.id === bucket)?.id || null;
+  const dualDeskBucketScrollClassName =
+    sessionRole === UserRole.LOAN_OFFICER || sessionRole === UserRole.LOA
+      ? 'h-[420px] overflow-y-auto pr-1'
+      : 'h-[540px] overflow-y-auto pr-1';
   const taskPageSubtitle =
     sessionRole === UserRole.VA
       ? ''
@@ -1156,7 +1160,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
             bucketScrollMode="fixed"
-            fixedScrollClassName="h-[540px] overflow-y-auto pr-1"
+            fixedScrollClassName={dualDeskBucketScrollClassName}
           />
           <TaskDeskSection
             title="Jr Processing Task Queue"
@@ -1170,7 +1174,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             jrAssigneeOptions={jrAssigneeOptions}
             initialFocusedTaskId={focusedTaskId}
             bucketScrollMode="fixed"
-            fixedScrollClassName="h-[540px] overflow-y-auto pr-1"
+            fixedScrollClassName={dualDeskBucketScrollClassName}
           />
         </div>
       )}

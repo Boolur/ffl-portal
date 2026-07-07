@@ -4840,6 +4840,14 @@ export async function updateProcessingRoute(
       },
     });
     const hasOpenLoChild = openLoChildCount > 0;
+    const isSelfProcessed = processingMethod === PROCESSING_METHOD_SELF_PROCESSED;
+    if (hasOpenLoChild && isSelfProcessed) {
+      return {
+        success: false,
+        error:
+          'This Processing request is waiting on the Loan Officer. Close or resolve the open LO request before marking it Self Processed.',
+      };
+    }
     const methodLabel = getProcessingMethodLabel(processingMethod);
     const assignmentLabel = getProcessingAssignmentLabel(processingAssignmentGroup);
     const actorName = session?.user?.name || 'Team Member';
@@ -4860,7 +4868,6 @@ export async function updateProcessingRoute(
       entryType: 'status',
     });
 
-    const isSelfProcessed = processingMethod === PROCESSING_METHOD_SELF_PROCESSED;
     const shouldRequeue =
       !isSelfProcessed &&
       task.workflowState === TaskWorkflowState.NONE &&

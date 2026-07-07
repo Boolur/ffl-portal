@@ -185,6 +185,22 @@ function andWhere(...clauses: Prisma.TaskWhereInput[]): Prisma.TaskWhereInput {
 }
 
 const notCompleted = { status: { not: TaskStatus.COMPLETED } } satisfies Prisma.TaskWhereInput;
+const openLoChildWhere = {
+  childTasks: {
+    some: {
+      kind: TaskKind.LO_NEEDS_INFO,
+      status: { not: TaskStatus.COMPLETED },
+    },
+  },
+} satisfies Prisma.TaskWhereInput;
+const noOpenLoChildWhere = {
+  childTasks: {
+    none: {
+      kind: TaskKind.LO_NEEDS_INFO,
+      status: { not: TaskStatus.COMPLETED },
+    },
+  },
+} satisfies Prisma.TaskWhereInput;
 
 async function getVisibleJrNewProcessingTaskIds(processingAssignmentGroups: string[]) {
   const groups = normalizeProcessingAssignmentGroups(processingAssignmentGroups);
@@ -277,12 +293,7 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
       status: TaskStatus.PENDING,
       workflowState: TaskWorkflowState.NONE,
       assignedUserId: null,
-      childTasks: {
-        none: {
-          kind: TaskKind.LO_NEEDS_INFO,
-          status: { not: TaskStatus.COMPLETED },
-        },
-      },
+      ...noOpenLoChildWhere,
     }),
   },
   {
@@ -294,12 +305,7 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
     defaultSort: 'updated_desc',
     where: andWhere(qcSubmissionWhere(), notCompleted, {
       workflowState: TaskWorkflowState.NONE,
-      childTasks: {
-        none: {
-          kind: TaskKind.LO_NEEDS_INFO,
-          status: { not: TaskStatus.COMPLETED },
-        },
-      },
+      ...noOpenLoChildWhere,
       NOT: {
         status: TaskStatus.PENDING,
         assignedUserId: null,
@@ -313,18 +319,15 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
     chipLabel: 'Pending LO',
     chipClassName: 'border-amber-200 bg-amber-50 text-amber-700',
     defaultSort: 'created_asc',
-    where: andWhere(qcSubmissionWhere(), notCompleted, {
+    where: andWhere(qcSubmissionWhere(), {
       OR: [
-        { workflowState: TaskWorkflowState.WAITING_ON_LO },
-        { workflowState: TaskWorkflowState.WAITING_ON_LO_APPROVAL },
-        {
-          childTasks: {
-            some: {
-              kind: TaskKind.LO_NEEDS_INFO,
-              status: { not: TaskStatus.COMPLETED },
-            },
-          },
-        },
+        andWhere(notCompleted, {
+          OR: [
+            { workflowState: TaskWorkflowState.WAITING_ON_LO },
+            { workflowState: TaskWorkflowState.WAITING_ON_LO_APPROVAL },
+          ],
+        }),
+        openLoChildWhere,
       ],
     }),
   },
@@ -347,7 +350,7 @@ export const MANAGER_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
     chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     isCompleted: true,
     defaultSort: 'updated_desc',
-    where: andWhere(qcSubmissionWhere(), { status: TaskStatus.COMPLETED }),
+    where: andWhere(qcSubmissionWhere(), { status: TaskStatus.COMPLETED }, noOpenLoChildWhere),
   },
   {
     id: 'va-appraisal-new',
@@ -676,7 +679,7 @@ const LO_PILOT_TASK_BUCKET_SPECS: TaskBucketSpec[] = [
     chipClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     isCompleted: true,
     defaultSort: 'updated_desc',
-    where: andWhere(qcSubmissionWhere(), { status: TaskStatus.COMPLETED }),
+    where: andWhere(qcSubmissionWhere(), { status: TaskStatus.COMPLETED }, noOpenLoChildWhere),
   },
 ];
 
