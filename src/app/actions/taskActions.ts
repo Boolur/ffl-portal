@@ -970,8 +970,8 @@ async function sendPlusOneSubmittedNotifications(input: PlusOneSubmittedNotifica
     where: {
       active: true,
       OR: [
-        { role: { in: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
-        { roles: { hasSome: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
+        { role: { in: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.MANAGER] } },
+        { roles: { hasSome: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.MANAGER] } },
       ],
     },
     select: { id: true, email: true },
