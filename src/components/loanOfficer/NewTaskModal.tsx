@@ -284,7 +284,6 @@ type MismoPrefill = {
   employerAddress?: string;
   employerDurationLineOfWork?: string;
   yearBuiltProperty?: string;
-  originalCost?: string;
   yearAquired?: string;
   mannerInWhichTitleWillBeHeld?: string;
   creditReportNotesExp?: string;
@@ -659,12 +658,6 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     'BuiltYear',
     'YearBuilt',
   ]);
-  const originalCost = getFirstText(doc, [
-    'PropertyOriginalCostAmount',
-    'OriginalCostAmount',
-    'OriginalPurchasePriceAmount',
-    'PurchasePriceAmount',
-  ]);
   const yearAquired = getFirstText(doc, [
     'PropertyAcquiredYear',
     'AcquiredYear',
@@ -697,7 +690,6 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     employerAddress,
     employerDurationLineOfWork,
     yearBuiltProperty,
-    originalCost,
     yearAquired,
     mannerInWhichTitleWillBeHeld,
     creditReportNotesExp: creditReportNotesByRepo.EXP,
@@ -1147,7 +1139,6 @@ function DisclosuresForm({
     employerAddress: '',
     employerDurationLineOfWork: '',
     yearBuiltProperty: '',
-    originalCost: '',
     yearAquired: '',
     mannerInWhichTitleWillBeHeld: '',
     runId: '',
@@ -1200,16 +1191,12 @@ function DisclosuresForm({
     { key: 'yearBuiltProperty', label: 'Year Built (Property)' },
     { key: 'mannerInWhichTitleWillBeHeld', label: 'Manner in Which Title Will be Held' },
   ];
-  const originalCostReadonlyField: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
-    { key: 'originalCost', label: 'Original Cost' },
-  ];
   const isPurchaseLikeLoan = form.loanProgram.trim().toUpperCase() === 'PURCHASE';
   const yearAquiredReadonlyField: ReadonlyArray<{ key: keyof typeof form; label: string }> =
     isPurchaseLikeLoan ? [] : [{ key: 'yearAquired', label: 'Year Aquired' }];
   const requiredReadonlyFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     ...(mismoIncomeProfile.employmentFieldsRequired ? employerReadonlyFields : []),
     ...alwaysRequiredReadonlyFields,
-    ...(isPurchaseLikeLoan ? [] : originalCostReadonlyField),
     ...yearAquiredReadonlyField,
   ];
   const missingReadonlyKeys = new Set(
@@ -1474,7 +1461,6 @@ function DisclosuresForm({
       const readonlyFieldsForThisImport: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
         ...(parsedIncomeProfile.employmentFieldsRequired ? employerReadonlyFields : []),
         ...alwaysRequiredReadonlyFields,
-        ...(isPurchaseLikeLoanFromImport ? [] : originalCostReadonlyField),
         ...(isPurchaseLikeLoanFromImport ? [] : yearAquiredReadonlyImportField),
       ];
       setImportError('');
@@ -1500,7 +1486,6 @@ function DisclosuresForm({
         employerDurationLineOfWork:
           prefill.employerDurationLineOfWork || prev.employerDurationLineOfWork,
         yearBuiltProperty: prefill.yearBuiltProperty || prev.yearBuiltProperty,
-        originalCost: prefill.originalCost || prev.originalCost,
         yearAquired: prefill.yearAquired || prev.yearAquired,
         mannerInWhichTitleWillBeHeld:
           prefill.mannerInWhichTitleWillBeHeld || prev.mannerInWhichTitleWillBeHeld,
@@ -1516,7 +1501,6 @@ function DisclosuresForm({
         employerDurationLineOfWork:
           prefill.employerDurationLineOfWork || form.employerDurationLineOfWork,
         yearBuiltProperty: prefill.yearBuiltProperty || form.yearBuiltProperty,
-        originalCost: prefill.originalCost || form.originalCost,
         yearAquired: prefill.yearAquired || form.yearAquired,
         mannerInWhichTitleWillBeHeld:
           prefill.mannerInWhichTitleWillBeHeld || form.mannerInWhichTitleWillBeHeld,
@@ -1740,11 +1724,6 @@ function DisclosuresForm({
               label="Year Built (Property)"
               value={form.yearBuiltProperty}
               isMissing={missingReadonlyKeys.has('yearBuiltProperty')}
-            />
-            <ReadonlyRequiredField
-              label="Original Cost"
-              value={form.originalCost}
-              isMissing={missingReadonlyKeys.has('originalCost')}
             />
             <ReadonlyRequiredField
               label="Year Aquired"

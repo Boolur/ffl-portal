@@ -473,7 +473,6 @@ const submissionDetailGroups = [
     keys: [
       'subjectPropertyAddress',
       'yearBuiltProperty',
-      'originalCost',
       'yearAquired',
       'mannerInWhichTitleWillBeHeld',
     ],
@@ -528,7 +527,7 @@ const submissionGroupIcons: Record<string, React.ElementType> = {
 };
 
 function formatSubmissionValue(key: string, value: string) {
-  if ((key === 'loanAmount' || key === 'homeValue' || key === 'originalCost') && value) {
+  if ((key === 'loanAmount' || key === 'homeValue') && value) {
     const numeric = Number(String(value).replace(/[^0-9.\-]/g, ''));
     if (!Number.isNaN(numeric) && numeric !== 0) {
       return new Intl.NumberFormat('en-US', {

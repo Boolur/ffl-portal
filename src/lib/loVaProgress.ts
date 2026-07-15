@@ -293,7 +293,6 @@ const snapshotPreferredOrder = [
   'loanPurpose',
   'subjectPropertyAddress',
   'yearBuiltProperty',
-  'originalCost',
   'yearAquired',
   'mannerInWhichTitleWillBeHeld',
   'employerName',
