@@ -19,8 +19,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Federal First Lending Portal",
+  title: "BISU Home Loans Portal",
   description: "Loan Workflow Management System",
+  icons: {
+    icon: "/bisu-icon.png",
+    shortcut: "/bisu-icon.png",
+    apple: "/bisu-icon.png",
+  },
 };
 
 export default async function RootLayout({
