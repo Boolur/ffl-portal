@@ -22,8 +22,8 @@ export const metadata: Metadata = {
   title: "BISU Home Loans Portal",
   description: "Loan Workflow Management System",
   icons: {
-    icon: "/bisu-icon.png",
-    shortcut: "/bisu-icon.png",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
     apple: "/bisu-icon.png",
   },
 };
