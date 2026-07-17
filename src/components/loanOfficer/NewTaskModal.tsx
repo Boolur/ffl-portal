@@ -7,13 +7,12 @@ import { createPlusOneSubmission, createSubmissionTask } from '@/app/actions/tas
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
 import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
 import {
-  PROCESSING_ASSIGNMENT_JACK_NGO,
-  PROCESSING_ASSIGNMENT_KATHY_BUI,
   PROCESSING_ASSIGNMENT_THIRD_PARTY,
   PROCESSING_METHOD_IN_HOUSE,
   PROCESSING_METHOD_OPTIONS,
   PROCESSING_METHOD_SELF_PROCESSED,
   PROCESSING_METHOD_THIRD_PARTY,
+  getProcessingAssignmentOptionsForMethod,
   getProcessingAssignmentLabel,
   getProcessingMethodLabel,
   type ProcessingMethod,
@@ -2291,18 +2290,7 @@ function ProcessingMethodStep({
     [PROCESSING_METHOD_THIRD_PARTY]: Handshake,
     [PROCESSING_METHOD_SELF_PROCESSED]: UserCheck,
   };
-  const inHouseOptions = [
-    {
-      value: PROCESSING_ASSIGNMENT_KATHY_BUI,
-      label: 'Kathy Bui',
-      description: "Route this file to the JR processors assigned to Kathy's files.",
-    },
-    {
-      value: PROCESSING_ASSIGNMENT_JACK_NGO,
-      label: 'Jack Ngo',
-      description: "Route this file to the JR processors assigned to Jack's files.",
-    },
-  ];
+  const inHouseOptions = getProcessingAssignmentOptionsForMethod(PROCESSING_METHOD_IN_HOUSE);
 
   return (
     <div className="space-y-5">
@@ -2376,7 +2364,7 @@ function ProcessingMethodStep({
                 >
                   <span className="text-sm font-bold text-slate-950">{option.label}</span>
                   <span className="mt-1 block text-xs leading-5 text-slate-600">
-                    {option.description}
+                    Route this file to the JR processors assigned to {option.label}&apos;s files.
                   </span>
                 </button>
               );

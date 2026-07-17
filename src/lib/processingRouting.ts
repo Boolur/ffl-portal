@@ -24,6 +24,7 @@ export type ProcessingMethod = (typeof PROCESSING_METHOD_OPTIONS)[number]['value
 
 export const PROCESSING_ASSIGNMENT_KATHY_BUI = 'KATHY_BUI';
 export const PROCESSING_ASSIGNMENT_JACK_NGO = 'JACK_NGO';
+export const PROCESSING_ASSIGNMENT_MARTIN_SON_BUI = 'MARTIN_SON_BUI';
 export const PROCESSING_ASSIGNMENT_THIRD_PARTY = 'THIRD_PARTY';
 
 export const PROCESSING_ASSIGNMENT_OPTIONS = [
@@ -35,6 +36,11 @@ export const PROCESSING_ASSIGNMENT_OPTIONS = [
   {
     value: PROCESSING_ASSIGNMENT_JACK_NGO,
     label: 'Jack Ngo',
+    method: PROCESSING_METHOD_IN_HOUSE,
+  },
+  {
+    value: PROCESSING_ASSIGNMENT_MARTIN_SON_BUI,
+    label: 'Martin Son Bui',
     method: PROCESSING_METHOD_IN_HOUSE,
   },
   {
@@ -60,6 +66,16 @@ export function getProcessingMethodLabel(value: unknown) {
 
 export function getProcessingAssignmentLabel(value: unknown) {
   return PROCESSING_ASSIGNMENT_OPTIONS.find((option) => option.value === value)?.label || '';
+}
+
+export function getProcessingAssignmentOptionsForMethod(method: unknown) {
+  return PROCESSING_ASSIGNMENT_OPTIONS.filter((option) => option.method === method);
+}
+
+export function isInHouseProcessingAssignmentGroup(value: unknown): value is ProcessingAssignmentGroup {
+  return PROCESSING_ASSIGNMENT_OPTIONS.some(
+    (option) => option.method === PROCESSING_METHOD_IN_HOUSE && option.value === value
+  );
 }
 
 export function normalizeProcessingAssignmentGroups(values: unknown): ProcessingAssignmentGroup[] {

@@ -67,15 +67,16 @@ import {
   type TaskLifecycleBreakdown,
 } from '@/lib/taskLifecycleTimeline';
 import {
-  PROCESSING_ASSIGNMENT_JACK_NGO,
-  PROCESSING_ASSIGNMENT_KATHY_BUI,
   PROCESSING_ASSIGNMENT_THIRD_PARTY,
   PROCESSING_METHOD_IN_HOUSE,
   PROCESSING_METHOD_OPTIONS,
   PROCESSING_METHOD_SELF_PROCESSED,
   PROCESSING_METHOD_THIRD_PARTY,
+  getProcessingAssignmentOptionsForMethod,
   getProcessingAssignmentLabel,
   getProcessingMethodLabel,
+  isProcessingAssignmentGroup,
+  isInHouseProcessingAssignmentGroup,
   type ProcessingMethod,
 } from '@/lib/processingRouting';
 
@@ -3445,9 +3446,7 @@ export function TaskList({
       ? (summary?.method as ProcessingMethod)
       : '';
     const currentAssignmentGroup =
-      summary?.assignmentGroup === PROCESSING_ASSIGNMENT_KATHY_BUI ||
-      summary?.assignmentGroup === PROCESSING_ASSIGNMENT_JACK_NGO ||
-      summary?.assignmentGroup === PROCESSING_ASSIGNMENT_THIRD_PARTY
+      isProcessingAssignmentGroup(summary?.assignmentGroup)
         ? summary.assignmentGroup
         : '';
     setProcessingRouteStatusByTask((prev) => {
@@ -3478,8 +3477,7 @@ export function TaskList({
         next.assignmentGroup = '';
       } else if (
         updates.method === PROCESSING_METHOD_IN_HOUSE &&
-        next.assignmentGroup !== PROCESSING_ASSIGNMENT_KATHY_BUI &&
-        next.assignmentGroup !== PROCESSING_ASSIGNMENT_JACK_NGO
+        !isInHouseProcessingAssignmentGroup(next.assignmentGroup)
       ) {
         next.assignmentGroup = '';
       }
@@ -3500,7 +3498,7 @@ export function TaskList({
     if (draft.method === PROCESSING_METHOD_IN_HOUSE && !draft.assignmentGroup) {
       setProcessingRouteStatusByTask((prev) => ({
         ...prev,
-        [taskId]: { type: 'error', message: 'Select Kathy Bui or Jack Ngo.' },
+        [taskId]: { type: 'error', message: 'Select an in-house processor.' },
       }));
       return;
     }
@@ -4671,8 +4669,11 @@ export function TaskList({
                                 className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 <option value="">Select processor...</option>
-                                <option value={PROCESSING_ASSIGNMENT_KATHY_BUI}>Kathy Bui</option>
-                                <option value={PROCESSING_ASSIGNMENT_JACK_NGO}>Jack Ngo</option>
+                                {getProcessingAssignmentOptionsForMethod(PROCESSING_METHOD_IN_HOUSE).map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
                               </select>
                             ) : (
                               <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-600">

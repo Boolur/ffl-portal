@@ -25,14 +25,13 @@ import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
 import { canLoanOfficerViewLoan } from '@/lib/loanOfficerVisibility';
 import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
 import {
-  PROCESSING_ASSIGNMENT_JACK_NGO,
-  PROCESSING_ASSIGNMENT_KATHY_BUI,
   PROCESSING_ASSIGNMENT_THIRD_PARTY,
   PROCESSING_METHOD_IN_HOUSE,
   PROCESSING_METHOD_SELF_PROCESSED,
   PROCESSING_METHOD_THIRD_PARTY,
   getProcessingAssignmentLabel,
   getProcessingMethodLabel,
+  isInHouseProcessingAssignmentGroup,
   isProcessingAssignmentGroup,
   isProcessingMethod,
 } from '@/lib/processingRouting';
@@ -2962,13 +2961,10 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 
       if (processingMethod === PROCESSING_METHOD_IN_HOUSE) {
         const assignmentGroup = String(submissionObject?.processingAssignmentGroup ?? '').trim();
-        if (
-          assignmentGroup !== PROCESSING_ASSIGNMENT_KATHY_BUI &&
-          assignmentGroup !== PROCESSING_ASSIGNMENT_JACK_NGO
-        ) {
+        if (!isInHouseProcessingAssignmentGroup(assignmentGroup)) {
           return {
             success: false,
-            error: 'Please select Kathy Bui or Jack Ngo for in-house Processing.',
+            error: 'Please select an in-house Processor for in-house Processing.',
           };
         }
         processingAssignmentGroup = assignmentGroup;
@@ -4806,13 +4802,10 @@ export async function updateProcessingRoute(
     let processingAssignmentGroup: string | null = null;
     if (processingMethod === PROCESSING_METHOD_IN_HOUSE) {
       const assignmentGroup = String(input.processingAssignmentGroup ?? '').trim();
-      if (
-        assignmentGroup !== PROCESSING_ASSIGNMENT_KATHY_BUI &&
-        assignmentGroup !== PROCESSING_ASSIGNMENT_JACK_NGO
-      ) {
+      if (!isInHouseProcessingAssignmentGroup(assignmentGroup)) {
         return {
           success: false,
-          error: 'Please select Kathy Bui or Jack Ngo for in-house Processing.',
+          error: 'Please select an in-house Processor for in-house Processing.',
         };
       }
       processingAssignmentGroup = assignmentGroup;
