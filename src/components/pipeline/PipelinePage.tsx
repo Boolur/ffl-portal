@@ -823,8 +823,8 @@ function BoardMetricCard({
           </p>
         </div>
       </div>
-      <div className="relative mt-3 rounded-2xl border border-white/80 bg-white/75 px-4 py-3 shadow-sm">
-        <div className="flex items-center justify-between gap-4">
+      <div className="relative mx-auto mt-3 inline-flex min-w-[150px] max-w-full justify-center rounded-2xl border border-white/80 bg-white/75 px-4 py-3 shadow-sm">
+        <div className="flex items-center justify-center gap-4">
           <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-500">
             {secondaryLabel}
           </span>
