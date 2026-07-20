@@ -815,25 +815,27 @@ function BoardMetricCard({
           <Icon className="h-4 w-4" aria-hidden />
         </div>
         <div className="mt-2 min-w-0">
-          <p className={cx('text-xs font-extrabold leading-snug tracking-tight', surface.value)}>
+          <p className={cx('text-sm font-black leading-snug tracking-tight', surface.value)}>
             {title}
-          </p>
-          <p className={cx('mt-1 text-2xl font-black tracking-tight', surface.value)}>
-            {primaryValue}
-          </p>
-          <p className={cx('text-[10px] font-extrabold uppercase tracking-[0.16em]', surface.label)}>
-            {primaryLabel}
           </p>
         </div>
       </div>
-      <div className="relative mt-2 flex justify-center">
-        <div className="inline-flex max-w-full items-center justify-center gap-3 rounded-xl border border-white/80 bg-white/75 px-3 py-2 shadow-sm">
-          <span className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-500">
-            {secondaryLabel}
-          </span>
-          <span className={cx('text-sm font-black', surface.value)}>
+      <div className="relative mt-3 grid grid-cols-2 gap-3 text-center">
+        <div>
+          <p className={cx('text-2xl font-black tracking-tight', surface.value)}>
+            {primaryValue}
+          </p>
+          <p className={cx('mt-1 text-[10px] font-extrabold uppercase tracking-[0.16em]', surface.label)}>
+            {primaryLabel}
+          </p>
+        </div>
+        <div>
+          <p className={cx('text-2xl font-black tracking-tight', surface.value)}>
             {secondaryValue}
-          </span>
+          </p>
+          <p className={cx('mt-1 text-[10px] font-extrabold uppercase tracking-[0.16em]', surface.label)}>
+            {secondaryLabel}
+          </p>
         </div>
       </div>
     </div>
