@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState, useTransition } from 'react';
+import React, { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
@@ -131,6 +131,7 @@ const BOARD_METRIC_SURFACES: Record<PipelineMilestoneKey, {
 };
 
 const REVIEWED_UPDATES_STORAGE_KEY = 'ffl:pipeline-reviewed-updates';
+const PORTAL_TIME_ZONE = 'America/Los_Angeles';
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
@@ -158,6 +159,7 @@ function formatDate(value: string) {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    timeZone: PORTAL_TIME_ZONE,
   }).format(new Date(value));
 }
 
@@ -169,6 +171,7 @@ function formatDateTime(value: string | null) {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: PORTAL_TIME_ZONE,
   }).format(new Date(value));
 }
 
@@ -230,7 +233,6 @@ function visibleUpdateSignal(row: PipelineMilestoneRow, reviewedUpdates: Set<str
 }
 
 function loadReviewedUpdates() {
-  if (typeof window === 'undefined') return new Set<string>();
   try {
     const raw = window.localStorage.getItem(REVIEWED_UPDATES_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
@@ -263,11 +265,18 @@ export function PipelinePage({ initialReport }: Props) {
     dateInputValue(initialReport.filters.trendEndDate)
   );
   const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
-  const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => loadReviewedUpdates());
+  const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const trendMax = useMemo(() => highestTrendValue(report), [report]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setReviewedUpdates(loadReviewedUpdates());
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   const markUpdateReviewed = (row: PipelineMilestoneRow) => {
     const key = updateSignalKey(row);
