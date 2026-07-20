@@ -95,30 +95,35 @@ const MILESTONE_SURFACES: Record<PipelineMilestoneKey, {
 
 const BOARD_METRIC_SURFACES: Record<PipelineMilestoneKey, {
   border: string;
+  panel: string;
   icon: string;
   label: string;
   value: string;
 }> = {
   plusOne: {
     border: 'border-emerald-100',
+    panel: 'from-emerald-50/90 via-white to-white',
     icon: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
     label: 'text-emerald-700',
     value: 'text-emerald-950',
   },
   disclosures: {
     border: 'border-blue-100',
+    panel: 'from-blue-50/90 via-white to-white',
     icon: 'bg-blue-100 text-blue-700 ring-blue-200',
     label: 'text-blue-700',
     value: 'text-blue-950',
   },
   processing: {
     border: 'border-purple-100',
+    panel: 'from-purple-50/90 via-white to-white',
     icon: 'bg-purple-100 text-purple-700 ring-purple-200',
     label: 'text-purple-700',
     value: 'text-purple-950',
   },
   fundings: {
     border: 'border-amber-100',
+    panel: 'from-amber-50/90 via-white to-white',
     icon: 'bg-amber-100 text-amber-700 ring-amber-200',
     label: 'text-amber-700',
     value: 'text-amber-950',
@@ -423,41 +428,42 @@ export function PipelinePage({ initialReport }: Props) {
       )}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-1">
-          <div className="flex items-center justify-between gap-3">
+        <div className="rounded-[22px] border border-slate-200 bg-gradient-to-br from-white to-slate-50/80 p-5 shadow-sm shadow-slate-200/60 xl:col-span-1">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Pull-through</p>
-              <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
+              <p className="text-sm font-extrabold tracking-tight text-slate-700">Pull-through</p>
+              <p className="mt-2 text-3xl font-black tracking-tight text-slate-950">
                 {formatPercent(report.pullThroughRate)}
               </p>
             </div>
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 ring-1 ring-slate-200">
               <TrendingUp className="h-5 w-5" />
             </div>
           </div>
-          <p className="mt-3 text-sm text-slate-500">
+          <p className="mt-3 text-sm font-medium leading-relaxed text-slate-500">
             Fundings divided by +1 submissions for the selected range.
           </p>
         </div>
 
         {report.summary.map((metric) => {
           const Icon = metricIcon(metric.key);
+          const surface = BOARD_METRIC_SURFACES[metric.key];
           return (
-            <div key={metric.key} className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div key={metric.key} className={cx('rounded-[22px] border bg-gradient-to-br p-5 shadow-sm shadow-slate-200/50', surface.border, surface.panel)}>
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                  <p className={cx('text-sm font-extrabold tracking-tight', surface.value)}>
                     {metric.label}
                   </p>
-                  <p className="mt-2 text-3xl font-bold tracking-tight text-foreground">
+                  <p className={cx('mt-2 text-3xl font-black tracking-tight', surface.value)}>
                     {formatNumber(metric.count)}
                   </p>
                 </div>
-                <div className={cx('flex h-10 w-10 items-center justify-center rounded-xl border', MILESTONE_TONES[metric.key])}>
+                <div className={cx('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 shadow-sm', surface.icon)}>
                   <Icon className="h-5 w-5" />
                 </div>
               </div>
-              <p className="mt-3 text-sm text-muted-foreground">
+              <p className="mt-3 text-sm font-medium leading-relaxed text-slate-500">
                 {metric.priorCount === null
                   ? 'Starting milestone for this dashboard.'
                   : `${formatPercent(metric.conversionRate)} from ${formatNumber(metric.priorCount)} prior milestone.`}
@@ -467,20 +473,20 @@ export function PipelinePage({ initialReport }: Props) {
         })}
       </section>
 
-      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-        <div className="flex flex-col gap-2 px-1 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
+        <div className="flex flex-col gap-3 px-1 pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-lg font-bold text-foreground">Client Pipeline Board</h2>
-            <p className="text-sm text-muted-foreground">
+            <h2 className="text-2xl font-extrabold tracking-tight text-slate-950">Client Pipeline Board</h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">
               {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. Click a client card to view details.
             </p>
           </div>
-          <span className="app-count-badge">
+          <span className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
             {report.filters.loanOfficerId === 'all' ? 'Team pipeline' : 'My visible pipeline'}
           </span>
         </div>
 
-        <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <BoardMetricCard
             stage="plusOne"
             title="+1 Volume / Revenue Totals"
@@ -519,32 +525,30 @@ export function PipelinePage({ initialReport }: Props) {
           />
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-4">
+        <div className="grid gap-5 xl:grid-cols-4">
           {BUCKETS.map((bucket) => {
             const rows = report.bucketRows[bucket.key] || [];
             const Icon = metricIcon(bucket.key);
             const surface = MILESTONE_SURFACES[bucket.key];
             return (
-              <div key={bucket.key} className={cx('flex min-h-[360px] flex-col rounded-2xl border', surface.column)}>
-                <div className="border-b border-white/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className={cx('flex h-10 w-10 items-center justify-center rounded-xl ring-1', surface.headerIcon)}>
-                        <Icon className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-foreground">{bucket.title}</h3>
-                        <p className="text-xs text-muted-foreground">{bucket.helper}</p>
-                      </div>
+              <div key={bucket.key} className={cx('flex min-h-[360px] flex-col overflow-hidden rounded-[24px] border shadow-sm', surface.column)}>
+                <div className="relative border-b border-white/70 px-4 py-5 text-center">
+                  <span className={cx('absolute right-4 top-4 rounded-full border px-2.5 py-1 text-xs font-extrabold shadow-sm', MILESTONE_TONES[bucket.key])}>
+                    {formatNumber(rows.length)}
+                  </span>
+                  <div className="flex flex-col items-center">
+                    <div className={cx('flex h-12 w-12 items-center justify-center rounded-2xl ring-1 shadow-sm', surface.headerIcon)}>
+                      <Icon className="h-5 w-5" />
                     </div>
-                    <span className={cx('rounded-full border px-2.5 py-1 text-xs font-bold', MILESTONE_TONES[bucket.key])}>
-                      {formatNumber(rows.length)}
-                    </span>
+                    <div className="mt-3">
+                      <h3 className="text-lg font-extrabold tracking-tight text-slate-950">{bucket.title}</h3>
+                      <p className="mt-1 text-sm font-medium text-slate-500">{bucket.helper}</p>
+                    </div>
                   </div>
                 </div>
-                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-3">
+                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-4">
                   {rows.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
+                    <div className="flex min-h-[92px] items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/70 p-4 text-center text-sm font-medium text-slate-500 shadow-sm">
                       No clients in this bucket for the selected range.
                     </div>
                   ) : (
@@ -801,29 +805,30 @@ function BoardMetricCard({
 }) {
   const surface = BOARD_METRIC_SURFACES[stage];
   return (
-    <div className={cx('flex flex-col rounded-xl border bg-white px-4 py-3 shadow-sm', surface.border)}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className={cx('text-[10px] font-bold uppercase tracking-[0.14em]', surface.label)}>
+    <div className={cx('relative overflow-hidden rounded-[22px] border bg-gradient-to-br px-5 py-4 shadow-sm', surface.border, surface.panel)}>
+      <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/70 blur-2xl" />
+      <div className="relative flex min-h-[126px] flex-col items-center text-center">
+        <div className={cx('flex h-11 w-11 items-center justify-center rounded-2xl ring-1 shadow-sm', surface.icon)}>
+          <Icon className="h-5 w-5" aria-hidden />
+        </div>
+        <div className="mt-3 min-w-0">
+          <p className={cx('text-sm font-extrabold leading-snug tracking-tight', surface.value)}>
             {title}
           </p>
-          <p className={cx('mt-2 text-xl font-extrabold tracking-tight', surface.value)}>
+          <p className={cx('mt-2 text-2xl font-black tracking-tight', surface.value)}>
             {primaryValue}
           </p>
-          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <p className={cx('mt-1 text-[11px] font-extrabold uppercase tracking-[0.16em]', surface.label)}>
             {primaryLabel}
           </p>
         </div>
-        <div className={cx('flex h-9 w-9 shrink-0 items-center justify-center rounded-full ring-1', surface.icon)}>
-          <Icon className="h-4 w-4" aria-hidden />
-        </div>
       </div>
-      <div className="mt-3 rounded-lg bg-secondary/70 px-3 py-2">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="relative mt-3 rounded-2xl border border-white/80 bg-white/75 px-4 py-3 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-500">
             {secondaryLabel}
           </span>
-          <span className={cx('text-sm font-extrabold', surface.value)}>
+          <span className={cx('text-base font-black', surface.value)}>
             {secondaryValue}
           </span>
         </div>
@@ -848,44 +853,44 @@ function PipelineCard({
       type="button"
       onClick={() => onSelect(row)}
       className={cx(
-        'group relative w-full overflow-hidden rounded-2xl border p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
+        'group relative w-full overflow-hidden rounded-[20px] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
         surface.card
       )}
     >
       <div className={cx('absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-60 blur-2xl transition group-hover:opacity-90', surface.glow)} />
-      <div className={cx('absolute inset-y-3 left-0 w-1 rounded-r-full', surface.accent)} />
+      <div className={cx('absolute inset-y-4 left-0 w-1.5 rounded-r-full', surface.accent)} />
       {signal?.tone === 'danger' && (
-        <span className="absolute right-3 top-3 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-black leading-none text-white shadow-sm ring-2 ring-white" aria-label="New update">
+        <span className="absolute right-4 top-4 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-black leading-none text-white shadow-sm ring-2 ring-white" aria-label="New update">
           1
         </span>
       )}
       <div className="flex items-start justify-between gap-3">
         <div className="relative min-w-0 pl-2">
           <div className="flex items-center gap-2">
-            <span className={cx('flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ring-1', MILESTONE_TONES[row.milestone])}>
+            <span className={cx('flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-black ring-1 shadow-sm', MILESTONE_TONES[row.milestone])}>
               {initials(row.borrowerName)}
             </span>
-            <p className="truncate font-bold text-foreground">{row.borrowerName}</p>
+            <p className="truncate text-base font-extrabold tracking-tight text-slate-950">{row.borrowerName}</p>
           </div>
-          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
             ARIVE #{row.loanNumber}
           </p>
         </div>
       </div>
-      <div className="relative mt-3 flex flex-wrap gap-2 pl-2 text-xs text-muted-foreground">
-        <span className="rounded-full bg-secondary px-2 py-1">
+      <div className="relative mt-4 flex flex-wrap gap-2 pl-2 text-xs font-semibold text-slate-600">
+        <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 shadow-sm">
           {formatDate(row.occurredAt)}
         </span>
-        <span className="rounded-full bg-secondary px-2 py-1">
+        <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 shadow-sm">
           {formatCurrency(row.amount)}
         </span>
         {signal && (
-          <span className={cx('rounded-full border px-2 py-1 font-bold', updateSignalClassName(signal.tone))}>
+          <span className={cx('rounded-full border px-2.5 py-1 font-extrabold shadow-sm', updateSignalClassName(signal.tone))}>
             {signal.label}
           </span>
         )}
       </div>
-      <p className="relative mt-3 truncate pl-2 text-xs text-muted-foreground">
+      <p className="relative mt-3 truncate pl-2 text-xs font-semibold text-slate-500">
         {row.sharedLoanOfficerNames.length > 0
           ? row.sharedLoanOfficerNames.join(' / ')
           : row.loanOfficerName}
