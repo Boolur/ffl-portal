@@ -64,28 +64,28 @@ const MILESTONE_SURFACES: Record<PipelineMilestoneKey, {
   glow: string;
 }> = {
   plusOne: {
-    column: 'border-emerald-200 bg-emerald-50/70',
+    column: 'border-emerald-100 bg-white',
     headerIcon: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
     card: 'border-emerald-100 bg-white hover:border-emerald-300 hover:bg-emerald-50/40',
     accent: 'bg-emerald-400',
     glow: 'bg-emerald-100',
   },
   disclosures: {
-    column: 'border-blue-200 bg-blue-50/70',
+    column: 'border-blue-100 bg-white',
     headerIcon: 'bg-blue-100 text-blue-700 ring-blue-200',
     card: 'border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/40',
     accent: 'bg-blue-400',
     glow: 'bg-blue-100',
   },
   processing: {
-    column: 'border-purple-200 bg-purple-50/70',
+    column: 'border-purple-100 bg-white',
     headerIcon: 'bg-purple-100 text-purple-700 ring-purple-200',
     card: 'border-purple-100 bg-white hover:border-purple-300 hover:bg-purple-50/40',
     accent: 'bg-purple-400',
     glow: 'bg-purple-100',
   },
   fundings: {
-    column: 'border-amber-200 bg-amber-50/75',
+    column: 'border-amber-100 bg-white',
     headerIcon: 'bg-amber-100 text-amber-700 ring-amber-200',
     card: 'border-amber-100 bg-white hover:border-amber-300 hover:bg-amber-50/40',
     accent: 'bg-amber-400',
