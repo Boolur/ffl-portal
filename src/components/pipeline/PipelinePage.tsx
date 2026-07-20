@@ -429,20 +429,20 @@ export function PipelinePage({ initialReport }: Props) {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-[22px] border border-slate-200 bg-gradient-to-br from-white to-slate-50/80 p-5 shadow-sm shadow-slate-200/60 xl:col-span-1">
-          <div className="flex items-start justify-between gap-3">
-            <div>
+          <div className="flex flex-col items-center text-center">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+              <TrendingUp className="h-5 w-5" />
+            </div>
+            <div className="mt-3">
               <p className="text-sm font-extrabold tracking-tight text-slate-700">Pull-through</p>
               <p className="mt-2 text-3xl font-black tracking-tight text-slate-950">
                 {formatPercent(report.pullThroughRate)}
               </p>
             </div>
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 ring-1 ring-slate-200">
-              <TrendingUp className="h-5 w-5" />
-            </div>
+            <p className="mx-auto mt-3 max-w-[190px] text-sm font-medium leading-relaxed text-slate-500">
+              Fundings divided by +1 submissions for the selected range.
+            </p>
           </div>
-          <p className="mt-3 text-sm font-medium leading-relaxed text-slate-500">
-            Fundings divided by +1 submissions for the selected range.
-          </p>
         </div>
 
         {report.summary.map((metric) => {
@@ -450,8 +450,11 @@ export function PipelinePage({ initialReport }: Props) {
           const surface = BOARD_METRIC_SURFACES[metric.key];
           return (
             <div key={metric.key} className={cx('rounded-[22px] border bg-gradient-to-br p-5 shadow-sm shadow-slate-200/50', surface.border, surface.panel)}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
+              <div className="flex flex-col items-center text-center">
+                <div className={cx('flex h-11 w-11 items-center justify-center rounded-2xl ring-1 shadow-sm', surface.icon)}>
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div className="mt-3">
                   <p className={cx('text-sm font-extrabold tracking-tight', surface.value)}>
                     {metric.label}
                   </p>
@@ -459,11 +462,8 @@ export function PipelinePage({ initialReport }: Props) {
                     {formatNumber(metric.count)}
                   </p>
                 </div>
-                <div className={cx('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 shadow-sm', surface.icon)}>
-                  <Icon className="h-5 w-5" />
-                </div>
               </div>
-              <p className="mt-3 text-sm font-medium leading-relaxed text-slate-500">
+              <p className="mx-auto mt-3 max-w-[190px] text-center text-sm font-medium leading-relaxed text-slate-500">
                 {metric.priorCount === null
                   ? 'Starting milestone for this dashboard.'
                   : `${formatPercent(metric.conversionRate)} from ${formatNumber(metric.priorCount)} prior milestone.`}
@@ -532,21 +532,20 @@ export function PipelinePage({ initialReport }: Props) {
             const surface = MILESTONE_SURFACES[bucket.key];
             return (
               <div key={bucket.key} className={cx('flex min-h-[360px] flex-col overflow-hidden rounded-[24px] border shadow-sm', surface.column)}>
-                <div className="relative border-b border-white/70 px-4 py-5 text-center">
-                  <span className={cx('absolute right-4 top-4 rounded-full border px-2.5 py-1 text-xs font-extrabold shadow-sm', MILESTONE_TONES[bucket.key])}>
+                <div className="relative border-b border-slate-100 px-4 py-3 text-center">
+                  <span className={cx('absolute right-3 top-3 rounded-full border px-2.5 py-1 text-xs font-extrabold shadow-sm', MILESTONE_TONES[bucket.key])}>
                     {formatNumber(rows.length)}
                   </span>
                   <div className="flex flex-col items-center">
-                    <div className={cx('flex h-12 w-12 items-center justify-center rounded-2xl ring-1 shadow-sm', surface.headerIcon)}>
+                    <div className={cx('flex h-10 w-10 items-center justify-center rounded-xl ring-1 shadow-sm', surface.headerIcon)}>
                       <Icon className="h-5 w-5" />
                     </div>
-                    <div className="mt-3">
-                      <h3 className="text-lg font-extrabold tracking-tight text-slate-950">{bucket.title}</h3>
-                      <p className="mt-1 text-sm font-medium text-slate-500">{bucket.helper}</p>
+                    <div className="mt-2">
+                      <h3 className="text-base font-extrabold tracking-tight text-slate-950">{bucket.title}</h3>
                     </div>
                   </div>
                 </div>
-                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-4">
+                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto px-4 pb-4 pt-3">
                   {rows.length === 0 ? (
                     <div className="flex min-h-[92px] items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/70 p-4 text-center text-sm font-medium text-slate-500 shadow-sm">
                       No clients in this bucket for the selected range.
@@ -805,30 +804,30 @@ function BoardMetricCard({
 }) {
   const surface = BOARD_METRIC_SURFACES[stage];
   return (
-    <div className={cx('relative overflow-hidden rounded-[22px] border bg-gradient-to-br px-5 py-4 shadow-sm', surface.border, surface.panel)}>
+    <div className={cx('relative overflow-hidden rounded-[20px] border bg-gradient-to-br px-4 py-3 shadow-sm', surface.border, surface.panel)}>
       <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/70 blur-2xl" />
-      <div className="relative flex min-h-[126px] flex-col items-center text-center">
-        <div className={cx('flex h-11 w-11 items-center justify-center rounded-2xl ring-1 shadow-sm', surface.icon)}>
-          <Icon className="h-5 w-5" aria-hidden />
+      <div className="relative flex flex-col items-center text-center">
+        <div className={cx('flex h-9 w-9 items-center justify-center rounded-xl ring-1 shadow-sm', surface.icon)}>
+          <Icon className="h-4 w-4" aria-hidden />
         </div>
-        <div className="mt-3 min-w-0">
-          <p className={cx('text-sm font-extrabold leading-snug tracking-tight', surface.value)}>
+        <div className="mt-2 min-w-0">
+          <p className={cx('text-xs font-extrabold leading-snug tracking-tight', surface.value)}>
             {title}
           </p>
-          <p className={cx('mt-2 text-2xl font-black tracking-tight', surface.value)}>
+          <p className={cx('mt-1 text-2xl font-black tracking-tight', surface.value)}>
             {primaryValue}
           </p>
-          <p className={cx('mt-1 text-[11px] font-extrabold uppercase tracking-[0.16em]', surface.label)}>
+          <p className={cx('text-[10px] font-extrabold uppercase tracking-[0.16em]', surface.label)}>
             {primaryLabel}
           </p>
         </div>
       </div>
-      <div className="relative mx-auto mt-3 inline-flex min-w-[150px] max-w-full justify-center rounded-2xl border border-white/80 bg-white/75 px-4 py-3 shadow-sm">
-        <div className="flex items-center justify-center gap-4">
-          <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-500">
+      <div className="relative mt-2 flex justify-center">
+        <div className="inline-flex max-w-full items-center justify-center gap-3 rounded-xl border border-white/80 bg-white/75 px-3 py-2 shadow-sm">
+          <span className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-500">
             {secondaryLabel}
           </span>
-          <span className={cx('text-base font-black', surface.value)}>
+          <span className={cx('text-sm font-black', surface.value)}>
             {secondaryValue}
           </span>
         </div>
