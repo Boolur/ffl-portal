@@ -93,6 +93,38 @@ const MILESTONE_SURFACES: Record<PipelineMilestoneKey, {
   },
 };
 
+const BOARD_METRIC_SURFACES: Record<PipelineMilestoneKey, {
+  border: string;
+  icon: string;
+  label: string;
+  value: string;
+}> = {
+  plusOne: {
+    border: 'border-emerald-100',
+    icon: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
+    label: 'text-emerald-700',
+    value: 'text-emerald-950',
+  },
+  disclosures: {
+    border: 'border-blue-100',
+    icon: 'bg-blue-100 text-blue-700 ring-blue-200',
+    label: 'text-blue-700',
+    value: 'text-blue-950',
+  },
+  processing: {
+    border: 'border-purple-100',
+    icon: 'bg-purple-100 text-purple-700 ring-purple-200',
+    label: 'text-purple-700',
+    value: 'text-purple-950',
+  },
+  fundings: {
+    border: 'border-amber-100',
+    icon: 'bg-amber-100 text-amber-700 ring-amber-200',
+    label: 'text-amber-700',
+    value: 'text-amber-950',
+  },
+};
+
 const REVIEWED_UPDATES_STORAGE_KEY = 'ffl:pipeline-reviewed-updates';
 
 function formatNumber(value: number) {
@@ -209,10 +241,6 @@ function trendBreakdownLabel(preset: PipelineRangePreset) {
   return 'month';
 }
 
-function formatLeadSource(value: string) {
-  return value.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
 export function PipelinePage({ initialReport }: Props) {
   const router = useRouter();
   const [report, setReport] = useState(initialReport);
@@ -235,38 +263,6 @@ export function PipelinePage({ initialReport }: Props) {
   const [isPending, startTransition] = useTransition();
 
   const trendMax = useMemo(() => highestTrendValue(report), [report]);
-  const boardMetrics = useMemo(() => {
-    const rows = BUCKETS.flatMap((bucket) => report.bucketRows[bucket.key] || []);
-    const volumeByLoan = new Map<string, number>();
-    const revenueByRecord = new Map<string, number>();
-    const leadSourceCounts = new Map<string, number>();
-
-    for (const row of rows) {
-      if (row.amount !== null) {
-        volumeByLoan.set(row.loanId || row.id, row.amount);
-      }
-      if (row.revenue !== null) {
-        revenueByRecord.set(`${row.milestone}:${row.id}`, row.revenue);
-      }
-      if (row.leadSource) {
-        const label = formatLeadSource(row.leadSource);
-        leadSourceCounts.set(label, (leadSourceCounts.get(label) || 0) + 1);
-      }
-    }
-
-    const revenueValues = Array.from(revenueByRecord.values());
-    const revenueTotal = revenueValues.reduce((sum, value) => sum + value, 0);
-    const leadSources = Array.from(leadSourceCounts.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([label, count]) => `${label} (${count})`);
-
-    return {
-      volumeTotal: Array.from(volumeByLoan.values()).reduce((sum, value) => sum + value, 0),
-      revenueTotal,
-      averageRevenue: revenueValues.length ? revenueTotal / revenueValues.length : null,
-      leadSources,
-    };
-  }, [report.bucketRows]);
 
   const markUpdateReviewed = (row: PipelineMilestoneRow) => {
     const key = updateSignalKey(row);
@@ -485,52 +481,42 @@ export function PipelinePage({ initialReport }: Props) {
         </div>
 
         <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div className="flex flex-col items-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
-            <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 ring-1 ring-slate-200">
-              <Home className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
-              Volume Total
-            </p>
-            <p className="mt-1 text-xl font-extrabold tracking-tight text-slate-950">
-              {formatCurrency(boardMetrics.volumeTotal)}
-            </p>
-          </div>
-          <div className="flex flex-col items-center rounded-xl border border-emerald-100 bg-white px-4 py-3 text-center shadow-sm">
-            <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">
-              <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">
-              Revenue Total
-            </p>
-            <p className="mt-1 text-xl font-extrabold tracking-tight text-emerald-950">
-              {formatCurrency(boardMetrics.revenueTotal)}
-            </p>
-          </div>
-          <div className="flex flex-col items-center rounded-xl border border-blue-100 bg-white px-4 py-3 text-center shadow-sm">
-            <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-blue-700 ring-1 ring-blue-200">
-              <TrendingUp className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">
-              Avg. Revenue
-            </p>
-            <p className="mt-1 text-xl font-extrabold tracking-tight text-blue-950">
-              {formatCurrency(boardMetrics.averageRevenue)}
-            </p>
-          </div>
-          <div className="flex flex-col items-center rounded-xl border border-amber-100 bg-white px-4 py-3 text-center shadow-sm">
-            <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-200">
-              <GitBranch className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">
-              Lead Sources
-            </p>
-            <p className="mt-1 line-clamp-2 text-sm font-bold leading-snug text-amber-950">
-              {boardMetrics.leadSources.length > 0
-                ? boardMetrics.leadSources.slice(0, 3).join(' / ')
-                : 'No lead source data'}
-            </p>
-          </div>
+          <BoardMetricCard
+            stage="plusOne"
+            title="+1 Volume / Revenue Totals"
+            Icon={Home}
+            primaryLabel="Volume"
+            primaryValue={formatCurrency(report.boardMetrics.plusOne.volumeTotal)}
+            secondaryLabel="Revenue"
+            secondaryValue={formatCurrency(report.boardMetrics.plusOne.revenueTotal)}
+          />
+          <BoardMetricCard
+            stage="disclosures"
+            title="Disclosures Volume Total / Units"
+            Icon={ClipboardCheck}
+            primaryLabel="Volume"
+            primaryValue={formatCurrency(report.boardMetrics.disclosures.volumeTotal)}
+            secondaryLabel="Units"
+            secondaryValue={formatNumber(report.boardMetrics.disclosures.units)}
+          />
+          <BoardMetricCard
+            stage="processing"
+            title="STP Volume Total / Units"
+            Icon={CheckCircle2}
+            primaryLabel="Volume"
+            primaryValue={formatCurrency(report.boardMetrics.processing.volumeTotal)}
+            secondaryLabel="Units"
+            secondaryValue={formatNumber(report.boardMetrics.processing.units)}
+          />
+          <BoardMetricCard
+            stage="fundings"
+            title="Funded Volume / Revenue"
+            Icon={CircleDollarSign}
+            primaryLabel="Volume"
+            primaryValue={formatCurrency(report.boardMetrics.fundings.volumeTotal)}
+            secondaryLabel="Revenue"
+            secondaryValue={formatCurrency(report.boardMetrics.fundings.revenueTotal)}
+          />
         </div>
 
         <div className="grid gap-4 xl:grid-cols-4">
@@ -792,6 +778,56 @@ export function PipelinePage({ initialReport }: Props) {
           onClose={() => setSelectedCard(null)}
         />
       )}
+    </div>
+  );
+}
+
+function BoardMetricCard({
+  stage,
+  title,
+  Icon,
+  primaryLabel,
+  primaryValue,
+  secondaryLabel,
+  secondaryValue,
+}: {
+  stage: PipelineMilestoneKey;
+  title: string;
+  Icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
+  primaryLabel: string;
+  primaryValue: string;
+  secondaryLabel: string;
+  secondaryValue: string;
+}) {
+  const surface = BOARD_METRIC_SURFACES[stage];
+  return (
+    <div className={cx('flex flex-col rounded-xl border bg-white px-4 py-3 shadow-sm', surface.border)}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className={cx('text-[10px] font-bold uppercase tracking-[0.14em]', surface.label)}>
+            {title}
+          </p>
+          <p className={cx('mt-2 text-xl font-extrabold tracking-tight', surface.value)}>
+            {primaryValue}
+          </p>
+          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {primaryLabel}
+          </p>
+        </div>
+        <div className={cx('flex h-9 w-9 shrink-0 items-center justify-center rounded-full ring-1', surface.icon)}>
+          <Icon className="h-4 w-4" aria-hidden />
+        </div>
+      </div>
+      <div className="mt-3 rounded-lg bg-secondary/70 px-3 py-2">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+            {secondaryLabel}
+          </span>
+          <span className={cx('text-sm font-extrabold', surface.value)}>
+            {secondaryValue}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

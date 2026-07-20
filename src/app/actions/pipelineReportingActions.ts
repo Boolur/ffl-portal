@@ -60,6 +60,25 @@ export type PipelineTeamRow = {
   pullThroughRate: number | null;
 };
 
+export type PipelineBoardStageMetrics = {
+  plusOne: {
+    volumeTotal: number;
+    revenueTotal: number;
+  };
+  disclosures: {
+    volumeTotal: number;
+    units: number;
+  };
+  processing: {
+    volumeTotal: number;
+    units: number;
+  };
+  fundings: {
+    volumeTotal: number;
+    revenueTotal: number;
+  };
+};
+
 export type PipelineMilestoneRow = {
   id: string;
   loanId: string | null;
@@ -120,6 +139,7 @@ export type PipelineReport = {
   summary: PipelineMilestoneSummary[];
   totals: Record<PipelineMilestoneKey, number>;
   pullThroughRate: number | null;
+  boardMetrics: PipelineBoardStageMetrics;
   trend: PipelineTrendBucket[];
   teamRows: PipelineTeamRow[];
   recentRows: PipelineMilestoneRow[];
@@ -505,6 +525,48 @@ function createSummary(totals: Record<PipelineMilestoneKey, number>) {
   ];
 }
 
+function createBoardMetrics(
+  taskRows: Array<{
+    kind: TaskKind | null;
+    submissionData: unknown;
+    loan: { amount: Prisma.Decimal | number | string | null };
+  }>,
+  fundingRows: Array<{
+    expectedRevenue: Prisma.Decimal | number | string | null;
+    loan: { amount: Prisma.Decimal | number | string | null } | null;
+  }>
+): PipelineBoardStageMetrics {
+  return taskRows.reduce<PipelineBoardStageMetrics>(
+    (metrics, task) => {
+      const amount = money(task.loan.amount) || 0;
+      if (task.kind === TaskKind.SUBMIT_PLUS_ONE) {
+        metrics.plusOne.volumeTotal += amount;
+        metrics.plusOne.revenueTotal += projectedRevenueFromJson(task.submissionData) || 0;
+      } else if (task.kind === TaskKind.SUBMIT_DISCLOSURES) {
+        metrics.disclosures.volumeTotal += amount;
+        metrics.disclosures.units += 1;
+      } else if (task.kind === TaskKind.SUBMIT_PROCESSING || task.kind === TaskKind.SUBMIT_QC) {
+        metrics.processing.volumeTotal += amount;
+        metrics.processing.units += 1;
+      }
+      return metrics;
+    },
+    fundingRows.reduce<PipelineBoardStageMetrics>(
+      (metrics, funding) => {
+        metrics.fundings.volumeTotal += money(funding.loan?.amount) || 0;
+        metrics.fundings.revenueTotal += money(funding.expectedRevenue) || 0;
+        return metrics;
+      },
+      {
+        plusOne: { volumeTotal: 0, revenueTotal: 0 },
+        disclosures: { volumeTotal: 0, units: 0 },
+        processing: { volumeTotal: 0, units: 0 },
+        fundings: { volumeTotal: 0, revenueTotal: 0 },
+      }
+    )
+  );
+}
+
 function uniqueLoanOfficerIds(loan: {
   loanOfficerId: string;
   secondaryLoanOfficerId?: string | null;
@@ -648,6 +710,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
             select: {
               borrowerPhone: true,
               borrowerEmail: true,
+              amount: true,
               program: true,
               propertyAddress: true,
               stage: true,
@@ -709,6 +772,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     ]);
 
   const totals = { plusOne, disclosures, processing, fundings };
+  const boardMetrics = createBoardMetrics(taskRows, fundingRows);
   const trend = buildTrendBuckets(trendStart, trendEnd, trendGranularity);
   for (const task of trendTaskRows) {
     const milestone = taskKindToMilestone(task.kind);
@@ -940,6 +1004,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     summary: createSummary(totals),
     totals,
     pullThroughRate: percent(fundings, plusOne),
+    boardMetrics,
     trend,
     teamRows,
     recentRows,
