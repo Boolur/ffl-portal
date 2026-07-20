@@ -437,18 +437,18 @@ export function PipelinePage({ initialReport }: Props) {
       )}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <div className="rounded-[22px] border border-slate-200 bg-gradient-to-br from-white to-slate-50/80 p-5 shadow-sm shadow-slate-200/60 xl:col-span-1">
+        <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/80 p-4 shadow-sm shadow-slate-200/60 xl:col-span-1">
           <div className="flex flex-col items-center text-center">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 ring-1 ring-slate-200">
-              <TrendingUp className="h-5 w-5" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+              <TrendingUp className="h-4 w-4" />
             </div>
-            <div className="mt-3">
+            <div className="mt-2">
               <p className="text-sm font-extrabold tracking-tight text-slate-700">Pull-through</p>
-              <p className="mt-2 text-3xl font-black tracking-tight text-slate-950">
+              <p className="mt-1 text-2xl font-black tracking-tight text-slate-950">
                 {formatPercent(report.pullThroughRate)}
               </p>
             </div>
-            <p className="mx-auto mt-3 max-w-[190px] text-sm font-medium leading-relaxed text-slate-500">
+            <p className="mx-auto mt-2 max-w-[180px] text-xs font-medium leading-snug text-slate-500">
               Fundings divided by +1 submissions for the selected range.
             </p>
           </div>
@@ -458,21 +458,21 @@ export function PipelinePage({ initialReport }: Props) {
           const Icon = metricIcon(metric.key);
           const surface = BOARD_METRIC_SURFACES[metric.key];
           return (
-            <div key={metric.key} className={cx('rounded-[22px] border bg-gradient-to-br p-5 shadow-sm shadow-slate-200/50', surface.border, surface.panel)}>
+            <div key={metric.key} className={cx('rounded-2xl border bg-gradient-to-br p-4 shadow-sm shadow-slate-200/50', surface.border, surface.panel)}>
               <div className="flex flex-col items-center text-center">
-                <div className={cx('flex h-11 w-11 items-center justify-center rounded-2xl ring-1 shadow-sm', surface.icon)}>
-                  <Icon className="h-5 w-5" />
+                <div className={cx('flex h-9 w-9 items-center justify-center rounded-xl ring-1 shadow-sm', surface.icon)}>
+                  <Icon className="h-4 w-4" />
                 </div>
-                <div className="mt-3">
+                <div className="mt-2">
                   <p className={cx('text-sm font-extrabold tracking-tight', surface.value)}>
                     {metric.label}
                   </p>
-                  <p className={cx('mt-2 text-3xl font-black tracking-tight', surface.value)}>
+                  <p className={cx('mt-1 text-2xl font-black tracking-tight', surface.value)}>
                     {formatNumber(metric.count)}
                   </p>
                 </div>
               </div>
-              <p className="mx-auto mt-3 max-w-[190px] text-center text-sm font-medium leading-relaxed text-slate-500">
+              <p className="mx-auto mt-2 max-w-[180px] text-center text-xs font-medium leading-snug text-slate-500">
                 {metric.priorCount === null
                   ? 'Starting milestone for this dashboard.'
                   : `${formatPercent(metric.conversionRate)} from ${formatNumber(metric.priorCount)} prior milestone.`}
@@ -500,6 +500,7 @@ export function PipelinePage({ initialReport }: Props) {
             stage="plusOne"
             title="+1 Volume / Revenue Totals"
             Icon={Home}
+            count={report.totals.plusOne}
             primaryLabel="Volume"
             primaryValue={formatCurrency(report.boardMetrics.plusOne.volumeTotal)}
             secondaryLabel="Revenue"
@@ -509,6 +510,7 @@ export function PipelinePage({ initialReport }: Props) {
             stage="disclosures"
             title="Disclosures Volume Total / Units"
             Icon={ClipboardCheck}
+            count={report.totals.disclosures}
             primaryLabel="Volume"
             primaryValue={formatCurrency(report.boardMetrics.disclosures.volumeTotal)}
             secondaryLabel="Units"
@@ -518,6 +520,7 @@ export function PipelinePage({ initialReport }: Props) {
             stage="processing"
             title="STP Volume Total / Units"
             Icon={CheckCircle2}
+            count={report.totals.processing}
             primaryLabel="Volume"
             primaryValue={formatCurrency(report.boardMetrics.processing.volumeTotal)}
             secondaryLabel="Units"
@@ -527,6 +530,7 @@ export function PipelinePage({ initialReport }: Props) {
             stage="fundings"
             title="Funded Volume / Revenue"
             Icon={CircleDollarSign}
+            count={report.totals.fundings}
             primaryLabel="Volume"
             primaryValue={formatCurrency(report.boardMetrics.fundings.volumeTotal)}
             secondaryLabel="Revenue"
@@ -537,24 +541,10 @@ export function PipelinePage({ initialReport }: Props) {
         <div className="grid gap-5 xl:grid-cols-4">
           {BUCKETS.map((bucket) => {
             const rows = report.bucketRows[bucket.key] || [];
-            const Icon = metricIcon(bucket.key);
             const surface = MILESTONE_SURFACES[bucket.key];
             return (
               <div key={bucket.key} className={cx('flex min-h-[360px] flex-col overflow-hidden rounded-[24px] border shadow-sm', surface.column)}>
-                <div className="relative border-b border-slate-100 px-4 py-3 text-center">
-                  <span className={cx('absolute right-3 top-3 rounded-full border px-2.5 py-1 text-xs font-extrabold shadow-sm', MILESTONE_TONES[bucket.key])}>
-                    {formatNumber(rows.length)}
-                  </span>
-                  <div className="flex flex-col items-center">
-                    <div className={cx('flex h-10 w-10 items-center justify-center rounded-xl ring-1 shadow-sm', surface.headerIcon)}>
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <div className="mt-2">
-                      <h3 className="text-base font-extrabold tracking-tight text-slate-950">{bucket.title}</h3>
-                    </div>
-                  </div>
-                </div>
-                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto px-4 pb-4 pt-3">
+                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-4">
                   {rows.length === 0 ? (
                     <div className="flex min-h-[92px] items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/70 p-4 text-center text-sm font-medium text-slate-500 shadow-sm">
                       No clients in this bucket for the selected range.
@@ -798,6 +788,7 @@ function BoardMetricCard({
   stage,
   title,
   Icon,
+  count,
   primaryLabel,
   primaryValue,
   secondaryLabel,
@@ -806,6 +797,7 @@ function BoardMetricCard({
   stage: PipelineMilestoneKey;
   title: string;
   Icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
+  count: number;
   primaryLabel: string;
   primaryValue: string;
   secondaryLabel: string;
@@ -815,6 +807,9 @@ function BoardMetricCard({
   return (
     <div className={cx('relative overflow-hidden rounded-[20px] border bg-gradient-to-br px-4 py-3 shadow-sm', surface.border, surface.panel)}>
       <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/70 blur-2xl" />
+      <span className={cx('absolute right-3 top-3 rounded-full border px-2.5 py-1 text-xs font-extrabold shadow-sm', MILESTONE_TONES[stage])}>
+        {formatNumber(count)}
+      </span>
       <div className="relative flex flex-col items-center text-center">
         <div className={cx('flex h-9 w-9 items-center justify-center rounded-xl ring-1 shadow-sm', surface.icon)}>
           <Icon className="h-4 w-4" aria-hidden />
