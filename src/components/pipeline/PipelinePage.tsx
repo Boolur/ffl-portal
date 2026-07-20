@@ -443,7 +443,7 @@ export function PipelinePage({ initialReport }: Props) {
               <TrendingUp className="h-4 w-4" />
             </div>
             <div className="mt-2">
-              <p className="text-sm font-extrabold tracking-tight text-slate-700">Pull-through</p>
+              <p className="text-base font-black tracking-tight text-slate-800">Pull-through</p>
               <p className="mt-1 text-2xl font-black tracking-tight text-slate-950">
                 {formatPercent(report.pullThroughRate)}
               </p>
@@ -464,7 +464,7 @@ export function PipelinePage({ initialReport }: Props) {
                   <Icon className="h-4 w-4" />
                 </div>
                 <div className="mt-2">
-                  <p className={cx('text-sm font-extrabold tracking-tight', surface.value)}>
+                  <p className={cx('text-base font-black tracking-tight', surface.value)}>
                     {metric.label}
                   </p>
                   <p className={cx('mt-1 text-2xl font-black tracking-tight', surface.value)}>
@@ -498,7 +498,7 @@ export function PipelinePage({ initialReport }: Props) {
         <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <BoardMetricCard
             stage="plusOne"
-            title="+1 Volume / Revenue Totals"
+            title="+1s"
             Icon={Home}
             count={report.totals.plusOne}
             primaryLabel="Volume"
@@ -508,7 +508,7 @@ export function PipelinePage({ initialReport }: Props) {
           />
           <BoardMetricCard
             stage="disclosures"
-            title="Disclosures Volume Total / Units"
+            title="Disclosures"
             Icon={ClipboardCheck}
             count={report.totals.disclosures}
             primaryLabel="Volume"
@@ -518,7 +518,7 @@ export function PipelinePage({ initialReport }: Props) {
           />
           <BoardMetricCard
             stage="processing"
-            title="STP Volume Total / Units"
+            title="Submitted to Processing"
             Icon={CheckCircle2}
             count={report.totals.processing}
             primaryLabel="Volume"
@@ -528,7 +528,7 @@ export function PipelinePage({ initialReport }: Props) {
           />
           <BoardMetricCard
             stage="fundings"
-            title="Funded Volume / Revenue"
+            title="Fundings"
             Icon={CircleDollarSign}
             count={report.totals.fundings}
             primaryLabel="Volume"
@@ -815,13 +815,13 @@ function BoardMetricCard({
           <Icon className="h-4 w-4" aria-hidden />
         </div>
         <div className="mt-2 min-w-0">
-          <p className={cx('text-sm font-black leading-snug tracking-tight', surface.value)}>
+          <p className={cx('text-lg font-black leading-snug tracking-tight', surface.value)}>
             {title}
           </p>
         </div>
       </div>
-      <div className="relative mt-3 grid grid-cols-2 gap-3 text-center">
-        <div>
+      <div className="relative mx-auto mt-3 grid w-full max-w-[260px] grid-cols-2 items-start gap-4 text-center">
+        <div className="flex min-w-0 flex-col items-center">
           <p className={cx('text-2xl font-black tracking-tight', surface.value)}>
             {primaryValue}
           </p>
@@ -829,7 +829,7 @@ function BoardMetricCard({
             {primaryLabel}
           </p>
         </div>
-        <div>
+        <div className="flex min-w-0 flex-col items-center">
           <p className={cx('text-2xl font-black tracking-tight', surface.value)}>
             {secondaryValue}
           </p>
