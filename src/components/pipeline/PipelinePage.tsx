@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useEffect, useMemo, useState, useTransition } from 'react';
+import React, { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
-  BarChart3,
   CalendarDays,
   CheckCircle2,
   CircleDollarSign,
@@ -17,7 +16,6 @@ import {
   Phone,
   RefreshCw,
   TrendingUp,
-  UserRound,
   X,
 } from 'lucide-react';
 import {
@@ -193,18 +191,6 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
 }
 
-function highestTrendValue(report: PipelineReport) {
-  return Math.max(
-    1,
-    ...report.trend.flatMap((bucket) => [
-      bucket.plusOne,
-      bucket.disclosures,
-      bucket.processing,
-      bucket.fundings,
-    ])
-  );
-}
-
 function metricIcon(key: PipelineMilestoneKey) {
   if (key === 'plusOne') return GitBranch;
   if (key === 'disclosures') return ClipboardCheck;
@@ -242,12 +228,6 @@ function loadReviewedUpdates() {
   }
 }
 
-function trendBreakdownLabel(preset: PipelineRangePreset) {
-  if (preset === 'daily') return 'day';
-  if (preset === 'weekly') return 'week';
-  return 'month';
-}
-
 export function PipelinePage({ initialReport }: Props) {
   const router = useRouter();
   const [report, setReport] = useState(initialReport);
@@ -255,21 +235,10 @@ export function PipelinePage({ initialReport }: Props) {
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [loanOfficerId, setLoanOfficerId] = useState<string>(initialReport.filters.loanOfficerId);
-  const [trendPreset, setTrendPreset] = useState<PipelineRangePreset>(
-    initialReport.filters.trendPreset
-  );
-  const [trendStartDate, setTrendStartDate] = useState(
-    dateInputValue(initialReport.filters.trendStartDate)
-  );
-  const [trendEndDate, setTrendEndDate] = useState(
-    dateInputValue(initialReport.filters.trendEndDate)
-  );
   const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
   const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  const trendMax = useMemo(() => highestTrendValue(report), [report]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -311,9 +280,6 @@ export function PipelinePage({ initialReport }: Props) {
       startDate,
       endDate,
       loanOfficerId,
-      trendPreset,
-      trendStartDate,
-      trendEndDate,
       ...nextFilters,
     };
 
@@ -326,22 +292,12 @@ export function PipelinePage({ initialReport }: Props) {
         setStartDate(dateInputValue(nextReport.filters.startDate));
         setEndDate(dateInputValue(nextReport.filters.endDate));
         setLoanOfficerId(nextReport.filters.loanOfficerId);
-        setTrendPreset(nextReport.filters.trendPreset);
-        setTrendStartDate(dateInputValue(nextReport.filters.trendStartDate));
-        setTrendEndDate(dateInputValue(nextReport.filters.trendEndDate));
         setSelectedCard(null);
       } catch (err) {
         console.error(err);
         setError('Unable to load Pipeline metrics. Please try again.');
       }
     });
-  };
-
-  const handleTrendPresetChange = (nextTrendPreset: PipelineRangePreset) => {
-    setTrendPreset(nextTrendPreset);
-    if (nextTrendPreset !== 'custom') {
-      loadReport({ trendPreset: nextTrendPreset });
-    }
   };
 
   const handlePresetChange = (nextPreset: PipelineRangePreset) => {
@@ -567,136 +523,7 @@ export function PipelinePage({ initialReport }: Props) {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-bold text-foreground">Milestone Trend</h2>
-            <p className="text-sm text-muted-foreground">
-              {formatDate(report.filters.trendStartDate)} - {formatDate(report.filters.trendEndDate)}.
-              {` Broken down by ${trendBreakdownLabel(trendPreset)}.`}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={trendPreset}
-              onChange={(event) => handleTrendPresetChange(event.target.value as PipelineRangePreset)}
-              disabled={isPending}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
-              aria-label="Milestone trend range"
-            >
-              {PRESETS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <BarChart3 className="h-5 w-5 text-muted-foreground" />
-          </div>
-        </div>
-        {trendPreset === 'custom' && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/70 p-3">
-            <input
-              type="date"
-              value={trendStartDate}
-              onChange={(event) => setTrendStartDate(event.target.value)}
-              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              aria-label="Milestone trend start date"
-            />
-            <span className="text-xs font-semibold text-muted-foreground">to</span>
-            <input
-              type="date"
-              value={trendEndDate}
-              onChange={(event) => setTrendEndDate(event.target.value)}
-              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              aria-label="Milestone trend end date"
-            />
-            <button
-              type="button"
-              onClick={() =>
-                loadReport({
-                  trendPreset: 'custom',
-                  trendStartDate,
-                  trendEndDate,
-                })
-              }
-              disabled={isPending}
-              className="app-btn-secondary"
-            >
-              Apply Trend Range
-            </button>
-          </div>
-        )}
-        <div className="mt-5 max-h-[420px] overflow-y-auto pr-1">
-          <div className="grid gap-3">
-          {report.trend.map((bucket) => (
-            <div key={bucket.startDate} className="grid gap-2 rounded-xl border border-border bg-background p-3 md:grid-cols-[96px_1fr] md:items-center">
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">{bucket.label}</p>
-              <div className="grid gap-2 sm:grid-cols-4">
-                {BUCKETS.map(({ key }) => (
-                  <div key={key}>
-                    <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
-                      <span>{key === 'plusOne' ? '+1' : key === 'fundings' ? 'Funded' : key}</span>
-                      <span>{bucket[key]}</span>
-                    </div>
-                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-secondary">
-                      <div
-                        className={cx(
-                          'h-full rounded-full',
-                          key === 'plusOne' && 'bg-emerald-500',
-                          key === 'disclosures' && 'bg-blue-500',
-                          key === 'processing' && 'bg-purple-500',
-                          key === 'fundings' && 'bg-amber-500'
-                        )}
-                        style={{ width: `${Math.max(4, (bucket[key] / trendMax) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <div className="rounded-2xl border border-border bg-card shadow-sm">
-          <div className="border-b border-border px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold text-foreground">LO Performance</h2>
-                <p className="text-sm text-muted-foreground">
-                  Co-LO files count for each assigned officer without duplicating the source record.
-                </p>
-              </div>
-              <UserRound className="h-5 w-5 text-muted-foreground" />
-            </div>
-          </div>
-          <div className="divide-y divide-border">
-            {report.teamRows.length === 0 ? (
-              <div className="p-5 text-sm text-muted-foreground">No officer activity in this range yet.</div>
-            ) : (
-              report.teamRows.slice(0, 8).map((row) => (
-                <div key={row.loanOfficerId} className="p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold text-foreground">{row.loanOfficerName}</p>
-                    <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground">
-                      {formatPercent(row.pullThroughRate)}
-                    </span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
-                    <MiniCount label="+1" value={row.plusOne} />
-                    <MiniCount label="Disc" value={row.disclosures} />
-                    <MiniCount label="Proc" value={row.processing} />
-                    <MiniCount label="Fund" value={row.fundings} />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
           <div className="border-b border-border px-5 py-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -727,7 +554,20 @@ export function PipelinePage({ initialReport }: Props) {
                   </tr>
                 ) : (
                   report.recentRows.map((row) => (
-                    <tr key={`${row.milestone}-${row.id}`} className="hover:bg-secondary/40">
+                    <tr
+                      key={`${row.milestone}-${row.id}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedCard(row)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedCard(row);
+                        }
+                      }}
+                      className="cursor-pointer transition hover:bg-secondary/40 focus-visible:bg-secondary/50 focus-visible:outline-none"
+                      aria-label={`Open details for ${row.borrowerName}`}
+                    >
                       <td className="px-5 py-3">
                         <span className={cx('inline-flex rounded-full border px-2.5 py-1 text-xs font-bold', MILESTONE_TONES[row.milestone])}>
                           {row.milestoneLabel}
@@ -748,7 +588,6 @@ export function PipelinePage({ initialReport }: Props) {
               </tbody>
             </table>
           </div>
-        </div>
       </section>
 
       <div className="rounded-2xl border border-dashed border-border bg-card p-5 text-sm text-muted-foreground">
@@ -1122,11 +961,3 @@ function ContactRow({
   );
 }
 
-function MiniCount({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg bg-secondary px-2 py-2">
-      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
-      <p className="mt-1 font-bold text-foreground">{formatNumber(value)}</p>
-    </div>
-  );
-}
