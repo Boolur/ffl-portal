@@ -2,7 +2,6 @@
 
 import React, { useMemo, useState, useTransition } from 'react';
 import {
-  CalendarDays,
   ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
@@ -706,10 +705,6 @@ export function LeaderboardPage({ initialReport }: Props) {
               <RotateCcw className="h-3.5 w-3.5" />
               Reset columns
             </button>
-            <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">
-              <CalendarDays className="h-3.5 w-3.5" />
-              Generated {formatDateTime(report.generatedAt)}
-            </div>
           </div>
         </div>
 
