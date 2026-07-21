@@ -110,6 +110,11 @@ export type PipelineMilestoneRow = {
     };
     task: {
       title: string | null;
+      queueStage: {
+        label: string;
+        description: string;
+        tone: 'danger' | 'success' | 'info' | 'neutral';
+      };
       submittedFields: Array<{ label: string; value: string }>;
       notes: Array<{
         author: string;
@@ -503,6 +508,60 @@ function taskUpdateSignal(task: {
     return { label: 'In progress', tone: 'info' as const };
   }
   return null;
+}
+
+function taskQueueStage(task: {
+  status: string;
+  workflowState?: string | null;
+  completedAt?: Date | null;
+}): NonNullable<PipelineMilestoneRow['fileDetails']['task']>['queueStage'] {
+  if (task.workflowState === 'WAITING_ON_LO') {
+    return {
+      label: 'Waiting on Loan Officer',
+      description: 'The Tasks queue is waiting for missing or incomplete items from the loan officer.',
+      tone: 'danger',
+    };
+  }
+  if (task.workflowState === 'WAITING_ON_LO_APPROVAL') {
+    return {
+      label: 'Waiting on LO Approval',
+      description: 'The request is ready for the loan officer to review and approve in Tasks.',
+      tone: 'danger',
+    };
+  }
+  if (task.workflowState === 'READY_TO_COMPLETE') {
+    return {
+      label: 'Returned to Specialist',
+      description: 'The loan officer response was received and the assigned team can complete the request.',
+      tone: 'info',
+    };
+  }
+  if (task.completedAt || task.status === 'COMPLETED') {
+    return {
+      label: 'Completed in Tasks',
+      description: 'This request was completed by the assigned team. Open the task to review final details or history.',
+      tone: 'success',
+    };
+  }
+  if (task.status === 'IN_PROGRESS') {
+    return {
+      label: 'In Progress',
+      description: 'The assigned team has started working this request in the Tasks queue.',
+      tone: 'info',
+    };
+  }
+  if (task.status === 'BLOCKED') {
+    return {
+      label: 'Blocked / Needs Attention',
+      description: 'The request is blocked in Tasks and likely needs a response before it can move forward.',
+      tone: 'danger',
+    };
+  }
+  return {
+    label: 'New Request in Queue',
+    description: 'The request has been submitted and is waiting in the assigned Tasks queue.',
+    tone: 'neutral',
+  };
 }
 
 function fundingUpdateSignal(status: string) {
@@ -979,6 +1038,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
           loan: loanFileDetails(task.loan, task.submissionData),
           task: {
             title: task.title,
+            queueStage: taskQueueStage(task),
             submittedFields: submittedFieldsFromJson(task.submissionData),
             notes: parseTaskNotesFromJson(task.submissionData),
             checklistItems: checklistItemsFromJson(task.submissionData),
@@ -1059,6 +1119,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
           loan: loanFileDetails(task.loan, task.submissionData),
           task: {
             title: task.title,
+            queueStage: taskQueueStage(task),
             submittedFields: submittedFieldsFromJson(task.submissionData),
             notes: parseTaskNotesFromJson(task.submissionData),
             checklistItems: checklistItemsFromJson(task.submissionData),
