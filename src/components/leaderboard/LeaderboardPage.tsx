@@ -159,6 +159,29 @@ function activityTotal(row: LeaderboardOfficerRow) {
   return row.plusOne.units + row.disclosures.units + row.processing.units + row.fundings.units;
 }
 
+function rankBadgeClassName(index: number) {
+  const base = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-extrabold ring-1 transition';
+  if (index === 0) {
+    return cx(
+      base,
+      'bg-gradient-to-br from-amber-200 via-yellow-100 to-amber-300 text-amber-950 shadow-sm shadow-amber-200/70 ring-amber-300 motion-safe:animate-pulse'
+    );
+  }
+  if (index === 1) {
+    return cx(
+      base,
+      'bg-gradient-to-br from-slate-200 via-white to-slate-300 text-slate-800 shadow-sm shadow-slate-200/70 ring-slate-300 motion-safe:animate-pulse'
+    );
+  }
+  if (index === 2) {
+    return cx(
+      base,
+      'bg-gradient-to-br from-orange-200 via-amber-50 to-orange-300 text-orange-950 shadow-sm shadow-orange-200/70 ring-orange-300 motion-safe:animate-pulse'
+    );
+  }
+  return cx(base, 'bg-slate-100 text-slate-600 ring-slate-200');
+}
+
 function SortHeader({
   label,
   sortKey,
@@ -574,7 +597,7 @@ export function LeaderboardPage({ initialReport }: Props) {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {sortedRows.map((row, index) => {
-                const isStriped = index % 2 === 0;
+                const isStriped = index % 2 === 1;
                 const rowSurface = isStriped ? 'bg-slate-50/55' : 'bg-white';
                 const stickySurface = isStriped ? 'bg-slate-50' : 'bg-white';
                 return (
@@ -585,7 +608,7 @@ export function LeaderboardPage({ initialReport }: Props) {
                       onClick={() => setSelectedOfficerId(row.loanOfficerId)}
                       className="flex w-full min-w-0 items-center gap-3 rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
                     >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
+                      <span className={rankBadgeClassName(index)}>
                         {index + 1}
                       </span>
                       <span className="min-w-0">
