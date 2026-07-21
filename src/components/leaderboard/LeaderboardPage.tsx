@@ -13,6 +13,7 @@ import {
   RefreshCw,
   RotateCcw,
   Trophy,
+  Users2,
   X,
 } from 'lucide-react';
 import {
@@ -27,6 +28,9 @@ import {
   ResizeHandle,
   useColumnWidths,
 } from '@/components/admin/leads/shared/columnCustomization';
+import {
+  teamColorClasses,
+} from '@/components/admin/leads/LeadUserTeamManager';
 
 type Props = {
   initialReport: LeaderboardReport;
@@ -157,6 +161,39 @@ function sortValue(row: LeaderboardOfficerRow, key: SortKey) {
 
 function activityTotal(row: LeaderboardOfficerRow) {
   return row.plusOne.units + row.disclosures.units + row.processing.units + row.fundings.units;
+}
+
+function emptyMetric() {
+  return { volume: 0, units: 0, revenue: 0 };
+}
+
+function totalMetric(rows: LeaderboardOfficerRow[], metric: 'plusOne' | 'disclosures' | 'processing' | 'fundings') {
+  return rows.reduce(
+    (total, row) => {
+      total.volume += row[metric].volume;
+      total.units += row[metric].units;
+      total.revenue += row[metric].revenue;
+      return total;
+    },
+    emptyMetric()
+  );
+}
+
+function renderTeamDots(colors: string[] | undefined) {
+  const safe = (colors && colors.length > 0 ? colors : ['blue']).slice(0, 3);
+  return (
+    <span className="inline-flex shrink-0 items-center -space-x-0.5">
+      {safe.map((color, index) => (
+        <span
+          key={`${color}-${index}`}
+          className={cx(
+            'inline-block h-2 w-2 rounded-full ring-1 ring-white',
+            teamColorClasses(color).dot
+          )}
+        />
+      ))}
+    </span>
+  );
 }
 
 function rankBadgeClassName(index: number) {
@@ -329,11 +366,73 @@ function MetricCells({ row, metric }: { row: LeaderboardOfficerRow; metric: 'plu
   );
 }
 
+function TeamFilterChips({
+  teams,
+  selectedTeamId,
+  onSelectTeam,
+}: {
+  teams: LeaderboardReport['teams'];
+  selectedTeamId: string | null;
+  onSelectTeam: (teamId: string | null) => void;
+}) {
+  if (teams.length === 0) return null;
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <div className="mr-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+        <Users2 className="h-3.5 w-3.5" />
+        Teams
+      </div>
+      <button
+        type="button"
+        onClick={() => onSelectTeam(null)}
+        className={cx(
+          'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+          selectedTeamId === null
+            ? 'border-slate-300 bg-slate-100 text-slate-800 ring-1 ring-slate-300'
+            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+        )}
+      >
+        All
+      </button>
+      {teams.map((team) => {
+        const accent = team.colors?.[0] ?? team.color;
+        const classes = teamColorClasses(accent);
+        const isActive = selectedTeamId === team.id;
+        return (
+          <button
+            key={team.id}
+            type="button"
+            onClick={() => onSelectTeam(team.id)}
+            className={cx(
+              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+              isActive ? classes.chipActive : classes.chipInactive,
+              isActive && `ring-1 ${classes.ring}`
+            )}
+            title={
+              isActive
+                ? `Showing ${team.name} members - click to clear filter`
+                : `Filter to ${team.name} members`
+            }
+          >
+            {renderTeamDots(team.colors ?? [accent])}
+            <span className="max-w-[150px] truncate">{team.name}</span>
+            <span className="text-[10px] font-semibold tabular-nums opacity-70">
+              {team.memberCount}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function LeaderboardPage({ initialReport }: Props) {
   const [report, setReport] = useState(initialReport);
   const [preset, setPreset] = useState<LeaderboardRangePreset>(initialReport.filters.preset);
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedOfficerId, setSelectedOfficerId] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
     key: 'plusOne.volume',
@@ -351,9 +450,35 @@ export function LeaderboardPage({ initialReport }: Props) {
     LEADERBOARD_COLUMN_WIDTHS_KEY
   );
 
+  const selectedTeam = selectedTeamId
+    ? report.teams.find((team) => team.id === selectedTeamId) || null
+    : null;
+
+  const selectedTeamMemberIds = useMemo(() => {
+    if (!selectedTeam) return null;
+    return new Set(selectedTeam.memberIds);
+  }, [selectedTeam]);
+
+  const filteredRows = useMemo(() => {
+    if (!selectedTeamMemberIds) return report.rows;
+    return report.rows.filter((row) => selectedTeamMemberIds.has(row.loanOfficerId));
+  }, [report.rows, selectedTeamMemberIds]);
+
+  const filteredDetailRows = useMemo(() => {
+    if (!selectedTeamMemberIds) return report.detailRows;
+    return report.detailRows.filter((row) => selectedTeamMemberIds.has(row.creditedLoanOfficerId));
+  }, [report.detailRows, selectedTeamMemberIds]);
+
+  const visibleTotals = useMemo(() => ({
+    plusOne: totalMetric(filteredRows, 'plusOne'),
+    disclosures: totalMetric(filteredRows, 'disclosures'),
+    processing: totalMetric(filteredRows, 'processing'),
+    fundings: totalMetric(filteredRows, 'fundings'),
+  }), [filteredRows]);
+
   const sortedRows = useMemo(() => {
     const multiplier = sortMultiplier(sort.direction);
-    return [...report.rows].sort((a, b) => {
+    return [...filteredRows].sort((a, b) => {
       const aValue = sortValue(a, sort.key);
       const bValue = sortValue(b, sort.key);
       const primary =
@@ -363,16 +488,16 @@ export function LeaderboardPage({ initialReport }: Props) {
       if (primary !== 0) return primary * multiplier;
       return compareText(a.loanOfficerName, b.loanOfficerName);
     });
-  }, [report.rows, sort.direction, sort.key]);
+  }, [filteredRows, sort.direction, sort.key]);
 
   const selectedOfficer = selectedOfficerId
-    ? report.rows.find((row) => row.loanOfficerId === selectedOfficerId) || null
+    ? filteredRows.find((row) => row.loanOfficerId === selectedOfficerId) || null
     : null;
 
   const selectedOfficerDetails = useMemo(() => {
     if (!selectedOfficerId) return [];
-    return report.detailRows.filter((row) => row.creditedLoanOfficerId === selectedOfficerId);
-  }, [report.detailRows, selectedOfficerId]);
+    return filteredDetailRows.filter((row) => row.creditedLoanOfficerId === selectedOfficerId);
+  }, [filteredDetailRows, selectedOfficerId]);
 
   const tableWidth = useMemo(
     () => LEADERBOARD_COLUMNS.reduce((sum, column) => sum + columnWidths[column.id], 0),
@@ -415,6 +540,11 @@ export function LeaderboardPage({ initialReport }: Props) {
     if (nextPreset !== 'custom') {
       loadReport({ preset: nextPreset });
     }
+  }
+
+  function handleTeamSelect(teamId: string | null) {
+    setSelectedTeamId((current) => (current === teamId ? null : teamId));
+    setSelectedOfficerId(null);
   }
 
   return (
@@ -488,29 +618,29 @@ export function LeaderboardPage({ initialReport }: Props) {
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           title="+1 Volume"
-          value={formatCurrency(report.totals.plusOne.volume)}
-          subtitle={`${formatNumber(report.totals.plusOne.units)} units / ${formatCurrency(report.totals.plusOne.revenue)} revenue`}
+          value={formatCurrency(visibleTotals.plusOne.volume)}
+          subtitle={`${formatNumber(visibleTotals.plusOne.units)} units / ${formatCurrency(visibleTotals.plusOne.revenue)} revenue`}
           Icon={Home}
           tone="emerald"
         />
         <KpiCard
           title="Disclosure Volume"
-          value={formatCurrency(report.totals.disclosures.volume)}
-          subtitle={`${formatNumber(report.totals.disclosures.units)} submitted disclosures`}
+          value={formatCurrency(visibleTotals.disclosures.volume)}
+          subtitle={`${formatNumber(visibleTotals.disclosures.units)} submitted disclosures`}
           Icon={ClipboardCheck}
           tone="blue"
         />
         <KpiCard
           title="Processing/QC Volume"
-          value={formatCurrency(report.totals.processing.volume)}
-          subtitle={`${formatNumber(report.totals.processing.units)} units / ${formatCurrency(report.totals.processing.revenue)} revenue`}
+          value={formatCurrency(visibleTotals.processing.volume)}
+          subtitle={`${formatNumber(visibleTotals.processing.units)} units / ${formatCurrency(visibleTotals.processing.revenue)} revenue`}
           Icon={FileText}
           tone="purple"
         />
         <KpiCard
           title="Funding Volume"
-          value={formatCurrency(report.totals.fundings.volume)}
-          subtitle={`${formatNumber(report.totals.fundings.units)} units / ${formatCurrency(report.totals.fundings.revenue)} revenue`}
+          value={formatCurrency(visibleTotals.fundings.volume)}
+          subtitle={`${formatNumber(visibleTotals.fundings.units)} units / ${formatCurrency(visibleTotals.fundings.revenue)} revenue`}
           Icon={CircleDollarSign}
           tone="amber"
         />
@@ -524,10 +654,15 @@ export function LeaderboardPage({ initialReport }: Props) {
               Production leaderboard
             </h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. Click a loan officer to view credited loans.
+              {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. {selectedTeam ? `${selectedTeam.name} members only.` : 'Click a loan officer to view credited loans.'}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <TeamFilterChips
+            teams={report.teams}
+            selectedTeamId={selectedTeamId}
+            onSelectTeam={handleTeamSelect}
+          />
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={resetColumnWidths}
@@ -629,7 +764,9 @@ export function LeaderboardPage({ initialReport }: Props) {
               {sortedRows.length === 0 && (
                 <tr>
                   <td colSpan={12} className="px-5 py-12 text-center text-sm text-slate-500">
-                    No loan officers are available for this leaderboard.
+                    {selectedTeam
+                      ? `No loan officers are assigned to ${selectedTeam.name}.`
+                      : 'No loan officers are available for this leaderboard.'}
                   </td>
                 </tr>
               )}

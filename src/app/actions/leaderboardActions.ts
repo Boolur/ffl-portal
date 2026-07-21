@@ -36,6 +36,16 @@ export type LeaderboardOfficerRow = {
   fundings: LeaderboardMetric;
 };
 
+export type LeaderboardTeamOption = {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string;
+  colors: string[];
+  memberCount: number;
+  memberIds: string[];
+};
+
 export type LeaderboardDetailRow = {
   id: string;
   loanId: string | null;
@@ -64,6 +74,7 @@ export type LeaderboardReport = {
   };
   generatedAt: string;
   rows: LeaderboardOfficerRow[];
+  teams: LeaderboardTeamOption[];
   detailRows: LeaderboardDetailRow[];
   totals: {
     plusOne: LeaderboardMetric;
@@ -239,7 +250,7 @@ export async function getLeaderboardReport(
   const { preset, start, end } = resolveDateRange(filters);
   const dateWhere = { createdAt: { gte: start, lte: end } };
 
-  const [loanOfficers, taskRows, fundingRows] = await Promise.all([
+  const [loanOfficers, teams, taskRows, fundingRows] = await Promise.all([
     prisma.user.findMany({
       where: {
         active: true,
@@ -247,6 +258,18 @@ export async function getLeaderboardReport(
       },
       select: { id: true, name: true, email: true },
       orderBy: { name: 'asc' },
+    }),
+    prisma.leadUserTeam.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        color: true,
+        colors: true,
+        members: { select: { userId: true } },
+      },
     }),
     prisma.task.findMany({
       where: {
@@ -406,6 +429,15 @@ export async function getLeaderboardReport(
     },
     generatedAt: new Date().toISOString(),
     rows,
+    teams: teams.map((team) => ({
+      id: team.id,
+      name: team.name,
+      description: team.description,
+      color: team.color,
+      colors: team.colors?.length ? team.colors : [team.color],
+      memberCount: team.members.length,
+      memberIds: team.members.map((member) => member.userId),
+    })),
     detailRows: detailRows.sort(
       (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
     ),
