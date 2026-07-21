@@ -5,6 +5,7 @@ import {
   ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
+  Edit3,
   FileText,
   Home,
   Loader2,
@@ -17,9 +18,12 @@ import {
 } from 'lucide-react';
 import {
   getLeaderboardReport,
+  updateLeaderboardLoanDetails,
   type LeaderboardDetailRow,
+  type LeaderboardEditInput,
   type LeaderboardLeadSourceRow,
   type LeaderboardLenderRow,
+  type LeaderboardLoanOfficerOption,
   type LeaderboardMilestoneKey,
   type LeaderboardOfficerRow,
   type LeaderboardRangePreset,
@@ -97,6 +101,15 @@ const LEADERBOARD_COLUMNS: Array<{
 
 const LEADERBOARD_COLUMN_WIDTHS_KEY = 'ffl:leaderboard-column-widths:v1';
 const PORTAL_TIME_ZONE = 'America/Los_Angeles';
+const LEAD_SOURCE_EDIT_OPTIONS = [
+  'Lead Buy',
+  'Mailer',
+  'Warm Transfer',
+  'Referral',
+  'Return Client',
+  'Self Generated',
+  'Other',
+];
 
 const MILESTONE_TONES = {
   plusOne: 'border-emerald-300 bg-emerald-100 text-emerald-800',
@@ -178,6 +191,11 @@ function formatCurrency(value: number | null) {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function moneyInputValue(value: number | null) {
+  if (value === null) return '';
+  return String(Math.round(value * 100) / 100);
 }
 
 function formatDate(value: string) {
@@ -638,6 +656,7 @@ export function LeaderboardPage({ initialReport }: Props) {
   const [view, setView] = useState<LeaderboardView>('loanOfficers');
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [editingRow, setEditingRow] = useState<LeaderboardDetailRow | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
     key: 'plusOne.volume',
     direction: 'desc',
@@ -737,7 +756,10 @@ export function LeaderboardPage({ initialReport }: Props) {
     }));
   }
 
-  function loadReport(nextFilters?: Partial<LeaderboardReportFilters>) {
+  function loadReport(
+    nextFilters?: Partial<LeaderboardReportFilters>,
+    options?: { preserveSelection?: boolean }
+  ) {
     const filters: LeaderboardReportFilters = {
       preset,
       startDate,
@@ -753,7 +775,9 @@ export function LeaderboardPage({ initialReport }: Props) {
         setPreset(nextReport.filters.preset);
         setStartDate(dateInputValue(nextReport.filters.startDate));
         setEndDate(dateInputValue(nextReport.filters.endDate));
-        setSelectedRowId(null);
+        if (!options?.preserveSelection) {
+          setSelectedRowId(null);
+        }
       } catch (err) {
         console.error(err);
         setError('Unable to load Leaderboard metrics. Please try again.');
@@ -781,6 +805,16 @@ export function LeaderboardPage({ initialReport }: Props) {
   function handleViewChange(nextView: LeaderboardView) {
     setView(nextView);
     setSelectedRowId(null);
+    setEditingRow(null);
+  }
+
+  async function handleApplyEdit(input: LeaderboardEditInput) {
+    const result = await updateLeaderboardLoanDetails(input);
+    if (result.success) {
+      setEditingRow(null);
+      loadReport(undefined, { preserveSelection: true });
+    }
+    return result;
   }
 
   const teamFilterLabel =
@@ -858,7 +892,7 @@ export function LeaderboardPage({ initialReport }: Props) {
         </div>
       )}
 
-      <div className="relative space-y-6" aria-busy={isPending}>
+      <div className="relative space-y-4" aria-busy={isPending}>
         {isPending && (
           <div
             className="absolute inset-0 z-40 flex items-center justify-center rounded-[28px] bg-white/70 backdrop-blur-[2px]"
@@ -1052,7 +1086,17 @@ export function LeaderboardPage({ initialReport }: Props) {
           entity={selectedRow}
           rows={selectedDetails}
           rangeLabel={`${formatDate(report.filters.startDate)} - ${formatDate(report.filters.endDate)}`}
+          canEdit={report.canEdit}
+          onEditRow={setEditingRow}
           onClose={() => setSelectedRowId(null)}
+        />
+      )}
+      {editingRow && (
+        <LeaderboardEditModal
+          row={editingRow}
+          loanOfficerOptions={report.loanOfficerOptions}
+          onApply={handleApplyEdit}
+          onClose={() => setEditingRow(null)}
         />
       )}
     </div>
@@ -1063,11 +1107,15 @@ function OfficerDetailsModal({
   entity,
   rows,
   rangeLabel,
+  canEdit,
+  onEditRow,
   onClose,
 }: {
   entity: DisplayLeaderboardRow;
   rows: LeaderboardDetailRow[];
   rangeLabel: string;
+  canEdit: boolean;
+  onEditRow: (row: LeaderboardDetailRow) => void;
   onClose: () => void;
 }) {
   const [selectedMilestone, setSelectedMilestone] = useState<LeaderboardMilestoneKey | null>(null);
@@ -1179,8 +1227,22 @@ function OfficerDetailsModal({
                   )}
                 >
                   <td className="px-5 py-4">
-                    <p className="font-bold text-slate-950">{row.borrowerName}</p>
-                    <p className="mt-1 font-mono text-xs font-semibold text-slate-500">{row.loanNumber}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-slate-950">{row.borrowerName}</p>
+                        <p className="mt-1 font-mono text-xs font-semibold text-slate-500">{row.loanNumber}</p>
+                      </div>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => onEditRow(row)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-5 py-4 text-center">
                     <span className={cx('inline-flex max-w-[150px] items-center justify-center rounded-full border px-3 py-1 text-center text-xs font-bold leading-tight', MILESTONE_TONES[row.milestone])}>
@@ -1225,6 +1287,263 @@ function OfficerDetailsModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function LeaderboardEditModal({
+  row,
+  loanOfficerOptions,
+  onApply,
+  onClose,
+}: {
+  row: LeaderboardDetailRow;
+  loanOfficerOptions: LeaderboardLoanOfficerOption[];
+  onApply: (input: LeaderboardEditInput) => Promise<{ success: boolean; error?: string }>;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    borrowerName: row.borrowerName || '',
+    loanNumber: row.loanNumber || '',
+    primaryLoanOfficerId: row.primaryLoanOfficerId || '',
+    secondaryLoanOfficerId: row.secondaryLoanOfficerId || '',
+    loanAmount: moneyInputValue(row.amount),
+    revenue: moneyInputValue(row.revenue),
+    lender: row.lender || '',
+    leadSource: row.leadSource || '',
+    reason: '',
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, startSaving] = useTransition();
+  const tracksRevenue =
+    row.milestone === 'plusOne' || row.milestone === 'processing' || row.milestone === 'fundings';
+
+  function updateField(key: keyof typeof form, value: string) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleApply() {
+    if (!window.confirm('Are you sure you want to apply these changes?')) return;
+    setError(null);
+    startSaving(async () => {
+      const result = await onApply({
+        id: row.id,
+        milestone: row.milestone,
+        loanId: row.loanId,
+        borrowerName: form.borrowerName,
+        loanNumber: form.loanNumber,
+        primaryLoanOfficerId: form.primaryLoanOfficerId,
+        secondaryLoanOfficerId: form.secondaryLoanOfficerId || null,
+        loanAmount: form.loanAmount,
+        revenue: form.revenue,
+        lender: form.lender,
+        leadSource: form.leadSource,
+        reason: form.reason,
+      });
+      if (!result.success) {
+        setError(result.error || 'Unable to apply changes.');
+      }
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 p-4"
+      onClick={onClose}
+      data-live-refresh-pause="true"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Edit ${row.borrowerName} leaderboard details`}
+        className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-6 border-b border-slate-200 px-6 py-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Admin edit</p>
+            <h3 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">
+              Edit Loan Details
+            </h3>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              {row.milestoneLabel} / {row.borrowerName} / {row.loanNumber}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:bg-slate-50 hover:text-slate-600 hover:shadow-sm"
+            aria-label="Close edit loan details"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="max-h-[62vh] overflow-auto px-6 py-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <EditField
+              label="Borrower name"
+              value={form.borrowerName}
+              onChange={(value) => updateField('borrowerName', value)}
+            />
+            <EditField
+              label="Loan number"
+              value={form.loanNumber}
+              onChange={(value) => updateField('loanNumber', value)}
+            />
+            <EditSelect
+              label="Primary LO"
+              value={form.primaryLoanOfficerId}
+              onChange={(value) => updateField('primaryLoanOfficerId', value)}
+            >
+              <option value="">Select Primary LO</option>
+              {loanOfficerOptions.map((officer) => (
+                <option key={officer.id} value={officer.id}>
+                  {officer.name} ({officer.email})
+                </option>
+              ))}
+            </EditSelect>
+            <EditSelect
+              label="Secondary LO"
+              value={form.secondaryLoanOfficerId}
+              onChange={(value) => updateField('secondaryLoanOfficerId', value)}
+            >
+              <option value="">N/A</option>
+              {loanOfficerOptions.map((officer) => (
+                <option key={officer.id} value={officer.id}>
+                  {officer.name} ({officer.email})
+                </option>
+              ))}
+            </EditSelect>
+            <EditField
+              label="Loan amount"
+              value={form.loanAmount}
+              onChange={(value) => updateField('loanAmount', value)}
+              inputMode="decimal"
+              placeholder="450000"
+            />
+            <EditField
+              label={tracksRevenue ? 'Revenue' : 'Revenue (not tracked)'}
+              value={form.revenue}
+              onChange={(value) => updateField('revenue', value)}
+              inputMode="decimal"
+              placeholder="12000"
+              disabled={!tracksRevenue}
+            />
+            <EditField
+              label="Lender"
+              value={form.lender}
+              onChange={(value) => updateField('lender', value)}
+            />
+            <EditSelect
+              label="Lead source"
+              value={form.leadSource}
+              onChange={(value) => updateField('leadSource', value)}
+            >
+              <option value="">Select lead source</option>
+              {LEAD_SOURCE_EDIT_OPTIONS.map((source) => (
+                <option key={source} value={source}>
+                  {source}
+                </option>
+              ))}
+              {form.leadSource && !LEAD_SOURCE_EDIT_OPTIONS.includes(form.leadSource) && (
+                <option value={form.leadSource}>{form.leadSource}</option>
+              )}
+            </EditSelect>
+            <div className="md:col-span-2">
+              <EditField
+                label="Reason / note for audit log"
+                value={form.reason}
+                onChange={(value) => updateField('reason', value)}
+                placeholder="Optional context for this correction"
+              />
+            </div>
+          </div>
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+            Applying this will update the source loan details and the selected leaderboard source row, then write an audit log.
+          </div>
+          {error && (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleApply}
+            disabled={isSaving}
+            className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2 text-sm font-extrabold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditField({
+  label,
+  value,
+  onChange,
+  inputMode,
+  placeholder,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        inputMode={inputMode}
+        placeholder={placeholder}
+        disabled={disabled}
+        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition placeholder:text-slate-300 focus:border-blue-300 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-400"
+      />
+    </label>
+  );
+}
+
+function EditSelect({
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+      >
+        {children}
+      </select>
+    </label>
   );
 }
 

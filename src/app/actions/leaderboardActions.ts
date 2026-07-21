@@ -1,13 +1,16 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import {
   PayrollCompRequestStatus,
+  PayrollLeadSource,
   Prisma,
   TaskKind,
   UserRole,
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
+import { hasAnyAdminRole, isAdmin } from '@/lib/adminTiers';
 import { canAccessLeaderboardPortal } from '@/lib/leaderboardAccess';
 import { prisma } from '@/lib/prisma';
 
@@ -64,10 +67,18 @@ export type LeaderboardTeamOption = {
   memberIds: string[];
 };
 
+export type LeaderboardLoanOfficerOption = {
+  id: string;
+  name: string;
+  email: string;
+};
+
 export type LeaderboardDetailRow = {
   id: string;
   loanId: string | null;
   creditedLoanOfficerId: string;
+  primaryLoanOfficerId: string;
+  secondaryLoanOfficerId: string | null;
   lenderKey: string;
   lenderName: string;
   leadSourceKey: string;
@@ -95,10 +106,12 @@ export type LeaderboardReport = {
     endDate: string;
   };
   generatedAt: string;
+  canEdit: boolean;
   rows: LeaderboardOfficerRow[];
   lenderRows: LeaderboardLenderRow[];
   leadSourceRows: LeaderboardLeadSourceRow[];
   teams: LeaderboardTeamOption[];
+  loanOfficerOptions: LeaderboardLoanOfficerOption[];
   detailRows: LeaderboardDetailRow[];
   totals: {
     plusOne: LeaderboardMetric;
@@ -106,6 +119,26 @@ export type LeaderboardReport = {
     processing: LeaderboardMetric;
     fundings: LeaderboardMetric;
   };
+};
+
+export type LeaderboardEditInput = {
+  id: string;
+  milestone: LeaderboardMilestoneKey;
+  loanId?: string | null;
+  borrowerName: string;
+  loanNumber: string;
+  primaryLoanOfficerId: string;
+  secondaryLoanOfficerId?: string | null;
+  loanAmount: string;
+  revenue?: string | null;
+  lender: string;
+  leadSource: string;
+  reason?: string | null;
+};
+
+export type LeaderboardEditResult = {
+  success: boolean;
+  error?: string;
 };
 
 const PROCESSING_KINDS = [TaskKind.SUBMIT_PROCESSING, TaskKind.SUBMIT_QC];
@@ -184,6 +217,57 @@ function money(value: Prisma.Decimal | number | string | null | undefined) {
       : value;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeRole(role?: string | UserRole | null): UserRole | null {
+  const normalized = String(role || '').trim().toUpperCase();
+  return (Object.values(UserRole) as string[]).includes(normalized)
+    ? (normalized as UserRole)
+    : null;
+}
+
+async function getLeaderboardSessionUser() {
+  const session = await getServerSession(authOptions);
+  const role = normalizeRole(session?.user?.activeRole || session?.user?.role);
+  const roles = Array.isArray(session?.user?.roles)
+    ? session.user.roles.map((userRole) => normalizeRole(userRole)).filter((userRole): userRole is UserRole => Boolean(userRole))
+    : [];
+  return {
+    session,
+    role,
+    isAdminUser: Boolean((role && isAdmin(role)) || hasAnyAdminRole(roles)),
+    userId: session?.user?.id || null,
+    name: session?.user?.name || 'Admin',
+  };
+}
+
+function splitBorrowerName(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: '', lastName: '' };
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+  };
+}
+
+function formatMoneyForSubmission(value: number) {
+  return String(Math.round(value * 100) / 100);
+}
+
+function parsePositiveMoney(value: unknown, label: string) {
+  const parsed = money(String(value ?? ''));
+  if (parsed === null || parsed <= 0) {
+    throw new Error(`${label} must be greater than $0.`);
+  }
+  return parsed;
+}
+
+function payrollLeadSourceFromDisplay(value: string) {
+  const key = value.trim().toUpperCase().replace(/[\s-]+/g, '_');
+  return (Object.values(PayrollLeadSource) as string[]).includes(key)
+    ? (key as PayrollLeadSource)
+    : PayrollLeadSource.OTHER;
 }
 
 function submissionObject(value: unknown): Record<string, unknown> | null {
@@ -356,11 +440,11 @@ function getOrCreateLeadSourceRow(map: Map<string, LeaderboardLeadSourceRow>, ra
 export async function getLeaderboardReport(
   filters: LeaderboardReportFilters = {}
 ): Promise<LeaderboardReport> {
-  const session = await getServerSession(authOptions);
+  const { session, role, isAdminUser } = await getLeaderboardSessionUser();
   if (
     !session?.user?.id ||
     !canAccessLeaderboardPortal({
-      role: session.user.activeRole || session.user.role,
+      role,
       email: session.user.email,
       name: session.user.name,
     })
@@ -494,6 +578,8 @@ export async function getLeaderboardReport(
       id: task.id,
       loanId: task.loan.id,
       creditedLoanOfficerId,
+      primaryLoanOfficerId: task.loan.loanOfficerId,
+      secondaryLoanOfficerId: task.loan.secondaryLoanOfficerId || null,
       lenderKey: lenderRow.lenderKey,
       lenderName: lenderRow.lenderName,
       leadSourceKey: leadSourceRow.leadSourceKey,
@@ -534,6 +620,8 @@ export async function getLeaderboardReport(
       id: funding.id,
       loanId: funding.loan?.id || funding.loanId,
       creditedLoanOfficerId,
+      primaryLoanOfficerId: funding.loan?.loanOfficerId || funding.loanOfficerId,
+      secondaryLoanOfficerId: funding.loan?.secondaryLoanOfficerId || null,
       lenderKey: lenderRow.lenderKey,
       lenderName: lenderRow.lenderName,
       leadSourceKey: leadSourceRow.leadSourceKey,
@@ -581,6 +669,7 @@ export async function getLeaderboardReport(
       endDate: end.toISOString(),
     },
     generatedAt: new Date().toISOString(),
+    canEdit: isAdminUser,
     rows,
     lenderRows,
     leadSourceRows,
@@ -593,6 +682,11 @@ export async function getLeaderboardReport(
       memberCount: team.members.length,
       memberIds: team.members.map((member) => member.userId),
     })),
+    loanOfficerOptions: loanOfficers.map((officer) => ({
+      id: officer.id,
+      name: officer.name,
+      email: officer.email,
+    })),
     detailRows: detailRows.sort(
       (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
     ),
@@ -603,4 +697,245 @@ export async function getLeaderboardReport(
       fundings: metricTotals(rows, 'fundings'),
     },
   };
+}
+
+function hasLoanOfficerRole(user: { role: UserRole; roles: UserRole[] } | null | undefined) {
+  return Boolean(
+    user &&
+      (user.role === UserRole.LOAN_OFFICER || user.roles.includes(UserRole.LOAN_OFFICER))
+  );
+}
+
+function serializeForAudit(value: unknown) {
+  return JSON.parse(JSON.stringify(value, (_key, item) => (
+    typeof item === 'bigint' ? item.toString() : item
+  )));
+}
+
+export async function updateLeaderboardLoanDetails(
+  input: LeaderboardEditInput
+): Promise<LeaderboardEditResult> {
+  const { session, userId, isAdminUser, name: actorName } = await getLeaderboardSessionUser();
+  if (!session?.user?.id || !userId || !isAdminUser) {
+    return { success: false, error: 'Only admins can edit leaderboard loan details.' };
+  }
+
+  const borrowerName = input.borrowerName.trim();
+  const loanNumber = input.loanNumber.trim();
+  const primaryLoanOfficerId = input.primaryLoanOfficerId.trim();
+  const secondaryLoanOfficerId = input.secondaryLoanOfficerId?.trim() || null;
+  const lender = input.lender.trim();
+  const leadSource = input.leadSource.trim();
+  const shouldUpdateRevenue =
+    input.milestone === 'plusOne' ||
+    input.milestone === 'processing' ||
+    input.milestone === 'fundings';
+  let loanAmount: number;
+  let revenue: number | null = null;
+  try {
+    loanAmount = parsePositiveMoney(input.loanAmount, 'Loan amount');
+    revenue = shouldUpdateRevenue ? parsePositiveMoney(input.revenue, 'Revenue') : null;
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Please enter valid dollar amounts.',
+    };
+  }
+
+  if (!borrowerName) return { success: false, error: 'Borrower name is required.' };
+  if (!loanNumber) return { success: false, error: 'Loan number is required.' };
+  if (!primaryLoanOfficerId) return { success: false, error: 'Primary loan officer is required.' };
+  if (secondaryLoanOfficerId && secondaryLoanOfficerId === primaryLoanOfficerId) {
+    return { success: false, error: 'Primary and secondary loan officers must be different.' };
+  }
+  if (!lender) return { success: false, error: 'Lender is required.' };
+  if (!leadSource) return { success: false, error: 'Lead source is required.' };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const [primaryLoanOfficer, secondaryLoanOfficer] = await Promise.all([
+        tx.user.findUnique({
+          where: { id: primaryLoanOfficerId },
+          select: { id: true, name: true, email: true, role: true, roles: true },
+        }),
+        secondaryLoanOfficerId
+          ? tx.user.findUnique({
+              where: { id: secondaryLoanOfficerId },
+              select: { id: true, name: true, email: true, role: true, roles: true },
+            })
+          : Promise.resolve(null),
+      ]);
+
+      if (!hasLoanOfficerRole(primaryLoanOfficer)) {
+        throw new Error('Selected primary loan officer is invalid.');
+      }
+      if (secondaryLoanOfficerId && !hasLoanOfficerRole(secondaryLoanOfficer)) {
+        throw new Error('Selected secondary loan officer is invalid.');
+      }
+
+      const borrowerParts = splitBorrowerName(borrowerName);
+      const commonLoanData = {
+        borrowerName,
+        loanNumber,
+        amount: loanAmount,
+        loanOfficerId: primaryLoanOfficerId,
+        secondaryLoanOfficerId,
+      };
+
+      if (input.milestone === 'fundings') {
+        const funding = await tx.payrollCompRequest.findUnique({
+          where: { id: input.id },
+          select: {
+            id: true,
+            loanId: true,
+            loanNumber: true,
+            borrowerName: true,
+            expectedRevenue: true,
+            lender: true,
+            leadSource: true,
+            loanOfficerId: true,
+            loan: {
+              select: {
+                id: true,
+                loanNumber: true,
+                borrowerName: true,
+                amount: true,
+                loanOfficerId: true,
+                secondaryLoanOfficerId: true,
+              },
+            },
+          },
+        });
+        if (!funding) throw new Error('Funding request not found.');
+
+        if (funding.loanId) {
+          await tx.loan.update({
+            where: { id: funding.loanId },
+            data: commonLoanData,
+          });
+        }
+
+        await tx.payrollCompRequest.update({
+          where: { id: funding.id },
+          data: {
+            borrowerName,
+            loanNumber,
+            expectedRevenue: revenue || 0,
+            lender,
+            leadSource: payrollLeadSourceFromDisplay(leadSource),
+            loanOfficerId: primaryLoanOfficerId,
+            editedAt: new Date(),
+            editedById: userId,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            loanId: funding.loanId,
+            userId,
+            action: 'LEADERBOARD_FUNDING_EDITED',
+            details: JSON.stringify({
+              editedBy: actorName,
+              reason: input.reason?.trim() || null,
+              fundingId: funding.id,
+              before: serializeForAudit(funding),
+              after: {
+                ...commonLoanData,
+                expectedRevenue: revenue,
+                lender,
+                leadSource,
+              },
+            }),
+          },
+        });
+        return;
+      }
+
+      const task = await tx.task.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          kind: true,
+          submissionData: true,
+          loan: {
+            select: {
+              id: true,
+              loanNumber: true,
+              borrowerName: true,
+              amount: true,
+              loanOfficerId: true,
+              secondaryLoanOfficerId: true,
+            },
+          },
+        },
+      });
+      if (!task) throw new Error('Leaderboard task not found.');
+      const milestone = taskKindToMilestone(task.kind);
+      if (milestone !== input.milestone) {
+        throw new Error('The selected task no longer matches this leaderboard row.');
+      }
+
+      await tx.loan.update({
+        where: { id: task.loan.id },
+        data: commonLoanData,
+      });
+
+      const submissionData =
+        task.submissionData && typeof task.submissionData === 'object' && !Array.isArray(task.submissionData)
+          ? { ...(task.submissionData as Record<string, unknown>) }
+          : {};
+      submissionData.loanOfficer = primaryLoanOfficer?.name || '';
+      submissionData.loanOfficerId = primaryLoanOfficerId;
+      submissionData.secondaryLoanOfficerId = secondaryLoanOfficerId;
+      submissionData.secondaryLoanOfficerName = secondaryLoanOfficer?.name || 'N/A';
+      submissionData.arriveLoanNumber = loanNumber;
+      submissionData.borrowerFirstName = borrowerParts.firstName;
+      submissionData.borrowerLastName = borrowerParts.lastName;
+      submissionData.loanAmount = formatMoneyForSubmission(loanAmount);
+      submissionData.lender = lender;
+      submissionData.investor = lender;
+      submissionData.leadSource = leadSource;
+      if (revenue !== null) {
+        submissionData.projectedRevenue = formatMoneyForSubmission(revenue);
+      }
+
+      await tx.task.update({
+        where: { id: task.id },
+        data: { submissionData: submissionData as Prisma.InputJsonValue },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          loanId: task.loan.id,
+          userId,
+          action: 'LEADERBOARD_TASK_EDITED',
+          details: JSON.stringify({
+            editedBy: actorName,
+            reason: input.reason?.trim() || null,
+            taskId: task.id,
+            milestone: input.milestone,
+            before: serializeForAudit(task),
+            after: {
+              ...commonLoanData,
+              revenue,
+              lender,
+              leadSource,
+            },
+          }),
+        },
+      });
+    });
+
+    revalidatePath('/leaderboard');
+    revalidatePath('/pipeline');
+    revalidatePath('/tasks');
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update leaderboard loan details:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unable to update loan details.',
+    };
+  }
 }
