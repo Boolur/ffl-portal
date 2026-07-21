@@ -383,35 +383,72 @@ function MilestoneGroupHeader({
 }) {
   const tones = {
     emerald: {
-      cell: 'border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-emerald-50/80',
-      chip: 'border-emerald-200 bg-emerald-100/85 text-emerald-800 shadow-emerald-100/80',
+      cell: 'border-emerald-100 bg-emerald-50/60',
+      label: 'text-emerald-700',
       dot: 'bg-emerald-500',
     },
     blue: {
-      cell: 'border-blue-100 bg-gradient-to-r from-blue-50 via-white to-blue-50/80',
-      chip: 'border-blue-200 bg-blue-100/85 text-blue-800 shadow-blue-100/80',
+      cell: 'border-blue-100 bg-blue-50/60',
+      label: 'text-blue-700',
       dot: 'bg-blue-500',
     },
     purple: {
-      cell: 'border-purple-100 bg-gradient-to-r from-purple-50 via-white to-purple-50/80',
-      chip: 'border-purple-200 bg-purple-100/85 text-purple-800 shadow-purple-100/80',
+      cell: 'border-purple-100 bg-purple-50/60',
+      label: 'text-purple-700',
       dot: 'bg-purple-500',
     },
     amber: {
-      cell: 'border-amber-100 bg-gradient-to-r from-amber-50 via-white to-amber-50/80',
-      chip: 'border-amber-200 bg-amber-100/85 text-amber-800 shadow-amber-100/80',
+      cell: 'border-amber-100 bg-amber-50/60',
+      label: 'text-amber-700',
       dot: 'bg-amber-500',
     },
-  } satisfies Record<typeof tone, { cell: string; chip: string; dot: string }>;
+  } satisfies Record<typeof tone, { cell: string; label: string; dot: string }>;
   const classes = tones[tone];
 
   return (
-    <th colSpan={colSpan} className={cx('border-l px-3 py-2.5 text-center', classes.cell)}>
-      <span className={cx('inline-flex items-center justify-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.16em] shadow-sm ring-1 ring-white/80', classes.chip)}>
+    <th colSpan={colSpan} className={cx('border-l px-3 py-2 text-center', classes.cell)}>
+      <span className={cx('inline-flex items-center justify-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.16em]', classes.label)}>
         <span className={cx('h-2 w-2 rounded-full shadow-sm ring-2 ring-white', classes.dot)} />
         {label}
       </span>
     </th>
+  );
+}
+
+function LeaderboardViewSwitch({
+  view,
+  onChange,
+}: {
+  view: LeaderboardView;
+  onChange: (view: LeaderboardView) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm shadow-slate-200/60">
+      <button
+        type="button"
+        onClick={() => onChange('loanOfficers')}
+        className={cx(
+          'rounded-full px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200',
+          view === 'loanOfficers'
+            ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+        )}
+      >
+        Loan Officers
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('lenders')}
+        className={cx(
+          'rounded-full px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200',
+          view === 'lenders'
+            ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+        )}
+      >
+        Lenders
+      </button>
+    </div>
   );
 }
 
@@ -772,35 +809,13 @@ export function LeaderboardPage({ initialReport }: Props) {
         />
       </section>
 
+      <div className="flex items-center justify-start">
+        <LeaderboardViewSwitch view={view} onChange={handleViewChange} />
+      </div>
+
       <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
-            <div className="mb-3 inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
-              <button
-                type="button"
-                onClick={() => handleViewChange('loanOfficers')}
-                className={cx(
-                  'rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
-                  view === 'loanOfficers'
-                    ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100'
-                    : 'text-slate-500 hover:text-slate-800'
-                )}
-              >
-                Loan Officers
-              </button>
-              <button
-                type="button"
-                onClick={() => handleViewChange('lenders')}
-                className={cx(
-                  'rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
-                  view === 'lenders'
-                    ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100'
-                    : 'text-slate-500 hover:text-slate-800'
-                )}
-              >
-                Lenders
-              </button>
-            </div>
             <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-950">
               <Medal className="h-5 w-5 text-amber-600" />
               Production leaderboard
