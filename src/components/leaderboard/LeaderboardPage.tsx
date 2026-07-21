@@ -56,7 +56,6 @@ type DisplayLeaderboardRow = {
   id: string;
   label: string;
   subLabel: string;
-  totalUnitsLabel: string;
   source: LeaderboardView;
   plusOne: LeaderboardOfficerRow['plusOne'];
   disclosures: LeaderboardOfficerRow['disclosures'];
@@ -78,20 +77,20 @@ const LEADERBOARD_COLUMNS: Array<{
   label: string;
   defaultWidth: number;
   minWidth: number;
-  align: 'left' | 'right';
+  align: 'left' | 'center' | 'right';
 }> = [
   { id: 'loanOfficerName', label: 'Loan Officer', defaultWidth: 290, minWidth: 220, align: 'left' },
-  { id: 'plusOne.volume', label: 'Volume', defaultWidth: 140, minWidth: 118, align: 'right' },
-  { id: 'plusOne.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'right' },
-  { id: 'plusOne.revenue', label: 'Revenue', defaultWidth: 128, minWidth: 112, align: 'right' },
-  { id: 'disclosures.volume', label: 'Volume', defaultWidth: 140, minWidth: 118, align: 'right' },
-  { id: 'disclosures.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'right' },
-  { id: 'processing.volume', label: 'Volume', defaultWidth: 150, minWidth: 122, align: 'right' },
-  { id: 'processing.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'right' },
-  { id: 'processing.revenue', label: 'Revenue', defaultWidth: 128, minWidth: 112, align: 'right' },
-  { id: 'fundings.volume', label: 'Volume', defaultWidth: 140, minWidth: 118, align: 'right' },
-  { id: 'fundings.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'right' },
-  { id: 'fundings.revenue', label: 'Revenue', defaultWidth: 128, minWidth: 112, align: 'right' },
+  { id: 'plusOne.volume', label: 'Volume', defaultWidth: 140, minWidth: 118, align: 'center' },
+  { id: 'plusOne.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'center' },
+  { id: 'plusOne.revenue', label: 'Revenue', defaultWidth: 128, minWidth: 112, align: 'center' },
+  { id: 'disclosures.volume', label: 'Volume', defaultWidth: 140, minWidth: 118, align: 'center' },
+  { id: 'disclosures.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'center' },
+  { id: 'processing.volume', label: 'Volume', defaultWidth: 150, minWidth: 122, align: 'center' },
+  { id: 'processing.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'center' },
+  { id: 'processing.revenue', label: 'Revenue', defaultWidth: 128, minWidth: 112, align: 'center' },
+  { id: 'fundings.volume', label: 'Volume', defaultWidth: 140, minWidth: 118, align: 'center' },
+  { id: 'fundings.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'center' },
+  { id: 'fundings.revenue', label: 'Revenue', defaultWidth: 128, minWidth: 112, align: 'center' },
 ];
 
 const LEADERBOARD_COLUMN_WIDTHS_KEY = 'ffl:leaderboard-column-widths:v1';
@@ -205,10 +204,6 @@ function sortValue(row: DisplayLeaderboardRow, key: SortKey) {
   return row[milestone][field];
 }
 
-function activityTotal(row: Pick<DisplayLeaderboardRow, 'plusOne' | 'disclosures' | 'processing' | 'fundings'>) {
-  return row.plusOne.units + row.disclosures.units + row.processing.units + row.fundings.units;
-}
-
 function emptyMetric() {
   return { volume: 0, units: 0, revenue: 0 };
 }
@@ -270,7 +265,6 @@ function toOfficerDisplayRow(row: LeaderboardOfficerRow): DisplayLeaderboardRow 
     id: row.loanOfficerId,
     label: row.loanOfficerName,
     subLabel: row.loanOfficerEmail,
-    totalUnitsLabel: `${formatNumber(activityTotal(row))} total units`,
     source: 'loanOfficers',
     plusOne: row.plusOne,
     disclosures: row.disclosures,
@@ -284,7 +278,6 @@ function toLenderDisplayRow(row: LeaderboardLenderRow): DisplayLeaderboardRow {
     id: row.lenderKey,
     label: row.lenderName,
     subLabel: 'Lender / Investor',
-    totalUnitsLabel: `${formatNumber(activityTotal(row))} total units`,
     source: 'lenders',
     plusOne: row.plusOne,
     disclosures: row.disclosures,
@@ -298,14 +291,14 @@ function SortHeader({
   sortKey,
   activeKey,
   direction,
-  align = 'right',
+  align = 'center',
   onSort,
 }: {
   label: string;
   sortKey: SortKey;
   activeKey: SortKey;
   direction: SortDirection;
-  align?: 'left' | 'right';
+  align?: 'left' | 'center' | 'right';
   onSort: (key: SortKey) => void;
 }) {
   const active = sortKey === activeKey;
@@ -316,6 +309,7 @@ function SortHeader({
       onClick={() => onSort(sortKey)}
       className={cx(
         'inline-flex items-center gap-1 rounded-md px-1 py-0.5 font-bold transition hover:bg-slate-100 hover:text-slate-700',
+        align === 'center' && 'mx-auto',
         align === 'right' && 'ml-auto',
         active ? 'text-slate-900' : 'text-slate-500'
       )}
@@ -357,7 +351,7 @@ function ResizableHeaderCell({
       rowSpan={rowSpan}
       className={cx(
         'relative overflow-hidden px-4 py-3 align-bottom',
-        column.align === 'right' ? 'text-right' : 'text-left',
+        column.align === 'center' ? 'text-center' : column.align === 'right' ? 'text-right' : 'text-left',
         groupStart && 'border-l border-slate-200'
       )}
     >
@@ -374,6 +368,49 @@ function ResizableHeaderCell({
         onStartResize={onStartResize}
         isResizing={isResizing}
       />
+    </th>
+  );
+}
+
+function MilestoneGroupHeader({
+  label,
+  colSpan,
+  tone,
+}: {
+  label: string;
+  colSpan: number;
+  tone: 'emerald' | 'blue' | 'purple' | 'amber';
+}) {
+  const tones = {
+    emerald: {
+      cell: 'border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-emerald-50/80',
+      chip: 'border-emerald-200 bg-emerald-100/85 text-emerald-800 shadow-emerald-100/80',
+      dot: 'bg-emerald-500',
+    },
+    blue: {
+      cell: 'border-blue-100 bg-gradient-to-r from-blue-50 via-white to-blue-50/80',
+      chip: 'border-blue-200 bg-blue-100/85 text-blue-800 shadow-blue-100/80',
+      dot: 'bg-blue-500',
+    },
+    purple: {
+      cell: 'border-purple-100 bg-gradient-to-r from-purple-50 via-white to-purple-50/80',
+      chip: 'border-purple-200 bg-purple-100/85 text-purple-800 shadow-purple-100/80',
+      dot: 'bg-purple-500',
+    },
+    amber: {
+      cell: 'border-amber-100 bg-gradient-to-r from-amber-50 via-white to-amber-50/80',
+      chip: 'border-amber-200 bg-amber-100/85 text-amber-800 shadow-amber-100/80',
+      dot: 'bg-amber-500',
+    },
+  } satisfies Record<typeof tone, { cell: string; chip: string; dot: string }>;
+  const classes = tones[tone];
+
+  return (
+    <th colSpan={colSpan} className={cx('border-l px-3 py-2.5 text-center', classes.cell)}>
+      <span className={cx('inline-flex items-center justify-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.16em] shadow-sm ring-1 ring-white/80', classes.chip)}>
+        <span className={cx('h-2 w-2 rounded-full shadow-sm ring-2 ring-white', classes.dot)} />
+        {label}
+      </span>
     </th>
   );
 }
@@ -422,7 +459,7 @@ function KpiCard({
 
 function MetricCells({ row, metric }: { row: DisplayLeaderboardRow; metric: 'plusOne' | 'disclosures' | 'processing' | 'fundings' }) {
   const groupStartClass = 'border-l border-slate-200';
-  const numberClass = 'overflow-hidden whitespace-nowrap px-4 py-4 text-right tabular-nums';
+  const numberClass = 'overflow-hidden whitespace-nowrap px-4 py-4 text-center tabular-nums';
   return (
     <>
       <td className={cx(numberClass, groupStartClass, 'font-bold text-slate-900')}>
@@ -822,18 +859,10 @@ export function LeaderboardPage({ initialReport }: Props) {
                   isResizing={resizingCol === 'loanOfficerName'}
                   rowSpan={2}
                 />
-                <th colSpan={3} className="border-l border-slate-200 bg-emerald-50/60 px-4 py-2 text-center text-emerald-700">
-                  +1s
-                </th>
-                <th colSpan={2} className="border-l border-slate-200 bg-blue-50/60 px-4 py-2 text-center text-blue-700">
-                  Disclosures
-                </th>
-                <th colSpan={3} className="border-l border-slate-200 bg-purple-50/60 px-4 py-2 text-center text-purple-700">
-                  Submitted to Processing/QC
-                </th>
-                <th colSpan={3} className="border-l border-slate-200 bg-amber-50/60 px-4 py-2 text-center text-amber-700">
-                  Fundings
-                </th>
+                <MilestoneGroupHeader label="+1s" colSpan={3} tone="emerald" />
+                <MilestoneGroupHeader label="Disclosures" colSpan={2} tone="blue" />
+                <MilestoneGroupHeader label="Submitted to Processing/QC" colSpan={3} tone="purple" />
+                <MilestoneGroupHeader label="Fundings" colSpan={3} tone="amber" />
               </tr>
               <tr className="border-b border-slate-200">
                 {LEADERBOARD_COLUMNS.slice(1).map((column) => (
@@ -874,7 +903,7 @@ export function LeaderboardPage({ initialReport }: Props) {
                       <span className="min-w-0">
                         <span className="block truncate font-bold text-slate-950">{row.label}</span>
                         <span className="block truncate text-xs font-medium text-slate-500">
-                          {row.subLabel} / {row.totalUnitsLabel}
+                          {row.subLabel}
                         </span>
                       </span>
                     </button>
