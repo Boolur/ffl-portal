@@ -58,8 +58,15 @@ function normalizeRole(role?: string | null): UserRole | null {
   return normalized as UserRole;
 }
 
-const LEADERBOARD_PILOT_EMAIL = 'mmahjoub@federalfirstlending.com';
-const LEADERBOARD_PILOT_NAME = 'matt mahjoub';
+const LEADERBOARD_PILOT_EMAILS = new Set([
+  'mmahjoub@federalfirstlending.com',
+  'nyebisu@federalfirstlending.com',
+]);
+const LEADERBOARD_PILOT_NAMES = new Set([
+  'matt mahjoub',
+  'nick yebisu',
+  'nicholas yebisu',
+]);
 
 function normalizeIdentity(value?: unknown) {
   return String(value || '').trim().toLowerCase();
@@ -68,19 +75,23 @@ function normalizeIdentity(value?: unknown) {
 function isLeaderboardPilotUser(token: { email?: unknown; name?: unknown }) {
   const email = normalizeIdentity(token.email);
   const name = normalizeIdentity(token.name);
-  return email === LEADERBOARD_PILOT_EMAIL || name === LEADERBOARD_PILOT_NAME;
+  return LEADERBOARD_PILOT_EMAILS.has(email) || LEADERBOARD_PILOT_NAMES.has(name);
+}
+
+function isAdminRole(role: UserRole | null) {
+  return role === UserRole.ADMIN ||
+    role === UserRole.ADMIN_I ||
+    role === UserRole.ADMIN_II ||
+    role === UserRole.ADMIN_III;
 }
 
 function canAccessLeaderboard(pathname: string, role?: string | null, token?: { email?: unknown; name?: unknown }) {
   if (pathname !== '/leaderboard' && !pathname.startsWith('/leaderboard/')) return false;
-  if (!token || !isLeaderboardPilotUser(token)) return false;
   const normalizedRole = normalizeRole(role);
+  if (isAdminRole(normalizedRole)) return true;
+  if (!token || !isLeaderboardPilotUser(token)) return false;
   return normalizedRole === UserRole.LOAN_OFFICER ||
-    normalizedRole === UserRole.MANAGER ||
-    normalizedRole === UserRole.ADMIN ||
-    normalizedRole === UserRole.ADMIN_I ||
-    normalizedRole === UserRole.ADMIN_II ||
-    normalizedRole === UserRole.ADMIN_III;
+    normalizedRole === UserRole.MANAGER;
 }
 
 function isAllowed(pathname: string, role?: string | null) {

@@ -516,14 +516,15 @@ function MetricCells({ row, metric }: { row: DisplayLeaderboardRow; metric: 'plu
 
 function TeamFilterChips({
   teams,
-  selectedTeamId,
+  selectedTeamIds,
   onSelectTeam,
 }: {
   teams: LeaderboardReport['teams'];
-  selectedTeamId: string | null;
+  selectedTeamIds: Set<string>;
   onSelectTeam: (teamId: string | null) => void;
 }) {
   if (teams.length === 0) return null;
+  const hasSelectedTeams = selectedTeamIds.size > 0;
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap pr-2 [scrollbar-width:thin]">
@@ -536,7 +537,7 @@ function TeamFilterChips({
         onClick={() => onSelectTeam(null)}
         className={cx(
           'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
-          selectedTeamId === null
+          !hasSelectedTeams
             ? 'border-slate-300 bg-slate-100 text-slate-800 ring-1 ring-slate-300'
             : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
         )}
@@ -546,7 +547,7 @@ function TeamFilterChips({
       {teams.map((team) => {
         const accent = team.colors?.[0] ?? team.color;
         const classes = teamColorClasses(accent);
-        const isActive = selectedTeamId === team.id;
+        const isActive = selectedTeamIds.has(team.id);
         return (
           <button
             key={team.id}
@@ -559,8 +560,8 @@ function TeamFilterChips({
             )}
             title={
               isActive
-                ? `Showing ${team.name} members - click to clear filter`
-                : `Filter to ${team.name} members`
+                ? `Showing ${team.name} members - click to remove team`
+                : `Add ${team.name} members`
             }
           >
             {renderTeamDots(team.colors ?? [accent])}
@@ -581,7 +582,7 @@ export function LeaderboardPage({ initialReport }: Props) {
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [view, setView] = useState<LeaderboardView>('loanOfficers');
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
     key: 'plusOne.volume',
@@ -599,14 +600,23 @@ export function LeaderboardPage({ initialReport }: Props) {
     LEADERBOARD_COLUMN_WIDTHS_KEY
   );
 
-  const selectedTeam = selectedTeamId
-    ? report.teams.find((team) => team.id === selectedTeamId) || null
-    : null;
+  const selectedTeamIdSet = useMemo(() => new Set(selectedTeamIds), [selectedTeamIds]);
+
+  const selectedTeams = useMemo(
+    () => report.teams.filter((team) => selectedTeamIdSet.has(team.id)),
+    [report.teams, selectedTeamIdSet]
+  );
 
   const selectedTeamMemberIds = useMemo(() => {
-    if (!selectedTeam) return null;
-    return new Set(selectedTeam.memberIds);
-  }, [selectedTeam]);
+    if (selectedTeams.length === 0) return null;
+    const memberIds = new Set<string>();
+    for (const team of selectedTeams) {
+      for (const memberId of team.memberIds) {
+        memberIds.add(memberId);
+      }
+    }
+    return memberIds;
+  }, [selectedTeams]);
 
   const filteredRows = useMemo(() => {
     if (!selectedTeamMemberIds) return report.rows;
@@ -701,7 +711,12 @@ export function LeaderboardPage({ initialReport }: Props) {
   }
 
   function handleTeamSelect(teamId: string | null) {
-    setSelectedTeamId((current) => (current === teamId ? null : teamId));
+    setSelectedTeamIds((current) => {
+      if (!teamId) return [];
+      return current.includes(teamId)
+        ? current.filter((id) => id !== teamId)
+        : [...current, teamId];
+    });
     setSelectedRowId(null);
   }
 
@@ -709,6 +724,13 @@ export function LeaderboardPage({ initialReport }: Props) {
     setView(nextView);
     setSelectedRowId(null);
   }
+
+  const teamFilterLabel =
+    selectedTeams.length === 0
+      ? 'Click a loan officer to view credited loans.'
+      : selectedTeams.length === 1
+        ? `${selectedTeams[0].name} members only.`
+        : `${selectedTeams.length} teams selected.`;
 
   return (
     <div className="mx-auto w-full max-w-[1700px] space-y-6">
@@ -838,16 +860,14 @@ export function LeaderboardPage({ initialReport }: Props) {
               {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. {
                 view === 'lenders'
                   ? 'Click a lender to view submitted loans.'
-                  : selectedTeam
-                    ? `${selectedTeam.name} members only.`
-                    : 'Click a loan officer to view credited loans.'
+                  : teamFilterLabel
               }
             </p>
           </div>
           {view === 'loanOfficers' && (
             <TeamFilterChips
               teams={report.teams}
-              selectedTeamId={selectedTeamId}
+              selectedTeamIds={selectedTeamIdSet}
               onSelectTeam={handleTeamSelect}
             />
           )}
@@ -949,8 +969,8 @@ export function LeaderboardPage({ initialReport }: Props) {
                   <td colSpan={12} className="px-5 py-12 text-center text-sm text-slate-500">
                     {view === 'lenders'
                       ? 'No lenders are available for this leaderboard.'
-                      : selectedTeam
-                        ? `No loan officers are assigned to ${selectedTeam.name}.`
+                      : selectedTeams.length > 0
+                        ? 'No loan officers are assigned to the selected teams.'
                         : 'No loan officers are available for this leaderboard.'}
                   </td>
                 </tr>

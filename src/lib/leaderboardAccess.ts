@@ -7,8 +7,15 @@ export type LeaderboardAccessUser = {
   name?: string | null;
 };
 
-const LEADERBOARD_PILOT_EMAIL = 'mmahjoub@federalfirstlending.com';
-const LEADERBOARD_PILOT_NAME = 'matt mahjoub';
+const LEADERBOARD_PILOT_EMAILS = new Set([
+  'mmahjoub@federalfirstlending.com',
+  'nyebisu@federalfirstlending.com',
+]);
+const LEADERBOARD_PILOT_NAMES = new Set([
+  'matt mahjoub',
+  'nick yebisu',
+  'nicholas yebisu',
+]);
 
 function normalizeRole(role?: string | UserRole | null): UserRole | null {
   const normalized = String(role || '').trim().toUpperCase();
@@ -22,12 +29,14 @@ function normalize(value?: string | null) {
 }
 
 export function canAccessLeaderboardPortal(user: LeaderboardAccessUser) {
+  const role = normalizeRole(user.role);
+  if (role && isAdmin(role)) return true;
+
   const isPilotUser =
-    normalize(user.email) === LEADERBOARD_PILOT_EMAIL ||
-    normalize(user.name) === LEADERBOARD_PILOT_NAME;
+    LEADERBOARD_PILOT_EMAILS.has(normalize(user.email)) ||
+    LEADERBOARD_PILOT_NAMES.has(normalize(user.name));
   if (!isPilotUser) return false;
 
-  const role = normalizeRole(user.role);
   if (!role) return false;
-  return role === UserRole.LOAN_OFFICER || role === UserRole.MANAGER || isAdmin(role);
+  return role === UserRole.LOAN_OFFICER || role === UserRole.MANAGER;
 }

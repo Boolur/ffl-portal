@@ -279,7 +279,11 @@ function percent(numerator: number, denominator: number) {
 
 function money(value: Prisma.Decimal | number | string | null | undefined) {
   if (value === null || value === undefined) return null;
-  const parsed = Number(value);
+  const normalized =
+    typeof value === 'string'
+      ? value.replace(/[$,\s]/g, '').trim()
+      : value;
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
