@@ -778,42 +778,56 @@ export function LeaderboardPage({ initialReport }: Props) {
         </div>
       )}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="+1 Volume"
-          value={formatCurrency(visibleTotals.plusOne.volume)}
-          subtitle={`${formatNumber(visibleTotals.plusOne.units)} units / ${formatCurrency(visibleTotals.plusOne.revenue)} revenue`}
-          Icon={Home}
-          tone="emerald"
-        />
-        <KpiCard
-          title="Disclosure Volume"
-          value={formatCurrency(visibleTotals.disclosures.volume)}
-          subtitle={`${formatNumber(visibleTotals.disclosures.units)} submitted disclosures`}
-          Icon={ClipboardCheck}
-          tone="blue"
-        />
-        <KpiCard
-          title="Processing/QC Volume"
-          value={formatCurrency(visibleTotals.processing.volume)}
-          subtitle={`${formatNumber(visibleTotals.processing.units)} units / ${formatCurrency(visibleTotals.processing.revenue)} revenue`}
-          Icon={FileText}
-          tone="purple"
-        />
-        <KpiCard
-          title="Funding Volume"
-          value={formatCurrency(visibleTotals.fundings.volume)}
-          subtitle={`${formatNumber(visibleTotals.fundings.units)} units / ${formatCurrency(visibleTotals.fundings.revenue)} revenue`}
-          Icon={CircleDollarSign}
-          tone="amber"
-        />
-      </section>
+      <div className="relative space-y-6" aria-busy={isPending}>
+        {isPending && (
+          <div
+            className="absolute inset-0 z-40 flex items-center justify-center rounded-[28px] bg-white/70 backdrop-blur-[2px]"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="inline-flex items-center gap-3 rounded-2xl border border-blue-100 bg-white px-5 py-4 text-sm font-bold text-slate-700 shadow-xl shadow-slate-200/70">
+              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+              Refreshing leaderboard
+            </div>
+          </div>
+        )}
 
-      <div className="flex items-center justify-start">
-        <LeaderboardViewSwitch view={view} onChange={handleViewChange} />
-      </div>
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            title="+1 Volume"
+            value={formatCurrency(visibleTotals.plusOne.volume)}
+            subtitle={`${formatNumber(visibleTotals.plusOne.units)} units / ${formatCurrency(visibleTotals.plusOne.revenue)} revenue`}
+            Icon={Home}
+            tone="emerald"
+          />
+          <KpiCard
+            title="Disclosure Volume"
+            value={formatCurrency(visibleTotals.disclosures.volume)}
+            subtitle={`${formatNumber(visibleTotals.disclosures.units)} submitted disclosures`}
+            Icon={ClipboardCheck}
+            tone="blue"
+          />
+          <KpiCard
+            title="Processing/QC Volume"
+            value={formatCurrency(visibleTotals.processing.volume)}
+            subtitle={`${formatNumber(visibleTotals.processing.units)} units / ${formatCurrency(visibleTotals.processing.revenue)} revenue`}
+            Icon={FileText}
+            tone="purple"
+          />
+          <KpiCard
+            title="Funding Volume"
+            value={formatCurrency(visibleTotals.fundings.volume)}
+            subtitle={`${formatNumber(visibleTotals.fundings.units)} units / ${formatCurrency(visibleTotals.fundings.revenue)} revenue`}
+            Icon={CircleDollarSign}
+            tone="amber"
+          />
+        </section>
 
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
+        <div className="flex items-center justify-start">
+          <LeaderboardViewSwitch view={view} onChange={handleViewChange} />
+        </div>
+
+        <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-950">
@@ -944,7 +958,8 @@ export function LeaderboardPage({ initialReport }: Props) {
             </tbody>
           </table>
         </div>
-      </section>
+        </section>
+      </div>
 
       {selectedRow && (
         <OfficerDetailsModal
