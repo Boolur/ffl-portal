@@ -412,8 +412,8 @@ function TeamFilterChips({
   if (teams.length === 0) return null;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-      <div className="mr-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap pr-2 [scrollbar-width:thin]">
+      <div className="mr-1 flex shrink-0 items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
         <Users2 className="h-3.5 w-3.5" />
         Teams
       </div>
@@ -421,7 +421,7 @@ function TeamFilterChips({
         type="button"
         onClick={() => onSelectTeam(null)}
         className={cx(
-          'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+          'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
           selectedTeamId === null
             ? 'border-slate-300 bg-slate-100 text-slate-800 ring-1 ring-slate-300'
             : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -439,7 +439,7 @@ function TeamFilterChips({
             type="button"
             onClick={() => onSelectTeam(team.id)}
             className={cx(
-              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+              'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
               isActive ? classes.chipActive : classes.chipInactive,
               isActive && `ring-1 ${classes.ring}`
             )}
