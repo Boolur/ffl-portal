@@ -290,6 +290,11 @@ export function PipelinePage({ initialReport }: Props) {
     router.push(`/tasks?taskId=${encodeURIComponent(row.id)}`);
   };
 
+  const openBorrowerDetails = (row: PipelineMilestoneRow) => {
+    markUpdateReviewed(row);
+    setSelectedCard(row);
+  };
+
   const loadReport = (nextFilters?: Partial<PipelineReportFilters>) => {
     const filters: PipelineReportFilters = {
       preset,
@@ -415,8 +420,8 @@ export function PipelinePage({ initialReport }: Props) {
               <TrendingUp className="h-4 w-4" />
             </div>
             <div className="mt-2">
-              <p className="text-base font-black tracking-tight text-slate-800">Pull-through</p>
-              <p className="mt-1 text-2xl font-black tracking-tight text-slate-950">
+              <p className="text-base font-bold tracking-tight text-slate-800">Pull-through</p>
+              <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">
                 {formatPercent(report.pullThroughRate)}
               </p>
             </div>
@@ -436,10 +441,10 @@ export function PipelinePage({ initialReport }: Props) {
                   <Icon className="h-4 w-4" />
                 </div>
                 <div className="mt-2">
-                  <p className={cx('text-base font-black tracking-tight', surface.value)}>
+                  <p className={cx('text-base font-bold tracking-tight', surface.value)}>
                     {metric.label}
                   </p>
-                  <p className={cx('mt-1 text-2xl font-black tracking-tight', surface.value)}>
+                  <p className={cx('mt-1 text-2xl font-bold tracking-tight', surface.value)}>
                     {formatNumber(metric.count)}
                   </p>
                 </div>
@@ -457,12 +462,12 @@ export function PipelinePage({ initialReport }: Props) {
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
         <div className="flex flex-col gap-3 px-1 pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-2xl font-extrabold tracking-tight text-slate-950">Client Pipeline Board</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-slate-950">Client Pipeline Board</h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
               {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. Click a client card to view details.
             </p>
           </div>
-          <span className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
+          <span className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">
             {report.filters.loanOfficerId === 'all' ? 'Team pipeline' : 'My visible pipeline'}
           </span>
         </div>
@@ -528,7 +533,7 @@ export function PipelinePage({ initialReport }: Props) {
                         row={row}
                         surface={surface}
                         signal={visibleUpdateSignal(row, reviewedUpdates)}
-                        onSelect={setSelectedCard}
+                        onSelect={openBorrowerDetails}
                       />
                     ))
                   )}
@@ -574,11 +579,11 @@ export function PipelinePage({ initialReport }: Props) {
                       key={`${row.milestone}-${row.id}`}
                       role="button"
                       tabIndex={0}
-                      onClick={() => setSelectedCard(row)}
+                      onClick={() => openBorrowerDetails(row)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          setSelectedCard(row);
+                          openBorrowerDetails(row);
                         }
                       }}
                       className="cursor-pointer transition hover:bg-secondary/40 focus-visible:bg-secondary/50 focus-visible:outline-none"
@@ -662,7 +667,7 @@ function BoardMetricCard({
   return (
     <div className={cx('relative overflow-hidden rounded-[20px] border bg-gradient-to-br px-4 py-3 shadow-sm', surface.border, surface.panel)}>
       <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/70 blur-2xl" />
-      <span className={cx('absolute right-3 top-3 rounded-full border px-2.5 py-1 text-xs font-extrabold shadow-sm', MILESTONE_TONES[stage])}>
+      <span className={cx('absolute right-3 top-3 rounded-full border px-2.5 py-1 text-xs font-bold shadow-sm', MILESTONE_TONES[stage])}>
         {formatNumber(count)}
       </span>
       <div className="relative flex flex-col items-center text-center">
@@ -670,25 +675,25 @@ function BoardMetricCard({
           <Icon className="h-4 w-4" aria-hidden />
         </div>
         <div className="mt-2 min-w-0">
-          <p className={cx('text-lg font-black leading-snug tracking-tight', surface.value)}>
+          <p className={cx('text-lg font-bold leading-snug tracking-tight', surface.value)}>
             {title}
           </p>
         </div>
       </div>
       <div className="relative mx-auto mt-3 grid w-full max-w-[260px] grid-cols-2 items-start gap-4 text-center">
         <div className="flex min-w-0 flex-col items-center">
-          <p className={cx('text-2xl font-black tracking-tight', surface.value)}>
+          <p className={cx('text-2xl font-bold tracking-tight', surface.value)}>
             {primaryValue}
           </p>
-          <p className={cx('mt-1 text-[10px] font-extrabold uppercase tracking-[0.16em]', surface.label)}>
+          <p className={cx('mt-1 text-[10px] font-bold uppercase tracking-[0.12em]', surface.label)}>
             {primaryLabel}
           </p>
         </div>
         <div className="flex min-w-0 flex-col items-center">
-          <p className={cx('text-2xl font-black tracking-tight', surface.value)}>
+          <p className={cx('text-2xl font-bold tracking-tight', surface.value)}>
             {secondaryValue}
           </p>
-          <p className={cx('mt-1 text-[10px] font-extrabold uppercase tracking-[0.16em]', surface.label)}>
+          <p className={cx('mt-1 text-[10px] font-bold uppercase tracking-[0.12em]', surface.label)}>
             {secondaryLabel}
           </p>
         </div>
@@ -716,7 +721,7 @@ function PipelineCard({
     <button
       type="button"
       onClick={() => onSelect(row)}
-      className="group relative flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 text-left shadow-sm transition-all hover:border-blue-300 hover:shadow-md hover:ring-1 hover:ring-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+      className="group relative flex h-[154px] w-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 text-left shadow-sm transition-all hover:border-blue-300 hover:shadow-md hover:ring-1 hover:ring-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
     >
       <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-slate-50 opacity-50 blur-2xl transition-colors group-hover:bg-blue-50" />
       {signal?.tone === 'danger' && (
@@ -752,36 +757,28 @@ function PipelineCard({
       </div>
 
       <div className="relative mt-3 border-t border-slate-200/80 pt-3">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
           <span className={cx('inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', MILESTONE_TONES[row.milestone])}>
             {row.milestoneLabel}
           </span>
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
-            {formatStatus(row.status)}
-          </span>
           {queueStage && (
-            <span className={cx('inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', updateSignalClassName(queueStage.tone))}>
+            <span className={cx('inline-flex min-w-0 max-w-full items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', updateSignalClassName(queueStage.tone))}>
               <span className="truncate">{queueStage.label}</span>
-            </span>
-          )}
-          {signal && (
-            <span className={cx('inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', updateSignalClassName(signal.tone))}>
-              {signal.label}
             </span>
           )}
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+        <div className="mt-2 flex min-w-0 items-center gap-1.5 overflow-hidden">
+          <span className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-700">
             {formatCurrency(row.amount)}
           </span>
-          <span className="inline-flex max-w-full items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+          <span className="inline-flex min-w-0 max-w-full items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-700">
             <span className="truncate">{teamLabel}</span>
           </span>
         </div>
       </div>
 
-      <div className="relative mt-3 flex items-center justify-between gap-2 text-[11px] font-semibold text-slate-400">
+      <div className="relative mt-auto flex items-center justify-between gap-2 pt-3 text-[11px] font-semibold text-slate-400">
         <span className="truncate">
           Click to open borrower details
         </span>
