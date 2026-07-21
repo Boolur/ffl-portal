@@ -58,6 +58,31 @@ function normalizeRole(role?: string | null): UserRole | null {
   return normalized as UserRole;
 }
 
+const LEADERBOARD_PILOT_EMAIL = 'mmahjoub@federalfirstlending.com';
+const LEADERBOARD_PILOT_NAME = 'matt mahjoub';
+
+function normalizeIdentity(value?: unknown) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isLeaderboardPilotUser(token: { email?: unknown; name?: unknown }) {
+  const email = normalizeIdentity(token.email);
+  const name = normalizeIdentity(token.name);
+  return email === LEADERBOARD_PILOT_EMAIL || name === LEADERBOARD_PILOT_NAME;
+}
+
+function canAccessLeaderboard(pathname: string, role?: string | null, token?: { email?: unknown; name?: unknown }) {
+  if (pathname !== '/leaderboard' && !pathname.startsWith('/leaderboard/')) return false;
+  if (!token || !isLeaderboardPilotUser(token)) return false;
+  const normalizedRole = normalizeRole(role);
+  return normalizedRole === UserRole.LOAN_OFFICER ||
+    normalizedRole === UserRole.MANAGER ||
+    normalizedRole === UserRole.ADMIN ||
+    normalizedRole === UserRole.ADMIN_I ||
+    normalizedRole === UserRole.ADMIN_II ||
+    normalizedRole === UserRole.ADMIN_III;
+}
+
 function isAllowed(pathname: string, role?: string | null) {
   const normalizedRole = normalizeRole(role);
   if (!normalizedRole) return false;
@@ -76,6 +101,9 @@ const authProxy = withAuth({
     authorized: ({ token, req }) => {
       if (!token) return false;
       const effectiveRole = (token.activeRole as string) || (token.role as string);
+      if (req.nextUrl.pathname === '/leaderboard' || req.nextUrl.pathname.startsWith('/leaderboard/')) {
+        return canAccessLeaderboard(req.nextUrl.pathname, effectiveRole, token);
+      }
       if (isAllowed(req.nextUrl.pathname, effectiveRole)) return true;
       // Fail-soft for older sessions that might have malformed role claims.
       const normalizedRole = normalizeRole(effectiveRole);
