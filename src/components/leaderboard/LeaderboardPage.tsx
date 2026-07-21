@@ -85,6 +85,40 @@ const LEADERBOARD_COLUMNS: Array<{
 const LEADERBOARD_COLUMN_WIDTHS_KEY = 'ffl:leaderboard-column-widths:v1';
 const PORTAL_TIME_ZONE = 'America/Los_Angeles';
 
+const MILESTONE_TONES = {
+  plusOne: 'border-emerald-300 bg-emerald-100 text-emerald-800',
+  disclosures: 'border-blue-300 bg-blue-100 text-blue-800',
+  processing: 'border-purple-300 bg-purple-100 text-purple-800',
+  fundings: 'border-amber-300 bg-amber-100 text-amber-800',
+} satisfies Record<LeaderboardDetailRow['milestone'], string>;
+
+const MODAL_METRIC_TONES = {
+  plusOne: {
+    card: 'border-emerald-100 bg-gradient-to-br from-emerald-50/90 via-white to-white',
+    label: 'text-emerald-700',
+    value: 'text-emerald-950',
+  },
+  disclosures: {
+    card: 'border-blue-100 bg-gradient-to-br from-blue-50/90 via-white to-white',
+    label: 'text-blue-700',
+    value: 'text-blue-950',
+  },
+  processing: {
+    card: 'border-purple-100 bg-gradient-to-br from-purple-50/90 via-white to-white',
+    label: 'text-purple-700',
+    value: 'text-purple-950',
+  },
+  fundings: {
+    card: 'border-amber-100 bg-gradient-to-br from-amber-50/90 via-white to-white',
+    label: 'text-amber-700',
+    value: 'text-amber-950',
+  },
+} satisfies Record<'plusOne' | 'disclosures' | 'processing' | 'fundings', {
+  card: string;
+  label: string;
+  value: string;
+}>;
+
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
 }
@@ -808,12 +842,12 @@ function OfficerDetailsModal({
         role="dialog"
         aria-modal="true"
         aria-label={`${officer.loanOfficerName} leaderboard details`}
-        className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-[24px] border border-slate-200/70 bg-slate-50 shadow-2xl"
+        className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-[28px] border border-slate-200/70 bg-slate-50 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-6 border-b border-slate-200/70 bg-white px-6 py-5">
+        <div className="flex items-center justify-between gap-6 border-b border-slate-200/70 bg-white px-6 py-5">
           <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-lg font-bold text-white shadow-lg shadow-blue-600/20 ring-4 ring-white">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-lg font-extrabold text-white shadow-lg shadow-blue-600/20 ring-4 ring-white">
               {initials(officer.loanOfficerName)}
             </div>
             <div className="min-w-0">
@@ -836,41 +870,49 @@ function OfficerDetailsModal({
         </div>
 
         <div className="grid gap-4 border-b border-slate-200/70 bg-slate-50 px-6 py-5 md:grid-cols-4">
-          <MiniMetric title="+1s" value={formatCurrency(officer.plusOne.volume)} detail={`${formatNumber(officer.plusOne.units)} units`} />
-          <MiniMetric title="Disclosures" value={formatCurrency(officer.disclosures.volume)} detail={`${formatNumber(officer.disclosures.units)} units`} />
-          <MiniMetric title="Processing/QC" value={formatCurrency(officer.processing.volume)} detail={`${formatNumber(officer.processing.units)} units`} />
-          <MiniMetric title="Fundings" value={formatCurrency(officer.fundings.volume)} detail={`${formatNumber(officer.fundings.units)} units`} />
+          <MiniMetric tone="plusOne" title="+1s" value={formatCurrency(officer.plusOne.volume)} detail={`${formatNumber(officer.plusOne.units)} units`} />
+          <MiniMetric tone="disclosures" title="Disclosures" value={formatCurrency(officer.disclosures.volume)} detail={`${formatNumber(officer.disclosures.units)} units`} />
+          <MiniMetric tone="processing" title="Processing/QC" value={formatCurrency(officer.processing.volume)} detail={`${formatNumber(officer.processing.units)} units`} />
+          <MiniMetric tone="fundings" title="Fundings" value={formatCurrency(officer.fundings.volume)} detail={`${formatNumber(officer.fundings.units)} units`} />
         </div>
 
         <div className="max-h-[56vh] overflow-auto">
-          <table className="w-full min-w-[980px] text-sm">
+          <table className="w-full min-w-[1040px] text-sm">
             <thead className="sticky top-0 z-[1] bg-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-5 py-3 text-left">Loan</th>
-                <th className="px-5 py-3 text-left">Milestone</th>
+                <th className="px-5 py-3 text-center">Milestone</th>
                 <th className="px-5 py-3 text-right">Volume</th>
                 <th className="px-5 py-3 text-right">Revenue</th>
                 <th className="px-5 py-3 text-left">Details</th>
-                <th className="px-5 py-3 text-left">Date</th>
+                <th className="px-5 py-3 text-right">Date</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {rows.map((row) => (
-                <tr key={`${row.milestone}:${row.id}`} className="hover:bg-slate-50/70">
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((row, index) => {
+                const isStriped = index % 2 === 1;
+                return (
+                <tr
+                  key={`${row.milestone}:${row.id}`}
+                  className={cx(
+                    isStriped ? 'bg-slate-50/55' : 'bg-white',
+                    'transition-colors hover:bg-blue-50/40'
+                  )}
+                >
                   <td className="px-5 py-4">
                     <p className="font-bold text-slate-950">{row.borrowerName}</p>
                     <p className="mt-1 font-mono text-xs font-semibold text-slate-500">{row.loanNumber}</p>
                   </td>
-                  <td className="px-5 py-4">
-                    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700">
+                  <td className="px-5 py-4 text-center">
+                    <span className={cx('inline-flex max-w-[150px] items-center justify-center rounded-full border px-3 py-1 text-center text-xs font-bold leading-tight', MILESTONE_TONES[row.milestone])}>
                       {row.milestoneLabel}
                     </span>
-                    <p className="mt-1 text-xs font-medium text-slate-500">{formatStatus(row.status)}</p>
+                    <p className="mt-1.5 text-xs font-bold uppercase tracking-wide text-slate-500">{formatStatus(row.status)}</p>
                   </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-right font-bold text-slate-900">
+                  <td className="whitespace-nowrap px-5 py-4 text-right font-bold tabular-nums text-slate-900">
                     {formatCurrency(row.amount)}
                   </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-right text-slate-600">
+                  <td className="whitespace-nowrap px-5 py-4 text-right tabular-nums text-slate-600">
                     {formatCurrency(row.revenue)}
                   </td>
                   <td className="px-5 py-4 text-slate-600">
@@ -884,11 +926,12 @@ function OfficerDetailsModal({
                       <p className="mt-1 max-w-[260px] truncate text-xs text-slate-500">{row.propertyAddress}</p>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-xs font-medium text-slate-500">
+                  <td className="whitespace-nowrap px-5 py-4 text-right text-xs font-semibold text-slate-500">
                     {formatDateTime(row.occurredAt)}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">
@@ -904,11 +947,22 @@ function OfficerDetailsModal({
   );
 }
 
-function MiniMetric({ title, value, detail }: { title: string; value: string; detail: string }) {
+function MiniMetric({
+  title,
+  value,
+  detail,
+  tone,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  tone: 'plusOne' | 'disclosures' | 'processing' | 'fundings';
+}) {
+  const classes = MODAL_METRIC_TONES[tone];
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">{title}</p>
-      <p className="mt-1 text-lg font-bold text-slate-950">{value}</p>
+    <div className={cx('rounded-2xl border px-4 py-3 text-center shadow-sm', classes.card)}>
+      <p className={cx('text-[11px] font-bold uppercase tracking-[0.14em]', classes.label)}>{title}</p>
+      <p className={cx('mt-1 text-lg font-bold', classes.value)}>{value}</p>
       <p className="mt-0.5 text-xs font-medium text-slate-500">{detail}</p>
     </div>
   );
