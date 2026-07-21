@@ -65,6 +65,7 @@ const buttonPricingOptions = [
   'Buydown 2',
   'Buydown 3',
 ];
+const loanTypeOptions = ['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM', 'Reverse'];
 const SECONDARY_LO_NA_VALUE = '__NA__';
 
 function isValidQcInvestorValue(value: string | null | undefined) {
@@ -1023,7 +1024,7 @@ function PlusOneForm({
             <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} />
             <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
             <Select label="Lender / Investor" value={form.lender} onChange={(v) => update('lender', v)} options={lenderNames} required invalid={highlightedMissingFields.has('lender')} />
-            <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required invalid={highlightedMissingFields.has('loanType')} />
+            <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={loanTypeOptions} required invalid={highlightedMissingFields.has('loanType')} />
             <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} />
             <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
             <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} required invalid={highlightedMissingFields.has('projectedRevenue')} />
@@ -1635,7 +1636,7 @@ function DisclosuresForm({
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required invalid={highlightedMissingFields.has('borrowerLastName')} />
         <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required invalid={highlightedMissingFields.has('borrowerPhone')} />
         <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required invalid={highlightedMissingFields.has('borrowerEmail')} />
-        <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required invalid={highlightedMissingFields.has('loanType')} />
+        <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={loanTypeOptions} required invalid={highlightedMissingFields.has('loanType')} />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required invalid={highlightedMissingFields.has('loanProgram')} />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
         <Input label="Home Value" value={form.homeValue} onChange={(v) => update('homeValue', v)} required invalid={highlightedMissingFields.has('homeValue')} />
@@ -2171,7 +2172,7 @@ function QcForm({
         <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required invalid={highlightedMissingFields.has('borrowerPhone')} />
         <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required invalid={highlightedMissingFields.has('borrowerEmail')} />
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
-        <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM']} required invalid={highlightedMissingFields.has('loanType')} />
+        <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={loanTypeOptions} required invalid={highlightedMissingFields.has('loanType')} />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required invalid={highlightedMissingFields.has('loanProgram')} />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
         <Input label="Cash Back" value={form.cashBack} onChange={(v) => update('cashBack', v)} required invalid={highlightedMissingFields.has('cashBack')} />
