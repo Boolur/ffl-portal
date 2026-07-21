@@ -400,7 +400,10 @@ export function PipelinePage({ initialReport }: Props) {
         </div>
       )}
 
-      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
+      <section
+        className="relative rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70"
+        aria-busy={isPending}
+      >
         <div className="flex flex-col gap-3 px-1 pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-slate-950">Client Pipeline Board</h2>
@@ -483,6 +486,21 @@ export function PipelinePage({ initialReport }: Props) {
             );
           })}
         </div>
+        {isPending && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[28px] bg-white/75 backdrop-blur-[2px]">
+            <div
+              className="flex flex-col items-center rounded-2xl border border-slate-200 bg-white px-6 py-5 text-center shadow-xl shadow-slate-200/70"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+              <p className="mt-3 text-sm font-bold text-slate-900">Updating pipeline</p>
+              <p className="mt-1 text-xs font-medium text-slate-500">
+                Loading the selected date range...
+              </p>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
