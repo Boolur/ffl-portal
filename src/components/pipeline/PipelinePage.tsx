@@ -9,13 +9,11 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   FileText,
-  GitBranch,
   Home,
   Loader2,
   Mail,
   Phone,
   RefreshCw,
-  TrendingUp,
   X,
 } from 'lucide-react';
 import {
@@ -153,10 +151,6 @@ function formatCurrency(value: number | null) {
   }).format(value);
 }
 
-function formatPercent(value: number | null) {
-  return value === null ? 'N/A' : `${value.toFixed(1)}%`;
-}
-
 function dateInputValue(value: string) {
   return value.slice(0, 10);
 }
@@ -198,13 +192,6 @@ function initials(name: string) {
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
-}
-
-function metricIcon(key: PipelineMilestoneKey) {
-  if (key === 'plusOne') return GitBranch;
-  if (key === 'disclosures') return ClipboardCheck;
-  if (key === 'processing') return CheckCircle2;
-  return CircleDollarSign;
 }
 
 function updateSignalClassName(tone: NonNullable<PipelineMilestoneRow['updateSignal']>['tone']) {
@@ -412,52 +399,6 @@ export function PipelinePage({ initialReport }: Props) {
           {error}
         </div>
       )}
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/80 p-4 shadow-sm shadow-slate-200/60 xl:col-span-1">
-          <div className="flex flex-col items-center text-center">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-700 ring-1 ring-slate-200">
-              <TrendingUp className="h-4 w-4" />
-            </div>
-            <div className="mt-2">
-              <p className="text-base font-bold tracking-tight text-slate-800">Pull-through</p>
-              <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">
-                {formatPercent(report.pullThroughRate)}
-              </p>
-            </div>
-            <p className="mx-auto mt-2 max-w-[180px] text-xs font-medium leading-snug text-slate-500">
-              Fundings divided by +1 submissions for the selected range.
-            </p>
-          </div>
-        </div>
-
-        {report.summary.map((metric) => {
-          const Icon = metricIcon(metric.key);
-          const surface = BOARD_METRIC_SURFACES[metric.key];
-          return (
-            <div key={metric.key} className={cx('rounded-2xl border bg-gradient-to-br p-4 shadow-sm shadow-slate-200/50', surface.border, surface.panel)}>
-              <div className="flex flex-col items-center text-center">
-                <div className={cx('flex h-9 w-9 items-center justify-center rounded-xl ring-1 shadow-sm', surface.icon)}>
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div className="mt-2">
-                  <p className={cx('text-base font-bold tracking-tight', surface.value)}>
-                    {metric.label}
-                  </p>
-                  <p className={cx('mt-1 text-2xl font-bold tracking-tight', surface.value)}>
-                    {formatNumber(metric.count)}
-                  </p>
-                </div>
-              </div>
-              <p className="mx-auto mt-2 max-w-[180px] text-center text-xs font-medium leading-snug text-slate-500">
-                {metric.priorCount === null
-                  ? 'Starting milestone for this dashboard.'
-                  : `${formatPercent(metric.conversionRate)} from ${formatNumber(metric.priorCount)} prior milestone.`}
-              </p>
-            </div>
-          );
-        })}
-      </section>
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
         <div className="flex flex-col gap-3 px-1 pb-5 sm:flex-row sm:items-end sm:justify-between">
