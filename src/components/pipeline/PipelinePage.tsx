@@ -31,6 +31,15 @@ type Props = {
   initialReport: PipelineReport;
 };
 
+type PipelineChecklistStatus =
+  | 'GREEN_CHECK'
+  | 'RED_X'
+  | 'YELLOW'
+  | 'ORDERED'
+  | 'MISSING_ITEMS'
+  | 'COMPLETED'
+  | 'NOT_REQUIRED';
+
 const PRESETS: Array<{ value: PipelineRangePreset; label: string }> = [
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
@@ -202,6 +211,13 @@ function updateSignalClassName(tone: NonNullable<PipelineMilestoneRow['updateSig
   if (tone === 'danger') return 'border-rose-200 bg-rose-50 text-rose-700';
   if (tone === 'success') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (tone === 'info') return 'border-blue-200 bg-blue-50 text-blue-700';
+  return 'border-slate-200 bg-slate-50 text-slate-600';
+}
+
+function checklistStatusClassName(status: PipelineChecklistStatus) {
+  if (status === 'RED_X' || status === 'MISSING_ITEMS') return 'border-rose-200 bg-rose-50 text-rose-700';
+  if (status === 'YELLOW' || status === 'ORDERED') return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (status === 'GREEN_CHECK' || status === 'COMPLETED') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   return 'border-slate-200 bg-slate-50 text-slate-600';
 }
 
@@ -755,6 +771,8 @@ function ClientDetailsModal({
   onClose: () => void;
 }) {
   const submittedFields = row.fileDetails.task?.submittedFields || [];
+  const taskNotes = row.fileDetails.task?.notes || [];
+  const checklistItems = row.fileDetails.task?.checklistItems || [];
   const reviewLabel = row.fileDetails.payroll ? 'Review Payroll' : 'Review Task';
   return (
     <div
@@ -802,27 +820,6 @@ function ClientDetailsModal({
             <X className="h-5 w-5" />
           </button>
         </div>
-
-        {signal && (
-          <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-800 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-bold">{signal.label}</p>
-              <p className="mt-1 text-sm text-rose-700">
-                {row.fileDetails.payroll
-                  ? 'Open the related Payroll request to view manager review notes, approval, payment, or revision status.'
-                  : 'Open the related Tasks item to respond, complete, or clear the underlying queue status.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onReviewUpdate}
-              disabled={!row.fileDetails.task && !row.fileDetails.payroll}
-              className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-white px-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-100"
-            >
-              {reviewLabel}
-            </button>
-          </div>
-        )}
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-5">
@@ -916,9 +913,78 @@ function ClientDetailsModal({
               </div>
             </section>
 
-            <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
-              This modal is using the same centered detail pattern as Tasks. Next we can add notes, documents, timeline history, and editable custom Pipeline stages here.
-            </section>
+            {(signal || row.fileDetails.task || row.fileDetails.payroll) && (
+              <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-slate-950">
+                      {row.fileDetails.payroll ? 'Payroll Review' : 'Task Review'}
+                    </h3>
+                    <p className="mt-1 text-sm font-medium text-slate-500">
+                      {row.fileDetails.payroll
+                        ? 'Review manager notes, approval, payment, or revision status.'
+                        : 'Latest notes and missing items from the Tasks queue.'}
+                    </p>
+                  </div>
+                  {signal && (
+                    <span className={cx('inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold', updateSignalClassName(signal.tone))}>
+                      {signal.label}
+                    </span>
+                  )}
+                </div>
+
+                {checklistItems.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                      Missing / Needed
+                    </p>
+                    {checklistItems.map((item) => (
+                      <div key={`${item.label}-${item.status}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-slate-800">{item.label}</span>
+                          <span className={cx('inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', checklistStatusClassName(item.status))}>
+                            {formatStatus(item.status)}
+                          </span>
+                        </div>
+                        {item.note && (
+                          <p className="mt-1.5 text-xs font-medium text-slate-600">{item.note}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {taskNotes.length > 0 ? (
+                  <div className="mt-4 space-y-3">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                      Task Notes
+                    </p>
+                    {taskNotes.slice(0, 4).map((note) => (
+                      <div key={`${note.date}-${note.author}-${note.message}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-bold text-slate-800">{note.author}</p>
+                          <span className="text-[11px] font-semibold text-slate-400">{formatDateTime(note.date)}</span>
+                        </div>
+                        <p className="mt-2 text-sm font-medium leading-relaxed text-slate-700">{note.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : row.fileDetails.task ? (
+                  <p className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-500">
+                    No task notes have been added yet.
+                  </p>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={onReviewUpdate}
+                  disabled={!row.fileDetails.task && !row.fileDetails.payroll}
+                  className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-lg bg-slate-950 px-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {reviewLabel}
+                </button>
+              </section>
+            )}
           </aside>
         </div>
       </div>

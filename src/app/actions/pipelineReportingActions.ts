@@ -111,6 +111,18 @@ export type PipelineMilestoneRow = {
     task: {
       title: string | null;
       submittedFields: Array<{ label: string; value: string }>;
+      notes: Array<{
+        author: string;
+        role: string | null;
+        message: string;
+        date: string;
+        entryType: 'note' | 'qcChecklist' | 'jrChecklist';
+      }>;
+      checklistItems: Array<{
+        label: string;
+        status: 'GREEN_CHECK' | 'RED_X' | 'YELLOW' | 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED';
+        note: string | null;
+      }>;
     } | null;
     payroll: {
       loanType: string | null;
@@ -318,6 +330,117 @@ function submissionObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function firstStringFromSubmission(value: unknown, keys: string[]) {
+  const data = submissionObject(value);
+  if (!data) return null;
+  for (const key of keys) {
+    const raw = data[key];
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  }
+  return null;
+}
+
+function propertyAddressFromSubmission(value: unknown) {
+  const direct = firstStringFromSubmission(value, [
+    'propertyAddress',
+    'subjectPropertyAddress',
+    'subjectProperty',
+    'address',
+    'property_address',
+    'subject_property_address',
+  ]);
+  if (direct) return direct;
+
+  const data = submissionObject(value);
+  if (!data) return null;
+  const street = firstStringFromSubmission(value, ['propertyStreet', 'street', 'propertyStreetAddress']);
+  const city = firstStringFromSubmission(value, ['propertyCity', 'city']);
+  const state = firstStringFromSubmission(value, ['propertyState', 'state']);
+  const zip = firstStringFromSubmission(value, ['propertyZip', 'zip', 'propertyZipCode']);
+  const cityStateZip = [city, state, zip].filter(Boolean).join(', ').replace(', ,', ',');
+  return [street, cityStateZip].filter(Boolean).join(', ') || null;
+}
+
+function parseTaskNotesFromJson(value: unknown): NonNullable<PipelineMilestoneRow['fileDetails']['task']>['notes'] {
+  const data = submissionObject(value);
+  const notesHistory = Array.isArray(data?.notesHistory) ? data.notesHistory : [];
+  return notesHistory
+    .flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return [];
+      const item = entry as Record<string, unknown>;
+      const author = typeof item.author === 'string' && item.author.trim() ? item.author.trim() : 'Team Member';
+      const message = typeof item.message === 'string' ? item.message.trim() : '';
+      const date = typeof item.date === 'string' ? item.date : '';
+      if (!message || !date) return [];
+      const entryType: 'note' | 'qcChecklist' | 'jrChecklist' =
+        item.entryType === 'qcChecklist'
+          ? 'qcChecklist'
+          : item.entryType === 'jrChecklist'
+            ? 'jrChecklist'
+            : 'note';
+      return [{
+        author,
+        role: typeof item.role === 'string' ? item.role : null,
+        message,
+        date,
+        entryType,
+      }];
+    })
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 8);
+}
+
+function checklistItemsFromJson(value: unknown) {
+  const data = submissionObject(value);
+  const notesHistory = Array.isArray(data?.notesHistory) ? data.notesHistory : [];
+  const latestChecklistEntry = [...notesHistory].reverse().find((entry) => {
+    return (
+      entry &&
+      typeof entry === 'object' &&
+      ((entry as Record<string, unknown>).entryType === 'qcChecklist' ||
+        (entry as Record<string, unknown>).entryType === 'jrChecklist')
+    );
+  }) as Record<string, unknown> | undefined;
+
+  const rawRows = Array.isArray(latestChecklistEntry?.checklist)
+    ? latestChecklistEntry.checklist
+    : Array.isArray(latestChecklistEntry?.jrChecklist)
+      ? latestChecklistEntry.jrChecklist
+      : [];
+
+  return rawRows
+    .flatMap((row) => {
+      if (!row || typeof row !== 'object') return [];
+      const item = row as Record<string, unknown>;
+      const label = typeof item.label === 'string' ? item.label.trim() : '';
+      const rawStatus = typeof item.status === 'string' ? item.status : '';
+      if (!label) return [];
+      if (
+        ![
+          'GREEN_CHECK',
+          'RED_X',
+          'YELLOW',
+          'ORDERED',
+          'MISSING_ITEMS',
+          'COMPLETED',
+          'NOT_REQUIRED',
+        ].includes(rawStatus)
+      ) {
+        return [];
+      }
+      const noteOption = typeof item.noteOption === 'string' ? item.noteOption.replace(/_/g, ' ') : '';
+      const noteText = typeof item.noteText === 'string' ? item.noteText.trim() : '';
+      const note = [noteOption, noteText].filter(Boolean).join(' - ') || null;
+      return [{
+        label,
+        status: rawStatus as 'GREEN_CHECK' | 'RED_X' | 'YELLOW' | 'ORDERED' | 'MISSING_ITEMS' | 'COMPLETED' | 'NOT_REQUIRED',
+        note,
+      }];
+    })
+    .filter((row) => row.status === 'RED_X' || row.status === 'YELLOW' || row.status === 'MISSING_ITEMS' || row.status === 'ORDERED')
+    .slice(0, 10);
+}
+
 function projectedRevenueFromJson(value: unknown) {
   const data = submissionObject(value);
   if (!data) return null;
@@ -341,12 +464,12 @@ function loanFileDetails(loan: {
   stage?: string | null;
   createdAt?: Date | null;
   updatedAt?: Date | null;
-}) {
+}, submissionData?: unknown) {
   return {
     borrowerPhone: loan.borrowerPhone || null,
     borrowerEmail: loan.borrowerEmail || null,
     program: loan.program || null,
-    propertyAddress: loan.propertyAddress || null,
+    propertyAddress: loan.propertyAddress || propertyAddressFromSubmission(submissionData) || null,
     stage: loan.stage || null,
     createdAt: loan.createdAt ? loan.createdAt.toISOString() : null,
     updatedAt: loan.updatedAt ? loan.updatedAt.toISOString() : null,
@@ -703,6 +826,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
           status: true,
           paidAt: true,
           submittedAt: true,
+          mismoDetails: true,
           loanOfficerId: true,
           loanId: true,
           loanOfficer: { select: { name: true } },
@@ -852,10 +976,12 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         occurredAt: task.createdAt.toISOString(),
         updateSignal: taskUpdateSignal(task),
         fileDetails: {
-          loan: loanFileDetails(task.loan),
+          loan: loanFileDetails(task.loan, task.submissionData),
           task: {
             title: task.title,
             submittedFields: submittedFieldsFromJson(task.submissionData),
+            notes: parseTaskNotesFromJson(task.submissionData),
+            checklistItems: checklistItemsFromJson(task.submissionData),
           },
           payroll: null,
         },
@@ -883,7 +1009,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     updateSignal: fundingUpdateSignal(funding.status),
     fileDetails: {
       loan: funding.loan
-        ? loanFileDetails(funding.loan)
+        ? loanFileDetails(funding.loan, funding.mismoDetails)
         : {
             borrowerPhone: null,
             borrowerEmail: null,
@@ -930,10 +1056,12 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         occurredAt: task.createdAt.toISOString(),
         updateSignal: taskUpdateSignal(task),
         fileDetails: {
-          loan: loanFileDetails(task.loan),
+          loan: loanFileDetails(task.loan, task.submissionData),
           task: {
             title: task.title,
             submittedFields: submittedFieldsFromJson(task.submissionData),
+            notes: parseTaskNotesFromJson(task.submissionData),
+            checklistItems: checklistItemsFromJson(task.submissionData),
           },
           payroll: null,
         },
@@ -960,7 +1088,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     updateSignal: fundingUpdateSignal(funding.status),
     fileDetails: {
       loan: funding.loan
-        ? loanFileDetails(funding.loan)
+        ? loanFileDetails(funding.loan, funding.mismoDetails)
         : {
             borrowerPhone: null,
             borrowerEmail: null,
