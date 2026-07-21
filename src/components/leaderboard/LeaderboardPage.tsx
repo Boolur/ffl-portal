@@ -573,9 +573,13 @@ export function LeaderboardPage({ initialReport }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {sortedRows.map((row, index) => (
-                <tr key={row.loanOfficerId} className="hover:bg-slate-50/70">
-                  <td className="sticky left-0 z-[1] overflow-hidden bg-white px-4 py-4 shadow-[1px_0_0_#e2e8f0]">
+              {sortedRows.map((row, index) => {
+                const isStriped = index % 2 === 0;
+                const rowSurface = isStriped ? 'bg-slate-50/55' : 'bg-white';
+                const stickySurface = isStriped ? 'bg-slate-50' : 'bg-white';
+                return (
+                <tr key={row.loanOfficerId} className={cx(rowSurface, 'transition-colors hover:bg-blue-50/40')}>
+                  <td className={cx('sticky left-0 z-[1] overflow-hidden px-4 py-4 shadow-[1px_0_0_#e2e8f0]', stickySurface)}>
                     <button
                       type="button"
                       onClick={() => setSelectedOfficerId(row.loanOfficerId)}
@@ -597,7 +601,8 @@ export function LeaderboardPage({ initialReport }: Props) {
                   <MetricCells row={row} metric="processing" />
                   <MetricCells row={row} metric="fundings" />
                 </tr>
-              ))}
+                );
+              })}
               {sortedRows.length === 0 && (
                 <tr>
                   <td colSpan={12} className="px-5 py-12 text-center text-sm text-slate-500">
