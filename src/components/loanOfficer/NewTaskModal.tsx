@@ -66,6 +66,8 @@ const buttonPricingOptions = [
   'Buydown 3',
 ];
 const loanTypeOptions = ['Conventional', 'FHA', 'VA', 'Heloc', 'Heloan', 'Non QM', 'Reverse'];
+const leadSourceOptions = ['Lead Buy', 'Mailer', 'Warm Transfer', 'Self Generated'];
+const leadVendorOptions = ['Lending Tree', 'Freerate Update', 'Lead Point'];
 const SECONDARY_LO_NA_VALUE = '__NA__';
 
 function isValidQcInvestorValue(value: string | null | undefined) {
@@ -1038,7 +1040,7 @@ function PlusOneForm({
                   leadVendor: value === 'Lead Buy' ? prev.leadVendor : '',
                 }))
               }
-              options={['Lead Buy', 'Mailer', 'Warm Transfer', 'Self Generated']}
+              options={leadSourceOptions}
               required
               invalid={highlightedMissingFields.has('leadSource')}
             />
@@ -1047,7 +1049,7 @@ function PlusOneForm({
                 label="Lead Vendor"
                 value={form.leadVendor}
                 onChange={(value) => update('leadVendor', value)}
-                options={['Lending Tree', 'Freerate Update', 'Lead Point']}
+                options={leadVendorOptions}
                 required
                 invalid={highlightedMissingFields.has('leadVendor')}
               />
@@ -1128,6 +1130,8 @@ function DisclosuresForm({
     arriveLoanNumber: '',
     channel: '',
     investor: '',
+    leadSource: '',
+    leadVendor: '',
     processingMethod: '',
     processingAssignmentGroup: '',
     processingAssignmentLabel: '',
@@ -1226,6 +1230,10 @@ function DisclosuresForm({
     { key: 'creditReportType', label: 'Credit Report Type' },
     { key: 'channel', label: 'Channel' },
     { key: 'investor', label: 'Investor' },
+    { key: 'leadSource', label: 'Lead Source' },
+    ...(form.leadSource === 'Lead Buy'
+      ? ([{ key: 'leadVendor', label: 'Lead Vendor' }] as const)
+      : []),
   ];
   const missingEntryKeys = new Set<keyof typeof form>(
     requiredEntryFields
@@ -1651,6 +1659,30 @@ function DisclosuresForm({
           required
           invalid={highlightedMissingFields.has('investor') || shouldHighlightInvestorImmediately}
         />
+        <Select
+          label="Lead Source"
+          value={form.leadSource}
+          onChange={(value) =>
+            setForm((prev) => ({
+              ...prev,
+              leadSource: value,
+              leadVendor: value === 'Lead Buy' ? prev.leadVendor : '',
+            }))
+          }
+          options={leadSourceOptions}
+          required
+          invalid={highlightedMissingFields.has('leadSource')}
+        />
+        {form.leadSource === 'Lead Buy' && (
+          <Select
+            label="Lead Vendor"
+            value={form.leadVendor}
+            onChange={(value) => update('leadVendor', value)}
+            options={leadVendorOptions}
+            required
+            invalid={highlightedMissingFields.has('leadVendor')}
+          />
+        )}
         {isButtonInvestor && (
           <>
             <Input
@@ -1831,6 +1863,8 @@ function QcForm({
     arriveLoanNumber: '',
     channel: '',
     investor: '',
+    leadSource: '',
+    leadVendor: '',
     processingMethod: '',
     processingAssignmentGroup: '',
     processingAssignmentLabel: '',
@@ -1880,6 +1914,10 @@ function QcForm({
     { key: 'creditReportType', label: 'Credit Report Type' },
     { key: 'channel', label: 'Channel' },
     { key: 'investor', label: 'Investor' },
+    { key: 'leadSource', label: 'Lead Source' },
+    ...(form.leadSource === 'Lead Buy'
+      ? ([{ key: 'leadVendor', label: 'Lead Vendor' }] as const)
+      : []),
     { key: 'uwmFreeCreditUsed', label: 'UWM free credit used' },
     { key: 'communityPropertyState', label: 'Community Property State' },
     { key: 'titleCompany', label: 'Title' },
@@ -2177,6 +2215,30 @@ function QcForm({
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
         <Input label="Cash Back" value={form.cashBack} onChange={(v) => update('cashBack', v)} required invalid={highlightedMissingFields.has('cashBack')} />
         <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} required invalid={highlightedMissingFields.has('projectedRevenue')} />
+        <Select
+          label="Lead Source"
+          value={form.leadSource}
+          onChange={(value) =>
+            setForm((prev) => ({
+              ...prev,
+              leadSource: value,
+              leadVendor: value === 'Lead Buy' ? prev.leadVendor : '',
+            }))
+          }
+          options={leadSourceOptions}
+          required
+          invalid={highlightedMissingFields.has('leadSource')}
+        />
+        {form.leadSource === 'Lead Buy' && (
+          <Select
+            label="Lead Vendor"
+            value={form.leadVendor}
+            onChange={(value) => update('leadVendor', value)}
+            options={leadVendorOptions}
+            required
+            invalid={highlightedMissingFields.has('leadVendor')}
+          />
+        )}
         <Select label="AUS" value={form.aus} onChange={(v) => update('aus', v)} options={['DU', 'LP', 'Manual UW']} required invalid={highlightedMissingFields.has('aus')} />
         <Select label="Credit Report Type" value={form.creditReportType} onChange={(v) => update('creditReportType', v)} options={['Soft Check', 'Hard Report']} required invalid={highlightedMissingFields.has('creditReportType')} />
         <Select label="Channel" value={form.channel} onChange={(v) => update('channel', v)} options={['Broker', 'Correspondent']} required invalid={highlightedMissingFields.has('channel')} />

@@ -2769,6 +2769,21 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         };
       }
 
+      const leadSource = String(submissionObject.leadSource ?? '').trim();
+      const leadVendor = String(submissionObject.leadVendor ?? '').trim();
+      if (!leadSource) {
+        return {
+          success: false,
+          error: 'Lead Source is required before submitting Disclosures.',
+        };
+      }
+      if (leadSource === 'Lead Buy' && !leadVendor) {
+        return {
+          success: false,
+          error: 'Lead Vendor is required when Lead Source is Lead Buy.',
+        };
+      }
+
       const investor = String(submissionObject.investor ?? '').trim().toUpperCase();
       if (investor === 'BUTTON') {
         const runId = String(submissionObject.runId ?? '').trim();
@@ -2932,6 +2947,20 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         !Array.isArray(submissionData)
           ? (submissionData as Record<string, unknown>)
           : null;
+      const leadSource = String(submissionObject?.leadSource ?? '').trim();
+      const leadVendor = String(submissionObject?.leadVendor ?? '').trim();
+      if (!leadSource) {
+        return {
+          success: false,
+          error: 'Lead Source is required before submitting Processing.',
+        };
+      }
+      if (leadSource === 'Lead Buy' && !leadVendor) {
+        return {
+          success: false,
+          error: 'Lead Vendor is required when Lead Source is Lead Buy.',
+        };
+      }
       const qcInvestor = String(submissionObject?.investor ?? '').trim().toUpperCase();
       if (!qcInvestor || !QC_INVESTOR_ALLOWED_VALUES.has(qcInvestor)) {
         return {
