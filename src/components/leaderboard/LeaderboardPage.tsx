@@ -18,6 +18,7 @@ import {
 import {
   getLeaderboardReport,
   type LeaderboardDetailRow,
+  type LeaderboardLenderRow,
   type LeaderboardOfficerRow,
   type LeaderboardRangePreset,
   type LeaderboardReport,
@@ -50,6 +51,18 @@ type SortKey =
   | 'fundings.units'
   | 'fundings.revenue';
 type LeaderboardColumnId = SortKey;
+type LeaderboardView = 'loanOfficers' | 'lenders';
+type DisplayLeaderboardRow = {
+  id: string;
+  label: string;
+  subLabel: string;
+  totalUnitsLabel: string;
+  source: LeaderboardView;
+  plusOne: LeaderboardOfficerRow['plusOne'];
+  disclosures: LeaderboardOfficerRow['disclosures'];
+  processing: LeaderboardOfficerRow['processing'];
+  fundings: LeaderboardOfficerRow['fundings'];
+};
 
 const PRESETS: Array<{ value: LeaderboardRangePreset; label: string }> = [
   { value: 'daily', label: 'Daily' },
@@ -183,8 +196,8 @@ function sortMultiplier(direction: SortDirection) {
   return direction === 'asc' ? 1 : -1;
 }
 
-function sortValue(row: LeaderboardOfficerRow, key: SortKey) {
-  if (key === 'loanOfficerName') return row.loanOfficerName;
+function sortValue(row: DisplayLeaderboardRow, key: SortKey) {
+  if (key === 'loanOfficerName') return row.label;
   const [milestone, field] = key.split('.') as [
     'plusOne' | 'disclosures' | 'processing' | 'fundings',
     'volume' | 'units' | 'revenue',
@@ -192,7 +205,7 @@ function sortValue(row: LeaderboardOfficerRow, key: SortKey) {
   return row[milestone][field];
 }
 
-function activityTotal(row: LeaderboardOfficerRow) {
+function activityTotal(row: Pick<DisplayLeaderboardRow, 'plusOne' | 'disclosures' | 'processing' | 'fundings'>) {
   return row.plusOne.units + row.disclosures.units + row.processing.units + row.fundings.units;
 }
 
@@ -200,7 +213,7 @@ function emptyMetric() {
   return { volume: 0, units: 0, revenue: 0 };
 }
 
-function totalMetric(rows: LeaderboardOfficerRow[], metric: 'plusOne' | 'disclosures' | 'processing' | 'fundings') {
+function totalMetric(rows: Array<Pick<DisplayLeaderboardRow, 'plusOne' | 'disclosures' | 'processing' | 'fundings'>>, metric: 'plusOne' | 'disclosures' | 'processing' | 'fundings') {
   return rows.reduce(
     (total, row) => {
       total.volume += row[metric].volume;
@@ -250,6 +263,34 @@ function rankBadgeClassName(index: number) {
     );
   }
   return cx(base, 'bg-slate-100 text-slate-600 ring-slate-200');
+}
+
+function toOfficerDisplayRow(row: LeaderboardOfficerRow): DisplayLeaderboardRow {
+  return {
+    id: row.loanOfficerId,
+    label: row.loanOfficerName,
+    subLabel: row.loanOfficerEmail,
+    totalUnitsLabel: `${formatNumber(activityTotal(row))} total units`,
+    source: 'loanOfficers',
+    plusOne: row.plusOne,
+    disclosures: row.disclosures,
+    processing: row.processing,
+    fundings: row.fundings,
+  };
+}
+
+function toLenderDisplayRow(row: LeaderboardLenderRow): DisplayLeaderboardRow {
+  return {
+    id: row.lenderKey,
+    label: row.lenderName,
+    subLabel: 'Lender / Investor',
+    totalUnitsLabel: `${formatNumber(activityTotal(row))} total units`,
+    source: 'lenders',
+    plusOne: row.plusOne,
+    disclosures: row.disclosures,
+    processing: row.processing,
+    fundings: row.fundings,
+  };
 }
 
 function SortHeader({
@@ -379,7 +420,7 @@ function KpiCard({
   );
 }
 
-function MetricCells({ row, metric }: { row: LeaderboardOfficerRow; metric: 'plusOne' | 'disclosures' | 'processing' | 'fundings' }) {
+function MetricCells({ row, metric }: { row: DisplayLeaderboardRow; metric: 'plusOne' | 'disclosures' | 'processing' | 'fundings' }) {
   const groupStartClass = 'border-l border-slate-200';
   const numberClass = 'overflow-hidden whitespace-nowrap px-4 py-4 text-right tabular-nums';
   return (
@@ -465,8 +506,9 @@ export function LeaderboardPage({ initialReport }: Props) {
   const [preset, setPreset] = useState<LeaderboardRangePreset>(initialReport.filters.preset);
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
+  const [view, setView] = useState<LeaderboardView>('loanOfficers');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [selectedOfficerId, setSelectedOfficerId] = useState<string | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
     key: 'plusOne.volume',
     direction: 'desc',
@@ -497,21 +539,27 @@ export function LeaderboardPage({ initialReport }: Props) {
     return report.rows.filter((row) => selectedTeamMemberIds.has(row.loanOfficerId));
   }, [report.rows, selectedTeamMemberIds]);
 
-  const filteredDetailRows = useMemo(() => {
+  const activeRows = useMemo<DisplayLeaderboardRow[]>(() => {
+    if (view === 'lenders') return report.lenderRows.map(toLenderDisplayRow);
+    return filteredRows.map(toOfficerDisplayRow);
+  }, [filteredRows, report.lenderRows, view]);
+
+  const activeDetailRows = useMemo(() => {
+    if (view === 'lenders') return report.detailRows;
     if (!selectedTeamMemberIds) return report.detailRows;
     return report.detailRows.filter((row) => selectedTeamMemberIds.has(row.creditedLoanOfficerId));
-  }, [report.detailRows, selectedTeamMemberIds]);
+  }, [report.detailRows, selectedTeamMemberIds, view]);
 
   const visibleTotals = useMemo(() => ({
-    plusOne: totalMetric(filteredRows, 'plusOne'),
-    disclosures: totalMetric(filteredRows, 'disclosures'),
-    processing: totalMetric(filteredRows, 'processing'),
-    fundings: totalMetric(filteredRows, 'fundings'),
-  }), [filteredRows]);
+    plusOne: totalMetric(activeRows, 'plusOne'),
+    disclosures: totalMetric(activeRows, 'disclosures'),
+    processing: totalMetric(activeRows, 'processing'),
+    fundings: totalMetric(activeRows, 'fundings'),
+  }), [activeRows]);
 
   const sortedRows = useMemo(() => {
     const multiplier = sortMultiplier(sort.direction);
-    return [...filteredRows].sort((a, b) => {
+    return [...activeRows].sort((a, b) => {
       const aValue = sortValue(a, sort.key);
       const bValue = sortValue(b, sort.key);
       const primary =
@@ -519,18 +567,21 @@ export function LeaderboardPage({ initialReport }: Props) {
           ? compareText(aValue, bValue)
           : Number(aValue) - Number(bValue);
       if (primary !== 0) return primary * multiplier;
-      return compareText(a.loanOfficerName, b.loanOfficerName);
+      return compareText(a.label, b.label);
     });
-  }, [filteredRows, sort.direction, sort.key]);
+  }, [activeRows, sort.direction, sort.key]);
 
-  const selectedOfficer = selectedOfficerId
-    ? filteredRows.find((row) => row.loanOfficerId === selectedOfficerId) || null
+  const selectedRow = selectedRowId
+    ? activeRows.find((row) => row.id === selectedRowId) || null
     : null;
 
-  const selectedOfficerDetails = useMemo(() => {
-    if (!selectedOfficerId) return [];
-    return filteredDetailRows.filter((row) => row.creditedLoanOfficerId === selectedOfficerId);
-  }, [filteredDetailRows, selectedOfficerId]);
+  const selectedDetails = useMemo(() => {
+    if (!selectedRowId) return [];
+    if (view === 'lenders') {
+      return activeDetailRows.filter((row) => row.lenderKey === selectedRowId);
+    }
+    return activeDetailRows.filter((row) => row.creditedLoanOfficerId === selectedRowId);
+  }, [activeDetailRows, selectedRowId, view]);
 
   const tableWidth = useMemo(
     () => LEADERBOARD_COLUMNS.reduce((sum, column) => sum + columnWidths[column.id], 0),
@@ -560,7 +611,7 @@ export function LeaderboardPage({ initialReport }: Props) {
         setPreset(nextReport.filters.preset);
         setStartDate(dateInputValue(nextReport.filters.startDate));
         setEndDate(dateInputValue(nextReport.filters.endDate));
-        setSelectedOfficerId(null);
+        setSelectedRowId(null);
       } catch (err) {
         console.error(err);
         setError('Unable to load Leaderboard metrics. Please try again.');
@@ -577,7 +628,12 @@ export function LeaderboardPage({ initialReport }: Props) {
 
   function handleTeamSelect(teamId: string | null) {
     setSelectedTeamId((current) => (current === teamId ? null : teamId));
-    setSelectedOfficerId(null);
+    setSelectedRowId(null);
+  }
+
+  function handleViewChange(nextView: LeaderboardView) {
+    setView(nextView);
+    setSelectedRowId(null);
   }
 
   return (
@@ -682,19 +738,53 @@ export function LeaderboardPage({ initialReport }: Props) {
       <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
+            <div className="mb-3 inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
+              <button
+                type="button"
+                onClick={() => handleViewChange('loanOfficers')}
+                className={cx(
+                  'rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
+                  view === 'loanOfficers'
+                    ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100'
+                    : 'text-slate-500 hover:text-slate-800'
+                )}
+              >
+                Loan Officers
+              </button>
+              <button
+                type="button"
+                onClick={() => handleViewChange('lenders')}
+                className={cx(
+                  'rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
+                  view === 'lenders'
+                    ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100'
+                    : 'text-slate-500 hover:text-slate-800'
+                )}
+              >
+                Lenders
+              </button>
+            </div>
             <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-950">
               <Medal className="h-5 w-5 text-amber-600" />
               Production leaderboard
             </h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. {selectedTeam ? `${selectedTeam.name} members only.` : 'Click a loan officer to view credited loans.'}
+              {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. {
+                view === 'lenders'
+                  ? 'Click a lender to view submitted loans.'
+                  : selectedTeam
+                    ? `${selectedTeam.name} members only.`
+                    : 'Click a loan officer to view credited loans.'
+              }
             </p>
           </div>
-          <TeamFilterChips
-            teams={report.teams}
-            selectedTeamId={selectedTeamId}
-            onSelectTeam={handleTeamSelect}
-          />
+          {view === 'loanOfficers' && (
+            <TeamFilterChips
+              teams={report.teams}
+              selectedTeamId={selectedTeamId}
+              onSelectTeam={handleTeamSelect}
+            />
+          )}
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <button
               type="button"
@@ -721,7 +811,10 @@ export function LeaderboardPage({ initialReport }: Props) {
             <thead className="sticky top-0 z-[1] bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               <tr className="border-b border-slate-100">
                 <ResizableHeaderCell
-                  column={LEADERBOARD_COLUMNS[0]}
+                  column={{
+                    ...LEADERBOARD_COLUMNS[0],
+                    label: view === 'lenders' ? 'Lender' : 'Loan Officer',
+                  }}
                   activeKey={sort.key}
                   direction={sort.direction}
                   onSort={updateSort}
@@ -768,20 +861,20 @@ export function LeaderboardPage({ initialReport }: Props) {
                 const rowSurface = isStriped ? 'bg-slate-50/55' : 'bg-white';
                 const stickySurface = isStriped ? 'bg-slate-50' : 'bg-white';
                 return (
-                <tr key={row.loanOfficerId} className={cx(rowSurface, 'transition-colors hover:bg-blue-50/40')}>
+                <tr key={`${row.source}:${row.id}`} className={cx(rowSurface, 'transition-colors hover:bg-blue-50/40')}>
                   <td className={cx('sticky left-0 z-[1] overflow-hidden px-4 py-4 shadow-[1px_0_0_#e2e8f0]', stickySurface)}>
                     <button
                       type="button"
-                      onClick={() => setSelectedOfficerId(row.loanOfficerId)}
+                      onClick={() => setSelectedRowId(row.id)}
                       className="flex w-full min-w-0 items-center gap-3 rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
                     >
                       <span className={rankBadgeClassName(index)}>
                         {index + 1}
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate font-bold text-slate-950">{row.loanOfficerName}</span>
+                        <span className="block truncate font-bold text-slate-950">{row.label}</span>
                         <span className="block truncate text-xs font-medium text-slate-500">
-                          {row.loanOfficerEmail} / {formatNumber(activityTotal(row))} total units
+                          {row.subLabel} / {row.totalUnitsLabel}
                         </span>
                       </span>
                     </button>
@@ -796,9 +889,11 @@ export function LeaderboardPage({ initialReport }: Props) {
               {sortedRows.length === 0 && (
                 <tr>
                   <td colSpan={12} className="px-5 py-12 text-center text-sm text-slate-500">
-                    {selectedTeam
-                      ? `No loan officers are assigned to ${selectedTeam.name}.`
-                      : 'No loan officers are available for this leaderboard.'}
+                    {view === 'lenders'
+                      ? 'No lenders are available for this leaderboard.'
+                      : selectedTeam
+                        ? `No loan officers are assigned to ${selectedTeam.name}.`
+                        : 'No loan officers are available for this leaderboard.'}
                   </td>
                 </tr>
               )}
@@ -807,12 +902,12 @@ export function LeaderboardPage({ initialReport }: Props) {
         </div>
       </section>
 
-      {selectedOfficer && (
+      {selectedRow && (
         <OfficerDetailsModal
-          officer={selectedOfficer}
-          rows={selectedOfficerDetails}
+          entity={selectedRow}
+          rows={selectedDetails}
           rangeLabel={`${formatDate(report.filters.startDate)} - ${formatDate(report.filters.endDate)}`}
-          onClose={() => setSelectedOfficerId(null)}
+          onClose={() => setSelectedRowId(null)}
         />
       )}
     </div>
@@ -820,12 +915,12 @@ export function LeaderboardPage({ initialReport }: Props) {
 }
 
 function OfficerDetailsModal({
-  officer,
+  entity,
   rows,
   rangeLabel,
   onClose,
 }: {
-  officer: LeaderboardOfficerRow;
+  entity: DisplayLeaderboardRow;
   rows: LeaderboardDetailRow[];
   rangeLabel: string;
   onClose: () => void;
@@ -839,21 +934,21 @@ function OfficerDetailsModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`${officer.loanOfficerName} leaderboard details`}
+        aria-label={`${entity.label} leaderboard details`}
         className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-[28px] border border-slate-200/70 bg-slate-50 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-6 border-b border-slate-200/70 bg-white px-6 py-5">
           <div className="flex min-w-0 items-center gap-4">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-lg font-extrabold text-white shadow-lg shadow-blue-600/20 ring-4 ring-white">
-              {initials(officer.loanOfficerName)}
+              {initials(entity.label)}
             </div>
             <div className="min-w-0">
               <h2 className="truncate text-2xl font-extrabold tracking-tight text-slate-950">
-                {officer.loanOfficerName}
+                {entity.label}
               </h2>
               <p className="mt-1 text-sm font-medium text-slate-500">
-                {officer.loanOfficerEmail} / {rangeLabel}
+                {entity.subLabel} / {rangeLabel}
               </p>
             </div>
           </div>
@@ -868,10 +963,10 @@ function OfficerDetailsModal({
         </div>
 
         <div className="grid gap-4 border-b border-slate-200/70 bg-slate-50 px-6 py-5 md:grid-cols-4">
-          <MiniMetric tone="plusOne" title="+1s" value={formatCurrency(officer.plusOne.volume)} detail={`${formatNumber(officer.plusOne.units)} units`} />
-          <MiniMetric tone="disclosures" title="Disclosures" value={formatCurrency(officer.disclosures.volume)} detail={`${formatNumber(officer.disclosures.units)} units`} />
-          <MiniMetric tone="processing" title="Processing/QC" value={formatCurrency(officer.processing.volume)} detail={`${formatNumber(officer.processing.units)} units`} />
-          <MiniMetric tone="fundings" title="Fundings" value={formatCurrency(officer.fundings.volume)} detail={`${formatNumber(officer.fundings.units)} units`} />
+          <MiniMetric tone="plusOne" title="+1s" value={formatCurrency(entity.plusOne.volume)} detail={`${formatNumber(entity.plusOne.units)} units`} />
+          <MiniMetric tone="disclosures" title="Disclosures" value={formatCurrency(entity.disclosures.volume)} detail={`${formatNumber(entity.disclosures.units)} units`} />
+          <MiniMetric tone="processing" title="Processing/QC" value={formatCurrency(entity.processing.volume)} detail={`${formatNumber(entity.processing.units)} units`} />
+          <MiniMetric tone="fundings" title="Fundings" value={formatCurrency(entity.fundings.volume)} detail={`${formatNumber(entity.fundings.units)} units`} />
         </div>
 
         <div className="max-h-[56vh] overflow-auto">
