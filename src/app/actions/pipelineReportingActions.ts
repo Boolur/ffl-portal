@@ -71,7 +71,7 @@ export type PipelineBoardStageMetrics = {
   };
   processing: {
     volumeTotal: number;
-    units: number;
+    revenueTotal: number;
   };
   fundings: {
     volumeTotal: number;
@@ -729,7 +729,7 @@ function createBoardMetrics(
         metrics.disclosures.units += 1;
       } else if (task.kind === TaskKind.SUBMIT_PROCESSING || task.kind === TaskKind.SUBMIT_QC) {
         metrics.processing.volumeTotal += amount;
-        metrics.processing.units += 1;
+        metrics.processing.revenueTotal += projectedRevenueFromJson(task.submissionData) || 0;
       }
       return metrics;
     },
@@ -742,7 +742,7 @@ function createBoardMetrics(
       {
         plusOne: { volumeTotal: 0, revenueTotal: 0 },
         disclosures: { volumeTotal: 0, units: 0 },
-        processing: { volumeTotal: 0, units: 0 },
+        processing: { volumeTotal: 0, revenueTotal: 0 },
         fundings: { volumeTotal: 0, revenueTotal: 0 },
       }
     )

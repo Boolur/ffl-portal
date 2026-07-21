@@ -441,8 +441,8 @@ export function PipelinePage({ initialReport }: Props) {
             count={report.totals.processing}
             primaryLabel="Volume"
             primaryValue={formatCurrency(report.boardMetrics.processing.volumeTotal)}
-            secondaryLabel="Units"
-            secondaryValue={formatNumber(report.boardMetrics.processing.units)}
+            secondaryLabel="Revenue"
+            secondaryValue={formatCurrency(report.boardMetrics.processing.revenueTotal)}
           />
           <BoardMetricCard
             stage="fundings"
