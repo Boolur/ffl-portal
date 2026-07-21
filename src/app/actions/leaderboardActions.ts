@@ -332,7 +332,10 @@ export async function getLeaderboardReport(
     if (!row) continue;
 
     const amount = money(task.loan.amount) || 0;
-    const revenue = milestone === 'plusOne' ? projectedRevenueFromJson(task.submissionData) || 0 : 0;
+    const revenue =
+      milestone === 'plusOne' || milestone === 'processing'
+        ? projectedRevenueFromJson(task.submissionData) || 0
+        : 0;
     addMetric(row, milestone, amount, revenue);
 
     detailRows.push({
@@ -344,7 +347,7 @@ export async function getLeaderboardReport(
       borrowerName: task.loan.borrowerName,
       loanNumber: task.loan.loanNumber,
       amount,
-      revenue: milestone === 'plusOne' ? revenue : null,
+      revenue: milestone === 'plusOne' || milestone === 'processing' ? revenue : null,
       leadSource: leadSourceFromJson(task.submissionData),
       lender: null,
       status: task.status,

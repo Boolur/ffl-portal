@@ -11,6 +11,7 @@ import {
   Loader2,
   Medal,
   RefreshCw,
+  RotateCcw,
   Trophy,
   X,
 } from 'lucide-react';
@@ -22,6 +23,10 @@ import {
   type LeaderboardReport,
   type LeaderboardReportFilters,
 } from '@/app/actions/leaderboardActions';
+import {
+  ResizeHandle,
+  useColumnWidths,
+} from '@/components/admin/leads/shared/columnCustomization';
 
 type Props = {
   initialReport: LeaderboardReport;
@@ -37,9 +42,11 @@ type SortKey =
   | 'disclosures.units'
   | 'processing.volume'
   | 'processing.units'
+  | 'processing.revenue'
   | 'fundings.volume'
   | 'fundings.units'
   | 'fundings.revenue';
+type LeaderboardColumnId = SortKey;
 
 const PRESETS: Array<{ value: LeaderboardRangePreset; label: string }> = [
   { value: 'daily', label: 'Daily' },
@@ -50,20 +57,28 @@ const PRESETS: Array<{ value: LeaderboardRangePreset; label: string }> = [
   { value: 'custom', label: 'Date Range' },
 ];
 
-const SORT_LABELS: Record<SortKey, string> = {
-  loanOfficerName: 'Loan Officer',
-  'plusOne.volume': '+1 Volume',
-  'plusOne.units': 'Units',
-  'plusOne.revenue': 'Revenue',
-  'disclosures.volume': 'Volume',
-  'disclosures.units': 'Units',
-  'processing.volume': 'Volume',
-  'processing.units': 'Units',
-  'fundings.volume': 'Volume',
-  'fundings.units': 'Units',
-  'fundings.revenue': 'Revenue',
-};
+const LEADERBOARD_COLUMNS: Array<{
+  id: LeaderboardColumnId;
+  label: string;
+  defaultWidth: number;
+  minWidth: number;
+  align: 'left' | 'right';
+}> = [
+  { id: 'loanOfficerName', label: 'Loan Officer', defaultWidth: 290, minWidth: 220, align: 'left' },
+  { id: 'plusOne.volume', label: 'Volume', defaultWidth: 140, minWidth: 118, align: 'right' },
+  { id: 'plusOne.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'right' },
+  { id: 'plusOne.revenue', label: 'Revenue', defaultWidth: 128, minWidth: 112, align: 'right' },
+  { id: 'disclosures.volume', label: 'Volume', defaultWidth: 140, minWidth: 118, align: 'right' },
+  { id: 'disclosures.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'right' },
+  { id: 'processing.volume', label: 'Volume', defaultWidth: 150, minWidth: 122, align: 'right' },
+  { id: 'processing.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'right' },
+  { id: 'processing.revenue', label: 'Revenue', defaultWidth: 128, minWidth: 112, align: 'right' },
+  { id: 'fundings.volume', label: 'Volume', defaultWidth: 140, minWidth: 118, align: 'right' },
+  { id: 'fundings.units', label: 'Units', defaultWidth: 86, minWidth: 74, align: 'right' },
+  { id: 'fundings.revenue', label: 'Revenue', defaultWidth: 128, minWidth: 112, align: 'right' },
+];
 
+const LEADERBOARD_COLUMN_WIDTHS_KEY = 'ffl:leaderboard-column-widths:v1';
 const PORTAL_TIME_ZONE = 'America/Los_Angeles';
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -184,6 +199,51 @@ function SortHeader({
   );
 }
 
+function ResizableHeaderCell({
+  column,
+  activeKey,
+  direction,
+  onSort,
+  onStartResize,
+  isResizing,
+  rowSpan,
+  groupStart = false,
+}: {
+  column: (typeof LEADERBOARD_COLUMNS)[number];
+  activeKey: SortKey;
+  direction: SortDirection;
+  onSort: (key: SortKey) => void;
+  onStartResize: (event: React.MouseEvent) => void;
+  isResizing: boolean;
+  rowSpan?: number;
+  groupStart?: boolean;
+}) {
+  return (
+    <th
+      rowSpan={rowSpan}
+      className={cx(
+        'relative overflow-hidden px-4 py-3 align-bottom',
+        column.align === 'right' ? 'text-right' : 'text-left',
+        groupStart && 'border-l border-slate-200'
+      )}
+    >
+      <SortHeader
+        label={column.label}
+        sortKey={column.id}
+        activeKey={activeKey}
+        direction={direction}
+        align={column.align}
+        onSort={onSort}
+      />
+      <ResizeHandle
+        label={column.label}
+        onStartResize={onStartResize}
+        isResizing={isResizing}
+      />
+    </th>
+  );
+}
+
 function KpiCard({
   title,
   value,
@@ -227,16 +287,18 @@ function KpiCard({
 }
 
 function MetricCells({ row, metric }: { row: LeaderboardOfficerRow; metric: 'plusOne' | 'disclosures' | 'processing' | 'fundings' }) {
+  const groupStartClass = 'border-l border-slate-200';
+  const numberClass = 'overflow-hidden whitespace-nowrap px-4 py-4 text-right tabular-nums';
   return (
     <>
-      <td className="whitespace-nowrap px-4 py-4 text-right font-bold text-slate-900">
+      <td className={cx(numberClass, groupStartClass, 'font-bold text-slate-900')}>
         {formatCurrency(row[metric].volume)}
       </td>
-      <td className="whitespace-nowrap px-4 py-4 text-right text-slate-600">
+      <td className={cx(numberClass, 'text-slate-600')}>
         {formatNumber(row[metric].units)}
       </td>
-      {(metric === 'plusOne' || metric === 'fundings') && (
-        <td className="whitespace-nowrap px-4 py-4 text-right text-slate-600">
+      {(metric === 'plusOne' || metric === 'processing' || metric === 'fundings') && (
+        <td className={cx(numberClass, 'text-slate-600')}>
           {formatCurrency(row[metric].revenue)}
         </td>
       )}
@@ -256,6 +318,15 @@ export function LeaderboardPage({ initialReport }: Props) {
   });
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const {
+    widths: columnWidths,
+    resizingCol,
+    startResize,
+    reset: resetColumnWidths,
+  } = useColumnWidths<LeaderboardColumnId>(
+    LEADERBOARD_COLUMNS,
+    LEADERBOARD_COLUMN_WIDTHS_KEY
+  );
 
   const sortedRows = useMemo(() => {
     const multiplier = sortMultiplier(sort.direction);
@@ -279,6 +350,11 @@ export function LeaderboardPage({ initialReport }: Props) {
     if (!selectedOfficerId) return [];
     return report.detailRows.filter((row) => row.creditedLoanOfficerId === selectedOfficerId);
   }, [report.detailRows, selectedOfficerId]);
+
+  const tableWidth = useMemo(
+    () => LEADERBOARD_COLUMNS.reduce((sum, column) => sum + columnWidths[column.id], 0),
+    [columnWidths]
+  );
 
   function updateSort(key: SortKey) {
     setSort((current) => ({
@@ -404,7 +480,7 @@ export function LeaderboardPage({ initialReport }: Props) {
         <KpiCard
           title="Processing/QC Volume"
           value={formatCurrency(report.totals.processing.volume)}
-          subtitle={`${formatNumber(report.totals.processing.units)} processing submissions`}
+          subtitle={`${formatNumber(report.totals.processing.units)} units / ${formatCurrency(report.totals.processing.revenue)} revenue`}
           Icon={FileText}
           tone="purple"
         />
@@ -428,80 +504,82 @@ export function LeaderboardPage({ initialReport }: Props) {
               {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. Click a loan officer to view credited loans.
             </p>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">
-            <CalendarDays className="h-3.5 w-3.5" />
-            Generated {formatDateTime(report.generatedAt)}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={resetColumnWidths}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+              title="Reset leaderboard column widths"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reset columns
+            </button>
+            <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">
+              <CalendarDays className="h-3.5 w-3.5" />
+              Generated {formatDateTime(report.generatedAt)}
+            </div>
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1320px] text-sm">
+          <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: `${tableWidth}px` }}>
+            <colgroup>
+              {LEADERBOARD_COLUMNS.map((column) => (
+                <col key={column.id} style={{ width: `${columnWidths[column.id]}px` }} />
+              ))}
+            </colgroup>
             <thead className="sticky top-0 z-[1] bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               <tr className="border-b border-slate-100">
-                <th rowSpan={2} className="px-5 py-3 text-left align-bottom">
-                  <SortHeader
-                    label={SORT_LABELS.loanOfficerName}
-                    sortKey="loanOfficerName"
-                    activeKey={sort.key}
-                    direction={sort.direction}
-                    align="left"
-                    onSort={updateSort}
-                  />
-                </th>
-                <th colSpan={3} className="border-l border-slate-100 px-4 py-2 text-center text-emerald-700">
+                <ResizableHeaderCell
+                  column={LEADERBOARD_COLUMNS[0]}
+                  activeKey={sort.key}
+                  direction={sort.direction}
+                  onSort={updateSort}
+                  onStartResize={startResize('loanOfficerName', LEADERBOARD_COLUMNS[0].minWidth)}
+                  isResizing={resizingCol === 'loanOfficerName'}
+                  rowSpan={2}
+                />
+                <th colSpan={3} className="border-l border-slate-200 bg-emerald-50/60 px-4 py-2 text-center text-emerald-700">
                   +1s
                 </th>
-                <th colSpan={2} className="border-l border-slate-100 px-4 py-2 text-center text-blue-700">
+                <th colSpan={2} className="border-l border-slate-200 bg-blue-50/60 px-4 py-2 text-center text-blue-700">
                   Disclosures
                 </th>
-                <th colSpan={2} className="border-l border-slate-100 px-4 py-2 text-center text-purple-700">
+                <th colSpan={3} className="border-l border-slate-200 bg-purple-50/60 px-4 py-2 text-center text-purple-700">
                   Submitted to Processing/QC
                 </th>
-                <th colSpan={3} className="border-l border-slate-100 px-4 py-2 text-center text-amber-700">
+                <th colSpan={3} className="border-l border-slate-200 bg-amber-50/60 px-4 py-2 text-center text-amber-700">
                   Fundings
                 </th>
               </tr>
-              <tr>
-                <th className="border-l border-slate-100 px-4 py-3 text-right">
-                  <SortHeader label="Volume" sortKey="plusOne.volume" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
-                <th className="px-4 py-3 text-right">
-                  <SortHeader label="Units" sortKey="plusOne.units" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
-                <th className="px-4 py-3 text-right">
-                  <SortHeader label="Revenue" sortKey="plusOne.revenue" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
-                <th className="border-l border-slate-100 px-4 py-3 text-right">
-                  <SortHeader label="Volume" sortKey="disclosures.volume" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
-                <th className="px-4 py-3 text-right">
-                  <SortHeader label="Units" sortKey="disclosures.units" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
-                <th className="border-l border-slate-100 px-4 py-3 text-right">
-                  <SortHeader label="Volume" sortKey="processing.volume" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
-                <th className="px-4 py-3 text-right">
-                  <SortHeader label="Units" sortKey="processing.units" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
-                <th className="border-l border-slate-100 px-4 py-3 text-right">
-                  <SortHeader label="Volume" sortKey="fundings.volume" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
-                <th className="px-4 py-3 text-right">
-                  <SortHeader label="Units" sortKey="fundings.units" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
-                <th className="px-4 py-3 text-right">
-                  <SortHeader label="Revenue" sortKey="fundings.revenue" activeKey={sort.key} direction={sort.direction} onSort={updateSort} />
-                </th>
+              <tr className="border-b border-slate-200">
+                {LEADERBOARD_COLUMNS.slice(1).map((column) => (
+                  <ResizableHeaderCell
+                    key={column.id}
+                    column={column}
+                    activeKey={sort.key}
+                    direction={sort.direction}
+                    onSort={updateSort}
+                    onStartResize={startResize(column.id, column.minWidth)}
+                    isResizing={resizingCol === column.id}
+                    groupStart={
+                      column.id === 'plusOne.volume' ||
+                      column.id === 'disclosures.volume' ||
+                      column.id === 'processing.volume' ||
+                      column.id === 'fundings.volume'
+                    }
+                  />
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {sortedRows.map((row, index) => (
                 <tr key={row.loanOfficerId} className="hover:bg-slate-50/70">
-                  <td className="sticky left-0 z-[1] bg-white px-5 py-4 shadow-[1px_0_0_#f1f5f9]">
+                  <td className="sticky left-0 z-[1] overflow-hidden bg-white px-4 py-4 shadow-[1px_0_0_#e2e8f0]">
                     <button
                       type="button"
                       onClick={() => setSelectedOfficerId(row.loanOfficerId)}
-                      className="flex min-w-[240px] items-center gap-3 rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                      className="flex w-full min-w-0 items-center gap-3 rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
                     >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
                         {index + 1}
@@ -522,7 +600,7 @@ export function LeaderboardPage({ initialReport }: Props) {
               ))}
               {sortedRows.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-5 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={12} className="px-5 py-12 text-center text-sm text-slate-500">
                     No loan officers are available for this leaderboard.
                   </td>
                 </tr>
