@@ -2530,6 +2530,12 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
         error: 'Please select a valid Lender / Investor from the dropdown.',
       };
     }
+    if (parseMoneyNumber(submissionObject.projectedRevenue) <= 0) {
+      return {
+        success: false,
+        error: 'Projected Revenue is required and must be greater than $0.',
+      };
+    }
 
     const loanOfficerUser = await prisma.user.findUnique({
       where: { id: payload.loanOfficerId },
@@ -2948,6 +2954,12 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           success: false,
           error:
             'Cash Back and Projected Revenue are required before submitting Processing.',
+        };
+      }
+      if (parseMoneyNumber(qcProjectedRevenue) <= 0) {
+        return {
+          success: false,
+          error: 'Projected Revenue is required and must be greater than $0 before submitting Processing.',
         };
       }
 
