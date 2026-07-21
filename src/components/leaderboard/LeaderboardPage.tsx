@@ -18,6 +18,7 @@ import {
 import {
   getLeaderboardReport,
   type LeaderboardDetailRow,
+  type LeaderboardLeadSourceRow,
   type LeaderboardLenderRow,
   type LeaderboardMilestoneKey,
   type LeaderboardOfficerRow,
@@ -52,7 +53,7 @@ type SortKey =
   | 'fundings.units'
   | 'fundings.revenue';
 type LeaderboardColumnId = SortKey;
-type LeaderboardView = 'loanOfficers' | 'lenders';
+type LeaderboardView = 'loanOfficers' | 'lenders' | 'leadSources';
 type DisplayLeaderboardRow = {
   id: string;
   label: string;
@@ -314,6 +315,19 @@ function toLenderDisplayRow(row: LeaderboardLenderRow): DisplayLeaderboardRow {
   };
 }
 
+function toLeadSourceDisplayRow(row: LeaderboardLeadSourceRow): DisplayLeaderboardRow {
+  return {
+    id: row.leadSourceKey,
+    label: row.leadSourceName,
+    subLabel: 'Lead Source',
+    source: 'leadSources',
+    plusOne: row.plusOne,
+    disclosures: row.disclosures,
+    processing: row.processing,
+    fundings: row.fundings,
+  };
+}
+
 function SortHeader({
   label,
   sortKey,
@@ -475,6 +489,18 @@ function LeaderboardViewSwitch({
         )}
       >
         Lenders
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('leadSources')}
+        className={cx(
+          'rounded-full px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200',
+          view === 'leadSources'
+            ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+        )}
+      >
+        Lead Source
       </button>
     </div>
   );
@@ -653,11 +679,12 @@ export function LeaderboardPage({ initialReport }: Props) {
 
   const activeRows = useMemo<DisplayLeaderboardRow[]>(() => {
     if (view === 'lenders') return report.lenderRows.map(toLenderDisplayRow);
+    if (view === 'leadSources') return report.leadSourceRows.map(toLeadSourceDisplayRow);
     return filteredRows.map(toOfficerDisplayRow);
-  }, [filteredRows, report.lenderRows, view]);
+  }, [filteredRows, report.leadSourceRows, report.lenderRows, view]);
 
   const activeDetailRows = useMemo(() => {
-    if (view === 'lenders') return report.detailRows;
+    if (view === 'lenders' || view === 'leadSources') return report.detailRows;
     if (!selectedTeamMemberIds) return report.detailRows;
     return report.detailRows.filter((row) => selectedTeamMemberIds.has(row.creditedLoanOfficerId));
   }, [report.detailRows, selectedTeamMemberIds, view]);
@@ -691,6 +718,9 @@ export function LeaderboardPage({ initialReport }: Props) {
     if (!selectedRowId) return [];
     if (view === 'lenders') {
       return activeDetailRows.filter((row) => row.lenderKey === selectedRowId);
+    }
+    if (view === 'leadSources') {
+      return activeDetailRows.filter((row) => row.leadSourceKey === selectedRowId);
     }
     return activeDetailRows.filter((row) => row.creditedLoanOfficerId === selectedRowId);
   }, [activeDetailRows, selectedRowId, view]);
@@ -888,6 +918,8 @@ export function LeaderboardPage({ initialReport }: Props) {
               {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. {
                 view === 'lenders'
                   ? 'Click a lender to view submitted loans.'
+                  : view === 'leadSources'
+                    ? 'Click a lead source to view submitted loans.'
                   : teamFilterLabel
               }
             </p>
@@ -927,7 +959,11 @@ export function LeaderboardPage({ initialReport }: Props) {
                 <ResizableHeaderCell
                   column={{
                     ...LEADERBOARD_COLUMNS[0],
-                    label: view === 'lenders' ? 'Lender' : 'Loan Officer',
+                    label: view === 'lenders'
+                      ? 'Lender'
+                      : view === 'leadSources'
+                        ? 'Lead Source'
+                        : 'Loan Officer',
                   }}
                   activeKey={sort.key}
                   direction={sort.direction}
@@ -997,6 +1033,8 @@ export function LeaderboardPage({ initialReport }: Props) {
                   <td colSpan={12} className="px-5 py-12 text-center text-sm text-slate-500">
                     {view === 'lenders'
                       ? 'No lenders are available for this leaderboard.'
+                      : view === 'leadSources'
+                        ? 'No lead sources are available for this leaderboard.'
                       : selectedTeams.length > 0
                         ? 'No loan officers are assigned to the selected teams.'
                         : 'No loan officers are available for this leaderboard.'}

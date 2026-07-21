@@ -45,6 +45,15 @@ export type LeaderboardLenderRow = {
   fundings: LeaderboardMetric;
 };
 
+export type LeaderboardLeadSourceRow = {
+  leadSourceKey: string;
+  leadSourceName: string;
+  plusOne: LeaderboardMetric;
+  disclosures: LeaderboardMetric;
+  processing: LeaderboardMetric;
+  fundings: LeaderboardMetric;
+};
+
 export type LeaderboardTeamOption = {
   id: string;
   name: string;
@@ -61,6 +70,8 @@ export type LeaderboardDetailRow = {
   creditedLoanOfficerId: string;
   lenderKey: string;
   lenderName: string;
+  leadSourceKey: string;
+  leadSourceName: string;
   milestone: LeaderboardMilestoneKey;
   milestoneLabel: string;
   borrowerName: string;
@@ -86,6 +97,7 @@ export type LeaderboardReport = {
   generatedAt: string;
   rows: LeaderboardOfficerRow[];
   lenderRows: LeaderboardLenderRow[];
+  leadSourceRows: LeaderboardLeadSourceRow[];
   teams: LeaderboardTeamOption[];
   detailRows: LeaderboardDetailRow[];
   totals: {
@@ -195,6 +207,15 @@ function leadSourceFromJson(value: unknown) {
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
+function titleCase(value: string) {
+  return value
+    .toLowerCase()
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 function lenderFromJson(value: unknown) {
   const data = submissionObject(value);
   if (!data) return null;
@@ -254,6 +275,34 @@ function emptyLenderRow(name: string): LeaderboardLenderRow {
   };
 }
 
+function leadSourceKey(name: string | null | undefined) {
+  const normalized = String(name || 'Unspecified lead source')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+  return normalized || 'unspecified lead source';
+}
+
+function leadSourceDisplayName(name: string | null | undefined) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return 'Unspecified lead source';
+  return trimmed.includes('_') || trimmed === trimmed.toUpperCase()
+    ? titleCase(trimmed)
+    : trimmed;
+}
+
+function emptyLeadSourceRow(name: string): LeaderboardLeadSourceRow {
+  return {
+    leadSourceKey: leadSourceKey(name),
+    leadSourceName: leadSourceDisplayName(name),
+    plusOne: emptyMetric(),
+    disclosures: emptyMetric(),
+    processing: emptyMetric(),
+    fundings: emptyMetric(),
+  };
+}
+
 function creditLoanOfficerId(loan: {
   loanOfficerId: string;
   secondaryLoanOfficerId?: string | null;
@@ -262,7 +311,7 @@ function creditLoanOfficerId(loan: {
 }
 
 function addMetric(
-  row: LeaderboardOfficerRow | LeaderboardLenderRow,
+  row: LeaderboardOfficerRow | LeaderboardLenderRow | LeaderboardLeadSourceRow,
   milestone: LeaderboardMilestoneKey,
   amount: number,
   revenue: number
@@ -290,6 +339,16 @@ function getOrCreateLenderRow(map: Map<string, LeaderboardLenderRow>, rawName: s
   const existing = map.get(key);
   if (existing) return existing;
   const row = emptyLenderRow(displayName);
+  map.set(key, row);
+  return row;
+}
+
+function getOrCreateLeadSourceRow(map: Map<string, LeaderboardLeadSourceRow>, rawName: string | null | undefined) {
+  const displayName = leadSourceDisplayName(rawName);
+  const key = leadSourceKey(displayName);
+  const existing = map.get(key);
+  if (existing) return existing;
+  const row = emptyLeadSourceRow(displayName);
   map.set(key, row);
   return row;
 }
@@ -379,6 +438,7 @@ export async function getLeaderboardReport(
         borrowerName: true,
         expectedRevenue: true,
         lender: true,
+        leadSource: true,
         status: true,
         paidAt: true,
         submittedAt: true,
@@ -406,6 +466,7 @@ export async function getLeaderboardReport(
     rowMap.set(officer.id, emptyOfficerRow(officer));
   }
   const lenderMap = new Map<string, LeaderboardLenderRow>();
+  const leadSourceMap = new Map<string, LeaderboardLeadSourceRow>();
 
   const detailRows: LeaderboardDetailRow[] = [];
 
@@ -424,8 +485,10 @@ export async function getLeaderboardReport(
         : 0;
     const lenderName = lenderDisplayName(lenderFromJson(task.submissionData));
     const lenderRow = getOrCreateLenderRow(lenderMap, lenderName);
+    const leadSourceRow = getOrCreateLeadSourceRow(leadSourceMap, leadSourceFromJson(task.submissionData));
     addMetric(row, milestone, amount, revenue);
     addMetric(lenderRow, milestone, amount, revenue);
+    addMetric(leadSourceRow, milestone, amount, revenue);
 
     detailRows.push({
       id: task.id,
@@ -433,13 +496,15 @@ export async function getLeaderboardReport(
       creditedLoanOfficerId,
       lenderKey: lenderRow.lenderKey,
       lenderName: lenderRow.lenderName,
+      leadSourceKey: leadSourceRow.leadSourceKey,
+      leadSourceName: leadSourceRow.leadSourceName,
       milestone,
       milestoneLabel: MILESTONE_LABELS[milestone],
       borrowerName: task.loan.borrowerName,
       loanNumber: task.loan.loanNumber,
       amount,
       revenue: milestone === 'plusOne' || milestone === 'processing' ? revenue : null,
-      leadSource: leadSourceFromJson(task.submissionData),
+      leadSource: leadSourceRow.leadSourceName,
       lender: lenderRow.lenderName,
       status: task.status,
       occurredAt: task.createdAt.toISOString(),
@@ -460,8 +525,10 @@ export async function getLeaderboardReport(
     const amount = money(funding.loan?.amount) || 0;
     const revenue = money(funding.expectedRevenue) || 0;
     const lenderRow = getOrCreateLenderRow(lenderMap, funding.lender);
+    const leadSourceRow = getOrCreateLeadSourceRow(leadSourceMap, funding.leadSource);
     addMetric(row, 'fundings', amount, revenue);
     addMetric(lenderRow, 'fundings', amount, revenue);
+    addMetric(leadSourceRow, 'fundings', amount, revenue);
 
     detailRows.push({
       id: funding.id,
@@ -469,13 +536,15 @@ export async function getLeaderboardReport(
       creditedLoanOfficerId,
       lenderKey: lenderRow.lenderKey,
       lenderName: lenderRow.lenderName,
+      leadSourceKey: leadSourceRow.leadSourceKey,
+      leadSourceName: leadSourceRow.leadSourceName,
       milestone: 'fundings',
       milestoneLabel: MILESTONE_LABELS.fundings,
       borrowerName: funding.borrowerName,
       loanNumber: funding.loanNumber,
       amount,
       revenue,
-      leadSource: null,
+      leadSource: leadSourceRow.leadSourceName,
       lender: lenderRow.lenderName,
       status: funding.status,
       occurredAt: (funding.paidAt || funding.submittedAt).toISOString(),
@@ -498,6 +567,12 @@ export async function getLeaderboardReport(
       b.processing.volume - a.processing.volume ||
       a.lenderName.localeCompare(b.lenderName)
   );
+  const leadSourceRows = Array.from(leadSourceMap.values()).sort(
+    (a, b) =>
+      b.plusOne.volume - a.plusOne.volume ||
+      b.processing.volume - a.processing.volume ||
+      a.leadSourceName.localeCompare(b.leadSourceName)
+  );
 
   return {
     filters: {
@@ -508,6 +583,7 @@ export async function getLeaderboardReport(
     generatedAt: new Date().toISOString(),
     rows,
     lenderRows,
+    leadSourceRows,
     teams: teams.map((team) => ({
       id: team.id,
       name: team.name,
