@@ -713,11 +713,14 @@ export function LeaderboardPage({ initialReport }: Props) {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: `${tableWidth}px` }}>
+        <div className="overflow-x-hidden">
+          <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
             <colgroup>
               {LEADERBOARD_COLUMNS.map((column) => (
-                <col key={column.id} style={{ width: `${columnWidths[column.id]}px` }} />
+                <col
+                  key={column.id}
+                  style={{ width: `${(columnWidths[column.id] / tableWidth) * 100}%` }}
+                />
               ))}
             </colgroup>
             <thead className="sticky top-0 z-[1] bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
