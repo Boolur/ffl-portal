@@ -19,6 +19,7 @@ import {
   getLeaderboardReport,
   type LeaderboardDetailRow,
   type LeaderboardLenderRow,
+  type LeaderboardMilestoneKey,
   type LeaderboardOfficerRow,
   type LeaderboardRangePreset,
   type LeaderboardReport,
@@ -103,31 +104,58 @@ const MILESTONE_TONES = {
   fundings: 'border-amber-300 bg-amber-100 text-amber-800',
 } satisfies Record<LeaderboardDetailRow['milestone'], string>;
 
+const DETAIL_MILESTONE_LABELS = {
+  plusOne: '+1s',
+  disclosures: 'Disclosures',
+  processing: 'Processing/QC',
+  fundings: 'Fundings',
+} satisfies Record<LeaderboardMilestoneKey, string>;
+
 const MODAL_METRIC_TONES = {
   plusOne: {
     card: 'border-emerald-100 bg-gradient-to-br from-emerald-50/90 via-white to-white',
+    activeCard: 'border-emerald-300 bg-emerald-600 text-white shadow-lg shadow-emerald-200/70 ring-2 ring-emerald-200',
     label: 'text-emerald-700',
     value: 'text-emerald-950',
+    activeLabel: 'text-emerald-50',
+    activeValue: 'text-white',
+    activeDetail: 'text-emerald-50/85',
   },
   disclosures: {
     card: 'border-blue-100 bg-gradient-to-br from-blue-50/90 via-white to-white',
+    activeCard: 'border-blue-300 bg-blue-600 text-white shadow-lg shadow-blue-200/70 ring-2 ring-blue-200',
     label: 'text-blue-700',
     value: 'text-blue-950',
+    activeLabel: 'text-blue-50',
+    activeValue: 'text-white',
+    activeDetail: 'text-blue-50/85',
   },
   processing: {
     card: 'border-purple-100 bg-gradient-to-br from-purple-50/90 via-white to-white',
+    activeCard: 'border-purple-300 bg-purple-600 text-white shadow-lg shadow-purple-200/70 ring-2 ring-purple-200',
     label: 'text-purple-700',
     value: 'text-purple-950',
+    activeLabel: 'text-purple-50',
+    activeValue: 'text-white',
+    activeDetail: 'text-purple-50/85',
   },
   fundings: {
     card: 'border-amber-100 bg-gradient-to-br from-amber-50/90 via-white to-white',
+    activeCard: 'border-amber-300 bg-amber-500 text-white shadow-lg shadow-amber-200/70 ring-2 ring-amber-200',
     label: 'text-amber-700',
     value: 'text-amber-950',
+    activeLabel: 'text-amber-50',
+    activeValue: 'text-white',
+    activeDetail: 'text-amber-50/85',
   },
 } satisfies Record<'plusOne' | 'disclosures' | 'processing' | 'fundings', {
   card: string;
+  activeCard: string;
   label: string;
   value: string;
+  activeLabel: string;
+  activeValue: string;
+  activeDetail: string;
 }>;
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -1004,6 +1032,19 @@ function OfficerDetailsModal({
   rangeLabel: string;
   onClose: () => void;
 }) {
+  const [selectedMilestone, setSelectedMilestone] = useState<LeaderboardMilestoneKey | null>(null);
+  const visibleRows = useMemo(
+    () => selectedMilestone
+      ? rows.filter((row) => row.milestone === selectedMilestone)
+      : rows,
+    [rows, selectedMilestone]
+  );
+  const selectedMilestoneLabel = selectedMilestone ? DETAIL_MILESTONE_LABELS[selectedMilestone] : null;
+
+  function toggleMilestone(milestone: LeaderboardMilestoneKey) {
+    setSelectedMilestone((current) => current === milestone ? null : milestone);
+  }
+
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
@@ -1042,10 +1083,38 @@ function OfficerDetailsModal({
         </div>
 
         <div className="grid gap-4 border-b border-slate-200/70 bg-slate-50 px-6 py-5 md:grid-cols-4">
-          <MiniMetric tone="plusOne" title="+1s" value={formatCurrency(entity.plusOne.volume)} detail={`${formatNumber(entity.plusOne.units)} units`} />
-          <MiniMetric tone="disclosures" title="Disclosures" value={formatCurrency(entity.disclosures.volume)} detail={`${formatNumber(entity.disclosures.units)} units`} />
-          <MiniMetric tone="processing" title="Processing/QC" value={formatCurrency(entity.processing.volume)} detail={`${formatNumber(entity.processing.units)} units`} />
-          <MiniMetric tone="fundings" title="Fundings" value={formatCurrency(entity.fundings.volume)} detail={`${formatNumber(entity.fundings.units)} units`} />
+          <MiniMetric
+            tone="plusOne"
+            title="+1s"
+            value={formatCurrency(entity.plusOne.volume)}
+            detail={`${formatNumber(entity.plusOne.units)} units`}
+            selected={selectedMilestone === 'plusOne'}
+            onClick={() => toggleMilestone('plusOne')}
+          />
+          <MiniMetric
+            tone="disclosures"
+            title="Disclosures"
+            value={formatCurrency(entity.disclosures.volume)}
+            detail={`${formatNumber(entity.disclosures.units)} units`}
+            selected={selectedMilestone === 'disclosures'}
+            onClick={() => toggleMilestone('disclosures')}
+          />
+          <MiniMetric
+            tone="processing"
+            title="Processing/QC"
+            value={formatCurrency(entity.processing.volume)}
+            detail={`${formatNumber(entity.processing.units)} units`}
+            selected={selectedMilestone === 'processing'}
+            onClick={() => toggleMilestone('processing')}
+          />
+          <MiniMetric
+            tone="fundings"
+            title="Fundings"
+            value={formatCurrency(entity.fundings.volume)}
+            detail={`${formatNumber(entity.fundings.units)} units`}
+            selected={selectedMilestone === 'fundings'}
+            onClick={() => toggleMilestone('fundings')}
+          />
         </div>
 
         <div className="max-h-[56vh] overflow-auto">
@@ -1061,7 +1130,7 @@ function OfficerDetailsModal({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((row, index) => {
+              {visibleRows.map((row, index) => {
                 const isStriped = index % 2 === 1;
                 return (
                 <tr
@@ -1104,10 +1173,12 @@ function OfficerDetailsModal({
                 </tr>
                 );
               })}
-              {rows.length === 0 && (
+              {visibleRows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">
-                    No credited loans matched this loan officer for the selected range.
+                    {selectedMilestoneLabel
+                      ? `No ${selectedMilestoneLabel} loans matched this selection.`
+                      : 'No credited loans matched this selection for the selected range.'}
                   </td>
                 </tr>
               )}
@@ -1124,18 +1195,31 @@ function MiniMetric({
   value,
   detail,
   tone,
+  selected,
+  onClick,
 }: {
   title: string;
   value: string;
   detail: string;
   tone: 'plusOne' | 'disclosures' | 'processing' | 'fundings';
+  selected: boolean;
+  onClick: () => void;
 }) {
   const classes = MODAL_METRIC_TONES[tone];
   return (
-    <div className={cx('rounded-2xl border px-4 py-3 text-center shadow-sm', classes.card)}>
-      <p className={cx('text-[11px] font-bold uppercase tracking-[0.14em]', classes.label)}>{title}</p>
-      <p className={cx('mt-1 text-lg font-bold', classes.value)}>{value}</p>
-      <p className="mt-0.5 text-xs font-medium text-slate-500">{detail}</p>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={cx(
+        'rounded-2xl border px-4 py-3 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200',
+        selected ? classes.activeCard : classes.card
+      )}
+      title={selected ? `Showing ${title} loans - click to clear filter` : `Show only ${title} loans`}
+    >
+      <p className={cx('text-[11px] font-bold uppercase tracking-[0.14em]', selected ? classes.activeLabel : classes.label)}>{title}</p>
+      <p className={cx('mt-1 text-lg font-bold', selected ? classes.activeValue : classes.value)}>{value}</p>
+      <p className={cx('mt-0.5 text-xs font-medium', selected ? classes.activeDetail : 'text-slate-500')}>{detail}</p>
+    </button>
   );
 }
