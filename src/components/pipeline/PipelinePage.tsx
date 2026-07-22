@@ -870,7 +870,7 @@ function PipelineGroupBoard({
   mode: 'lenders' | 'leadSources';
   emptyLabel: string;
 }) {
-  const [expandedLeadSourceGroups, setExpandedLeadSourceGroups] = useState<Set<string>>(() => new Set(['lead buy']));
+  const [expandedLeadSourceGroups, setExpandedLeadSourceGroups] = useState<Set<string>>(() => new Set());
   const displayRows: PipelineDisplayGroupRow[] = mode === 'leadSources'
     ? buildPipelineLeadSourceDisplayRows(rows, expandedLeadSourceGroups)
     : rows.map((row) => ({

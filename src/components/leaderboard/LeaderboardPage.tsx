@@ -1172,7 +1172,7 @@ export function LeaderboardPage({ initialReport }: Props) {
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [view, setView] = useState<LeaderboardView>('loanOfficers');
-  const [expandedLeadSourceGroups, setExpandedLeadSourceGroups] = useState<Set<string>>(() => new Set(['lead-source-group:lead buy']));
+  const [expandedLeadSourceGroups, setExpandedLeadSourceGroups] = useState<Set<string>>(() => new Set());
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<LeaderboardDetailRow | null>(null);
@@ -1589,12 +1589,19 @@ export function LeaderboardPage({ initialReport }: Props) {
                 const isCurrentUserRow = row.source === 'loanOfficers' && row.id === report.currentUserId;
                 const rowCanOpen = canOpenDetails(row);
                 const rowCanExpand = view === 'leadSources' && Boolean(row.expandable);
+                const displayRank = row.depth
+                  ? null
+                  : sortedRows.slice(0, index + 1).filter((candidate) => !candidate.depth).length;
                 const rowIdentity = (
                   <>
                     <span className="relative inline-flex shrink-0 items-center">
-                      <span className={rankBadgeClassName(index)}>
-                        {index + 1}
-                      </span>
+                      {displayRank ? (
+                        <span className={rankBadgeClassName(displayRank - 1)}>
+                          {displayRank}
+                        </span>
+                      ) : (
+                        <span className="h-9 w-9 shrink-0" aria-hidden="true" />
+                      )}
                       {isCurrentUserRow && (
                         <span
                           className="absolute -right-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-blue-600 text-white shadow-sm"
