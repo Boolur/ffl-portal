@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
   FileText,
@@ -146,6 +147,16 @@ const BOARD_VIEW_OPTIONS: Array<{ value: PipelineBoardView; label: string }> = [
   { value: 'leadSources', label: 'Lead Source Board' },
 ];
 
+const LEAD_SOURCE_GROUP_LABELS = [
+  'Lead Buy',
+  'Mailer',
+  'Warm Transfer',
+  'Referral',
+  'Return Client',
+  'Self Generated',
+  'Other',
+];
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
 }
@@ -200,6 +211,28 @@ function initials(name: string) {
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
+}
+
+function normalizeGroupKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function parseLeadSourceGroup(label: string) {
+  const trimmed = label.trim() || 'Unknown Lead Source';
+  const lower = trimmed.toLowerCase();
+  for (const group of LEAD_SOURCE_GROUP_LABELS) {
+    const groupLower = group.toLowerCase();
+    if (lower === groupLower) return { group, child: null };
+    const separators = [' - ', ' – ', ' — ', ': ', ' / ', ' | '];
+    for (const separator of separators) {
+      const prefix = `${groupLower}${separator}`;
+      if (lower.startsWith(prefix)) {
+        const child = trimmed.slice(group.length + separator.length).trim();
+        return { group, child: child || trimmed };
+      }
+    }
+  }
+  return { group: trimmed, child: null };
 }
 
 function updateSignalClassName(tone: NonNullable<PipelineMilestoneRow['updateSignal']>['tone']) {
@@ -509,6 +542,7 @@ export function PipelinePage({ initialReport }: Props) {
         ) : (
           <PipelineGroupBoard
             rows={boardView === 'lenders' ? report.lenderRows : report.leadSourceRows}
+            mode={boardView === 'lenders' ? 'lenders' : 'leadSources'}
             emptyLabel={boardView === 'lenders' ? 'No lender activity in this range yet.' : 'No lead source activity in this range yet.'}
           />
         )}
@@ -717,13 +751,124 @@ function PipelineBoardViewSwitch({
   );
 }
 
+type PipelineDisplayGroupRow = PipelineReport['lenderRows'][number] & {
+  depth: number;
+  isGroup: boolean;
+  expandable: boolean;
+  childCount?: number;
+};
+
+function emptyPipelineGroupRow(key: string, label: string): PipelineDisplayGroupRow {
+  return {
+    key,
+    label,
+    totalCount: 0,
+    volumeTotal: 0,
+    revenueTotal: 0,
+    plusOne: 0,
+    disclosures: 0,
+    processing: 0,
+    fundings: 0,
+    latestActivityAt: null,
+    depth: 0,
+    isGroup: true,
+    expandable: false,
+    childCount: 0,
+  };
+}
+
+function addPipelineGroupMetrics(target: PipelineDisplayGroupRow, source: PipelineReport['lenderRows'][number]) {
+  target.totalCount += source.totalCount;
+  target.volumeTotal += source.volumeTotal;
+  target.revenueTotal += source.revenueTotal;
+  target.plusOne += source.plusOne;
+  target.disclosures += source.disclosures;
+  target.processing += source.processing;
+  target.fundings += source.fundings;
+  if (
+    source.latestActivityAt &&
+    (!target.latestActivityAt ||
+      new Date(source.latestActivityAt).getTime() > new Date(target.latestActivityAt).getTime())
+  ) {
+    target.latestActivityAt = source.latestActivityAt;
+  }
+}
+
+function buildPipelineLeadSourceDisplayRows(
+  rows: PipelineReport['leadSourceRows'],
+  expandedGroups: Set<string>
+): PipelineDisplayGroupRow[] {
+  const grouped = new Map<string, {
+    parent: PipelineDisplayGroupRow;
+    children: PipelineDisplayGroupRow[];
+    directRow: PipelineDisplayGroupRow | null;
+  }>();
+
+  for (const row of rows) {
+    const parsed = parseLeadSourceGroup(row.label);
+    const groupKey = normalizeGroupKey(parsed.group);
+    const existing =
+      grouped.get(groupKey) ??
+      {
+        parent: emptyPipelineGroupRow(groupKey, parsed.group),
+        children: [],
+        directRow: null,
+      };
+    addPipelineGroupMetrics(existing.parent, row);
+
+    if (parsed.child) {
+      existing.children.push({
+        ...row,
+        key: row.key,
+        label: parsed.child,
+        depth: 1,
+        isGroup: false,
+        expandable: false,
+      });
+    } else {
+      existing.directRow = {
+        ...row,
+        depth: 0,
+        isGroup: false,
+        expandable: false,
+      };
+    }
+    grouped.set(groupKey, existing);
+  }
+
+  return Array.from(grouped.values()).flatMap((group) => {
+    const hasChildren = group.children.length > 0;
+    if (!hasChildren && group.directRow) return [group.directRow];
+    group.parent.expandable = hasChildren;
+    group.parent.childCount = group.children.length;
+    const rowsForGroup: PipelineDisplayGroupRow[] = [group.parent];
+    if (expandedGroups.has(group.parent.key)) {
+      rowsForGroup.push(...group.children.sort((a, b) => a.label.localeCompare(b.label)));
+    }
+    return rowsForGroup;
+  });
+}
+
 function PipelineGroupBoard({
   rows,
+  mode,
   emptyLabel,
 }: {
   rows: PipelineReport['lenderRows'];
+  mode: 'lenders' | 'leadSources';
   emptyLabel: string;
 }) {
+  const [expandedLeadSourceGroups, setExpandedLeadSourceGroups] = useState<Set<string>>(() => new Set(['lead buy']));
+  const displayRows: PipelineDisplayGroupRow[] = mode === 'leadSources'
+    ? buildPipelineLeadSourceDisplayRows(rows, expandedLeadSourceGroups)
+    : rows.map((row) => ({
+        ...row,
+        depth: 0,
+        isGroup: false,
+        expandable: false,
+        childCount: undefined,
+      }));
+
   if (rows.length === 0) {
     return (
       <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm font-medium text-slate-500">
@@ -750,12 +895,41 @@ function PipelineGroupBoard({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {rows.map((row) => (
-              <tr key={row.key} className="transition hover:bg-slate-50/70">
+            {displayRows.map((row, index) => {
+              const isStriped = index % 2 === 1;
+              return (
+              <tr key={`${row.key}-${row.depth}`} className={cx(isStriped ? 'bg-slate-50/55' : 'bg-white', 'transition hover:bg-blue-50/40')}>
                 <td className="px-5 py-4">
-                  <p className="font-bold text-slate-900">{row.label}</p>
+                  <div className={cx('flex items-center gap-2', row.depth > 0 && 'pl-7')}>
+                    {row.expandable ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpandedLeadSourceGroups((current) => {
+                            const next = new Set(current);
+                            if (next.has(row.key)) next.delete(row.key);
+                            else next.add(row.key);
+                            return next;
+                          });
+                        }}
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                        aria-label={`${expandedLeadSourceGroups.has(row.key) ? 'Collapse' : 'Expand'} ${row.label}`}
+                      >
+                        <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', expandedLeadSourceGroups.has(row.key) && 'rotate-180')} />
+                      </button>
+                    ) : row.depth > 0 ? (
+                      <span className="h-6 w-6 shrink-0" aria-hidden />
+                    ) : null}
+                    <div className="min-w-0">
+                      <p className={cx('truncate font-bold text-slate-900', row.depth > 0 && 'font-semibold text-slate-700')}>
+                        {row.label}
+                      </p>
+                    </div>
+                  </div>
                   <p className="mt-0.5 text-xs font-medium text-slate-500">
-                    {formatNumber(row.totalCount)} visible milestone{row.totalCount === 1 ? '' : 's'}
+                    {row.isGroup
+                      ? `${formatNumber(row.childCount || 0)} lead source${row.childCount === 1 ? '' : 's'}`
+                      : `${formatNumber(row.totalCount)} visible milestone${row.totalCount === 1 ? '' : 's'}`}
                   </p>
                 </td>
                 <td className="px-5 py-4 text-center font-semibold tabular-nums text-slate-700">{formatNumber(row.totalCount)}</td>
@@ -785,7 +959,8 @@ function PipelineGroupBoard({
                   {row.latestActivityAt ? formatDate(row.latestActivityAt) : 'N/A'}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

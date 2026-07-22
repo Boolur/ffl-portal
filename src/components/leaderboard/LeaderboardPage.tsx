@@ -29,6 +29,7 @@ import {
   type LeaderboardFallOutReport,
   type LeaderboardLeadSourceRow,
   type LeaderboardLenderRow,
+  type LeaderboardMetric,
   type LeaderboardLoanOfficerOption,
   type LeaderboardMilestoneKey,
   type LeaderboardOfficerRow,
@@ -74,6 +75,11 @@ type DisplayLeaderboardRow = {
   disclosures: LeaderboardOfficerRow['disclosures'];
   processing: LeaderboardOfficerRow['processing'];
   fundings: LeaderboardOfficerRow['fundings'];
+  depth?: number;
+  isLeadSourceGroup?: boolean;
+  expandable?: boolean;
+  childCount?: number;
+  childIds?: string[];
 };
 
 const PRESETS: Array<{ value: LeaderboardRangePreset; label: string }> = [
@@ -117,6 +123,7 @@ const LEAD_SOURCE_EDIT_OPTIONS = [
   'Self Generated',
   'Other',
 ];
+const LEAD_SOURCE_GROUP_LABELS = LEAD_SOURCE_EDIT_OPTIONS;
 
 const MILESTONE_TONES = {
   plusOne: 'border-emerald-300 bg-emerald-100 text-emerald-800',
@@ -638,6 +645,28 @@ function emptyMetric() {
   return { volume: 0, units: 0, revenue: 0 };
 }
 
+function normalizeGroupKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function parseLeadSourceGroup(label: string) {
+  const trimmed = label.trim() || 'Unspecified lead source';
+  const lower = trimmed.toLowerCase();
+  for (const group of LEAD_SOURCE_GROUP_LABELS) {
+    const groupLower = group.toLowerCase();
+    if (lower === groupLower) return { group, child: null };
+    const separators = [' - ', ' – ', ' — ', ': ', ' / ', ' | '];
+    for (const separator of separators) {
+      const prefix = `${groupLower}${separator}`;
+      if (lower.startsWith(prefix)) {
+        const child = trimmed.slice(group.length + separator.length).trim();
+        return { group, child: child || trimmed };
+      }
+    }
+  }
+  return { group: trimmed, child: null };
+}
+
 function totalMetric(rows: Array<Pick<DisplayLeaderboardRow, 'plusOne' | 'disclosures' | 'processing' | 'fundings'>>, metric: 'plusOne' | 'disclosures' | 'processing' | 'fundings') {
   return rows.reduce(
     (total, row) => {
@@ -648,6 +677,94 @@ function totalMetric(rows: Array<Pick<DisplayLeaderboardRow, 'plusOne' | 'disclo
     },
     emptyMetric()
   );
+}
+
+function addDisplayMetric(target: LeaderboardMetric, source: LeaderboardMetric) {
+  target.volume += source.volume;
+  target.units += source.units;
+  target.revenue += source.revenue;
+}
+
+function emptyDisplayLeadSourceGroup(id: string, label: string): DisplayLeaderboardRow {
+  return {
+    id,
+    label,
+    subLabel: 'Lead Source Group',
+    source: 'leadSources',
+    plusOne: emptyMetric(),
+    disclosures: emptyMetric(),
+    processing: emptyMetric(),
+    fundings: emptyMetric(),
+    depth: 0,
+    isLeadSourceGroup: true,
+    expandable: false,
+    childCount: 0,
+    childIds: [],
+  };
+}
+
+function addLeadSourceDisplayMetrics(target: DisplayLeaderboardRow, source: DisplayLeaderboardRow) {
+  addDisplayMetric(target.plusOne, source.plusOne);
+  addDisplayMetric(target.disclosures, source.disclosures);
+  addDisplayMetric(target.processing, source.processing);
+  addDisplayMetric(target.fundings, source.fundings);
+}
+
+function buildLeadSourceDisplayRows(
+  rows: DisplayLeaderboardRow[],
+  expandedGroups: Set<string>
+): DisplayLeaderboardRow[] {
+  const grouped = new Map<string, {
+    parent: DisplayLeaderboardRow;
+    children: DisplayLeaderboardRow[];
+    directRow: DisplayLeaderboardRow | null;
+  }>();
+
+  for (const row of rows) {
+    const parsed = parseLeadSourceGroup(row.label);
+    const groupKey = normalizeGroupKey(parsed.group);
+    const groupId = `lead-source-group:${groupKey}`;
+    const existing =
+      grouped.get(groupKey) ??
+      {
+        parent: emptyDisplayLeadSourceGroup(groupId, parsed.group),
+        children: [],
+        directRow: null,
+      };
+    addLeadSourceDisplayMetrics(existing.parent, row);
+
+    if (parsed.child) {
+      existing.children.push({
+        ...row,
+        label: parsed.child,
+        subLabel: parsed.group,
+        depth: 1,
+        isLeadSourceGroup: false,
+        expandable: false,
+      });
+    } else {
+      existing.directRow = {
+        ...row,
+        depth: 0,
+        isLeadSourceGroup: false,
+        expandable: false,
+      };
+    }
+    grouped.set(groupKey, existing);
+  }
+
+  return Array.from(grouped.values()).flatMap((group) => {
+    const hasChildren = group.children.length > 0;
+    if (!hasChildren && group.directRow) return [group.directRow];
+    group.parent.expandable = hasChildren;
+    group.parent.childCount = group.children.length;
+    group.parent.childIds = group.children.map((child) => child.id);
+    const rowsForGroup: DisplayLeaderboardRow[] = [group.parent];
+    if (expandedGroups.has(group.parent.id)) {
+      rowsForGroup.push(...group.children.sort((a, b) => a.label.localeCompare(b.label)));
+    }
+    return rowsForGroup;
+  });
 }
 
 function renderTeamDots(colors: string[] | undefined) {
@@ -1037,6 +1154,7 @@ export function LeaderboardPage({ initialReport }: Props) {
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [view, setView] = useState<LeaderboardView>('loanOfficers');
+  const [expandedLeadSourceGroups, setExpandedLeadSourceGroups] = useState<Set<string>>(() => new Set(['lead-source-group:lead buy']));
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<LeaderboardDetailRow | null>(null);
@@ -1101,7 +1219,7 @@ export function LeaderboardPage({ initialReport }: Props) {
 
   const sortedRows = useMemo(() => {
     const multiplier = sortMultiplier(sort.direction);
-    return [...activeRows].sort((a, b) => {
+    const sortedBaseRows = [...activeRows].sort((a, b) => {
       const aValue = sortValue(a, sort.key);
       const bValue = sortValue(b, sort.key);
       const primary =
@@ -1111,10 +1229,14 @@ export function LeaderboardPage({ initialReport }: Props) {
       if (primary !== 0) return primary * multiplier;
       return compareText(a.label, b.label);
     });
-  }, [activeRows, sort.direction, sort.key]);
+    if (view === 'leadSources') {
+      return buildLeadSourceDisplayRows(sortedBaseRows, expandedLeadSourceGroups);
+    }
+    return sortedBaseRows;
+  }, [activeRows, expandedLeadSourceGroups, sort.direction, sort.key, view]);
 
   const selectedRow = selectedRowId
-    ? activeRows.find((row) => row.id === selectedRowId) || null
+    ? sortedRows.find((row) => row.id === selectedRowId) || null
     : null;
 
   const selectedDetails = useMemo(() => {
@@ -1123,12 +1245,17 @@ export function LeaderboardPage({ initialReport }: Props) {
       return activeDetailRows.filter((row) => row.lenderKey === selectedRowId);
     }
     if (view === 'leadSources') {
+      if (selectedRow?.isLeadSourceGroup && selectedRow.childIds?.length) {
+        const childIds = new Set(selectedRow.childIds);
+        return activeDetailRows.filter((row) => childIds.has(row.leadSourceKey));
+      }
       return activeDetailRows.filter((row) => row.leadSourceKey === selectedRowId);
     }
     return activeDetailRows.filter((row) => row.creditedLoanOfficerId === selectedRowId);
-  }, [activeDetailRows, selectedRowId, view]);
+  }, [activeDetailRows, selectedRow, selectedRowId, view]);
 
   function canOpenDetails(row: DisplayLeaderboardRow) {
+    if (row.isLeadSourceGroup) return false;
     return report.canEdit || (row.source === 'loanOfficers' && row.id === report.currentUserId);
   }
 
@@ -1442,8 +1569,27 @@ export function LeaderboardPage({ initialReport }: Props) {
                 const stickySurface = isStriped ? 'bg-slate-50' : 'bg-white';
                 const isCurrentUserRow = row.source === 'loanOfficers' && row.id === report.currentUserId;
                 const rowCanOpen = canOpenDetails(row);
+                const rowCanExpand = view === 'leadSources' && Boolean(row.expandable);
                 const rowIdentity = (
                   <>
+                    {rowCanExpand && (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExpandedLeadSourceGroups((current) => {
+                            const next = new Set(current);
+                            if (next.has(row.id)) next.delete(row.id);
+                            else next.add(row.id);
+                            return next;
+                          });
+                        }}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                        aria-label={`${expandedLeadSourceGroups.has(row.id) ? 'Collapse' : 'Expand'} ${row.label}`}
+                      >
+                        <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', expandedLeadSourceGroups.has(row.id) && 'rotate-180')} />
+                      </button>
+                    )}
                     <span className="relative inline-flex shrink-0 items-center">
                       <span className={rankBadgeClassName(index)}>
                         {index + 1}
@@ -1458,9 +1604,9 @@ export function LeaderboardPage({ initialReport }: Props) {
                         </span>
                       )}
                     </span>
-                    <span className="min-w-0">
+                    <span className={cx('min-w-0', row.depth ? 'pl-4' : '')}>
                       <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate font-bold text-slate-950">{row.label}</span>
+                        <span className={cx('truncate font-bold text-slate-950', row.depth ? 'font-semibold text-slate-700' : '')}>{row.label}</span>
                         {isCurrentUserRow && (
                           <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-blue-700 ring-1 ring-blue-100">
                             You
@@ -1469,6 +1615,9 @@ export function LeaderboardPage({ initialReport }: Props) {
                       </span>
                       <span className="block truncate text-xs font-medium text-slate-500">
                         {row.subLabel}
+                        {row.isLeadSourceGroup && row.childCount
+                          ? ` • ${row.childCount} lead source${row.childCount === 1 ? '' : 's'}`
+                          : ''}
                       </span>
                     </span>
                   </>
@@ -1489,8 +1638,11 @@ export function LeaderboardPage({ initialReport }: Props) {
                       </button>
                     ) : (
                       <div
-                        className="flex w-full min-w-0 cursor-not-allowed items-center gap-3 rounded-xl text-left opacity-80"
-                        title="Loan officers can only open their own leaderboard details."
+                        className={cx(
+                          'flex w-full min-w-0 items-center gap-3 rounded-xl text-left',
+                          rowCanExpand ? 'cursor-default' : 'cursor-not-allowed opacity-80'
+                        )}
+                        title={rowCanExpand ? undefined : 'Loan officers can only open their own leaderboard details.'}
                       >
                         {rowIdentity}
                       </div>
