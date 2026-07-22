@@ -220,6 +220,10 @@ function excelNumberCell(value: number) {
   return `<td class="number">${value}</td>`;
 }
 
+function excelDecimalCell(value: number | null) {
+  return `<td class="decimal">${value === null ? 'N/A' : Math.round(value * 10) / 10}</td>`;
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -229,6 +233,59 @@ function downloadBlob(blob: Blob, filename: string) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function normalizeReportLoanNumber(value: string | null | undefined) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function reportLoanKeys(row: LeaderboardDetailRow) {
+  return [
+    row.loanId ? `loan:${row.loanId}` : '',
+    row.loanNumber ? `number:${normalizeReportLoanNumber(row.loanNumber)}` : '',
+  ].filter(Boolean);
+}
+
+function calculateAverageDaysToStp(report: LeaderboardReport) {
+  const processingByKey = new Map<string, Date>();
+  for (const row of report.detailRows) {
+    if (row.milestone !== 'processing') continue;
+    const occurredAt = new Date(row.occurredAt);
+    for (const key of reportLoanKeys(row)) {
+      const existing = processingByKey.get(key);
+      if (!existing || occurredAt < existing) {
+        processingByKey.set(key, occurredAt);
+      }
+    }
+  }
+
+  const totalsByOfficer = new Map<string, { totalDays: number; count: number }>();
+  let totalDays = 0;
+  let count = 0;
+  for (const row of report.detailRows) {
+    if (row.milestone !== 'plusOne') continue;
+    const plusOneAt = new Date(row.occurredAt);
+    const processingAt = reportLoanKeys(row)
+      .map((key) => processingByKey.get(key))
+      .find((date): date is Date => Boolean(date && date >= plusOneAt));
+    if (!processingAt) continue;
+
+    const days = Math.max(
+      0,
+      (processingAt.getTime() - plusOneAt.getTime()) / (24 * 60 * 60 * 1000)
+    );
+    const officerTotal = totalsByOfficer.get(row.creditedLoanOfficerId) || { totalDays: 0, count: 0 };
+    officerTotal.totalDays += days;
+    officerTotal.count += 1;
+    totalsByOfficer.set(row.creditedLoanOfficerId, officerTotal);
+    totalDays += days;
+    count += 1;
+  }
+
+  return {
+    byOfficer: totalsByOfficer,
+    overallAverage: count > 0 ? totalDays / count : null,
+  };
 }
 
 function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
@@ -241,6 +298,7 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
       b.plusOne.units - a.plusOne.units ||
       a.loanOfficerName.localeCompare(b.loanOfficerName)
   );
+  const averageDaysToStp = calculateAverageDaysToStp(report);
   const totals = rows.reduce(
     (sum, row) => {
       sum.plusOne.volume += row.plusOne.volume;
@@ -269,6 +327,10 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
       <td class="rank">${index + 1}</td>
       <td class="name">${excelEscape(row.loanOfficerName)}</td>
       <td class="email">${excelEscape(row.loanOfficerEmail)}</td>
+      ${excelDecimalCell((() => {
+        const officerAverage = averageDaysToStp.byOfficer.get(row.loanOfficerId);
+        return officerAverage ? officerAverage.totalDays / officerAverage.count : null;
+      })())}
       ${excelMoneyCell(row.plusOne.volume)}
       ${excelNumberCell(row.plusOne.units)}
       ${excelMoneyCell(row.plusOne.revenue)}
@@ -303,6 +365,7 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
     .email { color: #64748b; min-width: 220px; }
     .money { mso-number-format:"$#,##0"; text-align: right; font-weight: 700; }
     .number { mso-number-format:"0"; text-align: center; font-weight: 700; }
+    .decimal { mso-number-format:"0.0"; text-align: center; font-weight: 700; }
     .total { background: #dbeafe; color: #0f172a; font-weight: 900; }
     .row-white { background: #ffffff; }
     .row-muted { background: #f8fafc; }
@@ -310,12 +373,13 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
 </head>
 <body>
   <table>
-    <tr><th class="title" colspan="14">Federal First Lending - Loan Officer Production Leaderboard</th></tr>
-    <tr><td class="subtitle" colspan="14">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)}</td></tr>
+    <tr><th class="title" colspan="15">Federal First Lending - Loan Officer Production Leaderboard</th></tr>
+    <tr><td class="subtitle" colspan="15">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)}</td></tr>
     <tr>
       <th class="column" rowspan="2">Rank</th>
       <th class="column" rowspan="2">Loan Officer</th>
       <th class="column" rowspan="2">Email</th>
+      <th class="column" rowspan="2">Avg Days +1 to STP</th>
       <th class="group plus-one" colspan="3">+1s</th>
       <th class="group disclosures" colspan="2">Disclosures</th>
       <th class="group processing" colspan="3">Submitted to Processing/QC</th>
@@ -338,6 +402,7 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
       <td class="rank">Total</td>
       <td class="name">All Loan Officers</td>
       <td class="email">${rows.length} loan officers</td>
+      ${excelDecimalCell(averageDaysToStp.overallAverage)}
       ${excelMoneyCell(totals.plusOne.volume)}
       ${excelNumberCell(totals.plusOne.units)}
       ${excelMoneyCell(totals.plusOne.revenue)}
@@ -375,8 +440,7 @@ function exportFallOutReport(report: LeaderboardFallOutReport) {
       <td class="rank">${index + 1}</td>
       <td class="name">${excelEscape(row.ariveNumber)}</td>
       <td class="name">${excelEscape(row.borrowerName)}</td>
-      <td>${excelEscape(row.primaryLoanOfficerName)}</td>
-      <td>${excelEscape(row.secondaryLoanOfficerName || 'N/A')}</td>
+      <td>${excelEscape(row.loanOfficerName)}</td>
       <td class="date">${excelEscape(formatDateTime(row.plusOneSubmittedAt))}</td>
       <td class="number danger">${row.daysSincePlusOne}</td>
       ${excelMoneyCell(row.loanAmount)}
@@ -410,15 +474,14 @@ function exportFallOutReport(report: LeaderboardFallOutReport) {
 </head>
 <body>
   <table>
-    <tr><th class="title" colspan="12">Federal First Lending - Fall Out Report</th></tr>
-    <tr><td class="subtitle" colspan="12">Loans submitted to +1s that have no matching Submitted to Processing/QC record by Arive Number.</td></tr>
-    <tr><td class="summary" colspan="12">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Fall Out Count: ${rows.length}</td></tr>
+    <tr><th class="title" colspan="11">Federal First Lending - Fall Out Report</th></tr>
+    <tr><td class="subtitle" colspan="11">Loans submitted to +1s that have no matching Submitted to Processing/QC record by Arive Number.</td></tr>
+    <tr><td class="summary" colspan="11">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Fall Out Count: ${rows.length}</td></tr>
     <tr>
       <th class="column">#</th>
       <th class="column">Arive Number</th>
       <th class="column">Borrower</th>
-      <th class="column">Primary LO</th>
-      <th class="column">Secondary LO</th>
+      <th class="column">Loan Officer</th>
       <th class="column">+1 Submitted</th>
       <th class="column">Days Since +1</th>
       <th class="column">Loan Amount</th>
@@ -427,7 +490,7 @@ function exportFallOutReport(report: LeaderboardFallOutReport) {
       <th class="column">Lead Source</th>
       <th class="column">+1 Status</th>
     </tr>
-    ${bodyRows || '<tr><td colspan="12" class="summary">No fall out loans found for this date range.</td></tr>'}
+    ${bodyRows || '<tr><td colspan="11" class="summary">No fall out loans found for this date range.</td></tr>'}
   </table>
 </body>
 </html>`;
@@ -452,8 +515,7 @@ function exportWaterfallReport(report: LeaderboardWaterfallReport) {
       <td class="rank">${index + 1}</td>
       <td class="name">${excelEscape(row.ariveNumber)}</td>
       <td class="name">${excelEscape(row.borrowerName)}</td>
-      <td>${excelEscape(row.primaryLoanOfficerName)}</td>
-      <td>${excelEscape(row.secondaryLoanOfficerName || 'N/A')}</td>
+      <td>${excelEscape(row.loanOfficerName)}</td>
       <td class="date">${excelEscape(formatDateTime(row.plusOneSubmittedAt))}</td>
       <td class="date">${excelEscape(formatDateTime(row.processingSubmittedAt))}</td>
       <td class="number success">${row.daysToProcessing}</td>
@@ -489,15 +551,14 @@ function exportWaterfallReport(report: LeaderboardWaterfallReport) {
 </head>
 <body>
   <table>
-    <tr><th class="title" colspan="14">Federal First Lending - Waterfall Report</th></tr>
-    <tr><td class="subtitle" colspan="14">Loans submitted to +1s that have a matching Submitted to Processing/QC record by Arive Number.</td></tr>
-    <tr><td class="summary" colspan="14">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Waterfall Count: ${rows.length}</td></tr>
+    <tr><th class="title" colspan="13">Federal First Lending - Waterfall Report</th></tr>
+    <tr><td class="subtitle" colspan="13">Loans submitted to +1s that have a matching Submitted to Processing/QC record by Arive Number.</td></tr>
+    <tr><td class="summary" colspan="13">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Waterfall Count: ${rows.length}</td></tr>
     <tr>
       <th class="column">#</th>
       <th class="column">Arive Number</th>
       <th class="column">Borrower</th>
-      <th class="column">Primary LO</th>
-      <th class="column">Secondary LO</th>
+      <th class="column">Loan Officer</th>
       <th class="column">+1 Submitted</th>
       <th class="column">Processing/QC Submitted</th>
       <th class="column">Days To Processing</th>
@@ -508,7 +569,7 @@ function exportWaterfallReport(report: LeaderboardWaterfallReport) {
       <th class="column">+1 Status</th>
       <th class="column">Processing/QC Status</th>
     </tr>
-    ${bodyRows || '<tr><td colspan="14" class="summary">No waterfall loans found for this date range.</td></tr>'}
+    ${bodyRows || '<tr><td colspan="13" class="summary">No waterfall loans found for this date range.</td></tr>'}
   </table>
 </body>
 </html>`;

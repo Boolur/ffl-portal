@@ -150,6 +150,7 @@ export type LeaderboardFallOutRow = {
   daysSincePlusOne: number;
   loanAmount: number;
   projectedRevenue: number;
+  loanOfficerName: string;
   primaryLoanOfficerName: string;
   secondaryLoanOfficerName: string | null;
   lender: string;
@@ -848,6 +849,7 @@ export async function getLeaderboardFallOutReport(
           ),
           loanAmount: money(row.loan.amount) || 0,
           projectedRevenue: projectedRevenueFromJson(row.submissionData) || 0,
+          loanOfficerName: row.loan.secondaryLoanOfficer?.name || row.loan.loanOfficer.name,
           primaryLoanOfficerName: row.loan.loanOfficer.name,
           secondaryLoanOfficerName: row.loan.secondaryLoanOfficer?.name || null,
           lender: lenderDisplayName(lenderFromJson(row.submissionData)),
@@ -966,6 +968,7 @@ export async function getLeaderboardWaterfallReport(
         ),
         loanAmount: money(row.loan.amount) || 0,
         projectedRevenue: projectedRevenueFromJson(row.submissionData) || 0,
+        loanOfficerName: row.loan.secondaryLoanOfficer?.name || row.loan.loanOfficer.name,
         primaryLoanOfficerName: row.loan.loanOfficer.name,
         secondaryLoanOfficerName: row.loan.secondaryLoanOfficer?.name || null,
         lender: lenderDisplayName(lenderFromJson(row.submissionData)),
