@@ -5,11 +5,13 @@ import {
   ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
+  Download,
   Edit3,
   FileText,
   Home,
   Loader2,
   Medal,
+  FileSpreadsheet,
   RefreshCw,
   RotateCcw,
   Trophy,
@@ -196,6 +198,163 @@ function formatCurrency(value: number | null) {
 function moneyInputValue(value: number | null) {
   if (value === null) return '';
   return String(Math.round(value * 100) / 100);
+}
+
+function excelEscape(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function excelMoneyCell(value: number) {
+  return `<td class="money">${Math.round(value * 100) / 100}</td>`;
+}
+
+function excelNumberCell(value: number) {
+  return `<td class="number">${value}</td>`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
+  const start = dateInputValue(report.filters.startDate);
+  const end = dateInputValue(report.filters.endDate);
+  const generatedAt = formatDateTime(report.generatedAt);
+  const rows = [...report.rows].sort(
+    (a, b) =>
+      b.plusOne.volume - a.plusOne.volume ||
+      b.plusOne.units - a.plusOne.units ||
+      a.loanOfficerName.localeCompare(b.loanOfficerName)
+  );
+  const totals = rows.reduce(
+    (sum, row) => {
+      sum.plusOne.volume += row.plusOne.volume;
+      sum.plusOne.units += row.plusOne.units;
+      sum.plusOne.revenue += row.plusOne.revenue;
+      sum.disclosures.volume += row.disclosures.volume;
+      sum.disclosures.units += row.disclosures.units;
+      sum.processing.volume += row.processing.volume;
+      sum.processing.units += row.processing.units;
+      sum.processing.revenue += row.processing.revenue;
+      sum.fundings.volume += row.fundings.volume;
+      sum.fundings.units += row.fundings.units;
+      sum.fundings.revenue += row.fundings.revenue;
+      return sum;
+    },
+    {
+      plusOne: { volume: 0, units: 0, revenue: 0 },
+      disclosures: { volume: 0, units: 0 },
+      processing: { volume: 0, units: 0, revenue: 0 },
+      fundings: { volume: 0, units: 0, revenue: 0 },
+    }
+  );
+
+  const bodyRows = rows.map((row, index) => `
+    <tr class="${index % 2 === 0 ? 'row-white' : 'row-muted'}">
+      <td class="rank">${index + 1}</td>
+      <td class="name">${excelEscape(row.loanOfficerName)}</td>
+      <td class="email">${excelEscape(row.loanOfficerEmail)}</td>
+      ${excelMoneyCell(row.plusOne.volume)}
+      ${excelNumberCell(row.plusOne.units)}
+      ${excelMoneyCell(row.plusOne.revenue)}
+      ${excelMoneyCell(row.disclosures.volume)}
+      ${excelNumberCell(row.disclosures.units)}
+      ${excelMoneyCell(row.processing.volume)}
+      ${excelNumberCell(row.processing.units)}
+      ${excelMoneyCell(row.processing.revenue)}
+      ${excelMoneyCell(row.fundings.volume)}
+      ${excelNumberCell(row.fundings.units)}
+      ${excelMoneyCell(row.fundings.revenue)}
+    </tr>
+  `).join('');
+
+  const workbookHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; }
+    .title { background: #0f172a; color: #ffffff; font-size: 18pt; font-weight: 800; text-align: left; }
+    .subtitle { background: #e2e8f0; color: #334155; font-weight: 700; text-align: left; }
+    .group { color: #ffffff; font-weight: 800; text-align: center; }
+    .plus-one { background: #047857; }
+    .disclosures { background: #1d4ed8; }
+    .processing { background: #7e22ce; }
+    .fundings { background: #b45309; }
+    .column { background: #f8fafc; color: #475569; font-weight: 800; text-align: center; }
+    .rank { background: #f1f5f9; color: #0f172a; font-weight: 800; text-align: center; }
+    .name { color: #0f172a; font-weight: 800; min-width: 190px; }
+    .email { color: #64748b; min-width: 220px; }
+    .money { mso-number-format:"$#,##0"; text-align: right; font-weight: 700; }
+    .number { mso-number-format:"0"; text-align: center; font-weight: 700; }
+    .total { background: #dbeafe; color: #0f172a; font-weight: 900; }
+    .row-white { background: #ffffff; }
+    .row-muted { background: #f8fafc; }
+  </style>
+</head>
+<body>
+  <table>
+    <tr><th class="title" colspan="14">Federal First Lending - Loan Officer Production Leaderboard</th></tr>
+    <tr><td class="subtitle" colspan="14">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)}</td></tr>
+    <tr>
+      <th class="column" rowspan="2">Rank</th>
+      <th class="column" rowspan="2">Loan Officer</th>
+      <th class="column" rowspan="2">Email</th>
+      <th class="group plus-one" colspan="3">+1s</th>
+      <th class="group disclosures" colspan="2">Disclosures</th>
+      <th class="group processing" colspan="3">Submitted to Processing/QC</th>
+      <th class="group fundings" colspan="3">Fundings</th>
+    </tr>
+    <tr>
+      <th class="column">Volume</th>
+      <th class="column">Units</th>
+      <th class="column">Revenue</th>
+      <th class="column">Volume</th>
+      <th class="column">Units</th>
+      <th class="column">Volume</th>
+      <th class="column">Units</th>
+      <th class="column">Revenue</th>
+      <th class="column">Volume</th>
+      <th class="column">Units</th>
+      <th class="column">Revenue</th>
+    </tr>
+    <tr class="total">
+      <td class="rank">Total</td>
+      <td class="name">All Loan Officers</td>
+      <td class="email">${rows.length} loan officers</td>
+      ${excelMoneyCell(totals.plusOne.volume)}
+      ${excelNumberCell(totals.plusOne.units)}
+      ${excelMoneyCell(totals.plusOne.revenue)}
+      ${excelMoneyCell(totals.disclosures.volume)}
+      ${excelNumberCell(totals.disclosures.units)}
+      ${excelMoneyCell(totals.processing.volume)}
+      ${excelNumberCell(totals.processing.units)}
+      ${excelMoneyCell(totals.processing.revenue)}
+      ${excelMoneyCell(totals.fundings.volume)}
+      ${excelNumberCell(totals.fundings.units)}
+      ${excelMoneyCell(totals.fundings.revenue)}
+    </tr>
+    ${bodyRows}
+  </table>
+</body>
+</html>`;
+
+  downloadBlob(
+    new Blob([workbookHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
+    `loan-officer-leaderboard-${start}-to-${end}.xls`
+  );
 }
 
 function formatDate(value: string) {
@@ -657,6 +816,7 @@ export function LeaderboardPage({ initialReport }: Props) {
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<LeaderboardDetailRow | null>(null);
+  const [isReportsOpen, setIsReportsOpen] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
     key: 'plusOne.volume',
     direction: 'desc',
@@ -937,8 +1097,18 @@ export function LeaderboardPage({ initialReport }: Props) {
           />
         </section>
 
-        <div className="flex items-center justify-start">
+        <div className="flex flex-wrap items-center justify-start gap-2">
           <LeaderboardViewSwitch view={view} onChange={handleViewChange} />
+          {report.canEdit && (
+            <button
+              type="button"
+              onClick={() => setIsReportsOpen(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs font-extrabold text-slate-700 shadow-sm shadow-slate-200/60 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+            >
+              <FileSpreadsheet className="h-4 w-4 text-blue-600" />
+              Reports
+            </button>
+          )}
         </div>
 
         <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
@@ -1081,6 +1251,12 @@ export function LeaderboardPage({ initialReport }: Props) {
         </section>
       </div>
 
+      {isReportsOpen && (
+        <LeaderboardReportsModal
+          report={report}
+          onClose={() => setIsReportsOpen(false)}
+        />
+      )}
       {selectedRow && (
         <OfficerDetailsModal
           entity={selectedRow}
@@ -1099,6 +1275,79 @@ export function LeaderboardPage({ initialReport }: Props) {
           onClose={() => setEditingRow(null)}
         />
       )}
+    </div>
+  );
+}
+
+function LeaderboardReportsModal({
+  report,
+  onClose,
+}: {
+  report: LeaderboardReport;
+  onClose: () => void;
+}) {
+  function handleLoanOfficerExport() {
+    exportLoanOfficerLeaderboard(report);
+    onClose();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
+      onClick={onClose}
+      data-live-refresh-pause="true"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Leaderboard reports"
+        className="w-full max-w-xl overflow-hidden rounded-[28px] border border-slate-200/70 bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-5 border-b border-slate-200/70 px-6 py-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Admin reports</p>
+            <h2 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">
+              Export Reports
+            </h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              Choose which leaderboard report to pull for the selected date range.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:bg-slate-50 hover:text-slate-600 hover:shadow-sm"
+            aria-label="Close reports"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-3 bg-slate-50 px-6 py-5">
+          <button
+            type="button"
+            onClick={handleLoanOfficerExport}
+            className="group flex w-full items-start gap-4 rounded-2xl border border-blue-100 bg-white p-4 text-left shadow-sm shadow-slate-200/60 transition hover:border-blue-200 hover:bg-blue-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-100 text-blue-700 ring-1 ring-blue-200 transition group-hover:bg-blue-600 group-hover:text-white">
+              <FileSpreadsheet className="h-5 w-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold text-slate-950">
+                Loan Officer Leaderboard Export
+              </span>
+              <span className="mt-1 block text-sm font-medium text-slate-500">
+                Downloads the full Production Leaderboard for loan officers with colored grouped headers, totals, and Excel formatting.
+              </span>
+              <span className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-blue-700">
+                <Download className="h-3.5 w-3.5" />
+                Export Excel sheet
+              </span>
+            </span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
