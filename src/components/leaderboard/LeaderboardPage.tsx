@@ -123,7 +123,7 @@ const LEAD_SOURCE_EDIT_OPTIONS = [
   'Self Generated',
   'Other',
 ];
-const LEAD_SOURCE_GROUP_LABELS = LEAD_SOURCE_EDIT_OPTIONS;
+const LEAD_SOURCE_GROUP_LABELS = ['Lead Buy'];
 
 const MILESTONE_TONES = {
   plusOne: 'border-emerald-300 bg-emerald-100 text-emerald-800',

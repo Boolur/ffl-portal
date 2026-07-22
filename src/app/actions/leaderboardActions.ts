@@ -408,7 +408,12 @@ function leadSourceFromJson(value: unknown) {
   const data = submissionObject(value);
   if (!data) return null;
   const raw = data.leadSource ?? data.lead_source;
-  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+  const vendor = data.leadVendor ?? data.lead_vendor;
+  const source = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+  const leadVendor = typeof vendor === 'string' && vendor.trim() ? vendor.trim() : null;
+  if (source === 'Lead Buy' && leadVendor) return `${source} - ${leadVendor}`;
+  if (!source && leadVendor) return `Lead Buy - ${leadVendor}`;
+  return source;
 }
 
 function titleCase(value: string) {

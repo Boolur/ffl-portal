@@ -147,15 +147,7 @@ const BOARD_VIEW_OPTIONS: Array<{ value: PipelineBoardView; label: string }> = [
   { value: 'leadSources', label: 'Lead Source Board' },
 ];
 
-const LEAD_SOURCE_GROUP_LABELS = [
-  'Lead Buy',
-  'Mailer',
-  'Warm Transfer',
-  'Referral',
-  'Return Client',
-  'Self Generated',
-  'Other',
-];
+const LEAD_SOURCE_GROUP_LABELS = ['Lead Buy'];
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
