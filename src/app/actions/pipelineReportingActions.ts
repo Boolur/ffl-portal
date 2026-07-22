@@ -203,8 +203,6 @@ async function assertPipelineActor() {
     !actor ||
     !canAccessPipelinePortal({
       role: actor.role,
-      email: actor.email,
-      name: actor.name,
     })
   ) {
     throw new Error('Unauthorized');

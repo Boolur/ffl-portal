@@ -12,8 +12,6 @@ export default async function Pipeline() {
   if (!session?.user?.id) redirect('/login');
   const canAccess = canAccessPipelinePortal({
     role: session.user.activeRole || session.user.role,
-    email: session.user.email,
-    name: session.user.name,
   });
   if (!canAccess) redirect('/');
 

@@ -319,10 +319,7 @@ export function PipelinePage({ initialReport }: Props) {
     <div className="mx-auto w-full max-w-[1600px] space-y-6">
       <div className="app-page-header flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-blue-700">
-            Pilot
-          </div>
-          <h1 className="app-page-title mt-3">Pipeline</h1>
+          <h1 className="app-page-title">Pipeline</h1>
           <p className="app-page-subtitle max-w-3xl">
             Track clients by active pipeline milestone. Shared loans appear for both assigned LOs, while edits continue to live on the same underlying loan/task record.
           </p>

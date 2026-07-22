@@ -66,8 +66,6 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   });
   const canSeePipelineTab = canAccessPipelinePortal({
     role: activeRole,
-    email: session?.user?.email || '',
-    name: session?.user?.name || '',
   });
   const canSeeLeaderboardTab = canAccessLeaderboardPortal({
     role: activeRole,
