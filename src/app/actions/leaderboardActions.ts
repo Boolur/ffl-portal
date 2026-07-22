@@ -141,6 +141,49 @@ export type LeaderboardEditResult = {
   error?: string;
 };
 
+export type LeaderboardFallOutRow = {
+  taskId: string;
+  loanId: string;
+  ariveNumber: string;
+  borrowerName: string;
+  plusOneSubmittedAt: string;
+  daysSincePlusOne: number;
+  loanAmount: number;
+  projectedRevenue: number;
+  primaryLoanOfficerName: string;
+  secondaryLoanOfficerName: string | null;
+  lender: string;
+  leadSource: string;
+  status: string;
+};
+
+export type LeaderboardFallOutReport = {
+  filters: {
+    preset: LeaderboardRangePreset;
+    startDate: string;
+    endDate: string;
+  };
+  generatedAt: string;
+  rows: LeaderboardFallOutRow[];
+};
+
+export type LeaderboardWaterfallRow = LeaderboardFallOutRow & {
+  processingTaskId: string;
+  processingSubmittedAt: string;
+  daysToProcessing: number;
+  processingStatus: string;
+};
+
+export type LeaderboardWaterfallReport = {
+  filters: {
+    preset: LeaderboardRangePreset;
+    startDate: string;
+    endDate: string;
+  };
+  generatedAt: string;
+  rows: LeaderboardWaterfallRow[];
+};
+
 const PROCESSING_KINDS = [TaskKind.SUBMIT_PROCESSING, TaskKind.SUBMIT_QC];
 
 const MILESTONE_LABELS: Record<LeaderboardMilestoneKey, string> = {
@@ -270,6 +313,10 @@ function payrollLeadSourceFromDisplay(value: string) {
     : PayrollLeadSource.OTHER;
 }
 
+function normalizeAriveNumber(value: string | null | undefined) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
 function submissionObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -309,6 +356,13 @@ function lenderFromJson(value: unknown) {
     data.investor ??
     data.investorName ??
     data.loanInvestor;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+function loanNumberFromJson(value: unknown) {
+  const data = submissionObject(value);
+  if (!data) return null;
+  const raw = data.arriveLoanNumber ?? data.loanNumber ?? data.ariveNumber;
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
@@ -696,6 +750,236 @@ export async function getLeaderboardReport(
       processing: metricTotals(rows, 'processing'),
       fundings: metricTotals(rows, 'fundings'),
     },
+  };
+}
+
+export async function getLeaderboardFallOutReport(
+  filters: LeaderboardReportFilters = {}
+): Promise<LeaderboardFallOutReport> {
+  const { session, isAdminUser } = await getLeaderboardSessionUser();
+  if (!session?.user?.id || !isAdminUser) {
+    throw new Error('Unauthorized');
+  }
+
+  const { preset, start, end } = resolveDateRange(filters);
+  const plusOneRows = await prisma.task.findMany({
+    where: {
+      kind: TaskKind.SUBMIT_PLUS_ONE,
+      createdAt: { gte: start, lte: end },
+    },
+    select: {
+      id: true,
+      status: true,
+      createdAt: true,
+      submissionData: true,
+      loan: {
+        select: {
+          id: true,
+          loanNumber: true,
+          borrowerName: true,
+          amount: true,
+          loanOfficer: { select: { name: true } },
+          secondaryLoanOfficer: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const plusOneLoanIds = Array.from(new Set(plusOneRows.map((row) => row.loan.id)));
+  const plusOneRawNumbers = Array.from(new Set(
+    plusOneRows
+      .flatMap((row) => [loanNumberFromJson(row.submissionData), row.loan.loanNumber])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+  const processingRows = plusOneRows.length
+    ? await prisma.task.findMany({
+        where: {
+          kind: { in: PROCESSING_KINDS },
+          OR: [
+            { loanId: { in: plusOneLoanIds } },
+            { loan: { loanNumber: { in: plusOneRawNumbers } } },
+          ],
+        },
+        select: {
+          loanId: true,
+          submissionData: true,
+          loan: { select: { loanNumber: true } },
+        },
+      })
+    : [];
+
+  const processedLoanIds = new Set(processingRows.map((row) => row.loanId).filter(Boolean));
+  const processedNumbers = new Set(
+    processingRows
+      .flatMap((row) => [
+        normalizeAriveNumber(row.loan?.loanNumber),
+        normalizeAriveNumber(loanNumberFromJson(row.submissionData)),
+      ])
+      .filter(Boolean)
+  );
+  const now = new Date();
+
+  return {
+    filters: {
+      preset,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+    },
+    generatedAt: now.toISOString(),
+    rows: plusOneRows
+      .filter((row) => {
+        const ariveNumber = normalizeAriveNumber(loanNumberFromJson(row.submissionData) || row.loan.loanNumber);
+        return !processedLoanIds.has(row.loan.id) && !processedNumbers.has(ariveNumber);
+      })
+      .map((row) => {
+        const ariveNumber = loanNumberFromJson(row.submissionData) || row.loan.loanNumber;
+        const submittedAt = row.createdAt;
+        return {
+          taskId: row.id,
+          loanId: row.loan.id,
+          ariveNumber,
+          borrowerName: row.loan.borrowerName,
+          plusOneSubmittedAt: submittedAt.toISOString(),
+          daysSincePlusOne: Math.max(
+            0,
+            Math.floor((now.getTime() - submittedAt.getTime()) / (24 * 60 * 60 * 1000))
+          ),
+          loanAmount: money(row.loan.amount) || 0,
+          projectedRevenue: projectedRevenueFromJson(row.submissionData) || 0,
+          primaryLoanOfficerName: row.loan.loanOfficer.name,
+          secondaryLoanOfficerName: row.loan.secondaryLoanOfficer?.name || null,
+          lender: lenderDisplayName(lenderFromJson(row.submissionData)),
+          leadSource: leadSourceDisplayName(leadSourceFromJson(row.submissionData)),
+          status: row.status,
+        };
+      }),
+  };
+}
+
+export async function getLeaderboardWaterfallReport(
+  filters: LeaderboardReportFilters = {}
+): Promise<LeaderboardWaterfallReport> {
+  const { session, isAdminUser } = await getLeaderboardSessionUser();
+  if (!session?.user?.id || !isAdminUser) {
+    throw new Error('Unauthorized');
+  }
+
+  const { preset, start, end } = resolveDateRange(filters);
+  const plusOneRows = await prisma.task.findMany({
+    where: {
+      kind: TaskKind.SUBMIT_PLUS_ONE,
+      createdAt: { gte: start, lte: end },
+    },
+    select: {
+      id: true,
+      status: true,
+      createdAt: true,
+      submissionData: true,
+      loan: {
+        select: {
+          id: true,
+          loanNumber: true,
+          borrowerName: true,
+          amount: true,
+          loanOfficer: { select: { name: true } },
+          secondaryLoanOfficer: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const plusOneLoanIds = Array.from(new Set(plusOneRows.map((row) => row.loan.id)));
+  const plusOneRawNumbers = Array.from(new Set(
+    plusOneRows
+      .flatMap((row) => [loanNumberFromJson(row.submissionData), row.loan.loanNumber])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+
+  const processingRows = plusOneRows.length
+    ? await prisma.task.findMany({
+        where: {
+          kind: { in: PROCESSING_KINDS },
+          OR: [
+            { loanId: { in: plusOneLoanIds } },
+            { loan: { loanNumber: { in: plusOneRawNumbers } } },
+          ],
+        },
+        select: {
+          id: true,
+          loanId: true,
+          status: true,
+          createdAt: true,
+          submissionData: true,
+          loan: { select: { loanNumber: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      })
+    : [];
+
+  const processingByLoanId = new Map<string, (typeof processingRows)[number]>();
+  const processingByNumber = new Map<string, (typeof processingRows)[number]>();
+  for (const processing of processingRows) {
+    if (processing.loanId && !processingByLoanId.has(processing.loanId)) {
+      processingByLoanId.set(processing.loanId, processing);
+    }
+    for (const value of [
+      normalizeAriveNumber(processing.loan?.loanNumber),
+      normalizeAriveNumber(loanNumberFromJson(processing.submissionData)),
+    ]) {
+      if (value && !processingByNumber.has(value)) {
+        processingByNumber.set(value, processing);
+      }
+    }
+  }
+  const now = new Date();
+
+  return {
+    filters: {
+      preset,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+    },
+    generatedAt: now.toISOString(),
+    rows: plusOneRows.flatMap((row) => {
+      const normalizedAriveNumber = normalizeAriveNumber(
+        loanNumberFromJson(row.submissionData) || row.loan.loanNumber
+      );
+      const processing = processingByNumber.get(normalizedAriveNumber) || processingByLoanId.get(row.loan.id);
+      if (!processing) return [];
+
+      const ariveNumber = loanNumberFromJson(row.submissionData) || row.loan.loanNumber;
+      const plusOneSubmittedAt = row.createdAt;
+      const processingSubmittedAt = processing.createdAt;
+      return [{
+        taskId: row.id,
+        loanId: row.loan.id,
+        ariveNumber,
+        borrowerName: row.loan.borrowerName,
+        plusOneSubmittedAt: plusOneSubmittedAt.toISOString(),
+        daysSincePlusOne: Math.max(
+          0,
+          Math.floor((now.getTime() - plusOneSubmittedAt.getTime()) / (24 * 60 * 60 * 1000))
+        ),
+        loanAmount: money(row.loan.amount) || 0,
+        projectedRevenue: projectedRevenueFromJson(row.submissionData) || 0,
+        primaryLoanOfficerName: row.loan.loanOfficer.name,
+        secondaryLoanOfficerName: row.loan.secondaryLoanOfficer?.name || null,
+        lender: lenderDisplayName(lenderFromJson(row.submissionData)),
+        leadSource: leadSourceDisplayName(leadSourceFromJson(row.submissionData)),
+        status: row.status,
+        processingTaskId: processing.id,
+        processingSubmittedAt: processingSubmittedAt.toISOString(),
+        daysToProcessing: Math.max(
+          0,
+          Math.floor((processingSubmittedAt.getTime() - plusOneSubmittedAt.getTime()) / (24 * 60 * 60 * 1000))
+        ),
+        processingStatus: processing.status,
+      }];
+    }),
   };
 }
 

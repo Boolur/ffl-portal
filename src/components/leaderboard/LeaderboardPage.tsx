@@ -19,10 +19,13 @@ import {
   X,
 } from 'lucide-react';
 import {
+  getLeaderboardFallOutReport,
   getLeaderboardReport,
+  getLeaderboardWaterfallReport,
   updateLeaderboardLoanDetails,
   type LeaderboardDetailRow,
   type LeaderboardEditInput,
+  type LeaderboardFallOutReport,
   type LeaderboardLeadSourceRow,
   type LeaderboardLenderRow,
   type LeaderboardLoanOfficerOption,
@@ -31,6 +34,7 @@ import {
   type LeaderboardRangePreset,
   type LeaderboardReport,
   type LeaderboardReportFilters,
+  type LeaderboardWaterfallReport,
 } from '@/app/actions/leaderboardActions';
 import {
   ResizeHandle,
@@ -354,6 +358,164 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
   downloadBlob(
     new Blob([workbookHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
     `loan-officer-leaderboard-${start}-to-${end}.xls`
+  );
+}
+
+function exportFallOutReport(report: LeaderboardFallOutReport) {
+  const start = dateInputValue(report.filters.startDate);
+  const end = dateInputValue(report.filters.endDate);
+  const generatedAt = formatDateTime(report.generatedAt);
+  const rows = [...report.rows].sort(
+    (a, b) =>
+      b.daysSincePlusOne - a.daysSincePlusOne ||
+      new Date(a.plusOneSubmittedAt).getTime() - new Date(b.plusOneSubmittedAt).getTime()
+  );
+  const bodyRows = rows.map((row, index) => `
+    <tr class="${index % 2 === 0 ? 'row-white' : 'row-muted'}">
+      <td class="rank">${index + 1}</td>
+      <td class="name">${excelEscape(row.ariveNumber)}</td>
+      <td class="name">${excelEscape(row.borrowerName)}</td>
+      <td>${excelEscape(row.primaryLoanOfficerName)}</td>
+      <td>${excelEscape(row.secondaryLoanOfficerName || 'N/A')}</td>
+      <td class="date">${excelEscape(formatDateTime(row.plusOneSubmittedAt))}</td>
+      <td class="number danger">${row.daysSincePlusOne}</td>
+      ${excelMoneyCell(row.loanAmount)}
+      ${excelMoneyCell(row.projectedRevenue)}
+      <td>${excelEscape(row.lender)}</td>
+      <td>${excelEscape(row.leadSource)}</td>
+      <td>${excelEscape(formatStatus(row.status))}</td>
+    </tr>
+  `).join('');
+
+  const workbookHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; }
+    .title { background: #7f1d1d; color: #ffffff; font-size: 18pt; font-weight: 800; text-align: left; }
+    .subtitle { background: #fee2e2; color: #7f1d1d; font-weight: 700; text-align: left; }
+    .column { background: #fef2f2; color: #991b1b; font-weight: 800; text-align: center; }
+    .rank { background: #f1f5f9; color: #0f172a; font-weight: 800; text-align: center; }
+    .name { color: #0f172a; font-weight: 800; min-width: 160px; }
+    .date { color: #334155; font-weight: 700; min-width: 140px; }
+    .money { mso-number-format:"$#,##0"; text-align: right; font-weight: 700; }
+    .number { mso-number-format:"0"; text-align: center; font-weight: 800; }
+    .danger { background: #fee2e2; color: #991b1b; }
+    .summary { background: #fff7ed; color: #9a3412; font-weight: 900; }
+    .row-white { background: #ffffff; }
+    .row-muted { background: #f8fafc; }
+  </style>
+</head>
+<body>
+  <table>
+    <tr><th class="title" colspan="12">Federal First Lending - Fall Out Report</th></tr>
+    <tr><td class="subtitle" colspan="12">Loans submitted to +1s that have no matching Submitted to Processing/QC record by Arive Number.</td></tr>
+    <tr><td class="summary" colspan="12">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Fall Out Count: ${rows.length}</td></tr>
+    <tr>
+      <th class="column">#</th>
+      <th class="column">Arive Number</th>
+      <th class="column">Borrower</th>
+      <th class="column">Primary LO</th>
+      <th class="column">Secondary LO</th>
+      <th class="column">+1 Submitted</th>
+      <th class="column">Days Since +1</th>
+      <th class="column">Loan Amount</th>
+      <th class="column">Projected Revenue</th>
+      <th class="column">Lender</th>
+      <th class="column">Lead Source</th>
+      <th class="column">+1 Status</th>
+    </tr>
+    ${bodyRows || '<tr><td colspan="12" class="summary">No fall out loans found for this date range.</td></tr>'}
+  </table>
+</body>
+</html>`;
+
+  downloadBlob(
+    new Blob([workbookHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
+    `fall-out-report-${start}-to-${end}.xls`
+  );
+}
+
+function exportWaterfallReport(report: LeaderboardWaterfallReport) {
+  const start = dateInputValue(report.filters.startDate);
+  const end = dateInputValue(report.filters.endDate);
+  const generatedAt = formatDateTime(report.generatedAt);
+  const rows = [...report.rows].sort(
+    (a, b) =>
+      new Date(b.processingSubmittedAt).getTime() - new Date(a.processingSubmittedAt).getTime() ||
+      a.ariveNumber.localeCompare(b.ariveNumber)
+  );
+  const bodyRows = rows.map((row, index) => `
+    <tr class="${index % 2 === 0 ? 'row-white' : 'row-muted'}">
+      <td class="rank">${index + 1}</td>
+      <td class="name">${excelEscape(row.ariveNumber)}</td>
+      <td class="name">${excelEscape(row.borrowerName)}</td>
+      <td>${excelEscape(row.primaryLoanOfficerName)}</td>
+      <td>${excelEscape(row.secondaryLoanOfficerName || 'N/A')}</td>
+      <td class="date">${excelEscape(formatDateTime(row.plusOneSubmittedAt))}</td>
+      <td class="date">${excelEscape(formatDateTime(row.processingSubmittedAt))}</td>
+      <td class="number success">${row.daysToProcessing}</td>
+      ${excelMoneyCell(row.loanAmount)}
+      ${excelMoneyCell(row.projectedRevenue)}
+      <td>${excelEscape(row.lender)}</td>
+      <td>${excelEscape(row.leadSource)}</td>
+      <td>${excelEscape(formatStatus(row.status))}</td>
+      <td>${excelEscape(formatStatus(row.processingStatus))}</td>
+    </tr>
+  `).join('');
+
+  const workbookHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; }
+    .title { background: #065f46; color: #ffffff; font-size: 18pt; font-weight: 800; text-align: left; }
+    .subtitle { background: #d1fae5; color: #065f46; font-weight: 700; text-align: left; }
+    .column { background: #ecfdf5; color: #047857; font-weight: 800; text-align: center; }
+    .rank { background: #f1f5f9; color: #0f172a; font-weight: 800; text-align: center; }
+    .name { color: #0f172a; font-weight: 800; min-width: 160px; }
+    .date { color: #334155; font-weight: 700; min-width: 140px; }
+    .money { mso-number-format:"$#,##0"; text-align: right; font-weight: 700; }
+    .number { mso-number-format:"0"; text-align: center; font-weight: 800; }
+    .success { background: #d1fae5; color: #065f46; }
+    .summary { background: #ecfdf5; color: #065f46; font-weight: 900; }
+    .row-white { background: #ffffff; }
+    .row-muted { background: #f8fafc; }
+  </style>
+</head>
+<body>
+  <table>
+    <tr><th class="title" colspan="14">Federal First Lending - Waterfall Report</th></tr>
+    <tr><td class="subtitle" colspan="14">Loans submitted to +1s that have a matching Submitted to Processing/QC record by Arive Number.</td></tr>
+    <tr><td class="summary" colspan="14">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Waterfall Count: ${rows.length}</td></tr>
+    <tr>
+      <th class="column">#</th>
+      <th class="column">Arive Number</th>
+      <th class="column">Borrower</th>
+      <th class="column">Primary LO</th>
+      <th class="column">Secondary LO</th>
+      <th class="column">+1 Submitted</th>
+      <th class="column">Processing/QC Submitted</th>
+      <th class="column">Days To Processing</th>
+      <th class="column">Loan Amount</th>
+      <th class="column">Projected Revenue</th>
+      <th class="column">Lender</th>
+      <th class="column">Lead Source</th>
+      <th class="column">+1 Status</th>
+      <th class="column">Processing/QC Status</th>
+    </tr>
+    ${bodyRows || '<tr><td colspan="14" class="summary">No waterfall loans found for this date range.</td></tr>'}
+  </table>
+</body>
+</html>`;
+
+  downloadBlob(
+    new Blob([workbookHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
+    `waterfall-report-${start}-to-${end}.xls`
   );
 }
 
@@ -1286,9 +1448,49 @@ function LeaderboardReportsModal({
   report: LeaderboardReport;
   onClose: () => void;
 }) {
+  const [isExportingFallOut, startFallOutExport] = useTransition();
+  const [isExportingWaterfall, startWaterfallExport] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
   function handleLoanOfficerExport() {
     exportLoanOfficerLeaderboard(report);
     onClose();
+  }
+
+  function handleFallOutExport() {
+    setError(null);
+    startFallOutExport(async () => {
+      try {
+        const fallOutReport = await getLeaderboardFallOutReport({
+          preset: report.filters.preset,
+          startDate: dateInputValue(report.filters.startDate),
+          endDate: dateInputValue(report.filters.endDate),
+        });
+        exportFallOutReport(fallOutReport);
+        onClose();
+      } catch (err) {
+        console.error(err);
+        setError('Unable to export the Fall Out Report. Please try again.');
+      }
+    });
+  }
+
+  function handleWaterfallExport() {
+    setError(null);
+    startWaterfallExport(async () => {
+      try {
+        const waterfallReport = await getLeaderboardWaterfallReport({
+          preset: report.filters.preset,
+          startDate: dateInputValue(report.filters.startDate),
+          endDate: dateInputValue(report.filters.endDate),
+        });
+        exportWaterfallReport(waterfallReport);
+        onClose();
+      } catch (err) {
+        console.error(err);
+        setError('Unable to export the Waterfall Report. Please try again.');
+      }
+    });
   }
 
   return (
@@ -1325,6 +1527,11 @@ function LeaderboardReportsModal({
         </div>
 
         <div className="space-y-3 bg-slate-50 px-6 py-5">
+          {error && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {error}
+            </div>
+          )}
           <button
             type="button"
             onClick={handleLoanOfficerExport}
@@ -1343,6 +1550,58 @@ function LeaderboardReportsModal({
               <span className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-blue-700">
                 <Download className="h-3.5 w-3.5" />
                 Export Excel sheet
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={handleFallOutExport}
+            disabled={isExportingFallOut}
+            className="group flex w-full items-start gap-4 rounded-2xl border border-red-100 bg-white p-4 text-left shadow-sm shadow-slate-200/60 transition hover:border-red-200 hover:bg-red-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-100 text-red-700 ring-1 ring-red-200 transition group-hover:bg-red-600 group-hover:text-white">
+              {isExportingFallOut ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-5 w-5" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold text-slate-950">
+                Fall Out Report
+              </span>
+              <span className="mt-1 block text-sm font-medium text-slate-500">
+                Exports loans submitted to +1s that never reached Submitted to Processing/QC, matched by Arive Number.
+              </span>
+              <span className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-red-700">
+                <Download className="h-3.5 w-3.5" />
+                {isExportingFallOut ? 'Building report...' : 'Export Excel sheet'}
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={handleWaterfallExport}
+            disabled={isExportingWaterfall}
+            className="group flex w-full items-start gap-4 rounded-2xl border border-emerald-100 bg-white p-4 text-left shadow-sm shadow-slate-200/60 transition hover:border-emerald-200 hover:bg-emerald-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 transition group-hover:bg-emerald-600 group-hover:text-white">
+              {isExportingWaterfall ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-5 w-5" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold text-slate-950">
+                Waterfall Report
+              </span>
+              <span className="mt-1 block text-sm font-medium text-slate-500">
+                Exports loans submitted to +1s that did reach Submitted to Processing/QC, matched by Arive Number.
+              </span>
+              <span className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                <Download className="h-3.5 w-3.5" />
+                {isExportingWaterfall ? 'Building report...' : 'Export Excel sheet'}
               </span>
             </span>
           </button>
