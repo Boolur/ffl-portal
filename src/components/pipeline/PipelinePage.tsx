@@ -901,28 +901,27 @@ function PipelineGroupBoard({
               <tr key={`${row.key}-${row.depth}`} className={cx(isStriped ? 'bg-slate-50/55' : 'bg-white', 'transition hover:bg-blue-50/40')}>
                 <td className="px-5 py-4">
                   <div className={cx('flex items-center gap-2', row.depth > 0 && 'pl-7')}>
-                    {row.expandable ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExpandedLeadSourceGroups((current) => {
-                            const next = new Set(current);
-                            if (next.has(row.key)) next.delete(row.key);
-                            else next.add(row.key);
-                            return next;
-                          });
-                        }}
-                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
-                        aria-label={`${expandedLeadSourceGroups.has(row.key) ? 'Collapse' : 'Expand'} ${row.label}`}
-                      >
-                        <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', expandedLeadSourceGroups.has(row.key) && 'rotate-180')} />
-                      </button>
-                    ) : row.depth > 0 ? (
-                      <span className="h-6 w-6 shrink-0" aria-hidden />
-                    ) : null}
                     <div className="min-w-0">
-                      <p className={cx('truncate font-bold text-slate-900', row.depth > 0 && 'font-semibold text-slate-700')}>
+                      <p className={cx('flex min-w-0 items-center gap-2 truncate font-bold text-slate-900', row.depth > 0 && 'font-semibold text-slate-700')}>
                         {row.label}
+                        {row.expandable && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExpandedLeadSourceGroups((current) => {
+                                const next = new Set(current);
+                                if (next.has(row.key)) next.delete(row.key);
+                                else next.add(row.key);
+                                return next;
+                              });
+                            }}
+                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                            aria-label={`${expandedLeadSourceGroups.has(row.key) ? 'Collapse' : 'Expand'} ${row.label}`}
+                            title={`${expandedLeadSourceGroups.has(row.key) ? 'Collapse' : 'Expand'} ${row.label}`}
+                          >
+                            <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', expandedLeadSourceGroups.has(row.key) && 'rotate-180')} />
+                          </button>
+                        )}
                       </p>
                     </div>
                   </div>

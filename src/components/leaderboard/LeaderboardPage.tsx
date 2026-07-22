@@ -1572,24 +1572,6 @@ export function LeaderboardPage({ initialReport }: Props) {
                 const rowCanExpand = view === 'leadSources' && Boolean(row.expandable);
                 const rowIdentity = (
                   <>
-                    {rowCanExpand && (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setExpandedLeadSourceGroups((current) => {
-                            const next = new Set(current);
-                            if (next.has(row.id)) next.delete(row.id);
-                            else next.add(row.id);
-                            return next;
-                          });
-                        }}
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
-                        aria-label={`${expandedLeadSourceGroups.has(row.id) ? 'Collapse' : 'Expand'} ${row.label}`}
-                      >
-                        <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', expandedLeadSourceGroups.has(row.id) && 'rotate-180')} />
-                      </button>
-                    )}
                     <span className="relative inline-flex shrink-0 items-center">
                       <span className={rankBadgeClassName(index)}>
                         {index + 1}
@@ -1607,6 +1589,25 @@ export function LeaderboardPage({ initialReport }: Props) {
                     <span className={cx('min-w-0', row.depth ? 'pl-4' : '')}>
                       <span className="flex min-w-0 items-center gap-2">
                         <span className={cx('truncate font-bold text-slate-950', row.depth ? 'font-semibold text-slate-700' : '')}>{row.label}</span>
+                        {rowCanExpand && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setExpandedLeadSourceGroups((current) => {
+                                const next = new Set(current);
+                                if (next.has(row.id)) next.delete(row.id);
+                                else next.add(row.id);
+                                return next;
+                              });
+                            }}
+                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                            aria-label={`${expandedLeadSourceGroups.has(row.id) ? 'Collapse' : 'Expand'} ${row.label}`}
+                            title={`${expandedLeadSourceGroups.has(row.id) ? 'Collapse' : 'Expand'} ${row.label}`}
+                          >
+                            <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', expandedLeadSourceGroups.has(row.id) && 'rotate-180')} />
+                          </button>
+                        )}
                         {isCurrentUserRow && (
                           <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-blue-700 ring-1 ring-blue-100">
                             You
