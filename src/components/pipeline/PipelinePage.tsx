@@ -758,6 +758,12 @@ type PipelineDisplayGroupRow = PipelineReport['lenderRows'][number] & {
   childCount?: number;
 };
 
+function isKnownLeadSourceGroup(label: string) {
+  return LEAD_SOURCE_GROUP_LABELS.some(
+    (group) => normalizeGroupKey(group) === normalizeGroupKey(label)
+  );
+}
+
 function emptyPipelineGroupRow(key: string, label: string): PipelineDisplayGroupRow {
   return {
     key,
@@ -826,12 +832,22 @@ function buildPipelineLeadSourceDisplayRows(
         expandable: false,
       });
     } else {
-      existing.directRow = {
+      const directRow = {
         ...row,
         depth: 0,
         isGroup: false,
         expandable: false,
       };
+      if (isKnownLeadSourceGroup(parsed.group)) {
+        existing.children.push({
+          ...directRow,
+          key: `${row.key}:category`,
+          label: `${parsed.group} - Uncategorized`,
+          depth: 1,
+        });
+      } else {
+        existing.directRow = directRow;
+      }
     }
     grouped.set(groupKey, existing);
   }

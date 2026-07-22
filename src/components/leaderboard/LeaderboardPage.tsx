@@ -667,6 +667,12 @@ function parseLeadSourceGroup(label: string) {
   return { group: trimmed, child: null };
 }
 
+function isKnownLeadSourceGroup(label: string) {
+  return LEAD_SOURCE_GROUP_LABELS.some(
+    (group) => normalizeGroupKey(group) === normalizeGroupKey(label)
+  );
+}
+
 function totalMetric(rows: Array<Pick<DisplayLeaderboardRow, 'plusOne' | 'disclosures' | 'processing' | 'fundings'>>, metric: 'plusOne' | 'disclosures' | 'processing' | 'fundings') {
   return rows.reduce(
     (total, row) => {
@@ -743,12 +749,23 @@ function buildLeadSourceDisplayRows(
         expandable: false,
       });
     } else {
-      existing.directRow = {
+      const directRow = {
         ...row,
         depth: 0,
         isLeadSourceGroup: false,
         expandable: false,
       };
+      if (isKnownLeadSourceGroup(parsed.group)) {
+        existing.children.push({
+          ...directRow,
+          id: `${row.id}:category`,
+          label: `${parsed.group} - Uncategorized`,
+          subLabel: parsed.group,
+          depth: 1,
+        });
+      } else {
+        existing.directRow = directRow;
+      }
     }
     grouped.set(groupKey, existing);
   }
