@@ -58,26 +58,6 @@ function normalizeRole(role?: string | null): UserRole | null {
   return normalized as UserRole;
 }
 
-const LEADERBOARD_PILOT_EMAILS = new Set([
-  'mmahjoub@federalfirstlending.com',
-  'nyebisu@federalfirstlending.com',
-]);
-const LEADERBOARD_PILOT_NAMES = new Set([
-  'matt mahjoub',
-  'nick yebisu',
-  'nicholas yebisu',
-]);
-
-function normalizeIdentity(value?: unknown) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function isLeaderboardPilotUser(token: { email?: unknown; name?: unknown }) {
-  const email = normalizeIdentity(token.email);
-  const name = normalizeIdentity(token.name);
-  return LEADERBOARD_PILOT_EMAILS.has(email) || LEADERBOARD_PILOT_NAMES.has(name);
-}
-
 function isAdminRole(role: UserRole | null) {
   return role === UserRole.ADMIN ||
     role === UserRole.ADMIN_I ||
@@ -85,11 +65,10 @@ function isAdminRole(role: UserRole | null) {
     role === UserRole.ADMIN_III;
 }
 
-function canAccessLeaderboard(pathname: string, role?: string | null, token?: { email?: unknown; name?: unknown }) {
+function canAccessLeaderboard(pathname: string, role?: string | null) {
   if (pathname !== '/leaderboard' && !pathname.startsWith('/leaderboard/')) return false;
   const normalizedRole = normalizeRole(role);
   if (isAdminRole(normalizedRole)) return true;
-  if (!token || !isLeaderboardPilotUser(token)) return false;
   return normalizedRole === UserRole.LOAN_OFFICER ||
     normalizedRole === UserRole.MANAGER;
 }
@@ -113,7 +92,7 @@ const authProxy = withAuth({
       if (!token) return false;
       const effectiveRole = (token.activeRole as string) || (token.role as string);
       if (req.nextUrl.pathname === '/leaderboard' || req.nextUrl.pathname.startsWith('/leaderboard/')) {
-        return canAccessLeaderboard(req.nextUrl.pathname, effectiveRole, token);
+        return canAccessLeaderboard(req.nextUrl.pathname, effectiveRole);
       }
       if (isAllowed(req.nextUrl.pathname, effectiveRole)) return true;
       // Fail-soft for older sessions that might have malformed role claims.
