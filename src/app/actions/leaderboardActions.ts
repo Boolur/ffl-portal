@@ -73,6 +73,12 @@ export type LeaderboardLoanOfficerOption = {
   email: string;
 };
 
+export type LeaderboardLeadVendorOption = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
 export type LeaderboardDetailRow = {
   id: string;
   loanId: string | null;
@@ -90,6 +96,7 @@ export type LeaderboardDetailRow = {
   amount: number | null;
   revenue: number | null;
   leadSource: string | null;
+  leadVendor: string | null;
   lender: string | null;
   status: string;
   occurredAt: string;
@@ -114,6 +121,7 @@ export type LeaderboardReport = {
   leadSourceRows: LeaderboardLeadSourceRow[];
   teams: LeaderboardTeamOption[];
   loanOfficerOptions: LeaderboardLoanOfficerOption[];
+  leadVendorOptions: LeaderboardLeadVendorOption[];
   detailRows: LeaderboardDetailRow[];
   totals: {
     plusOne: LeaderboardMetric;
@@ -135,6 +143,7 @@ export type LeaderboardEditInput = {
   revenue?: string | null;
   lender: string;
   leadSource: string;
+  leadVendor?: string | null;
   reason?: string | null;
 };
 
@@ -445,6 +454,13 @@ function leadSourceFromJson(value: unknown) {
   return canonicalLeadSourceLabel(source);
 }
 
+function leadVendorFromJson(value: unknown) {
+  const data = submissionObject(value);
+  if (!data) return null;
+  const raw = data.leadVendor ?? data.lead_vendor;
+  return canonicalLeadBuyVendor(typeof raw === 'string' && raw.trim() ? raw.trim() : null);
+}
+
 function titleCase(value: string) {
   return value
     .toLowerCase()
@@ -612,7 +628,7 @@ export async function getLeaderboardReport(
   const { preset, start, end } = resolveDateRange(filters);
   const dateWhere = { createdAt: { gte: start, lte: end } };
 
-  const [loanOfficers, teams, taskRows, fundingRows] = await Promise.all([
+  const [loanOfficers, teams, leadVendorOptions, taskRows, fundingRows] = await Promise.all([
     prisma.user.findMany({
       where: {
         active: true,
@@ -632,6 +648,11 @@ export async function getLeaderboardReport(
         colors: true,
         members: { select: { userId: true } },
       },
+    }),
+    prisma.leadVendor.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, slug: true },
     }),
     prisma.task.findMany({
       where: {
@@ -725,6 +746,7 @@ export async function getLeaderboardReport(
         ? projectedRevenueFromJson(task.submissionData) || 0
         : 0;
     const lenderName = lenderDisplayName(lenderFromJson(task.submissionData));
+    const leadVendor = leadVendorFromJson(task.submissionData);
     const lenderRow = getOrCreateLenderRow(lenderMap, lenderName);
     const leadSourceRow = getOrCreateLeadSourceRow(leadSourceMap, leadSourceFromJson(task.submissionData));
     addMetric(row, milestone, amount, revenue);
@@ -748,6 +770,7 @@ export async function getLeaderboardReport(
       amount,
       revenue: milestone === 'plusOne' || milestone === 'processing' ? revenue : null,
       leadSource: leadSourceRow.leadSourceName,
+      leadVendor,
       lender: lenderRow.lenderName,
       status: task.status,
       occurredAt: task.createdAt.toISOString(),
@@ -790,6 +813,7 @@ export async function getLeaderboardReport(
       amount,
       revenue,
       leadSource: leadSourceRow.leadSourceName,
+      leadVendor: null,
       lender: lenderRow.lenderName,
       status: funding.status,
       occurredAt: (funding.paidAt || funding.submittedAt).toISOString(),
@@ -847,6 +871,7 @@ export async function getLeaderboardReport(
       name: officer.name,
       email: officer.email,
     })),
+    leadVendorOptions,
     detailRows: detailRows
       .filter((row) => canViewAllDetails || row.creditedLoanOfficerId === userId)
       .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),
@@ -1118,6 +1143,8 @@ export async function updateLeaderboardLoanDetails(
   const secondaryLoanOfficerId = input.secondaryLoanOfficerId?.trim() || null;
   const lender = input.lender.trim();
   const leadSource = input.leadSource.trim();
+  const leadVendor = canonicalLeadBuyVendor(input.leadVendor?.trim() || null);
+  const isLeadBuySource = leadSourceAliasKey(leadSource) === leadSourceAliasKey('Lead Buy');
   const shouldUpdateRevenue =
     input.milestone === 'plusOne' ||
     input.milestone === 'processing' ||
@@ -1142,6 +1169,9 @@ export async function updateLeaderboardLoanDetails(
   }
   if (!lender) return { success: false, error: 'Lender is required.' };
   if (!leadSource) return { success: false, error: 'Lead source is required.' };
+  if (isLeadBuySource && !leadVendor) {
+    return { success: false, error: 'Lead vendor is required when Lead Source is Lead Buy.' };
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -1236,6 +1266,7 @@ export async function updateLeaderboardLoanDetails(
                 expectedRevenue: revenue,
                 lender,
                 leadSource,
+              leadVendor: isLeadBuySource ? leadVendor : null,
               },
             }),
           },
@@ -1287,6 +1318,12 @@ export async function updateLeaderboardLoanDetails(
       submissionData.lender = lender;
       submissionData.investor = lender;
       submissionData.leadSource = leadSource;
+      if (isLeadBuySource && leadVendor) {
+        submissionData.leadVendor = leadVendor;
+      } else {
+        delete submissionData.leadVendor;
+        delete submissionData.lead_vendor;
+      }
       if (revenue !== null) {
         submissionData.projectedRevenue = formatMoneyForSubmission(revenue);
       }
@@ -1312,6 +1349,7 @@ export async function updateLeaderboardLoanDetails(
               revenue,
               lender,
               leadSource,
+              leadVendor: isLeadBuySource ? leadVendor : null,
             },
           }),
         },

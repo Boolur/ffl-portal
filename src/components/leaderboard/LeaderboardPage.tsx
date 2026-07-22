@@ -28,6 +28,7 @@ import {
   type LeaderboardEditInput,
   type LeaderboardFallOutReport,
   type LeaderboardLeadSourceRow,
+  type LeaderboardLeadVendorOption,
   type LeaderboardLenderRow,
   type LeaderboardMetric,
   type LeaderboardLoanOfficerOption,
@@ -65,6 +66,7 @@ type SortKey =
   | 'fundings.units'
   | 'fundings.revenue';
 type LeaderboardColumnId = SortKey;
+type DetailSortKey = 'loan' | 'milestone' | 'amount' | 'revenue' | 'details' | 'occurredAt';
 type LeaderboardView = 'loanOfficers' | 'lenders' | 'leadSources';
 type DisplayLeaderboardRow = {
   id: string;
@@ -641,6 +643,15 @@ function sortValue(row: DisplayLeaderboardRow, key: SortKey) {
   return row[milestone][field];
 }
 
+function detailSortValue(row: LeaderboardDetailRow, key: DetailSortKey) {
+  if (key === 'loan') return `${row.borrowerName} ${row.loanNumber}`;
+  if (key === 'milestone') return `${row.milestoneLabel} ${formatStatus(row.status)}`;
+  if (key === 'amount') return row.amount ?? Number.NEGATIVE_INFINITY;
+  if (key === 'revenue') return row.revenue ?? Number.NEGATIVE_INFINITY;
+  if (key === 'details') return row.lender || row.leadSource || row.program || '';
+  return new Date(row.occurredAt).getTime();
+}
+
 function emptyMetric() {
   return { volume: 0, units: 0, revenue: 0 };
 }
@@ -892,6 +903,47 @@ function SortHeader({
         active ? 'text-slate-900' : 'text-slate-500'
       )}
       aria-label={`Sort by ${label}`}
+    >
+      {label}
+      <ChevronDown
+        className={cx(
+          'h-3 w-3 transition',
+          active ? 'opacity-100' : 'opacity-0',
+          active && direction === 'asc' && 'rotate-180'
+        )}
+      />
+    </button>
+  );
+}
+
+function DetailSortHeader({
+  label,
+  sortKey,
+  activeKey,
+  direction,
+  align = 'center',
+  onSort,
+}: {
+  label: string;
+  sortKey: DetailSortKey;
+  activeKey: DetailSortKey;
+  direction: SortDirection;
+  align?: 'left' | 'center' | 'right';
+  onSort: (key: DetailSortKey) => void;
+}) {
+  const active = sortKey === activeKey;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      className={cx(
+        'inline-flex items-center gap-1 rounded-md px-1 py-0.5 font-bold transition hover:bg-slate-200/70 hover:text-slate-800',
+        align === 'center' && 'mx-auto',
+        align === 'right' && 'ml-auto',
+        active ? 'text-slate-900' : 'text-slate-500'
+      )}
+      aria-label={`Sort details by ${label}`}
     >
       {label}
       <ChevronDown
@@ -1721,6 +1773,7 @@ export function LeaderboardPage({ initialReport }: Props) {
         <LeaderboardEditModal
           row={editingRow}
           loanOfficerOptions={report.loanOfficerOptions}
+          leadVendorOptions={report.leadVendorOptions}
           onApply={handleApplyEdit}
           onClose={() => setEditingRow(null)}
         />
@@ -1915,16 +1968,40 @@ function OfficerDetailsModal({
   onClose: () => void;
 }) {
   const [selectedMilestone, setSelectedMilestone] = useState<LeaderboardMilestoneKey | null>(null);
+  const [detailSort, setDetailSort] = useState<{ key: DetailSortKey; direction: SortDirection }>({
+    key: 'occurredAt',
+    direction: 'desc',
+  });
   const visibleRows = useMemo(
-    () => selectedMilestone
-      ? rows.filter((row) => row.milestone === selectedMilestone)
-      : rows,
-    [rows, selectedMilestone]
+    () => {
+      const filteredRows = selectedMilestone
+        ? rows.filter((row) => row.milestone === selectedMilestone)
+        : rows;
+      const multiplier = sortMultiplier(detailSort.direction);
+      return [...filteredRows].sort((a, b) => {
+        const aValue = detailSortValue(a, detailSort.key);
+        const bValue = detailSortValue(b, detailSort.key);
+        const primary =
+          typeof aValue === 'string' && typeof bValue === 'string'
+            ? compareText(aValue, bValue)
+            : Number(aValue) - Number(bValue);
+        if (primary !== 0) return primary * multiplier;
+        return new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime();
+      });
+    },
+    [detailSort.direction, detailSort.key, rows, selectedMilestone]
   );
   const selectedMilestoneLabel = selectedMilestone ? DETAIL_MILESTONE_LABELS[selectedMilestone] : null;
 
   function toggleMilestone(milestone: LeaderboardMilestoneKey) {
     setSelectedMilestone((current) => current === milestone ? null : milestone);
+  }
+
+  function updateDetailSort(key: DetailSortKey) {
+    setDetailSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
+    }));
   }
 
   return (
@@ -2003,12 +2080,24 @@ function OfficerDetailsModal({
           <table className="w-full min-w-[1040px] text-sm">
             <thead className="sticky top-0 z-[1] bg-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               <tr>
-                <th className="px-5 py-3 text-left">Loan</th>
-                <th className="px-5 py-3 text-center">Milestone</th>
-                <th className="px-5 py-3 text-right">Volume</th>
-                <th className="px-5 py-3 text-right">Revenue</th>
-                <th className="px-5 py-3 text-left">Details</th>
-                <th className="px-5 py-3 text-right">Date</th>
+                <th className="px-5 py-3 text-left">
+                  <DetailSortHeader label="Loan" sortKey="loan" activeKey={detailSort.key} direction={detailSort.direction} align="left" onSort={updateDetailSort} />
+                </th>
+                <th className="px-5 py-3 text-center">
+                  <DetailSortHeader label="Milestone" sortKey="milestone" activeKey={detailSort.key} direction={detailSort.direction} onSort={updateDetailSort} />
+                </th>
+                <th className="px-5 py-3 text-right">
+                  <DetailSortHeader label="Volume" sortKey="amount" activeKey={detailSort.key} direction={detailSort.direction} align="right" onSort={updateDetailSort} />
+                </th>
+                <th className="px-5 py-3 text-right">
+                  <DetailSortHeader label="Revenue" sortKey="revenue" activeKey={detailSort.key} direction={detailSort.direction} align="right" onSort={updateDetailSort} />
+                </th>
+                <th className="px-5 py-3 text-left">
+                  <DetailSortHeader label="Details" sortKey="details" activeKey={detailSort.key} direction={detailSort.direction} align="left" onSort={updateDetailSort} />
+                </th>
+                <th className="px-5 py-3 text-right">
+                  <DetailSortHeader label="Date" sortKey="occurredAt" activeKey={detailSort.key} direction={detailSort.direction} align="right" onSort={updateDetailSort} />
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -2089,14 +2178,18 @@ function OfficerDetailsModal({
 function LeaderboardEditModal({
   row,
   loanOfficerOptions,
+  leadVendorOptions,
   onApply,
   onClose,
 }: {
   row: LeaderboardDetailRow;
   loanOfficerOptions: LeaderboardLoanOfficerOption[];
+  leadVendorOptions: LeaderboardLeadVendorOption[];
   onApply: (input: LeaderboardEditInput) => Promise<{ success: boolean; error?: string }>;
   onClose: () => void;
 }) {
+  const initialLeadSource = parseLeadSourceGroup(row.leadSource || '');
+  const initialLeadSourceIsLeadBuy = normalizeGroupKey(initialLeadSource.group) === normalizeGroupKey('Lead Buy');
   const [form, setForm] = useState({
     borrowerName: row.borrowerName || '',
     loanNumber: row.loanNumber || '',
@@ -2105,16 +2198,24 @@ function LeaderboardEditModal({
     loanAmount: moneyInputValue(row.amount),
     revenue: moneyInputValue(row.revenue),
     lender: row.lender || '',
-    leadSource: row.leadSource || '',
+    leadSource: initialLeadSource.group || '',
+    leadVendor: row.leadVendor || (initialLeadSourceIsLeadBuy ? initialLeadSource.child || '' : ''),
     reason: '',
   });
   const [error, setError] = useState<string | null>(null);
   const [isSaving, startSaving] = useTransition();
   const tracksRevenue =
     row.milestone === 'plusOne' || row.milestone === 'processing' || row.milestone === 'fundings';
+  const isLeadBuySelected = normalizeGroupKey(form.leadSource) === normalizeGroupKey('Lead Buy');
 
   function updateField(key: keyof typeof form, value: string) {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => {
+      const next = { ...current, [key]: value };
+      if (key === 'leadSource' && normalizeGroupKey(value) !== normalizeGroupKey('Lead Buy')) {
+        next.leadVendor = '';
+      }
+      return next;
+    });
   }
 
   function handleApply() {
@@ -2133,6 +2234,7 @@ function LeaderboardEditModal({
         revenue: form.revenue,
         lender: form.lender,
         leadSource: form.leadSource,
+        leadVendor: form.leadVendor || null,
         reason: form.reason,
       });
       if (!result.success) {
@@ -2245,6 +2347,23 @@ function LeaderboardEditModal({
                 <option value={form.leadSource}>{form.leadSource}</option>
               )}
             </EditSelect>
+            {isLeadBuySelected && (
+              <EditSelect
+                label="Lead vendor"
+                value={form.leadVendor}
+                onChange={(value) => updateField('leadVendor', value)}
+              >
+                <option value="">Select lead vendor</option>
+                {leadVendorOptions.map((vendor) => (
+                  <option key={vendor.id} value={vendor.name}>
+                    {vendor.name}
+                  </option>
+                ))}
+                {form.leadVendor && !leadVendorOptions.some((vendor) => vendor.name === form.leadVendor) && (
+                  <option value={form.leadVendor}>{form.leadVendor}</option>
+                )}
+              </EditSelect>
+            )}
             <div className="md:col-span-2">
               <EditField
                 label="Reason / note for audit log"
