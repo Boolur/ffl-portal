@@ -718,7 +718,8 @@ function addLeadSourceDisplayMetrics(target: DisplayLeaderboardRow, source: Disp
 
 function buildLeadSourceDisplayRows(
   rows: DisplayLeaderboardRow[],
-  expandedGroups: Set<string>
+  expandedGroups: Set<string>,
+  compareRows: (a: DisplayLeaderboardRow, b: DisplayLeaderboardRow) => number
 ): DisplayLeaderboardRow[] {
   const grouped = new Map<string, {
     parent: DisplayLeaderboardRow;
@@ -778,7 +779,7 @@ function buildLeadSourceDisplayRows(
     group.parent.childIds = group.children.map((child) => child.id);
     const rowsForGroup: DisplayLeaderboardRow[] = [group.parent];
     if (expandedGroups.has(group.parent.id)) {
-      rowsForGroup.push(...group.children.sort((a, b) => a.label.localeCompare(b.label)));
+      rowsForGroup.push(...group.children.sort(compareRows));
     }
     return rowsForGroup;
   });
@@ -1236,7 +1237,7 @@ export function LeaderboardPage({ initialReport }: Props) {
 
   const sortedRows = useMemo(() => {
     const multiplier = sortMultiplier(sort.direction);
-    const sortedBaseRows = [...activeRows].sort((a, b) => {
+    const compareRows = (a: DisplayLeaderboardRow, b: DisplayLeaderboardRow) => {
       const aValue = sortValue(a, sort.key);
       const bValue = sortValue(b, sort.key);
       const primary =
@@ -1245,9 +1246,10 @@ export function LeaderboardPage({ initialReport }: Props) {
           : Number(aValue) - Number(bValue);
       if (primary !== 0) return primary * multiplier;
       return compareText(a.label, b.label);
-    });
+    };
+    const sortedBaseRows = [...activeRows].sort(compareRows);
     if (view === 'leadSources') {
-      return buildLeadSourceDisplayRows(sortedBaseRows, expandedLeadSourceGroups);
+      return buildLeadSourceDisplayRows(sortedBaseRows, expandedLeadSourceGroups, compareRows);
     }
     return sortedBaseRows;
   }, [activeRows, expandedLeadSourceGroups, sort.direction, sort.key, view]);

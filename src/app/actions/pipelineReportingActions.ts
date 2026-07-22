@@ -471,16 +471,44 @@ function projectedRevenueFromJson(value: unknown) {
   return money(raw);
 }
 
+function leadSourceAliasKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function canonicalLeadBuyVendor(value: string | null) {
+  if (!value) return null;
+  const key = leadSourceAliasKey(value);
+  if (key === 'freerateupdate' || key === 'fru') return 'FreeRateUpdate';
+  if (key === 'leadpoint') return 'LeadPoint';
+  if (key === 'lendingtree') return 'Lending Tree';
+  return value.trim();
+}
+
+function canonicalLeadSourceLabel(value: string | null) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  const separators = [' - ', ' – ', ' — ', ': ', ' / ', ' | '];
+  const leadBuyKey = leadSourceAliasKey('Lead Buy');
+  for (const separator of separators) {
+    const [source, ...rest] = trimmed.split(separator);
+    if (rest.length && leadSourceAliasKey(source) === leadBuyKey) {
+      const vendor = canonicalLeadBuyVendor(rest.join(separator).trim());
+      return vendor ? `Lead Buy - ${vendor}` : 'Lead Buy';
+    }
+  }
+  return leadSourceAliasKey(trimmed) === leadBuyKey ? 'Lead Buy' : trimmed;
+}
+
 function leadSourceFromJson(value: unknown) {
   const data = submissionObject(value);
   if (!data) return null;
   const raw = data.leadSource ?? data.lead_source;
   const vendor = data.leadVendor ?? data.lead_vendor;
   const source = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
-  const leadVendor = typeof vendor === 'string' && vendor.trim() ? vendor.trim() : null;
-  if (source === 'Lead Buy' && leadVendor) return `${source} - ${leadVendor}`;
+  const leadVendor = canonicalLeadBuyVendor(typeof vendor === 'string' && vendor.trim() ? vendor.trim() : null);
+  if (source && leadSourceAliasKey(source) === leadSourceAliasKey('Lead Buy') && leadVendor) return `Lead Buy - ${leadVendor}`;
   if (!source && leadVendor) return `Lead Buy - ${leadVendor}`;
-  return source;
+  return canonicalLeadSourceLabel(source);
 }
 
 function lenderFromJson(value: unknown) {
@@ -806,8 +834,12 @@ function buildPipelineGroupRows(
   const groups = new Map<string, PipelineGroupRow>();
   for (const row of rows) {
     const rawLabel = groupBy === 'lender' ? row.lender : row.leadSource;
-    const label = rawLabel?.trim() || (groupBy === 'lender' ? 'Unknown Lender' : 'Unknown Lead Source');
-    const key = label.toLowerCase();
+    const label = groupBy === 'leadSource'
+      ? canonicalLeadSourceLabel(rawLabel?.trim() || null) || 'Unknown Lead Source'
+      : rawLabel?.trim() || 'Unknown Lender';
+    const key = groupBy === 'leadSource'
+      ? leadSourceAliasKey(label)
+      : label.toLowerCase();
     const group =
       groups.get(key) ??
       {
@@ -838,8 +870,8 @@ function buildPipelineGroupRows(
 
   return Array.from(groups.values()).sort(
     (a, b) =>
-      b.totalCount - a.totalCount ||
       b.volumeTotal - a.volumeTotal ||
+      b.totalCount - a.totalCount ||
       a.label.localeCompare(b.label)
   );
 }

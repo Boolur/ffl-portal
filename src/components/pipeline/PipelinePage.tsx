@@ -851,7 +851,11 @@ function buildPipelineLeadSourceDisplayRows(
     group.parent.childCount = group.children.length;
     const rowsForGroup: PipelineDisplayGroupRow[] = [group.parent];
     if (expandedGroups.has(group.parent.key)) {
-      rowsForGroup.push(...group.children.sort((a, b) => a.label.localeCompare(b.label)));
+      rowsForGroup.push(...group.children.sort((a, b) =>
+        b.volumeTotal - a.volumeTotal ||
+        b.totalCount - a.totalCount ||
+        a.label.localeCompare(b.label)
+      ));
     }
     return rowsForGroup;
   });
