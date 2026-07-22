@@ -1275,7 +1275,7 @@ export function LeaderboardPage({ initialReport }: Props) {
 
   function canOpenDetails(row: DisplayLeaderboardRow) {
     if (row.isLeadSourceGroup) return false;
-    return report.canEdit || (row.source === 'loanOfficers' && row.id === report.currentUserId);
+    return report.canViewAllDetails || (row.source === 'loanOfficers' && row.id === report.currentUserId);
   }
 
   const tableWidth = useMemo(
@@ -1353,7 +1353,7 @@ export function LeaderboardPage({ initialReport }: Props) {
 
   const teamFilterLabel =
     selectedTeams.length === 0
-      ? report.canEdit
+      ? report.canViewAllDetails
         ? 'Click a loan officer to view credited loans.'
         : 'Click your highlighted row to view your credited loans.'
       : selectedTeams.length === 1
@@ -1497,11 +1497,11 @@ export function LeaderboardPage({ initialReport }: Props) {
             <p className="mt-1 text-sm font-medium text-slate-500">
               {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. {
                 view === 'lenders'
-                  ? report.canEdit
+                  ? report.canViewAllDetails
                     ? 'Click a lender to view submitted loans.'
                     : 'Loan details are only available from your highlighted loan officer row.'
                   : view === 'leadSources'
-                    ? report.canEdit
+                    ? report.canViewAllDetails
                       ? 'Click a lead source to view submitted loans.'
                       : 'Loan details are only available from your highlighted loan officer row.'
                   : teamFilterLabel

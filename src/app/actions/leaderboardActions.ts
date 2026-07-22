@@ -107,6 +107,7 @@ export type LeaderboardReport = {
   };
   generatedAt: string;
   canEdit: boolean;
+  canViewAllDetails: boolean;
   currentUserId: string;
   rows: LeaderboardOfficerRow[];
   lenderRows: LeaderboardLenderRow[];
@@ -817,6 +818,7 @@ export async function getLeaderboardReport(
       b.processing.volume - a.processing.volume ||
       a.leadSourceName.localeCompare(b.leadSourceName)
   );
+  const canViewAllDetails = isAdminUser || role === UserRole.LOA;
 
   return {
     filters: {
@@ -826,6 +828,7 @@ export async function getLeaderboardReport(
     },
     generatedAt: new Date().toISOString(),
     canEdit: isAdminUser,
+    canViewAllDetails,
     currentUserId: userId || '',
     rows,
     lenderRows,
@@ -845,7 +848,7 @@ export async function getLeaderboardReport(
       email: officer.email,
     })),
     detailRows: detailRows
-      .filter((row) => isAdminUser || row.creditedLoanOfficerId === userId)
+      .filter((row) => canViewAllDetails || row.creditedLoanOfficerId === userId)
       .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),
     totals: {
       plusOne: metricTotals(rows, 'plusOne'),
