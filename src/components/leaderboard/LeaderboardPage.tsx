@@ -1042,7 +1042,7 @@ export function LeaderboardPage({ initialReport }: Props) {
   const [editingRow, setEditingRow] = useState<LeaderboardDetailRow | null>(null);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
-    key: 'plusOne.volume',
+    key: 'processing.volume',
     direction: 'desc',
   });
   const [error, setError] = useState<string | null>(null);
