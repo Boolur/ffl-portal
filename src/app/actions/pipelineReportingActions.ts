@@ -60,6 +60,19 @@ export type PipelineTeamRow = {
   pullThroughRate: number | null;
 };
 
+export type PipelineGroupRow = {
+  key: string;
+  label: string;
+  totalCount: number;
+  volumeTotal: number;
+  revenueTotal: number;
+  plusOne: number;
+  disclosures: number;
+  processing: number;
+  fundings: number;
+  latestActivityAt: string | null;
+};
+
 export type PipelineBoardStageMetrics = {
   plusOne: {
     volumeTotal: number;
@@ -159,6 +172,8 @@ export type PipelineReport = {
   boardMetrics: PipelineBoardStageMetrics;
   trend: PipelineTrendBucket[];
   teamRows: PipelineTeamRow[];
+  lenderRows: PipelineGroupRow[];
+  leadSourceRows: PipelineGroupRow[];
   recentRows: PipelineMilestoneRow[];
   bucketRows: Record<PipelineMilestoneKey, PipelineMilestoneRow[]>;
 };
@@ -460,6 +475,18 @@ function leadSourceFromJson(value: unknown) {
   const data = submissionObject(value);
   if (!data) return null;
   const raw = data.leadSource ?? data.lead_source;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+function lenderFromJson(value: unknown) {
+  const data = submissionObject(value);
+  if (!data) return null;
+  const raw =
+    data.lender ??
+    data.investor ??
+    data.investorName ??
+    data.lenderName ??
+    data.productProviderName;
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
@@ -767,6 +794,51 @@ function sharedLoanOfficerNames(loan: {
   ) as string[];
 }
 
+function buildPipelineGroupRows(
+  rows: PipelineMilestoneRow[],
+  groupBy: 'lender' | 'leadSource'
+): PipelineGroupRow[] {
+  const groups = new Map<string, PipelineGroupRow>();
+  for (const row of rows) {
+    const rawLabel = groupBy === 'lender' ? row.lender : row.leadSource;
+    const label = rawLabel?.trim() || (groupBy === 'lender' ? 'Unknown Lender' : 'Unknown Lead Source');
+    const key = label.toLowerCase();
+    const group =
+      groups.get(key) ??
+      {
+        key,
+        label,
+        totalCount: 0,
+        volumeTotal: 0,
+        revenueTotal: 0,
+        plusOne: 0,
+        disclosures: 0,
+        processing: 0,
+        fundings: 0,
+        latestActivityAt: null,
+      };
+
+    group.totalCount += 1;
+    group[row.milestone] += 1;
+    group.volumeTotal += row.amount || 0;
+    group.revenueTotal += row.revenue || 0;
+    if (
+      !group.latestActivityAt ||
+      new Date(row.occurredAt).getTime() > new Date(group.latestActivityAt).getTime()
+    ) {
+      group.latestActivityAt = row.occurredAt;
+    }
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.values()).sort(
+    (a, b) =>
+      b.totalCount - a.totalCount ||
+      b.volumeTotal - a.volumeTotal ||
+      a.label.localeCompare(b.label)
+  );
+}
+
 export async function getPipelineReport(filters: PipelineReportFilters = {}): Promise<PipelineReport> {
   const actor = await assertPipelineActor();
   const canViewAll = actor.role === UserRole.MANAGER || isAdmin(actor.role);
@@ -1032,7 +1104,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         amount: money(task.loan.amount),
         revenue: projectedRevenueFromJson(task.submissionData),
         leadSource: leadSourceFromJson(task.submissionData),
-        lender: null,
+        lender: lenderFromJson(task.submissionData),
         status: task.status,
         occurredAt: task.createdAt.toISOString(),
         updateSignal: taskUpdateSignal(task),
@@ -1113,7 +1185,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         amount: money(task.loan.amount),
         revenue: projectedRevenueFromJson(task.submissionData),
         leadSource: leadSourceFromJson(task.submissionData),
-        lender: null,
+        lender: lenderFromJson(task.submissionData),
         status: task.status,
         occurredAt: task.createdAt.toISOString(),
         updateSignal: taskUpdateSignal(task),
@@ -1179,6 +1251,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     processing: allTaskRows.filter((row) => row.milestone === 'processing').slice(0, 100),
     fundings: allFundingRows.slice(0, 100),
   };
+  const allPipelineRows = [...allTaskRows, ...allFundingRows];
 
   return {
     filters: {
@@ -1198,6 +1271,8 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     boardMetrics,
     trend,
     teamRows,
+    lenderRows: buildPipelineGroupRows(allPipelineRows, 'lender'),
+    leadSourceRows: buildPipelineGroupRows(allPipelineRows, 'leadSource'),
     recentRows,
     bucketRows,
   };

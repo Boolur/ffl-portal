@@ -29,6 +29,8 @@ type Props = {
   initialReport: PipelineReport;
 };
 
+type PipelineBoardView = 'pipeline' | 'lenders' | 'leadSources';
+
 type PipelineChecklistStatus =
   | 'GREEN_CHECK'
   | 'RED_X'
@@ -138,6 +140,12 @@ const BOARD_METRIC_SURFACES: Record<PipelineMilestoneKey, {
 const REVIEWED_UPDATES_STORAGE_KEY = 'ffl:pipeline-reviewed-updates';
 const PORTAL_TIME_ZONE = 'America/Los_Angeles';
 
+const BOARD_VIEW_OPTIONS: Array<{ value: PipelineBoardView; label: string }> = [
+  { value: 'pipeline', label: 'Pipeline Board' },
+  { value: 'lenders', label: 'Lender Board' },
+  { value: 'leadSources', label: 'Lead Source Board' },
+];
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
 }
@@ -234,6 +242,7 @@ function loadReviewedUpdates() {
 export function PipelinePage({ initialReport }: Props) {
   const router = useRouter();
   const [report, setReport] = useState(initialReport);
+  const [boardView, setBoardView] = useState<PipelineBoardView>('pipeline');
   const [preset, setPreset] = useState<PipelineRangePreset>(initialReport.filters.preset);
   const [startDate, setStartDate] = useState(dateInputValue(initialReport.filters.startDate));
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
@@ -397,15 +406,26 @@ export function PipelinePage({ initialReport }: Props) {
         </div>
       )}
 
+      <PipelineBoardViewSwitch view={boardView} onChange={setBoardView} />
+
       <section
         className="relative rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70"
         aria-busy={isPending}
       >
         <div className="flex flex-col gap-3 px-1 pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-slate-950">Client Pipeline Board</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-slate-950">
+              {boardView === 'pipeline'
+                ? 'Client Pipeline Board'
+                : boardView === 'lenders'
+                  ? 'Lender Board'
+                  : 'Lead Source Board'}
+            </h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. Click a client card to view details.
+              {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}.
+              {boardView === 'pipeline'
+                ? ' Click a client card to view details.'
+                : ' Ranked by the same visible Pipeline activity in this date range.'}
             </p>
           </div>
           <span className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">
@@ -413,76 +433,85 @@ export function PipelinePage({ initialReport }: Props) {
           </span>
         </div>
 
-        <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <BoardMetricCard
-            stage="plusOne"
-            title="+1s"
-            Icon={Home}
-            count={report.totals.plusOne}
-            primaryLabel="Volume"
-            primaryValue={formatCurrency(report.boardMetrics.plusOne.volumeTotal)}
-            secondaryLabel="Revenue"
-            secondaryValue={formatCurrency(report.boardMetrics.plusOne.revenueTotal)}
-          />
-          <BoardMetricCard
-            stage="disclosures"
-            title="Disclosures"
-            Icon={ClipboardCheck}
-            count={report.totals.disclosures}
-            primaryLabel="Volume"
-            primaryValue={formatCurrency(report.boardMetrics.disclosures.volumeTotal)}
-            secondaryLabel="Units"
-            secondaryValue={formatNumber(report.boardMetrics.disclosures.units)}
-          />
-          <BoardMetricCard
-            stage="processing"
-            title="Submitted to Processing"
-            Icon={CheckCircle2}
-            count={report.totals.processing}
-            primaryLabel="Volume"
-            primaryValue={formatCurrency(report.boardMetrics.processing.volumeTotal)}
-            secondaryLabel="Revenue"
-            secondaryValue={formatCurrency(report.boardMetrics.processing.revenueTotal)}
-          />
-          <BoardMetricCard
-            stage="fundings"
-            title="Fundings"
-            Icon={CircleDollarSign}
-            count={report.totals.fundings}
-            primaryLabel="Volume"
-            primaryValue={formatCurrency(report.boardMetrics.fundings.volumeTotal)}
-            secondaryLabel="Revenue"
-            secondaryValue={formatCurrency(report.boardMetrics.fundings.revenueTotal)}
-          />
-        </div>
+        {boardView === 'pipeline' ? (
+          <>
+            <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <BoardMetricCard
+                stage="plusOne"
+                title="+1s"
+                Icon={Home}
+                count={report.totals.plusOne}
+                primaryLabel="Volume"
+                primaryValue={formatCurrency(report.boardMetrics.plusOne.volumeTotal)}
+                secondaryLabel="Revenue"
+                secondaryValue={formatCurrency(report.boardMetrics.plusOne.revenueTotal)}
+              />
+              <BoardMetricCard
+                stage="disclosures"
+                title="Disclosures"
+                Icon={ClipboardCheck}
+                count={report.totals.disclosures}
+                primaryLabel="Volume"
+                primaryValue={formatCurrency(report.boardMetrics.disclosures.volumeTotal)}
+                secondaryLabel="Units"
+                secondaryValue={formatNumber(report.boardMetrics.disclosures.units)}
+              />
+              <BoardMetricCard
+                stage="processing"
+                title="Submitted to Processing"
+                Icon={CheckCircle2}
+                count={report.totals.processing}
+                primaryLabel="Volume"
+                primaryValue={formatCurrency(report.boardMetrics.processing.volumeTotal)}
+                secondaryLabel="Revenue"
+                secondaryValue={formatCurrency(report.boardMetrics.processing.revenueTotal)}
+              />
+              <BoardMetricCard
+                stage="fundings"
+                title="Fundings"
+                Icon={CircleDollarSign}
+                count={report.totals.fundings}
+                primaryLabel="Volume"
+                primaryValue={formatCurrency(report.boardMetrics.fundings.volumeTotal)}
+                secondaryLabel="Revenue"
+                secondaryValue={formatCurrency(report.boardMetrics.fundings.revenueTotal)}
+              />
+            </div>
 
-        <div className="grid gap-5 xl:grid-cols-4">
-          {BUCKETS.map((bucket) => {
-            const rows = report.bucketRows[bucket.key] || [];
-            const surface = MILESTONE_SURFACES[bucket.key];
-            return (
-              <div key={bucket.key} className={cx('flex min-h-[360px] flex-col overflow-hidden rounded-[24px] border shadow-sm', surface.column)}>
-                <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-4">
-                  {rows.length === 0 ? (
-                    <div className="flex min-h-[92px] items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/70 p-4 text-center text-sm font-medium text-slate-500 shadow-sm">
-                      No clients in this bucket for the selected range.
+            <div className="grid gap-5 xl:grid-cols-4">
+              {BUCKETS.map((bucket) => {
+                const rows = report.bucketRows[bucket.key] || [];
+                const surface = MILESTONE_SURFACES[bucket.key];
+                return (
+                  <div key={bucket.key} className={cx('flex min-h-[360px] flex-col overflow-hidden rounded-[24px] border shadow-sm', surface.column)}>
+                    <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-4">
+                      {rows.length === 0 ? (
+                        <div className="flex min-h-[92px] items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/70 p-4 text-center text-sm font-medium text-slate-500 shadow-sm">
+                          No clients in this bucket for the selected range.
+                        </div>
+                      ) : (
+                        rows.map((row) => (
+                          <PipelineCard
+                            key={`${row.milestone}-${row.id}`}
+                            row={row}
+                            surface={surface}
+                            signal={visibleUpdateSignal(row, reviewedUpdates)}
+                            onSelect={openBorrowerDetails}
+                          />
+                        ))
+                      )}
                     </div>
-                  ) : (
-                    rows.map((row) => (
-                      <PipelineCard
-                        key={`${row.milestone}-${row.id}`}
-                        row={row}
-                        surface={surface}
-                        signal={visibleUpdateSignal(row, reviewedUpdates)}
-                        onSelect={openBorrowerDetails}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <PipelineGroupBoard
+            rows={boardView === 'lenders' ? report.lenderRows : report.leadSourceRows}
+            emptyLabel={boardView === 'lenders' ? 'No lender activity in this range yet.' : 'No lead source activity in this range yet.'}
+          />
+        )}
         {isPending && (
           <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[28px] bg-white/75 backdrop-blur-[2px]">
             <div
@@ -653,6 +682,112 @@ function BoardMetricCard({
             {secondaryLabel}
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PipelineBoardViewSwitch({
+  view,
+  onChange,
+}: {
+  view: PipelineBoardView;
+  onChange: (view: PipelineBoardView) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-start gap-2">
+      <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm shadow-slate-200/60">
+        {BOARD_VIEW_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={cx(
+              'rounded-full px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200',
+              view === option.value
+                ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PipelineGroupBoard({
+  rows,
+  emptyLabel,
+}: {
+  rows: PipelineReport['lenderRows'];
+  emptyLabel: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm font-medium text-slate-500">
+        {emptyLabel}
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] text-left text-sm">
+          <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+            <tr>
+              <th className="px-5 py-3 font-bold">Name</th>
+              <th className="px-5 py-3 text-center font-bold">Total</th>
+              <th className="px-5 py-3 text-center font-bold">+1s</th>
+              <th className="px-5 py-3 text-center font-bold">Disclosures</th>
+              <th className="px-5 py-3 text-center font-bold">Processing</th>
+              <th className="px-5 py-3 text-center font-bold">Fundings</th>
+              <th className="px-5 py-3 text-right font-bold">Volume</th>
+              <th className="px-5 py-3 text-right font-bold">Revenue</th>
+              <th className="px-5 py-3 text-right font-bold">Latest</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => (
+              <tr key={row.key} className="transition hover:bg-slate-50/70">
+                <td className="px-5 py-4">
+                  <p className="font-bold text-slate-900">{row.label}</p>
+                  <p className="mt-0.5 text-xs font-medium text-slate-500">
+                    {formatNumber(row.totalCount)} visible milestone{row.totalCount === 1 ? '' : 's'}
+                  </p>
+                </td>
+                <td className="px-5 py-4 text-center font-semibold tabular-nums text-slate-700">{formatNumber(row.totalCount)}</td>
+                <td className="px-5 py-4 text-center">
+                  <span className={cx('inline-flex min-w-8 justify-center rounded-full border px-2 py-0.5 text-xs font-bold', MILESTONE_TONES.plusOne)}>
+                    {formatNumber(row.plusOne)}
+                  </span>
+                </td>
+                <td className="px-5 py-4 text-center">
+                  <span className={cx('inline-flex min-w-8 justify-center rounded-full border px-2 py-0.5 text-xs font-bold', MILESTONE_TONES.disclosures)}>
+                    {formatNumber(row.disclosures)}
+                  </span>
+                </td>
+                <td className="px-5 py-4 text-center">
+                  <span className={cx('inline-flex min-w-8 justify-center rounded-full border px-2 py-0.5 text-xs font-bold', MILESTONE_TONES.processing)}>
+                    {formatNumber(row.processing)}
+                  </span>
+                </td>
+                <td className="px-5 py-4 text-center">
+                  <span className={cx('inline-flex min-w-8 justify-center rounded-full border px-2 py-0.5 text-xs font-bold', MILESTONE_TONES.fundings)}>
+                    {formatNumber(row.fundings)}
+                  </span>
+                </td>
+                <td className="px-5 py-4 text-right font-semibold tabular-nums text-slate-700">{formatCurrency(row.volumeTotal)}</td>
+                <td className="px-5 py-4 text-right font-semibold tabular-nums text-slate-700">{formatCurrency(row.revenueTotal)}</td>
+                <td className="px-5 py-4 text-right text-slate-500">
+                  {row.latestActivityAt ? formatDate(row.latestActivityAt) : 'N/A'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
