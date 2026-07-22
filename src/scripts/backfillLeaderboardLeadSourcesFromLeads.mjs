@@ -6,10 +6,11 @@
  * because Lead Source was not mandatory when they were submitted. The leaderboard
  * then groups those rows under "Unspecified lead source".
  *
- * This script finds those unknown task lead sources and cross-references the full
- * Lead Distribution `Lead` table by borrower name + property/mailing address. If
- * a matching Lead Distribution record exists, the task can safely be labeled as
- * `Lead Buy`.
+ * This script finds those unknown task lead sources and first checks same-loan
+ * task history for evidence that Lead Buy + Lead Vendor was selected. It then
+ * cross-references the full Lead Distribution `Lead` table by borrower name +
+ * property/mailing address. If a safe match exists, the task can be labeled as
+ * `Lead Buy` and assigned the matched vendor.
  *
  * Usage (PowerShell):
  *   node src/scripts/backfillLeaderboardLeadSourcesFromLeads.mjs
@@ -223,6 +224,73 @@ function isUnknownLeadSource(value) {
   return UNKNOWN_LEAD_SOURCE_VALUES.has(normalized);
 }
 
+function leadSourceAliasKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function canonicalLeadBuyVendor(value) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  const key = leadSourceAliasKey(trimmed);
+  if (key === 'freerateupdate' || key === 'fru') return 'FreeRateUpdate';
+  if (key === 'leadpoint') return 'LeadPoint';
+  if (key === 'lendingtree') return 'Lending Tree';
+  return trimmed;
+}
+
+function leadBuyVendorFromSubmission(value) {
+  const submission = asSubmissionObject(value);
+  const rawSource = String(submission.leadSource ?? submission.lead_source ?? '').trim();
+  const rawVendor = String(submission.leadVendor ?? submission.lead_vendor ?? '').trim();
+  const sourceKey = leadSourceAliasKey(rawSource);
+  const leadBuyKey = leadSourceAliasKey('Lead Buy');
+
+  if (sourceKey === leadBuyKey && rawVendor) {
+    return canonicalLeadBuyVendor(rawVendor);
+  }
+
+  const separators = [' - ', ' – ', ' — ', ': ', ' / ', ' | '];
+  for (const separator of separators) {
+    const [source, ...rest] = rawSource.split(separator);
+    if (rest.length && leadSourceAliasKey(source) === leadBuyKey) {
+      return canonicalLeadBuyVendor(rawVendor || rest.join(separator).trim());
+    }
+  }
+
+  if (!rawSource && rawVendor) {
+    return canonicalLeadBuyVendor(rawVendor);
+  }
+
+  return null;
+}
+
+function buildSameLoanLeadBuyHistory(tasks) {
+  const grouped = new Map();
+  for (const task of tasks) {
+    const vendor = leadBuyVendorFromSubmission(task.submissionData);
+    if (!vendor || !task.loan?.id) continue;
+    const key = leadSourceAliasKey(vendor);
+    const existing = grouped.get(task.loan.id) || new Map();
+    if (!existing.has(key)) {
+      existing.set(key, {
+        vendor,
+        sourceTaskId: task.id,
+        sourceTaskKind: task.kind,
+        sourceTaskCreatedAt: task.createdAt,
+      });
+    }
+    grouped.set(task.loan.id, existing);
+  }
+
+  const history = new Map();
+  for (const [loanId, vendors] of grouped.entries()) {
+    if (vendors.size === 1) {
+      history.set(loanId, [...vendors.values()][0]);
+    }
+  }
+  return history;
+}
+
 function taskKindLabel(kind) {
   if (kind === TaskKind.SUBMIT_DISCLOSURES) return 'Disclosures';
   if (kind === TaskKind.SUBMIT_PROCESSING) return 'Processing';
@@ -310,7 +378,14 @@ async function main() {
 
   console.log(opts.apply ? '\nAPPLY MODE - writes enabled\n' : '\nDRY RUN - no writes (pass --apply to commit)\n');
 
-  const [leads, tasks] = await Promise.all([
+  const historyKinds = [
+    TaskKind.SUBMIT_PLUS_ONE,
+    TaskKind.SUBMIT_DISCLOSURES,
+    TaskKind.SUBMIT_PROCESSING,
+    TaskKind.SUBMIT_QC,
+  ];
+
+  const [leads, tasks, historyTasks] = await Promise.all([
     prisma.lead.findMany({
       select: {
         id: true,
@@ -356,11 +431,29 @@ async function main() {
       orderBy: { createdAt: 'desc' },
       ...(opts.limit > 0 ? { take: opts.limit } : {}),
     }),
+    prisma.task.findMany({
+      where: { kind: { in: historyKinds } },
+      select: {
+        id: true,
+        kind: true,
+        createdAt: true,
+        submissionData: true,
+        loan: {
+          select: {
+            id: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
   ]);
 
   const indexes = buildLeadIndexes(leads);
+  const sameLoanLeadBuyHistory = buildSameLoanLeadBuyHistory(historyTasks);
   const unknownTasks = [];
   const matched = [];
+  const matchedFromHistory = [];
+  const matchedFromLeads = [];
   const unmatched = [];
   const skippedKnown = [];
 
@@ -372,6 +465,14 @@ async function main() {
     }
 
     unknownTasks.push(task);
+    const historyMatch = sameLoanLeadBuyHistory.get(task.loan.id);
+    if (historyMatch) {
+      const entry = { task, source: 'same-loan-history', history: historyMatch };
+      matched.push(entry);
+      matchedFromHistory.push(entry);
+      continue;
+    }
+
     const match = findLeadMatch(task, indexes);
     if (!match) {
       unmatched.push(task);
@@ -379,14 +480,20 @@ async function main() {
     }
 
     const lead = match.matches[0];
-    matched.push({ task, match, lead });
+    const entry = { task, source: 'lead-distribution', match, lead };
+    matched.push(entry);
+    matchedFromLeads.push(entry);
   }
 
   console.log(`Lead Distribution rows indexed: ${leads.length}`);
+  console.log(`Same-loan history rows scanned: ${historyTasks.length}`);
+  console.log(`Same-loan Lead Buy histories:   ${sameLoanLeadBuyHistory.size}`);
   console.log(`Submission tasks scanned:       ${tasks.length}`);
   console.log(`Known lead source skipped:      ${skippedKnown.length}`);
   console.log(`Unknown lead source tasks:      ${unknownTasks.length}`);
-  console.log(`Matched to Lead Distribution:   ${matched.length}`);
+  console.log(`Matched from same-loan history: ${matchedFromHistory.length}`);
+  console.log(`Matched to Lead Distribution:   ${matchedFromLeads.length}`);
+  console.log(`Total safe matches:             ${matched.length}`);
   console.log(`Unmatched unknown tasks:        ${unmatched.length}`);
 
   const byKind = new Map();
@@ -403,10 +510,17 @@ async function main() {
 
   console.log('\nSample matches:');
   for (const entry of matched.slice(0, 20)) {
-    console.log(
-      `  ${taskKindLabel(entry.task.kind)} | ${entry.task.loan.loanNumber} | ${entry.task.loan.borrowerName} | ` +
-      `${entry.match.type} | lead=${entry.lead.id} vendor=${entry.lead.vendor?.name || 'Unknown'}`
-    );
+    if (entry.source === 'same-loan-history') {
+      console.log(
+        `  ${taskKindLabel(entry.task.kind)} | ${entry.task.loan.loanNumber} | ${entry.task.loan.borrowerName} | ` +
+        `same-loan-history from ${taskKindLabel(entry.history.sourceTaskKind)} | vendor=${entry.history.vendor}`
+      );
+    } else {
+      console.log(
+        `  ${taskKindLabel(entry.task.kind)} | ${entry.task.loan.loanNumber} | ${entry.task.loan.borrowerName} | ` +
+        `${entry.match.type} | lead=${entry.lead.id} vendor=${entry.lead.vendor?.name || 'Unknown'}`
+      );
+    }
   }
 
   if (!opts.apply) {
@@ -420,14 +534,20 @@ async function main() {
     const updatedSubmission = {
       ...submission,
       leadSource: 'Lead Buy',
-      ...(submission.leadVendor ? {} : { leadVendor: entry.lead.vendor?.name || 'Lead Distribution' }),
+      leadVendor: entry.source === 'same-loan-history'
+        ? entry.history.vendor
+        : entry.lead.vendor?.name || 'Lead Distribution',
       leadSourceBackfill: {
-        source: 'Lead Distribution',
+        source: entry.source === 'same-loan-history' ? 'Same Loan Task History' : 'Lead Distribution',
         script: 'backfillLeaderboardLeadSourcesFromLeads.mjs',
-        matchedLeadId: entry.lead.id,
-        matchedVendorLeadId: entry.lead.vendorLeadId || null,
-        matchedVendorName: entry.lead.vendor?.name || null,
-        matchType: entry.match.type,
+        matchedLeadId: entry.source === 'lead-distribution' ? entry.lead.id : null,
+        matchedVendorLeadId: entry.source === 'lead-distribution' ? entry.lead.vendorLeadId || null : null,
+        matchedVendorName: entry.source === 'same-loan-history'
+          ? entry.history.vendor
+          : entry.lead.vendor?.name || null,
+        matchedHistoryTaskId: entry.source === 'same-loan-history' ? entry.history.sourceTaskId : null,
+        matchedHistoryTaskKind: entry.source === 'same-loan-history' ? entry.history.sourceTaskKind : null,
+        matchType: entry.source === 'same-loan-history' ? 'same-loan-lead-buy-vendor' : entry.match.type,
         matchedAt: new Date().toISOString(),
       },
     };
