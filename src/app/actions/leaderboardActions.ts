@@ -107,6 +107,7 @@ export type LeaderboardReport = {
   };
   generatedAt: string;
   canEdit: boolean;
+  currentUserId: string;
   rows: LeaderboardOfficerRow[];
   lenderRows: LeaderboardLenderRow[];
   leadSourceRows: LeaderboardLeadSourceRow[];
@@ -566,7 +567,7 @@ function getOrCreateLeadSourceRow(map: Map<string, LeaderboardLeadSourceRow>, ra
 export async function getLeaderboardReport(
   filters: LeaderboardReportFilters = {}
 ): Promise<LeaderboardReport> {
-  const { session, role, isAdminUser } = await getLeaderboardSessionUser();
+  const { session, role, isAdminUser, userId } = await getLeaderboardSessionUser();
   if (
     !session?.user?.id ||
     !canAccessLeaderboardPortal({
@@ -796,6 +797,7 @@ export async function getLeaderboardReport(
     },
     generatedAt: new Date().toISOString(),
     canEdit: isAdminUser,
+    currentUserId: userId || '',
     rows,
     lenderRows,
     leadSourceRows,
@@ -813,9 +815,9 @@ export async function getLeaderboardReport(
       name: officer.name,
       email: officer.email,
     })),
-    detailRows: detailRows.sort(
-      (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
-    ),
+    detailRows: detailRows
+      .filter((row) => isAdminUser || row.creditedLoanOfficerId === userId)
+      .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),
     totals: {
       plusOne: metricTotals(rows, 'plusOne'),
       disclosures: metricTotals(rows, 'disclosures'),

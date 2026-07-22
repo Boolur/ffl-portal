@@ -15,6 +15,7 @@ import {
   RefreshCw,
   RotateCcw,
   Trophy,
+  UserCircle,
   Users2,
   X,
 } from 'lucide-react';
@@ -1127,6 +1128,10 @@ export function LeaderboardPage({ initialReport }: Props) {
     return activeDetailRows.filter((row) => row.creditedLoanOfficerId === selectedRowId);
   }, [activeDetailRows, selectedRowId, view]);
 
+  function canOpenDetails(row: DisplayLeaderboardRow) {
+    return report.canEdit || (row.source === 'loanOfficers' && row.id === report.currentUserId);
+  }
+
   const tableWidth = useMemo(
     () => LEADERBOARD_COLUMNS.reduce((sum, column) => sum + columnWidths[column.id], 0),
     [columnWidths]
@@ -1202,7 +1207,9 @@ export function LeaderboardPage({ initialReport }: Props) {
 
   const teamFilterLabel =
     selectedTeams.length === 0
-      ? 'Click a loan officer to view credited loans.'
+      ? report.canEdit
+        ? 'Click a loan officer to view credited loans.'
+        : 'Click your highlighted row to view your credited loans.'
       : selectedTeams.length === 1
         ? `${selectedTeams[0].name} members only.`
         : `${selectedTeams.length} teams selected.`;
@@ -1344,9 +1351,13 @@ export function LeaderboardPage({ initialReport }: Props) {
             <p className="mt-1 text-sm font-medium text-slate-500">
               {formatDate(report.filters.startDate)} - {formatDate(report.filters.endDate)}. {
                 view === 'lenders'
-                  ? 'Click a lender to view submitted loans.'
+                  ? report.canEdit
+                    ? 'Click a lender to view submitted loans.'
+                    : 'Loan details are only available from your highlighted loan officer row.'
                   : view === 'leadSources'
-                    ? 'Click a lead source to view submitted loans.'
+                    ? report.canEdit
+                      ? 'Click a lead source to view submitted loans.'
+                      : 'Loan details are only available from your highlighted loan officer row.'
                   : teamFilterLabel
               }
             </p>
@@ -1429,24 +1440,61 @@ export function LeaderboardPage({ initialReport }: Props) {
                 const isStriped = index % 2 === 1;
                 const rowSurface = isStriped ? 'bg-slate-50/55' : 'bg-white';
                 const stickySurface = isStriped ? 'bg-slate-50' : 'bg-white';
-                return (
-                <tr key={`${row.source}:${row.id}`} className={cx(rowSurface, 'transition-colors hover:bg-blue-50/40')}>
-                  <td className={cx('sticky left-0 z-[1] overflow-hidden px-4 py-4 shadow-[1px_0_0_#e2e8f0]', stickySurface)}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRowId(row.id)}
-                      className="flex w-full min-w-0 items-center gap-3 rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
-                    >
+                const isCurrentUserRow = row.source === 'loanOfficers' && row.id === report.currentUserId;
+                const rowCanOpen = canOpenDetails(row);
+                const rowIdentity = (
+                  <>
+                    <span className="relative inline-flex shrink-0 items-center">
                       <span className={rankBadgeClassName(index)}>
                         {index + 1}
                       </span>
-                      <span className="min-w-0">
-                        <span className="block truncate font-bold text-slate-950">{row.label}</span>
-                        <span className="block truncate text-xs font-medium text-slate-500">
-                          {row.subLabel}
+                      {isCurrentUserRow && (
+                        <span
+                          className="absolute -right-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-blue-600 text-white shadow-sm"
+                          title="Your leaderboard row"
+                          aria-label="Your leaderboard row"
+                        >
+                          <UserCircle className="h-3.5 w-3.5" />
                         </span>
+                      )}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-bold text-slate-950">{row.label}</span>
+                        {isCurrentUserRow && (
+                          <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-blue-700 ring-1 ring-blue-100">
+                            You
+                          </span>
+                        )}
                       </span>
-                    </button>
+                      <span className="block truncate text-xs font-medium text-slate-500">
+                        {row.subLabel}
+                      </span>
+                    </span>
+                  </>
+                );
+                return (
+                <tr
+                  key={`${row.source}:${row.id}`}
+                  className={cx(rowSurface, 'transition-colors', rowCanOpen && 'hover:bg-blue-50/40')}
+                >
+                  <td className={cx('sticky left-0 z-[1] overflow-hidden px-4 py-4 shadow-[1px_0_0_#e2e8f0]', stickySurface)}>
+                    {rowCanOpen ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRowId(row.id)}
+                        className="flex w-full min-w-0 items-center gap-3 rounded-xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                      >
+                        {rowIdentity}
+                      </button>
+                    ) : (
+                      <div
+                        className="flex w-full min-w-0 cursor-not-allowed items-center gap-3 rounded-xl text-left opacity-80"
+                        title="Loan officers can only open their own leaderboard details."
+                      >
+                        {rowIdentity}
+                      </div>
+                    )}
                   </td>
                   <MetricCells row={row} metric="plusOne" />
                   <MetricCells row={row} metric="disclosures" />
