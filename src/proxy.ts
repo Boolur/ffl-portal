@@ -70,6 +70,7 @@ function canAccessLeaderboard(pathname: string, role?: string | null) {
   const normalizedRole = normalizeRole(role);
   if (isAdminRole(normalizedRole)) return true;
   return normalizedRole === UserRole.LOAN_OFFICER ||
+    normalizedRole === UserRole.LOA ||
     normalizedRole === UserRole.MANAGER;
 }
 

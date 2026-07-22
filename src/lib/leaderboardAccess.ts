@@ -18,5 +18,5 @@ export function canAccessLeaderboardPortal(user: LeaderboardAccessUser) {
   const role = normalizeRole(user.role);
   if (role && isAdmin(role)) return true;
   if (!role) return false;
-  return role === UserRole.LOAN_OFFICER || role === UserRole.MANAGER;
+  return role === UserRole.LOAN_OFFICER || role === UserRole.LOA || role === UserRole.MANAGER;
 }

@@ -143,7 +143,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       name: 'Leaderboard',
       icon: Trophy,
       href: '/leaderboard',
-      roles: [UserRole.LOAN_OFFICER, UserRole.MANAGER] as UserRole[],
+      roles: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.MANAGER] as UserRole[],
       visible: () => canSeeLeaderboardTab,
     },
     {
