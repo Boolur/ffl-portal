@@ -194,29 +194,102 @@ const MILESTONE_LABELS: Record<LeaderboardMilestoneKey, string> = {
   fundings: 'Fundings',
 };
 
-function startOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
+const LEADERBOARD_TIME_ZONE = 'America/Los_Angeles';
+
+type CalendarDateParts = {
+  year: number;
+  month: number;
+  day: number;
+};
+
+function parseDateInput(value: string): CalendarDateParts {
+  const [year, month, day] = value.split('-').map((part) => Number(part));
+  return { year, month, day };
 }
 
-function endOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(23, 59, 59, 999);
-  return next;
+function getCalendarDatePartsInPortalTime(date: Date): CalendarDateParts {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: LEADERBOARD_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  return {
+    year: value('year'),
+    month: value('month'),
+    day: value('day'),
+  };
+}
+
+function getPortalTimeZoneOffsetMs(date: Date) {
+  const roundedDate = new Date(Math.floor(date.getTime() / 1000) * 1000);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: LEADERBOARD_TIME_ZONE,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(roundedDate);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const portalAsUtc = Date.UTC(
+    value('year'),
+    value('month') - 1,
+    value('day'),
+    value('hour'),
+    value('minute'),
+    value('second')
+  );
+  return portalAsUtc - roundedDate.getTime();
+}
+
+function portalDateTimeToUtc(
+  parts: CalendarDateParts,
+  hour: number,
+  minute: number,
+  second: number,
+  millisecond: number
+) {
+  const utcGuess = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, hour, minute, second, millisecond));
+  const firstPass = new Date(utcGuess.getTime() - getPortalTimeZoneOffsetMs(utcGuess));
+  return new Date(utcGuess.getTime() - getPortalTimeZoneOffsetMs(firstPass));
+}
+
+function portalStartOfDay(parts: CalendarDateParts) {
+  return portalDateTimeToUtc(parts, 0, 0, 0, 0);
+}
+
+function portalEndOfDay(parts: CalendarDateParts) {
+  return portalDateTimeToUtc(parts, 23, 59, 59, 999);
+}
+
+function addCalendarDays(parts: CalendarDateParts, days: number): CalendarDateParts {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  };
 }
 
 function resolveDateRange(filters: LeaderboardReportFilters = {}) {
   const preset = filters.preset || 'monthly';
   const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
+  const today = getCalendarDatePartsInPortalTime(now);
+  const todayStart = portalStartOfDay(today);
+  const todayEnd = portalEndOfDay(today);
 
   if (preset === 'custom' && filters.startDate && filters.endDate) {
+    const customStart = parseDateInput(filters.startDate);
+    const customEnd = parseDateInput(filters.endDate);
     return {
       preset,
-      start: startOfDay(new Date(filters.startDate)),
-      end: endOfDay(new Date(filters.endDate)),
+      start: portalStartOfDay(customStart),
+      end: portalEndOfDay(customEnd),
     };
   }
 
@@ -225,15 +298,13 @@ function resolveDateRange(filters: LeaderboardReportFilters = {}) {
   }
 
   if (preset === 'weekly') {
-    const start = new Date(todayStart);
-    start.setDate(start.getDate() - 6);
-    return { preset, start, end: todayEnd };
+    return { preset, start: portalStartOfDay(addCalendarDays(today, -6)), end: todayEnd };
   }
 
   if (preset === 'ytd') {
     return {
       preset,
-      start: startOfDay(new Date(now.getFullYear(), 0, 1)),
+      start: portalStartOfDay({ year: today.year, month: 1, day: 1 }),
       end: todayEnd,
     };
   }
@@ -241,14 +312,14 @@ function resolveDateRange(filters: LeaderboardReportFilters = {}) {
   if (preset === 'allTime') {
     return {
       preset,
-      start: startOfDay(new Date(2020, 0, 1)),
+      start: portalStartOfDay({ year: 2020, month: 1, day: 1 }),
       end: todayEnd,
     };
   }
 
   return {
     preset: 'monthly' as const,
-    start: startOfDay(new Date(now.getFullYear(), now.getMonth(), 1)),
+    start: portalStartOfDay({ year: today.year, month: today.month, day: 1 }),
     end: todayEnd,
   };
 }
