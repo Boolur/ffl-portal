@@ -54,6 +54,7 @@ const PRESETS: Array<{ value: PipelineRangePreset; label: string }> = [
 const BUCKETS: Array<{ key: PipelineMilestoneKey; title: string; helper: string }> = [
   { key: 'plusOne', title: '+1s', helper: 'Submitted +1 loans' },
   { key: 'disclosures', title: 'Disclosures', helper: 'Submitted disclosures' },
+  { key: 'pendingStp', title: 'Pending STP', helper: 'Awaiting Processing/QC' },
   { key: 'processing', title: 'Processing/QC', helper: 'Processing and legacy QC' },
   { key: 'fundings', title: 'Funded', helper: 'Paid payroll requests' },
 ];
@@ -61,6 +62,7 @@ const BUCKETS: Array<{ key: PipelineMilestoneKey; title: string; helper: string 
 const MILESTONE_TONES: Record<PipelineMilestoneKey, string> = {
   plusOne: 'border-emerald-300 bg-emerald-100 text-emerald-800',
   disclosures: 'border-blue-300 bg-blue-100 text-blue-800',
+  pendingStp: 'border-[#2DE2E6]/60 bg-[#2DE2E6]/15 text-slate-900',
   processing: 'border-purple-300 bg-purple-100 text-purple-800',
   fundings: 'border-amber-300 bg-amber-100 text-amber-800',
 };
@@ -85,6 +87,13 @@ const MILESTONE_SURFACES: Record<PipelineMilestoneKey, {
     card: 'border-blue-100 bg-white hover:border-blue-300 hover:bg-blue-50/40',
     accent: 'bg-blue-400',
     glow: 'bg-blue-100',
+  },
+  pendingStp: {
+    column: 'border-[#2DE2E6]/30 bg-white',
+    headerIcon: 'bg-[#2DE2E6]/20 text-cyan-700 ring-[#2DE2E6]/40',
+    card: 'border-[#2DE2E6]/30 bg-white hover:border-[#2DE2E6] hover:bg-[#2DE2E6]/10',
+    accent: 'bg-[#2DE2E6]',
+    glow: 'bg-[#2DE2E6]/20',
   },
   processing: {
     column: 'border-purple-100 bg-white',
@@ -122,6 +131,13 @@ const BOARD_METRIC_SURFACES: Record<PipelineMilestoneKey, {
     icon: 'bg-blue-100 text-blue-700 ring-blue-200',
     label: 'text-blue-700',
     value: 'text-blue-950',
+  },
+  pendingStp: {
+    border: 'border-[#2DE2E6]/30',
+    panel: 'from-[#2DE2E6]/15 via-white to-white',
+    icon: 'bg-[#2DE2E6]/20 text-cyan-700 ring-[#2DE2E6]/40',
+    label: 'text-cyan-700',
+    value: 'text-slate-950',
   },
   processing: {
     border: 'border-purple-100',
@@ -513,7 +529,7 @@ export function PipelinePage({ initialReport }: Props) {
 
         {boardView === 'pipeline' ? (
           <>
-            <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <BoardMetricCard
                 stage="plusOne"
                 title="+1s"
@@ -533,6 +549,16 @@ export function PipelinePage({ initialReport }: Props) {
                 primaryValue={formatCurrency(report.boardMetrics.disclosures.volumeTotal)}
                 secondaryLabel="Units"
                 secondaryValue={formatNumber(report.boardMetrics.disclosures.units)}
+              />
+              <BoardMetricCard
+                stage="pendingStp"
+                title="Pending STP"
+                Icon={FileText}
+                count={report.totals.pendingStp}
+                primaryLabel="Volume"
+                primaryValue={formatCurrency(report.boardMetrics.pendingStp.volumeTotal)}
+                secondaryLabel="Units"
+                secondaryValue={formatNumber(report.boardMetrics.pendingStp.units)}
               />
               <BoardMetricCard
                 stage="processing"
@@ -556,9 +582,9 @@ export function PipelinePage({ initialReport }: Props) {
               />
             </div>
 
-            <div className="mb-5 rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <label className="relative w-full sm:max-w-[460px]">
+            <div className="mb-5 w-full rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm sm:w-fit">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label className="relative w-full sm:w-[420px]">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <input
                     value={pipelineSearch}
@@ -593,7 +619,7 @@ export function PipelinePage({ initialReport }: Props) {
               </div>
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-4">
+            <div className="grid gap-5 xl:grid-cols-5">
               {BUCKETS.map((bucket) => {
                 const rows = filteredBucketRows[bucket.key] || [];
                 const surface = MILESTONE_SURFACES[bucket.key];
@@ -865,6 +891,7 @@ function emptyPipelineGroupRow(key: string, label: string): PipelineDisplayGroup
     revenueTotal: 0,
     plusOne: 0,
     disclosures: 0,
+    pendingStp: 0,
     processing: 0,
     fundings: 0,
     latestActivityAt: null,
@@ -881,6 +908,7 @@ function addPipelineGroupMetrics(target: PipelineDisplayGroupRow, source: Pipeli
   target.revenueTotal += source.revenueTotal;
   target.plusOne += source.plusOne;
   target.disclosures += source.disclosures;
+  target.pendingStp += source.pendingStp;
   target.processing += source.processing;
   target.fundings += source.fundings;
   if (
@@ -992,13 +1020,14 @@ function PipelineGroupBoard({
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-left text-sm">
+        <table className="w-full min-w-[960px] text-left text-sm">
           <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.12em] text-slate-500">
             <tr>
               <th className="px-5 py-3 font-bold">Name</th>
               <th className="px-5 py-3 text-center font-bold">Total</th>
               <th className="px-5 py-3 text-center font-bold">+1s</th>
               <th className="px-5 py-3 text-center font-bold">Disclosures</th>
+              <th className="px-5 py-3 text-center font-bold">Pending STP</th>
               <th className="px-5 py-3 text-center font-bold">Processing</th>
               <th className="px-5 py-3 text-center font-bold">Fundings</th>
               <th className="px-5 py-3 text-right font-bold">Volume</th>
@@ -1052,6 +1081,11 @@ function PipelineGroupBoard({
                 <td className="px-5 py-4 text-center">
                   <span className={cx('inline-flex min-w-8 justify-center rounded-full border px-2 py-0.5 text-xs font-bold', MILESTONE_TONES.disclosures)}>
                     {formatNumber(row.disclosures)}
+                  </span>
+                </td>
+                <td className="px-5 py-4 text-center">
+                  <span className={cx('inline-flex min-w-8 justify-center rounded-full border px-2 py-0.5 text-xs font-bold', MILESTONE_TONES.pendingStp)}>
+                    {formatNumber(row.pendingStp)}
                   </span>
                 </td>
                 <td className="px-5 py-4 text-center">

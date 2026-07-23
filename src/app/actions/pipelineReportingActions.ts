@@ -14,7 +14,7 @@ import { prisma } from '@/lib/prisma';
 import { buildLoanOfficerLoanOrClauses } from '@/lib/loanOfficerVisibility';
 
 export type PipelineRangePreset = 'daily' | 'weekly' | 'monthly' | 'ytd' | 'allTime' | 'custom';
-export type PipelineMilestoneKey = 'plusOne' | 'disclosures' | 'processing' | 'fundings';
+export type PipelineMilestoneKey = 'plusOne' | 'disclosures' | 'pendingStp' | 'processing' | 'fundings';
 type PipelineTrendGranularity = 'monthly' | 'weekly' | 'daily';
 
 export type PipelineReportFilters = {
@@ -46,6 +46,7 @@ export type PipelineTrendBucket = {
   startDate: string;
   plusOne: number;
   disclosures: number;
+  pendingStp: number;
   processing: number;
   fundings: number;
 };
@@ -55,6 +56,7 @@ export type PipelineTeamRow = {
   loanOfficerName: string;
   plusOne: number;
   disclosures: number;
+  pendingStp: number;
   processing: number;
   fundings: number;
   pullThroughRate: number | null;
@@ -68,6 +70,7 @@ export type PipelineGroupRow = {
   revenueTotal: number;
   plusOne: number;
   disclosures: number;
+  pendingStp: number;
   processing: number;
   fundings: number;
   latestActivityAt: string | null;
@@ -79,6 +82,10 @@ export type PipelineBoardStageMetrics = {
     revenueTotal: number;
   };
   disclosures: {
+    volumeTotal: number;
+    units: number;
+  };
+  pendingStp: {
     volumeTotal: number;
     units: number;
   };
@@ -189,6 +196,7 @@ const PROCESSING_KINDS = [TaskKind.SUBMIT_PROCESSING, TaskKind.SUBMIT_QC];
 const MILESTONE_LABELS: Record<PipelineMilestoneKey, string> = {
   plusOne: '+1s',
   disclosures: 'Disclosures',
+  pendingStp: 'Pending STP',
   processing: 'Processing/QC',
   fundings: 'Fundings',
 };
@@ -523,6 +531,17 @@ function lenderFromJson(value: unknown) {
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
+function loanNumberFromJson(value: unknown) {
+  const data = submissionObject(value);
+  if (!data) return null;
+  const raw = data.arriveLoanNumber ?? data.loanNumber ?? data.ariveNumber;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+function normalizeAriveNumber(value: string | null | undefined) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
 function loanFileDetails(loan: {
   borrowerPhone?: string | null;
   borrowerEmail?: string | null;
@@ -712,6 +731,7 @@ function buildTrendBuckets(
       startDate: bucketStart.toISOString(),
       plusOne: 0,
       disclosures: 0,
+      pendingStp: 0,
       processing: 0,
       fundings: 0,
     });
@@ -753,11 +773,18 @@ function createSummary(totals: Record<PipelineMilestoneKey, number>) {
       conversionRate: percent(totals.disclosures, totals.plusOne),
     },
     {
+      key: 'pendingStp' as const,
+      label: MILESTONE_LABELS.pendingStp,
+      count: totals.pendingStp,
+      priorCount: totals.plusOne,
+      conversionRate: percent(totals.pendingStp, totals.plusOne),
+    },
+    {
       key: 'processing' as const,
       label: MILESTONE_LABELS.processing,
       count: totals.processing,
-      priorCount: totals.disclosures,
-      conversionRate: percent(totals.processing, totals.disclosures),
+      priorCount: totals.plusOne,
+      conversionRate: percent(totals.processing, totals.plusOne),
     },
     {
       key: 'fundings' as const,
@@ -778,9 +805,10 @@ function createBoardMetrics(
   fundingRows: Array<{
     expectedRevenue: Prisma.Decimal | number | string | null;
     loan: { amount: Prisma.Decimal | number | string | null } | null;
-  }>
+  }>,
+  pendingStpRows: Array<{ loan: { amount: Prisma.Decimal | number | string | null } }>
 ): PipelineBoardStageMetrics {
-  return taskRows.reduce<PipelineBoardStageMetrics>(
+  const metrics = taskRows.reduce<PipelineBoardStageMetrics>(
     (metrics, task) => {
       const amount = money(task.loan.amount) || 0;
       if (task.kind === TaskKind.SUBMIT_PLUS_ONE) {
@@ -804,11 +832,19 @@ function createBoardMetrics(
       {
         plusOne: { volumeTotal: 0, revenueTotal: 0 },
         disclosures: { volumeTotal: 0, units: 0 },
+        pendingStp: { volumeTotal: 0, units: 0 },
         processing: { volumeTotal: 0, revenueTotal: 0 },
         fundings: { volumeTotal: 0, revenueTotal: 0 },
       }
     )
   );
+
+  for (const task of pendingStpRows) {
+    metrics.pendingStp.volumeTotal += money(task.loan.amount) || 0;
+    metrics.pendingStp.units += 1;
+  }
+
+  return metrics;
 }
 
 function uniqueLoanOfficerIds(loan: {
@@ -850,6 +886,7 @@ function buildPipelineGroupRows(
         revenueTotal: 0,
         plusOne: 0,
         disclosures: 0,
+        pendingStp: 0,
         processing: 0,
         fundings: 0,
         latestActivityAt: null,
@@ -1065,8 +1102,47 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         : Promise.resolve([]),
     ]);
 
-  const totals = { plusOne, disclosures, processing, fundings };
-  const boardMetrics = createBoardMetrics(taskRows, fundingRows);
+  const plusOneTaskRows = taskRows.filter((task) => task.kind === TaskKind.SUBMIT_PLUS_ONE);
+  const plusOneLoanIds = Array.from(new Set(plusOneTaskRows.map((task) => task.loan.id)));
+  const plusOneRawNumbers = Array.from(new Set(
+    plusOneTaskRows
+      .flatMap((task) => [loanNumberFromJson(task.submissionData), task.loan.loanNumber])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+  const allTimeProcessingRows = plusOneTaskRows.length
+    ? await prisma.task.findMany({
+        where: {
+          kind: { in: PROCESSING_KINDS },
+          OR: [
+            { loanId: { in: plusOneLoanIds } },
+            { loan: { loanNumber: { in: plusOneRawNumbers } } },
+          ],
+        },
+        select: {
+          loanId: true,
+          submissionData: true,
+          loan: { select: { loanNumber: true } },
+        },
+      })
+    : [];
+  const processedLoanIds = new Set(allTimeProcessingRows.map((row) => row.loanId).filter(Boolean));
+  const processedLoanNumbers = new Set(
+    allTimeProcessingRows
+      .flatMap((row) => [
+        normalizeAriveNumber(row.loan?.loanNumber),
+        normalizeAriveNumber(loanNumberFromJson(row.submissionData)),
+      ])
+      .filter(Boolean)
+  );
+  const pendingStpTaskRows = plusOneTaskRows.filter((task) => {
+    const normalizedLoanNumber = normalizeAriveNumber(loanNumberFromJson(task.submissionData) || task.loan.loanNumber);
+    return !processedLoanIds.has(task.loan.id) && !processedLoanNumbers.has(normalizedLoanNumber);
+  });
+
+  const pendingStp = pendingStpTaskRows.length;
+  const totals = { plusOne, disclosures, pendingStp, processing, fundings };
+  const boardMetrics = createBoardMetrics(taskRows, fundingRows, pendingStpTaskRows);
   const trend = buildTrendBuckets(trendStart, trendEnd, trendGranularity);
   for (const task of trendTaskRows) {
     const milestone = taskKindToMilestone(task.kind);
@@ -1083,6 +1159,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       loanOfficerName: officer.name,
       plusOne: 0,
       disclosures: 0,
+      pendingStp: 0,
       processing: 0,
       fundings: 0,
       pullThroughRate: null,
@@ -1107,11 +1184,18 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         if (row) row.fundings += 1;
       }
     }
+    for (const task of pendingStpTaskRows) {
+      for (const officerId of uniqueLoanOfficerIds(task.loan)) {
+        const row = teamMap.get(officerId);
+        if (row) row.pendingStp += 1;
+      }
+    }
   } else {
     const row = teamMap.get(actor.userId);
     if (row) {
       row.plusOne = plusOne;
       row.disclosures = disclosures;
+      row.pendingStp = pendingStp;
       row.processing = processing;
       row.fundings = fundings;
     }
@@ -1122,7 +1206,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       ...row,
       pullThroughRate: percent(row.fundings, row.plusOne),
     }))
-    .filter((row) => row.plusOne + row.disclosures + row.processing + row.fundings > 0)
+    .filter((row) => row.plusOne + row.disclosures + row.pendingStp + row.processing + row.fundings > 0)
     .sort((a, b) => b.fundings - a.fundings || b.plusOne - a.plusOne || a.loanOfficerName.localeCompare(b.loanOfficerName));
 
   const recentTaskRows: PipelineMilestoneRow[] = taskRows.slice(0, 24).flatMap((task) => {
@@ -1240,6 +1324,34 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       },
     ];
   });
+  const pendingStpRows: PipelineMilestoneRow[] = pendingStpTaskRows.map((task) => ({
+    id: task.id,
+    loanId: task.loan.id,
+    milestone: 'pendingStp',
+    milestoneLabel: MILESTONE_LABELS.pendingStp,
+    borrowerName: task.loan.borrowerName,
+    loanNumber: task.loan.loanNumber,
+    loanOfficerName: task.loan.loanOfficer.name,
+    sharedLoanOfficerNames: sharedLoanOfficerNames(task.loan),
+    amount: money(task.loan.amount),
+    revenue: projectedRevenueFromJson(task.submissionData),
+    leadSource: leadSourceFromJson(task.submissionData),
+    lender: lenderFromJson(task.submissionData),
+    status: task.status,
+    occurredAt: task.createdAt.toISOString(),
+    updateSignal: taskUpdateSignal(task),
+    fileDetails: {
+      loan: loanFileDetails(task.loan, task.submissionData),
+      task: {
+        title: task.title,
+        queueStage: taskQueueStage(task),
+        submittedFields: submittedFieldsFromJson(task.submissionData),
+        notes: parseTaskNotesFromJson(task.submissionData),
+        checklistItems: checklistItemsFromJson(task.submissionData),
+      },
+      payroll: null,
+    },
+  }));
   const allFundingRows: PipelineMilestoneRow[] = fundingRows.map((funding) => ({
     id: funding.id,
     loanId: funding.loanId,
@@ -1285,10 +1397,11 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
   const bucketRows = {
     plusOne: allTaskRows.filter((row) => row.milestone === 'plusOne').slice(0, 100),
     disclosures: allTaskRows.filter((row) => row.milestone === 'disclosures').slice(0, 100),
+    pendingStp: pendingStpRows.slice(0, 100),
     processing: allTaskRows.filter((row) => row.milestone === 'processing').slice(0, 100),
     fundings: allFundingRows.slice(0, 100),
   };
-  const allPipelineRows = [...allTaskRows, ...allFundingRows];
+  const allPipelineRows = [...allTaskRows, ...pendingStpRows, ...allFundingRows];
 
   return {
     filters: {
