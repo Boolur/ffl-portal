@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useTransition } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
@@ -15,6 +15,7 @@ import {
   Mail,
   Phone,
   RefreshCw,
+  Search,
   X,
 } from 'lucide-react';
 import {
@@ -254,6 +255,34 @@ function visibleUpdateSignal(row: PipelineMilestoneRow, reviewedUpdates: Set<str
   return row.updateSignal;
 }
 
+function pipelineSearchText(row: PipelineMilestoneRow) {
+  const values = [
+    row.borrowerName,
+    row.loanNumber,
+    row.loanOfficerName,
+    ...row.sharedLoanOfficerNames,
+    row.milestoneLabel,
+    row.leadSource,
+    row.lender,
+    row.status,
+    row.fileDetails.loan.borrowerPhone,
+    row.fileDetails.loan.borrowerEmail,
+    row.fileDetails.loan.program,
+    row.fileDetails.loan.propertyAddress,
+    row.fileDetails.loan.stage,
+    row.fileDetails.task?.title,
+    row.fileDetails.task?.queueStage?.label,
+    row.fileDetails.task?.queueStage?.description,
+    row.fileDetails.payroll?.lender,
+    row.fileDetails.payroll?.loanType,
+  ];
+
+  return values
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+}
+
 function loadReviewedUpdates() {
   try {
     const raw = window.localStorage.getItem(REVIEWED_UPDATES_STORAGE_KEY);
@@ -274,8 +303,26 @@ export function PipelinePage({ initialReport }: Props) {
   const [loanOfficerId, setLoanOfficerId] = useState<string>(initialReport.filters.loanOfficerId);
   const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
   const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => new Set());
+  const [pipelineSearch, setPipelineSearch] = useState('');
+  const [isPipelineSearchLoading, setIsPipelineSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const deferredPipelineSearch = useDeferredValue(pipelineSearch.trim().toLowerCase());
+  const isPipelineSearchPending =
+    isPipelineSearchLoading || pipelineSearch.trim().toLowerCase() !== deferredPipelineSearch;
+  const filteredBucketRows = useMemo(() => {
+    if (!deferredPipelineSearch) return report.bucketRows;
+    return BUCKETS.reduce((acc, bucket) => {
+      acc[bucket.key] = (report.bucketRows[bucket.key] || []).filter((row) =>
+        pipelineSearchText(row).includes(deferredPipelineSearch)
+      );
+      return acc;
+    }, {} as PipelineReport['bucketRows']);
+  }, [deferredPipelineSearch, report.bucketRows]);
+  const filteredPipelineClientCount = useMemo(
+    () => BUCKETS.reduce((total, bucket) => total + (filteredBucketRows[bucket.key] || []).length, 0),
+    [filteredBucketRows]
+  );
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -283,6 +330,12 @@ export function PipelinePage({ initialReport }: Props) {
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, []);
+
+  useEffect(() => {
+    if (!isPipelineSearchLoading) return;
+    const timeoutId = window.setTimeout(() => setIsPipelineSearchLoading(false), 220);
+    return () => window.clearTimeout(timeoutId);
+  }, [isPipelineSearchLoading, pipelineSearch]);
 
   const markUpdateReviewed = (row: PipelineMilestoneRow) => {
     const key = updateSignalKey(row);
@@ -503,16 +556,63 @@ export function PipelinePage({ initialReport }: Props) {
               />
             </div>
 
+            <div className="mb-5 rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <label className="relative w-full sm:max-w-[460px]">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={pipelineSearch}
+                    onChange={(event) => {
+                      setPipelineSearch(event.target.value);
+                      setIsPipelineSearchLoading(true);
+                    }}
+                    placeholder="Search clients, loan numbers, lenders..."
+                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    aria-label="Search pipeline clients"
+                  />
+                </label>
+                <div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-500 sm:justify-end">
+                  {pipelineSearch.trim() ? (
+                    <span>{formatNumber(filteredPipelineClientCount)} matching client{filteredPipelineClientCount === 1 ? '' : 's'}</span>
+                  ) : (
+                    <span>{formatNumber(filteredPipelineClientCount)} visible client{filteredPipelineClientCount === 1 ? '' : 's'}</span>
+                  )}
+                  {pipelineSearch.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPipelineSearch('');
+                        setIsPipelineSearchLoading(true);
+                      }}
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="grid gap-5 xl:grid-cols-4">
               {BUCKETS.map((bucket) => {
-                const rows = report.bucketRows[bucket.key] || [];
+                const rows = filteredBucketRows[bucket.key] || [];
                 const surface = MILESTONE_SURFACES[bucket.key];
                 return (
                   <div key={bucket.key} className={cx('flex min-h-[360px] flex-col overflow-hidden rounded-[24px] border shadow-sm', surface.column)}>
                     <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-4">
-                      {rows.length === 0 ? (
+                      {isPipelineSearchPending ? (
+                        <div className="flex min-h-[180px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/70 p-4 text-center shadow-sm">
+                          <div className="mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
+                          <h3 className="text-sm font-bold text-slate-900">Loading...</h3>
+                          <p className="mt-1 text-xs font-medium text-slate-500">
+                            Searching this bucket.
+                          </p>
+                        </div>
+                      ) : rows.length === 0 ? (
                         <div className="flex min-h-[92px] items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/70 p-4 text-center text-sm font-medium text-slate-500 shadow-sm">
-                          No clients in this bucket for the selected range.
+                          {deferredPipelineSearch
+                            ? 'No clients match your current search.'
+                            : 'No clients in this bucket for the selected range.'}
                         </div>
                       ) : (
                         rows.map((row) => (
