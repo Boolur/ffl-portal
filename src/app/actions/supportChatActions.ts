@@ -4,6 +4,11 @@ import { prisma } from '@/lib/prisma';
 import { authOptions } from '@/lib/auth';
 import { sendEmail } from '@/lib/email';
 import {
+  getSignedUrlExpirySeconds,
+  getSupabaseAdmin,
+  getSupportAttachmentsBucket,
+} from '@/lib/supabaseAdmin';
+import {
   ANY_ADMIN_ROLES,
   canAccessUserManagement,
   canManageUser,
@@ -17,10 +22,12 @@ import { canUseSupportChatPilot } from '@/lib/supportChatPilot';
 import {
   SupportConversationStatus,
   SupportDesk,
+  SupportAttachmentPurpose,
   UserRole,
 } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { revalidatePath } from 'next/cache';
+import { randomUUID } from 'crypto';
 
 const MAX_MESSAGE_LENGTH = 4000;
 const MAX_SUBJECT_LENGTH = 140;
@@ -63,6 +70,12 @@ function uniqueStrings(values: string[]) {
 
 function trimText(value: unknown, maxLength: number) {
   return String(value ?? '').trim().slice(0, maxLength);
+}
+
+function sanitizeFilename(filename: string) {
+  const trimmed = filename.trim();
+  const replaced = trimmed.replace(/[^\w.\-()+\s]/g, '_').replace(/\s+/g, ' ');
+  return replaced.length ? replaced : 'file';
 }
 
 function getPortalBaseUrl() {
@@ -268,6 +281,15 @@ function serializeConversation(conversation: {
     createdAt: Date;
     author: { id: string; name: string; email: string; role: UserRole };
   }>;
+  attachments?: Array<{
+    id: string;
+    purpose: SupportAttachmentPurpose;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+    createdAt: Date;
+    uploadedBy: { id: string; name: string; email: string };
+  }>;
 }, unreadCount = 0) {
   return {
     ...conversation,
@@ -281,6 +303,10 @@ function serializeConversation(conversation: {
     messages: conversation.messages?.map((message) => ({
       ...message,
       createdAt: message.createdAt.toISOString(),
+    })) ?? [],
+    attachments: conversation.attachments?.map((attachment) => ({
+      ...attachment,
+      createdAt: attachment.createdAt.toISOString(),
     })) ?? [],
   };
 }
@@ -313,6 +339,10 @@ export async function getSupportChatBootstrap() {
           orderBy: { createdAt: 'desc' },
           take: 1,
           include: { author: { select: { id: true, name: true, email: true, role: true } } },
+        },
+        attachments: {
+          orderBy: { createdAt: 'asc' },
+          include: { uploadedBy: { select: { id: true, name: true, email: true } } },
         },
       },
       orderBy: { lastMessageAt: 'desc' },
@@ -435,6 +465,10 @@ export async function createSupportConversation(input: {
         include: { author: { select: { id: true, name: true, email: true, role: true } } },
         orderBy: { createdAt: 'asc' },
       },
+      attachments: {
+        orderBy: { createdAt: 'asc' },
+        include: { uploadedBy: { select: { id: true, name: true, email: true } } },
+      },
     },
   });
 
@@ -480,6 +514,10 @@ export async function getSupportConversation(conversationId: string) {
       messages: {
         orderBy: { createdAt: 'asc' },
         include: { author: { select: { id: true, name: true, email: true, role: true } } },
+      },
+      attachments: {
+        orderBy: { createdAt: 'asc' },
+        include: { uploadedBy: { select: { id: true, name: true, email: true } } },
       },
     },
   });
@@ -546,6 +584,10 @@ export async function sendSupportMessage(input: {
       messages: {
         orderBy: { createdAt: 'asc' },
         include: { author: { select: { id: true, name: true, email: true, role: true } } },
+      },
+      attachments: {
+        orderBy: { createdAt: 'asc' },
+        include: { uploadedBy: { select: { id: true, name: true, email: true } } },
       },
     },
   });
@@ -648,6 +690,10 @@ export async function getSupportInbox(input?: {
         take: 1,
         include: { author: { select: { id: true, name: true, email: true, role: true } } },
       },
+      attachments: {
+        orderBy: { createdAt: 'asc' },
+        include: { uploadedBy: { select: { id: true, name: true, email: true } } },
+      },
     },
     orderBy: { lastMessageAt: 'desc' },
     take: 100,
@@ -707,6 +753,10 @@ export async function assignSupportConversation(input: {
         orderBy: { createdAt: 'asc' },
         include: { author: { select: { id: true, name: true, email: true, role: true } } },
       },
+      attachments: {
+        orderBy: { createdAt: 'asc' },
+        include: { uploadedBy: { select: { id: true, name: true, email: true } } },
+      },
     },
   });
 
@@ -759,11 +809,103 @@ export async function updateSupportConversationStatus(input: {
         orderBy: { createdAt: 'asc' },
         include: { author: { select: { id: true, name: true, email: true, role: true } } },
       },
+      attachments: {
+        orderBy: { createdAt: 'asc' },
+        include: { uploadedBy: { select: { id: true, name: true, email: true } } },
+      },
     },
   });
   revalidatePath('/');
   revalidatePath('/admin/support');
   return { success: true as const, conversation: serializeConversation(conversation) };
+}
+
+export async function createSupportAttachmentUploadUrl(input: {
+  conversationId: string;
+  filename: string;
+}) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const access = await canAccessSupportConversation(actor, input.conversationId);
+  if (!access.allowed) return { success: false as const, error: 'Not authorized.' };
+
+  const safeName = sanitizeFilename(input.filename);
+  const storagePath = `support/${input.conversationId}/${randomUUID()}-${safeName}`;
+  const supabase = getSupabaseAdmin();
+  const bucket = getSupportAttachmentsBucket();
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUploadUrl(storagePath);
+
+  if (error || !data) {
+    console.error('[support-chat] createSignedUploadUrl failed', error);
+    return { success: false as const, error: 'Failed to create upload URL.' };
+  }
+
+  return {
+    success: true as const,
+    signedUrl: data.signedUrl,
+    path: data.path,
+    token: data.token,
+  };
+}
+
+export async function finalizeSupportAttachment(input: {
+  conversationId: string;
+  storagePath: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  purpose?: SupportAttachmentPurpose;
+}) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const access = await canAccessSupportConversation(actor, input.conversationId);
+  if (!access.allowed) return { success: false as const, error: 'Not authorized.' };
+
+  const attachment = await prisma.supportAttachment.create({
+    data: {
+      conversationId: input.conversationId,
+      uploadedById: actor.userId,
+      purpose: input.purpose ?? SupportAttachmentPurpose.OTHER,
+      storagePath: input.storagePath,
+      filename: sanitizeFilename(input.filename),
+      contentType: input.contentType || 'application/octet-stream',
+      sizeBytes: Math.max(0, Math.floor(input.sizeBytes)),
+    },
+  });
+
+  revalidatePath('/');
+  revalidatePath('/admin/support');
+  return { success: true as const, attachmentId: attachment.id };
+}
+
+export async function getSupportAttachmentDownloadUrl(attachmentId: string) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const attachment = await prisma.supportAttachment.findUnique({
+    where: { id: attachmentId },
+    select: {
+      id: true,
+      storagePath: true,
+      conversationId: true,
+    },
+  });
+  if (!attachment) return { success: false as const, error: 'Attachment not found.' };
+
+  const access = await canAccessSupportConversation(actor, attachment.conversationId);
+  if (!access.allowed) return { success: false as const, error: 'Not authorized.' };
+
+  const supabase = getSupabaseAdmin();
+  const bucket = getSupportAttachmentsBucket();
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(attachment.storagePath, getSignedUrlExpirySeconds());
+  if (error || !data?.signedUrl) {
+    console.error('[support-chat] createSignedUrl failed', error);
+    return { success: false as const, error: 'Failed to create download URL.' };
+  }
+  return { success: true as const, url: data.signedUrl };
 }
 
 export async function getSupportDeskAssignments(userId: string) {

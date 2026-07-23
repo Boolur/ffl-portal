@@ -129,14 +129,14 @@ const LEAD_SOURCE_GROUP_LABELS = ['Lead Buy'];
 
 const MILESTONE_TONES = {
   plusOne: 'border-emerald-300 bg-emerald-100 text-emerald-800',
-  disclosures: 'border-blue-300 bg-blue-100 text-blue-800',
+  disclosures: 'border-[#2DE2E6]/60 bg-[#2DE2E6]/15 text-slate-900',
   processing: 'border-purple-300 bg-purple-100 text-purple-800',
   fundings: 'border-amber-300 bg-amber-100 text-amber-800',
 } satisfies Record<LeaderboardDetailRow['milestone'], string>;
 
 const DETAIL_MILESTONE_LABELS = {
   plusOne: '+1s',
-  disclosures: 'Disclosures',
+  disclosures: 'Pending STP',
   processing: 'Processing/QC',
   fundings: 'Fundings',
 } satisfies Record<LeaderboardMilestoneKey, string>;
@@ -152,13 +152,13 @@ const MODAL_METRIC_TONES = {
     activeDetail: 'text-emerald-50/85',
   },
   disclosures: {
-    card: 'border-blue-100 bg-gradient-to-br from-blue-50/90 via-white to-white',
-    activeCard: 'border-blue-300 bg-blue-600 text-white shadow-lg shadow-blue-200/70 ring-2 ring-blue-200',
-    label: 'text-blue-700',
-    value: 'text-blue-950',
-    activeLabel: 'text-blue-50',
-    activeValue: 'text-white',
-    activeDetail: 'text-blue-50/85',
+    card: 'border-[#2DE2E6]/30 bg-gradient-to-br from-[#2DE2E6]/15 via-white to-white',
+    activeCard: 'border-[#2DE2E6] bg-[#2DE2E6] text-slate-950 shadow-lg shadow-cyan-200/70 ring-2 ring-[#2DE2E6]/40',
+    label: 'text-cyan-700',
+    value: 'text-slate-950',
+    activeLabel: 'text-slate-800',
+    activeValue: 'text-slate-950',
+    activeDetail: 'text-slate-700',
   },
   processing: {
     card: 'border-purple-100 bg-gradient-to-br from-purple-50/90 via-white to-white',
@@ -232,6 +232,35 @@ function excelNumberCell(value: number) {
 
 function excelDecimalCell(value: number | null) {
   return `<td class="decimal">${value === null ? 'N/A' : Math.round(value * 10) / 10}</td>`;
+}
+
+function excelPercentCell(value: number | null) {
+  return `<td class="percent">${value === null ? 'N/A' : value}</td>`;
+}
+
+function excelXmlCell(value: unknown, styleId = 'Default', type: 'String' | 'Number' = 'String') {
+  return `<Cell ss:StyleID="${styleId}"><Data ss:Type="${type}">${excelEscape(value)}</Data></Cell>`;
+}
+
+function excelXmlNumberCell(value: number, styleId = 'Number') {
+  return excelXmlCell(Math.round(value * 100) / 100, styleId, 'Number');
+}
+
+function excelWorksheetName(value: string, fallback: string, existingNames: Set<string>) {
+  const base = (value || fallback)
+    .replace(/[\\/?*\[\]:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 31) || fallback;
+  let name = base;
+  let suffix = 2;
+  while (existingNames.has(name.toLowerCase())) {
+    const marker = ` ${suffix}`;
+    name = `${base.slice(0, 31 - marker.length)}${marker}`;
+    suffix += 1;
+  }
+  existingNames.add(name.toLowerCase());
+  return name;
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -366,7 +395,7 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
     .subtitle { background: #e2e8f0; color: #334155; font-weight: 700; text-align: left; }
     .group { color: #ffffff; font-weight: 800; text-align: center; }
     .plus-one { background: #047857; }
-    .disclosures { background: #1d4ed8; }
+    .disclosures { background: #2DE2E6; color: #0f172a; }
     .processing { background: #7e22ce; }
     .fundings { background: #b45309; }
     .column { background: #f8fafc; color: #475569; font-weight: 800; text-align: center; }
@@ -391,7 +420,7 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
       <th class="column" rowspan="2">Email</th>
       <th class="column" rowspan="2">Avg Days +1 to STP</th>
       <th class="group plus-one" colspan="3">+1s</th>
-      <th class="group disclosures" colspan="2">Disclosures</th>
+      <th class="group disclosures" colspan="2">Pending STP</th>
       <th class="group processing" colspan="3">Submitted to Processing/QC</th>
       <th class="group fundings" colspan="3">Fundings</th>
     </tr>
@@ -445,65 +474,89 @@ function exportFallOutReport(report: LeaderboardFallOutReport) {
       b.daysSincePlusOne - a.daysSincePlusOne ||
       new Date(a.plusOneSubmittedAt).getTime() - new Date(b.plusOneSubmittedAt).getTime()
   );
-  const bodyRows = rows.map((row, index) => `
-    <tr class="${index % 2 === 0 ? 'row-white' : 'row-muted'}">
-      <td class="rank">${index + 1}</td>
-      <td class="name">${excelEscape(row.ariveNumber)}</td>
-      <td class="name">${excelEscape(row.borrowerName)}</td>
-      <td>${excelEscape(row.loanOfficerName)}</td>
-      <td class="date">${excelEscape(formatDateTime(row.plusOneSubmittedAt))}</td>
-      <td class="number danger">${row.daysSincePlusOne}</td>
-      ${excelMoneyCell(row.loanAmount)}
-      ${excelMoneyCell(row.projectedRevenue)}
-      <td>${excelEscape(row.lender)}</td>
-      <td>${excelEscape(row.leadSource)}</td>
-      <td>${excelEscape(formatStatus(row.status))}</td>
-    </tr>
-  `).join('');
+  const rowsByOfficer = new Map<string, LeaderboardFallOutReport['rows']>();
+  for (const row of rows) {
+    const officerRows = rowsByOfficer.get(row.loanOfficerName) || [];
+    officerRows.push(row);
+    rowsByOfficer.set(row.loanOfficerName, officerRows);
+  }
+  const sheetNames = new Set<string>();
+  const worksheets = (rowsByOfficer.size > 0 ? [...rowsByOfficer.entries()] : [['No Fall Out Loans', []] as const])
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([loanOfficerName, officerRows]) => {
+      const worksheetName = excelWorksheetName(loanOfficerName, 'Loan Officer', sheetNames);
+      const bodyRows = officerRows.map((row, index) => `
+        <Row ss:StyleID="${index % 2 === 0 ? 'RowWhite' : 'RowMuted'}">
+          ${excelXmlNumberCell(index + 1, 'Rank')}
+          ${excelXmlCell(row.ariveNumber, 'Name')}
+          ${excelXmlCell(row.borrowerName, 'Name')}
+          ${excelXmlCell(formatDateTime(row.plusOneSubmittedAt), 'Date')}
+          ${excelXmlNumberCell(row.daysSincePlusOne, 'DangerNumber')}
+          ${excelXmlNumberCell(row.loanAmount, 'Money')}
+          ${excelXmlNumberCell(row.projectedRevenue, 'Money')}
+          ${excelXmlCell(row.lender)}
+          ${excelXmlCell(row.leadSource)}
+          ${excelXmlCell(formatStatus(row.status))}
+        </Row>
+      `).join('');
+      return `
+        <Worksheet ss:Name="${excelEscape(worksheetName)}">
+          <Table>
+            <Column ss:Width="48" />
+            <Column ss:Width="110" />
+            <Column ss:Width="170" />
+            <Column ss:Width="150" />
+            <Column ss:Width="105" />
+            <Column ss:Width="120" />
+            <Column ss:Width="130" />
+            <Column ss:Width="140" />
+            <Column ss:Width="150" />
+            <Column ss:Width="110" />
+            <Row>${excelXmlCell('Federal First Lending - Fall Out Report', 'Title')}</Row>
+            <Row>${excelXmlCell(`${loanOfficerName} | Range: ${formatDate(report.filters.startDate)} - ${formatDate(report.filters.endDate)} | Generated: ${generatedAt} | Fall Out Count: ${officerRows.length}`, 'Subtitle')}</Row>
+            <Row>
+              ${excelXmlCell('#', 'Column')}
+              ${excelXmlCell('Arive Number', 'Column')}
+              ${excelXmlCell('Borrower', 'Column')}
+              ${excelXmlCell('+1 Submitted', 'Column')}
+              ${excelXmlCell('Days Since +1', 'Column')}
+              ${excelXmlCell('Loan Amount', 'Column')}
+              ${excelXmlCell('Projected Revenue', 'Column')}
+              ${excelXmlCell('Lender', 'Column')}
+              ${excelXmlCell('Lead Source', 'Column')}
+              ${excelXmlCell('+1 Status', 'Column')}
+            </Row>
+            ${bodyRows || `<Row>${excelXmlCell('No fall out loans found for this loan officer and date range.', 'Summary')}</Row>`}
+          </Table>
+        </Worksheet>
+      `;
+    })
+    .join('');
 
-  const workbookHtml = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <style>
-    table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
-    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; }
-    .title { background: #7f1d1d; color: #ffffff; font-size: 18pt; font-weight: 800; text-align: left; }
-    .subtitle { background: #fee2e2; color: #7f1d1d; font-weight: 700; text-align: left; }
-    .column { background: #fef2f2; color: #991b1b; font-weight: 800; text-align: center; }
-    .rank { background: #f1f5f9; color: #0f172a; font-weight: 800; text-align: center; }
-    .name { color: #0f172a; font-weight: 800; min-width: 160px; }
-    .date { color: #334155; font-weight: 700; min-width: 140px; }
-    .money { mso-number-format:"$#,##0"; text-align: right; font-weight: 700; }
-    .number { mso-number-format:"0"; text-align: center; font-weight: 800; }
-    .danger { background: #fee2e2; color: #991b1b; }
-    .summary { background: #fff7ed; color: #9a3412; font-weight: 900; }
-    .row-white { background: #ffffff; }
-    .row-muted { background: #f8fafc; }
-  </style>
-</head>
-<body>
-  <table>
-    <tr><th class="title" colspan="11">Federal First Lending - Fall Out Report</th></tr>
-    <tr><td class="subtitle" colspan="11">Loans submitted to +1s that have no matching Submitted to Processing/QC record by Arive Number.</td></tr>
-    <tr><td class="summary" colspan="11">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Fall Out Count: ${rows.length}</td></tr>
-    <tr>
-      <th class="column">#</th>
-      <th class="column">Arive Number</th>
-      <th class="column">Borrower</th>
-      <th class="column">Loan Officer</th>
-      <th class="column">+1 Submitted</th>
-      <th class="column">Days Since +1</th>
-      <th class="column">Loan Amount</th>
-      <th class="column">Projected Revenue</th>
-      <th class="column">Lender</th>
-      <th class="column">Lead Source</th>
-      <th class="column">+1 Status</th>
-    </tr>
-    ${bodyRows || '<tr><td colspan="11" class="summary">No fall out loans found for this date range.</td></tr>'}
-  </table>
-</body>
-</html>`;
+  const workbookHtml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:html="http://www.w3.org/TR/REC-html40">
+  <Styles>
+    <Style ss:ID="Default"><Font ss:FontName="Calibri" ss:Size="11" /><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#cbd5e1" /><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#cbd5e1" /><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#cbd5e1" /><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#cbd5e1" /></Borders></Style>
+    <Style ss:ID="Title"><Font ss:FontName="Calibri" ss:Size="18" ss:Bold="1" ss:Color="#ffffff" /><Interior ss:Color="#7f1d1d" ss:Pattern="Solid" /></Style>
+    <Style ss:ID="Subtitle"><Font ss:Bold="1" ss:Color="#7f1d1d" /><Interior ss:Color="#fee2e2" ss:Pattern="Solid" /></Style>
+    <Style ss:ID="Summary"><Font ss:Bold="1" ss:Color="#9a3412" /><Interior ss:Color="#fff7ed" ss:Pattern="Solid" /></Style>
+    <Style ss:ID="Column"><Font ss:Bold="1" ss:Color="#991b1b" /><Alignment ss:Horizontal="Center" /><Interior ss:Color="#fef2f2" ss:Pattern="Solid" /></Style>
+    <Style ss:ID="Rank"><Font ss:Bold="1" /><Alignment ss:Horizontal="Center" /><Interior ss:Color="#f1f5f9" ss:Pattern="Solid" /><NumberFormat ss:Format="0" /></Style>
+    <Style ss:ID="Name"><Font ss:Bold="1" ss:Color="#0f172a" /></Style>
+    <Style ss:ID="Date"><Font ss:Bold="1" ss:Color="#334155" /></Style>
+    <Style ss:ID="Money"><Font ss:Bold="1" /><Alignment ss:Horizontal="Right" /><NumberFormat ss:Format="$#,##0" /></Style>
+    <Style ss:ID="Number"><Font ss:Bold="1" /><Alignment ss:Horizontal="Center" /><NumberFormat ss:Format="0" /></Style>
+    <Style ss:ID="DangerNumber"><Font ss:Bold="1" ss:Color="#991b1b" /><Alignment ss:Horizontal="Center" /><Interior ss:Color="#fee2e2" ss:Pattern="Solid" /><NumberFormat ss:Format="0" /></Style>
+    <Style ss:ID="RowWhite"><Interior ss:Color="#ffffff" ss:Pattern="Solid" /></Style>
+    <Style ss:ID="RowMuted"><Interior ss:Color="#f8fafc" ss:Pattern="Solid" /></Style>
+  </Styles>
+  ${worksheets}
+</Workbook>`;
 
   downloadBlob(
     new Blob([workbookHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
@@ -511,32 +564,99 @@ function exportFallOutReport(report: LeaderboardFallOutReport) {
   );
 }
 
-function exportWaterfallReport(report: LeaderboardWaterfallReport) {
+function exportWaterfallReport(report: LeaderboardWaterfallReport, leaderboardReport: LeaderboardReport) {
   const start = dateInputValue(report.filters.startDate);
   const end = dateInputValue(report.filters.endDate);
   const generatedAt = formatDateTime(report.generatedAt);
-  const rows = [...report.rows].sort(
+  const summaries = new Map<string, {
+    loanOfficerName: string;
+    plusOneUnits: number;
+    plusOneVolume: number;
+    plusOneRevenue: number;
+    stpUnits: number;
+    stpVolume: number;
+    stpRevenue: number;
+    totalTurnDays: number;
+  }>();
+
+  for (const officer of leaderboardReport.rows) {
+    if (officer.plusOne.units <= 0) continue;
+    summaries.set(officer.loanOfficerName, {
+      loanOfficerName: officer.loanOfficerName,
+      plusOneUnits: officer.plusOne.units,
+      plusOneVolume: officer.plusOne.volume,
+      plusOneRevenue: officer.plusOne.revenue,
+      stpUnits: 0,
+      stpVolume: 0,
+      stpRevenue: 0,
+      totalTurnDays: 0,
+    });
+  }
+
+  for (const row of report.rows) {
+    const summary = summaries.get(row.loanOfficerName) || {
+      loanOfficerName: row.loanOfficerName,
+      plusOneUnits: 0,
+      plusOneVolume: 0,
+      plusOneRevenue: 0,
+      stpUnits: 0,
+      stpVolume: 0,
+      stpRevenue: 0,
+      totalTurnDays: 0,
+    };
+    summary.stpUnits += 1;
+    summary.stpVolume += row.loanAmount;
+    summary.stpRevenue += row.projectedRevenue;
+    summary.totalTurnDays += row.daysToProcessing;
+    summaries.set(row.loanOfficerName, summary);
+  }
+
+  const rows = [...summaries.values()].sort(
     (a, b) =>
-      new Date(b.processingSubmittedAt).getTime() - new Date(a.processingSubmittedAt).getTime() ||
-      a.ariveNumber.localeCompare(b.ariveNumber)
+      b.stpUnits - a.stpUnits ||
+      b.stpVolume - a.stpVolume ||
+      a.loanOfficerName.localeCompare(b.loanOfficerName)
   );
-  const bodyRows = rows.map((row, index) => `
+  const totals = rows.reduce(
+    (sum, row) => {
+      sum.plusOneUnits += row.plusOneUnits;
+      sum.plusOneVolume += row.plusOneVolume;
+      sum.plusOneRevenue += row.plusOneRevenue;
+      sum.stpUnits += row.stpUnits;
+      sum.stpVolume += row.stpVolume;
+      sum.stpRevenue += row.stpRevenue;
+      sum.totalTurnDays += row.totalTurnDays;
+      return sum;
+    },
+    {
+      plusOneUnits: 0,
+      plusOneVolume: 0,
+      plusOneRevenue: 0,
+      stpUnits: 0,
+      stpVolume: 0,
+      stpRevenue: 0,
+      totalTurnDays: 0,
+    }
+  );
+  const bodyRows = rows.map((row, index) => {
+    const origToStpPercentage = row.plusOneUnits > 0 ? row.stpUnits / row.plusOneUnits : null;
+    const turnTime = row.stpUnits > 0 ? row.totalTurnDays / row.stpUnits : null;
+    return `
     <tr class="${index % 2 === 0 ? 'row-white' : 'row-muted'}">
-      <td class="rank">${index + 1}</td>
-      <td class="name">${excelEscape(row.ariveNumber)}</td>
-      <td class="name">${excelEscape(row.borrowerName)}</td>
-      <td>${excelEscape(row.loanOfficerName)}</td>
-      <td class="date">${excelEscape(formatDateTime(row.plusOneSubmittedAt))}</td>
-      <td class="date">${excelEscape(formatDateTime(row.processingSubmittedAt))}</td>
-      <td class="number success">${row.daysToProcessing}</td>
-      ${excelMoneyCell(row.loanAmount)}
-      ${excelMoneyCell(row.projectedRevenue)}
-      <td>${excelEscape(row.lender)}</td>
-      <td>${excelEscape(row.leadSource)}</td>
-      <td>${excelEscape(formatStatus(row.status))}</td>
-      <td>${excelEscape(formatStatus(row.processingStatus))}</td>
+      <td class="name">${excelEscape(row.loanOfficerName)}</td>
+      ${excelNumberCell(row.plusOneUnits)}
+      ${excelMoneyCell(row.plusOneVolume)}
+      ${excelMoneyCell(row.plusOneRevenue)}
+      ${excelNumberCell(row.stpUnits)}
+      ${excelMoneyCell(row.stpVolume)}
+      ${excelMoneyCell(row.stpRevenue)}
+      ${excelPercentCell(origToStpPercentage)}
+      ${excelDecimalCell(turnTime)}
     </tr>
-  `).join('');
+  `;
+  }).join('');
+  const totalOrigToStpPercentage = totals.plusOneUnits > 0 ? totals.stpUnits / totals.plusOneUnits : null;
+  const totalTurnTime = totals.stpUnits > 0 ? totals.totalTurnDays / totals.stpUnits : null;
 
   const workbookHtml = `<!doctype html>
 <html>
@@ -553,33 +673,43 @@ function exportWaterfallReport(report: LeaderboardWaterfallReport) {
     .date { color: #334155; font-weight: 700; min-width: 140px; }
     .money { mso-number-format:"$#,##0"; text-align: right; font-weight: 700; }
     .number { mso-number-format:"0"; text-align: center; font-weight: 800; }
+    .decimal { mso-number-format:"0.0"; text-align: center; font-weight: 800; }
+    .percent { mso-number-format:"0.0%"; text-align: center; font-weight: 900; }
     .success { background: #d1fae5; color: #065f46; }
     .summary { background: #ecfdf5; color: #065f46; font-weight: 900; }
+    .total { background: #dbeafe; color: #0f172a; font-weight: 900; }
     .row-white { background: #ffffff; }
     .row-muted { background: #f8fafc; }
   </style>
 </head>
 <body>
   <table>
-    <tr><th class="title" colspan="13">Federal First Lending - Waterfall Report</th></tr>
-    <tr><td class="subtitle" colspan="13">Loans submitted to +1s that have a matching Submitted to Processing/QC record by Arive Number.</td></tr>
-    <tr><td class="summary" colspan="13">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Waterfall Count: ${rows.length}</td></tr>
+    <tr><th class="title" colspan="9">Federal First Lending - Waterfall Report</th></tr>
+    <tr><td class="subtitle" colspan="9">Loan officer summary of +1s that reached Submitted to Processing/QC, matched by Arive Number.</td></tr>
+    <tr><td class="summary" colspan="9">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Waterfall Count: ${report.rows.length}</td></tr>
     <tr>
-      <th class="column">#</th>
-      <th class="column">Arive Number</th>
-      <th class="column">Borrower</th>
       <th class="column">Loan Officer</th>
-      <th class="column">+1 Submitted</th>
-      <th class="column">Processing/QC Submitted</th>
-      <th class="column">Days To Processing</th>
-      <th class="column">Loan Amount</th>
-      <th class="column">Projected Revenue</th>
-      <th class="column">Lender</th>
-      <th class="column">Lead Source</th>
-      <th class="column">+1 Status</th>
-      <th class="column">Processing/QC Status</th>
+      <th class="column">+1s Units</th>
+      <th class="column">+1s Volume</th>
+      <th class="column">+1s Revenue</th>
+      <th class="column">STPs Units</th>
+      <th class="column">STPs Volume</th>
+      <th class="column">STPs Revenue</th>
+      <th class="column">Orig to STP %</th>
+      <th class="column">Orig to STP Turn Time</th>
     </tr>
-    ${bodyRows || '<tr><td colspan="13" class="summary">No waterfall loans found for this date range.</td></tr>'}
+    <tr class="total">
+      <td class="name">Total</td>
+      ${excelNumberCell(totals.plusOneUnits)}
+      ${excelMoneyCell(totals.plusOneVolume)}
+      ${excelMoneyCell(totals.plusOneRevenue)}
+      ${excelNumberCell(totals.stpUnits)}
+      ${excelMoneyCell(totals.stpVolume)}
+      ${excelMoneyCell(totals.stpRevenue)}
+      ${excelPercentCell(totalOrigToStpPercentage)}
+      ${excelDecimalCell(totalTurnTime)}
+    </tr>
+    ${bodyRows || '<tr><td colspan="9" class="summary">No waterfall loans found for this date range.</td></tr>'}
   </table>
 </body>
 </html>`;
@@ -1018,9 +1148,9 @@ function MilestoneGroupHeader({
       dot: 'bg-emerald-500',
     },
     blue: {
-      cell: 'border-blue-100 bg-blue-50/60',
-      label: 'text-blue-700',
-      dot: 'bg-blue-500',
+      cell: 'border-[#2DE2E6]/30 bg-[#2DE2E6]/15',
+      label: 'text-cyan-700',
+      dot: 'bg-[#2DE2E6]',
     },
     purple: {
       cell: 'border-purple-100 bg-purple-50/60',
@@ -1109,13 +1239,13 @@ function KpiCard({
 }) {
   const tones = {
     emerald: 'border-emerald-100 from-emerald-50/90 text-emerald-950',
-    blue: 'border-blue-100 from-blue-50/90 text-blue-950',
+    blue: 'border-[#2DE2E6]/30 from-[#2DE2E6]/15 text-slate-950',
     purple: 'border-purple-100 from-purple-50/90 text-purple-950',
     amber: 'border-amber-100 from-amber-50/90 text-amber-950',
   };
   const iconTones = {
     emerald: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
-    blue: 'bg-blue-100 text-blue-700 ring-blue-200',
+    blue: 'bg-[#2DE2E6]/20 text-cyan-700 ring-[#2DE2E6]/40',
     purple: 'bg-purple-100 text-purple-700 ring-purple-200',
     amber: 'bg-amber-100 text-amber-700 ring-amber-200',
   };
@@ -1422,7 +1552,7 @@ export function LeaderboardPage({ initialReport }: Props) {
           </div>
           <h1 className="app-page-title mt-3">Leaderboard</h1>
           <p className="app-page-subtitle max-w-3xl">
-            Rank loan officer production by +1s, disclosures, processing submissions, and fundings. Secondary LOs receive credit when assigned.
+            Rank loan officer production by +1s, pending STP pipeline, processing submissions, and fundings. Secondary LOs receive credit when assigned.
           </p>
         </div>
         <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
@@ -1503,9 +1633,9 @@ export function LeaderboardPage({ initialReport }: Props) {
             tone="emerald"
           />
           <KpiCard
-            title="Disclosure Volume"
+            title="Pending STP Volume"
             value={formatCurrency(visibleTotals.disclosures.volume)}
-            subtitle={`${formatNumber(visibleTotals.disclosures.units)} submitted disclosures`}
+            subtitle={`${formatNumber(visibleTotals.disclosures.units)} not yet submitted to STP`}
             Icon={ClipboardCheck}
             tone="blue"
           />
@@ -1609,7 +1739,7 @@ export function LeaderboardPage({ initialReport }: Props) {
                   rowSpan={2}
                 />
                 <MilestoneGroupHeader label="+1s" colSpan={3} tone="emerald" />
-                <MilestoneGroupHeader label="Disclosures" colSpan={2} tone="blue" />
+                <MilestoneGroupHeader label="Pending STP" colSpan={2} tone="blue" />
                 <MilestoneGroupHeader label="Submitted to Processing/QC" colSpan={3} tone="purple" />
                 <MilestoneGroupHeader label="Fundings" colSpan={3} tone="amber" />
               </tr>
@@ -1825,7 +1955,7 @@ function LeaderboardReportsModal({
           startDate: dateInputValue(report.filters.startDate),
           endDate: dateInputValue(report.filters.endDate),
         });
-        exportWaterfallReport(waterfallReport);
+        exportWaterfallReport(waterfallReport, report);
         onClose();
       } catch (err) {
         console.error(err);
@@ -2052,7 +2182,7 @@ function OfficerDetailsModal({
           />
           <MiniMetric
             tone="disclosures"
-            title="Disclosures"
+            title="Pending STP"
             value={formatCurrency(entity.disclosures.volume)}
             detail={`${formatNumber(entity.disclosures.units)} units`}
             selected={selectedMilestone === 'disclosures'}

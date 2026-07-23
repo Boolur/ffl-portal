@@ -2,10 +2,11 @@
 
 import React from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Inbox, Loader2, RefreshCw, Send } from 'lucide-react';
-import { SupportConversationStatus, SupportDesk, UserRole } from '@prisma/client';
+import { Download, Inbox, Loader2, Paperclip, RefreshCw, Send } from 'lucide-react';
+import { SupportAttachmentPurpose, SupportConversationStatus, SupportDesk, UserRole } from '@prisma/client';
 import {
   assignSupportConversation,
+  getSupportAttachmentDownloadUrl,
   getSupportConversation,
   getSupportInbox,
   sendSupportMessage,
@@ -34,6 +35,15 @@ type SupportConversationItem = {
     body: string;
     createdAt: string;
     author: { id: string; name: string; email: string; role: UserRole };
+  }>;
+  attachments: Array<{
+    id: string;
+    purpose: SupportAttachmentPurpose;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+    createdAt: string;
+    uploadedBy: { id: string; name: string; email: string };
   }>;
 };
 
@@ -81,6 +91,12 @@ function statusLabel(status: SupportConversationStatus) {
   return status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function formatBytes(sizeBytes: number) {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${Math.round(sizeBytes / 1024)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function SupportInbox() {
   const searchParams = useSearchParams();
   const initialConversationId = searchParams.get('conversationId');
@@ -95,6 +111,7 @@ export function SupportInbox() {
   const [reply, setReply] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const [downloadingAttachmentId, setDownloadingAttachmentId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const loadInbox = React.useCallback(async (showLoader = false) => {
@@ -212,6 +229,21 @@ export function SupportInbox() {
       await loadInbox(false);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDownloadAttachment = async (attachmentId: string) => {
+    setDownloadingAttachmentId(attachmentId);
+    setError(null);
+    try {
+      const result = await getSupportAttachmentDownloadUrl(attachmentId);
+      if (!result.success || !result.url) {
+        setError(result.error || 'Unable to open attachment.');
+        return;
+      }
+      window.open(result.url, '_blank', 'noopener,noreferrer');
+    } finally {
+      setDownloadingAttachmentId(null);
     }
   };
 
@@ -395,6 +427,38 @@ export function SupportInbox() {
             </div>
 
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50/70 p-4">
+              {selectedConversation.attachments.length > 0 && (
+                <div className="rounded-2xl border border-blue-100 bg-white p-3 shadow-sm">
+                  <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-blue-700">
+                    <Paperclip className="h-4 w-4" />
+                    Attachments
+                  </p>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {selectedConversation.attachments.map((attachment) => (
+                      <button
+                        key={attachment.id}
+                        type="button"
+                        onClick={() => void handleDownloadAttachment(attachment.id)}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs hover:bg-blue-50"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-bold text-slate-800">
+                            {attachment.filename}
+                          </span>
+                          <span className="text-slate-500">
+                            {attachment.purpose === SupportAttachmentPurpose.MISMO ? 'MISMO' : 'Attachment'} · {formatBytes(attachment.sizeBytes)}
+                          </span>
+                        </span>
+                        {downloadingAttachmentId === attachment.id ? (
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-600" />
+                        ) : (
+                          <Download className="h-4 w-4 shrink-0 text-blue-600" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {selectedConversation.messages.map((message) => {
                 const requesterMessage =
                   message.author.role === UserRole.LOAN_OFFICER || message.author.role === UserRole.LOA;

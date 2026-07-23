@@ -25,6 +25,10 @@ export function getTaskAttachmentsBucket() {
   return process.env.SUPABASE_STORAGE_BUCKET_TASK_ATTACHMENTS || 'task-attachments';
 }
 
+export function getSupportAttachmentsBucket() {
+  return process.env.SUPABASE_STORAGE_BUCKET_SUPPORT_ATTACHMENTS || getTaskAttachmentsBucket();
+}
+
 export function getClientDocumentsBucket() {
   return process.env.SUPABASE_STORAGE_BUCKET_CLIENT_DOCUMENTS || 'client-documents';
 }

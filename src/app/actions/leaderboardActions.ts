@@ -200,7 +200,7 @@ const PROCESSING_KINDS = [TaskKind.SUBMIT_PROCESSING, TaskKind.SUBMIT_QC];
 
 const MILESTONE_LABELS: Record<LeaderboardMilestoneKey, string> = {
   plusOne: '+1s',
-  disclosures: 'Disclosures',
+  disclosures: 'Pending STP',
   processing: 'Submitted to Processing/QC',
   fundings: 'Fundings',
 };
@@ -723,6 +723,40 @@ export async function getLeaderboardReport(
     }),
   ]);
 
+  const plusOneTaskRows = taskRows.filter((task) => task.kind === TaskKind.SUBMIT_PLUS_ONE);
+  const plusOneLoanIds = Array.from(new Set(plusOneTaskRows.map((task) => task.loan.id)));
+  const plusOneRawNumbers = Array.from(new Set(
+    plusOneTaskRows
+      .flatMap((task) => [loanNumberFromJson(task.submissionData), task.loan.loanNumber])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+  const allTimeProcessingRows = plusOneTaskRows.length
+    ? await prisma.task.findMany({
+        where: {
+          kind: { in: PROCESSING_KINDS },
+          OR: [
+            { loanId: { in: plusOneLoanIds } },
+            { loan: { loanNumber: { in: plusOneRawNumbers } } },
+          ],
+        },
+        select: {
+          loanId: true,
+          submissionData: true,
+          loan: { select: { loanNumber: true } },
+        },
+      })
+    : [];
+  const processedLoanIds = new Set(allTimeProcessingRows.map((row) => row.loanId).filter(Boolean));
+  const processedLoanNumbers = new Set(
+    allTimeProcessingRows
+      .flatMap((row) => [
+        normalizeAriveNumber(row.loan?.loanNumber),
+        normalizeAriveNumber(loanNumberFromJson(row.submissionData)),
+      ])
+      .filter(Boolean)
+  );
+
   const rowMap = new Map<string, LeaderboardOfficerRow>();
   for (const officer of loanOfficers) {
     rowMap.set(officer.id, emptyOfficerRow(officer));
@@ -735,6 +769,7 @@ export async function getLeaderboardReport(
   for (const task of taskRows) {
     const milestone = taskKindToMilestone(task.kind);
     if (!milestone) continue;
+    if (milestone === 'disclosures') continue;
 
     const creditedLoanOfficerId = creditLoanOfficerId(task.loan);
     const row = rowMap.get(creditedLoanOfficerId);
@@ -769,6 +804,52 @@ export async function getLeaderboardReport(
       loanNumber: task.loan.loanNumber,
       amount,
       revenue: milestone === 'plusOne' || milestone === 'processing' ? revenue : null,
+      leadSource: leadSourceRow.leadSourceName,
+      leadVendor,
+      lender: lenderRow.lenderName,
+      status: task.status,
+      occurredAt: task.createdAt.toISOString(),
+      primaryLoanOfficerName: task.loan.loanOfficer.name,
+      secondaryLoanOfficerName: task.loan.secondaryLoanOfficer?.name || null,
+      program: task.loan.program,
+      propertyAddress: task.loan.propertyAddress,
+    });
+  }
+
+  for (const task of plusOneTaskRows) {
+    const normalizedLoanNumber = normalizeAriveNumber(loanNumberFromJson(task.submissionData) || task.loan.loanNumber);
+    if (processedLoanIds.has(task.loan.id) || processedLoanNumbers.has(normalizedLoanNumber)) continue;
+
+    const creditedLoanOfficerId = creditLoanOfficerId(task.loan);
+    const row = rowMap.get(creditedLoanOfficerId);
+    if (!row) continue;
+
+    const amount = money(task.loan.amount) || 0;
+    const revenue = projectedRevenueFromJson(task.submissionData) || 0;
+    const lenderName = lenderDisplayName(lenderFromJson(task.submissionData));
+    const leadVendor = leadVendorFromJson(task.submissionData);
+    const lenderRow = getOrCreateLenderRow(lenderMap, lenderName);
+    const leadSourceRow = getOrCreateLeadSourceRow(leadSourceMap, leadSourceFromJson(task.submissionData));
+    addMetric(row, 'disclosures', amount, revenue);
+    addMetric(lenderRow, 'disclosures', amount, revenue);
+    addMetric(leadSourceRow, 'disclosures', amount, revenue);
+
+    detailRows.push({
+      id: task.id,
+      loanId: task.loan.id,
+      creditedLoanOfficerId,
+      primaryLoanOfficerId: task.loan.loanOfficerId,
+      secondaryLoanOfficerId: task.loan.secondaryLoanOfficerId || null,
+      lenderKey: lenderRow.lenderKey,
+      lenderName: lenderRow.lenderName,
+      leadSourceKey: leadSourceRow.leadSourceKey,
+      leadSourceName: leadSourceRow.leadSourceName,
+      milestone: 'disclosures',
+      milestoneLabel: MILESTONE_LABELS.disclosures,
+      borrowerName: task.loan.borrowerName,
+      loanNumber: task.loan.loanNumber,
+      amount,
+      revenue,
       leadSource: leadSourceRow.leadSourceName,
       leadVendor,
       lender: lenderRow.lenderName,
@@ -1147,6 +1228,7 @@ export async function updateLeaderboardLoanDetails(
   const isLeadBuySource = leadSourceAliasKey(leadSource) === leadSourceAliasKey('Lead Buy');
   const shouldUpdateRevenue =
     input.milestone === 'plusOne' ||
+    input.milestone === 'disclosures' ||
     input.milestone === 'processing' ||
     input.milestone === 'fundings';
   let loanAmount: number;
@@ -1294,7 +1376,8 @@ export async function updateLeaderboardLoanDetails(
       });
       if (!task) throw new Error('Leaderboard task not found.');
       const milestone = taskKindToMilestone(task.kind);
-      if (milestone !== input.milestone) {
+      const isPreProcessingPlusOneEdit = input.milestone === 'disclosures' && milestone === 'plusOne';
+      if (milestone !== input.milestone && !isPreProcessingPlusOneEdit) {
         throw new Error('The selected task no longer matches this leaderboard row.');
       }
 
