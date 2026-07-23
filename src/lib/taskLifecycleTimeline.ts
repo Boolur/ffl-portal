@@ -352,7 +352,10 @@ function inferBackfillEvents(input: BuildTaskLifecycleInput): TaskLifecycleEvent
   const completedAt = toDate(input.completedAt);
   if (completedAt) {
     const completionNote =
-      [...notes].reverse().find((note) => toDate(note.date)?.getTime()! <= completedAt.getTime()) || null;
+      [...notes].reverse().find((note) => {
+        const noteDate = toDate(note.date);
+        return noteDate ? noteDate.getTime() <= completedAt.getTime() : false;
+      }) || null;
     events.push({
       id: 'estimated-completed',
       at: toIso(completedAt),

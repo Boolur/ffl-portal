@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { UserRole } from '@prisma/client';
+import { SupportDesk, UserRole } from '@prisma/client';
 import {
   createUser,
   inviteUser,
@@ -16,8 +16,9 @@ import {
   resendInvite,
   deleteUser,
 } from '@/app/actions/userActions';
+import { updateSupportDeskAssignments } from '@/app/actions/supportChatActions';
 import { useRouter } from 'next/navigation';
-import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Mail } from 'lucide-react';
+import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Mail, MessageCircle, X } from 'lucide-react';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
 import { FormatDate } from '@/components/ui/FormatDate';
 import { canAssignRole, canManageUser, getAdminTier } from '@/lib/adminTiers';
@@ -32,8 +33,17 @@ type UserRow = {
   loDisclosureSubmissionEnabled: boolean;
   loQcSubmissionEnabled: boolean;
   processingAssignmentGroups: string[];
+  supportDeskAssignments: SupportDeskAssignmentDraft[];
   active: boolean;
   createdAt: string;
+};
+
+type SupportDeskAssignmentDraft = {
+  desk: SupportDesk;
+  active: boolean;
+  lenders: string[];
+  loanTypes: string[];
+  states: string[];
 };
 
 type UserManagementProps = {
@@ -64,6 +74,40 @@ const ACTIVE_ROLE_OPTIONS: UserRole[] = ALL_ROLE_OPTIONS.filter(
     r !== UserRole.VA_APPRAISAL &&
     r !== UserRole.VA_HOI
 );
+
+const SUPPORT_DESK_OPTIONS = [
+  { desk: SupportDesk.SCENARIO, label: 'Scenario Desk' },
+  { desk: SupportDesk.PRICING, label: 'Pricing Desk' },
+  { desk: SupportDesk.HELP, label: 'Help Desk' },
+];
+
+function csvToList(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function listToCsv(values: string[]) {
+  return values.join(', ');
+}
+
+function buildSupportDeskDraft(assignments: SupportDeskAssignmentDraft[] = []) {
+  return SUPPORT_DESK_OPTIONS.map(({ desk }) => {
+    const existing = assignments.find((assignment) => assignment.desk === desk);
+    return {
+      desk,
+      active: existing?.active ?? false,
+      lenders: existing?.lenders ?? [],
+      loanTypes: existing?.loanTypes ?? [],
+      states: existing?.states ?? [],
+    };
+  });
+}
 
 export function UserManagement({
   users,
@@ -116,6 +160,11 @@ export function UserManagement({
     email: '',
     role: defaultCreatableRole,
   });
+  const [chatDesignationUser, setChatDesignationUser] = useState<UserRow | null>(null);
+  const [chatDesignationDraft, setChatDesignationDraft] = useState<SupportDeskAssignmentDraft[]>(
+    buildSupportDeskDraft()
+  );
+  const [isSavingChatDesignations, setIsSavingChatDesignations] = useState(false);
 
   const filteredUsers = useMemo(() => {
     const term = search.toLowerCase().trim();
@@ -303,6 +352,46 @@ export function UserManagement({
     }
     setDirectoryStatus({ type: 'success', message: 'JR processing routing updated.' });
     router.refresh();
+  };
+
+  const openChatDesignations = (user: UserRow) => {
+    setChatDesignationUser(user);
+    setChatDesignationDraft(buildSupportDeskDraft(user.supportDeskAssignments));
+    setDirectoryStatus(null);
+  };
+
+  const updateChatDesignationDraft = (
+    desk: SupportDesk,
+    patch: Partial<SupportDeskAssignmentDraft>
+  ) => {
+    setChatDesignationDraft((prev) =>
+      prev.map((assignment) =>
+        assignment.desk === desk ? { ...assignment, ...patch } : assignment
+      )
+    );
+  };
+
+  const handleSaveChatDesignations = async () => {
+    if (!chatDesignationUser || isSavingChatDesignations) return;
+    setIsSavingChatDesignations(true);
+    try {
+      const result = await updateSupportDeskAssignments({
+        userId: chatDesignationUser.id,
+        assignments: chatDesignationDraft,
+      });
+      if (!result.success) {
+        setDirectoryStatus({
+          type: 'error',
+          message: result.error || 'Failed to update chat designations.',
+        });
+        return;
+      }
+      setDirectoryStatus({ type: 'success', message: 'Chat designations updated.' });
+      setChatDesignationUser(null);
+      router.refresh();
+    } finally {
+      setIsSavingChatDesignations(false);
+    }
   };
 
   const handleResetPassword = async (userId: string) => {
@@ -797,6 +886,15 @@ export function UserManagement({
                                 Send Reset Link
                               </button>
                               <button
+                                onClick={() => openChatDesignations(user)}
+                                disabled={!manageable}
+                                title={!manageable ? disabledTitle : undefined}
+                                className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5" />
+                                Chat Designations
+                              </button>
+                              <button
                                 onClick={() => handleDeleteUser(user.id)}
                                 disabled={!manageable || isSelf}
                                 title={!manageable || isSelf ? disabledTitle : undefined}
@@ -1006,6 +1104,15 @@ export function UserManagement({
                           Send Reset Link
                         </button>
                         <button
+                          onClick={() => openChatDesignations(user)}
+                          disabled={!manageable}
+                          title={!manageable ? disabledTitle : undefined}
+                          className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" />
+                          Chat Designations
+                        </button>
+                        <button
                           onClick={() => handleDeleteUser(user.id)}
                           disabled={!manageable || isSelf}
                           title={!manageable || isSelf ? disabledTitle : undefined}
@@ -1074,6 +1181,135 @@ export function UserManagement({
           })}
         </div>
       </div>
+
+      {chatDesignationUser && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Chat designations"
+        >
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-slate-50 px-5 py-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">
+                  Chat Designations
+                </p>
+                <h2 className="mt-1 text-xl font-extrabold text-slate-900">
+                  {chatDesignationUser.name}
+                </h2>
+                <p className="text-sm text-slate-500">{chatDesignationUser.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChatDesignationUser(null)}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close chat designations"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="max-h-[calc(90vh-11rem)] overflow-y-auto p-5">
+              <p className="mb-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                Assign the desks this user can handle. For Scenario Desk, filters narrow routing by
+                lender, loan type, or state. Leave filters blank to make the user a general fallback
+                for that desk.
+              </p>
+              <div className="space-y-4">
+                {chatDesignationDraft.map((assignment) => {
+                  const option = SUPPORT_DESK_OPTIONS.find((entry) => entry.desk === assignment.desk);
+                  return (
+                    <div
+                      key={assignment.desk}
+                      className={`rounded-2xl border p-4 ${
+                        assignment.active
+                          ? 'border-blue-200 bg-blue-50/50'
+                          : 'border-slate-200 bg-slate-50/70'
+                      }`}
+                    >
+                      <label className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                        <input
+                          type="checkbox"
+                          checked={assignment.active}
+                          onChange={(event) =>
+                            updateChatDesignationDraft(assignment.desk, {
+                              active: event.target.checked,
+                            })
+                          }
+                        />
+                        {option?.label || assignment.desk}
+                      </label>
+                      <div className="mt-3 grid gap-3 md:grid-cols-3">
+                        <label className="block text-xs font-semibold text-slate-600">
+                          Lenders
+                          <input
+                            value={listToCsv(assignment.lenders)}
+                            onChange={(event) =>
+                              updateChatDesignationDraft(assignment.desk, {
+                                lenders: csvToList(event.target.value),
+                              })
+                            }
+                            placeholder="UWM, Rocket, ..."
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+                          />
+                        </label>
+                        <label className="block text-xs font-semibold text-slate-600">
+                          Loan Types
+                          <input
+                            value={listToCsv(assignment.loanTypes)}
+                            onChange={(event) =>
+                              updateChatDesignationDraft(assignment.desk, {
+                                loanTypes: csvToList(event.target.value),
+                              })
+                            }
+                            placeholder="FHA, Non-QM, VA"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+                          />
+                        </label>
+                        <label className="block text-xs font-semibold text-slate-600">
+                          States
+                          <input
+                            value={listToCsv(assignment.states)}
+                            onChange={(event) =>
+                              updateChatDesignationDraft(assignment.desk, {
+                                states: csvToList(event.target.value),
+                              })
+                            }
+                            placeholder="CA, TX, AZ"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-white px-5 py-4 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setChatDesignationUser(null)}
+                className="app-btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveChatDesignations}
+                disabled={isSavingChatDesignations}
+                className="app-btn-primary disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isSavingChatDesignations ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MessageCircle className="h-4 w-4" />
+                )}
+                Save Designations
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

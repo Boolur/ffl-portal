@@ -15,6 +15,7 @@ import {
   Megaphone,
   Inbox,
   Trophy,
+  MessageCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -34,6 +35,7 @@ import {
   canAccessLenderManagement,
   canAccessPayroll,
   canAccessReports,
+  canAccessSupportInbox,
   canAccessTeamPage,
   canAccessUserManagement,
   isAdmin,
@@ -181,6 +183,13 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       visible: () => canAccessUserManagement(activeRoleArr),
     },
     {
+      name: 'Support Inbox',
+      icon: MessageCircle,
+      href: '/admin/support',
+      roles: [] as UserRole[],
+      visible: () => canAccessSupportInbox(activeRoleArr),
+    },
+    {
       name: 'Email Settings',
       icon: Mail,
       href: '/admin/email',
@@ -224,7 +233,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     return v ? v() : false;
   };
 
-  const MANAGEMENT_NAMES = ['User Management', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'];
+  const MANAGEMENT_NAMES = ['User Management', 'Support Inbox', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'];
   const mainNavItems = navItems.filter(
     (item) =>
       isVisible(item) &&

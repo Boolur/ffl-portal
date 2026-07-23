@@ -100,6 +100,21 @@ enum NotificationOutboxEventType {
   TASK_WORKFLOW
   VA_FANOUT
   PLUS_ONE_SUBMITTED
+  SUPPORT_CHAT
+}
+
+enum SupportDesk {
+  SCENARIO
+  PRICING
+  HELP
+}
+
+enum SupportConversationStatus {
+  OPEN
+  WAITING_ON_STAFF
+  WAITING_ON_REQUESTER
+  RESOLVED
+  ARCHIVED
 }
 
 enum LenderLinkType {
@@ -241,6 +256,11 @@ model User {
   invitesCreated   InviteToken[] @relation("InvitesCreated")
   passwordResets   PasswordResetToken[]
   notifications    Notification[]
+  supportConversationsRequested SupportConversation[] @relation("SupportConversationRequester")
+  supportConversationsAssigned  SupportConversation[] @relation("SupportConversationAssignee")
+  supportMessages   SupportMessage[] @relation("SupportMessageAuthor")
+  supportReadStates SupportConversationReadState[] @relation("SupportConversationReadUser")
+  supportDeskAssignments SupportDeskAssignment[] @relation("SupportDeskAssignmentUser")
 
   // Lead distribution relations
   leads              Lead[]
@@ -301,6 +321,7 @@ model Loan {
   pipelineNotes   PipelineNote[]
   leadMailboxLeads LeadMailboxLead[]
   payrollCompRequests PayrollCompRequest[]
+  supportConversations SupportConversation[]
 
   @@index([loanOfficerId, pipelineStageId])
   @@index([secondaryLoanOfficerId])
@@ -440,6 +461,78 @@ model NotificationOutbox {
 
   @@index([status, nextAttemptAt, createdAt])
   @@index([eventType, status])
+}
+
+model SupportConversation {
+  id             String                    @id @default(uuid())
+  desk           SupportDesk
+  status         SupportConversationStatus @default(OPEN)
+  subject        String
+  requesterId    String
+  requester      User                      @relation("SupportConversationRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  assignedUserId String?
+  assignedUser   User?                     @relation("SupportConversationAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  loanId         String?
+  loan           Loan?                     @relation(fields: [loanId], references: [id], onDelete: SetNull)
+  lender         String?
+  loanType       String?
+  propertyState  String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  lastMessageAt  DateTime                  @default(now())
+  resolvedAt     DateTime?
+
+  messages   SupportMessage[]
+  readStates SupportConversationReadState[]
+
+  @@index([requesterId, lastMessageAt])
+  @@index([assignedUserId, lastMessageAt])
+  @@index([desk, status, lastMessageAt])
+  @@index([loanId])
+}
+
+model SupportMessage {
+  id             String              @id @default(uuid())
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User                @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body           String
+  staffOnly      Boolean             @default(false)
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model SupportConversationReadState {
+  id             String              @id @default(uuid())
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                @relation("SupportConversationReadUser", fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime            @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId, lastReadAt])
+}
+
+model SupportDeskAssignment {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation("SupportDeskAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  desk          SupportDesk
+  active        Boolean     @default(true)
+  lenders       String[]    @default([])
+  loanTypes     String[]    @default([])
+  states        String[]    @default([])
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([userId, desk])
+  @@index([desk, active, sortOrder])
+  @@index([userId])
 }
 
 model TaskAttachment {

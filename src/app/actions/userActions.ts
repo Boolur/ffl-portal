@@ -297,6 +297,16 @@ export async function getAllUsers() {
       loDisclosureSubmissionEnabled: true,
       loQcSubmissionEnabled: true,
       processingAssignmentGroups: true,
+      supportDeskAssignments: {
+        select: {
+          desk: true,
+          active: true,
+          lenders: true,
+          loanTypes: true,
+          states: true,
+        },
+        orderBy: { desk: 'asc' },
+      },
       active: true,
       createdAt: true,
     },

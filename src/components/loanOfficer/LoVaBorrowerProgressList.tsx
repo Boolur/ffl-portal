@@ -1108,12 +1108,12 @@ export function LoVaBorrowerProgressList({
                                 type="button"
                                 onClick={() => openLifecycleFromCard(item, 'va')}
                                 className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${getTimerClassName(
-                                  Date.now() - item.vaEarliestCreatedAt.getTime()
+                                  timerNowMs - item.vaEarliestCreatedAt.getTime()
                                 )}`}
                                 title="Time since entering the VA bucket (click for lifecycle timeline)"
                               >
                                 <Clock3 className="mr-1 h-2.5 w-2.5" />
-                                Total {formatElapsedTimerLabel(Date.now() - item.vaEarliestCreatedAt.getTime())}
+                                Total {formatElapsedTimerLabel(timerNowMs - item.vaEarliestCreatedAt.getTime())}
                               </button>
                             </div>
                           )}
@@ -1351,12 +1351,12 @@ export function LoVaBorrowerProgressList({
                                 type="button"
                                 onClick={() => openLifecycleFromCard(item, 'jr')}
                                 className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none transition hover:brightness-95 ${getTimerClassName(
-                                  Date.now() - item.jrEarliestCreatedAt.getTime()
+                                  timerNowMs - item.jrEarliestCreatedAt.getTime()
                                 )}`}
                                 title="Time since entering the JR Processor bucket (click for lifecycle timeline)"
                               >
                                 <Clock3 className="mr-1 h-2.5 w-2.5" />
-                                Total {formatElapsedTimerLabel(Date.now() - item.jrEarliestCreatedAt.getTime())}
+                                Total {formatElapsedTimerLabel(timerNowMs - item.jrEarliestCreatedAt.getTime())}
                               </button>
                             </div>
                           )}

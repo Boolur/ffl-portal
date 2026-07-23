@@ -66,7 +66,7 @@ export function hasAnyAdminRole(roles?: UserRole[] | null): boolean {
 // Nav / route capability helpers. Operate on the user's full roles[] list so
 // multi-hat users (e.g. Admin II + LO) keep their admin surfaces regardless
 // of the currently active role.
-export const canAccessOverview = (_roles: UserRole[] = []) => true;
+export const canAccessOverview = () => true;
 export const canAccessTasks = (roles: UserRole[] = []) =>
   roles.length > 0;
 export const canAccessLeadDistribution = (roles: UserRole[] = []) =>
@@ -85,6 +85,17 @@ export const canAccessUserManagement = (roles: UserRole[] = []) =>
   hasAnyAdminRole(roles);
 export const canAccessLenderManagement = (roles: UserRole[] = []) =>
   hasAnyAdminRole(roles);
+export const canAccessSupportInbox = (roles: UserRole[] = []) =>
+  hasAnyAdminRole(roles) ||
+  roles.some((role) => {
+    const supportInboxRoles: UserRole[] = [
+      UserRole.MANAGER,
+      UserRole.DISCLOSURE_SPECIALIST,
+      UserRole.PROCESSOR_JR,
+      UserRole.PROCESSOR_SR,
+    ];
+    return supportInboxRoles.includes(role);
+  });
 
 // User-management-specific rules.
 //

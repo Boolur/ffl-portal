@@ -7,6 +7,7 @@ import { useImpersonation } from '@/lib/impersonation';
 import { UserRole } from '@prisma/client';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import { SupportChatWidget } from '@/components/support/SupportChatWidget';
 
 type DashboardShellProps = {
   children: React.ReactNode;
@@ -259,6 +260,7 @@ function DashboardContent({ children, user }: DashboardShellProps) {
           {children}
         </div>
       </main>
+      <SupportChatWidget activeRole={activeRole} />
     </div>
   );
 }
