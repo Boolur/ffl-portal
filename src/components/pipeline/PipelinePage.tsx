@@ -419,7 +419,7 @@ export function PipelinePage({ initialReport }: Props) {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] space-y-6">
+    <div className="w-full space-y-6">
       <div className="app-page-header flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h1 className="app-page-title">Pipeline</h1>

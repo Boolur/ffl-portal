@@ -1543,7 +1543,7 @@ export function LeaderboardPage({ initialReport }: Props) {
         : `${selectedTeams.length} teams selected.`;
 
   return (
-    <div className="mx-auto w-full max-w-[1700px] space-y-6">
+    <div className="w-full space-y-6">
       <div className="app-page-header flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-amber-100 bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-amber-700">
