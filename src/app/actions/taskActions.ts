@@ -2463,6 +2463,10 @@ function parseMoneyNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeAriveLoanNumber(value: unknown) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
 export async function createPlusOneSubmission(payload: PlusOnePayload) {
   const perfStartedAt = Date.now();
   try {
@@ -2479,6 +2483,31 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
     const normalizedArriveLoanNumber = payload.arriveLoanNumber.trim();
     if (!normalizedArriveLoanNumber) {
       return { success: false, error: 'Arrive Loan Number is required.' };
+    }
+    const normalizedArriveLoanKey = normalizeAriveLoanNumber(normalizedArriveLoanNumber);
+    const existingLoanWithAriveNumber = await prisma.loan.findMany({
+      where: {
+        loanNumber: {
+          contains: normalizedArriveLoanNumber,
+          mode: 'insensitive',
+        },
+      },
+      select: {
+        id: true,
+        loanNumber: true,
+        borrowerName: true,
+      },
+      take: 25,
+    });
+    const duplicateLoan = existingLoanWithAriveNumber.find(
+      (loan) => normalizeAriveLoanNumber(loan.loanNumber) === normalizedArriveLoanKey
+    );
+    if (duplicateLoan) {
+      return {
+        success: false,
+        code: 'DUPLICATE_ARIVE_LOAN_NUMBER',
+        error: `A +1 cannot be submitted because Arive Loan Number ${normalizedArriveLoanNumber} already exists in the portal${duplicateLoan.borrowerName ? ` for ${duplicateLoan.borrowerName}` : ''}. Please use the existing file instead of submitting a duplicate +1.`,
+      };
     }
     if (!payload.loanOfficerId) {
       return { success: false, error: 'Please select the Primary Loan Officer.' };
