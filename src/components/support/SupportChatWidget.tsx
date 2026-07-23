@@ -346,7 +346,7 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
           className="flex h-[min(720px,calc(100vh-6rem))] w-[min(460px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"
           aria-label="Support chat"
         >
-          <div className="border-b border-slate-200 bg-gradient-to-r from-slate-950 to-blue-950 px-4 py-4 text-white">
+          <div className="border-b border-[#3e8dc8]/30 bg-gradient-to-r from-[#2f75aa] via-[#3e8dc8] to-[#63a7d4] px-4 py-4 text-white">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-100">
