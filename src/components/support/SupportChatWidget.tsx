@@ -458,7 +458,7 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-2xl ring-4 ring-blue-100 transition hover:scale-[1.02] hover:from-blue-700 hover:to-indigo-800 focus:outline-none focus:ring-4 focus:ring-blue-200"
+        className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-[#3e8dc8] text-white shadow-2xl ring-4 ring-[#3e8dc8]/20 transition hover:scale-[1.02] hover:bg-[#347eb5] focus:outline-none focus:ring-4 focus:ring-[#3e8dc8]/30"
         aria-label="Open support chat"
       >
         {open ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
