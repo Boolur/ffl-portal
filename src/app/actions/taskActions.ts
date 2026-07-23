@@ -2070,7 +2070,6 @@ export async function updateTaskStatus(
     noteMessage?: string;
     skipProofRequirement?: boolean;
     markNotNeeded?: boolean;
-    bypassDisclosureApproval?: boolean;
   }
 ) {
   const perfStartedAt = Date.now();
@@ -2159,7 +2158,6 @@ export async function updateTaskStatus(
     const normalizedNoteMessage = String(options?.noteMessage ?? '').trim();
     const skipProofRequirement = Boolean(options?.skipProofRequirement);
     const markNotNeeded = Boolean(options?.markNotNeeded);
-    const bypassDisclosureApproval = Boolean(options?.bypassDisclosureApproval);
     const canMarkNotNeeded =
       markNotNeeded &&
       (existing.kind === TaskKind.VA_APPRAISAL || existing.kind === TaskKind.VA_PAYOFF);
@@ -2171,12 +2169,6 @@ export async function updateTaskStatus(
         role === UserRole.VA_PAYOFF ||
         role === UserRole.MANAGER ||
         isAdmin(role));
-    const canBypassDisclosureApproval =
-      bypassDisclosureApproval &&
-      skipProofRequirement &&
-      newStatus === TaskStatus.COMPLETED &&
-      isDisclosureSubmissionTask(existing) &&
-      (role === UserRole.DISCLOSURE_SPECIALIST || role === UserRole.MANAGER || isAdmin(role));
 
     // Loan Officers should not use generic status transitions for submission tasks.
     // Their workflow is controlled through disclosure/QC response actions instead.
@@ -2197,7 +2189,7 @@ export async function updateTaskStatus(
       const proofCount = await prisma.taskAttachment.count({
         where: { taskId, purpose: 'PROOF' },
       });
-      if (proofCount < 1 && !canSkipProofForNotNeeded && !canBypassDisclosureApproval) {
+      if (proofCount < 1 && !canSkipProofForNotNeeded) {
         return {
           success: false,
           error: 'Upload proof (PDF/Image) before completing this task.',
@@ -2230,8 +2222,7 @@ export async function updateTaskStatus(
 
     if (
       newStatus === TaskStatus.COMPLETED &&
-      isSubmissionWorkflowTask &&
-      !canBypassDisclosureApproval
+      isSubmissionWorkflowTask
     ) {
       if (
         existing.workflowState === TaskWorkflowState.WAITING_ON_LO ||
@@ -2247,8 +2238,7 @@ export async function updateTaskStatus(
 
     if (
       newStatus === TaskStatus.COMPLETED &&
-      isDisclosureSubmissionTask(existing) &&
-      !canBypassDisclosureApproval
+      isDisclosureSubmissionTask(existing)
     ) {
       if (
         existing.disclosureReason ===

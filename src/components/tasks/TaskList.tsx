@@ -2696,7 +2696,6 @@ export function TaskList({
       noteMessage?: string;
       skipProofRequirement?: boolean;
       markNotNeeded?: boolean;
-      bypassDisclosureApproval?: boolean;
     }
   ) => {
     if (updatingId) return;
@@ -3801,11 +3800,6 @@ export function TaskList({
           isDisclosureSubmissionTask(task) &&
           (isDisclosureInitialRoutingState || isDisclosureReturnedRoutingState) &&
           selectedReason === DisclosureDecisionReason.MISSING_ITEMS;
-        const canMoveDisclosureDirectlyToCompleted =
-          canManageDisclosureDesk &&
-          isDisclosureSubmissionTask(task) &&
-          task.status !== TaskStatus.COMPLETED &&
-          (isDisclosureInitialRoutingState || isDisclosureReturnedRoutingState);
         const allowProofUploaderWhilePending =
           task.status === TaskStatus.PENDING &&
           ((canManageDisclosureDesk &&
@@ -6748,66 +6742,35 @@ export function TaskList({
                           );
                         }
                         return (
-                          <>
-                            {canMoveDisclosureDirectlyToCompleted && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const confirmed = window.confirm(
-                                    'Move this disclosure request directly to Completed without LO approval or proof upload?'
-                                  );
-                                  if (!confirmed) return;
-                                  void handleStatusChange(task.id, 'COMPLETED', {
-                                    skipProofRequirement: true,
-                                    bypassDisclosureApproval: true,
-                                  });
-                                }}
-                                disabled={
-                                  !!updatingId ||
-                                  isTaskActionLocked ||
-                                  isClaimedByAnother ||
-                                  sendingToLoId === task.id
-                                }
-                                className="inline-flex h-9 items-center rounded-lg border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700 shadow-sm transition-colors hover:border-emerald-400 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {updatingId === task.id ? (
-                                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                                ) : (
-                                  <CheckCircle className="mr-1.5 h-4 w-4" />
-                                )}
-                                {updatingId === task.id ? 'Saving...' : 'Move to Completed'}
-                              </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleSendToLoanOfficer(task)}
+                            disabled={disableRouteButton}
+                            className={`disabled:opacity-60 disabled:cursor-not-allowed ${
+                              isMissingItemsRouteAction
+                                ? 'inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100'
+                                : isDisclosureSubmissionTask(task)
+                                ? 'app-btn-primary'
+                                : isQcCompleteRouteAction
+                                ? 'inline-flex h-9 items-center rounded-lg border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors'
+                                : 'app-btn-secondary'
+                            }`}
+                          >
+                            {sendingToLoId === task.id && (
+                              <Loader2 className="w-4 h-4 animate-spin" />
                             )}
-                            <button
-                              type="button"
-                              onClick={() => void handleSendToLoanOfficer(task)}
-                              disabled={disableRouteButton}
-                              className={`disabled:opacity-60 disabled:cursor-not-allowed ${
-                                isMissingItemsRouteAction
-                                  ? 'inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100'
-                                  : isDisclosureSubmissionTask(task)
-                                  ? 'app-btn-primary'
-                                  : isQcCompleteRouteAction
-                                  ? 'inline-flex h-9 items-center rounded-lg border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors'
-                                  : 'app-btn-secondary'
-                              }`}
-                            >
-                              {sendingToLoId === task.id && (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              )}
-                              {isDisclosureSubmissionTask(task)
-                                ? selectedReason ===
-                                  DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-                                  ? 'Send to LO for Approval'
-                                  : 'Send Back to LO'
-                                : isVaRouteTask
-                                ? 'Send Back to LO'
-                                : selectedQcReason ===
-                                  DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
-                                ? 'Complete Processing'
-                                : 'Send Back to LO'}
-                            </button>
-                          </>
+                            {isDisclosureSubmissionTask(task)
+                              ? selectedReason ===
+                                DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                                ? 'Send to LO for Approval'
+                                : 'Send Back to LO'
+                              : isVaRouteTask
+                              ? 'Send Back to LO'
+                              : selectedQcReason ===
+                                DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES
+                              ? 'Complete Processing'
+                              : 'Send Back to LO'}
+                          </button>
                         );
                       })()
                     )}
