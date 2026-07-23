@@ -811,6 +811,7 @@ function PlusOneForm({
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [importError, setImportError] = useState('');
   const [submitMessage, setSubmitMessage] = useState('');
+  const [submitErrorCode, setSubmitErrorCode] = useState<string | null>(null);
   const [form, setForm] = useState({
     loanOfficer: '',
     loanOfficerId: '',
@@ -865,6 +866,7 @@ function PlusOneForm({
       const prefill = parseMismoXml(text, file.name);
       setImportError('');
       setSubmitMessage('');
+      setSubmitErrorCode(null);
       setForm((prev) => ({
         ...prev,
         borrowerFirstName: prefill.borrowerFirstName || prev.borrowerFirstName,
@@ -888,6 +890,7 @@ function PlusOneForm({
   const handleSkipMismo = () => {
     setImportError('');
     setSubmitMessage('');
+    setSubmitErrorCode(null);
     setShowValidationErrors(false);
     onStepChange(2);
   };
@@ -897,6 +900,7 @@ function PlusOneForm({
     if (isSubmitting) return;
     setShowValidationErrors(true);
     setSubmitMessage('');
+    setSubmitErrorCode(null);
     const missingLabels = requiredFields
       .filter(({ key }) => !String(form[key] ?? '').trim())
       .map(({ label }) => label);
@@ -924,6 +928,7 @@ function PlusOneForm({
     });
     if (!result.success) {
       setSubmitMessage(result.error || 'Failed to submit +1.');
+      setSubmitErrorCode('code' in result && typeof result.code === 'string' ? result.code : null);
       setIsSubmitting(false);
       onSubmissionOverlay(null);
       return;
@@ -1071,15 +1076,14 @@ function PlusOneForm({
           />
 
           {submitMessage && (
-            <p
-              className={`text-sm rounded-lg border px-3 py-2 ${
-                missingKeys.size > 0
-                  ? 'border-red-200 bg-red-50 text-red-700'
-                  : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-              }`}
-            >
-              {submitMessage}
-            </p>
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {submitErrorCode && (
+                <p className="mb-1 inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-[0.12em] text-red-700 ring-1 ring-red-200">
+                  {submitErrorCode}
+                </p>
+              )}
+              <p className="font-semibold">{submitMessage}</p>
+            </div>
           )}
 
           <div className="flex justify-end gap-3 pt-2">
