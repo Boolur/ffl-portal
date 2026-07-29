@@ -19,6 +19,10 @@ import {
   X,
 } from 'lucide-react';
 import {
+  actionPendingStpLoan,
+  type PendingStpActionInput,
+} from '@/app/actions/leaderboardActions';
+import {
   getPipelineReport,
   type PipelineMilestoneKey,
   type PipelineMilestoneRow,
@@ -318,6 +322,7 @@ export function PipelinePage({ initialReport }: Props) {
   const [endDate, setEndDate] = useState(dateInputValue(initialReport.filters.endDate));
   const [loanOfficerId, setLoanOfficerId] = useState<string>(initialReport.filters.loanOfficerId);
   const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
+  const [actioningRow, setActioningRow] = useState<PipelineMilestoneRow | null>(null);
   const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => new Set());
   const [pipelineSearch, setPipelineSearch] = useState('');
   const [isPipelineSearchLoading, setIsPipelineSearchLoading] = useState(false);
@@ -379,6 +384,16 @@ export function PipelinePage({ initialReport }: Props) {
     }
     router.push(`/tasks?taskId=${encodeURIComponent(row.id)}`);
   };
+
+  async function handlePendingStpAction(input: PendingStpActionInput) {
+    const result = await actionPendingStpLoan(input);
+    if (result.success) {
+      setActioningRow(null);
+      setSelectedCard(null);
+      loadReport();
+    }
+    return result;
+  }
 
   const openBorrowerDetails = (row: PipelineMilestoneRow) => {
     markUpdateReviewed(row);
@@ -774,7 +789,15 @@ export function PipelinePage({ initialReport }: Props) {
           row={selectedCard}
           signal={visibleUpdateSignal(selectedCard, reviewedUpdates)}
           onReviewUpdate={() => reviewUpdate(selectedCard)}
+          onActionPendingStp={() => setActioningRow(selectedCard)}
           onClose={() => setSelectedCard(null)}
+        />
+      )}
+      {actioningRow && (
+        <PipelinePendingStpActionModal
+          row={actioningRow}
+          onSubmit={handlePendingStpAction}
+          onClose={() => setActioningRow(null)}
         />
       )}
     </div>
@@ -1203,11 +1226,13 @@ function ClientDetailsModal({
   row,
   signal,
   onReviewUpdate,
+  onActionPendingStp,
   onClose,
 }: {
   row: PipelineMilestoneRow;
   signal: PipelineMilestoneRow['updateSignal'];
   onReviewUpdate: () => void;
+  onActionPendingStp: () => void;
   onClose: () => void;
 }) {
   const submittedFields = row.fileDetails.task?.submittedFields || [];
@@ -1246,6 +1271,15 @@ function ClientDetailsModal({
                 <span className={cx('ml-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-bold', updateSignalClassName(signal.tone))}>
                   {signal.label}
                 </span>
+              )}
+              {row.milestone === 'pendingStp' && (
+                <button
+                  type="button"
+                  onClick={onActionPendingStp}
+                  className="ml-2 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-cyan-800 transition hover:border-cyan-300 hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                >
+                  Action
+                </button>
               )}
               <p className="mt-2 text-sm font-medium text-slate-500">
                 {row.sharedLoanOfficerNames.join(' / ') || row.loanOfficerName}
@@ -1437,6 +1471,149 @@ function ClientDetailsModal({
               </section>
             )}
           </aside>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PIPELINE_PENDING_STP_DISPOSITION_OPTIONS = [
+  { value: 'CANCELLED', label: 'Cancelled' },
+  { value: 'DNQ', label: 'DNQ' },
+  { value: 'GHOSTED', label: 'Ghosted' },
+  { value: 'WAITING_FOR_MARKET_IMPROVEMENTS', label: 'Waiting for Market Improvements' },
+  { value: 'OTHER', label: 'Other' },
+] as const;
+
+function PipelinePendingStpActionModal({
+  row,
+  onSubmit,
+  onClose,
+}: {
+  row: PipelineMilestoneRow;
+  onSubmit: (input: PendingStpActionInput) => Promise<{ success: boolean; error?: string }>;
+  onClose: () => void;
+}) {
+  const [disposition, setDisposition] = useState<(typeof PIPELINE_PENDING_STP_DISPOSITION_OPTIONS)[number]['value']>('CANCELLED');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, startSaving] = useTransition();
+  const requiresNote = disposition === 'OTHER';
+
+  function handleSubmit() {
+    if (requiresNote && !note.trim()) {
+      setError('Please enter a note when using Other.');
+      return;
+    }
+    setError(null);
+    startSaving(async () => {
+      const result = await onSubmit({
+        plusOneTaskId: row.id,
+        disposition,
+        note: note.trim() || null,
+      });
+      if (!result.success) {
+        setError(result.error || 'Unable to action this Pending STP loan.');
+      }
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Action Pending STP loan for ${row.borrowerName}`}
+        className="w-full max-w-xl overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-6 border-b border-slate-200 px-6 py-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Pending STP action</p>
+            <h3 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">
+              Disposition Loan
+            </h3>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              {row.borrowerName} / {row.loanNumber}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:bg-slate-50 hover:text-slate-600 hover:shadow-sm"
+            aria-label="Close Pending STP action"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-6 py-5">
+          <div className="grid gap-2">
+            {PIPELINE_PENDING_STP_DISPOSITION_OPTIONS.map((option) => (
+              <label
+                key={option.value}
+                className={cx(
+                  'flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-bold transition',
+                  disposition === option.value
+                    ? 'border-cyan-300 bg-cyan-50 text-cyan-900 ring-2 ring-cyan-100'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                )}
+              >
+                <input
+                  type="radio"
+                  name="pipeline-pending-stp-disposition"
+                  value={option.value}
+                  checked={disposition === option.value}
+                  onChange={() => setDisposition(option.value)}
+                  className="h-4 w-4 border-slate-300 text-cyan-600 focus:ring-cyan-200"
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+              Note {requiresNote ? '(required)' : '(optional)'}
+            </span>
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              rows={4}
+              placeholder="Add any context for this disposition"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition placeholder:text-slate-300 focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100"
+            />
+          </label>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+            This will remove the loan from Pending STP and write the action to the Dead Deal Report.
+          </div>
+          {error && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSaving}
+            className="inline-flex items-center gap-2 rounded-full bg-cyan-600 px-5 py-2 text-sm font-extrabold text-white shadow-lg shadow-cyan-600/20 transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Apply Action
+          </button>
         </div>
       </div>
     </div>

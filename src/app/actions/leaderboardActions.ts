@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import {
+  PendingStpDispositionReason,
   PayrollCompRequestStatus,
   PayrollLeadSource,
   Prisma,
@@ -21,6 +22,7 @@ export type LeaderboardReportFilters = {
   preset?: LeaderboardRangePreset;
   startDate?: string;
   endDate?: string;
+  loanOfficerIds?: string[];
 };
 
 export type LeaderboardMetric = {
@@ -194,6 +196,50 @@ export type LeaderboardWaterfallReport = {
   };
   generatedAt: string;
   rows: LeaderboardWaterfallRow[];
+};
+
+export type LeaderboardDeadDealRow = {
+  dispositionId: string;
+  actionDate: string;
+  loanOfficerName: string;
+  borrowerName: string;
+  ariveNumber: string;
+  loanAmount: number;
+  projectedRevenue: number;
+  lender: string;
+  leadSource: string;
+  plusOneSubmittedAt: string;
+  daysPendingBeforeAction: number;
+  disposition: PendingStpDispositionReason;
+  note: string | null;
+  actionedByName: string;
+  currentStatus: 'Dead' | 'Later Submitted to Processing';
+};
+
+export type LeaderboardDeadDealReport = {
+  filters: {
+    preset: LeaderboardRangePreset;
+    startDate: string;
+    endDate: string;
+  };
+  generatedAt: string;
+  rows: LeaderboardDeadDealRow[];
+};
+
+export type PendingStpActionInput = {
+  plusOneTaskId: string;
+  disposition:
+    | 'CANCELLED'
+    | 'DNQ'
+    | 'GHOSTED'
+    | 'WAITING_FOR_MARKET_IMPROVEMENTS'
+    | 'OTHER';
+  note?: string | null;
+};
+
+export type PendingStpActionResult = {
+  success: boolean;
+  error?: string;
 };
 
 const PROCESSING_KINDS = [TaskKind.SUBMIT_PROCESSING, TaskKind.SUBMIT_QC];
@@ -398,6 +444,22 @@ function payrollLeadSourceFromDisplay(value: string) {
 
 function normalizeAriveNumber(value: string | null | undefined) {
   return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function normalizedLoanOfficerFilter(filters: LeaderboardReportFilters) {
+  const ids = Array.from(new Set(
+    (filters.loanOfficerIds || [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  ));
+  return ids.length > 0 ? new Set(ids) : null;
+}
+
+function pendingStpDispositionLabel(value: PendingStpDispositionReason) {
+  return value
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function submissionObject(value: unknown): Record<string, unknown> | null {
@@ -756,6 +818,16 @@ export async function getLeaderboardReport(
       ])
       .filter(Boolean)
   );
+  const actionedPendingStpRows = plusOneTaskRows.length
+    ? await prisma.pendingStpDisposition.findMany({
+        where: {
+          plusOneTaskId: { in: plusOneTaskRows.map((task) => task.id) },
+          reopenedAt: null,
+        },
+        select: { plusOneTaskId: true },
+      })
+    : [];
+  const actionedPendingStpTaskIds = new Set(actionedPendingStpRows.map((row) => row.plusOneTaskId));
 
   const rowMap = new Map<string, LeaderboardOfficerRow>();
   for (const officer of loanOfficers) {
@@ -819,6 +891,7 @@ export async function getLeaderboardReport(
   for (const task of plusOneTaskRows) {
     const normalizedLoanNumber = normalizeAriveNumber(loanNumberFromJson(task.submissionData) || task.loan.loanNumber);
     if (processedLoanIds.has(task.loan.id) || processedLoanNumbers.has(normalizedLoanNumber)) continue;
+    if (actionedPendingStpTaskIds.has(task.id)) continue;
 
     const creditedLoanOfficerId = creditLoanOfficerId(task.loan);
     const row = rowMap.get(creditedLoanOfficerId);
@@ -974,6 +1047,7 @@ export async function getLeaderboardFallOutReport(
   }
 
   const { preset, start, end } = resolveDateRange(filters);
+  const loanOfficerFilter = normalizedLoanOfficerFilter(filters);
   const plusOneRows = await prisma.task.findMany({
     where: {
       kind: TaskKind.SUBMIT_PLUS_ONE,
@@ -990,6 +1064,8 @@ export async function getLeaderboardFallOutReport(
           loanNumber: true,
           borrowerName: true,
           amount: true,
+          loanOfficerId: true,
+          secondaryLoanOfficerId: true,
           loanOfficer: { select: { name: true } },
           secondaryLoanOfficer: { select: { name: true } },
         },
@@ -1042,6 +1118,8 @@ export async function getLeaderboardFallOutReport(
     generatedAt: now.toISOString(),
     rows: plusOneRows
       .filter((row) => {
+        const creditedLoanOfficerId = creditLoanOfficerId(row.loan);
+        if (loanOfficerFilter && !loanOfficerFilter.has(creditedLoanOfficerId)) return false;
         const ariveNumber = normalizeAriveNumber(loanNumberFromJson(row.submissionData) || row.loan.loanNumber);
         return !processedLoanIds.has(row.loan.id) && !processedNumbers.has(ariveNumber);
       })
@@ -1080,6 +1158,7 @@ export async function getLeaderboardWaterfallReport(
   }
 
   const { preset, start, end } = resolveDateRange(filters);
+  const loanOfficerFilter = normalizedLoanOfficerFilter(filters);
   const plusOneRows = await prisma.task.findMany({
     where: {
       kind: TaskKind.SUBMIT_PLUS_ONE,
@@ -1096,6 +1175,8 @@ export async function getLeaderboardWaterfallReport(
           loanNumber: true,
           borrowerName: true,
           amount: true,
+          loanOfficerId: true,
+          secondaryLoanOfficerId: true,
           loanOfficer: { select: { name: true } },
           secondaryLoanOfficer: { select: { name: true } },
         },
@@ -1158,6 +1239,8 @@ export async function getLeaderboardWaterfallReport(
     },
     generatedAt: now.toISOString(),
     rows: plusOneRows.flatMap((row) => {
+      const creditedLoanOfficerId = creditLoanOfficerId(row.loan);
+      if (loanOfficerFilter && !loanOfficerFilter.has(creditedLoanOfficerId)) return [];
       const normalizedAriveNumber = normalizeAriveNumber(
         loanNumberFromJson(row.submissionData) || row.loan.loanNumber
       );
@@ -1193,6 +1276,256 @@ export async function getLeaderboardWaterfallReport(
         ),
         processingStatus: processing.status,
       }];
+    }),
+  };
+}
+
+export async function actionPendingStpLoan(
+  input: PendingStpActionInput
+): Promise<PendingStpActionResult> {
+  const { session, userId, role, isAdminUser, name: actorName } = await getLeaderboardSessionUser();
+  if (!session?.user?.id || !userId || !role) {
+    return { success: false, error: 'Unauthorized' };
+  }
+
+  const plusOneTaskId = String(input.plusOneTaskId || '').trim();
+  if (!plusOneTaskId) return { success: false, error: 'Pending STP task is required.' };
+  if (!Object.values(PendingStpDispositionReason).includes(input.disposition as PendingStpDispositionReason)) {
+    return { success: false, error: 'Please select a valid disposition.' };
+  }
+  const dispositionReason = input.disposition as PendingStpDispositionReason;
+  const note = input.note?.trim() || null;
+  if (dispositionReason === PendingStpDispositionReason.OTHER && !note) {
+    return { success: false, error: 'A note is required when disposition is Other.' };
+  }
+
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: plusOneTaskId },
+      select: {
+        id: true,
+        kind: true,
+        submissionData: true,
+        loan: {
+          select: {
+            id: true,
+            loanNumber: true,
+            loanOfficerId: true,
+            secondaryLoanOfficerId: true,
+          },
+        },
+      },
+    });
+
+    if (!task || task.kind !== TaskKind.SUBMIT_PLUS_ONE) {
+      return { success: false, error: 'This loan is no longer a Pending STP +1.' };
+    }
+
+    const creditedLoanOfficerId = creditLoanOfficerId(task.loan);
+    const canAction =
+      isAdminUser ||
+      role === UserRole.LOA ||
+      task.loan.loanOfficerId === userId ||
+      task.loan.secondaryLoanOfficerId === userId ||
+      creditedLoanOfficerId === userId;
+    if (!canAction) {
+      return { success: false, error: 'You can only action your own Pending STP loans.' };
+    }
+
+    const normalizedAriveNumber = normalizeAriveNumber(loanNumberFromJson(task.submissionData) || task.loan.loanNumber);
+    const rawAriveNumber = loanNumberFromJson(task.submissionData) || task.loan.loanNumber;
+    const processingRows = await prisma.task.findMany({
+      where: {
+        kind: { in: PROCESSING_KINDS },
+        OR: [
+          { loanId: task.loan.id },
+          ...(rawAriveNumber ? [{ loan: { loanNumber: rawAriveNumber } }] : []),
+        ],
+      },
+      select: {
+        id: true,
+        loanId: true,
+        submissionData: true,
+        loan: { select: { loanNumber: true } },
+      },
+    });
+    const isAlreadyProcessed = processingRows.some((row) => (
+      row.loanId === task.loan.id ||
+      normalizeAriveNumber(row.loan?.loanNumber) === normalizedAriveNumber ||
+      normalizeAriveNumber(loanNumberFromJson(row.submissionData)) === normalizedAriveNumber
+    ));
+    if (isAlreadyProcessed) {
+      return { success: false, error: 'This loan has already been submitted to Processing/QC.' };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.pendingStpDisposition.findFirst({
+        where: {
+          plusOneTaskId: task.id,
+          reopenedAt: null,
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        throw new Error('This Pending STP loan has already been actioned.');
+      }
+
+      const createdDisposition = await tx.pendingStpDisposition.create({
+        data: {
+          loanId: task.loan.id,
+          plusOneTaskId: task.id,
+          ariveLoanNumber: rawAriveNumber || null,
+          loanOfficerId: creditedLoanOfficerId,
+          actionedById: userId,
+          disposition: dispositionReason,
+          note,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          loanId: task.loan.id,
+          userId,
+          action: 'PENDING_STP_ACTIONED',
+          details: JSON.stringify({
+            dispositionId: createdDisposition.id,
+            disposition: pendingStpDispositionLabel(dispositionReason),
+            note,
+            plusOneTaskId: task.id,
+            ariveLoanNumber: rawAriveNumber || null,
+            loanOfficerId: creditedLoanOfficerId,
+            actionedBy: actorName,
+          }),
+        },
+      });
+    });
+
+    revalidatePath('/leaderboard');
+    revalidatePath('/pipeline');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to action Pending STP loan:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unable to action Pending STP loan.',
+    };
+  }
+}
+
+export async function getLeaderboardDeadDealReport(
+  filters: LeaderboardReportFilters = {}
+): Promise<LeaderboardDeadDealReport> {
+  const { session, isAdminUser } = await getLeaderboardSessionUser();
+  if (!session?.user?.id || !isAdminUser) {
+    throw new Error('Unauthorized');
+  }
+
+  const { preset, start, end } = resolveDateRange(filters);
+  const loanOfficerFilter = normalizedLoanOfficerFilter(filters);
+  const dispositions = await prisma.pendingStpDisposition.findMany({
+    where: {
+      actionedAt: { gte: start, lte: end },
+      ...(loanOfficerFilter ? { loanOfficerId: { in: Array.from(loanOfficerFilter) } } : {}),
+    },
+    select: {
+      id: true,
+      ariveLoanNumber: true,
+      disposition: true,
+      note: true,
+      actionedAt: true,
+      loanOfficer: { select: { name: true } },
+      actionedBy: { select: { name: true } },
+      plusOneTask: {
+        select: {
+          id: true,
+          createdAt: true,
+          status: true,
+          submissionData: true,
+          loan: {
+            select: {
+              id: true,
+              loanNumber: true,
+              borrowerName: true,
+              amount: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { actionedAt: 'desc' },
+  });
+
+  const plusOneLoanIds = Array.from(new Set(dispositions.map((row) => row.plusOneTask.loan.id)));
+  const plusOneRawNumbers = Array.from(new Set(
+    dispositions
+      .flatMap((row) => [
+        row.ariveLoanNumber,
+        loanNumberFromJson(row.plusOneTask.submissionData),
+        row.plusOneTask.loan.loanNumber,
+      ])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+  const processingRows = dispositions.length
+    ? await prisma.task.findMany({
+        where: {
+          kind: { in: PROCESSING_KINDS },
+          OR: [
+            { loanId: { in: plusOneLoanIds } },
+            { loan: { loanNumber: { in: plusOneRawNumbers } } },
+          ],
+        },
+        select: {
+          loanId: true,
+          submissionData: true,
+          loan: { select: { loanNumber: true } },
+        },
+      })
+    : [];
+  const processedLoanIds = new Set(processingRows.map((row) => row.loanId).filter(Boolean));
+  const processedNumbers = new Set(
+    processingRows
+      .flatMap((row) => [
+        normalizeAriveNumber(row.loan?.loanNumber),
+        normalizeAriveNumber(loanNumberFromJson(row.submissionData)),
+      ])
+      .filter(Boolean)
+  );
+
+  return {
+    filters: {
+      preset,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+    },
+    generatedAt: new Date().toISOString(),
+    rows: dispositions.map((row) => {
+      const ariveNumber = row.ariveLoanNumber || loanNumberFromJson(row.plusOneTask.submissionData) || row.plusOneTask.loan.loanNumber;
+      const normalizedAriveNumber = normalizeAriveNumber(ariveNumber);
+      const plusOneSubmittedAt = row.plusOneTask.createdAt;
+      const wasProcessed =
+        processedLoanIds.has(row.plusOneTask.loan.id) ||
+        processedNumbers.has(normalizedAriveNumber);
+      return {
+        dispositionId: row.id,
+        actionDate: row.actionedAt.toISOString(),
+        loanOfficerName: row.loanOfficer.name,
+        borrowerName: row.plusOneTask.loan.borrowerName,
+        ariveNumber,
+        loanAmount: money(row.plusOneTask.loan.amount) || 0,
+        projectedRevenue: projectedRevenueFromJson(row.plusOneTask.submissionData) || 0,
+        lender: lenderDisplayName(lenderFromJson(row.plusOneTask.submissionData)),
+        leadSource: leadSourceDisplayName(leadSourceFromJson(row.plusOneTask.submissionData)),
+        plusOneSubmittedAt: plusOneSubmittedAt.toISOString(),
+        daysPendingBeforeAction: Math.max(
+          0,
+          Math.floor((row.actionedAt.getTime() - plusOneSubmittedAt.getTime()) / (24 * 60 * 60 * 1000))
+        ),
+        disposition: row.disposition,
+        note: row.note,
+        actionedByName: row.actionedBy.name,
+        currentStatus: wasProcessed ? 'Later Submitted to Processing' : 'Dead',
+      };
     }),
   };
 }

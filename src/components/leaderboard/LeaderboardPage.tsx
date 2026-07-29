@@ -20,10 +20,13 @@ import {
   X,
 } from 'lucide-react';
 import {
+  actionPendingStpLoan,
+  getLeaderboardDeadDealReport,
   getLeaderboardFallOutReport,
   getLeaderboardReport,
   getLeaderboardWaterfallReport,
   updateLeaderboardLoanDetails,
+  type LeaderboardDeadDealReport,
   type LeaderboardDetailRow,
   type LeaderboardEditInput,
   type LeaderboardFallOutReport,
@@ -38,6 +41,7 @@ import {
   type LeaderboardReport,
   type LeaderboardReportFilters,
   type LeaderboardWaterfallReport,
+  type PendingStpActionInput,
 } from '@/app/actions/leaderboardActions';
 import {
   ResizeHandle,
@@ -720,6 +724,81 @@ function exportWaterfallReport(report: LeaderboardWaterfallReport, leaderboardRe
   );
 }
 
+function exportDeadDealReport(report: LeaderboardDeadDealReport) {
+  const start = dateInputValue(report.filters.startDate);
+  const end = dateInputValue(report.filters.endDate);
+  const generatedAt = formatDateTime(report.generatedAt);
+  const rows = report.rows.map((row, index) => `
+    <tr class="${index % 2 === 0 ? 'row-white' : 'row-muted'}">
+      <td class="date">${excelEscape(formatDate(row.actionDate))}</td>
+      <td class="name">${excelEscape(row.loanOfficerName)}</td>
+      <td>${excelEscape(row.borrowerName)}</td>
+      <td class="mono">${excelEscape(row.ariveNumber)}</td>
+      ${excelMoneyCell(row.loanAmount)}
+      ${excelMoneyCell(row.projectedRevenue)}
+      <td>${excelEscape(row.lender)}</td>
+      <td>${excelEscape(row.leadSource)}</td>
+      <td class="date">${excelEscape(formatDate(row.plusOneSubmittedAt))}</td>
+      ${excelNumberCell(row.daysPendingBeforeAction)}
+      <td>${excelEscape(formatStatus(row.disposition))}</td>
+      <td>${excelEscape(row.note || '')}</td>
+      <td>${excelEscape(row.actionedByName)}</td>
+      <td>${excelEscape(row.currentStatus)}</td>
+    </tr>
+  `).join('');
+
+  const workbookHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; }
+    .title { background: #111827; color: #ffffff; font-size: 18pt; font-weight: 800; text-align: left; }
+    .subtitle { background: #e5e7eb; color: #111827; font-weight: 700; text-align: left; }
+    .column { background: #f3f4f6; color: #1f2937; font-weight: 800; text-align: center; }
+    .summary { background: #e5e7eb; color: #111827; font-weight: 900; }
+    .name { color: #0f172a; font-weight: 800; min-width: 160px; }
+    .date { color: #334155; font-weight: 700; min-width: 130px; }
+    .mono { font-family: Consolas, monospace; font-weight: 800; }
+    .money { mso-number-format:"$#,##0"; text-align: right; font-weight: 700; }
+    .number { mso-number-format:"0"; text-align: center; font-weight: 800; }
+    .row-white { background: #ffffff; }
+    .row-muted { background: #f8fafc; }
+  </style>
+</head>
+<body>
+  <table>
+    <tr><th class="title" colspan="14">Federal First Lending - Dead Deal Report</th></tr>
+    <tr><td class="subtitle" colspan="14">Dispositioned Pending STP loans by action date.</td></tr>
+    <tr><td class="summary" colspan="14">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Dead Deals: ${report.rows.length}</td></tr>
+    <tr>
+      <th class="column">Action Date</th>
+      <th class="column">Loan Officer</th>
+      <th class="column">Borrower</th>
+      <th class="column">Arive Loan Number</th>
+      <th class="column">Loan Amount</th>
+      <th class="column">Projected Revenue</th>
+      <th class="column">Lender</th>
+      <th class="column">Lead Source</th>
+      <th class="column">Original +1 Date</th>
+      <th class="column">Days Pending Before Action</th>
+      <th class="column">Disposition</th>
+      <th class="column">Note</th>
+      <th class="column">Actioned By</th>
+      <th class="column">Current Status</th>
+    </tr>
+    ${rows || '<tr><td colspan="14" class="summary">No dead deals found for this date range.</td></tr>'}
+  </table>
+</body>
+</html>`;
+
+  downloadBlob(
+    new Blob([workbookHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
+    `dead-deal-report-${start}-to-${end}.xls`
+  );
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
@@ -1358,6 +1437,7 @@ export function LeaderboardPage({ initialReport }: Props) {
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<LeaderboardDetailRow | null>(null);
+  const [actioningRow, setActioningRow] = useState<LeaderboardDetailRow | null>(null);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
     key: 'processing.volume',
@@ -1522,12 +1602,22 @@ export function LeaderboardPage({ initialReport }: Props) {
     setView(nextView);
     setSelectedRowId(null);
     setEditingRow(null);
+    setActioningRow(null);
   }
 
   async function handleApplyEdit(input: LeaderboardEditInput) {
     const result = await updateLeaderboardLoanDetails(input);
     if (result.success) {
       setEditingRow(null);
+      loadReport(undefined, { preserveSelection: true });
+    }
+    return result;
+  }
+
+  async function handlePendingStpAction(input: PendingStpActionInput) {
+    const result = await actionPendingStpLoan(input);
+    if (result.success) {
+      setActioningRow(null);
       loadReport(undefined, { preserveSelection: true });
     }
     return result;
@@ -1886,6 +1976,7 @@ export function LeaderboardPage({ initialReport }: Props) {
       {isReportsOpen && (
         <LeaderboardReportsModal
           report={report}
+          loanOfficerIds={selectedTeamMemberIds ? Array.from(selectedTeamMemberIds) : null}
           onClose={() => setIsReportsOpen(false)}
         />
       )}
@@ -1896,6 +1987,7 @@ export function LeaderboardPage({ initialReport }: Props) {
           rangeLabel={`${formatDate(report.filters.startDate)} - ${formatDate(report.filters.endDate)}`}
           canEdit={report.canEdit}
           onEditRow={setEditingRow}
+          onActionRow={setActioningRow}
           onClose={() => setSelectedRowId(null)}
         />
       )}
@@ -1908,23 +2000,39 @@ export function LeaderboardPage({ initialReport }: Props) {
           onClose={() => setEditingRow(null)}
         />
       )}
+      {actioningRow && (
+        <PendingStpActionModal
+          row={actioningRow}
+          onSubmit={handlePendingStpAction}
+          onClose={() => setActioningRow(null)}
+        />
+      )}
     </div>
   );
 }
 
 function LeaderboardReportsModal({
   report,
+  loanOfficerIds,
   onClose,
 }: {
   report: LeaderboardReport;
+  loanOfficerIds: string[] | null;
   onClose: () => void;
 }) {
   const [isExportingFallOut, startFallOutExport] = useTransition();
   const [isExportingWaterfall, startWaterfallExport] = useTransition();
+  const [isExportingDeadDeals, startDeadDealExport] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   function handleLoanOfficerExport() {
-    exportLoanOfficerLeaderboard(report);
+    const filteredReport = loanOfficerIds
+      ? {
+          ...report,
+          rows: report.rows.filter((row) => loanOfficerIds.includes(row.loanOfficerId)),
+        }
+      : report;
+    exportLoanOfficerLeaderboard(filteredReport);
     onClose();
   }
 
@@ -1936,6 +2044,7 @@ function LeaderboardReportsModal({
           preset: report.filters.preset,
           startDate: dateInputValue(report.filters.startDate),
           endDate: dateInputValue(report.filters.endDate),
+          loanOfficerIds: loanOfficerIds || undefined,
         });
         exportFallOutReport(fallOutReport);
         onClose();
@@ -1954,12 +2063,38 @@ function LeaderboardReportsModal({
           preset: report.filters.preset,
           startDate: dateInputValue(report.filters.startDate),
           endDate: dateInputValue(report.filters.endDate),
+          loanOfficerIds: loanOfficerIds || undefined,
         });
-        exportWaterfallReport(waterfallReport, report);
+        const filteredReport = loanOfficerIds
+          ? {
+              ...report,
+              rows: report.rows.filter((row) => loanOfficerIds.includes(row.loanOfficerId)),
+            }
+          : report;
+        exportWaterfallReport(waterfallReport, filteredReport);
         onClose();
       } catch (err) {
         console.error(err);
         setError('Unable to export the Waterfall Report. Please try again.');
+      }
+    });
+  }
+
+  function handleDeadDealExport() {
+    setError(null);
+    startDeadDealExport(async () => {
+      try {
+        const deadDealReport = await getLeaderboardDeadDealReport({
+          preset: report.filters.preset,
+          startDate: dateInputValue(report.filters.startDate),
+          endDate: dateInputValue(report.filters.endDate),
+          loanOfficerIds: loanOfficerIds || undefined,
+        });
+        exportDeadDealReport(deadDealReport);
+        onClose();
+      } catch (err) {
+        console.error(err);
+        setError('Unable to export the Dead Deal Report. Please try again.');
       }
     });
   }
@@ -2076,6 +2211,32 @@ function LeaderboardReportsModal({
               </span>
             </span>
           </button>
+          <button
+            type="button"
+            onClick={handleDeadDealExport}
+            disabled={isExportingDeadDeals}
+            className="group flex w-full items-start gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm shadow-slate-200/60 transition hover:border-slate-300 hover:bg-slate-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-200 text-slate-800 ring-1 ring-slate-300 transition group-hover:bg-slate-900 group-hover:text-white">
+              {isExportingDeadDeals ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-5 w-5" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold text-slate-950">
+                Dead Deal Report
+              </span>
+              <span className="mt-1 block text-sm font-medium text-slate-500">
+                Exports Pending STP loans that were actioned as Cancelled, DNQ, Ghosted, Waiting for Market Improvements, or Other.
+              </span>
+              <span className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                <Download className="h-3.5 w-3.5" />
+                {isExportingDeadDeals ? 'Building report...' : 'Export Excel sheet'}
+              </span>
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -2088,6 +2249,7 @@ function OfficerDetailsModal({
   rangeLabel,
   canEdit,
   onEditRow,
+  onActionRow,
   onClose,
 }: {
   entity: DisplayLeaderboardRow;
@@ -2095,6 +2257,7 @@ function OfficerDetailsModal({
   rangeLabel: string;
   canEdit: boolean;
   onEditRow: (row: LeaderboardDetailRow) => void;
+  onActionRow: (row: LeaderboardDetailRow) => void;
   onClose: () => void;
 }) {
   const [selectedMilestone, setSelectedMilestone] = useState<LeaderboardMilestoneKey | null>(null);
@@ -2257,6 +2420,15 @@ function OfficerDetailsModal({
                           Edit
                         </button>
                       )}
+                      {row.milestone === 'disclosures' && (
+                        <button
+                          type="button"
+                          onClick={() => onActionRow(row)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-cyan-800 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                        >
+                          Action
+                        </button>
+                      )}
                     </div>
                   </td>
                   <td className="px-5 py-4 text-center">
@@ -2299,6 +2471,150 @@ function OfficerDetailsModal({
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PENDING_STP_DISPOSITION_OPTIONS = [
+  { value: 'CANCELLED', label: 'Cancelled' },
+  { value: 'DNQ', label: 'DNQ' },
+  { value: 'GHOSTED', label: 'Ghosted' },
+  { value: 'WAITING_FOR_MARKET_IMPROVEMENTS', label: 'Waiting for Market Improvements' },
+  { value: 'OTHER', label: 'Other' },
+] as const;
+
+function PendingStpActionModal({
+  row,
+  onSubmit,
+  onClose,
+}: {
+  row: LeaderboardDetailRow;
+  onSubmit: (input: PendingStpActionInput) => Promise<{ success: boolean; error?: string }>;
+  onClose: () => void;
+}) {
+  const [disposition, setDisposition] = useState<(typeof PENDING_STP_DISPOSITION_OPTIONS)[number]['value']>('CANCELLED');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, startSaving] = useTransition();
+  const requiresNote = disposition === 'OTHER';
+
+  function handleSubmit() {
+    if (requiresNote && !note.trim()) {
+      setError('Please enter a note when using Other.');
+      return;
+    }
+    setError(null);
+    startSaving(async () => {
+      const result = await onSubmit({
+        plusOneTaskId: row.id,
+        disposition,
+        note: note.trim() || null,
+      });
+      if (!result.success) {
+        setError(result.error || 'Unable to action this Pending STP loan.');
+      }
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 p-4"
+      onClick={onClose}
+      data-live-refresh-pause="true"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Action Pending STP loan for ${row.borrowerName}`}
+        className="w-full max-w-xl overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-6 border-b border-slate-200 px-6 py-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Pending STP action</p>
+            <h3 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">
+              Disposition Loan
+            </h3>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              {row.borrowerName} / {row.loanNumber}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:bg-slate-50 hover:text-slate-600 hover:shadow-sm"
+            aria-label="Close Pending STP action"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-6 py-5">
+          <div className="grid gap-2">
+            {PENDING_STP_DISPOSITION_OPTIONS.map((option) => (
+              <label
+                key={option.value}
+                className={cx(
+                  'flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-bold transition',
+                  disposition === option.value
+                    ? 'border-cyan-300 bg-cyan-50 text-cyan-900 ring-2 ring-cyan-100'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                )}
+              >
+                <input
+                  type="radio"
+                  name="pending-stp-disposition"
+                  value={option.value}
+                  checked={disposition === option.value}
+                  onChange={() => setDisposition(option.value)}
+                  className="h-4 w-4 border-slate-300 text-cyan-600 focus:ring-cyan-200"
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+              Note {requiresNote ? '(required)' : '(optional)'}
+            </span>
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              rows={4}
+              placeholder="Add any context for this disposition"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition placeholder:text-slate-300 focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100"
+            />
+          </label>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+            This will remove the loan from Pending STP and write the action to the Dead Deal Report.
+          </div>
+          {error && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSaving}
+            className="inline-flex items-center gap-2 rounded-full bg-cyan-600 px-5 py-2 text-sm font-extrabold text-white shadow-lg shadow-cyan-600/20 transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Apply Action
+          </button>
         </div>
       </div>
     </div>

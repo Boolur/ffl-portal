@@ -1135,9 +1135,23 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       ])
       .filter(Boolean)
   );
+  const actionedPendingStpRows = plusOneTaskRows.length
+    ? await prisma.pendingStpDisposition.findMany({
+        where: {
+          plusOneTaskId: { in: plusOneTaskRows.map((task) => task.id) },
+          reopenedAt: null,
+        },
+        select: { plusOneTaskId: true },
+      })
+    : [];
+  const actionedPendingStpTaskIds = new Set(actionedPendingStpRows.map((row) => row.plusOneTaskId));
   const pendingStpTaskRows = plusOneTaskRows.filter((task) => {
     const normalizedLoanNumber = normalizeAriveNumber(loanNumberFromJson(task.submissionData) || task.loan.loanNumber);
-    return !processedLoanIds.has(task.loan.id) && !processedLoanNumbers.has(normalizedLoanNumber);
+    return (
+      !processedLoanIds.has(task.loan.id) &&
+      !processedLoanNumbers.has(normalizedLoanNumber) &&
+      !actionedPendingStpTaskIds.has(task.id)
+    );
   });
 
   const pendingStp = pendingStpTaskRows.length;

@@ -69,6 +69,14 @@ enum TaskKind {
   VA_APPRAISAL
 }
 
+enum PendingStpDispositionReason {
+  CANCELLED
+  DNQ
+  GHOSTED
+  WAITING_FOR_MARKET_IMPROVEMENTS
+  OTHER
+}
+
 enum TaskAttachmentPurpose {
   PROOF
   STIP
@@ -254,6 +262,8 @@ model User {
   uploadedClientDocuments ClientDocument[] @relation("ClientDocumentsUploadedBy")
   clientsOwned     Client[] @relation("ClientOwner")
   auditLogs        AuditLog[]
+  pendingStpDispositionsActioned PendingStpDisposition[] @relation("PendingStpDispositionActionedBy")
+  pendingStpDispositionsLoanOfficer PendingStpDisposition[] @relation("PendingStpDispositionLoanOfficer")
   pipelineStages   PipelineStage[]
   pipelineNotes    PipelineNote[]
   externalUsers    ExternalUser[]
@@ -324,6 +334,7 @@ model Loan {
 
   tasks           Task[]
   auditLogs       AuditLog[]
+  pendingStpDispositions PendingStpDisposition[]
   pipelineNotes   PipelineNote[]
   leadMailboxLeads LeadMailboxLead[]
   payrollCompRequests PayrollCompRequest[]
@@ -367,6 +378,8 @@ model Task {
   childTasks  Task[]     @relation("TaskParentChild")
   attachments TaskAttachment[]
   notifications Notification[]
+  pendingStpDispositions PendingStpDisposition[] @relation("PendingStpDispositionPlusOneTask")
+  reopenedPendingStpDispositions PendingStpDisposition[] @relation("PendingStpDispositionProcessingTask")
 
   @@index([parentTaskId])
   @@index([workflowState])
@@ -650,6 +663,34 @@ model AuditLog {
   action    String   // e.g. "STAGE_CHANGED", "TASK_COMPLETED"
   details   String?  // JSON or text
   createdAt DateTime @default(now())
+}
+
+model PendingStpDisposition {
+  id                         String                      @id @default(uuid())
+  loanId                     String
+  loan                       Loan                        @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  plusOneTaskId              String
+  plusOneTask                Task                        @relation("PendingStpDispositionPlusOneTask", fields: [plusOneTaskId], references: [id], onDelete: Cascade)
+  ariveLoanNumber            String?
+  loanOfficerId              String
+  loanOfficer                User                        @relation("PendingStpDispositionLoanOfficer", fields: [loanOfficerId], references: [id])
+  actionedById               String
+  actionedBy                 User                        @relation("PendingStpDispositionActionedBy", fields: [actionedById], references: [id])
+  disposition                PendingStpDispositionReason
+  note                       String?
+  actionedAt                 DateTime                    @default(now())
+  reopenedByProcessingTaskId String?
+  reopenedByProcessingTask   Task?                       @relation("PendingStpDispositionProcessingTask", fields: [reopenedByProcessingTaskId], references: [id], onDelete: SetNull)
+  reopenedAt                 DateTime?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+
+  @@index([loanId])
+  @@index([plusOneTaskId])
+  @@index([loanOfficerId, actionedAt])
+  @@index([actionedAt])
+  @@index([ariveLoanNumber])
+  @@index([reopenedAt])
 }
 
 model InviteToken {
