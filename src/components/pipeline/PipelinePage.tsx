@@ -9,6 +9,7 @@ import {
   ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
+  Edit3,
   FileText,
   Home,
   Loader2,
@@ -1272,28 +1273,31 @@ function ClientDetailsModal({
                   {signal.label}
                 </span>
               )}
-              {row.milestone === 'pendingStp' && (
-                <button
-                  type="button"
-                  onClick={onActionPendingStp}
-                  className="ml-2 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-cyan-800 transition hover:border-cyan-300 hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-                >
-                  Action
-                </button>
-              )}
               <p className="mt-2 text-sm font-medium text-slate-500">
                 {row.sharedLoanOfficerNames.join(' / ') || row.loanOfficerName}
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:bg-slate-50 hover:text-slate-600 hover:shadow-sm"
-            aria-label="Close client details"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex shrink-0 items-center gap-3">
+            {row.milestone === 'pendingStp' && (
+              <button
+                type="button"
+                onClick={onActionPendingStp}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+              >
+                <Edit3 className="h-4 w-4" />
+                Action
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:bg-slate-50 hover:text-slate-600 hover:shadow-sm"
+              aria-label="Close client details"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">

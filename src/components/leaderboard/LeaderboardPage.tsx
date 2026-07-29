@@ -2370,7 +2370,7 @@ function OfficerDetailsModal({
         </div>
 
         <div className="max-h-[56vh] overflow-auto">
-          <table className="w-full min-w-[1040px] text-sm">
+          <table className="w-full min-w-[1120px] text-sm">
             <thead className="sticky top-0 z-[1] bg-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-5 py-3 text-left">
@@ -2387,6 +2387,9 @@ function OfficerDetailsModal({
                 </th>
                 <th className="px-5 py-3 text-left">
                   <DetailSortHeader label="Details" sortKey="details" activeKey={detailSort.key} direction={detailSort.direction} align="left" onSort={updateDetailSort} />
+                </th>
+                <th className="px-5 py-3 text-center">
+                  Actions
                 </th>
                 <th className="px-5 py-3 text-right">
                   <DetailSortHeader label="Date" sortKey="occurredAt" activeKey={detailSort.key} direction={detailSort.direction} align="right" onSort={updateDetailSort} />
@@ -2420,15 +2423,6 @@ function OfficerDetailsModal({
                           Edit
                         </button>
                       )}
-                      {row.milestone === 'disclosures' && (
-                        <button
-                          type="button"
-                          onClick={() => onActionRow(row)}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-bold text-cyan-800 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
-                        >
-                          Action
-                        </button>
-                      )}
                     </div>
                   </td>
                   <td className="px-5 py-4 text-center">
@@ -2454,6 +2448,20 @@ function OfficerDetailsModal({
                       <p className="mt-1 max-w-[260px] truncate text-xs text-slate-500">{row.propertyAddress}</p>
                     )}
                   </td>
+                  <td className="whitespace-nowrap px-5 py-4 text-center">
+                    {row.milestone === 'disclosures' ? (
+                      <button
+                        type="button"
+                        onClick={() => onActionRow(row)}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                        Action
+                      </button>
+                    ) : (
+                      <span className="text-xs font-semibold text-slate-300">-</span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right text-xs font-semibold text-slate-500">
                     {formatDateTime(row.occurredAt)}
                   </td>
@@ -2462,7 +2470,7 @@ function OfficerDetailsModal({
               })}
               {visibleRows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">
                     {selectedMilestoneLabel
                       ? `No ${selectedMilestoneLabel} loans matched this selection.`
                       : 'No credited loans matched this selection for the selected range.'}
