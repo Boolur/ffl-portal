@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Loader2, X, Send, ChevronDown, ChevronRight } from 'lucide-react';
 import { updateLeadStatus, addLeadNote } from '@/app/actions/leadActions';
 import { LeadStatusBadge } from './LeadStatusBadge';
+import { LEAD_STATUS_OPTIONS } from '@/lib/leadStatuses';
 import { useRouter } from 'next/navigation';
 import { FormatDate } from '@/components/ui/FormatDate';
 
@@ -182,11 +183,11 @@ export function LeadDetailPanel({
               onChange={(e) => void handleStatusChange(e.target.value)}
               disabled={updatingStatus}
             >
-              <option value="NEW">New</option>
-              <option value="CONTACTED">Contacted</option>
-              <option value="WORKING">Working</option>
-              <option value="CONVERTED">Converted</option>
-              <option value="DEAD">Dead</option>
+              {LEAD_STATUS_OPTIONS.filter((status) => status.value !== 'UNASSIGNED').map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>

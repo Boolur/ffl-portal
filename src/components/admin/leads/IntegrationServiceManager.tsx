@@ -41,6 +41,7 @@ import type {
   IntegrationServiceScope,
   IntegrationServiceTrigger,
 } from '@prisma/client';
+import { LEAD_STATUS_OPTIONS } from '@/lib/leadStatuses';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,16 +59,6 @@ type Props = {
 type EditTarget =
   | { mode: 'create' }
   | { mode: 'edit'; service: IntegrationServiceSummary };
-
-const LEAD_STATUS_VALUES = [
-  'NEW',
-  'CONTACTED',
-  'WORKING',
-  'CONVERTED',
-  'DEAD',
-  'RETURNED',
-  'UNASSIGNED',
-] as const;
 
 const METHOD_OPTIONS: Array<{ value: IntegrationServiceMethod; label: string }> = [
   { value: 'GET', label: 'GET' },
@@ -1141,7 +1132,7 @@ function HeaderSection({
             onChange={(v) => update('triggerStatus', v)}
             options={[
               { value: '', label: 'Any status change' },
-              ...LEAD_STATUS_VALUES.map((s) => ({ value: s, label: s })),
+              ...LEAD_STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label })),
             ]}
           />
         )}

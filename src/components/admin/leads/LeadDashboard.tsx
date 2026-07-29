@@ -15,6 +15,7 @@ import { LeadDetailModal } from './LeadDetailModal';
 import { WebhookInboxPanel } from './WebhookInboxPanel';
 import { getLead } from '@/app/actions/leadActions';
 import { FormatDate } from '@/components/ui/FormatDate';
+import { getLeadStatusOption } from '@/lib/leadStatuses';
 
 type DashboardStats = {
   totalToday: number;
@@ -30,16 +31,6 @@ type DashboardStats = {
     campaign: { name: string } | null;
     assignedUser: { name: string } | null;
   }>;
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  NEW: 'border-blue-200 bg-blue-50 text-blue-700',
-  CONTACTED: 'border-amber-200 bg-amber-50 text-amber-700',
-  WORKING: 'border-indigo-200 bg-indigo-50 text-indigo-700',
-  CONVERTED: 'border-green-200 bg-green-50 text-green-700',
-  DEAD: 'border-slate-200 bg-slate-100 text-slate-500',
-  RETURNED: 'border-rose-200 bg-rose-50 text-rose-700',
-  UNASSIGNED: 'border-orange-200 bg-orange-50 text-orange-700',
 };
 
 const NAV_CARDS = [
@@ -223,7 +214,9 @@ export function LeadDashboard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {stats.recentLeads.map((l) => (
+                {stats.recentLeads.map((l) => {
+                  const statusOption = getLeadStatusOption(l.status);
+                  return (
                   <tr
                     key={l.id}
                     className="hover:bg-slate-50/70 transition-colors cursor-pointer"
@@ -231,9 +224,9 @@ export function LeadDashboard({
                   >
                     <td className="px-6 py-3">
                       <span
-                        className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[l.status] || STATUS_COLORS.NEW}`}
+                        className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusOption.className}`}
                       >
-                        {l.status}
+                        {statusOption.label}
                       </span>
                     </td>
                     <td className="px-6 py-3 font-semibold text-slate-900 whitespace-nowrap">
@@ -257,7 +250,8 @@ export function LeadDashboard({
                       <FormatDate date={l.receivedAt} mode="datetime" />
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -29,6 +29,7 @@ import {
   type ColumnDragHandlers,
   type DropIndicator,
 } from '@/components/admin/leads/shared/columnCustomization';
+import { getLeadStatusOption } from '@/lib/leadStatuses';
 
 type Vendor = { id: string; name: string; slug: string };
 type EligibleUser = { id: string; name: string; email: string; role: string };
@@ -1341,8 +1342,14 @@ export function CampaignManager({
                       value={form.defaultLeadStatus}
                       onChange={(e) => setForm((p) => ({ ...p, defaultLeadStatus: e.target.value }))}
                     >
-                      <option value="NEW">New</option>
-                      <option value="UNASSIGNED">Unassigned</option>
+                      {(['NEW', 'UNASSIGNED'] as const).map((status) => {
+                        const option = getLeadStatusOption(status);
+                        return (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        );
+                      })}
                     </select>
                   </label>
                 </div>

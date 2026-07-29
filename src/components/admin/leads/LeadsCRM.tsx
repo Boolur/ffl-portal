@@ -49,18 +49,9 @@ import {
 } from '@/app/actions/leadActions';
 import { useRouter } from 'next/navigation';
 import { FormatDate, FormatNumber } from '@/components/ui/FormatDate';
+import { LEAD_STATUS_OPTIONS } from '@/lib/leadStatuses';
 
 const PAGE_SIZE = 200;
-
-const ALL_STATUSES = [
-  'NEW',
-  'CONTACTED',
-  'WORKING',
-  'CONVERTED',
-  'DEAD',
-  'RETURNED',
-  'UNASSIGNED',
-] as const;
 
 // Must stay in sync with the `select` block in `getLeads` (src/app/
 // actions/leadActions.ts). The table renders only these fields; the
@@ -535,9 +526,9 @@ export function LeadsCRM({
   const sortedSources = useMemo(() => sortStrings(sources), [sources]);
   const statusOptions = useMemo<MultiSelectOption[]>(
     () =>
-      ALL_STATUSES.filter((s) => !isLoMode || s !== 'UNASSIGNED').map((s) => ({
-        value: s,
-        label: s,
+      LEAD_STATUS_OPTIONS.filter((s) => !isLoMode || s.value !== 'UNASSIGNED').map((s) => ({
+        value: s.value,
+        label: s.label,
       })),
     [isLoMode]
   );
@@ -2594,15 +2585,15 @@ export function LeadsCRM({
             </button>
             {statusChangeOpen && (
               <div className="absolute top-full left-0 mt-1 z-30 w-44 rounded-xl border border-slate-200 bg-white shadow-lg py-1">
-                {ALL_STATUSES.filter(
-                  (s) => !isLoMode || s !== 'UNASSIGNED'
+                {LEAD_STATUS_OPTIONS.filter(
+                  (s) => !isLoMode || s.value !== 'UNASSIGNED'
                 ).map((s) => (
                   <button
-                    key={s}
+                    key={s.value}
                     className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
-                    onClick={() => void handleBulkStatus(s)}
+                    onClick={() => void handleBulkStatus(s.value)}
                   >
-                    {s}
+                    {s.label}
                   </button>
                 ))}
               </div>

@@ -223,7 +223,7 @@ const LEAD_FIELD_TOKENS: ReadonlyArray<{ key: keyof Lead; desc: string }> = [
   { key: 'foreclosure', desc: 'Foreclosure flag / details' },
   { key: 'isMilitary', desc: 'Military yes/no (normalized: "Yes" / "No")' },
   { key: 'vaStatus', desc: 'VA / veteran status' },
-  { key: 'status', desc: 'Portal lead status (NEW, CONTACTED, ...)' },
+  { key: 'status', desc: 'Portal lead status (NEW, HOT, SUBMITTED_PROCESSING, ...)' },
   { key: 'assignedUserId', desc: 'Assigned LO user id (internal)' },
   { key: 'receivedAt', desc: 'Timestamp portal received the lead (ISO)' },
 ];

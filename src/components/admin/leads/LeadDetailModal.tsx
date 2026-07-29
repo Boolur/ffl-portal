@@ -29,6 +29,7 @@ import {
 } from '@/app/actions/leadActions';
 import { RawPayloadAudit } from './RawPayloadAudit';
 import { LEAD_MAILBOX_FIELD_MAP as LEAD_MAILBOX_FIELD_MAP_CACHE } from '@/lib/leadMailboxBridge';
+import { LEAD_STATUS_OPTIONS } from '@/lib/leadStatuses';
 import { useRouter } from 'next/navigation';
 import { FormatDate } from '@/components/ui/FormatDate';
 
@@ -117,51 +118,6 @@ type LeadDetail = {
     author: { id: string; name: string } | null;
   }>;
 };
-
-const ALL_STATUSES = [
-  {
-    value: 'NEW',
-    label: 'New',
-    color: 'border-blue-300 bg-blue-50 text-blue-700',
-    active: 'bg-blue-600 text-white border-blue-600',
-  },
-  {
-    value: 'CONTACTED',
-    label: 'Contacted',
-    color: 'border-amber-300 bg-amber-50 text-amber-700',
-    active: 'bg-amber-500 text-white border-amber-500',
-  },
-  {
-    value: 'WORKING',
-    label: 'Working',
-    color: 'border-indigo-300 bg-indigo-50 text-indigo-700',
-    active: 'bg-indigo-600 text-white border-indigo-600',
-  },
-  {
-    value: 'CONVERTED',
-    label: 'Converted',
-    color: 'border-green-300 bg-green-50 text-green-700',
-    active: 'bg-green-600 text-white border-green-600',
-  },
-  {
-    value: 'DEAD',
-    label: 'Dead',
-    color: 'border-slate-300 bg-slate-100 text-slate-500',
-    active: 'bg-slate-500 text-white border-slate-500',
-  },
-  {
-    value: 'RETURNED',
-    label: 'Returned',
-    color: 'border-rose-300 bg-rose-50 text-rose-700',
-    active: 'bg-rose-600 text-white border-rose-600',
-  },
-  {
-    value: 'UNASSIGNED',
-    label: 'Unassigned',
-    color: 'border-orange-300 bg-orange-50 text-orange-700',
-    active: 'bg-orange-500 text-white border-orange-500',
-  },
-];
 
 const EDITABLE_FIELDS: Array<{ key: string; label: string }> = [
   { key: 'firstName', label: 'First Name' },
@@ -701,7 +657,7 @@ export function LeadDetailModal({
                 onChange={(e) => void handleStatusChange(e.target.value)}
                 disabled={updatingStatus || !lead.assignedUser}
               >
-                {ALL_STATUSES.map((s) => (
+                {LEAD_STATUS_OPTIONS.map((s) => (
                   <option key={s.value} value={s.value}>
                     {s.label}
                   </option>
