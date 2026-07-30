@@ -1,6 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { ANY_ADMIN_ROLES } from '@/lib/adminTiers';
-import { SupportDesk, UserRole } from '@prisma/client';
+import { SupportDesk } from '@prisma/client';
 
 export const SUPPORT_DESK_LABELS: Record<SupportDesk, string> = {
   [SupportDesk.SCENARIO]: 'Scenario Desk',
@@ -74,27 +73,9 @@ export async function resolveSupportDeskRouting(
     };
   }
 
-  const fallbackUsers = await prisma.user.findMany({
-    where: {
-      active: true,
-      OR: [
-        { role: { in: [...ANY_ADMIN_ROLES, UserRole.MANAGER] } },
-        { roles: { hasSome: [...ANY_ADMIN_ROLES, UserRole.MANAGER] } },
-      ],
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      roles: true,
-    },
-    orderBy: { name: 'asc' },
-  });
-
   return {
-    assignedUserId: fallbackUsers[0]?.id ?? null,
-    recipientUsers: fallbackUsers,
-    usedFallback: true,
+    assignedUserId: null,
+    recipientUsers: [],
+    usedFallback: false,
   };
 }

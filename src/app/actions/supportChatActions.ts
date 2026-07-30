@@ -593,14 +593,11 @@ export async function sendSupportMessage(input: {
   });
 
   const recipientUsers = isRequester
-    ? [
-        ...(conversation.assignedUser ? [conversation.assignedUser] : []),
-        ...(await resolveSupportDeskRouting(conversation.desk, {
+    ? (await resolveSupportDeskRouting(conversation.desk, {
           lender: conversation.lender,
           loanType: conversation.loanType,
           propertyState: conversation.propertyState,
-        })).recipientUsers,
-      ]
+        })).recipientUsers
     : [conversation.requester];
   const uniqueRecipientUsers = Array.from(
     new Map(recipientUsers.filter((user) => user.id !== actor.userId).map((user) => [user.id, user])).values()
