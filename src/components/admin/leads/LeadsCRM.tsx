@@ -360,7 +360,7 @@ const LEAD_COLUMNS: Array<{
   align?: 'left' | 'right';
 }> = [
   { id: 'select', label: '', defaultWidth: 48, minWidth: 40 },
-  { id: 'status', label: 'Status', sortKey: 'status', defaultWidth: 110, minWidth: 80 },
+  { id: 'status', label: 'Status', sortKey: 'status', defaultWidth: 190, minWidth: 170 },
   { id: 'name', label: 'Name', sortKey: 'firstName', defaultWidth: 180, minWidth: 100 },
   { id: 'email', label: 'Email', sortKey: 'email', defaultWidth: 220, minWidth: 120 },
   { id: 'phone', label: 'Phone', sortKey: 'phone', defaultWidth: 140, minWidth: 100 },

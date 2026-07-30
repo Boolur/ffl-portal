@@ -224,7 +224,7 @@ export function LeadDashboard({
                   >
                     <td className="px-6 py-3">
                       <span
-                        className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusOption.className}`}
+                        className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusOption.className}`}
                       >
                         {statusOption.label}
                       </span>
