@@ -61,6 +61,9 @@ type LoanOption = {
   loanNumber: string;
   borrowerName: string;
   program: string | null;
+  lender: string;
+  loanType: string;
+  propertyState: string;
 };
 
 type SupportChatWidgetProps = {
@@ -129,6 +132,8 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
   const [open, setOpen] = React.useState(false);
   const [tab, setTab] = React.useState<'previous' | 'new'>('previous');
   const [selectedDesk, setSelectedDesk] = React.useState<SupportDesk | null>(null);
+  const [newChatStep, setNewChatStep] = React.useState<'source' | 'details'>('source');
+  const [contextSource, setContextSource] = React.useState<'mismo' | 'loan' | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -223,6 +228,8 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
     });
     setMismoFile(null);
     setSelectedDesk(null);
+    setNewChatStep('source');
+    setContextSource(null);
   };
 
   const uploadMismoFile = async (conversationId: string, file: File) => {
@@ -337,6 +344,31 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
   const selectedLoan = loans.find((loan) => loan.id === form.loanId);
   const activeDesk = selectedDesk ? getDeskOption(selectedDesk) : null;
   const showMismoUpload = selectedDesk === SupportDesk.SCENARIO || selectedDesk === SupportDesk.PRICING;
+  const selectDesk = (desk: SupportDesk) => {
+    setSelectedDesk(desk);
+    setNewChatStep(desk === SupportDesk.HELP ? 'details' : 'source');
+    setContextSource(null);
+    setMismoFile(null);
+    setForm({
+      subject: '',
+      body: '',
+      loanId: '',
+      lender: '',
+      loanType: '',
+      propertyState: '',
+    });
+  };
+
+  const selectRelatedLoan = (loanId: string) => {
+    const loan = loans.find((item) => item.id === loanId);
+    setForm((prev) => ({
+      ...prev,
+      loanId,
+      lender: loan?.lender || prev.lender,
+      loanType: loan?.loanType || loan?.program || prev.loanType,
+      propertyState: loan?.propertyState || prev.propertyState,
+    }));
+  };
 
   return (
     <div className="fixed bottom-6 left-6 z-[55] flex flex-col items-start gap-3">
@@ -442,14 +474,27 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
                 selectedLoan={selectedLoan}
                 mismoFile={mismoFile}
                 showMismoUpload={showMismoUpload}
+                step={newChatStep}
+                contextSource={contextSource}
                 submitting={submitting}
-                onBack={() => setSelectedDesk(null)}
+                onBack={() => {
+                  if (newChatStep === 'details' && selectedDesk !== SupportDesk.HELP) {
+                    setNewChatStep('source');
+                    return;
+                  }
+                  setSelectedDesk(null);
+                }}
+                onChooseSource={(source) => {
+                  setContextSource(source);
+                  setNewChatStep('details');
+                }}
                 onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+                onLoanChange={selectRelatedLoan}
                 onFileChange={setMismoFile}
                 onSubmit={handleCreate}
               />
             ) : (
-              <DeskPicker onSelectDesk={setSelectedDesk} />
+              <DeskPicker onSelectDesk={selectDesk} />
             )}
           </div>
         </section>
@@ -579,9 +624,13 @@ function NewChatForm({
   selectedLoan,
   mismoFile,
   showMismoUpload,
+  step,
+  contextSource,
   submitting,
   onBack,
+  onChooseSource,
   onFormChange,
+  onLoanChange,
   onFileChange,
   onSubmit,
 }: {
@@ -599,9 +648,13 @@ function NewChatForm({
   selectedLoan?: LoanOption;
   mismoFile: File | null;
   showMismoUpload: boolean;
+  step: 'source' | 'details';
+  contextSource: 'mismo' | 'loan' | null;
   submitting: boolean;
   onBack: () => void;
+  onChooseSource: (source: 'mismo' | 'loan') => void;
   onFormChange: (patch: Partial<typeof form>) => void;
+  onLoanChange: (loanId: string) => void;
   onFileChange: (file: File | null) => void;
   onSubmit: () => void;
 }) {
@@ -612,6 +665,13 @@ function NewChatForm({
       : desk === SupportDesk.PRICING
         ? 'Pricing questions route best with lender, loan type, and MISMO/pricing context.'
         : 'Help Desk requests only need a clear subject and description.';
+  const requiresContext = desk === SupportDesk.SCENARIO || desk === SupportDesk.PRICING;
+  const contextComplete = !requiresContext || Boolean(form.lender.trim() && form.loanType.trim() && form.propertyState.trim());
+  const sourceComplete =
+    !requiresContext ||
+    (contextSource === 'mismo' && Boolean(mismoFile)) ||
+    (contextSource === 'loan' && Boolean(form.loanId));
+  const canSubmit = Boolean(form.subject.trim() && form.body.trim() && contextComplete && sourceComplete);
 
   return (
     <div className="h-full overflow-y-auto p-4">
@@ -633,7 +693,103 @@ function NewChatForm({
           </div>
         </div>
       </div>
+
+      {requiresContext && step === 'source' && (
+        <div className="grid gap-3">
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+            <p className="font-bold">Step 1: Choose your file context</p>
+            <p className="mt-1 text-xs leading-5 text-blue-700">
+              Attach a MISMO file, or select a related loan already in the portal.
+            </p>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                <Paperclip className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h4 className="text-sm font-extrabold text-slate-900">Attach MISMO</h4>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Use this if the loan or pricing file is not already in the portal.
+                </p>
+                <input
+                  type="file"
+                  accept=".xml,.mismo,.txt,.pdf,.doc,.docx"
+                  onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+                  className="mt-3 block w-full text-xs text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-[#3e8dc8] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-[#347eb5]"
+                />
+                {mismoFile && (
+                  <p className="mt-2 text-xs font-semibold text-blue-800">
+                    Selected: {mismoFile.name} ({formatBytes(mismoFile.size)})
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onChooseSource('mismo')}
+                  disabled={!mismoFile}
+                  className="app-btn-primary mt-3 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Continue with MISMO
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h4 className="text-sm font-extrabold text-slate-900">Select Related Loan</h4>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Use this if the loan is already in the portal. We will prefill details when available.
+                </p>
+                <select
+                  value={form.loanId}
+                  onChange={(event) => onLoanChange(event.target.value)}
+                  className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">Choose a portal loan</option>
+                  {loans.map((loan) => (
+                    <option key={loan.id} value={loan.id}>
+                      {loan.borrowerName} · {loan.loanNumber}
+                    </option>
+                  ))}
+                </select>
+                {selectedLoan && (
+                  <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    <p className="font-bold text-slate-800">{selectedLoan.borrowerName}</p>
+                    <p>Lender: {selectedLoan.lender || 'Needs details'}</p>
+                    <p>Loan Type: {selectedLoan.loanType || selectedLoan.program || 'Needs details'}</p>
+                    <p>State: {selectedLoan.propertyState || 'Needs details'}</p>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onChooseSource('loan')}
+                  disabled={!form.loanId}
+                  className="app-btn-primary mt-3 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Continue with Related Loan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(!requiresContext || step === 'details') && (
       <div className="grid gap-3">
+        {requiresContext && (
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+            <p className="font-bold">Step 2: Details of your question</p>
+            <p className="mt-1 text-xs leading-5 text-blue-700">
+              Confirm lender, loan type, and state so the request routes to the right desk member.
+            </p>
+          </div>
+        )}
         <input
           value={form.subject}
           onChange={(event) => onFormChange({ subject: event.target.value })}
@@ -646,30 +802,21 @@ function NewChatForm({
           }
           className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
         />
-        {(desk === SupportDesk.SCENARIO || desk === SupportDesk.PRICING) && (
+        {requiresContext && (
           <>
-            <select
-              value={form.loanId}
-              onChange={(event) => {
-                const loan = loans.find((item) => item.id === event.target.value);
-                onFormChange({
-                  loanId: event.target.value,
-                  loanType: form.loanType || loan?.program || '',
-                });
-              }}
-              className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">No related loan in portal</option>
-              {loans.map((loan) => (
-                <option key={loan.id} value={loan.id}>
-                  {loan.borrowerName} · {loan.loanNumber}
-                </option>
-              ))}
-            </select>
-            {selectedLoan && (
-              <p className="text-[11px] text-slate-500">
-                Selected loan program: {selectedLoan.program || 'Not specified'}
-              </p>
+            {contextSource === 'loan' && selectedLoan && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <p className="font-bold text-slate-800">
+                  Related loan: {selectedLoan.borrowerName} · {selectedLoan.loanNumber}
+                </p>
+                <p>Update the fields below if anything looks missing or incorrect.</p>
+              </div>
+            )}
+            {contextSource === 'mismo' && mismoFile && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <p className="font-bold text-slate-800">MISMO: {mismoFile.name}</p>
+                <p>Fill in the context below so the desk can route and review it quickly.</p>
+              </div>
             )}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <input
@@ -696,7 +843,7 @@ function NewChatForm({
         <p className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
           {contextHelp}
         </p>
-        {showMismoUpload && (
+        {showMismoUpload && contextSource === 'mismo' && (
           <label className="block rounded-2xl border border-dashed border-blue-200 bg-blue-50/60 px-3 py-3 text-sm text-blue-900">
             <span className="flex items-center gap-2 font-bold">
               <Paperclip className="h-4 w-4" />
@@ -728,13 +875,19 @@ function NewChatForm({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={submitting || !form.subject.trim() || !form.body.trim()}
+          disabled={submitting || !canSubmit}
           className="app-btn-primary disabled:cursor-not-allowed disabled:opacity-60"
         >
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           Start {deskOption?.shortLabel || 'Support'} Chat
         </button>
+        {requiresContext && !contextComplete && (
+          <p className="text-xs font-semibold text-amber-700">
+            Lender, loan type, and state are required for this desk.
+          </p>
+        )}
       </div>
+      )}
     </div>
   );
 }

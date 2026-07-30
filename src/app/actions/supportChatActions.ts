@@ -78,6 +78,27 @@ function sanitizeFilename(filename: string) {
   return replaced.length ? replaced : 'file';
 }
 
+function asPlainObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function firstStringValue(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function extractStateFromAddress(address?: string | null) {
+  const value = address?.trim();
+  if (!value) return '';
+  const stateMatch = value.match(/\b[A-Z]{2}\b(?=\s+\d{5}(?:-\d{4})?\b|,?\s*$)/i);
+  return stateMatch?.[0]?.toUpperCase() || '';
+}
+
 function getPortalBaseUrl() {
   return process.env.NEXTAUTH_URL || 'http://localhost:3000';
 }
@@ -361,6 +382,17 @@ export async function getSupportChatBootstrap() {
         loanNumber: true,
         borrowerName: true,
         program: true,
+        propertyAddress: true,
+        payrollCompRequests: {
+          select: {
+            lender: true,
+            loanType: true,
+            mismoDetails: true,
+            submittedAt: true,
+          },
+          orderBy: { submittedAt: 'desc' },
+          take: 1,
+        },
       },
       orderBy: { updatedAt: 'desc' },
       take: 50,
@@ -376,7 +408,19 @@ export async function getSupportChatBootstrap() {
     conversations: conversations.map((conversation, index) =>
       serializeConversation(conversation, unreadCounts[index])
     ),
-    loans,
+    loans: loans.map((loan) => {
+      const latestPayroll = loan.payrollCompRequests[0];
+      const mismoDetails = asPlainObject(latestPayroll?.mismoDetails);
+      return {
+        id: loan.id,
+        loanNumber: loan.loanNumber,
+        borrowerName: loan.borrowerName,
+        program: loan.program,
+        lender: latestPayroll?.lender || firstStringValue(mismoDetails, ['lender', 'lenderName', 'investor']),
+        loanType: latestPayroll?.loanType || firstStringValue(mismoDetails, ['loanType', 'loanProgram', 'mortgageType']) || loan.program || '',
+        propertyState: firstStringValue(mismoDetails, ['propertyState', 'subjectPropertyState', 'state', 'property_state']) || extractStateFromAddress(loan.propertyAddress),
+      };
+    }),
   };
 }
 
