@@ -497,6 +497,7 @@ model SupportConversation {
   lender         String?
   loanType       String?
   propertyState  String?
+  escalated      Boolean                   @default(false)
   createdAt      DateTime                  @default(now())
   updatedAt      DateTime                  @updatedAt
   lastMessageAt  DateTime                  @default(now())
@@ -509,6 +510,7 @@ model SupportConversation {
   @@index([requesterId, lastMessageAt])
   @@index([assignedUserId, lastMessageAt])
   @@index([desk, status, lastMessageAt])
+  @@index([escalated, lastMessageAt])
   @@index([loanId])
 }
 

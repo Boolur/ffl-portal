@@ -201,21 +201,21 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
   }, []);
 
   React.useEffect(() => {
-    if (!open) return;
-    void loadBootstrap(true);
-  }, [loadBootstrap, open]);
+    if (!canOpenWidget) return;
+    void loadBootstrap(false);
+  }, [canOpenWidget, loadBootstrap]);
 
   React.useEffect(() => {
-    if (!open) return;
+    if (!canOpenWidget) return;
     const interval = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       void loadBootstrap(false);
-      if (activeConversationId) {
+      if (open && activeConversationId) {
         void openConversation(activeConversationId, false);
       }
     }, 30000);
     return () => window.clearInterval(interval);
-  }, [activeConversationId, loadBootstrap, open, openConversation]);
+  }, [activeConversationId, canOpenWidget, loadBootstrap, open, openConversation]);
 
   const resetNewChatForm = () => {
     setForm({

@@ -52,6 +52,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   const { activeRole } = useImpersonation();
   const { data: session } = useSession();
   const [hasSupportDeskDesignation, setHasSupportDeskDesignation] = React.useState(false);
+  const [supportInboxUnreadCount, setSupportInboxUnreadCount] = React.useState(0);
   const pathname = usePathname();
   const router = useRouter();
   const canSeeLendersDirectory = canAccessLendersDirectory({
@@ -80,21 +81,38 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   React.useEffect(() => {
     if (!session?.user?.id) {
       setHasSupportDeskDesignation(false);
+      setSupportInboxUnreadCount(0);
       return;
     }
     let cancelled = false;
-    getMySupportDeskAccess()
-      .then((result) => {
-        if (cancelled) return;
-        setHasSupportDeskDesignation(result.success && result.hasAccess);
-      })
-      .catch(() => {
-        if (!cancelled) setHasSupportDeskDesignation(false);
-      });
+    const loadSupportAccess = () => {
+      getMySupportDeskAccess()
+        .then((result) => {
+          if (cancelled) return;
+          setHasSupportDeskDesignation(result.success && result.hasAccess);
+          setSupportInboxUnreadCount(result.success ? result.unreadCount : 0);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setHasSupportDeskDesignation(false);
+            setSupportInboxUnreadCount(0);
+          }
+        });
+    };
+
+    loadSupportAccess();
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      loadSupportAccess();
+    }, 30000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [session?.user?.id]);
+
+  const supportInboxBadgeCount = supportInboxUnreadCount > 99 ? '99+' : String(supportInboxUnreadCount);
 
   const emitNavigationIntent = React.useCallback((href: string, name: string) => {
     window.dispatchEvent(
@@ -209,6 +227,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       href: '/admin/support',
       roles: [] as UserRole[],
       visible: () => canAccessSupportInbox(activeRoleArr) || hasSupportDeskDesignation,
+      badgeCount: supportInboxUnreadCount,
     },
     {
       name: 'Email Settings',
@@ -284,7 +303,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   );
 
   const linkClasses = (isActive: boolean) =>
-    `group flex items-center ${collapsed ? 'justify-center px-2.5' : 'px-3.5'} py-2.5 rounded-xl transition-all ${
+    `group relative flex items-center ${collapsed ? 'justify-center px-2.5' : 'px-3.5'} py-2.5 rounded-xl transition-all ${
       isActive
         ? 'bg-gradient-to-r from-blue-600/15 to-indigo-600/10 text-blue-700 shadow-sm ring-1 ring-blue-100'
         : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900'
@@ -322,6 +341,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       <nav className={`flex-1 ${collapsed ? 'p-3' : 'p-4'} space-y-1.5`}>
         {mainNavItems.map((item) => {
           const isActive = pathname === item.href;
+          const badgeCount = (item as { badgeCount?: number }).badgeCount ?? 0;
           return (
             <Link
               key={item.name}
@@ -343,6 +363,17 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
                 }`}
               />
               {!collapsed && <span className="text-sm font-medium">{item.name}</span>}
+              {badgeCount > 0 && (
+                <span
+                  className={
+                    collapsed
+                      ? 'absolute right-1.5 top-1.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-extrabold leading-4 text-white ring-2 ring-white'
+                      : 'ml-auto min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-extrabold leading-none text-white'
+                  }
+                >
+                  {item.name === 'Support Inbox' ? supportInboxBadgeCount : badgeCount > 99 ? '99+' : badgeCount}
+                </span>
+              )}
             </Link>
           );
         })}
@@ -358,6 +389,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
             )}
             {adminNavItems.map((item) => {
               const isActive = pathname === item.href;
+              const badgeCount = (item as { badgeCount?: number }).badgeCount ?? 0;
               return (
                 <Link
                   key={item.name}
@@ -379,6 +411,17 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
                     }`}
                   />
                   {!collapsed && <span className="text-sm font-medium">{item.name}</span>}
+                  {badgeCount > 0 && (
+                    <span
+                      className={
+                        collapsed
+                          ? 'absolute right-1.5 top-1.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-extrabold leading-4 text-white ring-2 ring-white'
+                          : 'ml-auto min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-extrabold leading-none text-white'
+                      }
+                    >
+                      {item.name === 'Support Inbox' ? supportInboxBadgeCount : badgeCount > 99 ? '99+' : badgeCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}

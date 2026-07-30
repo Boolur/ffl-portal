@@ -288,6 +288,7 @@ function serializeConversation(conversation: {
   lender: string | null;
   loanType: string | null;
   propertyState: string | null;
+  escalated: boolean;
   createdAt: Date;
   updatedAt: Date;
   lastMessageAt: Date;
@@ -344,6 +345,38 @@ async function countUnread(conversationId: string, userId: string) {
       ...(readState ? { createdAt: { gt: readState.lastReadAt } } : {}),
     },
   });
+}
+
+async function getSupportInboxScopeForActor(actor: SessionActor) {
+  const assignments = await getDeskAssignmentsForUser(actor.userId);
+  const assignedDesks = assignments.map((assignment) => assignment.desk);
+  const elevated = isElevatedSupportRole(actor);
+  return {
+    assignedDesks,
+    hasDesignation: assignedDesks.length > 0,
+    elevated,
+  };
+}
+
+async function getSupportInboxUnreadCountForActor(actor: SessionActor) {
+  const scope = await getSupportInboxScopeForActor(actor);
+  if (!scope.elevated && scope.assignedDesks.length === 0) return 0;
+
+  const conversations = await prisma.supportConversation.findMany({
+    where: {
+      status: { not: SupportConversationStatus.ARCHIVED },
+      ...(!scope.elevated
+        ? { OR: [{ assignedUserId: actor.userId }, { desk: { in: scope.assignedDesks } }] }
+        : {}),
+    },
+    select: { id: true },
+    take: 200,
+  });
+
+  const unreadCounts = await Promise.all(
+    conversations.map((conversation) => countUnread(conversation.id, actor.userId))
+  );
+  return unreadCounts.reduce((sum, count) => sum + count, 0);
 }
 
 export async function getSupportChatBootstrap() {
@@ -480,7 +513,7 @@ export async function createSupportConversation(input: {
   const conversation = await prisma.supportConversation.create({
     data: {
       desk: input.desk,
-      status: SupportConversationStatus.WAITING_ON_STAFF,
+      status: SupportConversationStatus.OPEN,
       subject,
       requesterId: actor.userId,
       assignedUserId: routing.assignedUserId,
@@ -842,6 +875,7 @@ export async function updateSupportConversationStatus(input: {
     data: {
       status: input.status,
       resolvedAt: input.status === SupportConversationStatus.RESOLVED ? new Date() : null,
+      escalated: input.status === SupportConversationStatus.RESOLVED ? false : undefined,
     },
     include: {
       requester: { select: { id: true, name: true, email: true } },
@@ -857,6 +891,66 @@ export async function updateSupportConversationStatus(input: {
     },
   });
   revalidatePath('/');
+  revalidatePath('/admin/support');
+  return { success: true as const, conversation: serializeConversation(conversation) };
+}
+
+export async function escalateSupportConversation(conversationId: string) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const access = await canAccessSupportConversation(actor, conversationId);
+  if (!access.allowed || !access.conversation) {
+    return { success: false as const, error: 'Not authorized.' };
+  }
+
+  const conversation = await prisma.supportConversation.update({
+    where: { id: conversationId },
+    data: { escalated: true },
+    include: {
+      requester: { select: { id: true, name: true, email: true } },
+      assignedUser: { select: { id: true, name: true, email: true } },
+      messages: {
+        orderBy: { createdAt: 'asc' },
+        include: { author: { select: { id: true, name: true, email: true, role: true } } },
+      },
+      attachments: {
+        orderBy: { createdAt: 'asc' },
+        include: { uploadedBy: { select: { id: true, name: true, email: true } } },
+      },
+    },
+  });
+
+  const routing = await resolveSupportDeskRouting(conversation.desk, {
+    lender: conversation.lender,
+    loanType: conversation.loanType,
+    propertyState: conversation.propertyState,
+  });
+  const staffUsers = Array.from(
+    new Map(
+      routing.recipientUsers
+        .filter((user) => user.id !== actor.userId)
+        .map((user) => [user.id, user])
+    ).values()
+  );
+  const href = `/admin/support?conversationId=${encodeURIComponent(conversation.id)}`;
+  await createNotifications({
+    userIds: staffUsers.map((user) => user.id),
+    eventLabel: 'Support Chat Escalated',
+    title: `Escalated: ${conversation.subject}`,
+    message: `${actor.name} escalated this ${SUPPORT_DESK_LABELS[conversation.desk]} request.`,
+    href,
+  });
+  await sendSupportEmails({
+    to: staffUsers.map((user) => user.email),
+    title: `Escalated: ${conversation.subject}`,
+    intro: `${actor.name} escalated a support chat for staff attention.`,
+    desk: conversation.desk,
+    subject: conversation.subject,
+    message: conversation.messages.at(-1)?.body ?? conversation.subject,
+    ctaLabel: 'Open Escalated Request',
+    url: `${getPortalBaseUrl()}${href}`,
+  });
+
   revalidatePath('/admin/support');
   return { success: true as const, conversation: serializeConversation(conversation) };
 }
@@ -980,22 +1074,16 @@ export async function getMySupportDeskAccess() {
   const actor = await getActor();
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
 
-  const assignments = await prisma.supportDeskAssignment.findMany({
-    where: {
-      userId: actor.userId,
-      active: true,
-      user: { active: true },
-    },
-    select: {
-      desk: true,
-    },
-    orderBy: [{ desk: 'asc' }],
-  });
+  const [scope, unreadCount] = await Promise.all([
+    getSupportInboxScopeForActor(actor),
+    getSupportInboxUnreadCountForActor(actor),
+  ]);
 
   return {
     success: true as const,
-    desks: assignments.map((assignment) => assignment.desk),
-    hasAccess: assignments.length > 0,
+    desks: scope.assignedDesks,
+    hasAccess: scope.hasDesignation,
+    unreadCount,
   };
 }
 

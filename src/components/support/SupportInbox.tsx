@@ -2,10 +2,21 @@
 
 import React from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Download, Inbox, Loader2, Paperclip, RefreshCw, Send } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Inbox,
+  Loader2,
+  Paperclip,
+  RefreshCw,
+  Send,
+} from 'lucide-react';
 import { SupportAttachmentPurpose, SupportConversationStatus, SupportDesk, UserRole } from '@prisma/client';
 import {
-  assignSupportConversation,
+  escalateSupportConversation,
   getSupportAttachmentDownloadUrl,
   getSupportConversation,
   getSupportInbox,
@@ -22,6 +33,7 @@ type SupportConversationItem = {
   subject: string;
   requesterId: string;
   assignedUserId: string | null;
+  escalated: boolean;
   requester?: { id: string; name: string; email: string } | null;
   assignedUser?: { id: string; name: string; email: string } | null;
   lender: string | null;
@@ -47,12 +59,6 @@ type SupportConversationItem = {
   }>;
 };
 
-type StaffUser = {
-  id: string;
-  name: string;
-  email: string;
-};
-
 const DESK_FILTERS = [
   { value: 'ALL', label: 'All Desks' },
   { value: SupportDesk.SCENARIO, label: 'Scenario' },
@@ -68,14 +74,6 @@ const STATUS_FILTERS = [
   { value: SupportConversationStatus.RESOLVED, label: 'Resolved' },
 ] as const;
 
-const STATUS_OPTIONS = [
-  SupportConversationStatus.OPEN,
-  SupportConversationStatus.WAITING_ON_STAFF,
-  SupportConversationStatus.WAITING_ON_REQUESTER,
-  SupportConversationStatus.RESOLVED,
-  SupportConversationStatus.ARCHIVED,
-];
-
 function formatDateTime(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
@@ -87,26 +85,41 @@ function formatDateTime(iso: string) {
   });
 }
 
-function statusLabel(status: SupportConversationStatus) {
-  return status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
 function formatBytes(sizeBytes: number) {
   if (sizeBytes < 1024) return `${sizeBytes} B`;
   if (sizeBytes < 1024 * 1024) return `${Math.round(sizeBytes / 1024)} KB`;
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const STAFF_MESSAGE_TONES = [
+  { bubble: 'bg-blue-600 text-white', meta: 'text-blue-100' },
+  { bubble: 'bg-sky-600 text-white', meta: 'text-sky-100' },
+  { bubble: 'bg-indigo-600 text-white', meta: 'text-indigo-100' },
+  { bubble: 'bg-cyan-700 text-white', meta: 'text-cyan-100' },
+  { bubble: 'bg-violet-600 text-white', meta: 'text-violet-100' },
+] as const;
+
+function staffToneFor(authorId: string) {
+  const hash = Array.from(authorId).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return STAFF_MESSAGE_TONES[hash % STAFF_MESSAGE_TONES.length];
+}
+
+function getLastStaffResponder(conversation: SupportConversationItem) {
+  return [...conversation.messages]
+    .reverse()
+    .find((message) => message.author.role !== UserRole.LOAN_OFFICER && message.author.role !== UserRole.LOA)
+    ?.author.name;
+}
+
 export function SupportInbox() {
   const searchParams = useSearchParams();
   const initialConversationId = searchParams.get('conversationId');
   const [conversations, setConversations] = React.useState<SupportConversationItem[]>([]);
-  const [staffUsers, setStaffUsers] = React.useState<StaffUser[]>([]);
   const [selectedConversationId, setSelectedConversationId] = React.useState<string | null>(initialConversationId);
   const [selectedConversation, setSelectedConversation] = React.useState<SupportConversationItem | null>(null);
   const [desk, setDesk] = React.useState<SupportDesk | 'ALL'>('ALL');
   const [status, setStatus] = React.useState<SupportConversationStatus | 'ALL'>('ALL');
-  const [assignedToMe, setAssignedToMe] = React.useState(false);
+  const [resolvedExpanded, setResolvedExpanded] = React.useState(false);
   const [search, setSearch] = React.useState('');
   const [reply, setReply] = React.useState('');
   const [loading, setLoading] = React.useState(false);
@@ -118,17 +131,16 @@ export function SupportInbox() {
     if (showLoader) setLoading(true);
     setError(null);
     try {
-      const result = await getSupportInbox({ desk, status, assignedToMe, search });
+      const result = await getSupportInbox({ desk, status, search });
       if (!result.success) {
         setError(result.error || 'Unable to load support inbox.');
         return;
       }
       setConversations(result.conversations as SupportConversationItem[]);
-      setStaffUsers(result.staffUsers as StaffUser[]);
     } finally {
       if (showLoader) setLoading(false);
     }
-  }, [assignedToMe, desk, search, status]);
+  }, [desk, search, status]);
 
   const openConversation = React.useCallback(async (conversationId: string, showLoader = true) => {
     setSelectedConversationId(conversationId);
@@ -192,26 +204,6 @@ export function SupportInbox() {
     }
   };
 
-  const handleAssign = async (assignedUserId: string) => {
-    if (!selectedConversationId || submitting) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const result = await assignSupportConversation({
-        conversationId: selectedConversationId,
-        assignedUserId: assignedUserId || null,
-      });
-      if (!result.success) {
-        setError(result.error || 'Unable to update assignment.');
-        return;
-      }
-      setSelectedConversation(result.conversation as SupportConversationItem);
-      await loadInbox(false);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const handleStatusChange = async (nextStatus: SupportConversationStatus) => {
     if (!selectedConversationId || submitting) return;
     setSubmitting(true);
@@ -223,6 +215,23 @@ export function SupportInbox() {
       });
       if (!result.success) {
         setError(result.error || 'Unable to update status.');
+        return;
+      }
+      setSelectedConversation(result.conversation as SupportConversationItem);
+      await loadInbox(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleEscalate = async () => {
+    if (!selectedConversationId || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await escalateSupportConversation(selectedConversationId);
+      if (!result.success) {
+        setError(result.error || 'Unable to escalate request.');
         return;
       }
       setSelectedConversation(result.conversation as SupportConversationItem);
@@ -246,6 +255,14 @@ export function SupportInbox() {
       setDownloadingAttachmentId(null);
     }
   };
+
+  const activeConversations = conversations.filter(
+    (conversation) => conversation.status !== SupportConversationStatus.RESOLVED
+  );
+  const resolvedConversations = conversations.filter(
+    (conversation) => conversation.status === SupportConversationStatus.RESOLVED
+  );
+  const showResolvedTasks = resolvedExpanded || status === SupportConversationStatus.RESOLVED;
 
   return (
     <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -298,14 +315,6 @@ export function SupportInbox() {
                 ))}
               </select>
             </div>
-            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600">
-              <input
-                type="checkbox"
-                checked={assignedToMe}
-                onChange={(event) => setAssignedToMe(event.target.checked)}
-              />
-              Assigned to me
-            </label>
           </div>
         </div>
 
@@ -322,50 +331,50 @@ export function SupportInbox() {
         )}
 
         <div className="max-h-[calc(100vh-19rem)] overflow-y-auto">
-          {conversations.map((conversation) => {
+          {activeConversations.map((conversation) => {
             const active = conversation.id === selectedConversationId;
             return (
-              <button
+              <QueueConversationButton
                 key={conversation.id}
-                type="button"
-                onClick={() => void openConversation(conversation.id)}
-                className={`w-full border-b border-slate-100 p-4 text-left transition ${
-                  active ? 'bg-blue-50' : 'bg-white hover:bg-slate-50'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-blue-700">
-                      {conversation.deskLabel}
-                    </p>
-                    <h3 className="mt-1 text-sm font-bold text-slate-900">{conversation.subject}</h3>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {conversation.requester?.name || 'Unknown requester'} · {formatDateTime(conversation.lastMessageAt)}
-                    </p>
-                  </div>
-                  {conversation.unreadCount > 0 && (
-                    <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
-                      {conversation.unreadCount}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                    {conversation.statusLabel}
-                  </span>
-                  {conversation.assignedUser && (
-                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                      {conversation.assignedUser.name}
-                    </span>
-                  )}
-                </div>
-              </button>
+                conversation={conversation}
+                active={active}
+                onOpen={() => void openConversation(conversation.id)}
+              />
             );
           })}
-          {conversations.length === 0 && (
+          {activeConversations.length === 0 && resolvedConversations.length === 0 && (
             <div className="flex flex-col items-center justify-center px-5 py-12 text-center text-slate-500">
               <Inbox className="mb-3 h-8 w-8 text-slate-300" />
               <p className="text-sm font-semibold">No support requests match this view.</p>
+            </div>
+          )}
+          {resolvedConversations.length > 0 && (
+            <div className="border-t border-slate-200 bg-slate-50/80">
+              <button
+                type="button"
+                onClick={() => setResolvedExpanded((expanded) => !expanded)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-600 hover:bg-slate-100"
+              >
+                <span className="flex items-center gap-2">
+                  {showResolvedTasks ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  Resolved Tasks
+                </span>
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-700">
+                  {resolvedConversations.length}
+                </span>
+              </button>
+              {showResolvedTasks &&
+                resolvedConversations.map((conversation) => {
+                  const active = conversation.id === selectedConversationId;
+                  return (
+                    <QueueConversationButton
+                      key={conversation.id}
+                      conversation={conversation}
+                      active={active}
+                      onOpen={() => void openConversation(conversation.id)}
+                    />
+                  );
+                })}
             </div>
           )}
         </div>
@@ -396,32 +405,41 @@ export function SupportInbox() {
                     {selectedConversation.propertyState && <ContextChip label={`State: ${selectedConversation.propertyState}`} />}
                   </div>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[360px]">
-                  <select
-                    value={selectedConversation.assignedUserId || ''}
-                    onChange={(event) => void handleAssign(event.target.value)}
-                    disabled={submitting}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                  >
-                    <option value="">Unassigned</option>
-                    {staffUsers.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={selectedConversation.status}
-                    onChange={(event) => void handleStatusChange(event.target.value as SupportConversationStatus)}
-                    disabled={submitting}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                  >
-                    {STATUS_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {statusLabel(option)}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex flex-col gap-2 lg:min-w-[360px] lg:items-end">
+                  <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-600">
+                      {selectedConversation.statusLabel}
+                    </span>
+                    {selectedConversation.escalated && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-red-700">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Escalated
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Last staff response: {getLastStaffResponder(selectedConversation) || 'No staff response yet'}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleEscalate()}
+                      disabled={submitting || selectedConversation.escalated || selectedConversation.status === SupportConversationStatus.RESOLVED}
+                      className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <AlertTriangle className="h-4 w-4" />
+                      Escalate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleStatusChange(SupportConversationStatus.RESOLVED)}
+                      disabled={submitting || selectedConversation.status === SupportConversationStatus.RESOLVED}
+                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Resolved
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -462,6 +480,7 @@ export function SupportInbox() {
               {selectedConversation.messages.map((message) => {
                 const requesterMessage =
                   message.author.role === UserRole.LOAN_OFFICER || message.author.role === UserRole.LOA;
+                const staffTone = staffToneFor(message.authorId);
                 return (
                   <div
                     key={message.id}
@@ -471,11 +490,11 @@ export function SupportInbox() {
                       className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
                         requesterMessage
                           ? 'border border-slate-200 bg-white text-slate-800'
-                          : 'bg-blue-600 text-white'
+                          : staffTone.bubble
                       }`}
                     >
                       <p className="whitespace-pre-wrap leading-6">{message.body}</p>
-                      <p className={`mt-2 text-[10px] ${requesterMessage ? 'text-slate-400' : 'text-blue-100'}`}>
+                      <p className={`mt-2 text-[10px] ${requesterMessage ? 'text-slate-400' : staffTone.meta}`}>
                         {message.author.name} · {formatDateTime(message.createdAt)}
                       </p>
                     </div>
@@ -517,13 +536,81 @@ function ContextChip({ label }: { label: string }) {
   );
 }
 
+function QueueConversationButton({
+  conversation,
+  active,
+  onOpen,
+}: {
+  conversation: SupportConversationItem;
+  active: boolean;
+  onOpen: () => void;
+}) {
+  const resolved = conversation.status === SupportConversationStatus.RESOLVED;
+  const lastMessage = conversation.messages[0];
+  const staffResponder = getLastStaffResponder(conversation);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`w-full border-b border-slate-100 p-4 text-left transition ${
+        active
+          ? resolved
+            ? 'bg-emerald-50'
+            : 'bg-blue-50'
+          : resolved
+            ? 'bg-emerald-50/70 hover:bg-emerald-100/70'
+            : 'bg-white hover:bg-slate-50'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className={`text-[11px] font-bold uppercase tracking-wide ${resolved ? 'text-emerald-700' : 'text-blue-700'}`}>
+            {conversation.deskLabel}
+          </p>
+          <h3 className="mt-1 flex items-center gap-1.5 text-sm font-bold text-slate-900">
+            {conversation.escalated && (
+              <AlertTriangle className="h-4 w-4 shrink-0 fill-red-100 text-red-600" aria-label="Escalated" />
+            )}
+            <span className="truncate">{conversation.subject}</span>
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">
+            {conversation.requester?.name || 'Unknown requester'} · {formatDateTime(conversation.lastMessageAt)}
+          </p>
+          <p className="mt-1 text-[11px] font-medium text-slate-500">
+            {staffResponder ? `Last staff: ${staffResponder}` : lastMessage ? `Last reply: ${lastMessage.author.name}` : 'No replies yet'}
+          </p>
+        </div>
+        {conversation.unreadCount > 0 && (
+          <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
+            {conversation.unreadCount}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+          resolved
+            ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+            : 'border-slate-200 bg-white text-slate-600'
+        }`}>
+          {conversation.statusLabel}
+        </span>
+        {conversation.escalated && (
+          <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
+            Escalated
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
 function MessagePlaceholder() {
   return (
     <>
       <Inbox className="mb-3 h-10 w-10 text-slate-300" />
       <h2 className="text-lg font-bold text-slate-900">Select a support request</h2>
       <p className="mt-1 max-w-sm text-sm">
-        Open a conversation from the queue to reply, assign ownership, or update status.
+        Open a conversation from the queue to reply, escalate for attention, or mark it resolved.
       </p>
     </>
   );
