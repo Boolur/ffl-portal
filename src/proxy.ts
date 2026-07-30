@@ -85,6 +85,15 @@ function isAllowed(pathname: string, role?: string | null) {
   return allowed.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
+function isSupportPath(pathname: string) {
+  return pathname === '/admin/support' || pathname.startsWith('/admin/support/');
+}
+
+function isAllowedByAnyRole(pathname: string, roles?: unknown) {
+  if (!Array.isArray(roles)) return false;
+  return roles.some((role) => isAllowed(pathname, String(role)));
+}
+
 const authProxy = withAuth({
   pages: {
     signIn: '/login',
@@ -97,6 +106,7 @@ const authProxy = withAuth({
         return canAccessLeaderboard(req.nextUrl.pathname, effectiveRole);
       }
       if (isAllowed(req.nextUrl.pathname, effectiveRole)) return true;
+      if (isSupportPath(req.nextUrl.pathname) && isAllowedByAnyRole(req.nextUrl.pathname, token.roles)) return true;
       // Fail-soft for older sessions that might have malformed role claims.
       const normalizedRole = normalizeRole(effectiveRole);
       if (
