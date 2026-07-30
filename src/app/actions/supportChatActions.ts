@@ -935,6 +935,29 @@ export async function getSupportDeskAssignments(userId: string) {
   };
 }
 
+export async function getMySupportDeskAccess() {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+
+  const assignments = await prisma.supportDeskAssignment.findMany({
+    where: {
+      userId: actor.userId,
+      active: true,
+      user: { active: true },
+    },
+    select: {
+      desk: true,
+    },
+    orderBy: [{ desk: 'asc' }],
+  });
+
+  return {
+    success: true as const,
+    desks: assignments.map((assignment) => assignment.desk),
+    hasAccess: assignments.length > 0,
+  };
+}
+
 export async function updateSupportDeskAssignments(input: {
   userId: string;
   assignments: SupportDeskAssignmentInput[];

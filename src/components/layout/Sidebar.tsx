@@ -40,6 +40,7 @@ import {
   canAccessUserManagement,
   isAdmin,
 } from '@/lib/adminTiers';
+import { getMySupportDeskAccess } from '@/app/actions/supportChatActions';
 
 type SidebarProps = {
   collapsed: boolean;
@@ -50,6 +51,7 @@ type SidebarProps = {
 export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) {
   const { activeRole } = useImpersonation();
   const { data: session } = useSession();
+  const [hasSupportDeskDesignation, setHasSupportDeskDesignation] = React.useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const canSeeLendersDirectory = canAccessLendersDirectory({
@@ -74,6 +76,25 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     email: session?.user?.email || '',
     name: session?.user?.name || '',
   });
+
+  React.useEffect(() => {
+    if (!session?.user?.id) {
+      setHasSupportDeskDesignation(false);
+      return;
+    }
+    let cancelled = false;
+    getMySupportDeskAccess()
+      .then((result) => {
+        if (cancelled) return;
+        setHasSupportDeskDesignation(result.success && result.hasAccess);
+      })
+      .catch(() => {
+        if (!cancelled) setHasSupportDeskDesignation(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
 
   const emitNavigationIntent = React.useCallback((href: string, name: string) => {
     window.dispatchEvent(
@@ -187,7 +208,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       icon: MessageCircle,
       href: '/admin/support',
       roles: [] as UserRole[],
-      visible: () => canAccessSupportInbox(activeRoleArr),
+      visible: () => canAccessSupportInbox(activeRoleArr) || hasSupportDeskDesignation,
     },
     {
       name: 'Email Settings',
