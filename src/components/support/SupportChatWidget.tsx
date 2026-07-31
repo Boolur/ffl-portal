@@ -488,6 +488,7 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
                   setContextSource(source);
                   setNewChatStep('details');
                 }}
+                onSelectSource={setContextSource}
                 onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
                 onLoanChange={selectRelatedLoan}
                 onFileChange={setMismoFile}
@@ -629,6 +630,7 @@ function NewChatForm({
   submitting,
   onBack,
   onChooseSource,
+  onSelectSource,
   onFormChange,
   onLoanChange,
   onFileChange,
@@ -653,6 +655,7 @@ function NewChatForm({
   submitting: boolean;
   onBack: () => void;
   onChooseSource: (source: 'mismo' | 'loan') => void;
+  onSelectSource: (source: 'mismo' | 'loan' | null) => void;
   onFormChange: (patch: Partial<typeof form>) => void;
   onLoanChange: (loanId: string) => void;
   onFileChange: (file: File | null) => void;
@@ -699,84 +702,142 @@ function NewChatForm({
           <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
             <p className="font-bold">Step 1: Choose your file context</p>
             <p className="mt-1 text-xs leading-5 text-blue-700">
-              Attach a MISMO file, or select a related loan already in the portal.
+              Choose one path first. We will only show the details needed for that option.
             </p>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
-                <Paperclip className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h4 className="text-sm font-extrabold text-slate-900">Attach MISMO</h4>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Use this if the loan or pricing file is not already in the portal.
-                </p>
-                <input
-                  type="file"
-                  accept=".xml,.mismo,.txt,.pdf,.doc,.docx"
-                  onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
-                  className="mt-3 block w-full text-xs text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-[#3e8dc8] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-[#347eb5]"
-                />
-                {mismoFile && (
-                  <p className="mt-2 text-xs font-semibold text-blue-800">
-                    Selected: {mismoFile.name} ({formatBytes(mismoFile.size)})
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onChooseSource('mismo')}
-                  disabled={!mismoFile}
-                  className="app-btn-primary mt-3 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Continue with MISMO
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
-                <FileText className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h4 className="text-sm font-extrabold text-slate-900">Select Related Loan</h4>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Use this if the loan is already in the portal. We will prefill details when available.
-                </p>
-                <select
-                  value={form.loanId}
-                  onChange={(event) => onLoanChange(event.target.value)}
-                  className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Choose a portal loan</option>
-                  {loans.map((loan) => (
-                    <option key={loan.id} value={loan.id}>
-                      {loan.borrowerName} · {loan.loanNumber}
-                    </option>
-                  ))}
-                </select>
-                {selectedLoan && (
-                  <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                    <p className="font-bold text-slate-800">{selectedLoan.borrowerName}</p>
-                    <p>Lender: {selectedLoan.lender || 'Needs details'}</p>
-                    <p>Loan Type: {selectedLoan.loanType || selectedLoan.program || 'Needs details'}</p>
-                    <p>State: {selectedLoan.propertyState || 'Needs details'}</p>
+          {!contextSource && (
+            <div className="grid gap-3">
+              <button
+                type="button"
+                onClick={() => onSelectSource('mismo')}
+                className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                    <Paperclip className="h-5 w-5" />
                   </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onChooseSource('loan')}
-                  disabled={!form.loanId}
-                  className="app-btn-primary mt-3 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Continue with Related Loan
-                </button>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-slate-900">Attach MISMO</h4>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Use this if the loan or pricing file is not already in the portal.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onSelectSource('loan')}
+                className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/40 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-slate-900">Select Related Loan</h4>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Use this if the loan is already in the portal. We will prefill details when available.
+                    </p>
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {contextSource === 'mismo' && (
+            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <button
+                type="button"
+                onClick={() => onSelectSource(null)}
+                className="mb-3 text-xs font-bold text-blue-700 hover:text-blue-800"
+              >
+                Change option
+              </button>
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                  <Paperclip className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-sm font-extrabold text-slate-900">Attach MISMO</h4>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Use this if the loan or pricing file is not already in the portal.
+                  </p>
+                  <input
+                    type="file"
+                    accept=".xml,.mismo,.txt,.pdf,.doc,.docx"
+                    onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+                    className="mt-3 block w-full text-xs text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-[#3e8dc8] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-[#347eb5]"
+                  />
+                  {mismoFile && (
+                    <p className="mt-2 text-xs font-semibold text-blue-800">
+                      Selected: {mismoFile.name} ({formatBytes(mismoFile.size)})
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onChooseSource('mismo')}
+                    disabled={!mismoFile}
+                    className="app-btn-primary mt-3 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Continue with MISMO
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {contextSource === 'loan' && (
+            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <button
+                type="button"
+                onClick={() => onSelectSource(null)}
+                className="mb-3 text-xs font-bold text-blue-700 hover:text-blue-800"
+              >
+                Change option
+              </button>
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-sm font-extrabold text-slate-900">Select Related Loan</h4>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Use this if the loan is already in the portal. We will prefill details when available.
+                  </p>
+                  <select
+                    value={form.loanId}
+                    onChange={(event) => onLoanChange(event.target.value)}
+                    className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Choose a portal loan</option>
+                    {loans.map((loan) => (
+                      <option key={loan.id} value={loan.id}>
+                        {loan.borrowerName} · {loan.loanNumber}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedLoan && (
+                    <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      <p className="font-bold text-slate-800">{selectedLoan.borrowerName}</p>
+                      <p>Lender: {selectedLoan.lender || 'Needs details'}</p>
+                      <p>Loan Type: {selectedLoan.loanType || selectedLoan.program || 'Needs details'}</p>
+                      <p>State: {selectedLoan.propertyState || 'Needs details'}</p>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onChooseSource('loan')}
+                    disabled={!form.loanId}
+                    className="app-btn-primary mt-3 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Continue with Related Loan
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

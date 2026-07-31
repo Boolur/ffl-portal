@@ -23,6 +23,7 @@ import {
   SupportConversationStatus,
   SupportDesk,
   SupportAttachmentPurpose,
+  TaskKind,
   UserRole,
 } from '@prisma/client';
 import { getServerSession } from 'next-auth';
@@ -40,6 +41,13 @@ const SUPPORT_STATUS_LABELS: Record<SupportConversationStatus, string> = {
   [SupportConversationStatus.RESOLVED]: 'Resolved',
   [SupportConversationStatus.ARCHIVED]: 'Archived',
 };
+
+const SUPPORT_LOAN_DETAIL_TASK_KINDS = [
+  TaskKind.SUBMIT_PLUS_ONE,
+  TaskKind.SUBMIT_DISCLOSURES,
+  TaskKind.SUBMIT_PROCESSING,
+  TaskKind.SUBMIT_QC,
+];
 
 export type SupportDeskAssignmentInput = {
   desk: SupportDesk;
@@ -84,19 +92,67 @@ function asPlainObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function firstStringValue(source: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return '';
+const US_STATE_CODES = new Set([
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN',
+  'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV',
+  'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN',
+  'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC',
+]);
+
+function normalizeLookupKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function normalizeStateCode(value?: string | null) {
+  const normalized = value?.trim().toUpperCase();
+  if (!normalized) return '';
+  const exact = normalized.match(/^[A-Z]{2}$/)?.[0];
+  if (exact && US_STATE_CODES.has(exact)) return exact;
+  const code = normalized.match(/\b[A-Z]{2}\b/)?.[0];
+  return code && US_STATE_CODES.has(code) ? code : '';
+}
+
+function firstStringValueDeep(source: unknown, keys: string[]) {
+  const wantedKeys = new Set(keys.map(normalizeLookupKey));
+  const visited = new Set<unknown>();
+
+  const walk = (value: unknown): string => {
+    if (!value || typeof value !== 'object' || visited.has(value)) return '';
+    visited.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = walk(item);
+        if (found) return found;
+      }
+      return '';
+    }
+
+    for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+      if (wantedKeys.has(normalizeLookupKey(key)) && typeof nestedValue === 'string' && nestedValue.trim()) {
+        return nestedValue.trim();
+      }
+      const found = walk(nestedValue);
+      if (found) return found;
+    }
+    return '';
+  };
+
+  return walk(source);
 }
 
 function extractStateFromAddress(address?: string | null) {
   const value = address?.trim();
   if (!value) return '';
   const stateMatch = value.match(/\b[A-Z]{2}\b(?=\s+\d{5}(?:-\d{4})?\b|,?\s*$)/i);
-  return stateMatch?.[0]?.toUpperCase() || '';
+  const zipAdjacentState = normalizeStateCode(stateMatch?.[0]);
+  if (zipAdjacentState) return zipAdjacentState;
+  const candidates = value.match(/\b[A-Z]{2}\b/gi) ?? [];
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const state = normalizeStateCode(candidates[index]);
+    if (state) return state;
+  }
+  return '';
 }
 
 function getPortalBaseUrl() {
@@ -416,16 +472,6 @@ export async function getSupportChatBootstrap() {
         borrowerName: true,
         program: true,
         propertyAddress: true,
-        payrollCompRequests: {
-          select: {
-            lender: true,
-            loanType: true,
-            mismoDetails: true,
-            submittedAt: true,
-          },
-          orderBy: { submittedAt: 'desc' },
-          take: 1,
-        },
       },
       orderBy: { updatedAt: 'desc' },
       take: 50,
@@ -435,6 +481,36 @@ export async function getSupportChatBootstrap() {
   const unreadCounts = await Promise.all(
     conversations.map((conversation) => countUnread(conversation.id, actor.userId))
   );
+  const loanIds = loans.map((loan) => loan.id);
+  const loanNumbers = loans.map((loan) => loan.loanNumber).filter(Boolean);
+  const latestDetailTasks = loans.length
+    ? await prisma.task.findMany({
+        where: {
+          kind: { in: SUPPORT_LOAN_DETAIL_TASK_KINDS },
+          OR: [
+            { loanId: { in: loanIds } },
+            { loan: { loanNumber: { in: loanNumbers } } },
+          ],
+        },
+        select: {
+          loanId: true,
+          submissionData: true,
+          loan: { select: { loanNumber: true } },
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+    : [];
+  const latestTaskByLoanId = new Map<string, (typeof latestDetailTasks)[number]>();
+  const latestTaskByLoanNumber = new Map<string, (typeof latestDetailTasks)[number]>();
+  for (const task of latestDetailTasks) {
+    if (task.loanId && !latestTaskByLoanId.has(task.loanId)) {
+      latestTaskByLoanId.set(task.loanId, task);
+    }
+    if (task.loan.loanNumber && !latestTaskByLoanNumber.has(task.loan.loanNumber)) {
+      latestTaskByLoanNumber.set(task.loan.loanNumber, task);
+    }
+  }
 
   return {
     success: true as const,
@@ -442,16 +518,42 @@ export async function getSupportChatBootstrap() {
       serializeConversation(conversation, unreadCounts[index])
     ),
     loans: loans.map((loan) => {
-      const latestPayroll = loan.payrollCompRequests[0];
-      const mismoDetails = asPlainObject(latestPayroll?.mismoDetails);
+      const latestTask = latestTaskByLoanId.get(loan.id) || latestTaskByLoanNumber.get(loan.loanNumber);
+      const submissionData = asPlainObject(latestTask?.submissionData);
+      const lender =
+        firstStringValueDeep(submissionData, ['lender', 'lenderName', 'investor', 'investorName']) || '';
+      const loanType =
+        firstStringValueDeep(submissionData, ['loanType', 'loanProgram', 'mortgageType', 'loanPurpose']) ||
+        loan.program ||
+        '';
+      const propertyAddress =
+        loan.propertyAddress ||
+        firstStringValueDeep(submissionData, [
+          'propertyAddress',
+          'subjectPropertyAddress',
+          'subjectProperty',
+          'address',
+          'property_address',
+          'subject_property_address',
+        ]);
+      const propertyState =
+        normalizeStateCode(
+          firstStringValueDeep(submissionData, [
+            'propertyState',
+            'subjectPropertyState',
+            'subjectState',
+            'property_state',
+            'state',
+          ])
+        ) || extractStateFromAddress(propertyAddress);
       return {
         id: loan.id,
         loanNumber: loan.loanNumber,
         borrowerName: loan.borrowerName,
         program: loan.program,
-        lender: latestPayroll?.lender || firstStringValue(mismoDetails, ['lender', 'lenderName', 'investor']),
-        loanType: latestPayroll?.loanType || firstStringValue(mismoDetails, ['loanType', 'loanProgram', 'mortgageType']) || loan.program || '',
-        propertyState: firstStringValue(mismoDetails, ['propertyState', 'subjectPropertyState', 'state', 'property_state']) || extractStateFromAddress(loan.propertyAddress),
+        lender,
+        loanType,
+        propertyState,
       };
     }),
   };

@@ -124,6 +124,7 @@ export function SupportInbox() {
   const [reply, setReply] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const [pendingAction, setPendingAction] = React.useState<'escalate' | 'resolve' | null>(null);
   const [downloadingAttachmentId, setDownloadingAttachmentId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -207,6 +208,7 @@ export function SupportInbox() {
   const handleStatusChange = async (nextStatus: SupportConversationStatus) => {
     if (!selectedConversationId || submitting) return;
     setSubmitting(true);
+    if (nextStatus === SupportConversationStatus.RESOLVED) setPendingAction('resolve');
     setError(null);
     try {
       const result = await updateSupportConversationStatus({
@@ -221,12 +223,14 @@ export function SupportInbox() {
       await loadInbox(false);
     } finally {
       setSubmitting(false);
+      setPendingAction(null);
     }
   };
 
   const handleEscalate = async () => {
     if (!selectedConversationId || submitting) return;
     setSubmitting(true);
+    setPendingAction('escalate');
     setError(null);
     try {
       const result = await escalateSupportConversation(selectedConversationId);
@@ -238,6 +242,7 @@ export function SupportInbox() {
       await loadInbox(false);
     } finally {
       setSubmitting(false);
+      setPendingAction(null);
     }
   };
 
@@ -425,18 +430,28 @@ export function SupportInbox() {
                       type="button"
                       onClick={() => void handleEscalate()}
                       disabled={submitting || selectedConversation.escalated || selectedConversation.status === SupportConversationStatus.RESOLVED}
+                      aria-busy={pendingAction === 'escalate'}
                       className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <AlertTriangle className="h-4 w-4" />
+                      {pendingAction === 'escalate' ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4" />
+                      )}
                       Escalate
                     </button>
                     <button
                       type="button"
                       onClick={() => void handleStatusChange(SupportConversationStatus.RESOLVED)}
                       disabled={submitting || selectedConversation.status === SupportConversationStatus.RESOLVED}
+                      aria-busy={pendingAction === 'resolve'}
                       className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <CheckCircle2 className="h-4 w-4" />
+                      {pendingAction === 'resolve' ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4" />
+                      )}
                       Resolved
                     </button>
                   </div>
