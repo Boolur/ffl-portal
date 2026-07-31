@@ -2802,6 +2802,13 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           error: 'Lead Vendor is required when Lead Source is Lead Buy.',
         };
       }
+      if (parseMoneyNumber(submissionObject.projectedRevenue) <= 0) {
+        return {
+          success: false,
+          error:
+            'Projected Revenue is required and must be greater than $0 before submitting Disclosures.',
+        };
+      }
 
       const investor = String(submissionObject.investor ?? '').trim().toUpperCase();
       if (investor === 'BUTTON') {

@@ -1142,6 +1142,7 @@ function DisclosuresForm({
     loanType: '',
     loanProgram: '',
     loanAmount: '',
+    projectedRevenue: '',
     homeValue: '',
     employerName: '',
     employerAddress: '',
@@ -1229,6 +1230,7 @@ function DisclosuresForm({
     { key: 'loanType', label: 'Loan Type' },
     { key: 'loanProgram', label: 'Loan Program' },
     { key: 'loanAmount', label: 'Loan Amount' },
+    { key: 'projectedRevenue', label: 'Projected Revenue' },
     { key: 'homeValue', label: 'Home Value' },
     { key: 'aus', label: 'AUS' },
     { key: 'creditReportType', label: 'Credit Report Type' },
@@ -1651,6 +1653,7 @@ function DisclosuresForm({
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={loanTypeOptions} required invalid={highlightedMissingFields.has('loanType')} />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required invalid={highlightedMissingFields.has('loanProgram')} />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
+        <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} required invalid={highlightedMissingFields.has('projectedRevenue')} />
         <Input label="Home Value" value={form.homeValue} onChange={(v) => update('homeValue', v)} required invalid={highlightedMissingFields.has('homeValue')} />
         <Select label="AUS" value={form.aus} onChange={(v) => update('aus', v)} options={['DU', 'LP', 'Manual UW']} required invalid={highlightedMissingFields.has('aus')} />
         <Select label="Credit Report Type" value={form.creditReportType} onChange={(v) => update('creditReportType', v)} options={['Soft Check', 'Hard Report']} required invalid={highlightedMissingFields.has('creditReportType')} />
