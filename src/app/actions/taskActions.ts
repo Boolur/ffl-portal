@@ -3263,6 +3263,71 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       },
     });
 
+    if (submissionType === 'DISCLOSURES') {
+      const existingPlusOneTask = await prisma.task.findFirst({
+        where: {
+          loanId: loan.id,
+          kind: TaskKind.SUBMIT_PLUS_ONE,
+        },
+        select: { id: true },
+      });
+
+      if (!existingPlusOneTask) {
+        const disclosureDataObj =
+          finalSubmissionData && typeof finalSubmissionData === 'object' && !Array.isArray(finalSubmissionData)
+            ? { ...(finalSubmissionData as Record<string, unknown>) }
+            : {};
+        const secondaryLoanOfficerName = secondaryLoanOfficerUser?.name || 'N/A';
+        const plusOneSubmissionData: Prisma.JsonObject = {
+          ...disclosureDataObj,
+          workflowVersion: 'plus-one-v1',
+          autoCreatedFrom: 'submit-disclosures',
+          autoCreatedFromTaskId: createdTask.id,
+          submittedAt: new Date().toISOString(),
+          submittedById: sessionUserId || null,
+          submittedByName: session?.user?.name || loanOfficerName || loanOfficerUser.name,
+          loanOfficer: loanOfficerUser.name,
+          loanOfficerId: loanOfficerUser.id,
+          secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId,
+          secondaryLoanOfficerName,
+          arriveLoanNumber: normalizedArriveLoanNumber,
+          borrowerFirstName,
+          borrowerLastName,
+          borrowerPhone: borrowerPhone || '',
+          borrowerEmail: borrowerEmail || '',
+          lender: resolveLenderDisplayName(disclosureDataObj.lender ?? disclosureDataObj.investor),
+          loanAmount: loanAmount || String(disclosureDataObj.loanAmount ?? ''),
+          nextMilestone: String(disclosureDataObj.nextMilestone ?? 'Submitting to disclosures'),
+          notes: notes || String(disclosureDataObj.notes ?? ''),
+        };
+
+        const plusOneTask = await prisma.task.create({
+          data: {
+            loanId: loan.id,
+            title: 'Submit +1',
+            kind: TaskKind.SUBMIT_PLUS_ONE,
+            description: notes || null,
+            submissionData: plusOneSubmissionData,
+            status: TaskStatus.COMPLETED,
+            priority: TaskPriority.NORMAL,
+            completedAt: new Date(),
+          },
+        });
+
+        try {
+          await dispatchPlusOneSubmittedNotification({
+            taskId: plusOneTask.id,
+            changedBy: session?.user?.name || loanOfficerUser.name,
+          });
+        } catch (plusOneNotificationError) {
+          console.error(
+            'Auto-created +1 after disclosure, but notification dispatch failed:',
+            plusOneNotificationError
+          );
+        }
+      }
+    }
+
     try {
       await dispatchTaskWorkflowNotification({
         taskId: createdTask.id,
