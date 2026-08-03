@@ -630,7 +630,12 @@ function lenderFromJson(value: unknown) {
 function loanNumberFromJson(value: unknown) {
   const data = submissionObject(value);
   if (!data) return null;
-  const raw = data.arriveLoanNumber ?? data.loanNumber ?? data.ariveNumber;
+  const raw =
+    data.arriveLoanNumber ??
+    data.ariveLoanNumber ??
+    data.arriveNumber ??
+    data.ariveNumber ??
+    data.loanNumber;
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
