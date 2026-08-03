@@ -90,6 +90,7 @@ export async function listWebsiteLoanOfficerProfiles() {
 
   return prisma.user.findMany({
     where: {
+      active: true,
       OR: [{ role: UserRole.LOAN_OFFICER }, { roles: { has: UserRole.LOAN_OFFICER } }],
     },
     select: {
