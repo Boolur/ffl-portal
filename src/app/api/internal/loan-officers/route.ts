@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { toBisuPublicEmail } from '@/lib/websitePublicContact';
 
 /**
  * Versioned, key-protected source of truth for published BISU website
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
       officers: profiles.map(({ user, ...profile }) => ({
         id: user.id,
         name: user.name,
-        email: user.email,
+        email: toBisuPublicEmail(user.email),
         slug: profile.slug,
         title: profile.title,
         nmls: profile.nmls ?? undefined,
