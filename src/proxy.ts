@@ -124,6 +124,6 @@ export const proxy = authProxy;
 
 export const config = {
   matcher: [
-    '/((?!api/auth|api/webhooks/lead-mailbox|api/webhooks/leads|login|auth|_next|favicon.ico|.*\\..*).*)',
+    '/((?!api/auth|api/internal/loan-officers|api/webhooks/lead-mailbox|api/webhooks/leads|login|auth|_next|favicon.ico|.*\\..*).*)',
   ],
 };
