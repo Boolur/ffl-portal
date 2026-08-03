@@ -16,6 +16,7 @@ import {
   canAssignRole,
   canManageUser,
 } from '@/lib/adminTiers';
+import { ensureWebsiteLoanOfficerProfileDraft } from '@/lib/websiteLoanOfficerProfiles';
 
 // The legacy `UserRole.ADMIN` value should never be assigned to new users;
 // admins must pick one of the explicit tiers instead.
@@ -37,6 +38,21 @@ const normalizeEmail = (email: string) => email.toLowerCase().trim();
 const getBaseUrl = () => process.env.NEXTAUTH_URL || 'http://localhost:3000';
 const normalizeRoleList = (roles: UserRole[]) =>
   Array.from(new Set(roles.filter((role) => ALLOWED_ROLES.includes(role))));
+
+async function syncWebsiteProfileForRoles(
+  userId: string,
+  name: string,
+  roles: UserRole[],
+) {
+  if (roles.includes(UserRole.LOAN_OFFICER)) {
+    await ensureWebsiteLoanOfficerProfileDraft(userId, name);
+    return;
+  }
+  await prisma.websiteLoanOfficerProfile.updateMany({
+    where: { userId },
+    data: { publishedAt: null },
+  });
+}
 
 // Returns the authenticated User Management actor, or null if the caller is
 // not logged in or lacks any admin-tier access. Every mutation below uses
@@ -360,7 +376,7 @@ export async function createUser({
 
   const passwordHash = await hash(trimmedPassword, 10);
 
-  await prisma.user.create({
+  const user = await prisma.user.create({
     data: {
       name: trimmedName,
       email: trimmedEmail,
@@ -371,7 +387,9 @@ export async function createUser({
       passwordHash,
       active: true,
     },
+    select: { id: true, name: true },
   });
+  await syncWebsiteProfileForRoles(user.id, user.name, normalizedRoles);
 
   revalidatePath('/admin/users');
   return { success: true };
@@ -594,7 +612,7 @@ export async function acceptInvite({
 
     const passwordHash = await hash(trimmedPassword, 10);
 
-    await prisma.user.upsert({
+    const user = await prisma.user.upsert({
       where: { email: invite.email },
       update: {
         name: trimmedName,
@@ -615,7 +633,9 @@ export async function acceptInvite({
         passwordHash,
         active: true,
       },
+      select: { id: true, name: true },
     });
+    await syncWebsiteProfileForRoles(user.id, user.name, [invite.role]);
 
     await prisma.inviteToken.update({
       where: { token },
@@ -779,7 +799,8 @@ export async function updateUserRoles(userId: string, roles: UserRole[]) {
     });
 
   try {
-    await applyRoleUpdate();
+    const updated = await applyRoleUpdate();
+    await syncWebsiteProfileForRoles(updated.id, updated.name, normalizedRoles);
 
     revalidatePath('/admin/users');
     return { success: true };
@@ -798,7 +819,8 @@ export async function updateUserRoles(userId: string, roles: UserRole[]) {
       }
       try {
         await prisma.$executeRawUnsafe(`ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'LOA'`);
-        await applyRoleUpdate();
+        const updated = await applyRoleUpdate();
+        await syncWebsiteProfileForRoles(updated.id, updated.name, normalizedRoles);
         revalidatePath('/admin/users');
         return { success: true };
       } catch (retryError) {

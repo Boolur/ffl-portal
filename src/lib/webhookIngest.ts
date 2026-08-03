@@ -13,6 +13,8 @@ import {
   extractBridgeNotes,
 } from '@/lib/leadMailboxBridge';
 import { normalizeMilitaryFlag } from '@/lib/militaryFlag';
+import { runLeadAssignmentEffects } from '@/lib/leadAssignmentEffects';
+import { buildWebLeadMetadata, resolveWebLeadTarget } from '@/lib/webLeadRouting';
 
 function scheduleWebhookSideEffect(label: string, fn: () => Promise<void>) {
   after(async () => {
@@ -359,13 +361,14 @@ export async function ingestVendorLeadWebhook(
     }
   }
 
+  const isBisuWebLead = vendor.slug === 'bisu-website';
   const routingTagValue = getNestedValue(payload, vendor.routingTagField);
   const routingTag = routingTagValue != null ? String(routingTagValue) : null;
 
   let campaign: Awaited<
     ReturnType<typeof prisma.leadCampaign.findUnique>
   > = null;
-  if (routingTag) {
+  if (routingTag && !isBisuWebLead) {
     const match = await prisma.leadCampaign.findUnique({
       where: { vendorId_routingTag: { vendorId: vendor.id, routingTag } },
     });
@@ -373,10 +376,9 @@ export async function ingestVendorLeadWebhook(
   }
 
   const vendorLeadId =
-    (payload.lead_id as string) ||
-    (payload.leadId as string) ||
-    (payload.id as string) ||
-    null;
+    normalizeStringValue(payload.lead_id) ??
+    normalizeStringValue(payload.leadId) ??
+    normalizeStringValue(payload.id);
 
   if (vendorLeadId) {
     const existing = await prisma.lead.findFirst({
@@ -407,7 +409,33 @@ export async function ingestVendorLeadWebhook(
     leadFields[key] = value;
   }
 
-  const statusStr = campaign?.defaultLeadStatus ?? 'UNASSIGNED';
+  const requestedUserId = isBisuWebLead
+    ? normalizeStringValue(payload.targetUserId)
+    : null;
+  const requestedOfficerSlug = isBisuWebLead
+    ? normalizeStringValue(payload.officerSlug)
+    : null;
+  const targetCandidate = requestedUserId
+    ? await prisma.user.findUnique({
+        where: { id: requestedUserId },
+        select: {
+          id: true,
+          active: true,
+          role: true,
+          roles: true,
+          websiteLoanOfficerProfile: {
+            select: { slug: true, publishedAt: true },
+          },
+        },
+      })
+    : null;
+  const targetUserId = resolveWebLeadTarget(targetCandidate, requestedOfficerSlug);
+
+  const statusStr = isBisuWebLead
+    ? targetUserId
+      ? 'NEW'
+      : 'UNASSIGNED'
+    : campaign?.defaultLeadStatus ?? 'UNASSIGNED';
   const status = (Object.values(LeadStatus) as string[]).includes(statusStr)
     ? (statusStr as LeadStatus)
     : LeadStatus.UNASSIGNED;
@@ -415,10 +443,13 @@ export async function ingestVendorLeadWebhook(
   const createData: Prisma.LeadUncheckedCreateInput = {
     vendorLeadId,
     vendorId: vendor.id,
-    campaignId: campaign?.id ?? null,
+    campaignId: isBisuWebLead ? null : campaign?.id ?? null,
     status,
-    source: routingTag || vendor.name,
+    assignedUserId: targetUserId,
+    assignedAt: targetUserId ? new Date() : null,
+    source: isBisuWebLead ? 'WebLead' : routingTag || vendor.name,
     rawPayload: payload as Prisma.InputJsonValue,
+    customData: (isBisuWebLead ? buildWebLeadMetadata(payload) : {}) as Prisma.InputJsonValue,
     receivedAt: new Date(),
   };
 
@@ -426,7 +457,20 @@ export async function ingestVendorLeadWebhook(
     (createData as Record<string, unknown>)[k] = v;
   }
 
-  const lead = await prisma.lead.create({ data: createData });
+  const message = isBisuWebLead ? normalizeStringValue(payload.message) : null;
+  const lead = await prisma.$transaction(async (tx) => {
+    const created = await tx.lead.create({ data: createData });
+    if (message) {
+      await tx.leadNote.create({
+        data: {
+          leadId: created.id,
+          authorId: null,
+          content: message,
+        },
+      });
+    }
+    return created;
+  });
 
   scheduleWebhookSideEffect('ON_RECEIVE service triggers', () =>
     runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE)
@@ -436,9 +480,19 @@ export async function ingestVendorLeadWebhook(
     () => runServiceTriggers(lead.id, IntegrationServiceTrigger.DELAY_AFTER_RECEIVE)
   );
 
-  scheduleWebhookSideEffect('lead-webhook distribution', () =>
-    distributeLead(lead.id)
-  );
+  if (targetUserId) {
+    await runLeadAssignmentEffects({
+      leadId: lead.id,
+      userId: targetUserId,
+      firstName: lead.firstName,
+      lastName: lead.lastName,
+      assignmentLabel: 'BISU Website',
+    });
+  } else if (!isBisuWebLead) {
+    scheduleWebhookSideEffect('lead-webhook distribution', () =>
+      distributeLead(lead.id)
+    );
+  }
 
   return {
     status: 'processed',

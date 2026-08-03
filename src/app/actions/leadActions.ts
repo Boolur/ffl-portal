@@ -53,6 +53,7 @@ import {
   getLiveCampaignMemberCounts,
   getLiveUserCounts,
 } from '@/lib/leadCounts';
+import { runLeadAssignmentEffects } from '@/lib/leadAssignmentEffects';
 import {
   businessDayOfWeek,
   startOfBusinessDay,
@@ -112,20 +113,13 @@ export async function distributeLead(leadId: string) {
           status: LeadStatus.NEW,
         },
       });
-      await createLeadNotification(campaign.defaultUserId, lead, campaign.name);
-      scheduleLeadSideEffect('Bonzo forward after default assignment', () =>
-        forwardLeadToBonzo(leadId, campaign.defaultUserId!)
-      );
-      // ON_ASSIGN triggers fire every active IntegrationService whose
-      // statusTrigger matches, which includes the "Broker Launch
-      // Notification" email service (method = EMAIL_BROKER_LAUNCH).
-      scheduleLeadSideEffect('ON_ASSIGN triggers after default assignment', () =>
-        runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN)
-      );
-      scheduleLeadSideEffect(
-        'DELAY_AFTER_ASSIGN triggers after default assignment',
-        () => runServiceTriggers(leadId, IntegrationServiceTrigger.DELAY_AFTER_ASSIGN)
-      );
+      await runLeadAssignmentEffects({
+        leadId,
+        userId: campaign.defaultUserId,
+        firstName: lead.firstName,
+        lastName: lead.lastName,
+        assignmentLabel: campaign.name,
+      });
     }
     return;
   }
@@ -246,17 +240,13 @@ export async function distributeLead(leadId: string) {
         : []),
     ]);
 
-    await createLeadNotification(member.userId, lead, campaign.name);
-    scheduleLeadSideEffect('Bonzo forward after round-robin assignment', () =>
-      forwardLeadToBonzo(leadId, member.userId)
-    );
-    scheduleLeadSideEffect('ON_ASSIGN triggers after round-robin assignment', () =>
-      runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN)
-    );
-    scheduleLeadSideEffect(
-      'DELAY_AFTER_ASSIGN triggers after round-robin assignment',
-      () => runServiceTriggers(leadId, IntegrationServiceTrigger.DELAY_AFTER_ASSIGN)
-    );
+    await runLeadAssignmentEffects({
+      leadId,
+      userId: member.userId,
+      firstName: lead.firstName,
+      lastName: lead.lastName,
+      assignmentLabel: campaign.name,
+    });
     return;
   }
 
@@ -270,27 +260,6 @@ export async function distributeLead(leadId: string) {
   // The empty-members branch above still honors defaultUserId, because
   // "no one is staffed on this campaign" is a genuinely different
   // scenario from "the roster is gated out right now".
-}
-
-async function createLeadNotification(
-  userId: string,
-  lead: { id: string; firstName?: string | null; lastName?: string | null },
-  campaignName: string
-) {
-  const name = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || 'Unknown';
-  try {
-    await prisma.notification.create({
-      data: {
-        userId,
-        eventLabel: 'LEAD_ASSIGNED',
-        title: 'New Lead Assigned',
-        message: `New lead: ${name} — ${campaignName}`,
-        href: '/leads',
-      },
-    });
-  } catch (err) {
-    console.error('[lead-notification] failed', err);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2250,17 +2219,11 @@ export async function assignLead(leadId: string, userId: string) {
       status: LeadStatus.NEW,
     },
   });
-  await createLeadNotification(userId, { id: leadId }, 'Manual Assignment');
-  scheduleLeadSideEffect('Bonzo forward after manual assignment', () =>
-    forwardLeadToBonzo(leadId, userId)
-  );
-  scheduleLeadSideEffect('ON_ASSIGN triggers after manual assignment', () =>
-    runServiceTriggers(leadId, IntegrationServiceTrigger.ON_ASSIGN)
-  );
-  scheduleLeadSideEffect(
-    'DELAY_AFTER_ASSIGN triggers after manual assignment',
-    () => runServiceTriggers(leadId, IntegrationServiceTrigger.DELAY_AFTER_ASSIGN)
-  );
+  await runLeadAssignmentEffects({
+    leadId,
+    userId,
+    assignmentLabel: 'Manual Assignment',
+  });
   revalidatePath('/leads');
   revalidatePath('/admin/leads');
   revalidatePath('/admin/leads/all');

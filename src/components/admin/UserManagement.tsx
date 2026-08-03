@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { SupportDesk, UserRole } from '@prisma/client';
 import {
   createUser,
@@ -18,7 +19,7 @@ import {
 } from '@/app/actions/userActions';
 import { updateSupportDeskAssignments } from '@/app/actions/supportChatActions';
 import { useRouter } from 'next/navigation';
-import { PlusCircle, RefreshCw, Loader2, UserPlus, Send, Mail, MessageCircle, X } from 'lucide-react';
+import { Globe2, PlusCircle, RefreshCw, Loader2, UserPlus, Send, Mail, MessageCircle, X } from 'lucide-react';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
 import { FormatDate } from '@/components/ui/FormatDate';
 import { canAssignRole, canManageUser, getAdminTier } from '@/lib/adminTiers';
@@ -473,13 +474,19 @@ export function UserManagement({
               Create users directly or send secure invites with role-based access.
             </p>
           </div>
-          <button
-            onClick={() => router.refresh()}
-            className="app-btn-secondary"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/admin/users/website-profiles" className="app-btn-secondary">
+              <Globe2 className="h-4 w-4" />
+              Website profiles
+            </Link>
+            <button
+              onClick={() => router.refresh()}
+              className="app-btn-secondary"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh
+            </button>
+          </div>
         </div>
 
         <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
