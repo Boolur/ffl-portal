@@ -110,12 +110,18 @@ async function main() {
   const apply = process.argv.includes('--apply');
   console.log(apply ? '\nAPPLY MODE — writes enabled\n' : '\nDRY RUN — no writes (pass --apply to commit)\n');
 
-  const { secret } = await upsertVendor(apply);
+  await upsertVendor(apply);
 
   console.log('\n────────────────────────────────');
   console.log('Webhook URL:   /api/webhooks/leads/' + VENDOR_SLUG);
-  console.log('Webhook secret (set as PORTAL_WEBHOOK_SECRET on the website):');
-  console.log('  ' + secret);
+  console.log(
+    `Webhook secret: ${process.env.BISU_WEBSITE_WEBHOOK_SECRET ? 'configured from environment' : 'generated for this run'}`,
+  );
+  if (!process.env.BISU_WEBSITE_WEBHOOK_SECRET) {
+    console.log(
+      'Set BISU_WEBSITE_WEBHOOK_SECRET before applying so the portal and website use the same value.',
+    );
+  }
   if (!apply) console.log('\nRe-run with --apply to commit.');
 }
 
