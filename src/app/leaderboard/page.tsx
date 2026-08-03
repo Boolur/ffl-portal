@@ -7,6 +7,8 @@ import { getLeaderboardReport } from '@/app/actions/leaderboardActions';
 import { authOptions } from '@/lib/auth';
 import { canAccessLeaderboardPortal } from '@/lib/leaderboardAccess';
 
+export const dynamic = 'force-dynamic';
+
 export default async function LeaderboardRoute() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) redirect('/login');

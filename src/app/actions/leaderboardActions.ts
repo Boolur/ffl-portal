@@ -1,6 +1,6 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import {
   PendingStpDispositionReason,
@@ -699,6 +699,7 @@ function getOrCreateLeadSourceRow(map: Map<string, LeaderboardLeadSourceRow>, ra
 export async function getLeaderboardReport(
   filters: LeaderboardReportFilters = {}
 ): Promise<LeaderboardReport> {
+  noStore();
   const { session, role, isAdminUser, userId } = await getLeaderboardSessionUser();
   if (
     !session?.user?.id ||

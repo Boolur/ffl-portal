@@ -1,5 +1,6 @@
 'use server';
 
+import { unstable_noStore as noStore } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import {
   PayrollCompRequestStatus,
@@ -1015,6 +1016,7 @@ function buildPipelineGroupRows(
 }
 
 export async function getPipelineReport(filters: PipelineReportFilters = {}): Promise<PipelineReport> {
+  noStore();
   const actor = await assertPipelineActor();
   const canViewAll = actor.role === UserRole.MANAGER || isAdmin(actor.role);
   const { preset, start, end } = resolveDateRange(filters);
@@ -1550,7 +1552,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
   const bucketRows = {
     plusOne: allTaskRows.filter((row) => row.milestone === 'plusOne').slice(0, 100),
     disclosures: allTaskRows.filter((row) => row.milestone === 'disclosures').slice(0, 100),
-    pendingStp: pendingStpRows.slice(0, 100),
+    pendingStp: pendingStpRows,
     processing: allTaskRows.filter((row) => row.milestone === 'processing').slice(0, 100),
     fundings: allFundingRows.slice(0, 100),
   };
