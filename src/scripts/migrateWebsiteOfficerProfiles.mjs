@@ -26,6 +26,19 @@ function slugify(value) {
     .replace(/(^-|-$)+/g, '');
 }
 
+function firstLastNameKey(value) {
+  const parts = value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return '';
+  return `${parts[0]}::${parts.at(-1)}`;
+}
+
 function section(source, start, end) {
   const startIndex = source.indexOf(start);
   const endIndex = source.indexOf(end, startIndex + start.length);
@@ -79,19 +92,48 @@ async function main() {
   console.log(apply ? 'APPLY MODE — importing drafts' : 'DRY RUN — no writes');
   console.log(`Source: ${sourcePath}`);
 
+  const loanOfficerUsers = await prisma.user.findMany({
+    where: {
+      OR: [{ role: 'LOAN_OFFICER' }, { roles: { has: 'LOAN_OFFICER' } }],
+    },
+    select: { id: true, name: true, email: true, role: true, roles: true },
+  });
+  const usersByName = new Map();
+  for (const user of loanOfficerUsers) {
+    const key = firstLastNameKey(user.name);
+    if (!key) continue;
+    const matches = usersByName.get(key) ?? [];
+    matches.push(user);
+    usersByName.set(key, matches);
+  }
+
   let matched = 0;
   let unmatched = 0;
+  let ambiguous = 0;
   let skippedRole = 0;
 
   for (const seed of seeds) {
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { email: seed.email },
-      select: { id: true, name: true, role: true, roles: true },
+      select: { id: true, name: true, email: true, role: true, roles: true },
     });
+    let matchMethod = 'email';
     if (!user) {
-      unmatched += 1;
-      console.log(`UNMATCHED  ${seed.email} (${seed.name})`);
-      continue;
+      const nameMatches = usersByName.get(firstLastNameKey(seed.name)) ?? [];
+      if (nameMatches.length > 1) {
+        ambiguous += 1;
+        console.log(
+          `AMBIGUOUS  ${seed.name} -> ${nameMatches.map((match) => `${match.name} <${match.email}>`).join(', ')}`,
+        );
+        continue;
+      }
+      user = nameMatches[0] ?? null;
+      matchMethod = 'name';
+      if (!user) {
+        unmatched += 1;
+        console.log(`UNMATCHED  ${seed.email} (${seed.name})`);
+        continue;
+      }
     }
     if (user.role !== 'LOAN_OFFICER' && !user.roles.includes('LOAN_OFFICER')) {
       skippedRole += 1;
@@ -110,7 +152,9 @@ async function main() {
         : `${seed.name} is a ${title} with BISU Home Loans, helping clients compare purchase, refinance, and home equity options with clear guidance, fast communication, and a people-first lending experience.`;
 
     matched += 1;
-    console.log(`MATCHED    ${seed.email} -> ${slug}`);
+    console.log(
+      `MATCHED    ${seed.email} -> ${slug} (${matchMethod}: ${user.email})`,
+    );
     if (!apply) continue;
 
     await prisma.websiteLoanOfficerProfile.upsert({
@@ -141,7 +185,9 @@ async function main() {
     });
   }
 
-  console.log(`\nMatched: ${matched}; unmatched: ${unmatched}; non-LO: ${skippedRole}`);
+  console.log(
+    `\nMatched: ${matched}; unmatched: ${unmatched}; ambiguous: ${ambiguous}; non-LO: ${skippedRole}`,
+  );
   if (!apply) console.log('Re-run with --apply after reviewing the report.');
 }
 

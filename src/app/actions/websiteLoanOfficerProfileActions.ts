@@ -7,6 +7,7 @@ import { authOptions } from '@/lib/auth';
 import { canAccessUserManagement, canManageUser } from '@/lib/adminTiers';
 import { prisma } from '@/lib/prisma';
 import { normalizeWebsiteProfileSlug } from '@/lib/websiteLoanOfficerProfiles';
+import { requiresNmlsForWebsiteTitle } from '@/lib/websiteProfileValidation';
 
 export type WebsiteLoanOfficerProfileInput = {
   slug: string;
@@ -200,13 +201,14 @@ export async function setWebsiteLoanOfficerProfilePublished(
 
   if (published) {
     const profile = record.websiteLoanOfficerProfile;
+    const requiresNmls = requiresNmlsForWebsiteTitle(profile.title);
     const missing = [
       !record.active && 'active portal account',
       !record.name.trim() && 'name',
       !record.email.trim() && 'email',
       !profile.slug.trim() && 'slug',
       !profile.title.trim() && 'title',
-      !profile.nmls?.trim() && 'NMLS',
+      requiresNmls && !profile.nmls?.trim() && 'NMLS',
       !profile.phone?.trim() && 'phone',
       !profile.bio.trim() && 'bio',
       profile.licensedStates.length === 0 && 'licensed states',

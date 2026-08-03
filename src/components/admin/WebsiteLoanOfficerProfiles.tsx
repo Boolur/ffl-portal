@@ -7,6 +7,7 @@ import {
   updateWebsiteLoanOfficerProfile,
   type WebsiteLoanOfficerProfileInput,
 } from '@/app/actions/websiteLoanOfficerProfileActions';
+import { requiresNmlsForWebsiteTitle } from '@/lib/websiteProfileValidation';
 
 type ProfileRow = {
   id: string;
@@ -225,7 +226,15 @@ export function WebsiteLoanOfficerProfiles({ profiles }: { profiles: ProfileRow[
                 className="app-input"
               />
             </Field>
-            <Field label="NMLS" required>
+            <Field
+              label="NMLS"
+              hint={
+                requiresNmlsForWebsiteTitle(draft.title)
+                  ? undefined
+                  : 'Optional for loan officer assistants'
+              }
+              required={requiresNmlsForWebsiteTitle(draft.title)}
+            >
               <input
                 value={draft.nmls ?? ''}
                 onChange={(event) => updateDraft('nmls', event.target.value)}
