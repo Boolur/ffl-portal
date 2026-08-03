@@ -54,7 +54,9 @@ export async function POST(
     const result = await ingestVendorLeadWebhook({
       vendorSlug,
       payload,
-      signatureHeader,
+      // Public requests with a missing header must fail authentication.
+      // A literal null is reserved for trusted admin replay paths.
+      signatureHeader: signatureHeader ?? '',
     });
 
     if (result.status === 'processed') {
