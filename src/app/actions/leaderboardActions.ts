@@ -714,7 +714,7 @@ export async function getLeaderboardReport(
   const { preset, start, end } = resolveDateRange(filters);
   const dateWhere = { createdAt: { gte: start, lte: end } };
 
-  const [loanOfficers, teams, leadVendorOptions, taskRows, fundingRows] = await Promise.all([
+  const [loanOfficers, teams, leadVendorOptions, taskRows, pendingPlusOneTaskRows, fundingRows] = await Promise.all([
     prisma.user.findMany({
       where: {
         active: true,
@@ -744,6 +744,33 @@ export async function getLeaderboardReport(
       where: {
         kind: { in: [TaskKind.SUBMIT_PLUS_ONE, TaskKind.SUBMIT_DISCLOSURES, ...PROCESSING_KINDS] },
         ...dateWhere,
+      },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        createdAt: true,
+        submissionData: true,
+        loan: {
+          select: {
+            id: true,
+            loanNumber: true,
+            borrowerName: true,
+            amount: true,
+            program: true,
+            propertyAddress: true,
+            loanOfficerId: true,
+            secondaryLoanOfficerId: true,
+            loanOfficer: { select: { name: true } },
+            secondaryLoanOfficer: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.task.findMany({
+      where: {
+        kind: TaskKind.SUBMIT_PLUS_ONE,
       },
       select: {
         id: true,
@@ -809,20 +836,20 @@ export async function getLeaderboardReport(
     }),
   ]);
 
-  const plusOneTaskRows = taskRows.filter((task) => task.kind === TaskKind.SUBMIT_PLUS_ONE);
-  const plusOneLoanIds = Array.from(new Set(plusOneTaskRows.map((task) => task.loan.id)));
+  const pendingCandidateTaskRows = pendingPlusOneTaskRows;
+  const pendingCandidateLoanIds = Array.from(new Set(pendingCandidateTaskRows.map((task) => task.loan.id)));
   const plusOneRawNumbers = Array.from(new Set(
-    plusOneTaskRows
+    pendingCandidateTaskRows
       .flatMap((task) => [loanNumberFromJson(task.submissionData), task.loan.loanNumber])
       .map((value) => String(value || '').trim())
       .filter(Boolean)
   ));
-  const allTimeProcessingRows = plusOneTaskRows.length
+  const allTimeProcessingRows = pendingCandidateTaskRows.length
     ? await prisma.task.findMany({
         where: {
           kind: { in: PROCESSING_KINDS },
           OR: [
-            { loanId: { in: plusOneLoanIds } },
+            { loanId: { in: pendingCandidateLoanIds } },
             { loan: { loanNumber: { in: plusOneRawNumbers } } },
           ],
         },
@@ -842,10 +869,10 @@ export async function getLeaderboardReport(
       ])
       .filter(Boolean)
   );
-  const actionedPendingStpRows = plusOneTaskRows.length
+  const actionedPendingStpRows = pendingCandidateTaskRows.length
     ? await prisma.pendingStpDisposition.findMany({
         where: {
-          plusOneTaskId: { in: plusOneTaskRows.map((task) => task.id) },
+          plusOneTaskId: { in: pendingCandidateTaskRows.map((task) => task.id) },
           reopenedAt: null,
         },
         select: { plusOneTaskId: true },
@@ -912,7 +939,7 @@ export async function getLeaderboardReport(
     });
   }
 
-  for (const task of plusOneTaskRows) {
+  for (const task of pendingCandidateTaskRows) {
     const normalizedLoanNumber = normalizeAriveNumber(loanNumberFromJson(task.submissionData) || task.loan.loanNumber);
     if (processedLoanIds.has(task.loan.id) || processedLoanNumbers.has(normalizedLoanNumber)) continue;
     if (actionedPendingStpTaskIds.has(task.id)) continue;

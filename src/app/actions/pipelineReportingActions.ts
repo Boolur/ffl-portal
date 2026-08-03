@@ -1063,6 +1063,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     processing,
     fundings,
     taskRows,
+    pendingPlusOneTaskRows,
     fundingRows,
     trendTaskRows,
     trendFundingRows,
@@ -1119,6 +1120,43 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         },
         orderBy: { createdAt: 'desc' },
         take: 5000,
+      }),
+      prisma.task.findMany({
+        where: {
+          ...scopedTaskWhere,
+          kind: TaskKind.SUBMIT_PLUS_ONE,
+        },
+        select: {
+          id: true,
+          kind: true,
+          title: true,
+          status: true,
+          workflowState: true,
+          createdAt: true,
+          completedAt: true,
+          submissionData: true,
+          loan: {
+            select: {
+              loanNumber: true,
+              id: true,
+              borrowerName: true,
+              borrowerPhone: true,
+              borrowerEmail: true,
+              amount: true,
+              program: true,
+              propertyAddress: true,
+              stage: true,
+              createdAt: true,
+              updatedAt: true,
+              loanOfficerId: true,
+              secondaryLoanOfficerId: true,
+              loanOfficer: { select: { name: true } },
+              secondaryLoanOfficer: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10000,
       }),
       prisma.payrollCompRequest.findMany({
         where: { ...scopedPayrollWhere, ...fundingDateWhere(start, end) },
@@ -1203,20 +1241,20 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         : Promise.resolve([]),
     ]);
 
-  const plusOneTaskRows = taskRows.filter((task) => task.kind === TaskKind.SUBMIT_PLUS_ONE);
-  const plusOneLoanIds = Array.from(new Set(plusOneTaskRows.map((task) => task.loan.id)));
+  const pendingCandidateTaskRows = pendingPlusOneTaskRows;
+  const pendingCandidateLoanIds = Array.from(new Set(pendingCandidateTaskRows.map((task) => task.loan.id)));
   const plusOneRawNumbers = Array.from(new Set(
-    plusOneTaskRows
+    pendingCandidateTaskRows
       .flatMap((task) => [loanNumberFromJson(task.submissionData), task.loan.loanNumber])
       .map((value) => String(value || '').trim())
       .filter(Boolean)
   ));
-  const allTimeProcessingRows = plusOneTaskRows.length
+  const allTimeProcessingRows = pendingCandidateTaskRows.length
     ? await prisma.task.findMany({
         where: {
           kind: { in: PROCESSING_KINDS },
           OR: [
-            { loanId: { in: plusOneLoanIds } },
+            { loanId: { in: pendingCandidateLoanIds } },
             { loan: { loanNumber: { in: plusOneRawNumbers } } },
           ],
         },
@@ -1236,17 +1274,17 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       ])
       .filter(Boolean)
   );
-  const actionedPendingStpRows = plusOneTaskRows.length
+  const actionedPendingStpRows = pendingCandidateTaskRows.length
     ? await prisma.pendingStpDisposition.findMany({
         where: {
-          plusOneTaskId: { in: plusOneTaskRows.map((task) => task.id) },
+          plusOneTaskId: { in: pendingCandidateTaskRows.map((task) => task.id) },
           reopenedAt: null,
         },
         select: { plusOneTaskId: true },
       })
     : [];
   const actionedPendingStpTaskIds = new Set(actionedPendingStpRows.map((row) => row.plusOneTaskId));
-  const pendingStpTaskRows = plusOneTaskRows.filter((task) => {
+  const pendingStpTaskRows = pendingCandidateTaskRows.filter((task) => {
     const normalizedLoanNumber = normalizeAriveNumber(loanNumberFromJson(task.submissionData) || task.loan.loanNumber);
     return (
       !processedLoanIds.has(task.loan.id) &&
