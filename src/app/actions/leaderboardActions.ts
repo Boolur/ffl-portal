@@ -1126,6 +1126,16 @@ export async function getLeaderboardFallOutReport(
       ])
       .filter(Boolean)
   );
+  const actionedPendingStpRows = plusOneRows.length
+    ? await prisma.pendingStpDisposition.findMany({
+        where: {
+          plusOneTaskId: { in: plusOneRows.map((row) => row.id) },
+          reopenedAt: null,
+        },
+        select: { plusOneTaskId: true },
+      })
+    : [];
+  const actionedPendingStpTaskIds = new Set(actionedPendingStpRows.map((row) => row.plusOneTaskId));
   const now = new Date();
 
   return {
@@ -1139,6 +1149,7 @@ export async function getLeaderboardFallOutReport(
       .filter((row) => {
         const creditedLoanOfficerId = creditLoanOfficerId(row.loan);
         if (loanOfficerFilter && !loanOfficerFilter.has(creditedLoanOfficerId)) return false;
+        if (actionedPendingStpTaskIds.has(row.id)) return false;
         const ariveNumber = normalizeAriveNumber(loanNumberFromJson(row.submissionData) || row.loan.loanNumber);
         return !processedLoanIds.has(row.loan.id) && !processedNumbers.has(ariveNumber);
       })
@@ -1211,15 +1222,16 @@ export async function getLeaderboardWaterfallReport(
       .map((value) => String(value || '').trim())
       .filter(Boolean)
   ));
+  const plusOneNormalizedNumbers = new Set(
+    plusOneRawNumbers
+      .map((value) => normalizeAriveNumber(value))
+      .filter(Boolean)
+  );
 
   const processingRows = plusOneRows.length
-    ? await prisma.task.findMany({
+    ? (await prisma.task.findMany({
         where: {
           kind: { in: PROCESSING_KINDS },
-          OR: [
-            { loanId: { in: plusOneLoanIds } },
-            { loan: { loanNumber: { in: plusOneRawNumbers } } },
-          ],
         },
         select: {
           id: true,
@@ -1230,7 +1242,11 @@ export async function getLeaderboardWaterfallReport(
           loan: { select: { loanNumber: true } },
         },
         orderBy: { createdAt: 'asc' },
-      })
+      })).filter((processing) => (
+        plusOneLoanIds.includes(processing.loanId) ||
+        plusOneNormalizedNumbers.has(normalizeAriveNumber(processing.loan?.loanNumber)) ||
+        plusOneNormalizedNumbers.has(normalizeAriveNumber(loanNumberFromJson(processing.submissionData)))
+      ))
     : [];
 
   const processingByLoanId = new Map<string, (typeof processingRows)[number]>();

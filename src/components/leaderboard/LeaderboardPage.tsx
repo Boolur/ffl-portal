@@ -470,7 +470,7 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
   );
 }
 
-function exportFallOutReport(report: LeaderboardFallOutReport) {
+function exportPreStpReport(report: LeaderboardFallOutReport) {
   const start = dateInputValue(report.filters.startDate);
   const end = dateInputValue(report.filters.endDate);
   const generatedAt = formatDateTime(report.generatedAt);
@@ -517,8 +517,8 @@ function exportFallOutReport(report: LeaderboardFallOutReport) {
             <Column ss:Width="140" />
             <Column ss:Width="150" />
             <Column ss:Width="110" />
-            <Row>${excelXmlCell('Federal First Lending - Fall Out Report', 'Title')}</Row>
-            <Row>${excelXmlCell(`${loanOfficerName} | Range: ${formatDate(report.filters.startDate)} - ${formatDate(report.filters.endDate)} | Generated: ${generatedAt} | Fall Out Count: ${officerRows.length}`, 'Subtitle')}</Row>
+            <Row>${excelXmlCell('Federal First Lending - Pre-STP Report', 'Title')}</Row>
+            <Row>${excelXmlCell(`${loanOfficerName} | Range: ${formatDate(report.filters.startDate)} - ${formatDate(report.filters.endDate)} | Generated: ${generatedAt} | Pre-STP Count: ${officerRows.length}`, 'Subtitle')}</Row>
             <Row>
               ${excelXmlCell('#', 'Column')}
               ${excelXmlCell('Arive Number', 'Column')}
@@ -565,7 +565,7 @@ function exportFallOutReport(report: LeaderboardFallOutReport) {
 
   downloadBlob(
     new Blob([workbookHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
-    `fall-out-report-${start}-to-${end}.xls`
+    `pre-stp-report-${start}-to-${end}.xls`
   );
 }
 
@@ -2037,7 +2037,7 @@ function LeaderboardReportsModal({
     onClose();
   }
 
-  function handleFallOutExport() {
+  function handlePreStpExport() {
     setError(null);
     startFallOutExport(async () => {
       try {
@@ -2047,11 +2047,11 @@ function LeaderboardReportsModal({
           endDate: dateInputValue(report.filters.endDate),
           loanOfficerIds: loanOfficerIds || undefined,
         });
-        exportFallOutReport(fallOutReport);
+        exportPreStpReport(fallOutReport);
         onClose();
       } catch (err) {
         console.error(err);
-        setError('Unable to export the Fall Out Report. Please try again.');
+        setError('Unable to export the Pre-STP Report. Please try again.');
       }
     });
   }
@@ -2162,7 +2162,7 @@ function LeaderboardReportsModal({
           </button>
           <button
             type="button"
-            onClick={handleFallOutExport}
+            onClick={handlePreStpExport}
             disabled={isExportingFallOut}
             className="group flex w-full items-start gap-4 rounded-2xl border border-red-100 bg-white p-4 text-left shadow-sm shadow-slate-200/60 transition hover:border-red-200 hover:bg-red-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200 disabled:cursor-not-allowed disabled:opacity-70"
           >
@@ -2175,10 +2175,10 @@ function LeaderboardReportsModal({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-extrabold text-slate-950">
-                Fall Out Report
+                Pre-STP Report
               </span>
               <span className="mt-1 block text-sm font-medium text-slate-500">
-                Exports loans submitted to +1s that never reached Submitted to Processing/QC, matched by Arive Number.
+                Exports active pre-STP loans submitted to +1s that have not reached Submitted to Processing/QC and have not been dispositioned.
               </span>
               <span className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-red-700">
                 <Download className="h-3.5 w-3.5" />
