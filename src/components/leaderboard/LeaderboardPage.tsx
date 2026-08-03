@@ -92,6 +92,7 @@ const PRESETS: Array<{ value: LeaderboardRangePreset; label: string }> = [
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
+  { value: 'previousMonth', label: 'Previous Month' },
   { value: 'ytd', label: 'YTD' },
   { value: 'allTime', label: 'All Time' },
   { value: 'custom', label: 'Date Range' },

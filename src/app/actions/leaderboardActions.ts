@@ -15,7 +15,7 @@ import { hasAnyAdminRole, isAdmin } from '@/lib/adminTiers';
 import { canAccessLeaderboardPortal } from '@/lib/leaderboardAccess';
 import { prisma } from '@/lib/prisma';
 
-export type LeaderboardRangePreset = 'daily' | 'weekly' | 'monthly' | 'ytd' | 'allTime' | 'custom';
+export type LeaderboardRangePreset = 'daily' | 'weekly' | 'monthly' | 'previousMonth' | 'ytd' | 'allTime' | 'custom';
 export type LeaderboardMilestoneKey = 'plusOne' | 'disclosures' | 'processing' | 'fundings';
 
 export type LeaderboardReportFilters = {
@@ -333,6 +333,16 @@ function addCalendarDays(parts: CalendarDateParts, days: number): CalendarDatePa
   };
 }
 
+function previousCalendarMonth(parts: CalendarDateParts) {
+  const month = parts.month === 1 ? 12 : parts.month - 1;
+  const year = parts.month === 1 ? parts.year - 1 : parts.year;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return {
+    start: { year, month, day: 1 },
+    end: { year, month, day: lastDay },
+  };
+}
+
 function resolveDateRange(filters: LeaderboardReportFilters = {}) {
   const preset = filters.preset || 'monthly';
   const now = new Date();
@@ -356,6 +366,15 @@ function resolveDateRange(filters: LeaderboardReportFilters = {}) {
 
   if (preset === 'weekly') {
     return { preset, start: portalStartOfDay(addCalendarDays(today, -6)), end: todayEnd };
+  }
+
+  if (preset === 'previousMonth') {
+    const previousMonth = previousCalendarMonth(today);
+    return {
+      preset,
+      start: portalStartOfDay(previousMonth.start),
+      end: portalEndOfDay(previousMonth.end),
+    };
   }
 
   if (preset === 'ytd') {

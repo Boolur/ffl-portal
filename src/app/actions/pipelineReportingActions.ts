@@ -13,7 +13,7 @@ import { canAccessPipelinePortal } from '@/lib/pipelinePilot';
 import { prisma } from '@/lib/prisma';
 import { buildLoanOfficerLoanOrClauses } from '@/lib/loanOfficerVisibility';
 
-export type PipelineRangePreset = 'daily' | 'weekly' | 'monthly' | 'ytd' | 'allTime' | 'custom';
+export type PipelineRangePreset = 'daily' | 'weekly' | 'monthly' | 'previousMonth' | 'ytd' | 'allTime' | 'custom';
 export type PipelineMilestoneKey = 'plusOne' | 'disclosures' | 'pendingStp' | 'processing' | 'fundings';
 type PipelineTrendGranularity = 'monthly' | 'weekly' | 'daily';
 
@@ -233,10 +233,96 @@ async function assertPipelineActor() {
   return actor;
 }
 
-function startOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
+const PIPELINE_TIME_ZONE = 'America/Los_Angeles';
+
+type CalendarDateParts = {
+  year: number;
+  month: number;
+  day: number;
+};
+
+function parseDateInput(value: string): CalendarDateParts {
+  const [year, month, day] = value.split('-').map((part) => Number(part));
+  return { year, month, day };
+}
+
+function getCalendarDatePartsInPortalTime(date: Date): CalendarDateParts {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: PIPELINE_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  return {
+    year: value('year'),
+    month: value('month'),
+    day: value('day'),
+  };
+}
+
+function getPortalTimeZoneOffsetMs(date: Date) {
+  const roundedDate = new Date(Math.floor(date.getTime() / 1000) * 1000);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: PIPELINE_TIME_ZONE,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(roundedDate);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const portalAsUtc = Date.UTC(
+    value('year'),
+    value('month') - 1,
+    value('day'),
+    value('hour'),
+    value('minute'),
+    value('second')
+  );
+  return portalAsUtc - roundedDate.getTime();
+}
+
+function portalDateTimeToUtc(
+  parts: CalendarDateParts,
+  hour: number,
+  minute: number,
+  second: number,
+  millisecond: number
+) {
+  const utcGuess = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, hour, minute, second, millisecond));
+  const firstPass = new Date(utcGuess.getTime() - getPortalTimeZoneOffsetMs(utcGuess));
+  return new Date(utcGuess.getTime() - getPortalTimeZoneOffsetMs(firstPass));
+}
+
+function portalStartOfDay(parts: CalendarDateParts) {
+  return portalDateTimeToUtc(parts, 0, 0, 0, 0);
+}
+
+function portalEndOfDay(parts: CalendarDateParts) {
+  return portalDateTimeToUtc(parts, 23, 59, 59, 999);
+}
+
+function addCalendarDays(parts: CalendarDateParts, days: number): CalendarDateParts {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  };
+}
+
+function previousCalendarMonth(parts: CalendarDateParts) {
+  const month = parts.month === 1 ? 12 : parts.month - 1;
+  const year = parts.month === 1 ? parts.year - 1 : parts.year;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return {
+    start: { year, month, day: 1 },
+    end: { year, month, day: lastDay },
+  };
 }
 
 function endOfDay(date: Date) {
@@ -248,14 +334,17 @@ function endOfDay(date: Date) {
 function resolveDateRange(filters: PipelineReportFilters = {}) {
   const preset = filters.preset || 'monthly';
   const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
+  const today = getCalendarDatePartsInPortalTime(now);
+  const todayStart = portalStartOfDay(today);
+  const todayEnd = portalEndOfDay(today);
 
   if (preset === 'custom' && filters.startDate && filters.endDate) {
+    const customStart = parseDateInput(filters.startDate);
+    const customEnd = parseDateInput(filters.endDate);
     return {
       preset,
-      start: startOfDay(new Date(filters.startDate)),
-      end: endOfDay(new Date(filters.endDate)),
+      start: portalStartOfDay(customStart),
+      end: portalEndOfDay(customEnd),
     };
   }
 
@@ -264,15 +353,22 @@ function resolveDateRange(filters: PipelineReportFilters = {}) {
   }
 
   if (preset === 'weekly') {
-    const start = new Date(todayStart);
-    start.setDate(start.getDate() - 6);
-    return { preset, start, end: todayEnd };
+    return { preset, start: portalStartOfDay(addCalendarDays(today, -6)), end: todayEnd };
+  }
+
+  if (preset === 'previousMonth') {
+    const previousMonth = previousCalendarMonth(today);
+    return {
+      preset,
+      start: portalStartOfDay(previousMonth.start),
+      end: portalEndOfDay(previousMonth.end),
+    };
   }
 
   if (preset === 'ytd') {
     return {
       preset,
-      start: startOfDay(new Date(now.getFullYear(), 0, 1)),
+      start: portalStartOfDay({ year: today.year, month: 1, day: 1 }),
       end: todayEnd,
     };
   }
@@ -281,14 +377,14 @@ function resolveDateRange(filters: PipelineReportFilters = {}) {
     return {
       preset,
       // Portal history starts well after this, and this keeps all-time charts month-sized.
-      start: startOfDay(new Date(2020, 0, 1)),
+      start: portalStartOfDay({ year: 2020, month: 1, day: 1 }),
       end: todayEnd,
     };
   }
 
   return {
     preset: 'monthly' as const,
-    start: startOfDay(new Date(now.getFullYear(), now.getMonth(), 1)),
+    start: portalStartOfDay({ year: today.year, month: today.month, day: 1 }),
     end: todayEnd,
   };
 }
@@ -713,7 +809,7 @@ function buildTrendBuckets(
   granularity: PipelineTrendGranularity
 ): PipelineTrendBucket[] {
   const buckets: PipelineTrendBucket[] = [];
-  const cursor = startOfDay(start);
+  const cursor = new Date(start);
 
   while (cursor <= end) {
     const bucketStart = new Date(cursor);
