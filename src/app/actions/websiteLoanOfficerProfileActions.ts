@@ -7,7 +7,11 @@ import { authOptions } from '@/lib/auth';
 import { canAccessUserManagement, canManageUser } from '@/lib/adminTiers';
 import { prisma } from '@/lib/prisma';
 import { normalizeWebsiteProfileSlug } from '@/lib/websiteLoanOfficerProfiles';
-import { requiresNmlsForWebsiteTitle } from '@/lib/websiteProfileValidation';
+import {
+  isValidExternalHttpUrl,
+  isValidWebsitePhotoUrl,
+  requiresNmlsForWebsiteTitle,
+} from '@/lib/websiteProfileValidation';
 
 export type WebsiteLoanOfficerProfileInput = {
   slug: string;
@@ -39,16 +43,6 @@ function cleanList(values: string[]) {
 
 function cleanStates(values: string[]) {
   return cleanList(values).map((value) => value.toUpperCase());
-}
-
-function validHttpUrl(value: string | null) {
-  if (!value) return true;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:';
-  } catch {
-    return false;
-  }
 }
 
 async function getActor() {
@@ -121,8 +115,14 @@ export async function updateWebsiteLoanOfficerProfile(
   if (!slug || !title) {
     return { success: false as const, error: 'Slug and title are required.' };
   }
-  if (!validHttpUrl(photoUrl) || !validHttpUrl(bookingUrl)) {
-    return { success: false as const, error: 'Photo and booking links must use http or https.' };
+  if (!isValidWebsitePhotoUrl(photoUrl)) {
+    return {
+      success: false as const,
+      error: 'Photo must use http, https, or a site path beginning with "/".',
+    };
+  }
+  if (!isValidExternalHttpUrl(bookingUrl)) {
+    return { success: false as const, error: 'Booking links must use http or https.' };
   }
 
   try {
