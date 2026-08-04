@@ -472,13 +472,15 @@ export async function ingestVendorLeadWebhook(
     return created;
   });
 
-  scheduleWebhookSideEffect('ON_RECEIVE service triggers', () =>
-    runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE)
-  );
-  scheduleWebhookSideEffect(
-    'DELAY_AFTER_RECEIVE service triggers',
-    () => runServiceTriggers(lead.id, IntegrationServiceTrigger.DELAY_AFTER_RECEIVE)
-  );
+  if (!isBisuWebLead) {
+    scheduleWebhookSideEffect('ON_RECEIVE service triggers', () =>
+      runServiceTriggers(lead.id, IntegrationServiceTrigger.ON_RECEIVE)
+    );
+    scheduleWebhookSideEffect(
+      'DELAY_AFTER_RECEIVE service triggers',
+      () => runServiceTriggers(lead.id, IntegrationServiceTrigger.DELAY_AFTER_RECEIVE)
+    );
+  }
 
   if (targetUserId) {
     await runLeadAssignmentEffects({
