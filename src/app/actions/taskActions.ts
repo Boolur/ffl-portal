@@ -16,6 +16,8 @@ import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { sendEmail } from '@/lib/email';
+import { filterEmailRecipientsByPreference } from '@/lib/emailPreferences';
+import { getTaskEmailSenderCategory } from '@/lib/emailRouting';
 import { randomUUID } from 'crypto';
 import { readFile } from 'fs/promises';
 import { recordPerfMetric } from '@/lib/perf';
@@ -428,7 +430,7 @@ function getRoleSpecificEmailContent(input: {
       const isApproval = input.reasonLabel === 'Approve Initial Figures';
       return {
         ...base,
-        subject: `[FFL Portal] Action Required: ${input.borrowerName} (${input.loanNumber})`,
+        subject: `[BISU] Action Required: ${input.borrowerName} (${input.loanNumber})`,
         eventLabel: isApproval
           ? 'Approve Initial Figures Required'
           : 'Missing Items Requested',
@@ -444,7 +446,7 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] Waiting on LO: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[BISU] Waiting on LO: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'Waiting on LO',
       intro:
         'This request has been sent to the Loan Officer and is now waiting on LO response.',
@@ -458,7 +460,7 @@ function getRoleSpecificEmailContent(input: {
     if (input.audience === 'LO') {
       return {
         ...base,
-        subject: `[FFL Portal] Response Sent: ${input.borrowerName} (${input.loanNumber})`,
+        subject: `[BISU] Response Sent: ${input.borrowerName} (${input.loanNumber})`,
         eventLabel: 'Response Sent to Disclosure',
         intro:
           'Your response was sent back to Disclosure. You can track progress from the task page.',
@@ -467,7 +469,7 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] Returned to ${isQcTask ? 'QC' : isJrTask ? 'Jr Processing' : isVaTask ? 'Appraisal VA' : 'Disclosure'}: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[BISU] Returned to ${isQcTask ? 'QC' : isJrTask ? 'Jr Processing' : isVaTask ? 'Appraisal VA' : 'Disclosure'}: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'LO Responded - Review Needed',
       intro:
         `Loan Officer response has been received. Review details and complete the next ${isQcTask ? 'QC' : isJrTask ? 'Jr Processing' : isVaTask ? 'appraisal VA' : 'disclosure'} action.`,
@@ -487,7 +489,7 @@ function getRoleSpecificEmailContent(input: {
     if (input.audience === 'LO') {
       return {
         ...base,
-        subject: `[FFL Portal] Approval Submitted: ${input.borrowerName} (${input.loanNumber})`,
+        subject: `[BISU] Approval Submitted: ${input.borrowerName} (${input.loanNumber})`,
         eventLabel: 'Approval Sent to Disclosure',
         intro:
           'Your approval was submitted successfully. Disclosure Desk will complete the next step.',
@@ -496,7 +498,7 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] LO Approved Figures: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[BISU] LO Approved Figures: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'LO Approved Initial Figures',
       intro:
         'Loan Officer approved the initial figures. Proceed with disclosure completion steps.',
@@ -511,7 +513,7 @@ function getRoleSpecificEmailContent(input: {
     if (input.audience === 'LO') {
       return {
         ...base,
-        subject: `[FFL Portal] Revision Submitted: ${input.borrowerName} (${input.loanNumber})`,
+        subject: `[BISU] Revision Submitted: ${input.borrowerName} (${input.loanNumber})`,
         eventLabel: 'Revision Request Sent',
         intro:
           'Your revision request was sent back to Disclosure for updates.',
@@ -520,7 +522,7 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] LO Requested Revision: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[BISU] LO Requested Revision: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'Revision Needed - Returned to Disclosure',
       intro:
         'Loan Officer requested revisions. Review the notes and prepare the next disclosure update.',
@@ -535,7 +537,7 @@ function getRoleSpecificEmailContent(input: {
     if (input.audience === 'LO') {
       return {
         ...base,
-        subject: `[FFL Portal] Request Submitted: ${input.borrowerName} (${input.loanNumber})`,
+        subject: `[BISU] Request Submitted: ${input.borrowerName} (${input.loanNumber})`,
         eventLabel: 'Submission Received',
         intro:
           `Your new request has been submitted and is now queued with ${deskLabel}.`,
@@ -543,7 +545,7 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] New ${isQcTask ? 'QC' : isJrTask ? 'Processing' : isVaTask ? 'VA' : 'Disclosure'} Request: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[BISU] New ${isQcTask ? 'QC' : isJrTask ? 'Processing' : isVaTask ? 'VA' : 'Disclosure'} Request: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'New Request Submitted',
       intro:
         `A new ${isQcTask ? 'QC' : isJrTask ? 'processing' : isVaTask ? 'VA' : 'disclosure'} request is in your queue. Review details and take action.`,
@@ -564,7 +566,7 @@ function getRoleSpecificEmailContent(input: {
     if (input.audience === 'LO') {
       return {
         ...base,
-        subject: `[FFL Portal] ${starterName} started your disclosure request: ${input.borrowerName} (${input.loanNumber})`,
+        subject: `[BISU] ${starterName} started your disclosure request: ${input.borrowerName} (${input.loanNumber})`,
         eventLabel: 'Disclosure Request Started',
         intro: `${starterName} has started your disclosure request and is actively working this file.`,
         ctaLabel: 'Track Disclosure Request',
@@ -574,7 +576,7 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] Request Started: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[BISU] Request Started: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'Disclosure Request Started',
       intro: `${starterName} claimed this disclosure request and has started working it.`,
       ctaLabel: 'Track Task in Portal',
@@ -589,7 +591,7 @@ function getRoleSpecificEmailContent(input: {
     if (input.audience === 'LO') {
       return {
         ...base,
-        subject: `[FFL Portal] ${starterName} started your ${isProcessingStarted ? 'processing' : 'QC'} request: ${input.borrowerName} (${input.loanNumber})`,
+        subject: `[BISU] ${starterName} started your ${isProcessingStarted ? 'processing' : 'QC'} request: ${input.borrowerName} (${input.loanNumber})`,
         eventLabel: isProcessingStarted ? 'Processing Request Started' : 'QC Request Started',
         intro: `${starterName} has started your ${isProcessingStarted ? 'processing' : 'QC'} request and is actively working this file.`,
         ctaLabel: isProcessingStarted ? 'Track Processing Request' : 'Track QC Request',
@@ -599,7 +601,7 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] ${isProcessingStarted ? 'Processing' : 'QC'} Request Started: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[BISU] ${isProcessingStarted ? 'Processing' : 'QC'} Request Started: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: isProcessingStarted ? 'Processing Request Started' : 'QC Request Started',
       intro: `${starterName} claimed this ${isProcessingStarted ? 'processing' : 'QC'} request and has started working it.`,
       ctaLabel: 'Track Task in Portal',
@@ -612,7 +614,7 @@ function getRoleSpecificEmailContent(input: {
     if (input.audience === 'LO') {
       return {
         ...base,
-        subject: `[FFL Portal] Request Deleted: ${input.borrowerName} (${input.loanNumber})`,
+        subject: `[BISU] Request Deleted: ${input.borrowerName} (${input.loanNumber})`,
         eventLabel: 'Request Deleted',
         intro: `${deskLabel} removed this request from the queue.`,
         ctaLabel: 'View Tasks',
@@ -621,7 +623,7 @@ function getRoleSpecificEmailContent(input: {
     }
     return {
       ...base,
-      subject: `[FFL Portal] ${deskLabel} Request Deleted: ${input.borrowerName} (${input.loanNumber})`,
+      subject: `[BISU] ${deskLabel} Request Deleted: ${input.borrowerName} (${input.loanNumber})`,
       eventLabel: 'Request Deleted',
       intro: 'This request was deleted from the workflow queue.',
       ctaLabel: 'View Task Queue',
@@ -638,7 +640,7 @@ function getRoleSpecificEmailContent(input: {
 
   return {
     ...base,
-    subject: `[FFL Portal] ${input.eventLabel}: ${input.borrowerName} (${input.loanNumber})`,
+    subject: `[BISU] ${input.eventLabel}: ${input.borrowerName} (${input.loanNumber})`,
   };
 }
 
@@ -974,7 +976,7 @@ async function sendPlusOneSubmittedNotifications(input: PlusOneSubmittedNotifica
         { roles: { hasSome: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.MANAGER] } },
       ],
     },
-    select: { id: true, email: true },
+    select: { id: true, email: true, emailNotificationsEnabled: true },
   });
   const uniqueRecipients = Array.from(
     new Map(
@@ -998,14 +1000,20 @@ async function sendPlusOneSubmittedNotifications(input: PlusOneSubmittedNotifica
     skipDuplicates: true,
   });
 
-  await sendEmail({
-    to: uniqueRecipients.map((recipient) => recipient.email),
-    subject,
-    html,
-    text,
-    inlineAttachments: brandLogo.inlineAttachments,
-    label: 'plus-one-submitted',
-  });
+  const emailRecipients = uniqueRecipients
+    .filter((recipient) => recipient.emailNotificationsEnabled)
+    .map((recipient) => recipient.email);
+  if (emailRecipients.length > 0) {
+    await sendEmail({
+      to: emailRecipients,
+      subject,
+      html,
+      text,
+      inlineAttachments: brandLogo.inlineAttachments,
+      senderCategory: 'originations',
+      label: 'plus-one-submitted',
+    });
+  }
 
   return true;
 }
@@ -1276,7 +1284,7 @@ async function sendVaFanoutNotifications(input: {
     const recipients = recipientsByRole.get(task.assignedRole) || [];
     if (recipients.length === 0) continue;
     const taskUrl = `${portalBaseUrl}/tasks?taskId=${encodeURIComponent(task.id)}`;
-    const subject = `[FFL Portal] New ${task.title} Request: ${loan.borrowerName} (${loan.loanNumber})`;
+    const subject = `[BISU] New ${task.title} Request: ${loan.borrowerName} (${loan.loanNumber})`;
     const intro = `${input.changedBy?.trim() || 'QC Desk'} completed QC and created this ${task.title} request for your queue.`;
     const isJrTask = task.assignedRole === UserRole.PROCESSOR_JR;
     const deskLabel = isJrTask ? 'JR Processor' : 'VA Desk';
@@ -1288,10 +1296,12 @@ async function sendVaFanoutNotifications(input: {
       recipientEmails: recipients,
       taskId: task.id,
       eventLabel: 'New VA Request Submitted',
-      title: subject.replace(/^\[FFL Portal\]\s*/i, ''),
+      title: subject.replace(/^\[(?:FFL Portal|BISU)\]\s*/i, ''),
       message: `${loan.borrowerName} (${loan.loanNumber}) - ${intro}`,
       href: `/tasks?taskId=${encodeURIComponent(task.id)}`,
     });
+    const emailRecipients = await filterEmailRecipientsByPreference(recipients);
+    if (emailRecipients.length === 0) continue;
 
     const html = buildTaskNotificationHtml({
       logoUrl,
@@ -1325,12 +1335,13 @@ async function sendVaFanoutNotifications(input: {
       .join('\n');
 
     await Promise.allSettled(
-      recipients.map((to) =>
+      emailRecipients.map((to) =>
         sendEmail({
           to,
           subject,
           html,
           text,
+          senderCategory: 'processing',
         })
       )
     );
@@ -1347,7 +1358,7 @@ async function sendVaFanoutNotifications(input: {
 
   const tasksSummary = input.createdTasks.map((task) => `- ${task.title}`).join('\n');
   const managerTaskUrl = `${portalBaseUrl}/tasks`;
-  const managerSubject = `[FFL Portal] VA Task Set Created from QC: ${loan.borrowerName} (${loan.loanNumber})`;
+  const managerSubject = `[BISU] VA Task Set Created from QC: ${loan.borrowerName} (${loan.loanNumber})`;
   const managerText = [
     'Desk: VA Desk',
     'Event: New VA Task Set Created',
@@ -1395,18 +1406,22 @@ async function sendVaFanoutNotifications(input: {
     recipientEmails: managerRecipients,
     taskId: input.createdTasks[0].id,
     eventLabel: 'New VA Task Set Created',
-    title: managerSubject.replace(/^\[FFL Portal\]\s*/i, ''),
+    title: managerSubject.replace(/^\[(?:FFL Portal|BISU)\]\s*/i, ''),
     message: `${loan.borrowerName} (${loan.loanNumber}) - ${input.createdTasks.length} VA tasks were created from QC completion.`,
     href: '/tasks',
   });
+  const managerEmailRecipients =
+    await filterEmailRecipientsByPreference(managerRecipients);
+  if (managerEmailRecipients.length === 0) return;
 
   await Promise.allSettled(
-    managerRecipients.map((to) =>
+    managerEmailRecipients.map((to) =>
       sendEmail({
         to,
         subject: managerSubject,
         html: managerHtml,
         text: managerText,
+        senderCategory: 'processing',
       })
     )
   );
@@ -1447,6 +1462,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       ? 'QC'
       : 'DISCLOSURE';
     const isQcTask = deskType === 'QC';
+    const senderCategory = getTaskEmailSenderCategory(deskType);
     const deskLabel =
       isQcTask
         ? 'QC Desk'
@@ -1591,7 +1607,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
           recipientEmails: normalizedRecipients,
           taskId: task.id,
           eventLabel: copy.eventLabel,
-          title: copy.subject.replace(/^\[FFL Portal\]\s*/i, ''),
+          title: copy.subject.replace(/^\[(?:FFL Portal|BISU)\]\s*/i, ''),
           message: `${loan.borrowerName} (${loan.loanNumber}) - ${copy.intro}`,
           href: `/tasks?taskId=${encodeURIComponent(task.id)}`,
         });
@@ -1599,6 +1615,9 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         // Keep email delivery resilient even if in-app notifications fail.
         console.error('Failed to create in-app task notifications:', error);
       }
+      const emailRecipients =
+        await filterEmailRecipientsByPreference(normalizedRecipients);
+      if (emailRecipients.length === 0) return;
 
       const bodyLines = [
         `Desk: ${deskLabel}`,
@@ -1633,12 +1652,13 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       });
 
       await Promise.allSettled(
-        normalizedRecipients.map((to) =>
+        emailRecipients.map((to) =>
           sendEmail({
             to,
             subject: copy.subject,
             html,
             text: bodyLines.join('\n'),
+            senderCategory,
           })
         )
       );

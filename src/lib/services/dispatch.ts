@@ -23,6 +23,7 @@ import {
 
 import { prisma } from '@/lib/prisma';
 import { sendEmail } from '@/lib/email';
+import { filterEmailRecipientsByPreference } from '@/lib/emailPreferences';
 import { buildBonzoPayload } from '@/lib/bonzoForward';
 import { sendBrokerLaunchEmail } from '@/lib/brokerLaunchEmail';
 import {
@@ -102,6 +103,7 @@ export type SkipReason =
   | 'requires_brand_new'
   | 'requires_not_brand_new'
   | 'excluded_by_scope'
+  | 'email_notifications_disabled'
   | 'service_disabled'
   | 'missing_credential'
   | 'missing_url';
@@ -312,11 +314,9 @@ export async function dispatchServiceToLead(
       outcome = {
         ok: false,
         skipped: true,
-        // The sender returns `lead_not_found` / `no_assignee` / `no_
-        // email_on_user`. The first two map directly to SkipReason;
-        // the third is surfaced as `no_assignee` (closest existing
-        // reason) with the specific detail preserved in `info` so
-        // admins can see "User ... has no email" in the audit row.
+        // `no_email_on_user` is surfaced as `no_assignee` (the closest
+        // existing reason), while an explicit notification opt-out keeps
+        // its own reason so admins can distinguish it from delivery errors.
         reason:
           result.reason === 'no_email_on_user'
             ? 'no_assignee'
@@ -1533,7 +1533,7 @@ async function maybeNotifyFailure(
   if (!service.failNotifyEmail || !service.failNotifyEmail.trim()) return;
 
   const leadName = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || '(no name)';
-  const subject = `[FFL Portal] ${service.name} push failed for lead ${leadName}`;
+  const subject = `[BISU] ${service.name} push failed for lead ${leadName}`;
   const info = outcome.info?.slice(0, 2_000) ?? '';
   const text = [
     `Service: ${service.name} (${service.slug})`,
@@ -1547,10 +1547,15 @@ async function maybeNotifyFailure(
     .join('\n');
 
   try {
+    const [recipient] = await filterEmailRecipientsByPreference([
+      service.failNotifyEmail.trim(),
+    ]);
+    if (!recipient) return;
     await sendEmail({
-      to: service.failNotifyEmail.trim(),
+      to: recipient,
       subject,
       text,
+      senderCategory: 'noreply',
     });
   } catch (err) {
     console.warn(

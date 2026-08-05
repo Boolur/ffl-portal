@@ -272,6 +272,7 @@ model User {
   loDisclosureSubmissionEnabled Boolean    @default(false)
   loQcSubmissionEnabled         Boolean    @default(true)
   processingAssignmentGroups    String[]   @default([])
+  emailNotificationsEnabled     Boolean    @default(true)
   active                        Boolean    @default(true)
   createdAt                     DateTime   @default(now())
   updatedAt                     DateTime   @updatedAt

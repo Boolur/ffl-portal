@@ -46,6 +46,16 @@ Copy `.env.example` to `.env` and fill in values:
 - `NEXTAUTH_URL` (use `http://localhost:3000` locally, update in Vercel later)
 - `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` (seeded admin)
 - `DEFAULT_USER_PASSWORD` (seeded sample users)
+- `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET` (Microsoft Graph app)
+- `MS_SENDER_NOREPLY_EMAIL`, `MS_SENDER_LEADS_EMAIL`,
+  `MS_SENDER_DISCLOSURES_EMAIL`, `MS_SENDER_ORIGINATIONS_EMAIL`,
+  `MS_SENDER_PROCESSING_EMAIL` (functional Microsoft 365 mailboxes)
+- `MS_REQUIRE_CATEGORY_SENDERS` (set `true` after the BISU cutover)
+
+`MS_SENDER_EMAIL` remains a temporary backward-compatible fallback during the
+email migration. See
+[docs/microsoft-email-migration.md](docs/microsoft-email-migration.md) for the
+Microsoft 365, DNS, Vercel Preview, cutover, and rollback procedure.
 
 ### Vercel publish flow
 

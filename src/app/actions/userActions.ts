@@ -120,7 +120,7 @@ function buildAccountInviteEmail(input: {
   baseUrl: string;
 }) {
   const roleLabel = formatRoleLabel(input.role);
-  const subject = 'Welcome to FFL Portal - Set up your account';
+  const subject = 'Welcome to BISU Portal - Set up your account';
   const logoUrl = process.env.EMAIL_BRAND_LOGO_URL?.trim() || `${input.baseUrl}/logo.png`;
 
   const html = `
@@ -144,7 +144,7 @@ function buildAccountInviteEmail(input: {
       </tr>
       <tr>
         <td style="padding:28px 24px 8px;">
-          <h1 style="margin:0 0 10px;font-size:24px;line-height:1.2;color:#0f172a;">You're invited to FFL Portal</h1>
+          <h1 style="margin:0 0 10px;font-size:24px;line-height:1.2;color:#0f172a;">You're invited to BISU Portal</h1>
           <p style="margin:0;color:#475569;font-size:15px;line-height:1.7;">
             Hi ${escapeHtml(
               input.recipientName
@@ -198,7 +198,7 @@ function buildAccountInviteEmail(input: {
   `;
 
   const text = [
-    'You are invited to FFL Portal.',
+    'You are invited to BISU Portal.',
     '',
     `Name: ${input.recipientName}`,
     `Role: ${roleLabel}`,
@@ -215,7 +215,7 @@ function buildPasswordResetEmail(input: {
   resetUrl: string;
   baseUrl: string;
 }) {
-  const subject = 'Reset your FFL Portal password';
+  const subject = 'Reset your BISU Portal password';
   const logoUrl = process.env.EMAIL_BRAND_LOGO_URL?.trim() || `${input.baseUrl}/logo.png`;
 
   const html = `
@@ -243,7 +243,7 @@ function buildPasswordResetEmail(input: {
           <p style="margin:0;color:#475569;font-size:15px;line-height:1.7;">
             Hi ${escapeHtml(
               input.recipientName
-            )}, we received a request to reset your FFL Portal password.
+            )}, we received a request to reset your BISU Portal password.
           </p>
         </td>
       </tr>
@@ -291,7 +291,7 @@ function buildPasswordResetEmail(input: {
   `;
 
   const text = [
-    'We received a request to reset your FFL Portal password.',
+    'We received a request to reset your BISU Portal password.',
     '',
     `Name: ${input.recipientName}`,
     `Reset link expires in: ${RESET_TTL_HOURS} hours`,
@@ -316,6 +316,7 @@ export async function getAllUsers() {
       loDisclosureSubmissionEnabled: true,
       loQcSubmissionEnabled: true,
       processingAssignmentGroups: true,
+      emailNotificationsEnabled: true,
       supportDeskAssignments: {
         select: {
           desk: true,
@@ -488,6 +489,7 @@ export async function inviteUser({
       subject: inviteEmail.subject,
       text: inviteEmail.text,
       html: inviteEmail.html,
+      senderCategory: 'noreply',
     });
 
     revalidatePath('/admin/users');
@@ -579,6 +581,7 @@ export async function resendInvite(inviteId: string) {
       subject: inviteEmail.subject,
       text: inviteEmail.text,
       html: inviteEmail.html,
+      senderCategory: 'noreply',
     });
 
     revalidatePath('/admin/users');
@@ -707,6 +710,7 @@ export async function requestPasswordReset(email: string) {
       subject: resetEmail.subject,
       text: resetEmail.text,
       html: resetEmail.html,
+      senderCategory: 'noreply',
     });
 
     return { success: true };
@@ -860,6 +864,31 @@ export async function updateUserStatus(userId: string, active: boolean) {
   await prisma.user.update({
     where: { id: userId },
     data: { active },
+  });
+
+  revalidatePath('/admin/users');
+  return { success: true };
+}
+
+export async function updateUserEmailNotifications(
+  userId: string,
+  emailNotificationsEnabled: boolean
+) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
+  const targetRoles = await loadTargetUserRoles(userId);
+  if (!targetRoles) return { success: false, error: 'User not found.' };
+  if (!canManageUser(actor.roles, targetRoles)) {
+    return {
+      success: false,
+      error: 'You cannot manage users at or above your own admin tier.',
+    };
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { emailNotificationsEnabled },
   });
 
   revalidatePath('/admin/users');

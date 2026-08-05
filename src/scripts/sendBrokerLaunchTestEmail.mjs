@@ -4,10 +4,11 @@
  * admins can preview what LOs will receive before flipping distribution on.
  *
  * Usage (PowerShell):
- *   node src/scripts/sendBrokerLaunchTestEmail.mjs mmahjoub@federalfirstlending.com
+ *   node src/scripts/sendBrokerLaunchTestEmail.mjs recipient@example.com
  *
- * Uses MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET / MS_SENDER_EMAIL
- * from .env, same as the live sendEmail helper. Sends a preview populated
+ * Uses the portal's Microsoft Graph credentials and
+ * MS_SENDER_LEADS_EMAIL (falling back to legacy MS_SENDER_EMAIL) from
+ * .env, same as the live sendEmail helper. Sends a preview populated
  * with the reference "Sandra Curtis" payload from the LMB screenshot so
  * the email matches the format LO quoting tools were trained on.
  */
@@ -37,16 +38,27 @@ function loadDotEnv(path) {
 
 loadDotEnv(resolve(process.cwd(), '.env'));
 
-const recipient = process.argv[2] || 'mmahjoub@federalfirstlending.com';
+const recipient = process.argv[2];
+if (!recipient) {
+  console.error(
+    'Usage: node src/scripts/sendBrokerLaunchTestEmail.mjs recipient@example.com'
+  );
+  process.exit(1);
+}
 
 const tenantId = process.env.MS_TENANT_ID;
 const clientId = process.env.MS_CLIENT_ID;
 const clientSecret = process.env.MS_CLIENT_SECRET;
-const senderEmail = process.env.MS_SENDER_EMAIL;
+const strictCategorySenders = /^(1|true|yes|on)$/i.test(
+  process.env.MS_REQUIRE_CATEGORY_SENDERS?.trim() || ''
+);
+const senderEmail =
+  process.env.MS_SENDER_LEADS_EMAIL ||
+  (strictCategorySenders ? undefined : process.env.MS_SENDER_EMAIL);
 
 if (!tenantId || !clientId || !clientSecret || !senderEmail) {
   console.error(
-    'Missing Microsoft Graph env vars (MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET / MS_SENDER_EMAIL).'
+    'Missing Microsoft Graph env vars (MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET / MS_SENDER_LEADS_EMAIL).'
   );
   process.exit(1);
 }

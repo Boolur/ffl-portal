@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { SupportDesk, UserRole } from '@prisma/client';
 import {
@@ -8,6 +8,7 @@ import {
   inviteUser,
   updateUserRoles,
   updateUserStatus,
+  updateUserEmailNotifications,
   updateUserDeskPermissions,
   updateUserProcessingAssignments,
   updateUserName,
@@ -35,6 +36,7 @@ type UserRow = {
   loQcSubmissionEnabled: boolean;
   processingAssignmentGroups: string[];
   supportDeskAssignments: SupportDeskAssignmentDraft[];
+  emailNotificationsEnabled: boolean;
   active: boolean;
   createdAt: string;
 };
@@ -166,6 +168,23 @@ export function UserManagement({
     buildSupportDeskDraft()
   );
   const [isSavingChatDesignations, setIsSavingChatDesignations] = useState(false);
+  const [emailNotificationOverrides, setEmailNotificationOverrides] = useState<
+    Record<string, boolean>
+  >({});
+  const [emailNotificationPending, setEmailNotificationPending] = useState<
+    Set<string>
+  >(new Set());
+
+  useEffect(() => {
+    setEmailNotificationOverrides((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([userId, enabled]) => {
+          const user = users.find((entry) => entry.id === userId);
+          return user && user.emailNotificationsEnabled !== enabled;
+        })
+      )
+    );
+  }, [users]);
 
   const filteredUsers = useMemo(() => {
     const term = search.toLowerCase().trim();
@@ -314,6 +333,49 @@ export function UserManagement({
   const handleStatusChange = async (userId: string, active: boolean) => {
     await updateUserStatus(userId, active);
     router.refresh();
+  };
+
+  const handleEmailNotificationsChange = async (
+    userId: string,
+    emailNotificationsEnabled: boolean
+  ) => {
+    if (emailNotificationPending.has(userId)) return;
+    setEmailNotificationOverrides((current) => ({
+      ...current,
+      [userId]: emailNotificationsEnabled,
+    }));
+    setEmailNotificationPending((current) => new Set(current).add(userId));
+    try {
+      const result = await updateUserEmailNotifications(
+        userId,
+        emailNotificationsEnabled
+      );
+      if (!result.success) {
+        setEmailNotificationOverrides((current) => {
+          const next = { ...current };
+          delete next[userId];
+          return next;
+        });
+        setDirectoryStatus({
+          type: 'error',
+          message: result.error || 'Failed to update email notifications.',
+        });
+        return;
+      }
+      setDirectoryStatus({
+        type: 'success',
+        message: emailNotificationsEnabled
+          ? 'Email notifications enabled.'
+          : 'Email notifications paused.',
+      });
+      router.refresh();
+    } finally {
+      setEmailNotificationPending((current) => {
+        const next = new Set(current);
+        next.delete(userId);
+        return next;
+      });
+    }
   };
 
   const handleDeskPermissionsChange = async (
@@ -690,10 +752,10 @@ export function UserManagement({
                       <th className="w-[22%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         LO Desk Submit Access
                       </th>
-                      <th className="w-[8%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="w-[10%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         Access
                       </th>
-                      <th className="w-[16%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="w-[14%] px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         Actions
                       </th>
                     </tr>
@@ -858,18 +920,44 @@ export function UserManagement({
                             )}
                           </td>
                           <td className="px-4 py-3.5">
-                            <label
-                              className="inline-flex items-center gap-2 text-xs text-slate-600"
-                              title={!manageable ? disabledTitle : undefined}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={user.active}
-                                disabled={!manageable || isSelf}
-                                onChange={(event) => handleStatusChange(user.id, event.target.checked)}
-                              />
-                              Active
-                            </label>
+                            <div className="space-y-2">
+                              <label
+                                className="inline-flex items-center gap-2 text-xs text-slate-600"
+                                title={!manageable ? disabledTitle : undefined}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={user.active}
+                                  disabled={!manageable || isSelf}
+                                  onChange={(event) =>
+                                    handleStatusChange(user.id, event.target.checked)
+                                  }
+                                />
+                                Active
+                              </label>
+                              <label
+                                className="inline-flex items-center gap-2 text-xs text-slate-600"
+                                title={!manageable ? disabledTitle : undefined}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    emailNotificationOverrides[user.id] ??
+                                    user.emailNotificationsEnabled
+                                  }
+                                  disabled={
+                                    !manageable || emailNotificationPending.has(user.id)
+                                  }
+                                  onChange={(event) =>
+                                    handleEmailNotificationsChange(
+                                      user.id,
+                                      event.target.checked
+                                    )
+                                  }
+                                />
+                                Email notifications
+                              </label>
+                            </div>
                           </td>
                           <td className="px-4 py-3.5">
                             <div className="flex flex-wrap gap-1.5">
@@ -961,15 +1049,41 @@ export function UserManagement({
                             </span>
                           )}
                         </div>
-                        <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={user.active}
-                            disabled={!manageable || isSelf}
-                            onChange={(event) => handleStatusChange(user.id, event.target.checked)}
-                          />
-                          Active
-                        </label>
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                            <input
+                              type="checkbox"
+                              checked={user.active}
+                              disabled={!manageable || isSelf}
+                              onChange={(event) =>
+                                handleStatusChange(user.id, event.target.checked)
+                              }
+                            />
+                            Active
+                          </label>
+                          <label
+                            className="inline-flex items-center gap-1.5 text-xs text-slate-600"
+                            title={!manageable ? disabledTitle : undefined}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={
+                                emailNotificationOverrides[user.id] ??
+                                user.emailNotificationsEnabled
+                              }
+                              disabled={
+                                !manageable || emailNotificationPending.has(user.id)
+                              }
+                              onChange={(event) =>
+                                handleEmailNotificationsChange(
+                                  user.id,
+                                  event.target.checked
+                                )
+                              }
+                            />
+                            Email notifications
+                          </label>
+                        </div>
                       </div>
 
                       <div className="mt-2.5 grid grid-cols-2 gap-x-2.5 gap-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2.5">

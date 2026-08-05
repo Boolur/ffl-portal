@@ -1,7 +1,10 @@
 /**
  * Read-only audit: lists every "Broker Launch Notification" email the
- * noreply@ mailbox has sent, pulling from Microsoft Graph's Sent Items
+ * leads@ mailbox has sent, pulling from Microsoft Graph's Sent Items
  * folder. Source of truth for "did the email actually go out, and to whom?"
+ * The optional MS_AUDIT_* credentials should belong to a separate app with
+ * scoped Application Mail.Read access; the production sender app only needs
+ * Application Mail.Send.
  *
  * Usage (PowerShell):
  *   node src/scripts/auditBrokerLaunchEmails.mjs
@@ -32,13 +35,16 @@ loadDotEnv(resolve(process.cwd(), '.env'));
 
 const top = Number(process.argv[2] ?? 25);
 
-const tenantId = process.env.MS_TENANT_ID;
-const clientId = process.env.MS_CLIENT_ID;
-const clientSecret = process.env.MS_CLIENT_SECRET;
-const senderEmail = process.env.MS_SENDER_EMAIL;
+const tenantId = process.env.MS_AUDIT_TENANT_ID;
+const clientId = process.env.MS_AUDIT_CLIENT_ID;
+const clientSecret = process.env.MS_AUDIT_CLIENT_SECRET;
+const senderEmail =
+  process.env.MS_SENDER_LEADS_EMAIL || process.env.MS_SENDER_EMAIL;
 
 if (!tenantId || !clientId || !clientSecret || !senderEmail) {
-  console.error('Missing Microsoft Graph env vars.');
+  console.error(
+    'Missing MS_AUDIT_TENANT_ID / MS_AUDIT_CLIENT_ID / MS_AUDIT_CLIENT_SECRET / MS_SENDER_LEADS_EMAIL.'
+  );
   process.exit(1);
 }
 

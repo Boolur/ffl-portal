@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/prisma';
 import { authOptions } from '@/lib/auth';
 import { sendEmail } from '@/lib/email';
+import { filterEmailRecipientsByPreference } from '@/lib/emailPreferences';
 import {
   getSignedUrlExpirySeconds,
   getSupabaseAdmin,
@@ -318,16 +319,17 @@ async function sendSupportEmails(input: {
   ctaLabel: string;
   url: string;
 }) {
-  const recipients = Array.from(new Set(input.to.map((email) => email.trim()).filter(Boolean)));
+  const recipients = await filterEmailRecipientsByPreference(input.to);
   if (recipients.length === 0) return;
   const email = buildSupportEmail(input);
   await Promise.allSettled(
     recipients.map((to) =>
       sendEmail({
         to,
-        subject: `[FFL Portal] ${input.title}`,
+        subject: `[BISU] ${input.title}`,
         html: email.html,
         text: email.text,
+        senderCategory: 'noreply',
         label: 'support-chat',
       })
     )

@@ -44,7 +44,11 @@ export type BrokerLaunchSendResult =
   | {
       ok: false;
       skipped: true;
-      reason: 'lead_not_found' | 'no_assignee' | 'no_email_on_user';
+      reason:
+        | 'lead_not_found'
+        | 'no_assignee'
+        | 'no_email_on_user'
+        | 'email_notifications_disabled';
       info?: string;
     }
   | { ok: false; skipped?: false; error: string };
@@ -124,6 +128,14 @@ export async function sendBrokerLaunchEmail(
         info: `User ${assignee.id} has no email on their account.`,
       };
     }
+    if (!assignee.emailNotificationsEnabled) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'email_notifications_disabled',
+        info: `Email notifications are paused for user ${assignee.id}.`,
+      };
+    }
 
     const body = buildBrokerLaunchEmailBody({
       ...lead,
@@ -137,6 +149,7 @@ export async function sendBrokerLaunchEmail(
       to: assignee.email,
       subject: BROKER_LAUNCH_SUBJECT,
       text: body,
+      senderCategory: 'leads',
       maxAttempts: 1,
       timeoutMs: BROKER_LAUNCH_GRAPH_TIMEOUT_MS,
       label: 'Broker Launch email',

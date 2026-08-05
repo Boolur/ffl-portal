@@ -3,9 +3,24 @@ import { randomUUID } from 'crypto';
 const tenantId = process.env.MS_TENANT_ID;
 const clientId = process.env.MS_CLIENT_ID;
 const clientSecret = process.env.MS_CLIENT_SECRET;
-const senderEmail = process.env.MS_SENDER_EMAIL;
 
-if (!tenantId || !clientId || !clientSecret || !senderEmail) {
+export const EMAIL_SENDER_ENV_BY_CATEGORY = {
+  noreply: 'MS_SENDER_NOREPLY_EMAIL',
+  leads: 'MS_SENDER_LEADS_EMAIL',
+  disclosures: 'MS_SENDER_DISCLOSURES_EMAIL',
+  originations: 'MS_SENDER_ORIGINATIONS_EMAIL',
+  processing: 'MS_SENDER_PROCESSING_EMAIL',
+} as const;
+
+export type EmailSenderCategory = keyof typeof EMAIL_SENDER_ENV_BY_CATEGORY;
+
+const hasConfiguredSender =
+  Boolean(process.env.MS_SENDER_EMAIL?.trim()) ||
+  Object.values(EMAIL_SENDER_ENV_BY_CATEGORY).some((name) =>
+    Boolean(process.env[name]?.trim())
+  );
+
+if (!tenantId || !clientId || !clientSecret || !hasConfiguredSender) {
   console.warn('[email] Missing Microsoft Graph email configuration.');
 }
 
@@ -17,6 +32,8 @@ const MAX_SEND_ATTEMPTS = 3;
 
 export type EmailSendReceipt = {
   provider: 'microsoft-graph';
+  sender: string;
+  senderCategory: EmailSenderCategory;
   status: number;
   statusText: string;
   requestId: string | null;
@@ -31,6 +48,32 @@ type InlineEmailAttachment = {
   contentBytes: string;
   contentId: string;
 };
+
+function isEnabled(value: string | undefined) {
+  return ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
+}
+
+export function resolveSenderEmail(
+  category: EmailSenderCategory,
+  env: Readonly<Record<string, string | undefined>> = process.env
+): string {
+  const categoryEnvName = EMAIL_SENDER_ENV_BY_CATEGORY[category];
+  const categorySender = env[categoryEnvName]?.trim();
+  if (categorySender) return categorySender;
+
+  if (isEnabled(env.MS_REQUIRE_CATEGORY_SENDERS)) {
+    throw new Error(
+      `Microsoft Graph sender for "${category}" is missing (${categoryEnvName}).`
+    );
+  }
+
+  const legacySender = env.MS_SENDER_EMAIL?.trim();
+  if (legacySender) return legacySender;
+
+  throw new Error(
+    `Microsoft Graph sender for "${category}" is missing (${categoryEnvName} or MS_SENDER_EMAIL).`
+  );
+}
 
 function isRetryableStatus(status: number) {
   return status === 408 || status === 429 || status >= 500;
@@ -104,6 +147,7 @@ export async function sendEmail({
   html,
   text,
   inlineAttachments,
+  senderCategory = 'noreply',
   maxAttempts = MAX_SEND_ATTEMPTS,
   timeoutMs = SEND_TIMEOUT_MS,
   label = 'email',
@@ -113,13 +157,12 @@ export async function sendEmail({
   html?: string;
   text?: string;
   inlineAttachments?: InlineEmailAttachment[];
+  senderCategory?: EmailSenderCategory;
   maxAttempts?: number;
   timeoutMs?: number;
   label?: string;
 }): Promise<EmailSendReceipt> {
-  if (!senderEmail) {
-    throw new Error('Microsoft Graph sender email missing.');
-  }
+  const senderEmail = resolveSenderEmail(senderCategory);
 
   const contentType = html ? 'HTML' : 'Text';
   const content = html || text || '';
@@ -176,6 +219,8 @@ export async function sendEmail({
       if (response.ok) {
         return {
           provider: 'microsoft-graph',
+          sender: senderEmail,
+          senderCategory,
           status: response.status,
           statusText: response.statusText,
           requestId: response.headers.get('request-id'),

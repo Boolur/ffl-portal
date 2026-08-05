@@ -864,7 +864,6 @@ const MS_ENV_VARS = [
   'MS_TENANT_ID',
   'MS_CLIENT_ID',
   'MS_CLIENT_SECRET',
-  'MS_SENDER_EMAIL',
 ] as const;
 
 export type BrokerLaunchDispatchRow = {
@@ -1055,7 +1054,20 @@ export async function getBrokerLaunchEmailStatus(
 
   // Env presence is computed server-side so we can flag misconfiguration
   // without ever sending the values to the browser.
-  const missingEnv = MS_ENV_VARS.filter((name) => !process.env[name]);
+  const missingEnv: string[] = MS_ENV_VARS.filter((name) => !process.env[name]);
+  const strictCategorySenders = ['1', 'true', 'yes', 'on'].includes(
+    process.env.MS_REQUIRE_CATEGORY_SENDERS?.trim().toLowerCase() ?? ''
+  );
+  if (
+    !process.env.MS_SENDER_LEADS_EMAIL?.trim() &&
+    (strictCategorySenders || !process.env.MS_SENDER_EMAIL?.trim())
+  ) {
+    missingEnv.push(
+      strictCategorySenders
+        ? 'MS_SENDER_LEADS_EMAIL'
+        : 'MS_SENDER_LEADS_EMAIL (or legacy MS_SENDER_EMAIL)'
+    );
+  }
 
   const service = await prisma.integrationService.findUnique({
     where: { slug: BROKER_LAUNCH_SLUG },

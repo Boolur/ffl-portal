@@ -436,7 +436,7 @@ Each call fires after the DB write commits, so if the assignment fails, Bonzo is
 
 # Broker Launch Notification email
 
-The portal sends a "Broker Launch Notification" email to the assigned LO every time a lead picks up an `assignedUserId`. This email replaces the one Lead Mailbox used to send; it's sent from `MS_SENDER_EMAIL` (the `noreply@federalfirstlending.com` mailbox already wired up in [src/lib/email.ts](../src/lib/email.ts)).
+The portal sends a "Broker Launch Notification" email to the assigned LO every time a lead picks up an `assignedUserId`. This email replaces the one Lead Mailbox used to send; it is sent from `MS_SENDER_LEADS_EMAIL` (`leads@bisuhomeloans.com`) through [src/lib/email.ts](../src/lib/email.ts). During the migration only, the transport falls back to legacy `MS_SENDER_EMAIL` unless `MS_REQUIRE_CATEGORY_SENDERS=true`. See [microsoft-email-migration.md](microsoft-email-migration.md) for tenant setup and cutover.
 
 - **Template module:** [src/lib/brokerLaunchEmail.ts](../src/lib/brokerLaunchEmail.ts) (`sendBrokerLaunchEmail` + `buildBrokerLaunchEmailBody`).
 - **Transport:** the dispatcher — not a direct call. The seeded `IntegrationService` row (`slug: 'broker-launch-email'`, `method: EMAIL_BROKER_LAUNCH`) triggers the template via [src/lib/services/dispatch.ts](../src/lib/services/dispatch.ts). Every send writes a `ServiceDispatch` audit row so the DB is the source of truth for "who got emailed?"
