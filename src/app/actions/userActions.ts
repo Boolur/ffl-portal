@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
-import { UserRole } from '@prisma/client';
+import { ProcessingPipelineSheet, UserRole } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { sendEmail } from '@/lib/email';
@@ -911,24 +911,66 @@ export async function updateUserProcessingAssignments(input: {
       error: 'You cannot manage users at or above your own admin tier.',
     };
   }
-  if (!targetRoles.includes(UserRole.PROCESSOR_JR)) {
+  const isJrProcessor = targetRoles.includes(UserRole.PROCESSOR_JR);
+  const isSrProcessor = targetRoles.includes(UserRole.PROCESSOR_SR);
+  if (!isJrProcessor && !isSrProcessor) {
     return {
       success: false,
-      error: 'Processing routing groups can only be assigned to JR Processors.',
+      error: 'Processing routing groups can only be assigned to Jr or Sr Processors.',
     };
   }
 
-  await prisma.user.update({
-    where: { id: input.userId },
-    data: {
-      processingAssignmentGroups: normalizeProcessingAssignmentGroups(
-        input.processingAssignmentGroups
-      ),
-    },
+  const groups = normalizeProcessingAssignmentGroups(input.processingAssignmentGroups);
+  await prisma.$transaction(async (tx) => {
+    if (isSrProcessor && groups.length > 0) {
+      const otherSeniorProcessors = await tx.user.findMany({
+        where: {
+          id: { not: input.userId },
+          active: true,
+          OR: [
+            { role: UserRole.PROCESSOR_SR },
+            { roles: { has: UserRole.PROCESSOR_SR } },
+          ],
+          processingAssignmentGroups: { hasSome: groups },
+        },
+        select: { id: true, processingAssignmentGroups: true },
+      });
+      for (const senior of otherSeniorProcessors) {
+        await tx.user.update({
+          where: { id: senior.id },
+          data: {
+            processingAssignmentGroups: senior.processingAssignmentGroups.filter(
+              (group) => !groups.includes(group as (typeof groups)[number])
+            ),
+          },
+        });
+      }
+    }
+
+    await tx.user.update({
+      where: { id: input.userId },
+      data: { processingAssignmentGroups: groups },
+    });
+
+    if (isSrProcessor) {
+      await tx.processingPipelineLoan.updateMany({
+        where: {
+          sheet: {
+            in: [
+              ProcessingPipelineSheet.PIPELINE,
+              ProcessingPipelineSheet.RESTRUCTURE,
+            ],
+          },
+          assignmentGroup: { in: groups },
+        },
+        data: { seniorProcessorId: input.userId },
+      });
+    }
   });
 
   revalidatePath('/admin/users');
   revalidatePath('/tasks');
+  revalidatePath('/pipeline');
   return { success: true };
 }
 

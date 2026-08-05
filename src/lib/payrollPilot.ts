@@ -30,5 +30,7 @@ export function isPayrollRolloutEnabled() {
 
 export function canAccessPayrollPortal(user: PayrollPilotUser) {
   const role = String(user.role || '').toUpperCase();
-  return role === UserRole.LOAN_OFFICER || role === UserRole.MANAGER;
+  return role === UserRole.LOAN_OFFICER ||
+    role === UserRole.MANAGER ||
+    role === UserRole.PROCESSOR_SR;
 }

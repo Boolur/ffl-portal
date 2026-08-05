@@ -812,10 +812,13 @@ export function UserManagement({
                                 Applies to LO submission access.
                               </p>
                             </div>
-                            {roleList.includes(UserRole.PROCESSOR_JR) && (
+                            {(roleList.includes(UserRole.PROCESSOR_JR) ||
+                              roleList.includes(UserRole.PROCESSOR_SR)) && (
                               <div className="mt-2 space-y-2 rounded-lg border border-violet-200 bg-violet-50/60 p-2.5">
                                 <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">
-                                  JR Processing Routing
+                                  {roleList.includes(UserRole.PROCESSOR_SR)
+                                    ? 'Sr Processor Assignment'
+                                    : 'Jr Processing Routing'}
                                 </p>
                                 {PROCESSING_ASSIGNMENT_OPTIONS.map((option) => {
                                   const checked = user.processingAssignmentGroups.includes(
@@ -847,7 +850,9 @@ export function UserManagement({
                                   );
                                 })}
                                 <p className="text-[10px] text-slate-500">
-                                  Controls which Processing requests this JR sees.
+                                  {roleList.includes(UserRole.PROCESSOR_SR)
+                                    ? 'Each in-house group maps to one active Sr Processor.'
+                                    : 'Controls which Processing requests this Jr Processor sees.'}
                                 </p>
                               </div>
                             )}
@@ -1034,10 +1039,13 @@ export function UserManagement({
                         </p>
                       </div>
 
-                      {roleList.includes(UserRole.PROCESSOR_JR) && (
+                      {(roleList.includes(UserRole.PROCESSOR_JR) ||
+                        roleList.includes(UserRole.PROCESSOR_SR)) && (
                         <div className="mt-2.5 rounded-lg border border-violet-200 bg-violet-50/60 p-2.5">
                           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
-                            JR Processing Routing
+                            {roleList.includes(UserRole.PROCESSOR_SR)
+                              ? 'Sr Processor Assignment'
+                              : 'Jr Processing Routing'}
                           </p>
                           <div className="grid grid-cols-1 gap-1.5">
                             {PROCESSING_ASSIGNMENT_OPTIONS.map((option) => {
@@ -1069,7 +1077,9 @@ export function UserManagement({
                             })}
                           </div>
                           <p className="mt-1.5 text-[10px] text-slate-500">
-                            Controls which Processing requests this JR sees.
+                            {roleList.includes(UserRole.PROCESSOR_SR)
+                              ? 'Each in-house group maps to one active Sr Processor.'
+                              : 'Controls which Processing requests this Jr Processor sees.'}
                           </p>
                         </div>
                       )}

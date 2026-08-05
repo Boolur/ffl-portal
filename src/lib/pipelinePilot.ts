@@ -15,5 +15,9 @@ function normalizeRole(role?: string | UserRole | null): UserRole | null {
 export function canAccessPipelinePortal(user: PipelineAccessUser) {
   const role = normalizeRole(user.role);
   if (!role) return false;
-  return role === UserRole.LOAN_OFFICER || role === UserRole.MANAGER || isAdmin(role);
+  return role === UserRole.LOAN_OFFICER ||
+    role === UserRole.MANAGER ||
+    role === UserRole.PROCESSOR_JR ||
+    role === UserRole.PROCESSOR_SR ||
+    isAdmin(role);
 }

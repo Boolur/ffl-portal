@@ -43,6 +43,7 @@ import {
   type TaskBucketCursor,
   type TaskBucketSort,
 } from '@/lib/taskBucketQueries';
+import { upsertProcessingPipelineForCompletedTask } from '@/lib/processingPipelineService';
 
 function isSubmissionTask(task: {
   kind: TaskKind | null;
@@ -2334,19 +2335,32 @@ export async function updateTaskStatus(
         };
       }
     } else {
-      await prisma.task.update({
-        where: { id: taskId },
-        data: {
-          status: newStatus,
-          workflowState: nextWorkflowState,
-          completedAt: newStatus === 'COMPLETED' ? new Date() : null,
-          ...((canSkipProofForNotNeeded || canMarkNotNeeded) && newStatus === 'COMPLETED'
-            ? { disclosureReason: DisclosureDecisionReason.OTHER }
-            : {}),
-          ...(submissionDataWithTimeline
-            ? { submissionData: submissionDataWithTimeline }
-            : {}),
-        },
+      const completedAt = newStatus === TaskStatus.COMPLETED ? new Date() : null;
+      await prisma.$transaction(async (tx) => {
+        await tx.task.update({
+          where: { id: taskId },
+          data: {
+            status: newStatus,
+            workflowState: nextWorkflowState,
+            completedAt,
+            ...((canSkipProofForNotNeeded || canMarkNotNeeded) && newStatus === 'COMPLETED'
+              ? { disclosureReason: DisclosureDecisionReason.OTHER }
+              : {}),
+            ...(submissionDataWithTimeline
+              ? { submissionData: submissionDataWithTimeline }
+              : {}),
+          },
+        });
+        if (
+          existing.kind === TaskKind.SUBMIT_PROCESSING &&
+          newStatus === TaskStatus.COMPLETED
+        ) {
+          await upsertProcessingPipelineForCompletedTask(tx, {
+            taskId,
+            actorId: userId,
+            completedAt: completedAt || new Date(),
+          });
+        }
       });
     }
 
@@ -3269,6 +3283,19 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
             : new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
     });
+
+    if (
+      createdTask.kind === TaskKind.SUBMIT_PROCESSING &&
+      createdTask.status === TaskStatus.COMPLETED
+    ) {
+      await prisma.$transaction((tx) =>
+        upsertProcessingPipelineForCompletedTask(tx, {
+          taskId: createdTask.id,
+          actorId: sessionUserId || loanOfficerUser.id,
+          completedAt: createdTask.completedAt || new Date(),
+        })
+      );
+    }
 
     if (submissionType === 'DISCLOSURES') {
       const existingPlusOneTask = await prisma.task.findFirst({
@@ -5023,21 +5050,31 @@ export async function updateProcessingRoute(
       note: `Processing route changed to ${routeText}.`,
     }) as Prisma.JsonObject;
 
-    await prisma.task.update({
-      where: { id: task.id },
-      data: {
-        submissionData: updatedSubmissionData,
-        assignedUserId: nextAssignedUserId,
-        assignedRole: nextAssignedRole,
-        status: nextStatus,
-        workflowState: nextWorkflowState,
-        completedAt: isSelfProcessed ? new Date() : task.completedAt,
-        dueDate: isSelfProcessed
-          ? null
-          : nextStatus === TaskStatus.COMPLETED
-          ? task.dueDate
-          : task.dueDate || new Date(Date.now() + 24 * 60 * 60 * 1000),
-      },
+    const routeCompletedAt = isSelfProcessed ? new Date() : task.completedAt;
+    await prisma.$transaction(async (tx) => {
+      await tx.task.update({
+        where: { id: task.id },
+        data: {
+          submissionData: updatedSubmissionData,
+          assignedUserId: nextAssignedUserId,
+          assignedRole: nextAssignedRole,
+          status: nextStatus,
+          workflowState: nextWorkflowState,
+          completedAt: routeCompletedAt,
+          dueDate: isSelfProcessed
+            ? null
+            : nextStatus === TaskStatus.COMPLETED
+            ? task.dueDate
+            : task.dueDate || new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
+      if (isSelfProcessed) {
+        await upsertProcessingPipelineForCompletedTask(tx, {
+          taskId: task.id,
+          actorId: userId,
+          completedAt: routeCompletedAt || new Date(),
+        });
+      }
     });
 
     revalidatePath('/tasks');
@@ -5208,6 +5245,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       normalizedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES;
 
     const actorName = session?.user?.name || 'Unknown';
+    const processingCompletedAt = new Date();
     await prisma.$transaction(async (tx) => {
       const noteEntry = effectiveMessage
         ? {
@@ -5273,7 +5311,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
             status: TaskStatus.COMPLETED,
             disclosureReason: normalizedReason,
             workflowState: TaskWorkflowState.NONE,
-            completedAt: new Date(),
+            completedAt: processingCompletedAt,
             description: effectiveMessage || null,
             loanOfficerApprovedAt: null,
             submissionData: updatedSubmissionData ?? undefined,
@@ -5290,6 +5328,14 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
                 ? 'Closed automatically after Processing completion.'
                 : 'Closed automatically after QC completion.',
             },
+          });
+        }
+
+        if (processingSubmissionTask) {
+          await upsertProcessingPipelineForCompletedTask(tx, {
+            taskId,
+            actorId: userId,
+            completedAt: processingCompletedAt,
           });
         }
       } else {

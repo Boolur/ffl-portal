@@ -20,6 +20,7 @@ const ADMIN_III_PATHS = ['*'];
 const ADMIN_II_PATHS = [
   '/',
   '/tasks',
+  '/pipeline',
   '/resources',
   '/lenders',
   '/admin/support',
@@ -47,8 +48,8 @@ const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.VA_PAYOFF]: [],
   [UserRole.VA_APPRAISAL]: [],
   [UserRole.QC]: [],
-  [UserRole.PROCESSOR_JR]: ['/', '/tasks', '/resources', '/lenders', '/admin/support'],
-  [UserRole.PROCESSOR_SR]: ['/', '/tasks', '/resources', '/lenders', '/admin/support'],
+  [UserRole.PROCESSOR_JR]: ['/', '/tasks', '/pipeline', '/resources', '/lenders', '/admin/support'],
+  [UserRole.PROCESSOR_SR]: ['/', '/pipeline', '/payroll', '/leaderboard', '/resources', '/lenders', '/admin/support'],
 };
 
 function normalizeRole(role?: string | null): UserRole | null {
@@ -72,7 +73,8 @@ function canAccessLeaderboard(pathname: string, role?: string | null) {
   if (isAdminRole(normalizedRole)) return true;
   return normalizedRole === UserRole.LOAN_OFFICER ||
     normalizedRole === UserRole.LOA ||
-    normalizedRole === UserRole.MANAGER;
+    normalizedRole === UserRole.MANAGER ||
+    normalizedRole === UserRole.PROCESSOR_SR;
 }
 
 function isAllowed(pathname: string, role?: string | null) {

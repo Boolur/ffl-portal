@@ -2,8 +2,8 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -238,135 +238,161 @@ enum PayrollFeeRuleKind {
   OTHER
 }
 
+enum ProcessingPipelineSheet {
+  PIPELINE
+  RESTRUCTURE
+  FUNDING
+}
+
+enum ProcessingPipelineStatus {
+  SUBBED_TO_UW
+  APPROVED_WITH_CONDITIONS
+  RE_SUB
+  CTC
+  DOCS_OUT
+  FUNDED
+  SUSPENDED_RESTRUCTURE
+}
+
+enum ProcessingItemStatus {
+  NOT_STARTED
+  ORDERED
+  RECEIVED
+  NOT_APPLICABLE
+}
+
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  name          String
-  passwordHash  String?   // Nullable for SSO users later
-  role          UserRole
-  roles         UserRole[] @default([])
-  loQcTwoRowPilot Boolean @default(false)
-  loDisclosureSubmissionEnabled Boolean @default(false)
-  loQcSubmissionEnabled Boolean @default(true)
-  processingAssignmentGroups String[] @default([])
-  active        Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                            String     @id @default(uuid())
+  email                         String     @unique
+  name                          String
+  passwordHash                  String? // Nullable for SSO users later
+  role                          UserRole
+  roles                         UserRole[] @default([])
+  loQcTwoRowPilot               Boolean    @default(false)
+  loDisclosureSubmissionEnabled Boolean    @default(false)
+  loQcSubmissionEnabled         Boolean    @default(true)
+  processingAssignmentGroups    String[]   @default([])
+  active                        Boolean    @default(true)
+  createdAt                     DateTime   @default(now())
+  updatedAt                     DateTime   @updatedAt
 
   // Relations
-  loansAsLO        Loan[] @relation("LoanOfficer")
-  loansAsSecondaryLO Loan[] @relation("LoanSecondaryOfficer")
-  loansAsVisibilitySubmitter Loan[] @relation("LoanVisibilitySubmitter")
-  loansAsProcessor Loan[] @relation("Processor")
-  assignedTasks    Task[]
-  uploadedTaskAttachments TaskAttachment[] @relation("TaskAttachmentsUploadedBy")
-  uploadedClientDocuments ClientDocument[] @relation("ClientDocumentsUploadedBy")
-  clientsOwned     Client[] @relation("ClientOwner")
-  auditLogs        AuditLog[]
-  pendingStpDispositionsActioned PendingStpDisposition[] @relation("PendingStpDispositionActionedBy")
-  pendingStpDispositionsLoanOfficer PendingStpDisposition[] @relation("PendingStpDispositionLoanOfficer")
-  pipelineStages   PipelineStage[]
-  pipelineNotes    PipelineNote[]
-  externalUsers    ExternalUser[]
-  leadMailboxLeads LeadMailboxLead[]
-  invitesCreated   InviteToken[] @relation("InvitesCreated")
-  passwordResets   PasswordResetToken[]
-  notifications    Notification[]
-  supportConversationsRequested SupportConversation[] @relation("SupportConversationRequester")
-  supportConversationsAssigned  SupportConversation[] @relation("SupportConversationAssignee")
-  supportMessages   SupportMessage[] @relation("SupportMessageAuthor")
-  supportReadStates SupportConversationReadState[] @relation("SupportConversationReadUser")
-  supportDeskAssignments SupportDeskAssignment[] @relation("SupportDeskAssignmentUser")
-  supportAttachments SupportAttachment[] @relation("SupportAttachmentUploadedBy")
+  loansAsLO                         Loan[]                         @relation("LoanOfficer")
+  loansAsSecondaryLO                Loan[]                         @relation("LoanSecondaryOfficer")
+  loansAsVisibilitySubmitter        Loan[]                         @relation("LoanVisibilitySubmitter")
+  loansAsProcessor                  Loan[]                         @relation("Processor")
+  assignedTasks                     Task[]
+  uploadedTaskAttachments           TaskAttachment[]               @relation("TaskAttachmentsUploadedBy")
+  uploadedClientDocuments           ClientDocument[]               @relation("ClientDocumentsUploadedBy")
+  clientsOwned                      Client[]                       @relation("ClientOwner")
+  auditLogs                         AuditLog[]
+  pendingStpDispositionsActioned    PendingStpDisposition[]        @relation("PendingStpDispositionActionedBy")
+  pendingStpDispositionsLoanOfficer PendingStpDisposition[]        @relation("PendingStpDispositionLoanOfficer")
+  pipelineStages                    PipelineStage[]
+  pipelineNotes                     PipelineNote[]
+  externalUsers                     ExternalUser[]
+  leadMailboxLeads                  LeadMailboxLead[]
+  invitesCreated                    InviteToken[]                  @relation("InvitesCreated")
+  passwordResets                    PasswordResetToken[]
+  notifications                     Notification[]
+  supportConversationsRequested     SupportConversation[]          @relation("SupportConversationRequester")
+  supportConversationsAssigned      SupportConversation[]          @relation("SupportConversationAssignee")
+  supportMessages                   SupportMessage[]               @relation("SupportMessageAuthor")
+  supportReadStates                 SupportConversationReadState[] @relation("SupportConversationReadUser")
+  supportDeskAssignments            SupportDeskAssignment[]        @relation("SupportDeskAssignmentUser")
+  supportAttachments                SupportAttachment[]            @relation("SupportAttachmentUploadedBy")
 
   // Lead distribution relations
-  leads              Lead[]
-  campaignMemberships CampaignMember[]
-  leadQuota          UserLeadQuota?
-  defaultForCampaigns LeadCampaign[] @relation("CampaignDefaultUser")
-  leadNotes          LeadNote[]
-  leadTeams          LeadUserTeamMember[]
-  managedLeadTeams   LeadUserTeamManager[]
-  integrationCredentials UserIntegrationCredential[]
+  leads                         Lead[]
+  campaignMemberships           CampaignMember[]
+  leadQuota                     UserLeadQuota?
+  defaultForCampaigns           LeadCampaign[]                     @relation("CampaignDefaultUser")
+  leadNotes                     LeadNote[]
+  leadTeams                     LeadUserTeamMember[]
+  managedLeadTeams              LeadUserTeamManager[]
+  integrationCredentials        UserIntegrationCredential[]
   integrationServicePermissions UserIntegrationServicePermission[]
-  websiteLoanOfficerProfile WebsiteLoanOfficerProfile?
+  websiteLoanOfficerProfile     WebsiteLoanOfficerProfile?
 
   // Payroll / compensation relations
-  payrollCompPlans      PayrollCompPlan[] @relation("PayrollCompPlanLoanOfficer")
-  payrollSplitRecipients PayrollCompSplit[] @relation("PayrollCompSplitRecipient")
-  payrollRequests       PayrollCompRequest[] @relation("PayrollCompRequestLoanOfficer")
-  payrollReviewedRequests PayrollCompRequest[] @relation("PayrollCompRequestReviewedBy")
-  payrollPaidRequests   PayrollCompRequest[] @relation("PayrollCompRequestPaidBy")
-  payrollEditedRequests PayrollCompRequest[] @relation("PayrollCompRequestEditedBy")
-  payrollRequestSplits  PayrollCompRequestSplit[] @relation("PayrollCompRequestSplitRecipient")
-  payrollUserSettings   PayrollUserSetting?
+  payrollCompPlans           PayrollCompPlan[]         @relation("PayrollCompPlanLoanOfficer")
+  payrollSplitRecipients     PayrollCompSplit[]        @relation("PayrollCompSplitRecipient")
+  payrollRequests            PayrollCompRequest[]      @relation("PayrollCompRequestLoanOfficer")
+  payrollReviewedRequests    PayrollCompRequest[]      @relation("PayrollCompRequestReviewedBy")
+  payrollPaidRequests        PayrollCompRequest[]      @relation("PayrollCompRequestPaidBy")
+  payrollEditedRequests      PayrollCompRequest[]      @relation("PayrollCompRequestEditedBy")
+  payrollRequestSplits       PayrollCompRequestSplit[] @relation("PayrollCompRequestSplitRecipient")
+  payrollUserSettings        PayrollUserSetting?
+  processingPipelineAsSenior ProcessingPipelineLoan[]  @relation("ProcessingPipelineSenior")
+  processingPipelineAsJunior ProcessingPipelineLoan[]  @relation("ProcessingPipelineJunior")
 }
 
 model WebsiteLoanOfficerProfile {
-  id                String   @id @default(uuid())
-  userId            String   @unique
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  slug              String   @unique
-  title             String   @default("Mortgage Loan Originator")
-  nmls              String?
-  photoUrl          String?
-  phone             String?
-  bookingUrl        String?
-  licensedStates    String[] @default([])
-  specialties       String[] @default([])
-  languages         String[] @default([])
-  bio               String   @default("")
-  yearsExperience   Int?
-  loansClosed       String?
-  city              String?
-  featured          Boolean  @default(false)
-  publishedAt       DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug            String    @unique
+  title           String    @default("Mortgage Loan Originator")
+  nmls            String?
+  photoUrl        String?
+  phone           String?
+  bookingUrl      String?
+  licensedStates  String[]  @default([])
+  specialties     String[]  @default([])
+  languages       String[]  @default([])
+  bio             String    @default("")
+  yearsExperience Int?
+  loansClosed     String?
+  city            String?
+  featured        Boolean   @default(false)
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([publishedAt])
   @@index([featured])
 }
 
 model Loan {
-  id              String    @id @default(uuid())
-  loanNumber      String    @unique // Internal ID
+  id              String  @id @default(uuid())
+  loanNumber      String  @unique // Internal ID
   borrowerName    String
   borrowerPhone   String?
   borrowerEmail   String?
-  amount          Decimal   @db.Decimal(12, 2)
-  program         String?   // e.g. "FHA 30yr Fixed"
+  amount          Decimal @db.Decimal(12, 2)
+  program         String? // e.g. "FHA 30yr Fixed"
   propertyAddress String?
-  
-  stage           LoanStage @default(INTAKE)
+
+  stage           LoanStage      @default(INTAKE)
   pipelineStageId String?
   pipelineStage   PipelineStage? @relation(fields: [pipelineStageId], references: [id])
 
   // Client grouping (future: full 1003 profile)
-  clientId        String?
-  client          Client?   @relation(fields: [clientId], references: [id])
-  
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
+
   // Assignments
-  loanOfficerId   String
-  loanOfficer     User      @relation("LoanOfficer", fields: [loanOfficerId], references: [id])
-  secondaryLoanOfficerId String?
-  secondaryLoanOfficer User? @relation("LoanSecondaryOfficer", fields: [secondaryLoanOfficerId], references: [id])
+  loanOfficerId             String
+  loanOfficer               User    @relation("LoanOfficer", fields: [loanOfficerId], references: [id])
+  secondaryLoanOfficerId    String?
+  secondaryLoanOfficer      User?   @relation("LoanSecondaryOfficer", fields: [secondaryLoanOfficerId], references: [id])
   visibilitySubmitterUserId String?
-  visibilitySubmitterUser User? @relation("LoanVisibilitySubmitter", fields: [visibilitySubmitterUserId], references: [id])
-  
-  processorId     String?
-  processor       User?     @relation("Processor", fields: [processorId], references: [id])
+  visibilitySubmitterUser   User?   @relation("LoanVisibilitySubmitter", fields: [visibilitySubmitterUserId], references: [id])
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  processorId String?
+  processor   User?   @relation("Processor", fields: [processorId], references: [id])
 
-  tasks           Task[]
-  auditLogs       AuditLog[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks                  Task[]
+  auditLogs              AuditLog[]
   pendingStpDispositions PendingStpDisposition[]
-  pipelineNotes   PipelineNote[]
-  leadMailboxLeads LeadMailboxLead[]
-  payrollCompRequests PayrollCompRequest[]
-  supportConversations SupportConversation[]
+  pipelineNotes          PipelineNote[]
+  leadMailboxLeads       LeadMailboxLead[]
+  payrollCompRequests    PayrollCompRequest[]
+  supportConversations   SupportConversation[]
+  processingPipeline     ProcessingPipelineLoan?
 
   @@index([loanOfficerId, pipelineStageId])
   @@index([secondaryLoanOfficerId])
@@ -375,39 +401,40 @@ model Loan {
 }
 
 model Task {
-  id          String                 @id @default(uuid())
-  title       String
-  description String?
-  status      TaskStatus             @default(PENDING)
-  priority    TaskPriority           @default(NORMAL)
-  kind        TaskKind?
-  submissionData Json?
-  disclosureReason DisclosureDecisionReason?
-  workflowState TaskWorkflowState    @default(NONE)
+  id                    String                    @id @default(uuid())
+  title                 String
+  description           String?
+  status                TaskStatus                @default(PENDING)
+  priority              TaskPriority              @default(NORMAL)
+  kind                  TaskKind?
+  submissionData        Json?
+  disclosureReason      DisclosureDecisionReason?
+  workflowState         TaskWorkflowState         @default(NONE)
   loanOfficerApprovedAt DateTime?
-  parentTaskId String?
-  
+  parentTaskId          String?
+
   // A task belongs to a loan
-  loanId      String
-  loan        Loan       @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  loanId String
+  loan   Loan   @relation(fields: [loanId], references: [id], onDelete: Cascade)
 
   // A task can be assigned to a specific user OR a role (pool)
   assignedUserId String?
-  assignedUser   User?      @relation(fields: [assignedUserId], references: [id])
+  assignedUser   User?     @relation(fields: [assignedUserId], references: [id])
   assignedRole   UserRole?
 
   dueDate     DateTime?
   completedAt DateTime?
 
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  parentTask  Task?      @relation("TaskParentChild", fields: [parentTaskId], references: [id], onDelete: SetNull)
-  childTasks  Task[]     @relation("TaskParentChild")
-  attachments TaskAttachment[]
-  notifications Notification[]
-  pendingStpDispositions PendingStpDisposition[] @relation("PendingStpDispositionPlusOneTask")
+  parentTask                     Task?                   @relation("TaskParentChild", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  childTasks                     Task[]                  @relation("TaskParentChild")
+  attachments                    TaskAttachment[]
+  notifications                  Notification[]
+  pendingStpDispositions         PendingStpDisposition[] @relation("PendingStpDispositionPlusOneTask")
   reopenedPendingStpDispositions PendingStpDisposition[] @relation("PendingStpDispositionProcessingTask")
+  processingPipelineSource       ProcessingPipelineLoan? @relation("ProcessingPipelineSourceTask")
 
   @@index([parentTaskId])
   @@index([workflowState])
@@ -423,68 +450,112 @@ model Task {
   @@index([loanId, updatedAt])
 }
 
+model ProcessingPipelineLoan {
+  id                        String                   @id @default(uuid())
+  loanId                    String                   @unique
+  loan                      Loan                     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  sourceTaskId              String                   @unique
+  sourceTask                Task                     @relation("ProcessingPipelineSourceTask", fields: [sourceTaskId], references: [id], onDelete: Cascade)
+  seniorProcessorId         String?
+  seniorProcessor           User?                    @relation("ProcessingPipelineSenior", fields: [seniorProcessorId], references: [id], onDelete: SetNull)
+  juniorProcessorId         String?
+  juniorProcessor           User?                    @relation("ProcessingPipelineJunior", fields: [juniorProcessorId], references: [id], onDelete: SetNull)
+  assignmentGroup           String?
+  dateAssigned              DateTime                 @default(now())
+  sheet                     ProcessingPipelineSheet  @default(PIPELINE)
+  pipelineStatus            ProcessingPipelineStatus @default(SUBBED_TO_UW)
+  statusChangedAt           DateTime                 @default(now())
+  titleStatus               ProcessingItemStatus     @default(NOT_STARTED)
+  payoffStatus              ProcessingItemStatus     @default(NOT_STARTED)
+  hoiStatus                 ProcessingItemStatus     @default(NOT_STARTED)
+  appraisalNeeded           Boolean?
+  appraisalNotes            String?
+  appraisalOrderedAt        DateTime?
+  appraisalBackAt           DateTime?
+  missingItemsCurrentStatus String?
+  extraNotes                String?
+  rateLock                  Boolean?
+  loanType                  String?
+  propertyState             String?
+  lender                    String?
+  projectedRevenue          Decimal?                 @db.Decimal(12, 2)
+  finalRevenue              Decimal?                 @db.Decimal(12, 2)
+  fundedAt                  DateTime?
+  firstPaymentAt            DateTime?
+  sixthPaymentAt            DateTime?
+  movedAt                   DateTime?
+  version                   Int                      @default(1)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+
+  @@index([sheet, statusChangedAt])
+  @@index([seniorProcessorId, sheet])
+  @@index([juniorProcessorId])
+  @@index([assignmentGroup])
+}
+
 model Lender {
-  id              String          @id @default(uuid())
+  id              String   @id @default(uuid())
   name            String
-  slug            String          @unique
+  slug            String   @unique
   description     String?
   logoStoragePath String?
   logoFilename    String?
   logoUrl         String?
   portalUrl       String?
-  active          Boolean         @default(true)
-  sortOrder       Int             @default(0)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  contacts        LenderContact[]
-  links           LenderLink[]
+  contacts LenderContact[]
+  links    LenderLink[]
 
   @@unique([name])
   @@index([active, sortOrder])
 }
 
 model LenderContact {
-  id         String   @id @default(uuid())
-  lenderId   String
-  lender     Lender   @relation(fields: [lenderId], references: [id], onDelete: Cascade)
-  name       String
-  title      String?
-  email      String?
-  phone      String?
-  notes      String?
-  sortOrder  Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(uuid())
+  lenderId  String
+  lender    Lender   @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  name      String
+  title     String?
+  email     String?
+  phone     String?
+  notes     String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([lenderId, sortOrder])
 }
 
 model LenderLink {
-  id         String         @id @default(uuid())
-  lenderId   String
-  lender     Lender         @relation(fields: [lenderId], references: [id], onDelete: Cascade)
-  label      String
-  url        String
-  linkType   LenderLinkType @default(PORTAL)
-  sortOrder  Int            @default(0)
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
+  id        String         @id @default(uuid())
+  lenderId  String
+  lender    Lender         @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  label     String
+  url       String
+  linkType  LenderLinkType @default(PORTAL)
+  sortOrder Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
   @@index([lenderId, sortOrder])
 }
 
 model Notification {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   taskId     String?
-  task       Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  task       Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
   eventLabel String
   title      String
   message    String
   href       String?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
   readAt     DateTime?
 
   @@index([userId, createdAt])
@@ -492,19 +563,19 @@ model Notification {
 }
 
 model NotificationOutbox {
-  id                String                     @id @default(uuid())
-  eventType         NotificationOutboxEventType
-  status            NotificationOutboxStatus   @default(PENDING)
-  payload           Json
-  idempotencyKey    String                     @unique
-  attempts          Int                        @default(0)
-  maxAttempts       Int                        @default(8)
-  nextAttemptAt     DateTime                   @default(now())
+  id                  String                      @id @default(uuid())
+  eventType           NotificationOutboxEventType
+  status              NotificationOutboxStatus    @default(PENDING)
+  payload             Json
+  idempotencyKey      String                      @unique
+  attempts            Int                         @default(0)
+  maxAttempts         Int                         @default(8)
+  nextAttemptAt       DateTime                    @default(now())
   processingStartedAt DateTime?
-  sentAt            DateTime?
-  lastError         String?
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
+  sentAt              DateTime?
+  lastError           String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
 
   @@index([status, nextAttemptAt, createdAt])
   @@index([eventType, status])
@@ -530,8 +601,8 @@ model SupportConversation {
   lastMessageAt  DateTime                  @default(now())
   resolvedAt     DateTime?
 
-  messages   SupportMessage[]
-  readStates SupportConversationReadState[]
+  messages    SupportMessage[]
+  readStates  SupportConversationReadState[]
   attachments SupportAttachment[]
 
   @@index([requesterId, lastMessageAt])
@@ -585,17 +656,17 @@ model SupportConversationReadState {
 }
 
 model SupportDeskAssignment {
-  id            String      @id @default(uuid())
-  userId        String
-  user          User        @relation("SupportDeskAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
-  desk          SupportDesk
-  active        Boolean     @default(true)
-  lenders       String[]    @default([])
-  loanTypes     String[]    @default([])
-  states        String[]    @default([])
-  sortOrder     Int         @default(0)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation("SupportDeskAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  desk      SupportDesk
+  active    Boolean     @default(true)
+  lenders   String[]    @default([])
+  loanTypes String[]    @default([])
+  states    String[]    @default([])
+  sortOrder Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
   @@unique([userId, desk])
   @@index([desk, active, sortOrder])
@@ -603,48 +674,48 @@ model SupportDeskAssignment {
 }
 
 model TaskAttachment {
-  id           String   @id @default(uuid())
-  taskId       String
-  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   // Optional link back to a client document that was attached to this task
   clientDocumentId String?
   clientDocument   ClientDocument? @relation(fields: [clientDocumentId], references: [id], onDelete: SetNull)
 
-  purpose      TaskAttachmentPurpose @default(OTHER)
-  storagePath  String
-  filename     String
-  contentType  String
-  sizeBytes    Int
+  purpose     TaskAttachmentPurpose @default(OTHER)
+  storagePath String
+  filename    String
+  contentType String
+  sizeBytes   Int
 
   uploadedById String
-  uploadedBy   User     @relation("TaskAttachmentsUploadedBy", fields: [uploadedById], references: [id])
+  uploadedBy   User   @relation("TaskAttachmentsUploadedBy", fields: [uploadedById], references: [id])
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([taskId, createdAt])
   @@index([clientDocumentId])
 }
 
 model Client {
-  id            String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  ownerId       String
-  owner         User     @relation("ClientOwner", fields: [ownerId], references: [id])
+  ownerId String
+  owner   User   @relation("ClientOwner", fields: [ownerId], references: [id])
 
-  leadId        String?  // LeadMailbox lead_id / external id fallback until phone is known
-  phone         String?  // unique per LO when present
-  email         String?
-  firstName     String?
-  lastName      String?
-  displayName   String?
-  address       String?
+  leadId      String? // LeadMailbox lead_id / external id fallback until phone is known
+  phone       String? // unique per LO when present
+  email       String?
+  firstName   String?
+  lastName    String?
+  displayName String?
+  address     String?
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  loans         Loan[]
-  documents     ClientDocument[]
+  loans     Loan[]
+  documents ClientDocument[]
 
   @@unique([ownerId, phone])
   @@unique([ownerId, leadId])
@@ -652,36 +723,36 @@ model Client {
 }
 
 model ClientDocument {
-  id           String   @id @default(uuid())
-  clientId     String
-  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
-  storagePath  String
-  filename     String
-  contentType  String
-  sizeBytes    Int
+  storagePath String
+  filename    String
+  contentType String
+  sizeBytes   Int
 
   // Organization
-  folder       String?      // e.g. "STIPS", "INCOME", "ASSETS"
-  tags         String[]     // freeform tags
+  folder String? // e.g. "STIPS", "INCOME", "ASSETS"
+  tags   String[] // freeform tags
 
   uploadedById String
-  uploadedBy   User     @relation("ClientDocumentsUploadedBy", fields: [uploadedById], references: [id])
+  uploadedBy   User   @relation("ClientDocumentsUploadedBy", fields: [uploadedById], references: [id])
 
   taskAttachments TaskAttachment[]
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([clientId, createdAt])
 }
 
 model TaskTemplate {
-  id           String    @id @default(uuid())
-  stage        LoanStage
-  title        String
-  description  String?
-  assignedRole UserRole
-  dueOffsetDays Int      @default(1) // Due date = stage_start + days
+  id            String    @id @default(uuid())
+  stage         LoanStage
+  title         String
+  description   String?
+  assignedRole  UserRole
+  dueOffsetDays Int       @default(1) // Due date = stage_start + days
 }
 
 model AuditLog {
@@ -690,8 +761,8 @@ model AuditLog {
   loan      Loan?    @relation(fields: [loanId], references: [id])
   userId    String
   user      User     @relation(fields: [userId], references: [id])
-  action    String   // e.g. "STAGE_CHANGED", "TASK_COMPLETED"
-  details   String?  // JSON or text
+  action    String // e.g. "STAGE_CHANGED", "TASK_COMPLETED"
+  details   String? // JSON or text
   createdAt DateTime @default(now())
 }
 
@@ -724,69 +795,69 @@ model PendingStpDisposition {
 }
 
 model InviteToken {
-  id          String   @id @default(uuid())
-  token       String   @unique
+  id          String    @id @default(uuid())
+  token       String    @unique
   email       String
   name        String?
   role        UserRole
   createdById String
-  createdBy   User     @relation("InvitesCreated", fields: [createdById], references: [id])
+  createdBy   User      @relation("InvitesCreated", fields: [createdById], references: [id])
   expiresAt   DateTime
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   acceptedAt  DateTime?
 
   @@index([email])
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
+  id        String    @id @default(uuid())
+  token     String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   usedAt    DateTime?
 
   @@index([userId])
 }
 
 model ExternalUser {
-  id          String   @id @default(uuid())
-  provider    String
-  externalId  String
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  provider   String
+  externalId String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  createdAt  DateTime @default(now())
 
   @@unique([provider, externalId])
   @@index([userId])
 }
 
 model LeadMailboxLead {
-  id          String   @id @default(uuid())
-  leadId      String   @unique
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  loanId      String
-  loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
-  payload     Json
-  receivedAt  DateTime @default(now())
+  id         String   @id @default(uuid())
+  leadId     String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  loanId     String
+  loan       Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  payload    Json
+  receivedAt DateTime @default(now())
 
   @@index([userId, receivedAt])
 }
 
 model PipelineStage {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  name        String
-  order       Int
-  color       String?
-  isDefault   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  name      String
+  order     Int
+  color     String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  loans       Loan[]
+  loans Loan[]
 
   @@index([userId, order])
 }
@@ -833,24 +904,24 @@ model LeadCampaign {
   distributionMethod  LeadDistributionMethod @default(ROUND_ROBIN)
   independentRotation Boolean                @default(true)
 
-  duplicateHandling   LeadDuplicateHandling  @default(NONE)
-  defaultLeadStatus   String                 @default("NEW")
-  enableUserQuotas    Boolean                @default(true)
+  duplicateHandling LeadDuplicateHandling @default(NONE)
+  defaultLeadStatus String                @default("NEW")
+  enableUserQuotas  Boolean               @default(true)
 
-  defaultUserId       String?
-  defaultUser         User?                  @relation("CampaignDefaultUser", fields: [defaultUserId], references: [id], onDelete: SetNull)
+  defaultUserId String?
+  defaultUser   User?   @relation("CampaignDefaultUser", fields: [defaultUserId], references: [id], onDelete: SetNull)
 
-  groupId             String?
-  group               LeadCampaignGroup?     @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  groupId String?
+  group   LeadCampaignGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
-  stateFilter         String[]               @default([])
-  loanTypeFilter      String[]               @default([])
+  stateFilter    String[] @default([])
+  loanTypeFilter String[] @default([])
 
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  members  CampaignMember[]
-  leads    Lead[]
+  members CampaignMember[]
+  leads   Lead[]
 
   @@unique([vendorId, routingTag])
   @@index([vendorId])
@@ -859,37 +930,37 @@ model LeadCampaign {
 }
 
 model LeadCampaignGroup {
-  id          String         @id @default(uuid())
+  id          String   @id @default(uuid())
   name        String
   description String?
   // Legacy single-color column; kept as a mirror of colors[0] so in-flight
   // reads during deploys can't crash on a missing column. New writes keep
   // both in sync. Safe to drop in a future migration once nothing reads it.
-  color       String         @default("blue")
-  colors      String[]       @default(["blue"])
-  active      Boolean        @default(true)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  color       String   @default("blue")
+  colors      String[] @default(["blue"])
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  campaigns   LeadCampaign[]
+  campaigns LeadCampaign[]
 
   @@unique([name])
   @@index([active])
 }
 
 model LeadUserTeam {
-  id          String               @id @default(uuid())
+  id          String   @id @default(uuid())
   name        String
   description String?
   // See LeadCampaignGroup.color for why we keep the legacy mirror column.
-  color       String               @default("blue")
-  colors      String[]             @default(["blue"])
-  active      Boolean              @default(true)
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  color       String   @default("blue")
+  colors      String[] @default(["blue"])
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  members     LeadUserTeamMember[]
-  managers    LeadUserTeamManager[]
+  members  LeadUserTeamMember[]
+  managers LeadUserTeamManager[]
 
   @@unique([name])
   @@index([active])
@@ -963,51 +1034,51 @@ enum ServiceDispatchStatus {
 }
 
 model IntegrationService {
-  id                    String                    @id @default(uuid())
-  slug                  String                    @unique
-  name                  String
-  description           String?
-  type                  String
-  active                Boolean                   @default(true)
-  config                Json                      @default("{}")
+  id          String  @id @default(uuid())
+  slug        String  @unique
+  name        String
+  description String?
+  type        String
+  active      Boolean @default(true)
+  config      Json    @default("{}")
 
-  kind                  IntegrationServiceKind    @default(CLIENT)
-  statusTrigger         IntegrationServiceTrigger @default(MANUAL)
-  triggerStatus         String?
-  triggerDay            Int?
-  triggerDelayMinutes   Int?
+  kind                IntegrationServiceKind    @default(CLIENT)
+  statusTrigger       IntegrationServiceTrigger @default(MANUAL)
+  triggerStatus       String?
+  triggerDay          Int?
+  triggerDelayMinutes Int?
 
-  method                IntegrationServiceMethod  @default(POST_JSON)
-  urlTemplate           String                    @default("")
-  bodyTemplate          String                    @default("")
-  headersTemplate       String                    @default("")
+  method          IntegrationServiceMethod @default(POST_JSON)
+  urlTemplate     String                   @default("")
+  bodyTemplate    String                   @default("")
+  headersTemplate String                   @default("")
 
-  userScope             IntegrationServiceScope   @default(ANY)
-  userIds               String[]                  @default([])
-  campaignScope         IntegrationServiceScope   @default(ANY)
-  campaignIds           String[]                  @default([])
-  excludeSelected       Boolean                   @default(false)
+  userScope       IntegrationServiceScope @default(ANY)
+  userIds         String[]                @default([])
+  campaignScope   IntegrationServiceScope @default(ANY)
+  campaignIds     String[]                @default([])
+  excludeSelected Boolean                 @default(false)
 
-  successString         String?
-  failNotifyEmail       String?
-  dateOverride          String?
-  captureFields         Json                      @default("[]")
+  successString   String?
+  failNotifyEmail String?
+  dateOverride    String?
+  captureFields   Json    @default("[]")
 
-  requiresBrandNew      Boolean                   @default(false)
-  requiresNotBrandNew   Boolean                   @default(false)
-  requiresAssignedUser  Boolean                   @default(false)
-  requiresOAuth         Boolean                   @default(false)
-  allowManualSend       Boolean                   @default(true)
+  requiresBrandNew     Boolean @default(false)
+  requiresNotBrandNew  Boolean @default(false)
+  requiresAssignedUser Boolean @default(false)
+  requiresOAuth        Boolean @default(false)
+  allowManualSend      Boolean @default(true)
 
-  oauthConfig           Json?
+  oauthConfig Json?
 
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  credentialFields      IntegrationServiceCredentialField[]
-  userCredentials       UserIntegrationCredential[]
-  userPermissions       UserIntegrationServicePermission[]
-  dispatches            ServiceDispatch[]
+  credentialFields IntegrationServiceCredentialField[]
+  userCredentials  UserIntegrationCredential[]
+  userPermissions  UserIntegrationServicePermission[]
+  dispatches       ServiceDispatch[]
 
   @@index([active])
   @@index([statusTrigger, active])
@@ -1062,22 +1133,22 @@ model UserIntegrationServicePermission {
 }
 
 model ServiceDispatch {
-  id                String                @id @default(uuid())
-  serviceId         String
-  service           IntegrationService    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  leadId            String
-  lead              Lead                  @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  trigger           IntegrationServiceTrigger
-  scheduledFor      DateTime              @default(now())
-  status            ServiceDispatchStatus @default(PENDING)
-  attempts          Int                   @default(0)
-  lastError         String?
-  skippedReason     String?
-  requestSnapshot   Json?
-  responseSnapshot  Json?
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  completedAt       DateTime?
+  id               String                    @id @default(uuid())
+  serviceId        String
+  service          IntegrationService        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  leadId           String
+  lead             Lead                      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  trigger          IntegrationServiceTrigger
+  scheduledFor     DateTime                  @default(now())
+  status           ServiceDispatchStatus     @default(PENDING)
+  attempts         Int                       @default(0)
+  lastError        String?
+  skippedReason    String?
+  requestSnapshot  Json?
+  responseSnapshot Json?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  completedAt      DateTime?
 
   @@index([status, scheduledFor])
   @@index([serviceId, status])
@@ -1086,26 +1157,26 @@ model ServiceDispatch {
 }
 
 model CampaignMember {
-  id                    String    @id @default(uuid())
-  campaignId            String
-  campaign              LeadCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  userId                String
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String       @id @default(uuid())
+  campaignId String
+  campaign   LeadCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  dailyQuota            Int       @default(0)
-  weeklyQuota           Int       @default(0)
-  monthlyQuota          Int       @default(0)
-  licensedStates        String[]  @default([])
-  receiveDays           Int[]     @default([1, 2, 3, 4, 5])
-  active                Boolean   @default(true)
-  roundRobinPosition    Int       @default(0)
-  leadsReceivedToday    Int       @default(0)
-  leadsReceivedThisWeek Int       @default(0)
-  leadsReceivedThisMonth Int      @default(0)
-  lastAssignedAt        DateTime?
+  dailyQuota             Int       @default(0)
+  weeklyQuota            Int       @default(0)
+  monthlyQuota           Int       @default(0)
+  licensedStates         String[]  @default([])
+  receiveDays            Int[]     @default([1, 2, 3, 4, 5])
+  active                 Boolean   @default(true)
+  roundRobinPosition     Int       @default(0)
+  leadsReceivedToday     Int       @default(0)
+  leadsReceivedThisWeek  Int       @default(0)
+  leadsReceivedThisMonth Int       @default(0)
+  lastAssignedAt         DateTime?
 
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([campaignId, userId])
   @@index([campaignId, active, roundRobinPosition])
@@ -1113,47 +1184,47 @@ model CampaignMember {
 }
 
 model UserLeadQuota {
-  id                    String   @id @default(uuid())
-  userId                String   @unique
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  leadsEnabled          Boolean  @default(true)
-  licensedStates        String[] @default([])
-  bonzoWebhookUrl       String?
+  leadsEnabled    Boolean  @default(true)
+  licensedStates  String[] @default([])
+  bonzoWebhookUrl String?
 
-  globalDailyQuota      Int      @default(0)
-  globalWeeklyQuota     Int      @default(0)
-  globalMonthlyQuota    Int      @default(0)
-  leadsReceivedToday    Int      @default(0)
-  leadsReceivedThisWeek Int      @default(0)
-  leadsReceivedThisMonth Int     @default(0)
+  globalDailyQuota       Int @default(0)
+  globalWeeklyQuota      Int @default(0)
+  globalMonthlyQuota     Int @default(0)
+  leadsReceivedToday     Int @default(0)
+  leadsReceivedThisWeek  Int @default(0)
+  leadsReceivedThisMonth Int @default(0)
 
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model PayrollCompPlan {
-  id                    String   @id @default(uuid())
-  loanOfficerId         String
-  loanOfficer           User     @relation("PayrollCompPlanLoanOfficer", fields: [loanOfficerId], references: [id], onDelete: Cascade)
+  id            String @id @default(uuid())
+  loanOfficerId String
+  loanOfficer   User   @relation("PayrollCompPlanLoanOfficer", fields: [loanOfficerId], references: [id], onDelete: Cascade)
 
-  userClassification    PayrollUserClassification @default(BROKER)
-  planType              PayrollCompPlanType @default(BROKER)
-  requiresOriginationFeeWarning Boolean @default(false)
-  salaryPerPaycheck     Decimal? @db.Decimal(12, 2)
-  salaryFrequency       PayrollSalaryFrequency @default(SEMI_MONTHLY)
-  salaryNotes           String?
-  baseSplitPercent      Decimal  @db.Decimal(7, 4)
-  active                Boolean  @default(true)
-  effectiveStart        DateTime @default(now())
-  effectiveEnd          DateTime?
-  notes                 String?
+  userClassification            PayrollUserClassification @default(BROKER)
+  planType                      PayrollCompPlanType       @default(BROKER)
+  requiresOriginationFeeWarning Boolean                   @default(false)
+  salaryPerPaycheck             Decimal?                  @db.Decimal(12, 2)
+  salaryFrequency               PayrollSalaryFrequency    @default(SEMI_MONTHLY)
+  salaryNotes                   String?
+  baseSplitPercent              Decimal                   @db.Decimal(7, 4)
+  active                        Boolean                   @default(true)
+  effectiveStart                DateTime                  @default(now())
+  effectiveEnd                  DateTime?
+  notes                         String?
 
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  splits                PayrollCompSplit[]
-  requestSnapshots      PayrollCompRequestSplit[]
+  splits           PayrollCompSplit[]
+  requestSnapshots PayrollCompRequestSplit[]
 
   @@index([loanOfficerId, active])
   @@index([loanOfficerId, planType, active])
@@ -1161,97 +1232,97 @@ model PayrollCompPlan {
 }
 
 model PayrollCompSplit {
-  id                    String   @id @default(uuid())
-  planId                String
-  plan                  PayrollCompPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  id     String          @id @default(uuid())
+  planId String
+  plan   PayrollCompPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
-  recipientUserId       String?
-  recipientUser         User?    @relation("PayrollCompSplitRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
-  recipientName         String?
-  recipientEmail        String?
+  recipientUserId String?
+  recipientUser   User?   @relation("PayrollCompSplitRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipientName   String?
+  recipientEmail  String?
 
-  roleLabel             String
-  payType               PayrollSplitPayType @default(PERCENT)
-  splitPercent          Decimal  @db.Decimal(7, 4)
-  flatAmount            Decimal? @db.Decimal(12, 2)
-  active                Boolean  @default(true)
-  sortOrder             Int      @default(0)
-  effectiveStart        DateTime @default(now())
-  effectiveEnd          DateTime?
+  roleLabel      String
+  payType        PayrollSplitPayType @default(PERCENT)
+  splitPercent   Decimal             @db.Decimal(7, 4)
+  flatAmount     Decimal?            @db.Decimal(12, 2)
+  active         Boolean             @default(true)
+  sortOrder      Int                 @default(0)
+  effectiveStart DateTime            @default(now())
+  effectiveEnd   DateTime?
 
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([planId, active, sortOrder])
   @@index([recipientUserId])
 }
 
 model PayrollCompRequest {
-  id                    String   @id @default(uuid())
-  loanOfficerId         String
-  loanOfficer           User     @relation("PayrollCompRequestLoanOfficer", fields: [loanOfficerId], references: [id], onDelete: Cascade)
+  id            String @id @default(uuid())
+  loanOfficerId String
+  loanOfficer   User   @relation("PayrollCompRequestLoanOfficer", fields: [loanOfficerId], references: [id], onDelete: Cascade)
 
-  loanId                String?
-  loan                  Loan?    @relation(fields: [loanId], references: [id], onDelete: SetNull)
-  loanNumber            String
-  borrowerName          String
-  loanType              String
-  lender                String
-  loanChannel           PayrollLoanChannel
-  processingType        PayrollProcessingType
-  leadSource            PayrollLeadSource @default(OTHER)
-  leadProvidedBy        PayrollLeadProvidedBy @default(SELF_SOURCED)
-  appliedPlanType       PayrollCompPlanType @default(BROKER)
-  reimbursementTarget   PayrollReimbursementTarget @default(SELF)
-  expectedRevenue       Decimal  @db.Decimal(12, 2)
-  brokerComp            Decimal? @db.Decimal(12, 2)
-  sectionAComp          Decimal? @db.Decimal(12, 2)
-  yspAmount             Decimal? @db.Decimal(12, 2)
-  toleranceCure         Decimal? @db.Decimal(12, 2)
-  processingFee         Decimal? @db.Decimal(12, 2)
-  oneDayInterest        Decimal? @db.Decimal(12, 2)
-  wireFee               Decimal? @db.Decimal(12, 2)
-  underwritingFee       Decimal? @db.Decimal(12, 2)
-  lenderCredit          Decimal? @db.Decimal(12, 2)
-  originationFee        Decimal? @db.Decimal(12, 2)
-  appraisalAddBack      Decimal? @db.Decimal(12, 2)
-  creditAddBack         Decimal? @db.Decimal(12, 2)
-  voeAddBack            Decimal? @db.Decimal(12, 2)
-  termiteAddBack        Decimal? @db.Decimal(12, 2)
-  appraisalReinspectionAddBack Decimal? @db.Decimal(12, 2)
-  waterTestAddBack      Decimal? @db.Decimal(12, 2)
-  loanAmountPriorToFees Decimal? @db.Decimal(12, 2)
-  recessionDate         DateTime?
-  figureNftyAttachmentName String?
-  figureNftyAttachmentUrl  String?
-  grossCompAmount       Decimal? @db.Decimal(12, 2)
-  preSplitAddBackTotal  Decimal? @db.Decimal(12, 2)
-  preSplitDeductionTotal Decimal? @db.Decimal(12, 2)
-  splitBasisAmount      Decimal? @db.Decimal(12, 2)
-  postSplitAddBackTotal Decimal? @db.Decimal(12, 2)
-  netCompAmount         Decimal? @db.Decimal(12, 2)
-  calculationSnapshot   Json?
-  mismoDetails          Json?
+  loanId                       String?
+  loan                         Loan?                      @relation(fields: [loanId], references: [id], onDelete: SetNull)
+  loanNumber                   String
+  borrowerName                 String
+  loanType                     String
+  lender                       String
+  loanChannel                  PayrollLoanChannel
+  processingType               PayrollProcessingType
+  leadSource                   PayrollLeadSource          @default(OTHER)
+  leadProvidedBy               PayrollLeadProvidedBy      @default(SELF_SOURCED)
+  appliedPlanType              PayrollCompPlanType        @default(BROKER)
+  reimbursementTarget          PayrollReimbursementTarget @default(SELF)
+  expectedRevenue              Decimal                    @db.Decimal(12, 2)
+  brokerComp                   Decimal?                   @db.Decimal(12, 2)
+  sectionAComp                 Decimal?                   @db.Decimal(12, 2)
+  yspAmount                    Decimal?                   @db.Decimal(12, 2)
+  toleranceCure                Decimal?                   @db.Decimal(12, 2)
+  processingFee                Decimal?                   @db.Decimal(12, 2)
+  oneDayInterest               Decimal?                   @db.Decimal(12, 2)
+  wireFee                      Decimal?                   @db.Decimal(12, 2)
+  underwritingFee              Decimal?                   @db.Decimal(12, 2)
+  lenderCredit                 Decimal?                   @db.Decimal(12, 2)
+  originationFee               Decimal?                   @db.Decimal(12, 2)
+  appraisalAddBack             Decimal?                   @db.Decimal(12, 2)
+  creditAddBack                Decimal?                   @db.Decimal(12, 2)
+  voeAddBack                   Decimal?                   @db.Decimal(12, 2)
+  termiteAddBack               Decimal?                   @db.Decimal(12, 2)
+  appraisalReinspectionAddBack Decimal?                   @db.Decimal(12, 2)
+  waterTestAddBack             Decimal?                   @db.Decimal(12, 2)
+  loanAmountPriorToFees        Decimal?                   @db.Decimal(12, 2)
+  recessionDate                DateTime?
+  figureNftyAttachmentName     String?
+  figureNftyAttachmentUrl      String?
+  grossCompAmount              Decimal?                   @db.Decimal(12, 2)
+  preSplitAddBackTotal         Decimal?                   @db.Decimal(12, 2)
+  preSplitDeductionTotal       Decimal?                   @db.Decimal(12, 2)
+  splitBasisAmount             Decimal?                   @db.Decimal(12, 2)
+  postSplitAddBackTotal        Decimal?                   @db.Decimal(12, 2)
+  netCompAmount                Decimal?                   @db.Decimal(12, 2)
+  calculationSnapshot          Json?
+  mismoDetails                 Json?
 
-  status                PayrollCompRequestStatus @default(PENDING_REVIEW)
-  submitterNotes        String?
-  adminNotes            String?
-  rejectionReason       String?
-  editedAt              DateTime?
-  editedById            String?
-  editedBy              User?    @relation("PayrollCompRequestEditedBy", fields: [editedById], references: [id], onDelete: SetNull)
+  status          PayrollCompRequestStatus @default(PENDING_REVIEW)
+  submitterNotes  String?
+  adminNotes      String?
+  rejectionReason String?
+  editedAt        DateTime?
+  editedById      String?
+  editedBy        User?                    @relation("PayrollCompRequestEditedBy", fields: [editedById], references: [id], onDelete: SetNull)
 
-  submittedAt           DateTime @default(now())
-  reviewedAt            DateTime?
-  reviewedById          String?
-  reviewedBy            User?    @relation("PayrollCompRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
-  paidAt                DateTime?
-  paidById              String?
-  paidBy                User?    @relation("PayrollCompRequestPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  submittedAt  DateTime  @default(now())
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewedBy   User?     @relation("PayrollCompRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  paidAt       DateTime?
+  paidById     String?
+  paidBy       User?     @relation("PayrollCompRequestPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  splits                PayrollCompRequestSplit[]
+  splits PayrollCompRequestSplit[]
 
   @@index([loanOfficerId, submittedAt])
   @@index([status, submittedAt])
@@ -1261,29 +1332,29 @@ model PayrollCompRequest {
 }
 
 model PayrollSetting {
-  id          String   @id @default(uuid())
-  key         String   @unique
+  id          String                  @id @default(uuid())
+  key         String                  @unique
   label       String
   description String?
   valueType   PayrollSettingValueType @default(TEXT)
   value       String
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  active      Boolean                 @default(true)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
 }
 
 model PayrollLenderFeeRule {
-  id          String   @id @default(uuid())
+  id          String              @id @default(uuid())
   lender      String
   loanChannel PayrollLoanChannel?
   feeKind     PayrollFeeRuleKind
   label       String
-  amount      Decimal  @db.Decimal(12, 2)
-  required    Boolean  @default(true)
-  active      Boolean  @default(true)
+  amount      Decimal             @db.Decimal(12, 2)
+  required    Boolean             @default(true)
+  active      Boolean             @default(true)
   notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   @@unique([lender, loanChannel, feeKind])
   @@index([lender, active])
@@ -1291,46 +1362,46 @@ model PayrollLenderFeeRule {
 }
 
 model PayrollLenderRequirement {
-  id                         String   @id @default(uuid())
-  lender                     String   @unique
-  requiresLoanAmountPriorToFees Boolean @default(false)
-  requiresFundedDetailsAttachment Boolean @default(false)
-  requiresRecessionDate      Boolean @default(false)
-  active                     Boolean  @default(true)
-  notes                      String?
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
-}
-
-model PayrollUserSetting {
   id                              String   @id @default(uuid())
-  userId                          String   @unique
-  user                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  requiresOriginationFeeWarning   Boolean  @default(false)
+  lender                          String   @unique
+  requiresLoanAmountPriorToFees   Boolean  @default(false)
+  requiresFundedDetailsAttachment Boolean  @default(false)
+  requiresRecessionDate           Boolean  @default(false)
+  active                          Boolean  @default(true)
+  notes                           String?
   createdAt                       DateTime @default(now())
   updatedAt                       DateTime @updatedAt
 }
 
+model PayrollUserSetting {
+  id                            String   @id @default(uuid())
+  userId                        String   @unique
+  user                          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requiresOriginationFeeWarning Boolean  @default(false)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+}
+
 model PayrollCompRequestSplit {
-  id                    String   @id @default(uuid())
-  requestId             String
-  request               PayrollCompRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id        String             @id @default(uuid())
+  requestId String
+  request   PayrollCompRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-  planId                String?
-  plan                  PayrollCompPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  planId String?
+  plan   PayrollCompPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
 
-  recipientUserId       String?
-  recipientUser         User?    @relation("PayrollCompRequestSplitRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
-  recipientName         String
-  recipientEmail        String?
-  roleLabel             String
-  payType               PayrollSplitPayType @default(PERCENT)
-  splitPercent          Decimal  @db.Decimal(7, 4)
-  flatAmount            Decimal? @db.Decimal(12, 2)
-  amount                Decimal  @db.Decimal(12, 2)
-  sortOrder             Int      @default(0)
+  recipientUserId String?
+  recipientUser   User?               @relation("PayrollCompRequestSplitRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipientName   String
+  recipientEmail  String?
+  roleLabel       String
+  payType         PayrollSplitPayType @default(PERCENT)
+  splitPercent    Decimal             @db.Decimal(7, 4)
+  flatAmount      Decimal?            @db.Decimal(12, 2)
+  amount          Decimal             @db.Decimal(12, 2)
+  sortOrder       Int                 @default(0)
 
-  createdAt             DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([requestId, sortOrder])
   @@index([recipientUserId])
@@ -1338,30 +1409,30 @@ model PayrollCompRequestSplit {
 }
 
 model Lead {
-  id            String      @id @default(uuid())
-  vendorLeadId  String?
-  vendorUserId  String?
-  vendorId      String
-  vendor        LeadVendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  vendorLeadId String?
+  vendorUserId String?
+  vendorId     String
+  vendor       LeadVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   // Contact
-  firstName     String?
-  lastName      String?
-  email         String?
-  phone         String?
-  homePhone     String?
-  workPhone     String?
-  dob           String?
-  ssn           String?
+  firstName String?
+  lastName  String?
+  email     String?
+  phone     String?
+  homePhone String?
+  workPhone String?
+  dob       String?
+  ssn       String?
 
   // Co-borrower contact
-  coFirstName   String?
-  coLastName    String?
-  coEmail       String?
-  coPhone       String?
-  coHomePhone   String?
-  coWorkPhone   String?
-  coDob         String?
+  coFirstName String?
+  coLastName  String?
+  coEmail     String?
+  coPhone     String?
+  coHomePhone String?
+  coWorkPhone String?
+  coDob       String?
 
   // Mailing address
   mailingAddress String?
@@ -1378,12 +1449,12 @@ model Lead {
   propertyCounty  String?
 
   // Property
-  purchasePrice  String?
-  propertyValue  String?
-  propertyType   String?
-  propertyUse    String?
+  purchasePrice    String?
+  propertyValue    String?
+  propertyType     String?
+  propertyUse      String?
   propertyAcquired String?
-  propertyLtv    String?
+  propertyLtv      String?
 
   // Employer (borrower)
   employer         String?
@@ -1427,27 +1498,27 @@ model Lead {
   sourceUrl      String?
 
   // Vendor-provided meta
-  leadCreated    String?
-  price          String?
+  leadCreated String?
+  price       String?
 
   // Routing / status
-  status         LeadStatus  @default(UNASSIGNED)
+  status         LeadStatus    @default(UNASSIGNED)
   assignedUserId String?
-  assignedUser   User?       @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  assignedUser   User?         @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
   assignedAt     DateTime?
   campaignId     String?
   campaign       LeadCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   source         String?
 
-  rawPayload     Json        @default("{}")
-  receivedAt     DateTime    @default(now())
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  rawPayload Json     @default("{}")
+  receivedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  notes          LeadNote[]
-  dispatches     ServiceDispatch[]
+  notes      LeadNote[]
+  dispatches ServiceDispatch[]
 
-  customData     Json        @default("{}")
+  customData Json @default("{}")
 
   @@unique([vendorId, vendorLeadId])
   @@index([status])

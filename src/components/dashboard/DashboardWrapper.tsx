@@ -5,7 +5,7 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LoanOfficerDashboard } from '@/components/dashboard/LoanOfficerDashboard';
 import { DisclosureOverview } from '@/components/dashboard/DisclosureOverview';
 import { QcOverview } from '@/components/dashboard/QcOverview';
-import { TaskList } from '@/components/tasks/TaskList';
+import { ProcessorPipelineOverview } from '@/components/dashboard/ProcessorPipelineOverview';
 import { useImpersonation } from '@/lib/impersonation';
 import { isAdmin } from '@/lib/adminTiers';
 import {
@@ -169,8 +169,8 @@ function DashboardContent({
       subtitle: 'Review and complete processing requests.',
     },
     [UserRole.PROCESSOR_SR]: {
-      title: 'Processor Queue',
-      subtitle: 'Manage active processing tasks and escalations.',
+      title: 'Sr Processor Dashboard',
+      subtitle: 'Monitor your assigned pipeline, restructures, and fundings.',
     },
   };
 
@@ -178,8 +178,6 @@ function DashboardContent({
     title: 'Overview',
     subtitle: 'Manage your assigned work and activity.',
   };
-  const isProcessorTaskListRole = activeRole === UserRole.PROCESSOR_SR;
-
   return (
     <>
       <div className="app-page-header">
@@ -223,20 +221,7 @@ function DashboardContent({
         <QcOverview tasks={roleTasks} currentUserId={user.id} personalStarted />
       )}
 
-      {/* Processor SR keeps the standard task list view */}
-      {isProcessorTaskListRole && (
-        <div className="bg-card rounded-xl border border-border shadow-sm">
-          <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">Active Tasks</h2>
-            <span className="app-count-badge">
-              {roleTasks.length} Pending
-            </span>
-          </div>
-          <div className="p-6">
-            <TaskList tasks={roleTasks} currentRole={activeRole} />
-          </div>
-        </div>
-      )}
+      {activeRole === UserRole.PROCESSOR_SR && <ProcessorPipelineOverview />}
 
       {activeRole === UserRole.DISCLOSURE_SPECIALIST && (
         <DisclosureOverview tasks={roleTasks} />

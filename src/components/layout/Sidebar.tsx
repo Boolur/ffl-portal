@@ -138,7 +138,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   const activeRoleArr: UserRole[] = activeRole ? [activeRole] : [];
   const navItems = [
     {
-      name: 'Overview',
+      name: activeRole === UserRole.PROCESSOR_SR ? 'Dashboard' : 'Overview',
       icon: LayoutGrid,
       href: '/',
       roles: ['all'] as const,
@@ -151,7 +151,6 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
         UserRole.LOAN_OFFICER,
         UserRole.LOA,
         UserRole.DISCLOSURE_SPECIALIST,
-        UserRole.PROCESSOR_SR,
         UserRole.PROCESSOR_JR,
         UserRole.MANAGER,
       ] as UserRole[],
@@ -161,7 +160,12 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       name: 'Pipeline',
       icon: GitBranch,
       href: '/pipeline',
-      roles: [UserRole.LOAN_OFFICER, UserRole.MANAGER] as UserRole[],
+      roles: [
+        UserRole.LOAN_OFFICER,
+        UserRole.MANAGER,
+        UserRole.PROCESSOR_JR,
+        UserRole.PROCESSOR_SR,
+      ] as UserRole[],
       visible: () => isAdmin(activeRole),
     },
     {
@@ -178,13 +182,22 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       name: 'Payroll',
       icon: Banknote,
       href: '/payroll',
-      roles: [UserRole.LOAN_OFFICER, UserRole.MANAGER] as UserRole[],
+      roles: [
+        UserRole.LOAN_OFFICER,
+        UserRole.MANAGER,
+        UserRole.PROCESSOR_SR,
+      ] as UserRole[],
     },
     {
       name: 'Leaderboard',
       icon: Trophy,
       href: '/leaderboard',
-      roles: [UserRole.LOAN_OFFICER, UserRole.LOA, UserRole.MANAGER] as UserRole[],
+      roles: [
+        UserRole.LOAN_OFFICER,
+        UserRole.LOA,
+        UserRole.MANAGER,
+        UserRole.PROCESSOR_SR,
+      ] as UserRole[],
       visible: () => canSeeLeaderboardTab,
     },
     {
