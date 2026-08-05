@@ -114,6 +114,185 @@ function serializeRow(row: {
 
 export type ProcessingPipelineRow = ReturnType<typeof serializeRow>;
 
+export type ProcessingPipelineFilters = {
+  loanOfficerIds?: string[];
+  assignedFrom?: string;
+  assignedTo?: string;
+  loanNumbers?: string[];
+  borrowerNames?: string[];
+  loanTypes?: string[];
+  states?: string[];
+  lenders?: string[];
+  juniorProcessorIds?: string[];
+  seniorProcessorIds?: string[];
+  pipelineStatuses?: ProcessingPipelineStatus[];
+  daysInStatusMin?: number;
+  daysInStatusMax?: number;
+  titleStatuses?: ProcessingItemStatus[];
+  payoffStatuses?: ProcessingItemStatus[];
+  hoiStatuses?: ProcessingItemStatus[];
+  appraisalNeeded?: Array<'YES' | 'NO' | 'BLANK'>;
+  appraisalNotes?: string;
+  appraisalOrderedFrom?: string;
+  appraisalOrderedTo?: string;
+  appraisalBackFrom?: string;
+  appraisalBackTo?: string;
+  missingItemsCurrentStatus?: string;
+  extraNotes?: string;
+  rateLock?: Array<'YES' | 'NO' | 'BLANK'>;
+  fundedFrom?: string;
+  fundedTo?: string;
+  firstPaymentFrom?: string;
+  firstPaymentTo?: string;
+  sixthPaymentFrom?: string;
+  sixthPaymentTo?: string;
+  projectedRevenueMin?: number;
+  projectedRevenueMax?: number;
+  finalRevenueMin?: number;
+  finalRevenueMax?: number;
+};
+
+function endOfInputDay(value?: string) {
+  if (!value) return undefined;
+  const date = new Date(`${value}T23:59:59.999Z`);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function startOfInputDay(value?: string) {
+  if (!value) return undefined;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function nullableBooleanWhere(
+  field: 'appraisalNeeded' | 'rateLock',
+  values?: Array<'YES' | 'NO' | 'BLANK'>,
+): Prisma.ProcessingPipelineLoanWhereInput | null {
+  if (!values?.length) return null;
+  const booleans: boolean[] = [];
+  if (values.includes('YES')) booleans.push(true);
+  if (values.includes('NO')) booleans.push(false);
+  const includeBlank = values.includes('BLANK');
+  if (includeBlank && booleans.length > 0) {
+    return { OR: [{ [field]: { in: booleans } }, { [field]: null }] };
+  }
+  return includeBlank ? { [field]: null } : { [field]: { in: booleans } };
+}
+
+function processorFilter(
+  field: 'juniorProcessorId' | 'seniorProcessorId',
+  values?: string[],
+): Prisma.ProcessingPipelineLoanWhereInput | null {
+  if (!values?.length) return null;
+  const ids = values.filter((value) => value !== '__unassigned__');
+  const includeUnassigned = values.includes('__unassigned__');
+  if (includeUnassigned && ids.length > 0) {
+    return { OR: [{ [field]: { in: ids } }, { [field]: null }] };
+  }
+  return includeUnassigned ? { [field]: null } : { [field]: { in: ids } };
+}
+
+function buildFilterWhere(filters?: ProcessingPipelineFilters) {
+  if (!filters) return [] as Prisma.ProcessingPipelineLoanWhereInput[];
+  const clauses: Prisma.ProcessingPipelineLoanWhereInput[] = [];
+  if (filters.loanOfficerIds?.length) {
+    clauses.push({ loan: { loanOfficerId: { in: filters.loanOfficerIds } } });
+  }
+  if (filters.loanNumbers?.length) {
+    clauses.push({ loan: { loanNumber: { in: filters.loanNumbers } } });
+  }
+  if (filters.borrowerNames?.length) {
+    clauses.push({ loan: { borrowerName: { in: filters.borrowerNames } } });
+  }
+  if (filters.loanTypes?.length) clauses.push({ loanType: { in: filters.loanTypes } });
+  if (filters.states?.length) clauses.push({ propertyState: { in: filters.states } });
+  if (filters.lenders?.length) clauses.push({ lender: { in: filters.lenders } });
+  const junior = processorFilter('juniorProcessorId', filters.juniorProcessorIds);
+  const senior = processorFilter('seniorProcessorId', filters.seniorProcessorIds);
+  if (junior) clauses.push(junior);
+  if (senior) clauses.push(senior);
+  if (filters.pipelineStatuses?.length) {
+    clauses.push({ pipelineStatus: { in: filters.pipelineStatuses } });
+  }
+  if (filters.titleStatuses?.length) clauses.push({ titleStatus: { in: filters.titleStatuses } });
+  if (filters.payoffStatuses?.length) clauses.push({ payoffStatus: { in: filters.payoffStatuses } });
+  if (filters.hoiStatuses?.length) clauses.push({ hoiStatus: { in: filters.hoiStatuses } });
+
+  const assignedFrom = startOfInputDay(filters.assignedFrom);
+  const assignedTo = endOfInputDay(filters.assignedTo);
+  if (assignedFrom || assignedTo) clauses.push({ dateAssigned: { gte: assignedFrom, lte: assignedTo } });
+  const appraisalOrderedFrom = startOfInputDay(filters.appraisalOrderedFrom);
+  const appraisalOrderedTo = endOfInputDay(filters.appraisalOrderedTo);
+  if (appraisalOrderedFrom || appraisalOrderedTo) {
+    clauses.push({ appraisalOrderedAt: { gte: appraisalOrderedFrom, lte: appraisalOrderedTo } });
+  }
+  const appraisalBackFrom = startOfInputDay(filters.appraisalBackFrom);
+  const appraisalBackTo = endOfInputDay(filters.appraisalBackTo);
+  if (appraisalBackFrom || appraisalBackTo) {
+    clauses.push({ appraisalBackAt: { gte: appraisalBackFrom, lte: appraisalBackTo } });
+  }
+  const fundedFrom = startOfInputDay(filters.fundedFrom);
+  const fundedTo = endOfInputDay(filters.fundedTo);
+  if (fundedFrom || fundedTo) clauses.push({ fundedAt: { gte: fundedFrom, lte: fundedTo } });
+  const firstPaymentFrom = startOfInputDay(filters.firstPaymentFrom);
+  const firstPaymentTo = endOfInputDay(filters.firstPaymentTo);
+  if (firstPaymentFrom || firstPaymentTo) {
+    clauses.push({ firstPaymentAt: { gte: firstPaymentFrom, lte: firstPaymentTo } });
+  }
+  const sixthPaymentFrom = startOfInputDay(filters.sixthPaymentFrom);
+  const sixthPaymentTo = endOfInputDay(filters.sixthPaymentTo);
+  if (sixthPaymentFrom || sixthPaymentTo) {
+    clauses.push({ sixthPaymentAt: { gte: sixthPaymentFrom, lte: sixthPaymentTo } });
+  }
+
+  if (filters.daysInStatusMin !== undefined || filters.daysInStatusMax !== undefined) {
+    const now = Date.now();
+    const oldestAllowed = filters.daysInStatusMax === undefined
+      ? undefined
+      : new Date(now - (filters.daysInStatusMax + 1) * 86_400_000);
+    const newestAllowed = filters.daysInStatusMin === undefined
+      ? undefined
+      : new Date(now - filters.daysInStatusMin * 86_400_000);
+    clauses.push({ statusChangedAt: { gt: oldestAllowed, lte: newestAllowed } });
+  }
+
+  const appraisalNeeded = nullableBooleanWhere('appraisalNeeded', filters.appraisalNeeded);
+  const rateLock = nullableBooleanWhere('rateLock', filters.rateLock);
+  if (appraisalNeeded) clauses.push(appraisalNeeded);
+  if (rateLock) clauses.push(rateLock);
+  if (filters.appraisalNotes?.trim()) {
+    clauses.push({ appraisalNotes: { contains: filters.appraisalNotes.trim(), mode: 'insensitive' } });
+  }
+  if (filters.missingItemsCurrentStatus?.trim()) {
+    clauses.push({
+      missingItemsCurrentStatus: {
+        contains: filters.missingItemsCurrentStatus.trim(),
+        mode: 'insensitive',
+      },
+    });
+  }
+  if (filters.extraNotes?.trim()) {
+    clauses.push({ extraNotes: { contains: filters.extraNotes.trim(), mode: 'insensitive' } });
+  }
+  if (filters.projectedRevenueMin !== undefined || filters.projectedRevenueMax !== undefined) {
+    clauses.push({
+      projectedRevenue: {
+        gte: filters.projectedRevenueMin,
+        lte: filters.projectedRevenueMax,
+      },
+    });
+  }
+  if (filters.finalRevenueMin !== undefined || filters.finalRevenueMax !== undefined) {
+    clauses.push({
+      finalRevenue: {
+        gte: filters.finalRevenueMin,
+        lte: filters.finalRevenueMax,
+      },
+    });
+  }
+  return clauses;
+}
+
 export async function getProcessingPipeline(input?: {
   sheet?: ProcessingPipelineSheet;
   search?: string;
@@ -121,6 +300,7 @@ export async function getProcessingPipeline(input?: {
   pageSize?: number;
   sortBy?: 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber';
   sortDirection?: 'asc' | 'desc';
+  filters?: ProcessingPipelineFilters;
 }) {
   noStore();
   const actor = await getActor();
@@ -147,6 +327,7 @@ export async function getProcessingPipeline(input?: {
             ],
           }]
         : []),
+      ...buildFilterWhere(input?.filters),
     ],
   };
 
@@ -188,6 +369,66 @@ export async function getProcessingPipeline(input?: {
     pageSize,
     canEdit: access.canEdit,
     role: actor.role,
+  };
+}
+
+export async function getProcessingPipelineFilterOptions(sheet: ProcessingPipelineSheet) {
+  noStore();
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const access = getProcessingPipelineAccess(actor.role);
+  if (!access.canView) return { success: false as const, error: 'Not authorized.' };
+
+  const rows = await prisma.processingPipelineLoan.findMany({
+    where: { AND: [scopeWhere(actor), { sheet }] },
+    select: {
+      loanType: true,
+      propertyState: true,
+      lender: true,
+      loan: {
+        select: {
+          loanNumber: true,
+          borrowerName: true,
+          loanOfficer: { select: { id: true, name: true } },
+        },
+      },
+      juniorProcessor: { select: { id: true, name: true } },
+      seniorProcessor: { select: { id: true, name: true } },
+    },
+    orderBy: { dateAssigned: 'desc' },
+  });
+
+  const uniqueTextOptions = (values: Array<string | null>) =>
+    Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[]))
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ value, label: value }));
+  const uniqueUserOptions = (values: Array<{ id: string; name: string } | null>) =>
+    Array.from(
+      new Map(
+        values
+          .filter((value): value is { id: string; name: string } => Boolean(value))
+          .map((value) => [value.id, { value: value.id, label: value.name }])
+      ).values()
+    ).sort((a, b) => a.label.localeCompare(b.label));
+
+  return {
+    success: true as const,
+    options: {
+      loanOfficers: uniqueUserOptions(rows.map((row) => row.loan.loanOfficer)),
+      loanNumbers: uniqueTextOptions(rows.map((row) => row.loan.loanNumber)),
+      borrowerNames: uniqueTextOptions(rows.map((row) => row.loan.borrowerName)),
+      loanTypes: uniqueTextOptions(rows.map((row) => row.loanType)),
+      states: uniqueTextOptions(rows.map((row) => row.propertyState)),
+      lenders: uniqueTextOptions(rows.map((row) => row.lender)),
+      juniorProcessors: [
+        { value: '__unassigned__', label: 'Unassigned' },
+        ...uniqueUserOptions(rows.map((row) => row.juniorProcessor)),
+      ],
+      seniorProcessors: [
+        { value: '__unassigned__', label: 'Unassigned' },
+        ...uniqueUserOptions(rows.map((row) => row.seniorProcessor)),
+      ],
+    },
   };
 }
 
