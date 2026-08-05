@@ -3,7 +3,10 @@ import {
   parseOptionalBoolean,
   parseOptionalMoney,
 } from './processingPipeline';
-import { isInHouseProcessingAssignmentGroup } from './processingRouting';
+import {
+  getProcessingAssignmentSeniorNames,
+  isInHouseProcessingAssignmentGroup,
+} from './processingRouting';
 
 type TransactionClient = Prisma.TransactionClient;
 
@@ -42,11 +45,32 @@ export async function resolveSeniorProcessorForGroup(
   });
 
   if (matches.length === 1) {
-    return { seniorProcessorId: matches[0].id, resolution: 'MATCHED' as const };
+    return { seniorProcessorId: matches[0].id, resolution: 'MATCHED_BY_GROUP' as const };
+  }
+  if (matches.length > 1) {
+    return { seniorProcessorId: null, resolution: 'AMBIGUOUS' as const };
+  }
+
+  const selectedProcessorNames = getProcessingAssignmentSeniorNames(group);
+  const nameMatches = await tx.user.findMany({
+    where: {
+      active: true,
+      name: { in: selectedProcessorNames, mode: 'insensitive' },
+      OR: [
+        { role: UserRole.PROCESSOR_SR },
+        { roles: { has: UserRole.PROCESSOR_SR } },
+      ],
+    },
+    select: { id: true },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    take: 2,
+  });
+  if (nameMatches.length === 1) {
+    return { seniorProcessorId: nameMatches[0].id, resolution: 'MATCHED_BY_NAME' as const };
   }
   return {
     seniorProcessorId: null,
-    resolution: matches.length > 1 ? 'AMBIGUOUS' as const : 'MISSING' as const,
+    resolution: nameMatches.length > 1 ? 'AMBIGUOUS' as const : 'MISSING' as const,
   };
 }
 

@@ -9,7 +9,10 @@ import { sendEmail } from '@/lib/email';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
-import { normalizeProcessingAssignmentGroups } from '@/lib/processingRouting';
+import {
+  getProcessingAssignmentGroupForSeniorName,
+  normalizeProcessingAssignmentGroups,
+} from '@/lib/processingRouting';
 import {
   assignableRolesFor,
   canAccessUserManagement,
@@ -375,6 +378,9 @@ export async function createUser({
   }
 
   const passwordHash = await hash(trimmedPassword, 10);
+  const seniorAssignmentGroup = normalizedRoles.includes(UserRole.PROCESSOR_SR)
+    ? getProcessingAssignmentGroupForSeniorName(trimmedName)
+    : null;
 
   const user = await prisma.user.create({
     data: {
@@ -384,6 +390,7 @@ export async function createUser({
       roles: normalizedRoles,
       loDisclosureSubmissionEnabled: false,
       loQcSubmissionEnabled: true,
+      processingAssignmentGroups: seniorAssignmentGroup ? [seniorAssignmentGroup] : [],
       passwordHash,
       active: true,
     },

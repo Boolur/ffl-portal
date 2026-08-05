@@ -4,6 +4,7 @@ import {
   resolveSeniorProcessorForGroup,
   upsertProcessingPipelineForCompletedTask,
 } from './processingPipelineService';
+import { getProcessingAssignmentGroupForSeniorName } from './processingRouting';
 
 function asTx(value: unknown) {
   return value as Prisma.TransactionClient;
@@ -18,8 +19,25 @@ describe('resolveSeniorProcessorForGroup', () => {
     });
     await expect(resolveSeniorProcessorForGroup(tx, 'KATHY_BUI')).resolves.toEqual({
       seniorProcessorId: 'senior-1',
-      resolution: 'MATCHED',
+      resolution: 'MATCHED_BY_GROUP',
     });
+  });
+
+  it('falls back to the selected processor name when no group was configured', async () => {
+    const findMany = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'senior-kathy' }]);
+    const tx = asTx({ user: { findMany } });
+
+    await expect(resolveSeniorProcessorForGroup(tx, 'KATHY_BUI')).resolves.toEqual({
+      seniorProcessorId: 'senior-kathy',
+      resolution: 'MATCHED_BY_NAME',
+    });
+    expect(findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        name: { in: ['Kathy Bui'], mode: 'insensitive' },
+      }),
+    }));
   });
 
   it('fails closed for ambiguous assignments', async () => {
@@ -32,6 +50,15 @@ describe('resolveSeniorProcessorForGroup', () => {
       seniorProcessorId: null,
       resolution: 'AMBIGUOUS',
     });
+  });
+});
+
+describe('Sr Processor account-name mapping', () => {
+  it('maps exact selection names and the known Martin account alias', () => {
+    expect(getProcessingAssignmentGroupForSeniorName('Kathy Bui')).toBe('KATHY_BUI');
+    expect(getProcessingAssignmentGroupForSeniorName('Jack Ngo')).toBe('JACK_NGO');
+    expect(getProcessingAssignmentGroupForSeniorName('Martin Son Bui')).toBe('MARTIN_SON_BUI');
+    expect(getProcessingAssignmentGroupForSeniorName('Martin Bui')).toBe('MARTIN_SON_BUI');
   });
 });
 

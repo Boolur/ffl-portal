@@ -52,6 +52,12 @@ export const PROCESSING_ASSIGNMENT_OPTIONS = [
 
 export type ProcessingAssignmentGroup = (typeof PROCESSING_ASSIGNMENT_OPTIONS)[number]['value'];
 
+const PROCESSING_ASSIGNMENT_SENIOR_NAME_ALIASES: Partial<
+  Record<ProcessingAssignmentGroup, readonly string[]>
+> = {
+  [PROCESSING_ASSIGNMENT_MARTIN_SON_BUI]: ['Martin Bui'],
+};
+
 export function isProcessingMethod(value: unknown): value is ProcessingMethod {
   return PROCESSING_METHOD_OPTIONS.some((option) => option.value === value);
 }
@@ -66,6 +72,27 @@ export function getProcessingMethodLabel(value: unknown) {
 
 export function getProcessingAssignmentLabel(value: unknown) {
   return PROCESSING_ASSIGNMENT_OPTIONS.find((option) => option.value === value)?.label || '';
+}
+
+export function getProcessingAssignmentSeniorNames(value: unknown) {
+  const option = PROCESSING_ASSIGNMENT_OPTIONS.find((candidate) => candidate.value === value);
+  if (!option || option.method !== PROCESSING_METHOD_IN_HOUSE) return [];
+  return [
+    option.label,
+    ...(PROCESSING_ASSIGNMENT_SENIOR_NAME_ALIASES[option.value] || []),
+  ];
+}
+
+export function getProcessingAssignmentGroupForSeniorName(value: unknown) {
+  const normalizedName = String(value || '').trim().toLowerCase();
+  if (!normalizedName) return null;
+  return PROCESSING_ASSIGNMENT_OPTIONS.find(
+    (option) =>
+      option.method === PROCESSING_METHOD_IN_HOUSE &&
+      getProcessingAssignmentSeniorNames(option.value).some(
+        (name) => name.toLowerCase() === normalizedName
+      )
+  )?.value || null;
 }
 
 export function getProcessingAssignmentOptionsForMethod(method: unknown) {
