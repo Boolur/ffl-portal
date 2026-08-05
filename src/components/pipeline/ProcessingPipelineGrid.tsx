@@ -81,8 +81,8 @@ type ColumnId =
   | 'dateAssigned'
   | 'loanNumber'
   | 'borrowerName'
+  | 'loanAmount'
   | 'loanType'
-  | 'propertyState'
   | 'lender'
   | 'juniorProcessor'
   | 'seniorProcessor'
@@ -111,6 +111,7 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'loanNumber', label: 'Arrive #', width: 96 },
   { id: 'borrowerName', label: 'Borrower', width: 154 },
   { id: 'lender', label: 'Lender', width: 140 },
+  { id: 'loanAmount', label: 'Loan Amount', width: 126 },
   { id: 'loanType', label: 'Loan Type', width: 108 },
   { id: 'juniorProcessor', label: 'Jr Processor', width: 118 },
   { id: 'seniorProcessor', label: 'Processor', width: 118 },
@@ -121,12 +122,12 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'hoiStatus', label: 'HOI', width: 124 },
   { id: 'appraisalNeeded', label: 'Appraisal?', width: 118 },
   { id: 'daysInStatus', label: 'Days', width: 68 },
-  { id: 'propertyState', label: 'State', width: 76, optional: true },
   { id: 'appraisalNotes', label: 'Appraisal Notes', width: 220, optional: true },
   { id: 'appraisalOrderedAt', label: 'Appraisal Ordered', width: 146, optional: true },
   { id: 'appraisalBackAt', label: 'Appraisal Back', width: 140, optional: true },
   { id: 'extraNotes', label: 'Extra Notes', width: 210, optional: true },
   { id: 'rateLock', label: 'Rate Lock', width: 112, optional: true },
+  { id: 'projectedRevenue', label: 'Revenue', width: 130, optional: true },
   { id: 'actions', label: 'Actions', width: 142 },
 ];
 
@@ -151,6 +152,7 @@ const PIPELINE_FOCUS_COLUMNS = new Set<ColumnId>([
   'loanNumber',
   'borrowerName',
   'lender',
+  'loanAmount',
   'loanType',
   'juniorProcessor',
   'seniorProcessor',
@@ -531,6 +533,26 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     loadRows(sheet, 1, search, sortBy, sortDirection, {});
   };
 
+  const toggleQuickStatus = (status?: ProcessingPipelineStatus) => {
+    const currentStatuses = appliedFilters.pipelineStatuses || [];
+    const nextStatuses = status === undefined
+      ? []
+      : currentStatuses.includes(status)
+        ? currentStatuses.filter((value) => value !== status)
+        : [...currentStatuses, status];
+    const nextFilters: ProcessingPipelineFilters = {
+      ...appliedFilters,
+      pipelineStatuses: nextStatuses.length > 0 ? nextStatuses : undefined,
+    };
+    setAppliedFilters(nextFilters);
+    setDraftFilters((current) => ({
+      ...current,
+      pipelineStatuses: nextStatuses.length > 0 ? nextStatuses : undefined,
+    }));
+    setPage(1);
+    loadRows(sheet, 1, search, sortBy, sortDirection, nextFilters);
+  };
+
   const resizeColumn = (id: ColumnId, width: number) => {
     setColumnWidths((current) => ({ ...current, [id]: Math.round(width) }));
   };
@@ -828,8 +850,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   <FilterInput label="Assigned To" type="date" value={draftFilters.assignedTo} onChange={(value) => setDraftFilter('assignedTo', value || undefined)} />
                   <MultiSelectFilter label="Arrive Numbers" values={draftFilters.loanNumbers || []} options={filterOptions.loanNumbers} onChange={(values) => setDraftFilter('loanNumbers', values)} />
                   <MultiSelectFilter label="Borrowers" values={draftFilters.borrowerNames || []} options={filterOptions.borrowerNames} onChange={(values) => setDraftFilter('borrowerNames', values)} />
+                  <FilterInput label="Loan Amount Min" type="number" value={draftFilters.loanAmountMin} onChange={(value) => setDraftFilter('loanAmountMin', value === '' ? undefined : Number(value))} placeholder="0" />
+                  <FilterInput label="Loan Amount Max" type="number" value={draftFilters.loanAmountMax} onChange={(value) => setDraftFilter('loanAmountMax', value === '' ? undefined : Number(value))} placeholder="1000000" />
                   <MultiSelectFilter label="Loan Types" values={draftFilters.loanTypes || []} options={filterOptions.loanTypes} onChange={(values) => setDraftFilter('loanTypes', values)} />
-                  <MultiSelectFilter label="States" values={draftFilters.states || []} options={filterOptions.states} onChange={(values) => setDraftFilter('states', values)} />
                   <MultiSelectFilter label="Lenders" values={draftFilters.lenders || []} options={filterOptions.lenders} onChange={(values) => setDraftFilter('lenders', values)} />
                   <MultiSelectFilter label="Jr Processors" values={draftFilters.juniorProcessorIds || []} options={filterOptions.juniorProcessors} onChange={(values) => setDraftFilter('juniorProcessorIds', values)} />
                   <MultiSelectFilter label="Sr Processors" values={draftFilters.seniorProcessorIds || []} options={filterOptions.seniorProcessors} onChange={(values) => setDraftFilter('seniorProcessorIds', values)} />
@@ -882,6 +905,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     <FilterInput label="Appraisal Back To" type="date" value={draftFilters.appraisalBackTo} onChange={(value) => setDraftFilter('appraisalBackTo', value || undefined)} />
                     <FilterInput label="Pending Items" value={draftFilters.missingItemsCurrentStatus} onChange={(value) => setDraftFilter('missingItemsCurrentStatus', value || undefined)} placeholder="Contains text…" />
                     <FilterInput label="Extra Notes" value={draftFilters.extraNotes} onChange={(value) => setDraftFilter('extraNotes', value || undefined)} placeholder="Contains text…" />
+                    <FilterInput label="Revenue Min" type="number" value={draftFilters.projectedRevenueMin} onChange={(value) => setDraftFilter('projectedRevenueMin', value === '' ? undefined : Number(value))} placeholder="0" />
+                    <FilterInput label="Revenue Max" type="number" value={draftFilters.projectedRevenueMax} onChange={(value) => setDraftFilter('projectedRevenueMax', value === '' ? undefined : Number(value))} placeholder="10000" />
                     <MultiSelectFilter
                       label="Rate Lock"
                       values={draftFilters.rateLock || []}
@@ -935,13 +960,50 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       )}
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
-        <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-          <p className="text-sm font-bold text-slate-900">
-            {PROCESSING_PIPELINE_SHEETS.find((option) => option.value === sheet)?.label}
-          </p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Resize headers or click Expand to show every available detail.
-          </p>
+        <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="shrink-0">
+            <p className="text-sm font-bold text-slate-900">
+              {PROCESSING_PIPELINE_SHEETS.find((option) => option.value === sheet)?.label}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Resize headers or click Expand to show every available detail.
+            </p>
+          </div>
+          {sheet !== ProcessingPipelineSheet.FUNDING && (
+            <div className="flex flex-wrap items-center gap-1.5 xl:justify-end" aria-label="Quick pipeline status filters">
+              <button
+                type="button"
+                aria-pressed={!appliedFilters.pipelineStatuses?.length}
+                onClick={() => toggleQuickStatus()}
+                className={`rounded-full border px-3 py-1.5 text-[11px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                  !appliedFilters.pipelineStatuses?.length
+                    ? 'border-blue-500 bg-blue-600 text-white'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700'
+                }`}
+              >
+                All
+              </button>
+              {PROCESSING_PIPELINE_STATUS_OPTIONS.map((option) => {
+                const selected = appliedFilters.pipelineStatuses?.includes(option.value) || false;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => toggleQuickStatus(option.value)}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                      selected
+                        ? statusTone[option.value]
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700'
+                    }`}
+                  >
+                    {selected && <Check className="h-3 w-3" />}
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div
           className="relative max-h-[66vh] min-h-72 overflow-auto"
@@ -1014,8 +1076,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 ) : (
                   <>
                     {isColumnVisible('lender') && <ResizableHeader id="lender" width={columnWidths.lender} onResize={resizeColumn}>Lender</ResizableHeader>}
+                    {isColumnVisible('loanAmount') && <ResizableHeader id="loanAmount" width={columnWidths.loanAmount} onResize={resizeColumn}>Loan Amount</ResizableHeader>}
                     {isColumnVisible('loanType') && <ResizableHeader id="loanType" width={columnWidths.loanType} onResize={resizeColumn}>Loan Type</ResizableHeader>}
-                    {isColumnVisible('propertyState') && <ResizableHeader id="propertyState" width={columnWidths.propertyState} onResize={resizeColumn}>State</ResizableHeader>}
                     {isColumnVisible('juniorProcessor') && <ResizableHeader id="juniorProcessor" width={columnWidths.juniorProcessor} onResize={resizeColumn}>Jr Processor</ResizableHeader>}
                     {isColumnVisible('seniorProcessor') && <ResizableHeader id="seniorProcessor" width={columnWidths.seniorProcessor} onResize={resizeColumn}>Processor</ResizableHeader>}
                     {isColumnVisible('pipelineStatus') && <ResizableHeader id="pipelineStatus" width={columnWidths.pipelineStatus} onResize={resizeColumn}>Pipeline Status</ResizableHeader>}
@@ -1034,6 +1096,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                         <button type="button" onClick={() => changeSort('statusChangedAt')} className="w-full text-left hover:text-blue-700">Days</button>
                       </ResizableHeader>
                     )}
+                    {isColumnVisible('projectedRevenue') && <ResizableHeader id="projectedRevenue" width={columnWidths.projectedRevenue} onResize={resizeColumn}>Revenue</ResizableHeader>}
                   </>
                 )}
                 <ResizableHeader id="actions" width={columnWidths.actions} onResize={resizeColumn} className="sticky right-0 z-40 shadow-[-1px_0_0_#e2e8f0]">
@@ -1086,8 +1149,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   ) : (
                     <>
                       {isColumnVisible('lender') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'lender', row.lender)}</td>}
+                      {isColumnVisible('loanAmount') && <td className={`truncate border-b border-r border-slate-200 font-semibold tabular-nums text-slate-700 ${cellPadding}`}>{formatMoney(row.loan.amount)}</td>}
                       {isColumnVisible('loanType') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.loanType || undefined}>{row.loanType || '—'}</td>}
-                      {isColumnVisible('propertyState') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`}>{row.propertyState || '—'}</td>}
                       {isColumnVisible('juniorProcessor') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.juniorProcessor?.name}>{row.juniorProcessor?.name || '—'}</td>}
                       {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={row.seniorProcessor?.name || 'Unassigned'}>{row.seniorProcessor?.name || 'Unassigned'}</td>}
                       {isColumnVisible('pipelineStatus') && (
@@ -1118,6 +1181,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                           </span>
                         </td>
                       )}
+                      {isColumnVisible('projectedRevenue') && <td className={`border-b border-r border-slate-200 font-semibold tabular-nums text-slate-700 ${cellPadding}`}>{formatMoney(row.projectedRevenue)}</td>}
                     </>
                   )}
                   <td className="sticky right-0 z-10 border-b border-slate-200 bg-white px-2 py-2 shadow-[-1px_0_0_#e2e8f0] group-even:bg-slate-50 group-hover:bg-blue-50">

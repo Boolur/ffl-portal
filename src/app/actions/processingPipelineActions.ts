@@ -120,6 +120,8 @@ export type ProcessingPipelineFilters = {
   assignedTo?: string;
   loanNumbers?: string[];
   borrowerNames?: string[];
+  loanAmountMin?: number;
+  loanAmountMax?: number;
   loanTypes?: string[];
   states?: string[];
   lenders?: string[];
@@ -203,6 +205,16 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   }
   if (filters.borrowerNames?.length) {
     clauses.push({ loan: { borrowerName: { in: filters.borrowerNames } } });
+  }
+  if (filters.loanAmountMin !== undefined || filters.loanAmountMax !== undefined) {
+    clauses.push({
+      loan: {
+        amount: {
+          gte: filters.loanAmountMin,
+          lte: filters.loanAmountMax,
+        },
+      },
+    });
   }
   if (filters.loanTypes?.length) clauses.push({ loanType: { in: filters.loanTypes } });
   if (filters.states?.length) clauses.push({ propertyState: { in: filters.states } });

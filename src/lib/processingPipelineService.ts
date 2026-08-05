@@ -98,6 +98,7 @@ export async function upsertProcessingPipelineForCompletedTask(
   const data = asObject(task.submissionData);
   const assignmentGroup = optionalString(data.processingAssignmentGroup);
   const senior = await resolveSeniorProcessorForGroup(tx, assignmentGroup);
+  const explicitlyNeeded = parseOptionalBoolean(data.appraisalNeeded);
   const appraisalWaiver = parseOptionalBoolean(data.appraisalWaiver);
   const completedAt = input.completedAt ?? new Date();
   const pipelineData = {
@@ -106,7 +107,8 @@ export async function upsertProcessingPipelineForCompletedTask(
     juniorProcessorId: task.assignedUserId || input.actorId,
     assignmentGroup,
     dateAssigned: completedAt,
-    appraisalNeeded: appraisalWaiver === null ? null : !appraisalWaiver,
+    appraisalNeeded:
+      explicitlyNeeded ?? (appraisalWaiver === null ? null : !appraisalWaiver),
     appraisalNotes: optionalString(data.appraisalNotes),
     loanType: optionalString(data.loanType) || task.loan.program,
     propertyState:

@@ -81,6 +81,8 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
           submissionData: {
             processingAssignmentGroup: 'MARTIN_SON_BUI',
             appraisalWaiver: 'No',
+            appraisalNeeded: 'No',
+            appraisalNotes: 'Existing appraisal remains valid.',
             loanType: 'Conventional',
             propertyState: 'CA',
             investor: 'UWM',
@@ -119,7 +121,8 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
       data: expect.objectContaining({
         seniorProcessorId: 'senior-1',
         juniorProcessorId: 'junior-1',
-        appraisalNeeded: true,
+        appraisalNeeded: false,
+        appraisalNotes: 'Existing appraisal remains valid.',
         propertyState: 'CA',
         lender: 'UWM',
         projectedRevenue: 4500,

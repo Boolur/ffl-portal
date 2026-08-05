@@ -1902,6 +1902,8 @@ function QcForm({
     creditReportNotesTui: '',
     titleCompany: '',
     appraisalWaiver: '',
+    appraisalNeeded: '',
+    appraisalNotes: '',
     notesGoals: '',
   });
   const [importError, setImportError] = useState('');
@@ -1943,6 +1945,8 @@ function QcForm({
     { key: 'communityPropertyState', label: 'Community Property State' },
     { key: 'titleCompany', label: 'Title' },
     { key: 'appraisalWaiver', label: 'Appraisal Waiver' },
+    { key: 'appraisalNeeded', label: 'Appraisal Needed?' },
+    { key: 'appraisalNotes', label: 'Appraisal Notes' },
   ];
   const missingEntryKeys = new Set<keyof typeof form>(
     requiredEntryFields
@@ -2321,7 +2325,22 @@ function QcForm({
           required
           invalid={highlightedMissingFields.has('appraisalWaiver')}
         />
+        <RadioGroup
+          label="Appraisal Needed?"
+          value={form.appraisalNeeded}
+          onChange={(v) => update('appraisalNeeded', v)}
+          options={['Yes', 'No']}
+          required
+          invalid={highlightedMissingFields.has('appraisalNeeded')}
+        />
       </div>
+      <Textarea
+        label="Appraisal Notes"
+        value={form.appraisalNotes}
+        onChange={(v) => update('appraisalNotes', v)}
+        required
+        invalid={highlightedMissingFields.has('appraisalNotes')}
+      />
       <Textarea
         label="Notes / Goals"
         value={form.notesGoals}

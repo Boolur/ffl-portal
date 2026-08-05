@@ -2989,6 +2989,8 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     let processingAssignmentLabel: string | null = null;
     let processingPropertyState = '';
     let processingLender = '';
+    let processingAppraisalNeeded: boolean | null = null;
+    let processingAppraisalNotes = '';
     if (submissionType === 'QC') {
       if (
         role === UserRole.LOAN_OFFICER &&
@@ -3038,6 +3040,30 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         return {
           success: false,
           error: 'A valid two-letter Subject Property State is required before submitting Processing.',
+        };
+      }
+      const rawAppraisalNeeded = submissionObject?.appraisalNeeded;
+      if (typeof rawAppraisalNeeded === 'boolean') {
+        processingAppraisalNeeded = rawAppraisalNeeded;
+      } else {
+        const normalizedAppraisalNeeded = String(rawAppraisalNeeded ?? '').trim().toLowerCase();
+        if (normalizedAppraisalNeeded === 'yes' || normalizedAppraisalNeeded === 'true') {
+          processingAppraisalNeeded = true;
+        } else if (normalizedAppraisalNeeded === 'no' || normalizedAppraisalNeeded === 'false') {
+          processingAppraisalNeeded = false;
+        }
+      }
+      if (processingAppraisalNeeded === null) {
+        return {
+          success: false,
+          error: 'Appraisal Needed? is required before submitting Processing.',
+        };
+      }
+      processingAppraisalNotes = String(submissionObject?.appraisalNotes ?? '').trim();
+      if (!processingAppraisalNotes) {
+        return {
+          success: false,
+          error: 'Appraisal Notes are required before submitting Processing.',
         };
       }
       const qcNotes = String(notes ?? submissionObject?.notesGoals ?? '').trim();
@@ -3263,6 +3289,8 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       dataObj.processingAssignmentLabel = processingAssignmentLabel;
       dataObj.propertyState = processingPropertyState;
       dataObj.lender = processingLender;
+      dataObj.appraisalNeeded = processingAppraisalNeeded;
+      dataObj.appraisalNotes = processingAppraisalNotes;
       finalSubmissionData = dataObj as Prisma.JsonObject;
     }
     if (notes?.trim()) {
