@@ -8,12 +8,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Columns3,
   Filter,
   History,
   Loader2,
+  Maximize2,
+  Minimize2,
   RefreshCw,
-  Rows3,
   Search,
   SlidersHorizontal,
   X,
@@ -110,21 +110,21 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'dateAssigned', label: 'Assigned', width: 94 },
   { id: 'loanNumber', label: 'Arrive #', width: 96 },
   { id: 'borrowerName', label: 'Borrower', width: 154 },
-  { id: 'loanType', label: 'Loan Type', width: 108, optional: true },
-  { id: 'propertyState', label: 'State', width: 76, optional: true },
-  { id: 'lender', label: 'Lender', width: 140, optional: true },
+  { id: 'lender', label: 'Lender', width: 140 },
+  { id: 'loanType', label: 'Loan Type', width: 108 },
   { id: 'juniorProcessor', label: 'Jr Processor', width: 118 },
   { id: 'seniorProcessor', label: 'Processor', width: 118 },
   { id: 'pipelineStatus', label: 'Pipeline Status', width: 164 },
+  { id: 'missingItemsCurrentStatus', label: 'Pending Items', width: 220 },
+  { id: 'titleStatus', label: 'Title', width: 124 },
+  { id: 'payoffStatus', label: 'Payoff', width: 124 },
+  { id: 'hoiStatus', label: 'HOI', width: 124 },
+  { id: 'appraisalNeeded', label: 'Appraisal?', width: 118 },
   { id: 'daysInStatus', label: 'Days', width: 68 },
-  { id: 'titleStatus', label: 'Title', width: 124, optional: true },
-  { id: 'payoffStatus', label: 'Payoff', width: 124, optional: true },
-  { id: 'hoiStatus', label: 'HOI', width: 124, optional: true },
-  { id: 'appraisalNeeded', label: 'Appraisal?', width: 118, optional: true },
+  { id: 'propertyState', label: 'State', width: 76, optional: true },
   { id: 'appraisalNotes', label: 'Appraisal Notes', width: 220, optional: true },
   { id: 'appraisalOrderedAt', label: 'Appraisal Ordered', width: 146, optional: true },
   { id: 'appraisalBackAt', label: 'Appraisal Back', width: 140, optional: true },
-  { id: 'missingItemsCurrentStatus', label: 'Missing Items / Current Status', width: 250, optional: true },
   { id: 'extraNotes', label: 'Extra Notes', width: 210, optional: true },
   { id: 'rateLock', label: 'Rate Lock', width: 112, optional: true },
   { id: 'actions', label: 'Actions', width: 142 },
@@ -146,10 +146,34 @@ const FUNDING_COLUMNS: Array<{ id: ColumnId; label: string; width: number; optio
   { id: 'actions', label: 'Actions', width: 142 },
 ];
 
-const FOCUS_HIDDEN_COLUMNS = new Set<ColumnId>(
-  PIPELINE_COLUMNS.filter((column) => column.optional).map((column) => column.id)
-);
-const COLUMN_STORAGE_KEY = 'ffl:processing-pipeline-columns-v2';
+const PIPELINE_FOCUS_COLUMNS = new Set<ColumnId>([
+  'dateAssigned',
+  'loanNumber',
+  'borrowerName',
+  'lender',
+  'loanType',
+  'juniorProcessor',
+  'seniorProcessor',
+  'pipelineStatus',
+  'missingItemsCurrentStatus',
+  'titleStatus',
+  'payoffStatus',
+  'hoiStatus',
+  'appraisalNeeded',
+  'daysInStatus',
+  'actions',
+]);
+const FUNDING_FOCUS_COLUMNS = new Set<ColumnId>([
+  'dateAssigned',
+  'loanNumber',
+  'borrowerName',
+  'loanType',
+  'juniorProcessor',
+  'seniorProcessor',
+  'fundedAt',
+  'finalRevenue',
+  'actions',
+]);
 const WIDTH_STORAGE_KEY = 'ffl:processing-pipeline-widths-v2';
 const YES_NO_FILTER_OPTIONS: FilterOption[] = [
   { value: 'YES', label: 'Yes' },
@@ -371,16 +395,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [appliedFilters, setAppliedFilters] = useState<ProcessingPipelineFilters>({});
   const [draftFilters, setDraftFilters] = useState<ProcessingPipelineFilters>({});
   const [filterOptions, setFilterOptions] = useState<PipelineFilterOptions>(EMPTY_FILTER_OPTIONS);
-  const [hiddenColumns, setHiddenColumns] = useState<Set<ColumnId>>(
-    () => new Set(FOCUS_HIDDEN_COLUMNS)
-  );
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<ColumnId, number>>(
     () => Object.fromEntries(
       [...PIPELINE_COLUMNS, ...FUNDING_COLUMNS].map((column) => [column.id, column.width])
     ) as Record<ColumnId, number>
   );
-  const [columnsOpen, setColumnsOpen] = useState(false);
-  const [compactRows, setCompactRows] = useState(false);
   const [sortBy, setSortBy] = useState<'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber'>('dateAssigned');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [savingRows, setSavingRows] = useState<Set<string>>(new Set());
@@ -400,8 +420,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
   useEffect(() => {
     try {
-      const storedColumns = window.localStorage.getItem(COLUMN_STORAGE_KEY);
-      if (storedColumns) setHiddenColumns(new Set(JSON.parse(storedColumns) as ColumnId[]));
       const storedWidths = window.localStorage.getItem(WIDTH_STORAGE_KEY);
       if (storedWidths) {
         setColumnWidths((current) => ({ ...current, ...JSON.parse(storedWidths) }));
@@ -410,10 +428,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       // Invalid local preferences should never block the pipeline.
     }
   }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify([...hiddenColumns]));
-  }, [hiddenColumns]);
 
   useEffect(() => {
     window.localStorage.setItem(WIDTH_STORAGE_KEY, JSON.stringify(columnWidths));
@@ -471,10 +485,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const currentColumns = sheet === ProcessingPipelineSheet.FUNDING
     ? FUNDING_COLUMNS
     : PIPELINE_COLUMNS;
+  const focusColumns = sheet === ProcessingPipelineSheet.FUNDING
+    ? FUNDING_FOCUS_COLUMNS
+    : PIPELINE_FOCUS_COLUMNS;
   const isColumnVisible = (id: ColumnId) =>
-    id === 'actions' ||
     (id !== 'loanOfficer' || !isLoanOfficer) &&
-      !hiddenColumns.has(id);
+    (detailsExpanded || focusColumns.has(id));
   const visibleColumnCount = currentColumns.filter((column) => isColumnVisible(column.id)).length;
   const tableWidth = currentColumns
     .filter((column) => isColumnVisible(column.id))
@@ -517,26 +533,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
   const resizeColumn = (id: ColumnId, width: number) => {
     setColumnWidths((current) => ({ ...current, [id]: Math.round(width) }));
-  };
-
-  const toggleColumn = (id: ColumnId) => {
-    if (id === 'actions') return;
-    setHiddenColumns((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const resetTableLayout = () => {
-    setHiddenColumns(new Set(FOCUS_HIDDEN_COLUMNS));
-    setColumnWidths(
-      Object.fromEntries(
-        [...PIPELINE_COLUMNS, ...FUNDING_COLUMNS].map((column) => [column.id, column.width])
-      ) as Record<ColumnId, number>
-    );
-    setCompactRows(false);
   };
 
   const patchRow = (id: string, patch: Partial<ProcessingPipelineRow>) => {
@@ -682,7 +678,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     ]);
 
   const totalPages = Math.max(1, Math.ceil(total / initialData.pageSize));
-  const cellPadding = compactRows ? 'px-3 py-1.5' : 'px-3 py-3';
+  const cellPadding = 'px-3 py-3';
 
   return (
     <section className="space-y-5">
@@ -702,6 +698,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 onClick={() => {
                   setSheet(option.value);
                   setPage(1);
+                  setDetailsExpanded(false);
                   setDraftFilters({});
                   setAppliedFilters({});
                   loadRows(option.value, 1, search, sortBy, sortDirection, {});
@@ -790,62 +787,20 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               Clear
             </button>
           )}
-          <div className="relative lg:ml-auto">
-            <button
-              type="button"
-              aria-expanded={columnsOpen}
-              onClick={() => setColumnsOpen((open) => !open)}
-              className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
-            >
-              <Columns3 className="h-4 w-4 text-blue-600" />
-              Columns
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
-                {visibleColumnCount}
-              </span>
-            </button>
-            {columnsOpen && (
-              <div className="absolute right-0 top-12 z-50 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl shadow-slate-300/50">
-                <div className="mb-2 flex items-center justify-between px-1">
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">Visible columns</p>
-                    <p className="text-xs text-slate-500">Drag table headers to resize.</p>
-                  </div>
-                  <button type="button" onClick={resetTableLayout} className="text-xs font-bold text-blue-600 hover:text-blue-800">
-                    Reset
-                  </button>
-                </div>
-                <div className="max-h-72 space-y-1 overflow-y-auto">
-                  {currentColumns
-                    .filter((column) => column.id !== 'actions' && (column.id !== 'loanOfficer' || !isLoanOfficer))
-                    .map((column) => {
-                      const visible = isColumnVisible(column.id);
-                      return (
-                        <button
-                          key={column.id}
-                          type="button"
-                          aria-pressed={visible}
-                          onClick={() => toggleColumn(column.id)}
-                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
-                        >
-                          <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${visible ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-300 bg-white'}`}>
-                            {visible && <Check className="h-3.5 w-3.5" />}
-                          </span>
-                          {column.label}
-                        </button>
-                      );
-                    })}
-                </div>
-              </div>
-            )}
-          </div>
           <button
             type="button"
-            aria-pressed={compactRows}
-            onClick={() => setCompactRows((compact) => !compact)}
-            className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+            aria-pressed={detailsExpanded}
+            onClick={() => setDetailsExpanded((expanded) => !expanded)}
+            className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-bold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 lg:ml-auto ${
+              detailsExpanded
+                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
           >
-            <Rows3 className="h-4 w-4 text-slate-500" />
-            {compactRows ? 'Comfortable rows' : 'Compact rows'}
+            {detailsExpanded
+              ? <Minimize2 className="h-4 w-4" />
+              : <Maximize2 className="h-4 w-4 text-blue-600" />}
+            {detailsExpanded ? 'Condense' : 'Expand'}
           </button>
           <div className="flex h-10 items-center gap-2 rounded-xl bg-slate-50 px-3 text-xs font-semibold text-slate-500">
             <SlidersHorizontal className="h-4 w-4" />
@@ -925,7 +880,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     <FilterInput label="Appraisal Ordered To" type="date" value={draftFilters.appraisalOrderedTo} onChange={(value) => setDraftFilter('appraisalOrderedTo', value || undefined)} />
                     <FilterInput label="Appraisal Back From" type="date" value={draftFilters.appraisalBackFrom} onChange={(value) => setDraftFilter('appraisalBackFrom', value || undefined)} />
                     <FilterInput label="Appraisal Back To" type="date" value={draftFilters.appraisalBackTo} onChange={(value) => setDraftFilter('appraisalBackTo', value || undefined)} />
-                    <FilterInput label="Missing Items / Status" value={draftFilters.missingItemsCurrentStatus} onChange={(value) => setDraftFilter('missingItemsCurrentStatus', value || undefined)} placeholder="Contains text…" />
+                    <FilterInput label="Pending Items" value={draftFilters.missingItemsCurrentStatus} onChange={(value) => setDraftFilter('missingItemsCurrentStatus', value || undefined)} placeholder="Contains text…" />
                     <FilterInput label="Extra Notes" value={draftFilters.extraNotes} onChange={(value) => setDraftFilter('extraNotes', value || undefined)} placeholder="Contains text…" />
                     <MultiSelectFilter
                       label="Rate Lock"
@@ -985,7 +940,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             {PROCESSING_PIPELINE_SHEETS.find((option) => option.value === sheet)?.label}
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
-            Resize headers, choose columns, or scroll horizontally for more detail.
+            Resize headers or click Expand to show every available detail.
           </p>
         </div>
         <div
@@ -1045,13 +1000,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     </button>
                   </ResizableHeader>
                 )}
-                {isColumnVisible('loanType') && (
-                  <ResizableHeader id="loanType" width={columnWidths.loanType} onResize={resizeColumn}>
-                    Loan Type
-                  </ResizableHeader>
-                )}
                 {sheet === ProcessingPipelineSheet.FUNDING ? (
                   <>
+                    {isColumnVisible('loanType') && <ResizableHeader id="loanType" width={columnWidths.loanType} onResize={resizeColumn}>Loan Type</ResizableHeader>}
                     {isColumnVisible('juniorProcessor') && <ResizableHeader id="juniorProcessor" width={columnWidths.juniorProcessor} onResize={resizeColumn}>Junior</ResizableHeader>}
                     {isColumnVisible('seniorProcessor') && <ResizableHeader id="seniorProcessor" width={columnWidths.seniorProcessor} onResize={resizeColumn}>Senior</ResizableHeader>}
                     {isColumnVisible('fundedAt') && <ResizableHeader id="fundedAt" width={columnWidths.fundedAt} onResize={resizeColumn}>Funded Date</ResizableHeader>}
@@ -1062,16 +1013,13 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   </>
                 ) : (
                   <>
-                    {isColumnVisible('propertyState') && <ResizableHeader id="propertyState" width={columnWidths.propertyState} onResize={resizeColumn}>State</ResizableHeader>}
                     {isColumnVisible('lender') && <ResizableHeader id="lender" width={columnWidths.lender} onResize={resizeColumn}>Lender</ResizableHeader>}
+                    {isColumnVisible('loanType') && <ResizableHeader id="loanType" width={columnWidths.loanType} onResize={resizeColumn}>Loan Type</ResizableHeader>}
+                    {isColumnVisible('propertyState') && <ResizableHeader id="propertyState" width={columnWidths.propertyState} onResize={resizeColumn}>State</ResizableHeader>}
                     {isColumnVisible('juniorProcessor') && <ResizableHeader id="juniorProcessor" width={columnWidths.juniorProcessor} onResize={resizeColumn}>Jr Processor</ResizableHeader>}
                     {isColumnVisible('seniorProcessor') && <ResizableHeader id="seniorProcessor" width={columnWidths.seniorProcessor} onResize={resizeColumn}>Processor</ResizableHeader>}
                     {isColumnVisible('pipelineStatus') && <ResizableHeader id="pipelineStatus" width={columnWidths.pipelineStatus} onResize={resizeColumn}>Pipeline Status</ResizableHeader>}
-                    {isColumnVisible('daysInStatus') && (
-                      <ResizableHeader id="daysInStatus" width={columnWidths.daysInStatus} onResize={resizeColumn}>
-                        <button type="button" onClick={() => changeSort('statusChangedAt')} className="w-full text-left hover:text-blue-700">Days</button>
-                      </ResizableHeader>
-                    )}
+                    {isColumnVisible('missingItemsCurrentStatus') && <ResizableHeader id="missingItemsCurrentStatus" width={columnWidths.missingItemsCurrentStatus} onResize={resizeColumn}>Pending Items</ResizableHeader>}
                     {isColumnVisible('titleStatus') && <ResizableHeader id="titleStatus" width={columnWidths.titleStatus} onResize={resizeColumn}>Title</ResizableHeader>}
                     {isColumnVisible('payoffStatus') && <ResizableHeader id="payoffStatus" width={columnWidths.payoffStatus} onResize={resizeColumn}>Payoff</ResizableHeader>}
                     {isColumnVisible('hoiStatus') && <ResizableHeader id="hoiStatus" width={columnWidths.hoiStatus} onResize={resizeColumn}>HOI</ResizableHeader>}
@@ -1079,9 +1027,13 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     {isColumnVisible('appraisalNotes') && <ResizableHeader id="appraisalNotes" width={columnWidths.appraisalNotes} onResize={resizeColumn}>Appraisal Notes</ResizableHeader>}
                     {isColumnVisible('appraisalOrderedAt') && <ResizableHeader id="appraisalOrderedAt" width={columnWidths.appraisalOrderedAt} onResize={resizeColumn}>Appraisal Ordered</ResizableHeader>}
                     {isColumnVisible('appraisalBackAt') && <ResizableHeader id="appraisalBackAt" width={columnWidths.appraisalBackAt} onResize={resizeColumn}>Appraisal Back</ResizableHeader>}
-                    {isColumnVisible('missingItemsCurrentStatus') && <ResizableHeader id="missingItemsCurrentStatus" width={columnWidths.missingItemsCurrentStatus} onResize={resizeColumn}>Missing Items / Current Status</ResizableHeader>}
                     {isColumnVisible('extraNotes') && <ResizableHeader id="extraNotes" width={columnWidths.extraNotes} onResize={resizeColumn}>Extra Notes</ResizableHeader>}
                     {isColumnVisible('rateLock') && <ResizableHeader id="rateLock" width={columnWidths.rateLock} onResize={resizeColumn}>Rate Lock</ResizableHeader>}
+                    {isColumnVisible('daysInStatus') && (
+                      <ResizableHeader id="daysInStatus" width={columnWidths.daysInStatus} onResize={resizeColumn}>
+                        <button type="button" onClick={() => changeSort('statusChangedAt')} className="w-full text-left hover:text-blue-700">Days</button>
+                      </ResizableHeader>
+                    )}
                   </>
                 )}
                 <ResizableHeader id="actions" width={columnWidths.actions} onResize={resizeColumn} className="sticky right-0 z-40 shadow-[-1px_0_0_#e2e8f0]">
@@ -1106,11 +1058,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   {isColumnVisible('borrowerName') && (
                     <td className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 ${cellPadding}`} title={row.loan.borrowerName}>{row.loan.borrowerName}</td>
                   )}
-                  {isColumnVisible('loanType') && (
-                    <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.loanType || undefined}>{row.loanType || '—'}</td>
-                  )}
                   {sheet === ProcessingPipelineSheet.FUNDING ? (
                     <>
+                      {isColumnVisible('loanType') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.loanType || undefined}>{row.loanType || '—'}</td>}
                       {isColumnVisible('juniorProcessor') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`}>{row.juniorProcessor?.name || '—'}</td>}
                       {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`}>{row.seniorProcessor?.name || 'Unassigned'}</td>}
                       {isColumnVisible('fundedAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.fundedAt)}</td>}
@@ -1135,8 +1085,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     </>
                   ) : (
                     <>
-                      {isColumnVisible('propertyState') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`}>{row.propertyState || '—'}</td>}
                       {isColumnVisible('lender') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'lender', row.lender)}</td>}
+                      {isColumnVisible('loanType') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.loanType || undefined}>{row.loanType || '—'}</td>}
+                      {isColumnVisible('propertyState') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`}>{row.propertyState || '—'}</td>}
                       {isColumnVisible('juniorProcessor') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.juniorProcessor?.name}>{row.juniorProcessor?.name || '—'}</td>}
                       {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={row.seniorProcessor?.name || 'Unassigned'}>{row.seniorProcessor?.name || 'Unassigned'}</td>}
                       {isColumnVisible('pipelineStatus') && (
@@ -1150,13 +1101,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                             )}
                         </td>
                       )}
-                      {isColumnVisible('daysInStatus') && (
-                        <td className={`border-b border-r border-slate-200 text-center ${cellPadding}`}>
-                          <span className={`inline-flex min-w-8 justify-center rounded-full px-2 py-1 text-xs font-bold ${row.daysInStatus > 7 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
-                            {row.daysInStatus}
-                          </span>
-                        </td>
-                      )}
+                      {isColumnVisible('missingItemsCurrentStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'missingItemsCurrentStatus', row.missingItemsCurrentStatus)}</td>}
                       {isColumnVisible('titleStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'titleStatus', row.titleStatus, PROCESSING_ITEM_STATUS_OPTIONS)}</td>}
                       {isColumnVisible('payoffStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS)}</td>}
                       {isColumnVisible('hoiStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'hoiStatus', row.hoiStatus, PROCESSING_ITEM_STATUS_OPTIONS)}</td>}
@@ -1164,12 +1109,18 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       {isColumnVisible('appraisalNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'appraisalNotes', row.appraisalNotes)}</td>}
                       {isColumnVisible('appraisalOrderedAt') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{dateCell(row, 'appraisalOrderedAt', row.appraisalOrderedAt)}</td>}
                       {isColumnVisible('appraisalBackAt') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{dateCell(row, 'appraisalBackAt', row.appraisalBackAt)}</td>}
-                      {isColumnVisible('missingItemsCurrentStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'missingItemsCurrentStatus', row.missingItemsCurrentStatus)}</td>}
                       {isColumnVisible('extraNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'extraNotes', row.extraNotes)}</td>}
                       {isColumnVisible('rateLock') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{yesNoCell(row, 'rateLock', row.rateLock)}</td>}
+                      {isColumnVisible('daysInStatus') && (
+                        <td className={`border-b border-r border-slate-200 text-center ${cellPadding}`}>
+                          <span className={`inline-flex min-w-8 justify-center rounded-full px-2 py-1 text-xs font-bold ${row.daysInStatus > 7 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
+                            {row.daysInStatus}
+                          </span>
+                        </td>
+                      )}
                     </>
                   )}
-                  <td className={`sticky right-0 z-10 border-b border-slate-200 bg-white px-2 shadow-[-1px_0_0_#e2e8f0] group-even:bg-slate-50 group-hover:bg-blue-50 ${compactRows ? 'py-1' : 'py-2'}`}>
+                  <td className="sticky right-0 z-10 border-b border-slate-200 bg-white px-2 py-2 shadow-[-1px_0_0_#e2e8f0] group-even:bg-slate-50 group-hover:bg-blue-50">
                     <div className="flex items-center justify-end gap-1.5">
                       {savingRows.has(row.id) && <Loader2 className="h-4 w-4 animate-spin text-blue-600" aria-label="Saving" />}
                       <button type="button" onClick={() => openHistory(row)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition hover:border-blue-200 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" title="View change history">
