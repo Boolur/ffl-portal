@@ -70,6 +70,8 @@ type SupportChatWidgetProps = {
   activeRole: UserRole;
 };
 
+type ContextSource = 'mismo' | 'loan' | 'manual';
+
 const DESK_OPTIONS = [
   {
     value: SupportDesk.SCENARIO,
@@ -133,7 +135,7 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
   const [tab, setTab] = React.useState<'previous' | 'new'>('previous');
   const [selectedDesk, setSelectedDesk] = React.useState<SupportDesk | null>(null);
   const [newChatStep, setNewChatStep] = React.useState<'source' | 'details'>('source');
-  const [contextSource, setContextSource] = React.useState<'mismo' | 'loan' | null>(null);
+  const [contextSource, setContextSource] = React.useState<ContextSource | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -480,6 +482,7 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
                 onBack={() => {
                   if (newChatStep === 'details' && selectedDesk !== SupportDesk.HELP) {
                     setNewChatStep('source');
+                    if (contextSource === 'manual') setContextSource(null);
                     return;
                   }
                   setSelectedDesk(null);
@@ -651,11 +654,11 @@ function NewChatForm({
   mismoFile: File | null;
   showMismoUpload: boolean;
   step: 'source' | 'details';
-  contextSource: 'mismo' | 'loan' | null;
+  contextSource: ContextSource | null;
   submitting: boolean;
   onBack: () => void;
-  onChooseSource: (source: 'mismo' | 'loan') => void;
-  onSelectSource: (source: 'mismo' | 'loan' | null) => void;
+  onChooseSource: (source: ContextSource) => void;
+  onSelectSource: (source: ContextSource | null) => void;
   onFormChange: (patch: Partial<typeof form>) => void;
   onLoanChange: (loanId: string) => void;
   onFileChange: (file: File | null) => void;
@@ -663,7 +666,9 @@ function NewChatForm({
 }) {
   const Icon = deskOption?.icon || MessageCircle;
   const contextHelp =
-    desk === SupportDesk.SCENARIO
+    contextSource === 'manual'
+      ? 'Manual requests route from the lender, loan type, and state you enter below.'
+      : desk === SupportDesk.SCENARIO
       ? 'Scenario questions route best when lender, loan type, and state are filled in.'
       : desk === SupportDesk.PRICING
         ? 'Pricing questions route best with lender, loan type, and MISMO/pricing context.'
@@ -673,7 +678,8 @@ function NewChatForm({
   const sourceComplete =
     !requiresContext ||
     (contextSource === 'mismo' && Boolean(mismoFile)) ||
-    (contextSource === 'loan' && Boolean(form.loanId));
+    (contextSource === 'loan' && Boolean(form.loanId)) ||
+    contextSource === 'manual';
   const canSubmit = Boolean(form.subject.trim() && form.body.trim() && contextComplete && sourceComplete);
 
   return (
@@ -711,10 +717,10 @@ function NewChatForm({
               <button
                 type="button"
                 onClick={() => onSelectSource('mismo')}
-                className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="rounded-3xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               >
                 <div className="flex items-start gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
                     <Paperclip className="h-5 w-5" />
                   </div>
                   <div>
@@ -729,16 +735,34 @@ function NewChatForm({
               <button
                 type="button"
                 onClick={() => onSelectSource('loan')}
-                className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/40 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className="rounded-3xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/40 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
               >
                 <div className="flex items-start gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
                     <FileText className="h-5 w-5" />
                   </div>
                   <div>
                     <h4 className="text-sm font-extrabold text-slate-900">Select Related Loan</h4>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
                       Use this if the loan is already in the portal. We will prefill details when available.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onChooseSource('manual')}
+                className="rounded-3xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-200 hover:bg-amber-50/40 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
+                    <MessageCircle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-slate-900">Manual Request</h4>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Use this if you want to enter lender, loan type, and state yourself.
                     </p>
                   </div>
                 </div>
@@ -877,6 +901,12 @@ function NewChatForm({
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 <p className="font-bold text-slate-800">MISMO: {mismoFile.name}</p>
                 <p>Fill in the context below so the desk can route and review it quickly.</p>
+              </div>
+            )}
+            {contextSource === 'manual' && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <p className="font-bold">Manual request</p>
+                <p>Enter the lender, loan type, and state yourself before submitting.</p>
               </div>
             )}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
