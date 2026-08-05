@@ -2967,6 +2967,8 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     let processingMethod = '';
     let processingAssignmentGroup: string | null = null;
     let processingAssignmentLabel: string | null = null;
+    let processingPropertyState = '';
+    let processingLender = '';
     if (submissionType === 'QC') {
       if (
         role === UserRole.LOAN_OFFICER &&
@@ -3006,6 +3008,16 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         return {
           success: false,
           error: 'Investor is required before submitting Processing.',
+        };
+      }
+      processingLender = qcInvestor;
+      processingPropertyState = String(submissionObject?.propertyState ?? '')
+        .trim()
+        .toUpperCase();
+      if (!/^[A-Z]{2}$/.test(processingPropertyState)) {
+        return {
+          success: false,
+          error: 'A valid two-letter Subject Property State is required before submitting Processing.',
         };
       }
       const qcNotes = String(notes ?? submissionObject?.notesGoals ?? '').trim();
@@ -3229,6 +3241,8 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       dataObj.processingMethodLabel = getProcessingMethodLabel(processingMethod);
       dataObj.processingAssignmentGroup = processingAssignmentGroup;
       dataObj.processingAssignmentLabel = processingAssignmentLabel;
+      dataObj.propertyState = processingPropertyState;
+      dataObj.lender = processingLender;
       finalSubmissionData = dataObj as Prisma.JsonObject;
     }
     if (notes?.trim()) {

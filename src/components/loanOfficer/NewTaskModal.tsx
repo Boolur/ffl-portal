@@ -281,6 +281,7 @@ type MismoPrefill = {
   loanType?: string;
   loanProgram?: string;
   loanAmount?: string;
+  propertyState?: string;
   homeValue?: string;
   employerName?: string;
   employerAddress?: string;
@@ -609,6 +610,16 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     : '';
 
   const investor = getText(doc, 'ProductProviderName');
+  const subjectProperty =
+    doc.getElementsByTagNameNS('*', 'SUBJECT_PROPERTY')[0] ??
+    doc.getElementsByTagNameNS('*', 'PROPERTY')[0] ??
+    null;
+  const propertyState = (
+    getFirstText(subjectProperty, ['StateCode', 'AddressStateCode', 'PropertyStateCode']) ||
+    getFirstText(doc, ['SubjectPropertyStateCode', 'PropertyStateCode'])
+  )
+    .trim()
+    .toUpperCase();
 
   const mortgageType = getText(doc, 'MortgageType');
   const mortgageTypeNormalized = mortgageType.trim().toUpperCase();
@@ -687,6 +698,7 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     loanType,
     loanProgram,
     loanAmount,
+    propertyState,
     homeValue,
     employerName,
     employerAddress,
@@ -1878,6 +1890,7 @@ function QcForm({
     loanType: '',
     loanProgram: '',
     loanAmount: '',
+    propertyState: '',
     cashBack: '',
     projectedRevenue: '',
     aus: '',
@@ -1915,6 +1928,7 @@ function QcForm({
     { key: 'loanType', label: 'Loan Type' },
     { key: 'loanProgram', label: 'Loan Program' },
     { key: 'loanAmount', label: 'Loan Amount' },
+    { key: 'propertyState', label: 'Subject Property State' },
     { key: 'cashBack', label: 'Cash Back' },
     { key: 'projectedRevenue', label: 'Projected Revenue' },
     { key: 'aus', label: 'AUS' },
@@ -2080,6 +2094,7 @@ function QcForm({
         loanType: prefill.loanType || prev.loanType,
         loanProgram: prefill.loanProgram || prev.loanProgram,
         loanAmount: prefill.loanAmount || prev.loanAmount,
+        propertyState: prefill.propertyState || prev.propertyState,
         creditReportNotesExp:
           prefill.creditReportNotesExp || prev.creditReportNotesExp,
         creditReportNotesEqf:
@@ -2220,6 +2235,14 @@ function QcForm({
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={loanTypeOptions} required invalid={highlightedMissingFields.has('loanType')} />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required invalid={highlightedMissingFields.has('loanProgram')} />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
+        <Input
+          label="Subject Property State"
+          value={form.propertyState}
+          onChange={(value) => update('propertyState', value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))}
+          placeholder="CA"
+          required
+          invalid={highlightedMissingFields.has('propertyState')}
+        />
         <Input label="Cash Back" value={form.cashBack} onChange={(v) => update('cashBack', v)} required invalid={highlightedMissingFields.has('cashBack')} />
         <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} required invalid={highlightedMissingFields.has('projectedRevenue')} />
         <Select
@@ -2694,12 +2717,14 @@ function Input({
   onChange,
   required,
   invalid,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   required?: boolean;
   invalid?: boolean;
+  placeholder?: string;
 }) {
   return (
     <label className="space-y-1 text-sm">
@@ -2716,6 +2741,7 @@ function Input({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
+        placeholder={placeholder}
       />
     </label>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BarChart3, Sheet } from 'lucide-react';
+import { BarChart3, CheckCircle2, Sheet } from 'lucide-react';
 import { UserRole } from '@prisma/client';
 import type { PipelineReport } from '@/app/actions/pipelineReportingActions';
 import type { getProcessingPipeline } from '@/app/actions/processingPipelineActions';
@@ -23,15 +23,15 @@ export function PipelineWorkspace({ role, initialReport, initialProcessing }: Pr
   );
 
   return (
-    <div>
+    <div className="w-full space-y-6">
       {!isProcessingRole && initialReport && (
-        <div className="mb-5 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Pipeline phase">
+        <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1.5 shadow-sm" role="tablist" aria-label="Pipeline phase">
           <button
             type="button"
             role="tab"
             aria-selected={view === 'pre-processing'}
             onClick={() => setView('pre-processing')}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
               view === 'pre-processing'
                 ? 'bg-white text-slate-950 shadow-sm'
                 : 'text-slate-500 hover:text-slate-800'
@@ -45,7 +45,7 @@ export function PipelineWorkspace({ role, initialReport, initialProcessing }: Pr
             role="tab"
             aria-selected={view === 'processing'}
             onClick={() => setView('processing')}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
               view === 'processing'
                 ? 'bg-white text-slate-950 shadow-sm'
                 : 'text-slate-500 hover:text-slate-800'
@@ -60,14 +60,24 @@ export function PipelineWorkspace({ role, initialReport, initialProcessing }: Pr
       {view === 'pre-processing' && initialReport ? (
         <PipelinePage initialReport={initialReport} />
       ) : (
-        <div>
-          <header className="app-page-header">
-            <h1 className="app-page-title">Processing Pipeline</h1>
-            <p className="app-page-subtitle">
-              {initialProcessing.canEdit
-                ? 'Manage active files, restructures, fundings, and audited updates.'
-                : 'Track your loans after they enter Processing. This view is read-only.'}
-            </p>
+        <div className="space-y-6">
+          <header className="app-page-header flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-blue-700">
+                <Sheet className="h-3.5 w-3.5" />
+                Processing Operations
+              </div>
+              <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950">Processing Pipeline</h1>
+              <p className="mt-1 max-w-2xl text-sm font-medium text-slate-500">
+                {initialProcessing.canEdit
+                  ? 'Manage assignments, milestones, restructures, fundings, and audited updates from one workspace.'
+                  : 'Track every milestone after your loans enter Processing. This view is read-only.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+              <CheckCircle2 className="h-5 w-5" />
+              {initialProcessing.canEdit ? 'Audited autosave enabled' : 'Live processing visibility'}
+            </div>
           </header>
           <ProcessingPipelineGrid initialData={initialProcessing} role={role} />
         </div>
