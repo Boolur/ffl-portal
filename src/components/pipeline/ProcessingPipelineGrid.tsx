@@ -184,13 +184,26 @@ const YES_NO_FILTER_OPTIONS: FilterOption[] = [
 ];
 
 const statusTone: Record<ProcessingPipelineStatus, string> = {
-  SUBBED_TO_UW: 'border-cyan-200 bg-cyan-50 text-cyan-800',
-  APPROVED_WITH_CONDITIONS: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-  RE_SUB: 'border-green-200 bg-green-50 text-green-800',
-  CTC: 'border-teal-200 bg-teal-50 text-teal-800',
-  DOCS_OUT: 'border-blue-200 bg-blue-50 text-blue-800',
-  FUNDED: 'border-lime-200 bg-lime-50 text-lime-800',
-  SUSPENDED_RESTRUCTURE: 'border-red-200 bg-red-50 text-red-800',
+  SUBBED_TO_UW: 'border-sky-200 bg-sky-100 text-sky-900',
+  APPROVED_WITH_CONDITIONS: 'border-lime-200 bg-lime-100 text-lime-900',
+  RE_SUB: 'border-green-300 bg-green-200 text-green-900',
+  CTC: 'border-green-400 bg-green-300 text-green-950',
+  DOCS_OUT: 'border-green-700 bg-green-700 text-white',
+  FUNDED: 'border-amber-300 bg-amber-300 text-amber-950',
+  SUSPENDED_RESTRUCTURE: 'border-red-500 bg-red-500 text-white',
+};
+
+const itemStatusTone: Record<ProcessingItemStatus, string> = {
+  NOT_STARTED: 'border-sky-200 bg-sky-100 text-sky-900',
+  ORDERED: 'border-amber-200 bg-amber-100 text-amber-900',
+  RECEIVED: 'border-emerald-200 bg-emerald-100 text-emerald-900',
+  NOT_APPLICABLE: 'border-slate-200 bg-slate-100 text-slate-600',
+};
+
+const booleanTone = (value: boolean | null) => {
+  if (value === true) return 'border-emerald-200 bg-emerald-100 text-emerald-900';
+  if (value === false) return 'border-red-200 bg-red-100 text-red-900';
+  return 'border-slate-200 bg-slate-100 text-slate-600';
 };
 
 function ResizableHeader({
@@ -419,6 +432,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [isPending, startTransition] = useTransition();
   const canEdit = initialData.canEdit;
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
+  const isProcessor =
+    role === UserRole.PROCESSOR_SR || role === UserRole.PROCESSOR_JR;
 
   useEffect(() => {
     try {
@@ -492,6 +507,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     : PIPELINE_FOCUS_COLUMNS;
   const isColumnVisible = (id: ColumnId) =>
     (id !== 'loanOfficer' || !isLoanOfficer) &&
+    (!isProcessor || (id !== 'loanAmount' && id !== 'projectedRevenue')) &&
     (detailsExpanded || focusColumns.has(id));
   const visibleColumnCount = currentColumns.filter((column) => isColumnVisible(column.id)).length;
   const tableWidth = currentColumns
@@ -651,12 +667,14 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       aria-label={field}
       value={value === null ? '' : String(value)}
       onChange={(event) => saveCell(row, field, event.target.value)}
-      className={`w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] font-medium shadow-sm outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 ${className}`}
+      className={`w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] font-semibold shadow-sm outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 ${className}`}
     >
       {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
   ) : (
-    <span>{options.find((option) => option.value === String(value))?.label || '—'}</span>
+    <span className={`inline-flex max-w-full rounded-lg border px-2.5 py-1 text-xs font-bold ${className || 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+      {options.find((option) => option.value === String(value))?.label || '—'}
+    </span>
   );
 
   const textCell = (
@@ -694,10 +712,10 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
   const yesNoCell = (row: ProcessingPipelineRow, field: EditableField, value: boolean | null) =>
     editableSelect(row, field, value, [
-      { value: '', label: '—' },
+      { value: '', label: 'N/A' },
       { value: 'true', label: 'Yes' },
       { value: 'false', label: 'No' },
-    ]);
+    ], booleanTone(value));
 
   const totalPages = Math.max(1, Math.ceil(total / initialData.pageSize));
   const cellPadding = 'px-3 py-3';
@@ -1165,9 +1183,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                         </td>
                       )}
                       {isColumnVisible('missingItemsCurrentStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'missingItemsCurrentStatus', row.missingItemsCurrentStatus)}</td>}
-                      {isColumnVisible('titleStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'titleStatus', row.titleStatus, PROCESSING_ITEM_STATUS_OPTIONS)}</td>}
-                      {isColumnVisible('payoffStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS)}</td>}
-                      {isColumnVisible('hoiStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'hoiStatus', row.hoiStatus, PROCESSING_ITEM_STATUS_OPTIONS)}</td>}
+                      {isColumnVisible('titleStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'titleStatus', row.titleStatus, PROCESSING_ITEM_STATUS_OPTIONS, itemStatusTone[row.titleStatus])}</td>}
+                      {isColumnVisible('payoffStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS, itemStatusTone[row.payoffStatus])}</td>}
+                      {isColumnVisible('hoiStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'hoiStatus', row.hoiStatus, PROCESSING_ITEM_STATUS_OPTIONS, itemStatusTone[row.hoiStatus])}</td>}
                       {isColumnVisible('appraisalNeeded') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{yesNoCell(row, 'appraisalNeeded', row.appraisalNeeded)}</td>}
                       {isColumnVisible('appraisalNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'appraisalNotes', row.appraisalNotes)}</td>}
                       {isColumnVisible('appraisalOrderedAt') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{dateCell(row, 'appraisalOrderedAt', row.appraisalOrderedAt)}</td>}
