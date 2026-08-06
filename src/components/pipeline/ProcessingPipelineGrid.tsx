@@ -667,12 +667,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       aria-label={field}
       value={value === null ? '' : String(value)}
       onChange={(event) => saveCell(row, field, event.target.value)}
-      className={`w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] font-semibold shadow-sm outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 ${className}`}
+      className={`w-full rounded-full border px-2.5 py-1.5 text-[13px] font-semibold shadow-sm outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 ${className || 'border-slate-200 bg-white text-slate-700'}`}
     >
       {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
   ) : (
-    <span className={`inline-flex max-w-full rounded-lg border px-2.5 py-1 text-xs font-bold ${className || 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+    <span className={`inline-flex max-w-full rounded-full border px-2.5 py-1 text-xs font-bold ${className || 'border-slate-200 bg-slate-100 text-slate-600'}`}>
       {options.find((option) => option.value === String(value))?.label || '—'}
     </span>
   );
