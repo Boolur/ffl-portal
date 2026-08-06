@@ -194,7 +194,7 @@ const statusTone: Record<ProcessingPipelineStatus, string> = {
 };
 
 const itemStatusTone: Record<ProcessingItemStatus, string> = {
-  NOT_STARTED: 'border-sky-200 bg-sky-100 text-sky-900',
+  NOT_STARTED: 'border-slate-300 bg-slate-100 text-slate-700',
   ORDERED: 'border-amber-200 bg-amber-100 text-amber-900',
   RECEIVED: 'border-emerald-200 bg-emerald-100 text-emerald-900',
   NOT_APPLICABLE: 'border-slate-200 bg-slate-100 text-slate-600',
@@ -1009,10 +1009,10 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     type="button"
                     aria-pressed={selected}
                     onClick={() => toggleQuickStatus(option.value)}
-                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${statusTone[option.value]} ${
                       selected
-                        ? statusTone[option.value]
-                        : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700'
+                        ? 'ring-2 ring-blue-400 ring-offset-1 shadow-sm'
+                        : 'opacity-75 hover:opacity-100'
                     }`}
                   >
                     {selected && <Check className="h-3 w-3" />}
