@@ -243,6 +243,10 @@ export type PendingStpActionResult = {
 };
 
 const PROCESSING_KINDS = [TaskKind.SUBMIT_PROCESSING, TaskKind.SUBMIT_QC];
+const LEADERBOARD_TRANSACTION_OPTIONS = {
+  maxWait: 15000,
+  timeout: 45000,
+};
 
 const MILESTONE_LABELS: Record<LeaderboardMilestoneKey, string> = {
   plusOne: '+1s',
@@ -1466,7 +1470,7 @@ export async function actionPendingStpLoan(
           }),
         },
       });
-    });
+    }, LEADERBOARD_TRANSACTION_OPTIONS);
 
     revalidatePath('/leaderboard');
     revalidatePath('/pipeline');
@@ -1609,6 +1613,11 @@ function serializeForAudit(value: unknown) {
   return JSON.parse(JSON.stringify(value, (_key, item) => (
     typeof item === 'bigint' ? item.toString() : item
   )));
+}
+
+function isTransactionStartTimeout(error: unknown) {
+  return error instanceof Error &&
+    error.message.toLowerCase().includes('unable to start a transaction');
 }
 
 export async function updateLeaderboardLoanDetails(
@@ -1838,7 +1847,7 @@ export async function updateLeaderboardLoanDetails(
           }),
         },
       });
-    });
+    }, LEADERBOARD_TRANSACTION_OPTIONS);
 
     revalidatePath('/leaderboard');
     revalidatePath('/pipeline');
@@ -1849,7 +1858,9 @@ export async function updateLeaderboardLoanDetails(
     console.error('Failed to update leaderboard loan details:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unable to update loan details.',
+      error: isTransactionStartTimeout(error)
+        ? 'The database was busy starting this edit. Please try applying the change again.'
+        : error instanceof Error ? error.message : 'Unable to update loan details.',
     };
   }
 }
