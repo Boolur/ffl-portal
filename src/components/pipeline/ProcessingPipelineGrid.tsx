@@ -201,9 +201,9 @@ const itemStatusTone: Record<ProcessingItemStatus, string> = {
 };
 
 const booleanTone = (value: boolean | null) => {
-  if (value === true) return 'border-emerald-200 bg-emerald-100 text-emerald-900';
-  if (value === false) return 'border-red-200 bg-red-100 text-red-900';
-  return 'border-slate-200 bg-slate-100 text-slate-600';
+  if (value === true) return '!border-emerald-200 !bg-emerald-100 !text-emerald-900';
+  if (value === false) return '!border-red-300 !bg-red-200 !text-red-900';
+  return '!border-slate-200 !bg-slate-100 !text-slate-600';
 };
 
 function ResizableHeader({
