@@ -753,6 +753,11 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                       initialFocusedTaskId={initialFocusedTaskId}
                       enableTaskSelection={enableBatchDelete}
                       selectedTaskIds={new Set(selectedIds)}
+                      onDataChanged={
+                        bucket.serverPagination
+                          ? () => loadServerBucket(bucket, null, 'replace')
+                          : undefined
+                      }
                       onToggleTaskSelection={(taskId, selected) => {
                         setSelectedTaskIdsByBucket((prev) => {
                           const existing = prev[bucket.id] || [];

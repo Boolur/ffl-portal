@@ -12,7 +12,7 @@ import {
   TaskWorkflowState,
   UserRole,
 } from '@prisma/client';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath as nextRevalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { sendEmail } from '@/lib/email';
@@ -46,6 +46,14 @@ import {
   type TaskBucketSort,
 } from '@/lib/taskBucketQueries';
 import { upsertProcessingPipelineForCompletedTask } from '@/lib/processingPipelineService';
+
+function revalidatePath(path: string) {
+  // Task clients patch or reload only the affected bucket. Invalidating the
+  // active /tasks route here makes Next return a full RSC refresh with every
+  // mutation, recreating all desk queries and causing multi-second stalls.
+  if (path === '/tasks') return;
+  nextRevalidatePath(path);
+}
 
 function isSubmissionTask(task: {
   kind: TaskKind | null;

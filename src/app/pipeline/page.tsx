@@ -26,7 +26,7 @@ export default async function Pipeline() {
     getProcessingPipeline({
       sheet: ProcessingPipelineSheet.PIPELINE,
       page: 1,
-      pageSize: 100,
+      pageSize: 50,
     }),
     isProcessingRole ? Promise.resolve(null) : getPipelineReport(),
   ]);

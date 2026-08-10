@@ -1,6 +1,6 @@
 'use server';
 
-import { unstable_noStore as noStore, revalidatePath } from 'next/cache';
+import { unstable_noStore as noStore } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import {
   Prisma,
@@ -405,6 +405,25 @@ export async function getProcessingPipeline(input?: {
   };
 }
 
+export async function getProcessingPipelineSheetCounts() {
+  noStore();
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const access = getProcessingPipelineAccess(actor.role);
+  if (!access.canView) return { success: false as const, error: 'Not authorized.' };
+
+  const grouped = await prisma.processingPipelineLoan.groupBy({
+    by: ['sheet'],
+    where: scopeWhere(actor),
+    _count: { _all: true },
+  });
+  const counts = Object.fromEntries(
+    grouped.map((row) => [row.sheet, row._count._all])
+  ) as Partial<Record<ProcessingPipelineSheet, number>>;
+
+  return { success: true as const, counts };
+}
+
 export async function getProcessingPipelineFilterOptions(sheet: ProcessingPipelineSheet) {
   noStore();
   const actor = await getActor();
@@ -610,7 +629,6 @@ export async function updateProcessingPipelineCell(input: {
         error: 'This row changed in another session. Refreshing the latest values.',
       };
     }
-    revalidatePath('/pipeline');
     return { success: true as const, version: result.version, patch: result.patch };
   } catch (error) {
     return {
@@ -719,7 +737,6 @@ export async function updateProcessingPipelineRateLock(input: {
         error: 'This row changed in another session. Refreshing the latest values.',
       };
     }
-    revalidatePath('/pipeline');
     return {
       success: true as const,
       version: result.version,
@@ -806,7 +823,6 @@ export async function moveProcessingPipelineLoan(input: {
       error: 'This row changed in another session. Refreshing the latest values.',
     };
   }
-  revalidatePath('/pipeline');
   return { success: true as const, version: result.version };
 }
 

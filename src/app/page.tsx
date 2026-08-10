@@ -6,8 +6,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { TaskKind, UserRole } from '@prisma/client';
 import { startPerfTimer, withPerfMetric } from '@/lib/perf';
-import { buildLoanOfficerLoanWhere, buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
-import { isAdmin } from '@/lib/adminTiers';
+import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 
 const LO_DASHBOARD_TASK_KINDS: TaskKind[] = [
   TaskKind.SUBMIT_DISCLOSURES,
@@ -18,45 +17,15 @@ async function getLoans(role?: string | null, userId?: string | null) {
   const endPerf = startPerfTimer('page.dashboard.getLoans.total', {
     role: role || 'UNKNOWN',
   });
-  const isAdminOrManager = isAdmin(role as UserRole) || role === UserRole.MANAGER;
-  const isLoanOfficer = role === UserRole.LOAN_OFFICER;
-  const isLoanOfficerAssistant = role === UserRole.LOA;
-  if (isLoanOfficer || isLoanOfficerAssistant) {
-    endPerf({
-      count: 0,
-      skipped: true,
-    });
-    return [];
-  }
-  const where = isAdminOrManager
-    ? undefined
-    : isLoanOfficer && userId
-      ? buildLoanOfficerLoanWhere(userId)
-      : { id: '__none__' };
-
-  const loans = await withPerfMetric(
-    'query.dashboard.getLoans',
-    () =>
-      prisma.loan.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-      }),
-    {
-      role: role || 'UNKNOWN',
-      hasUserId: Boolean(userId),
-    }
-  );
-
-  const mapped = loans.map((l) => ({
-    ...l,
-    amount: Number(l.amount),
-    createdAt: l.createdAt,
-    updatedAt: l.updatedAt,
-  }));
   endPerf({
-    count: mapped.length,
+    count: 0,
+    skipped: true,
+    hasUserId: Boolean(userId),
   });
-  return mapped;
+  // Dashboard cards consume task summaries, not loan rows. The previous
+  // manager/admin path loaded the entire Loan table and serialized it into a
+  // client component even though that role never rendered the loan list.
+  return [];
 }
 
 async function getDashboardTasks(role: UserRole, userId?: string) {

@@ -446,6 +446,7 @@ model Task {
   @@index([assignedUserId, createdAt])
   @@index([kind, dueDate])
   @@index([kind, createdAt])
+  @@index([kind, status, workflowState, assignedUserId, createdAt(sort: Desc)])
   @@index([loanId, dueDate])
   @@index([status, dueDate])
   @@index([loanId, updatedAt])
@@ -495,6 +496,8 @@ model ProcessingPipelineLoan {
   updatedAt                 DateTime                 @updatedAt
 
   @@index([sheet, statusChangedAt])
+  @@index([sheet, dateAssigned(sort: Desc)])
+  @@index([sheet, pipelineStatus, statusChangedAt(sort: Desc)])
   @@index([seniorProcessorId, sheet])
   @@index([juniorProcessorId])
   @@index([assignmentGroup])

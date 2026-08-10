@@ -215,7 +215,7 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
       if (open && activeConversationId) {
         void openConversation(activeConversationId, false);
       }
-    }, 30000);
+    }, open ? 60000 : 120000);
     return () => window.clearInterval(interval);
   }, [activeConversationId, canOpenWidget, loadBootstrap, open, openConversation]);
 

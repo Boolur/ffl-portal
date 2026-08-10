@@ -2059,6 +2059,7 @@ export function TaskList({
   enableTaskSelection = false,
   selectedTaskIds,
   onToggleTaskSelection,
+  onDataChanged,
 }: {
   tasks: Task[];
   canDelete?: boolean;
@@ -2070,9 +2071,22 @@ export function TaskList({
   enableTaskSelection?: boolean;
   selectedTaskIds?: Set<string>;
   onToggleTaskSelection?: (taskId: string, selected: boolean) => void;
+  onDataChanged?: () => void | Promise<void>;
 }) {
-  const router = useRouter();
-  const [updatingId, setUpdatingId] = React.useState<string | null>(null);
+  const nextRouter = useRouter();
+  const router = React.useMemo(
+    () => ({
+      refresh: () => {
+        if (onDataChanged) {
+          void onDataChanged();
+          return;
+        }
+        nextRouter.refresh();
+      },
+    }),
+    [nextRouter, onDataChanged]
+  );
+  const [updatingTaskIds, setUpdatingTaskIds] = React.useState<Set<string>>(() => new Set());
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [uploadingId, setUploadingId] = React.useState<string | null>(null);
   const [deletingAttachmentId, setDeletingAttachmentId] = React.useState<string | null>(null);
@@ -2161,6 +2175,17 @@ export function TaskList({
   const [processingRouteStatusByTask, setProcessingRouteStatusByTask] = React.useState<
     Record<string, { type: 'success' | 'error'; message: string }>
   >({});
+
+  const setTaskUpdating = React.useCallback((taskId: string, updating: boolean) => {
+    setUpdatingTaskIds((prev) => {
+      const hasTask = prev.has(taskId);
+      if (hasTask === updating) return prev;
+      const next = new Set(prev);
+      if (updating) next.add(taskId);
+      else next.delete(taskId);
+      return next;
+    });
+  }, []);
 
   const getQcChecklistRows = React.useCallback(
     (taskId: string) => qcChecklistByTask[taskId] ?? createDefaultQcChecklistRows(),
@@ -2264,9 +2289,8 @@ export function TaskList({
           };
         });
       }, 1800);
-      router.refresh();
     },
-    [router]
+    []
   );
 
   const queueJrChecklistAutosave = React.useCallback(
@@ -2698,8 +2722,8 @@ export function TaskList({
       markNotNeeded?: boolean;
     }
   ) => {
-    if (updatingId) return;
-    setUpdatingId(taskId);
+    if (updatingTaskIds.has(taskId)) return;
+    setTaskUpdating(taskId, true);
     // In a real app, we'd use optimistic UI here
     const result = await updateTaskStatus(taskId, newStatus, options);
     if (!result.success) {
@@ -2708,7 +2732,7 @@ export function TaskList({
       if (errorMessage.includes('already been started by')) {
         router.refresh();
       }
-      setUpdatingId(null);
+      setTaskUpdating(taskId, false);
       return;
     }
     lockTaskActionUntilRefresh(taskId);
@@ -2717,107 +2741,107 @@ export function TaskList({
       hide: newStatus === TaskStatus.COMPLETED,
     });
     router.refresh();
-    setUpdatingId(null);
+    setTaskUpdating(taskId, false);
   };
 
   const handleReleaseJrTask = async (taskId: string) => {
-    if (updatingId) return;
+    if (updatingTaskIds.has(taskId)) return;
     const confirmed = window.confirm(
       'Release this JR task back to the public New JR Processor Requests queue?'
     );
     if (!confirmed) return;
 
-    setUpdatingId(taskId);
+    setTaskUpdating(taskId, true);
     const result = await releaseJrTaskToQueue(taskId);
     if (!result.success) {
       alert(result.error || 'Failed to release JR task.');
-      setUpdatingId(null);
+      setTaskUpdating(taskId, false);
       return;
     }
     lockTaskActionUntilRefresh(taskId);
     router.refresh();
-    setUpdatingId(null);
+    setTaskUpdating(taskId, false);
   };
 
   const handleReleaseVaTask = async (taskId: string) => {
-    if (updatingId) return;
+    if (updatingTaskIds.has(taskId)) return;
     const confirmed = window.confirm(
       'Release this VA task back to the public New queue and clear its current assignment?'
     );
     if (!confirmed) return;
 
-    setUpdatingId(taskId);
+    setTaskUpdating(taskId, true);
     const result = await releaseVaSpecialistTaskToQueue(taskId);
     if (!result.success) {
       alert(result.error || 'Failed to release VA task.');
-      setUpdatingId(null);
+      setTaskUpdating(taskId, false);
       return;
     }
     lockTaskActionUntilRefresh(taskId);
     router.refresh();
-    setUpdatingId(null);
+    setTaskUpdating(taskId, false);
   };
 
   const handleReopenCompletedVaTask = async (taskId: string) => {
-    if (updatingId) return;
+    if (updatingTaskIds.has(taskId)) return;
     const confirmed = window.confirm(
       'Return this completed VA task to the New bucket and clear its current assignment?'
     );
     if (!confirmed) return;
 
-    setUpdatingId(taskId);
+    setTaskUpdating(taskId, true);
     const result = await reopenCompletedVaTaskToNew(taskId);
     if (!result.success) {
       alert(result.error || 'Failed to return task to New.');
-      setUpdatingId(null);
+      setTaskUpdating(taskId, false);
       return;
     }
     lockTaskActionUntilRefresh(taskId);
     setFocusedTaskId(null);
     router.refresh();
-    setUpdatingId(null);
+    setTaskUpdating(taskId, false);
   };
 
   const handleReturnCompletedJrTask = async (taskId: string) => {
-    if (updatingId) return;
+    if (updatingTaskIds.has(taskId)) return;
     const reason = window.prompt(
       'Return this completed JR task back to the assigned JR?\n\n(Optional) Add a short reason so the JR knows what to fix:'
     );
     if (reason === null) return;
-    setUpdatingId(taskId);
+    setTaskUpdating(taskId, true);
     const result = await returnCompletedJrTaskToAssigned(
       taskId,
       reason.trim() || undefined
     );
     if (!result.success) {
       alert(result.error || 'Failed to return JR task.');
-      setUpdatingId(null);
+      setTaskUpdating(taskId, false);
       return;
     }
     lockTaskActionUntilRefresh(taskId);
     setFocusedTaskId(null);
     router.refresh();
-    setUpdatingId(null);
+    setTaskUpdating(taskId, false);
   };
 
   const handleReassignJrTask = async (taskId: string) => {
-    if (updatingId) return;
+    if (updatingTaskIds.has(taskId)) return;
     const nextAssignedUserId = (jrReassignTargetByTask[taskId] || '').trim();
     if (!nextAssignedUserId) {
       alert('Select a JR processor to reassign.');
       return;
     }
 
-    setUpdatingId(taskId);
+    setTaskUpdating(taskId, true);
     const result = await reassignJrTask(taskId, nextAssignedUserId);
     if (!result.success) {
       alert(result.error || 'Failed to reassign JR task.');
-      setUpdatingId(null);
+      setTaskUpdating(taskId, false);
       return;
     }
     lockTaskActionUntilRefresh(taskId);
     router.refresh();
-    setUpdatingId(null);
+    setTaskUpdating(taskId, false);
   };
 
   const uploadProofAttachment = async (taskId: string, file: File) => {
@@ -3934,7 +3958,9 @@ export function TaskList({
           !isAssignedToCurrentUser &&
           (isDisclosureDeskStartLockTask || isQcDeskStartLockTask);
         const isDeskTaskActionStarting =
-          startingDisclosureId === task.id || startingQcId === task.id || updatingId === task.id;
+          startingDisclosureId === task.id ||
+          startingQcId === task.id ||
+          updatingTaskIds.has(task.id);
         const deskStartLabel = isDisclosureDeskStartLockTask
           ? 'Start Disclosure Request'
           : isQcDeskStartLockTask
@@ -5312,10 +5338,10 @@ export function TaskList({
                         <button
                           type="button"
                           onClick={() => void handleReleaseVaTask(task.id)}
-                          disabled={!!updatingId || isTaskActionLocked}
+                          disabled={updatingTaskIds.has(task.id) || isTaskActionLocked}
                           className="inline-flex h-8 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {updatingId === task.id ? (
+                          {updatingTaskIds.has(task.id) ? (
                             <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                           ) : null}
                           Release to New Queue
@@ -6110,10 +6136,10 @@ export function TaskList({
                               <button
                                 type="button"
                                 onClick={() => void handleReleaseJrTask(task.id)}
-                                disabled={!!updatingId || isTaskActionLocked}
+                                disabled={updatingTaskIds.has(task.id) || isTaskActionLocked}
                                 className="inline-flex h-8 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {updatingId === task.id ? (
+                                {updatingTaskIds.has(task.id) ? (
                                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                                 ) : null}
                                 Release to New Queue
@@ -6129,7 +6155,7 @@ export function TaskList({
                                       [task.id]: event.target.value,
                                     }))
                                   }
-                                  disabled={!!updatingId || isTaskActionLocked}
+                                  disabled={updatingTaskIds.has(task.id) || isTaskActionLocked}
                                   className="h-8 min-w-[210px] rounded-lg border border-sky-200 bg-white px-2.5 text-xs font-medium text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                   <option value="">Select JR to reassign</option>
@@ -6143,14 +6169,14 @@ export function TaskList({
                                   type="button"
                                   onClick={() => void handleReassignJrTask(task.id)}
                                   disabled={
-                                    !!updatingId ||
+                                    updatingTaskIds.has(task.id) ||
                                     isTaskActionLocked ||
                                     !selectedJrReassignTarget ||
                                     selectedJrReassignTarget === (task.assignedUser?.id || '')
                                   }
                                   className="inline-flex h-8 items-center rounded-lg border border-sky-300 bg-white px-3 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
-                                  {updatingId === task.id ? (
+                                  {updatingTaskIds.has(task.id) ? (
                                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                                   ) : null}
                                   Reassign JR
@@ -6631,10 +6657,16 @@ export function TaskList({
                       !isLoanOfficerSubmissionTask && (
                       <button
                         onClick={() => handleStatusChange(task.id, 'IN_PROGRESS')}
-                        disabled={!!updatingId || isTaskActionLocked || isClaimedByAnother}
+                        disabled={
+                          updatingTaskIds.has(task.id) ||
+                          isTaskActionLocked ||
+                          isClaimedByAnother
+                        }
                         className="inline-flex h-9 items-center px-3 text-slate-600 text-sm font-semibold hover:text-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed gap-2"
                       >
-                        {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                        {updatingTaskIds.has(task.id) && (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        )}
                         Start
                       </button>
                     )}
@@ -6665,15 +6697,20 @@ export function TaskList({
                             noteMessage: vaOptionalNote || undefined,
                           });
                         }}
-                        disabled={!!updatingId || !canCompleteTask || isTaskActionLocked || isClaimedByAnother}
+                        disabled={
+                          updatingTaskIds.has(task.id) ||
+                          !canCompleteTask ||
+                          isTaskActionLocked ||
+                          isClaimedByAnother
+                        }
                         className="inline-flex h-9 items-center px-3 rounded-lg border border-emerald-300 bg-white text-emerald-700 text-sm font-semibold shadow-sm hover:border-emerald-400 hover:bg-emerald-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {updatingId === task.id ? (
+                        {updatingTaskIds.has(task.id) ? (
                           <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
                         ) : (
                           <CheckCircle className="w-4 h-4 mr-1.5" />
                         )}
-                        {updatingId === task.id
+                        {updatingTaskIds.has(task.id)
                           ? 'Saving...'
                           : !canCompleteTask
                           ? requiresStartBeforeVaComplete
@@ -6727,17 +6764,17 @@ export function TaskList({
                                   markNotNeeded: isVaPiwAction,
                                 })
                               }
-                              disabled={disableRouteButton || !!updatingId}
+                              disabled={disableRouteButton || updatingTaskIds.has(task.id)}
                               className={`inline-flex h-9 items-center rounded-lg border bg-white px-4 text-sm font-semibold shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                                 isVaPiwAction
                                   ? 'border-slate-300 text-slate-600 hover:border-slate-400 hover:bg-slate-50'
                                   : 'border-emerald-300 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-50'
                               }`}
                             >
-                              {updatingId === task.id && (
+                              {updatingTaskIds.has(task.id) && (
                                 <Loader2 className="w-4 h-4 animate-spin" />
                               )}
-                              {updatingId === task.id ? 'Saving...' : vaCompleteLabel}
+                              {updatingTaskIds.has(task.id) ? 'Saving...' : vaCompleteLabel}
                             </button>
                           );
                         }
@@ -6852,30 +6889,30 @@ export function TaskList({
                       <button
                         type="button"
                         onClick={() => void handleReopenCompletedVaTask(task.id)}
-                        disabled={updatingId === task.id || isTaskActionLocked}
+                        disabled={updatingTaskIds.has(task.id) || isTaskActionLocked}
                         className="inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800 shadow-sm hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {updatingId === task.id ? (
+                        {updatingTaskIds.has(task.id) ? (
                           <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                         ) : (
                           <RotateCcw className="mr-1.5 h-4 w-4" />
                         )}
-                        {updatingId === task.id ? 'Returning...' : 'Return to New'}
+                        {updatingTaskIds.has(task.id) ? 'Returning...' : 'Return to New'}
                       </button>
                     )}
                     {canManagerReturnCompletedJrTaskToAssigned && (
                       <button
                         type="button"
                         onClick={() => void handleReturnCompletedJrTask(task.id)}
-                        disabled={updatingId === task.id || isTaskActionLocked}
+                        disabled={updatingTaskIds.has(task.id) || isTaskActionLocked}
                         className="inline-flex h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800 shadow-sm hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {updatingId === task.id ? (
+                        {updatingTaskIds.has(task.id) ? (
                           <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                         ) : (
                           <RotateCcw className="mr-1.5 h-4 w-4" />
                         )}
-                        {updatingId === task.id ? 'Returning...' : 'Return to Assigned'}
+                        {updatingTaskIds.has(task.id) ? 'Returning...' : 'Return to Assigned'}
                       </button>
                     )}
                     <button

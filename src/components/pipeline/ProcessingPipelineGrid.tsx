@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
 import {
   Check,
@@ -447,6 +447,10 @@ function parseAuditDetails(details: string | null) {
 }
 
 export function ProcessingPipelineGrid({ initialData, role }: Props) {
+  const hasSearchEffectMounted = useRef(false);
+  const filterOptionsBySheet = useRef(
+    new Map<ProcessingPipelineSheet, PipelineFilterOptions>()
+  );
   const [sheet, setSheet] = useState<ProcessingPipelineSheet>(ProcessingPipelineSheet.PIPELINE);
   const [rows, setRows] = useState(initialData.rows);
   const [total, setTotal] = useState(initialData.total);
@@ -534,6 +538,10 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   };
 
   useEffect(() => {
+    if (!hasSearchEffectMounted.current) {
+      hasSearchEffectMounted.current = true;
+      return;
+    }
     const timeout = window.setTimeout(() => loadRows(sheet, 1, search), 300);
     return () => window.clearTimeout(timeout);
     // loadRows deliberately reads the current sort state.
@@ -541,15 +549,22 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   }, [search]);
 
   useEffect(() => {
+    if (!filtersExpanded) return;
+    const cachedOptions = filterOptionsBySheet.current.get(sheet);
+    if (cachedOptions) {
+      setFilterOptions(cachedOptions);
+      return;
+    }
     let cancelled = false;
     getProcessingPipelineFilterOptions(sheet).then((result) => {
       if (cancelled || !result.success) return;
+      filterOptionsBySheet.current.set(sheet, result.options);
       setFilterOptions(result.options);
     });
     return () => {
       cancelled = true;
     };
-  }, [sheet]);
+  }, [filtersExpanded, sheet]);
 
   const visibleRows = rows;
 
@@ -637,6 +652,20 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     value: unknown,
   ) => {
     if (!canEdit) return;
+    const clientValue =
+      field === 'appraisalNeeded' || field === 'cdSent'
+        ? value === true || value === 'true'
+        : value === ''
+          ? null
+          : value;
+    const optimisticPatch: Partial<ProcessingPipelineRow> = {
+      [field]: clientValue,
+      ...(field === 'pipelineStatus'
+        ? { statusChangedAt: new Date().toISOString(), daysInStatus: 0 }
+        : {}),
+    };
+
+    patchRow(row.id, optimisticPatch);
     setSavingRows((current) => new Set(current).add(row.id));
     setMessage('');
     const result = await updateProcessingPipelineCell({
@@ -651,23 +680,14 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       return next;
     });
     if (!result.success) {
+      patchRow(row.id, row);
       setMessage(result.error);
-      loadRows();
       return;
     }
-    const clientValue =
-      field === 'appraisalNeeded' || field === 'cdSent'
-        ? value === true || value === 'true'
-        : value === ''
-          ? null
-          : value;
     patchRow(row.id, {
-      [field]: clientValue,
+      ...optimisticPatch,
       version: result.version,
       ...result.patch,
-      ...(field === 'pipelineStatus'
-        ? { statusChangedAt: new Date().toISOString(), daysInStatus: 0 }
-        : {}),
     });
   };
 
@@ -1201,23 +1221,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
         >
           {isPending && (
             <div
-              className="absolute inset-0 z-50 flex min-h-72 items-center justify-center bg-white/85 px-6 backdrop-blur-[2px]"
+              className="pointer-events-none absolute right-4 top-4 z-50 flex w-fit items-center gap-2 rounded-xl border border-blue-100 bg-white/95 px-3 py-2 text-xs font-bold text-slate-700 shadow-lg shadow-slate-200/70"
               role="status"
               aria-live="polite"
             >
-              <div className="flex items-center gap-4 rounded-2xl border border-blue-100 bg-white px-6 py-5 shadow-xl shadow-slate-200/70">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                </span>
-                <div>
-                  <p className="text-sm font-bold text-slate-900">
-                    Loading {PROCESSING_PIPELINE_SHEETS.find((option) => option.value === sheet)?.label}
-                  </p>
-                  <p className="mt-0.5 text-xs font-medium text-slate-500">
-                    Refreshing the latest processing data…
-                  </p>
-                </div>
-              </div>
+              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+              Updating {PROCESSING_PIPELINE_SHEETS.find((option) => option.value === sheet)?.label}…
             </div>
           )}
           <table

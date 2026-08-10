@@ -160,7 +160,7 @@ export function TopNav({
     const interval = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       void loadNotifications(false);
-    }, 30000);
+    }, 60000);
     return () => window.clearInterval(interval);
   }, [loadNotifications]);
 

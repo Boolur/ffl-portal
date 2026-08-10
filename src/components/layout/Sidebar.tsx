@@ -104,7 +104,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       loadSupportAccess();
-    }, 30000);
+    }, 120000);
 
     return () => {
       cancelled = true;

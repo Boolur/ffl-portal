@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { FileSpreadsheet, Landmark, Loader2, RefreshCw } from 'lucide-react';
 import { ProcessingPipelineSheet } from '@prisma/client';
-import { getProcessingPipeline } from '@/app/actions/processingPipelineActions';
+import { getProcessingPipelineSheetCounts } from '@/app/actions/processingPipelineActions';
 
 const cards = [
   {
@@ -33,14 +33,9 @@ export function ProcessorPipelineOverview() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all(
-      cards.map(async (card) => {
-        const result = await getProcessingPipeline({ sheet: card.sheet, page: 1, pageSize: 10 });
-        return [card.sheet, result.success ? result.total : 0] as const;
-      }),
-    ).then((entries) => {
+    getProcessingPipelineSheetCounts().then((result) => {
       if (cancelled) return;
-      setCounts(Object.fromEntries(entries));
+      setCounts(result.success ? result.counts : {});
       setLoading(false);
     });
     return () => {

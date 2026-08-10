@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminTiers';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import { normalizeProcessingAssignmentGroups } from '@/lib/processingRouting';
+import { ConcurrencyKeys, withConcurrencyLimit } from '@/lib/concurrencyLimit';
 import {
   DisclosureDecisionReason,
   Prisma,
@@ -1315,16 +1316,18 @@ export async function queryInitialTaskBucketsForRole(role: UserRole, userId?: st
   const specs = getTaskBucketSpecsForRole(role, userId);
   const buckets = await Promise.all(
     specs.map((spec) =>
-      queryTaskBucketPage({
-        bucketId: spec.id,
-        sectionId: spec.sectionId,
-        role,
-        userId,
-        pageSize: TASK_BUCKET_PAGE_SIZE,
-        sort: spec.defaultSort,
-        includeTotalCount: false,
-        includeTimelineAttachments: false,
-      })
+      withConcurrencyLimit(ConcurrencyKeys.taskBucketQueries, 3, () =>
+        queryTaskBucketPage({
+          bucketId: spec.id,
+          sectionId: spec.sectionId,
+          role,
+          userId,
+          pageSize: TASK_BUCKET_PAGE_SIZE,
+          sort: spec.defaultSort,
+          includeTotalCount: false,
+          includeTimelineAttachments: false,
+        })
+      )
     )
   );
 

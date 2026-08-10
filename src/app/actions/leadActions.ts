@@ -11,6 +11,7 @@ import {
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
+import { cache } from 'react';
 import {
   forwardLeadToBonzo,
   buildBonzoPayload,
@@ -1696,7 +1697,7 @@ export type LeadAccessScope = {
   canViewTeamLeads: boolean;
 };
 
-export async function getLeadAccessScopeForUser(
+const loadLeadAccessScopeForUser = cache(async function loadLeadAccessScopeForUser(
   userId: string
 ): Promise<LeadAccessScope> {
   const [self, managedTeams] = await Promise.all([
@@ -1737,6 +1738,10 @@ export async function getLeadAccessScopeForUser(
     users,
     canViewTeamLeads: managedTeams.length > 0,
   };
+});
+
+export async function getLeadAccessScopeForUser(userId: string): Promise<LeadAccessScope> {
+  return loadLeadAccessScopeForUser(userId);
 }
 
 function scopeLeadFiltersToAssignedUserIds<T extends LeadListFilters>(

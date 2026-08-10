@@ -135,4 +135,6 @@ export const ConcurrencyKeys = {
   bonzoForward: 'bonzo-forward',
   /** `runServiceTriggers` — guards Prisma during bulk ON_ASSIGN fan-out. */
   serviceTriggers: 'service-triggers',
+  /** Task desk bucket hydration is query-heavy; preserve pool headroom. */
+  taskBucketQueries: 'task-bucket-queries',
 } as const;
