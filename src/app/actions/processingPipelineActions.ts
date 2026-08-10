@@ -14,6 +14,8 @@ import { prisma } from '@/lib/prisma';
 import {
   addMonthsClamped,
   calculateDaysInStatus,
+  getApprovedWithConditionsAt,
+  getCdWarningStartsAt,
   getProcessingPipelineAccess,
   parseOptionalBoolean,
   parseOptionalMoney,
@@ -67,9 +69,14 @@ function serializeRow(row: {
   appraisalNotes: string | null;
   appraisalOrderedAt: Date | null;
   appraisalBackAt: Date | null;
+  cdSent: boolean;
+  cdWarningStartsAt: Date | null;
   missingItemsCurrentStatus: string | null;
   extraNotes: string | null;
-  rateLock: boolean | null;
+  rateLock: boolean;
+  rateLockExpiresAt: Date | null;
+  rateLockConfirmedAt: Date | null;
+  approvedWithConditionsAt: Date | null;
   loanType: string | null;
   propertyState: string | null;
   lender: string | null;
@@ -97,6 +104,10 @@ function serializeRow(row: {
     statusChangedAt: row.statusChangedAt.toISOString(),
     appraisalOrderedAt: row.appraisalOrderedAt?.toISOString() || null,
     appraisalBackAt: row.appraisalBackAt?.toISOString() || null,
+    cdWarningStartsAt: row.cdWarningStartsAt?.toISOString() || null,
+    rateLockExpiresAt: row.rateLockExpiresAt?.toISOString() || null,
+    rateLockConfirmedAt: row.rateLockConfirmedAt?.toISOString() || null,
+    approvedWithConditionsAt: row.approvedWithConditionsAt?.toISOString() || null,
     fundedAt: row.fundedAt?.toISOString() || null,
     firstPaymentAt: row.firstPaymentAt?.toISOString() || null,
     sixthPaymentAt: row.sixthPaymentAt?.toISOString() || null,
@@ -139,9 +150,12 @@ export type ProcessingPipelineFilters = {
   appraisalOrderedTo?: string;
   appraisalBackFrom?: string;
   appraisalBackTo?: string;
+  cdSent?: Array<'YES' | 'NO' | 'BLANK'>;
   missingItemsCurrentStatus?: string;
   extraNotes?: string;
   rateLock?: Array<'YES' | 'NO' | 'BLANK'>;
+  rateLockExpiresFrom?: string;
+  rateLockExpiresTo?: string;
   fundedFrom?: string;
   fundedTo?: string;
   firstPaymentFrom?: string;
@@ -167,7 +181,7 @@ function startOfInputDay(value?: string) {
 }
 
 function nullableBooleanWhere(
-  field: 'appraisalNeeded' | 'rateLock',
+  field: 'appraisalNeeded' | 'rateLock' | 'cdSent',
   values?: Array<'YES' | 'NO' | 'BLANK'>,
 ): Prisma.ProcessingPipelineLoanWhereInput | null {
   if (!values?.length) return null;
@@ -243,6 +257,11 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   if (appraisalBackFrom || appraisalBackTo) {
     clauses.push({ appraisalBackAt: { gte: appraisalBackFrom, lte: appraisalBackTo } });
   }
+  const rateLockExpiresFrom = startOfInputDay(filters.rateLockExpiresFrom);
+  const rateLockExpiresTo = endOfInputDay(filters.rateLockExpiresTo);
+  if (rateLockExpiresFrom || rateLockExpiresTo) {
+    clauses.push({ rateLockExpiresAt: { gte: rateLockExpiresFrom, lte: rateLockExpiresTo } });
+  }
   const fundedFrom = startOfInputDay(filters.fundedFrom);
   const fundedTo = endOfInputDay(filters.fundedTo);
   if (fundedFrom || fundedTo) clauses.push({ fundedAt: { gte: fundedFrom, lte: fundedTo } });
@@ -270,8 +289,10 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
 
   const appraisalNeeded = nullableBooleanWhere('appraisalNeeded', filters.appraisalNeeded);
   const rateLock = nullableBooleanWhere('rateLock', filters.rateLock);
+  const cdSent = nullableBooleanWhere('cdSent', filters.cdSent);
   if (appraisalNeeded) clauses.push(appraisalNeeded);
   if (rateLock) clauses.push(rateLock);
+  if (cdSent) clauses.push(cdSent);
   if (filters.appraisalNotes?.trim()) {
     clauses.push({ appraisalNotes: { contains: filters.appraisalNotes.trim(), mode: 'insensitive' } });
   }
@@ -453,9 +474,9 @@ const EDITABLE_FIELDS = [
   'appraisalNotes',
   'appraisalOrderedAt',
   'appraisalBackAt',
+  'cdSent',
   'missingItemsCurrentStatus',
   'extraNotes',
-  'rateLock',
   'lender',
   'finalRevenue',
 ] as const;
@@ -474,7 +495,7 @@ function normalizeCellValue(field: EditableField, value: unknown) {
     }
     return value as ProcessingItemStatus;
   }
-  if (field === 'appraisalNeeded' || field === 'rateLock') {
+  if (field === 'appraisalNeeded' || field === 'cdSent') {
     if (value === null || value === '') return null;
     const parsed = parseOptionalBoolean(value);
     if (parsed === null) throw new Error('Invalid Yes/No value.');
@@ -521,11 +542,33 @@ export async function updateProcessingPipelineCell(input: {
 
       const nextValue = normalizeCellValue(input.field, input.value);
       const now = new Date();
+      let approvedWithConditionsAt = current.approvedWithConditionsAt;
+      let cdWarningStartsAt = current.cdWarningStartsAt;
       const data: Prisma.ProcessingPipelineLoanUpdateManyMutationInput = {
         [input.field]: nextValue,
         version: { increment: 1 },
-        ...(input.field === 'pipelineStatus' ? { statusChangedAt: now } : {}),
       };
+      if (input.field === 'pipelineStatus') {
+        data.statusChangedAt = now;
+        const nextApprovedWithConditionsAt = getApprovedWithConditionsAt(
+          nextValue as ProcessingPipelineStatus,
+          current.approvedWithConditionsAt,
+          now,
+        );
+        if (nextApprovedWithConditionsAt !== current.approvedWithConditionsAt) {
+          approvedWithConditionsAt = nextApprovedWithConditionsAt;
+          data.approvedWithConditionsAt = now;
+        }
+      }
+      if (input.field === 'appraisalBackAt') {
+        cdWarningStartsAt = getCdWarningStartsAt(
+          nextValue instanceof Date ? nextValue : null,
+          current.rateLock,
+          current.rateLockExpiresAt,
+          now,
+        );
+        data.cdWarningStartsAt = cdWarningStartsAt;
+      }
       const updated = await tx.processingPipelineLoan.updateMany({
         where: { id: current.id, version: input.version },
         data,
@@ -549,7 +592,14 @@ export async function updateProcessingPipelineCell(input: {
           }),
         },
       });
-      return { conflict: false as const, version: input.version + 1 };
+      return {
+        conflict: false as const,
+        version: input.version + 1,
+        patch: {
+          approvedWithConditionsAt: approvedWithConditionsAt?.toISOString() || null,
+          cdWarningStartsAt: cdWarningStartsAt?.toISOString() || null,
+        },
+      };
     });
 
     if (result.conflict) {
@@ -561,11 +611,124 @@ export async function updateProcessingPipelineCell(input: {
       };
     }
     revalidatePath('/pipeline');
-    return { success: true as const, version: result.version };
+    return { success: true as const, version: result.version, patch: result.patch };
   } catch (error) {
     return {
       success: false as const,
       error: error instanceof Error ? error.message : 'Unable to save this change.',
+    };
+  }
+}
+
+export async function updateProcessingPipelineRateLock(input: {
+  id: string;
+  rateLock: boolean;
+  expiresAt?: string | null;
+  version: number;
+}) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const access = getProcessingPipelineAccess(actor.role);
+  if (!access.canEdit) return { success: false as const, error: 'This pipeline is read-only.' };
+
+  let expiresAt: Date | null = null;
+  if (input.rateLock) {
+    expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
+    if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
+      return {
+        success: false as const,
+        error: 'A valid expiration date is required when Rate Lock is Yes.',
+      };
+    }
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    if (expiresAt < today) {
+      return {
+        success: false as const,
+        error: 'Rate Lock expiration cannot be in the past.',
+      };
+    }
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const current = await tx.processingPipelineLoan.findFirst({
+        where: { AND: [{ id: input.id }, scopeWhere(actor)] },
+      });
+      if (!current) throw new Error('Pipeline row not found.');
+      if (current.version !== input.version) {
+        return { conflict: true as const, version: current.version };
+      }
+
+      const now = new Date();
+      const rateLockConfirmedAt = input.rateLock ? now : null;
+      const cdWarningStartsAt = getCdWarningStartsAt(
+        current.appraisalBackAt,
+        input.rateLock,
+        expiresAt,
+        now,
+      );
+      const updated = await tx.processingPipelineLoan.updateMany({
+        where: { id: current.id, version: input.version },
+        data: {
+          rateLock: input.rateLock,
+          rateLockExpiresAt: expiresAt,
+          rateLockConfirmedAt,
+          cdWarningStartsAt,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) {
+        return { conflict: true as const, version: current.version };
+      }
+
+      await tx.auditLog.create({
+        data: {
+          loanId: current.loanId,
+          userId: actor.id,
+          action: 'PROCESSING_PIPELINE_RATE_LOCK_CHANGED',
+          details: JSON.stringify({
+            processingPipelineLoanId: current.id,
+            field: 'rateLock',
+            previousValue: current.rateLock,
+            newValue: input.rateLock,
+            previousExpiresAt: current.rateLockExpiresAt?.toISOString() || null,
+            newExpiresAt: expiresAt?.toISOString() || null,
+            actorName: actor.name,
+          }),
+        },
+      });
+
+      return {
+        conflict: false as const,
+        version: input.version + 1,
+        patch: {
+          rateLock: input.rateLock,
+          rateLockExpiresAt: expiresAt?.toISOString() || null,
+          rateLockConfirmedAt: rateLockConfirmedAt?.toISOString() || null,
+          cdWarningStartsAt: cdWarningStartsAt?.toISOString() || null,
+        },
+      };
+    });
+
+    if (result.conflict) {
+      return {
+        success: false as const,
+        conflict: true as const,
+        version: result.version,
+        error: 'This row changed in another session. Refreshing the latest values.',
+      };
+    }
+    revalidatePath('/pipeline');
+    return {
+      success: true as const,
+      version: result.version,
+      patch: result.patch,
+    };
+  } catch (error) {
+    return {
+      success: false as const,
+      error: error instanceof Error ? error.message : 'Unable to save Rate Lock.',
     };
   }
 }

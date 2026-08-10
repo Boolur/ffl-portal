@@ -59,6 +59,75 @@ export function calculateDaysInStatus(statusChangedAt: Date | string, now = new 
   return Math.max(0, Math.floor((now.getTime() - changedAt.getTime()) / 86_400_000));
 }
 
+const DAY_MS = 86_400_000;
+
+function validDate(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function isRateLockExpiring(
+  rateLock: boolean,
+  expiresAt: Date | string | null,
+  now = new Date(),
+) {
+  const expiration = validDate(expiresAt);
+  if (!rateLock || !expiration) return false;
+  return expiration.getTime() - now.getTime() <= 3 * DAY_MS;
+}
+
+export function isCdSentOverdue(
+  cdSent: boolean,
+  warningStartsAt: Date | string | null,
+  now = new Date(),
+) {
+  const startsAt = validDate(warningStartsAt);
+  if (cdSent || !startsAt) return false;
+  return now.getTime() - startsAt.getTime() >= 2 * DAY_MS;
+}
+
+export function isConditionItemOverdue(
+  approvedWithConditionsAt: Date | string | null,
+  status: ProcessingItemStatus,
+  now = new Date(),
+) {
+  const approvedAt = validDate(approvedWithConditionsAt);
+  if (!approvedAt || status !== ProcessingItemStatus.NOT_STARTED) return false;
+  return now.getTime() - approvedAt.getTime() >= 2 * DAY_MS;
+}
+
+export function isAppraisalBackOverdue(
+  appraisalOrderedAt: Date | string | null,
+  appraisalBackAt: Date | string | null,
+  now = new Date(),
+) {
+  const orderedAt = validDate(appraisalOrderedAt);
+  if (!orderedAt || validDate(appraisalBackAt)) return false;
+  return now.getTime() - orderedAt.getTime() >= 7 * DAY_MS;
+}
+
+export function getCdWarningStartsAt(
+  appraisalBackAt: Date | string | null,
+  rateLock: boolean,
+  rateLockExpiresAt: Date | string | null,
+  now = new Date(),
+) {
+  return validDate(appraisalBackAt) && rateLock && validDate(rateLockExpiresAt)
+    ? now
+    : null;
+}
+
+export function getApprovedWithConditionsAt(
+  status: ProcessingPipelineStatus,
+  currentValue: Date | null,
+  now = new Date(),
+) {
+  return status === ProcessingPipelineStatus.APPROVED_WITH_CONDITIONS
+    ? now
+    : currentValue;
+}
+
 export function parseOptionalBoolean(value: unknown): boolean | null {
   if (typeof value === 'boolean') return value;
   const normalized = String(value ?? '').trim().toLowerCase();

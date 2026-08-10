@@ -473,9 +473,14 @@ model ProcessingPipelineLoan {
   appraisalNotes            String?
   appraisalOrderedAt        DateTime?
   appraisalBackAt           DateTime?
+  cdSent                    Boolean                  @default(false)
+  cdWarningStartsAt         DateTime?
   missingItemsCurrentStatus String?
   extraNotes                String?
-  rateLock                  Boolean?
+  rateLock                  Boolean                  @default(false)
+  rateLockExpiresAt         DateTime?
+  rateLockConfirmedAt       DateTime?
+  approvedWithConditionsAt  DateTime?
   loanType                  String?
   propertyState             String?
   lender                    String?

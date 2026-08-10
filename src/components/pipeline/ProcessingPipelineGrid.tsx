@@ -30,6 +30,7 @@ import {
   getProcessingPipelineHistory,
   moveProcessingPipelineLoan,
   updateProcessingPipelineCell,
+  updateProcessingPipelineRateLock,
   type ProcessingPipelineRow,
   type ProcessingPipelineFilters,
 } from '@/app/actions/processingPipelineActions';
@@ -37,6 +38,10 @@ import {
   PROCESSING_ITEM_STATUS_OPTIONS,
   PROCESSING_PIPELINE_SHEETS,
   PROCESSING_PIPELINE_STATUS_OPTIONS,
+  isAppraisalBackOverdue,
+  isCdSentOverdue,
+  isConditionItemOverdue,
+  isRateLockExpiring,
 } from '@/lib/processingPipeline';
 
 type PipelineResult = Extract<Awaited<ReturnType<typeof getProcessingPipeline>>, { success: true }>;
@@ -70,9 +75,9 @@ type EditableField =
   | 'appraisalNotes'
   | 'appraisalOrderedAt'
   | 'appraisalBackAt'
+  | 'cdSent'
   | 'missingItemsCurrentStatus'
   | 'extraNotes'
-  | 'rateLock'
   | 'lender'
   | 'finalRevenue';
 
@@ -95,6 +100,7 @@ type ColumnId =
   | 'appraisalNotes'
   | 'appraisalOrderedAt'
   | 'appraisalBackAt'
+  | 'cdSent'
   | 'missingItemsCurrentStatus'
   | 'extraNotes'
   | 'rateLock'
@@ -125,6 +131,7 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'appraisalNotes', label: 'Appraisal Notes', width: 220, optional: true },
   { id: 'appraisalOrderedAt', label: 'Appraisal Ordered', width: 146, optional: true },
   { id: 'appraisalBackAt', label: 'Appraisal Back', width: 140, optional: true },
+  { id: 'cdSent', label: 'CD Sent?', width: 112, optional: true },
   { id: 'extraNotes', label: 'Extra Notes', width: 210, optional: true },
   { id: 'rateLock', label: 'Rate Lock', width: 112, optional: true },
   { id: 'projectedRevenue', label: 'Revenue', width: 130, optional: true },
@@ -193,6 +200,26 @@ const statusTone: Record<ProcessingPipelineStatus, string> = {
   SUSPENDED_RESTRUCTURE: 'border-red-500 bg-red-500 text-white',
 };
 
+const rowSurfaceTone: Record<ProcessingPipelineStatus, string> = {
+  SUBBED_TO_UW: 'bg-sky-50/80 hover:bg-sky-100/80',
+  APPROVED_WITH_CONDITIONS: 'bg-lime-50/80 hover:bg-lime-100/80',
+  RE_SUB: 'bg-green-50/80 hover:bg-green-100/80',
+  CTC: 'bg-emerald-50/80 hover:bg-emerald-100/80',
+  DOCS_OUT: 'bg-green-100/80 hover:bg-green-200/80',
+  FUNDED: 'bg-amber-50/80 hover:bg-amber-100/80',
+  SUSPENDED_RESTRUCTURE: 'bg-red-50/80 hover:bg-red-100/80',
+};
+
+const stickyRowSurfaceTone: Record<ProcessingPipelineStatus, string> = {
+  SUBBED_TO_UW: 'bg-sky-50 group-hover:bg-sky-100',
+  APPROVED_WITH_CONDITIONS: 'bg-lime-50 group-hover:bg-lime-100',
+  RE_SUB: 'bg-green-50 group-hover:bg-green-100',
+  CTC: 'bg-emerald-50 group-hover:bg-emerald-100',
+  DOCS_OUT: 'bg-green-100 group-hover:bg-green-200',
+  FUNDED: 'bg-amber-50 group-hover:bg-amber-100',
+  SUSPENDED_RESTRUCTURE: 'bg-red-50 group-hover:bg-red-100',
+};
+
 const itemStatusTone: Record<ProcessingItemStatus, string> = {
   NOT_STARTED: 'border-slate-300 bg-slate-100 text-slate-700',
   ORDERED: 'border-amber-200 bg-amber-100 text-amber-900',
@@ -205,6 +232,9 @@ const booleanTone = (value: boolean | null) => {
   if (value === false) return '!border-red-300 !bg-red-200 !text-red-900';
   return '!border-slate-200 !bg-slate-100 !text-slate-600';
 };
+
+const deadlineTone =
+  '!border-red-400 !bg-red-200 !text-red-950 ring-1 ring-inset ring-red-300';
 
 function ResizableHeader({
   id,
@@ -382,6 +412,22 @@ function dateInputValue(value: string | null) {
   return value ? value.slice(0, 10) : '';
 }
 
+function todayInputValue(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
+function formatDateOnly(value: string | null) {
+  if (!value) return '—';
+  const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+  return new Intl.DateTimeFormat('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: '2-digit',
+    timeZone: 'UTC',
+  }).format(date);
+}
+
 function formatMoney(value: number | null) {
   if (value === null) return '—';
   return new Intl.NumberFormat('en-US', {
@@ -421,6 +467,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [savingRows, setSavingRows] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [historyRow, setHistoryRow] = useState<ProcessingPipelineRow | null>(null);
+  const [rateLockDialogRow, setRateLockDialogRow] = useState<ProcessingPipelineRow | null>(null);
+  const [rateLockExpiryDraft, setRateLockExpiryDraft] = useState('');
+  const [clockNow, setClockNow] = useState(() => new Date());
   const [historyEntries, setHistoryEntries] = useState<Array<{
     id: string;
     action: string;
@@ -449,6 +498,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   useEffect(() => {
     window.localStorage.setItem(WIDTH_STORAGE_KEY, JSON.stringify(columnWidths));
   }, [columnWidths]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setClockNow(new Date()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const loadRows = (
     nextSheet = sheet,
@@ -601,13 +655,54 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       loadRows();
       return;
     }
+    const clientValue =
+      field === 'appraisalNeeded' || field === 'cdSent'
+        ? value === true || value === 'true'
+        : value === ''
+          ? null
+          : value;
     patchRow(row.id, {
-      [field]: value === '' ? null : value,
+      [field]: clientValue,
       version: result.version,
+      ...result.patch,
       ...(field === 'pipelineStatus'
         ? { statusChangedAt: new Date().toISOString(), daysInStatus: 0 }
         : {}),
     });
+  };
+
+  const saveRateLock = async (
+    row: ProcessingPipelineRow,
+    rateLock: boolean,
+    expiresAt: string | null,
+  ) => {
+    if (!canEdit) return;
+    setSavingRows((current) => new Set(current).add(row.id));
+    setMessage('');
+    const result = await updateProcessingPipelineRateLock({
+      id: row.id,
+      rateLock,
+      expiresAt,
+      version: row.version,
+    });
+    setSavingRows((current) => {
+      const next = new Set(current);
+      next.delete(row.id);
+      return next;
+    });
+    if (!result.success) {
+      setMessage(result.error);
+      if ('conflict' in result) loadRows();
+      return;
+    }
+    patchRow(row.id, { ...result.patch, version: result.version });
+    setRateLockDialogRow(null);
+    setRateLockExpiryDraft('');
+  };
+
+  const openRateLockCalendar = (row: ProcessingPipelineRow) => {
+    setRateLockDialogRow(row);
+    setRateLockExpiryDraft(dateInputValue(row.rateLockExpiresAt));
   };
 
   const moveRow = async (row: ProcessingPipelineRow, destination: ProcessingPipelineSheet) => {
@@ -697,7 +792,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     />
   ) : <span className="block whitespace-pre-wrap">{value || '—'}</span>;
 
-  const dateCell = (row: ProcessingPipelineRow, field: EditableField, value: string | null) =>
+  const dateCell = (
+    row: ProcessingPipelineRow,
+    field: EditableField,
+    value: string | null,
+    className = '',
+  ) =>
     canEdit ? (
       <input
         type="date"
@@ -706,9 +806,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
         onBlur={(event) => {
           if (event.target.value !== dateInputValue(value)) saveCell(row, field, event.target.value);
         }}
-        className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-[13px] hover:border-slate-200 hover:bg-white focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100"
+        className={`w-full rounded-lg border px-2 py-1.5 text-[13px] focus:outline-none focus:ring-4 focus:ring-blue-100 ${
+          className || 'border-transparent bg-transparent hover:border-slate-200 hover:bg-white focus:border-blue-300 focus:bg-white'
+        }`}
       />
-    ) : <span>{formatDate(value)}</span>;
+    ) : <span className={className ? `inline-flex rounded-lg border px-2.5 py-1 font-bold ${className}` : ''}>{formatDate(value)}</span>;
 
   const yesNoCell = (row: ProcessingPipelineRow, field: EditableField, value: boolean | null) =>
     editableSelect(row, field, value, [
@@ -716,6 +818,68 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       { value: 'true', label: 'Yes' },
       { value: 'false', label: 'No' },
     ], booleanTone(value));
+
+  const cdSentCell = (row: ProcessingPipelineRow) => {
+    const overdue = isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow);
+    return editableSelect(
+      row,
+      'cdSent',
+      row.cdSent,
+      [
+        { value: 'true', label: 'Yes' },
+        { value: 'false', label: 'No' },
+      ],
+      overdue ? deadlineTone : booleanTone(row.cdSent),
+    );
+  };
+
+  const rateLockCell = (row: ProcessingPipelineRow) => {
+    const expiring = isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow);
+    const tone = expiring
+      ? `${deadlineTone} motion-safe:animate-pulse`
+      : booleanTone(row.rateLock);
+    if (!canEdit) {
+      return (
+        <div className="space-y-1">
+          <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${tone}`}>
+            {row.rateLock ? 'Yes' : 'No'}
+          </span>
+          {row.rateLockExpiresAt && (
+            <p className={`text-[10px] font-bold ${expiring ? 'text-red-800' : 'text-slate-500'}`}>
+              Expires {formatDateOnly(row.rateLockExpiresAt)}
+            </p>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className={`space-y-1 rounded-lg ${expiring ? 'motion-safe:animate-pulse' : ''}`}>
+        <select
+          aria-label="Rate Lock"
+          value={String(row.rateLock)}
+          onChange={(event) => {
+            if (event.target.value === 'true') openRateLockCalendar(row);
+            else void saveRateLock(row, false, null);
+          }}
+          className={`w-full rounded-full border px-2.5 py-1.5 text-[13px] font-semibold shadow-sm outline-none focus:ring-4 focus:ring-blue-100 ${tone}`}
+        >
+          <option value="false">No</option>
+          <option value="true">Yes</option>
+        </select>
+        {row.rateLock && (
+          <button
+            type="button"
+            onClick={() => openRateLockCalendar(row)}
+            className={`block w-full rounded-md px-1 py-0.5 text-left text-[10px] font-bold underline-offset-2 hover:underline ${
+              expiring ? 'text-red-900' : 'text-slate-600'
+            }`}
+          >
+            Expires {formatDateOnly(row.rateLockExpiresAt)}
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const totalPages = Math.max(1, Math.ceil(total / initialData.pageSize));
   const cellPadding = 'px-3 py-3';
@@ -921,6 +1085,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     <FilterInput label="Appraisal Ordered To" type="date" value={draftFilters.appraisalOrderedTo} onChange={(value) => setDraftFilter('appraisalOrderedTo', value || undefined)} />
                     <FilterInput label="Appraisal Back From" type="date" value={draftFilters.appraisalBackFrom} onChange={(value) => setDraftFilter('appraisalBackFrom', value || undefined)} />
                     <FilterInput label="Appraisal Back To" type="date" value={draftFilters.appraisalBackTo} onChange={(value) => setDraftFilter('appraisalBackTo', value || undefined)} />
+                    <MultiSelectFilter
+                      label="CD Sent"
+                      values={draftFilters.cdSent || []}
+                      options={YES_NO_FILTER_OPTIONS.filter((option) => option.value !== 'BLANK')}
+                      onChange={(values) => setDraftFilter('cdSent', values as Array<'YES' | 'NO'>)}
+                    />
                     <FilterInput label="Pending Items" value={draftFilters.missingItemsCurrentStatus} onChange={(value) => setDraftFilter('missingItemsCurrentStatus', value || undefined)} placeholder="Contains text…" />
                     <FilterInput label="Extra Notes" value={draftFilters.extraNotes} onChange={(value) => setDraftFilter('extraNotes', value || undefined)} placeholder="Contains text…" />
                     <FilterInput label="Revenue Min" type="number" value={draftFilters.projectedRevenueMin} onChange={(value) => setDraftFilter('projectedRevenueMin', value === '' ? undefined : Number(value))} placeholder="0" />
@@ -931,6 +1101,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       options={YES_NO_FILTER_OPTIONS}
                       onChange={(values) => setDraftFilter('rateLock', values as Array<'YES' | 'NO' | 'BLANK'>)}
                     />
+                    <FilterInput label="Rate Lock Expires From" type="date" value={draftFilters.rateLockExpiresFrom} onChange={(value) => setDraftFilter('rateLockExpiresFrom', value || undefined)} />
+                    <FilterInput label="Rate Lock Expires To" type="date" value={draftFilters.rateLockExpiresTo} onChange={(value) => setDraftFilter('rateLockExpiresTo', value || undefined)} />
                   </div>
                 </section>
               ) : (
@@ -1107,6 +1279,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     {isColumnVisible('appraisalNotes') && <ResizableHeader id="appraisalNotes" width={columnWidths.appraisalNotes} onResize={resizeColumn}>Appraisal Notes</ResizableHeader>}
                     {isColumnVisible('appraisalOrderedAt') && <ResizableHeader id="appraisalOrderedAt" width={columnWidths.appraisalOrderedAt} onResize={resizeColumn}>Appraisal Ordered</ResizableHeader>}
                     {isColumnVisible('appraisalBackAt') && <ResizableHeader id="appraisalBackAt" width={columnWidths.appraisalBackAt} onResize={resizeColumn}>Appraisal Back</ResizableHeader>}
+                    {isColumnVisible('cdSent') && <ResizableHeader id="cdSent" width={columnWidths.cdSent} onResize={resizeColumn}>CD Sent?</ResizableHeader>}
                     {isColumnVisible('extraNotes') && <ResizableHeader id="extraNotes" width={columnWidths.extraNotes} onResize={resizeColumn}>Extra Notes</ResizableHeader>}
                     {isColumnVisible('rateLock') && <ResizableHeader id="rateLock" width={columnWidths.rateLock} onResize={resizeColumn}>Rate Lock</ResizableHeader>}
                     {isColumnVisible('daysInStatus') && (
@@ -1123,10 +1296,26 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((row) => (
-                <tr key={row.id} className="group bg-white transition-colors even:bg-slate-50/55 hover:bg-blue-50/50">
+              {visibleRows.map((row) => {
+                const titleOverdue = isConditionItemOverdue(
+                  row.approvedWithConditionsAt,
+                  row.titleStatus,
+                  clockNow,
+                );
+                const payoffOverdue = isConditionItemOverdue(
+                  row.approvedWithConditionsAt,
+                  row.payoffStatus,
+                  clockNow,
+                );
+                const appraisalBackOverdue = isAppraisalBackOverdue(
+                  row.appraisalOrderedAt,
+                  row.appraisalBackAt,
+                  clockNow,
+                );
+                return (
+                <tr key={row.id} className={`group transition-colors ${rowSurfaceTone[row.pipelineStatus]}`}>
                   {isColumnVisible('loanOfficer') && (
-                    <td className={`sticky left-0 z-10 truncate border-b border-r border-slate-200 bg-white font-semibold text-slate-900 shadow-[1px_0_0_#e2e8f0] group-even:bg-slate-50 group-hover:bg-blue-50 ${cellPadding}`} title={row.loan.loanOfficer.name}>
+                    <td className={`sticky left-0 z-10 truncate border-b border-r border-slate-200 font-semibold text-slate-900 shadow-[1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]} ${cellPadding}`} title={row.loan.loanOfficer.name}>
                       {row.loan.loanOfficer.name}
                     </td>
                   )}
@@ -1183,15 +1372,16 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                         </td>
                       )}
                       {isColumnVisible('missingItemsCurrentStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'missingItemsCurrentStatus', row.missingItemsCurrentStatus)}</td>}
-                      {isColumnVisible('titleStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'titleStatus', row.titleStatus, PROCESSING_ITEM_STATUS_OPTIONS, itemStatusTone[row.titleStatus])}</td>}
-                      {isColumnVisible('payoffStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS, itemStatusTone[row.payoffStatus])}</td>}
+                      {isColumnVisible('titleStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${titleOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'titleStatus', row.titleStatus, PROCESSING_ITEM_STATUS_OPTIONS, titleOverdue ? deadlineTone : itemStatusTone[row.titleStatus])}</td>}
+                      {isColumnVisible('payoffStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${payoffOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS, payoffOverdue ? deadlineTone : itemStatusTone[row.payoffStatus])}</td>}
                       {isColumnVisible('hoiStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'hoiStatus', row.hoiStatus, PROCESSING_ITEM_STATUS_OPTIONS, itemStatusTone[row.hoiStatus])}</td>}
                       {isColumnVisible('appraisalNeeded') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{yesNoCell(row, 'appraisalNeeded', row.appraisalNeeded)}</td>}
                       {isColumnVisible('appraisalNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'appraisalNotes', row.appraisalNotes)}</td>}
                       {isColumnVisible('appraisalOrderedAt') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{dateCell(row, 'appraisalOrderedAt', row.appraisalOrderedAt)}</td>}
-                      {isColumnVisible('appraisalBackAt') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{dateCell(row, 'appraisalBackAt', row.appraisalBackAt)}</td>}
+                      {isColumnVisible('appraisalBackAt') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${appraisalBackOverdue ? 'bg-red-100' : ''}`}>{dateCell(row, 'appraisalBackAt', row.appraisalBackAt, appraisalBackOverdue ? deadlineTone : '')}</td>}
+                      {isColumnVisible('cdSent') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow) ? 'bg-red-100' : ''}`}>{cdSentCell(row)}</td>}
                       {isColumnVisible('extraNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'extraNotes', row.extraNotes)}</td>}
-                      {isColumnVisible('rateLock') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{yesNoCell(row, 'rateLock', row.rateLock)}</td>}
+                      {isColumnVisible('rateLock') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow) ? 'bg-red-100 motion-safe:animate-pulse' : ''}`}>{rateLockCell(row)}</td>}
                       {isColumnVisible('daysInStatus') && (
                         <td className={`border-b border-r border-slate-200 text-center ${cellPadding}`}>
                           <span className={`inline-flex min-w-8 justify-center rounded-full px-2 py-1 text-xs font-bold ${row.daysInStatus > 7 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
@@ -1202,7 +1392,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       {isColumnVisible('projectedRevenue') && <td className={`border-b border-r border-slate-200 font-semibold tabular-nums text-slate-700 ${cellPadding}`}>{formatMoney(row.projectedRevenue)}</td>}
                     </>
                   )}
-                  <td className="sticky right-0 z-10 border-b border-slate-200 bg-white px-2 py-2 shadow-[-1px_0_0_#e2e8f0] group-even:bg-slate-50 group-hover:bg-blue-50">
+                  <td className={`sticky right-0 z-10 border-b border-slate-200 px-2 py-2 shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}>
                     <div className="flex items-center justify-end gap-1.5">
                       {savingRows.has(row.id) && <Loader2 className="h-4 w-4 animate-spin text-blue-600" aria-label="Saving" />}
                       <button type="button" onClick={() => openHistory(row)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition hover:border-blue-200 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" title="View change history">
@@ -1227,7 +1417,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {visibleRows.length === 0 && (
                 <tr>
                   <td colSpan={visibleColumnCount} className="px-6 py-16 text-center text-sm font-medium text-slate-500">
@@ -1250,6 +1441,57 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
           </div>
         </div>
       </div>
+
+      {rateLockDialogRow && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true" aria-labelledby="rate-lock-title">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Rate Lock</p>
+            <h2 id="rate-lock-title" className="mt-1 text-xl font-black text-slate-950">
+              Select the expiration date
+            </h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              {rateLockDialogRow.loan.borrowerName} · Arrive #{rateLockDialogRow.loan.loanNumber}
+            </p>
+            <label className="mt-5 block">
+              <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">
+                Lock expiration date
+              </span>
+              <input
+                type="date"
+                autoFocus
+                min={todayInputValue()}
+                value={rateLockExpiryDraft}
+                onChange={(event) => setRateLockExpiryDraft(event.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+            <p className="mt-2 text-xs font-medium text-slate-500">
+              The Rate Lock cell will pulse red beginning three days before this date.
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRateLockDialogRow(null);
+                  setRateLockExpiryDraft('');
+                }}
+                className="app-btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!rateLockExpiryDraft || savingRows.has(rateLockDialogRow.id)}
+                onClick={() => void saveRateLock(rateLockDialogRow, true, rateLockExpiryDraft)}
+                className="app-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingRows.has(rateLockDialogRow.id) && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save Rate Lock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {historyRow && (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/30" role="dialog" aria-modal="true" aria-label="Change history">
