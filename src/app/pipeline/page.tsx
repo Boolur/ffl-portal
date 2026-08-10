@@ -25,8 +25,8 @@ export default async function Pipeline() {
   const [initialProcessing, initialReport] = await Promise.all([
     getProcessingPipeline({
       sheet: ProcessingPipelineSheet.PIPELINE,
-      page: 1,
-      pageSize: 50,
+      sortBy: 'pipelineStatus',
+      sortDirection: 'asc',
     }),
     isProcessingRole ? Promise.resolve(null) : getPipelineReport(),
   ]);

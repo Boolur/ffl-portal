@@ -21,8 +21,6 @@ import {
   parseOptionalMoney,
 } from '@/lib/processingPipeline';
 
-const PAGE_SIZE_MAX = 200;
-
 type Actor = {
   id: string;
   role: UserRole;
@@ -329,9 +327,7 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
 export async function getProcessingPipeline(input?: {
   sheet?: ProcessingPipelineSheet;
   search?: string;
-  page?: number;
-  pageSize?: number;
-  sortBy?: 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber';
+  sortBy?: 'pipelineStatus' | 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber';
   sortDirection?: 'asc' | 'desc';
   filters?: ProcessingPipelineFilters;
 }) {
@@ -341,8 +337,6 @@ export async function getProcessingPipeline(input?: {
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canView) return { success: false as const, error: 'Not authorized.' };
 
-  const page = Math.max(1, Math.floor(input?.page || 1));
-  const pageSize = Math.min(PAGE_SIZE_MAX, Math.max(10, Math.floor(input?.pageSize || 100)));
   const search = input?.search?.trim();
   const where: Prisma.ProcessingPipelineLoanWhereInput = {
     AND: [
@@ -365,11 +359,20 @@ export async function getProcessingPipeline(input?: {
   };
 
   const sortDirection = input?.sortDirection === 'asc' ? 'asc' : 'desc';
-  let orderBy: Prisma.ProcessingPipelineLoanOrderByWithRelationInput;
+  let orderBy:
+    | Prisma.ProcessingPipelineLoanOrderByWithRelationInput
+    | Prisma.ProcessingPipelineLoanOrderByWithRelationInput[];
   if (input?.sortBy === 'borrowerName') orderBy = { loan: { borrowerName: sortDirection } };
   else if (input?.sortBy === 'loanNumber') orderBy = { loan: { loanNumber: sortDirection } };
   else if (input?.sortBy === 'statusChangedAt') orderBy = { statusChangedAt: sortDirection };
-  else orderBy = { dateAssigned: sortDirection };
+  else if (input?.sortBy === 'dateAssigned') orderBy = { dateAssigned: sortDirection };
+  else {
+    orderBy = [
+      { pipelineStatus: 'asc' },
+      { statusChangedAt: 'asc' },
+      { dateAssigned: 'desc' },
+    ];
+  }
 
   const [rows, total] = await prisma.$transaction([
     prisma.processingPipelineLoan.findMany({
@@ -388,8 +391,6 @@ export async function getProcessingPipeline(input?: {
         juniorProcessor: { select: { id: true, name: true } },
       },
       orderBy,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
     }),
     prisma.processingPipelineLoan.count({ where }),
   ]);
@@ -398,8 +399,8 @@ export async function getProcessingPipeline(input?: {
     success: true as const,
     rows: rows.map(serializeRow),
     total,
-    page,
-    pageSize,
+    page: 1,
+    pageSize: Math.max(1, total),
     canEdit: access.canEdit,
     role: actor.role,
   };

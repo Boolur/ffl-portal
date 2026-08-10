@@ -5,8 +5,6 @@ import type { ReactNode } from 'react';
 import {
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Clock3,
   Filter,
   History,
@@ -454,7 +452,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [sheet, setSheet] = useState<ProcessingPipelineSheet>(ProcessingPipelineSheet.PIPELINE);
   const [rows, setRows] = useState(initialData.rows);
   const [total, setTotal] = useState(initialData.total);
-  const [page, setPage] = useState(initialData.page);
   const [search, setSearch] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [appliedFilters, setAppliedFilters] = useState<ProcessingPipelineFilters>({});
@@ -466,8 +463,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       [...PIPELINE_COLUMNS, ...FUNDING_COLUMNS].map((column) => [column.id, column.width])
     ) as Record<ColumnId, number>
   );
-  const [sortBy, setSortBy] = useState<'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber'>('dateAssigned');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [sortBy, setSortBy] = useState<'pipelineStatus' | 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber'>('pipelineStatus');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [savingRows, setSavingRows] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [historyRow, setHistoryRow] = useState<ProcessingPipelineRow | null>(null);
@@ -510,7 +507,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
   const loadRows = (
     nextSheet = sheet,
-    nextPage = page,
     nextSearch = search,
     nextSortBy = sortBy,
     nextSortDirection = sortDirection,
@@ -519,8 +515,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     startTransition(async () => {
       const result = await getProcessingPipeline({
         sheet: nextSheet,
-        page: nextPage,
-        pageSize: initialData.pageSize,
         search: nextSearch,
         sortBy: nextSortBy,
         sortDirection: nextSortDirection,
@@ -532,7 +526,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       }
       setRows(result.rows);
       setTotal(result.total);
-      setPage(result.page);
       setMessage('');
     });
   };
@@ -542,7 +535,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       hasSearchEffectMounted.current = true;
       return;
     }
-    const timeout = window.setTimeout(() => loadRows(sheet, 1, search), 300);
+    const timeout = window.setTimeout(() => loadRows(sheet, search), 300);
     return () => window.clearTimeout(timeout);
     // loadRows deliberately reads the current sort state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -606,16 +599,14 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
   const applyFilters = () => {
     setAppliedFilters(draftFilters);
-    setPage(1);
-    loadRows(sheet, 1, search, sortBy, sortDirection, draftFilters);
+    loadRows(sheet, search, sortBy, sortDirection, draftFilters);
     setFiltersExpanded(false);
   };
 
   const clearFilters = () => {
     setDraftFilters({});
     setAppliedFilters({});
-    setPage(1);
-    loadRows(sheet, 1, search, sortBy, sortDirection, {});
+    loadRows(sheet, search, sortBy, sortDirection, {});
   };
 
   const toggleQuickStatus = (status?: ProcessingPipelineStatus) => {
@@ -634,8 +625,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       ...current,
       pipelineStatuses: nextStatuses.length > 0 ? nextStatuses : undefined,
     }));
-    setPage(1);
-    loadRows(sheet, 1, search, sortBy, sortDirection, nextFilters);
+    loadRows(sheet, search, sortBy, sortDirection, nextFilters);
   };
 
   const resizeColumn = (id: ColumnId, width: number) => {
@@ -768,7 +758,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     const direction = sortBy === nextSort && sortDirection === 'desc' ? 'asc' : 'desc';
     setSortBy(nextSort);
     setSortDirection(direction);
-    loadRows(sheet, 1, search, nextSort, direction);
+    loadRows(sheet, search, nextSort, direction);
   };
 
   const editableSelect = (
@@ -901,7 +891,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     );
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / initialData.pageSize));
   const cellPadding = 'px-3 py-3';
 
   return (
@@ -921,11 +910,10 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 aria-selected={sheet === option.value}
                 onClick={() => {
                   setSheet(option.value);
-                  setPage(1);
                   setDetailsExpanded(false);
                   setDraftFilters({});
                   setAppliedFilters({});
-                  loadRows(option.value, 1, search, sortBy, sortDirection, {});
+                  loadRows(option.value, search, sortBy, sortDirection, {});
                 }}
                 className={`rounded-lg px-4 py-2 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
                   sheet === option.value
@@ -1438,16 +1426,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             </tbody>
           </table>
         </div>
-        <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-xs text-slate-600">
-          <span>{total} loan{total === 1 ? '' : 's'} · Page {page} of {totalPages}</span>
-          <div className="flex gap-2">
-            <button type="button" className="app-btn-secondary" disabled={page <= 1 || isPending} onClick={() => loadRows(sheet, page - 1)}>
-              <ChevronLeft className="h-4 w-4" /> Previous
-            </button>
-            <button type="button" className="app-btn-secondary" disabled={page >= totalPages || isPending} onClick={() => loadRows(sheet, page + 1)}>
-              Next <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
+        <div className="border-t border-slate-200 px-4 py-3 text-xs font-semibold text-slate-600">
+          {total} loan{total === 1 ? '' : 's'} · All loans displayed
         </div>
       </div>
 
