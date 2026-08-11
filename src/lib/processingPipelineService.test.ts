@@ -79,6 +79,7 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
           kind: TaskKind.SUBMIT_PROCESSING,
           assignedUserId: 'junior-1',
           submissionData: {
+            processingMethod: 'IN_HOUSE',
             processingAssignmentGroup: 'MARTIN_SON_BUI',
             appraisalWaiver: 'No',
             appraisalNeeded: 'No',
@@ -121,6 +122,7 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
       data: expect.objectContaining({
         seniorProcessorId: 'senior-1',
         juniorProcessorId: 'junior-1',
+        processingMethod: 'IN_HOUSE',
         appraisalNeeded: false,
         appraisalNotes: 'Existing appraisal remains valid.',
         propertyState: 'CA',

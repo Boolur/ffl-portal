@@ -5,6 +5,10 @@ import {
   UserRole,
 } from '@prisma/client';
 import { isAdmin } from './adminTiers';
+import {
+  PROCESSING_METHOD_SELF_PROCESSED,
+  PROCESSING_METHOD_THIRD_PARTY,
+} from './processingRouting';
 
 export const PROCESSING_PIPELINE_STATUS_OPTIONS = [
   { value: ProcessingPipelineStatus.SUBBED_TO_UW, label: 'Subbed to UW' },
@@ -51,6 +55,17 @@ export function getProcessingPipelineAccess(role?: UserRole | null): ProcessingP
     return { canView: true, canEdit: true, scope: 'COMPANY' };
   }
   return { canView: false, canEdit: false, scope: 'NONE' };
+}
+
+export function canEditProcessingPipelineMethod(
+  role: UserRole | null | undefined,
+  processingMethod: string | null | undefined,
+) {
+  if (getProcessingPipelineAccess(role).canEdit) return true;
+  return role === UserRole.LOAN_OFFICER && (
+    processingMethod === PROCESSING_METHOD_SELF_PROCESSED ||
+    processingMethod === PROCESSING_METHOD_THIRD_PARTY
+  );
 }
 
 export function calculateDaysInStatus(statusChangedAt: Date | string, now = new Date()) {

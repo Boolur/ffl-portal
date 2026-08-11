@@ -106,6 +106,7 @@ export async function upsertProcessingPipelineForCompletedTask(
     seniorProcessorId: senior.seniorProcessorId,
     juniorProcessorId: task.assignedUserId || input.actorId,
     assignmentGroup,
+    processingMethod: optionalString(data.processingMethod),
     dateAssigned: completedAt,
     appraisalNeeded:
       explicitlyNeeded ?? (appraisalWaiver === null ? null : !appraisalWaiver),
@@ -143,6 +144,7 @@ export async function upsertProcessingPipelineForCompletedTask(
         processingPipelineLoanId: row.id,
         sourceTaskId: task.id,
         assignmentGroup,
+        processingMethod: optionalString(data.processingMethod),
         seniorProcessorId: senior.seniorProcessorId,
         assignmentResolution: senior.resolution,
       }),

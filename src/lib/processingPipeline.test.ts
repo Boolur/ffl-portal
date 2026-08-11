@@ -7,6 +7,7 @@ import {
 import {
   addMonthsClamped,
   calculateDaysInStatus,
+  canEditProcessingPipelineMethod,
   getApprovedWithConditionsAt,
   getCdWarningStartsAt,
   getProcessingPipelineAccess,
@@ -52,6 +53,13 @@ describe('processing pipeline access', () => {
 
   it('denies unrelated roles', () => {
     expect(getProcessingPipelineAccess(UserRole.DISCLOSURE_SPECIALIST).canView).toBe(false);
+  });
+
+  it('lets Loan Officers edit only self-processed and third-party loans', () => {
+    expect(canEditProcessingPipelineMethod(UserRole.LOAN_OFFICER, 'SELF_PROCESSED')).toBe(true);
+    expect(canEditProcessingPipelineMethod(UserRole.LOAN_OFFICER, 'THIRD_PARTY')).toBe(true);
+    expect(canEditProcessingPipelineMethod(UserRole.LOAN_OFFICER, 'IN_HOUSE')).toBe(false);
+    expect(canEditProcessingPipelineMethod(UserRole.LOAN_OFFICER, null)).toBe(false);
   });
 });
 

@@ -14,12 +14,17 @@ import { prisma } from '@/lib/prisma';
 import {
   addMonthsClamped,
   calculateDaysInStatus,
+  canEditProcessingPipelineMethod,
   getApprovedWithConditionsAt,
   getCdWarningStartsAt,
   getProcessingPipelineAccess,
   parseOptionalBoolean,
   parseOptionalMoney,
 } from '@/lib/processingPipeline';
+import {
+  PROCESSING_METHOD_SELF_PROCESSED,
+  PROCESSING_METHOD_THIRD_PARTY,
+} from '@/lib/processingRouting';
 
 type Actor = {
   id: string;
@@ -51,6 +56,27 @@ function scopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInput {
     };
   }
   return { id: '__NO_ACCESS__' };
+}
+
+function editableScopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInput {
+  const access = getProcessingPipelineAccess(actor.role);
+  if (access.canEdit) return scopeWhere(actor);
+  if (actor.role === UserRole.LOAN_OFFICER) {
+    return {
+      AND: [
+        scopeWhere(actor),
+        {
+          processingMethod: {
+            in: [
+              PROCESSING_METHOD_SELF_PROCESSED,
+              PROCESSING_METHOD_THIRD_PARTY,
+            ],
+          },
+        },
+      ],
+    };
+  }
+  return { id: '__NO_EDIT_ACCESS__' };
 }
 
 function serializeRow(row: {
@@ -86,6 +112,7 @@ function serializeRow(row: {
   movedAt: Date | null;
   updatedAt: Date;
   assignmentGroup: string | null;
+  processingMethod: string | null;
   loan: {
     id: string;
     loanNumber: string;
@@ -121,7 +148,7 @@ function serializeRow(row: {
   };
 }
 
-export type ProcessingPipelineRow = ReturnType<typeof serializeRow>;
+export type ProcessingPipelineRow = ReturnType<typeof serializeRow> & { canEdit: boolean };
 
 export type ProcessingPipelineFilters = {
   loanOfficerIds?: string[];
@@ -397,11 +424,14 @@ export async function getProcessingPipeline(input?: {
 
   return {
     success: true as const,
-    rows: rows.map(serializeRow),
+    rows: rows.map((row) => ({
+      ...serializeRow(row),
+      canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
+    })),
     total,
     page: 1,
     pageSize: Math.max(1, total),
-    canEdit: access.canEdit,
+    canEdit: access.canEdit || actor.role === UserRole.LOAN_OFFICER,
     role: actor.role,
   };
 }
@@ -545,7 +575,9 @@ export async function updateProcessingPipelineCell(input: {
   const actor = await getActor();
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
-  if (!access.canEdit) return { success: false as const, error: 'This pipeline is read-only.' };
+  if (!access.canEdit && actor.role !== UserRole.LOAN_OFFICER) {
+    return { success: false as const, error: 'This pipeline is read-only.' };
+  }
   if (!EDITABLE_FIELDS.includes(input.field)) {
     return { success: false as const, error: 'This field cannot be edited.' };
   }
@@ -553,7 +585,7 @@ export async function updateProcessingPipelineCell(input: {
   try {
     const result = await prisma.$transaction(async (tx) => {
       const current = await tx.processingPipelineLoan.findFirst({
-        where: { AND: [{ id: input.id }, scopeWhere(actor)] },
+        where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
       });
       if (!current) throw new Error('Pipeline row not found.');
       if (current.version !== input.version) {
@@ -648,7 +680,9 @@ export async function updateProcessingPipelineRateLock(input: {
   const actor = await getActor();
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
-  if (!access.canEdit) return { success: false as const, error: 'This pipeline is read-only.' };
+  if (!access.canEdit && actor.role !== UserRole.LOAN_OFFICER) {
+    return { success: false as const, error: 'This pipeline is read-only.' };
+  }
 
   let expiresAt: Date | null = null;
   if (input.rateLock) {
@@ -672,7 +706,7 @@ export async function updateProcessingPipelineRateLock(input: {
   try {
     const result = await prisma.$transaction(async (tx) => {
       const current = await tx.processingPipelineLoan.findFirst({
-        where: { AND: [{ id: input.id }, scopeWhere(actor)] },
+        where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
       });
       if (!current) throw new Error('Pipeline row not found.');
       if (current.version !== input.version) {
@@ -760,7 +794,9 @@ export async function moveProcessingPipelineLoan(input: {
   const actor = await getActor();
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
-  if (!access.canEdit) return { success: false as const, error: 'This pipeline is read-only.' };
+  if (!access.canEdit && actor.role !== UserRole.LOAN_OFFICER) {
+    return { success: false as const, error: 'This pipeline is read-only.' };
+  }
   if (!Object.values(ProcessingPipelineSheet).includes(input.sheet)) {
     return { success: false as const, error: 'Invalid destination.' };
   }
@@ -775,7 +811,7 @@ export async function moveProcessingPipelineLoan(input: {
 
   const result = await prisma.$transaction(async (tx) => {
     const current = await tx.processingPipelineLoan.findFirst({
-      where: { AND: [{ id: input.id }, scopeWhere(actor)] },
+      where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
     });
     if (!current) return { kind: 'error' as const, error: 'Pipeline row not found.' };
     if (current.version !== input.version) {

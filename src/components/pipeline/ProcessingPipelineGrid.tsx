@@ -482,6 +482,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [isPending, startTransition] = useTransition();
   const canEdit = initialData.canEdit;
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
+  const canEditRow = (row: ProcessingPipelineRow) => canEdit && row.canEdit;
   const isProcessor =
     role === UserRole.PROCESSOR_SR || role === UserRole.PROCESSOR_JR;
 
@@ -641,7 +642,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     field: EditableField,
     value: unknown,
   ) => {
-    if (!canEdit) return;
+    if (!canEditRow(row)) return;
     const clientValue =
       field === 'appraisalNeeded' || field === 'cdSent'
         ? value === true || value === 'true'
@@ -686,7 +687,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     rateLock: boolean,
     expiresAt: string | null,
   ) => {
-    if (!canEdit) return;
+    if (!canEditRow(row)) return;
     setSavingRows((current) => new Set(current).add(row.id));
     setMessage('');
     const result = await updateProcessingPipelineRateLock({
@@ -716,7 +717,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   };
 
   const moveRow = async (row: ProcessingPipelineRow, destination: ProcessingPipelineSheet) => {
-    if (destination === row.sheet || !canEdit) return;
+    if (destination === row.sheet || !canEditRow(row)) return;
     let fundedAt: string | null = null;
     if (destination === ProcessingPipelineSheet.FUNDING) {
       fundedAt = window.prompt('Funded / signing date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
@@ -767,7 +768,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     value: string | boolean | null,
     options: ReadonlyArray<{ value: string; label: string }>,
     className = '',
-  ) => canEdit ? (
+  ) => canEditRow(row) ? (
     <select
       aria-label={field}
       value={value === null ? '' : String(value)}
@@ -787,7 +788,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     field: EditableField,
     value: string | null,
     placeholder = '—',
-  ) => canEdit ? (
+  ) => canEditRow(row) ? (
     <input
       aria-label={field}
       defaultValue={value || ''}
@@ -808,7 +809,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     value: string | null,
     className = '',
   ) =>
-    canEdit ? (
+    canEditRow(row) ? (
       <input
         type="date"
         aria-label={field}
@@ -848,7 +849,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     const tone = expiring
       ? `${deadlineTone} motion-safe:animate-pulse`
       : booleanTone(row.rateLock);
-    if (!canEdit) {
+    if (!canEditRow(row)) {
       return (
         <div className="space-y-1">
           <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${tone}`}>
@@ -1016,7 +1017,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
           </button>
           <div className="flex h-10 items-center gap-2 rounded-xl bg-slate-50 px-3 text-xs font-semibold text-slate-500">
             <SlidersHorizontal className="h-4 w-4" />
-            {canEdit ? 'Autosave on' : 'Read-only'}
+            {canEdit ? (isLoanOfficer ? 'Eligible loans editable' : 'Autosave on') : 'Read-only'}
           </div>
         </div>
         {filtersExpanded && (
@@ -1333,7 +1334,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       {isColumnVisible('fundedAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.fundedAt)}</td>}
                       {isColumnVisible('projectedRevenue') && <td className={`border-b border-r border-slate-200 font-semibold ${cellPadding}`}>{formatMoney(row.projectedRevenue)}</td>}
                       {isColumnVisible('finalRevenue') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>
-                        {canEdit ? (
+                        {canEditRow(row) ? (
                           <input
                             inputMode="decimal"
                             aria-label="Final revenue"
@@ -1359,7 +1360,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={row.seniorProcessor?.name || 'Unassigned'}>{row.seniorProcessor?.name || 'Unassigned'}</td>}
                       {isColumnVisible('pipelineStatus') && (
                         <td className="border-b border-r border-slate-200 px-1.5 py-1">
-                          {canEdit
+                          {canEditRow(row)
                             ? editableSelect(row, 'pipelineStatus', row.pipelineStatus, PROCESSING_PIPELINE_STATUS_OPTIONS, statusTone[row.pipelineStatus])
                             : (
                               <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-1 text-xs font-bold ${statusTone[row.pipelineStatus]}`}>
@@ -1395,7 +1396,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       <button type="button" onClick={() => openHistory(row)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition hover:border-blue-200 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" title="View change history">
                         <History className="h-4 w-4" />
                       </button>
-                      {canEdit && (
+                      {canEditRow(row) && (
                         <label className="flex min-w-0 items-center gap-1">
                           <span className="sr-only">Move loan</span>
                           <select

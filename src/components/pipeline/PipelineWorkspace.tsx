@@ -69,14 +69,20 @@ export function PipelineWorkspace({ role, initialReport, initialProcessing }: Pr
               </div>
               <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950">Processing Pipeline</h1>
               <p className="mt-1 max-w-2xl text-sm font-medium text-slate-500">
-                {initialProcessing.canEdit
+                {role === UserRole.LOAN_OFFICER
+                  ? 'Manage your Self Processed and Contract/3rd Party loans. In-House loans remain read-only.'
+                  : initialProcessing.canEdit
                   ? 'Manage assignments, milestones, restructures, fundings, and audited updates from one workspace.'
                   : 'Track every milestone after your loans enter Processing. This view is read-only.'}
               </p>
             </div>
             <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
               <CheckCircle2 className="h-5 w-5" />
-              {initialProcessing.canEdit ? 'Audited autosave enabled' : 'Live processing visibility'}
+              {initialProcessing.canEdit
+                ? role === UserRole.LOAN_OFFICER
+                  ? 'Audited edits on eligible loans'
+                  : 'Audited autosave enabled'
+                : 'Live processing visibility'}
             </div>
           </header>
           <ProcessingPipelineGrid initialData={initialProcessing} role={role} />

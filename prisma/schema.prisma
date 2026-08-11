@@ -463,6 +463,7 @@ model ProcessingPipelineLoan {
   juniorProcessorId         String?
   juniorProcessor           User?                    @relation("ProcessingPipelineJunior", fields: [juniorProcessorId], references: [id], onDelete: SetNull)
   assignmentGroup           String?
+  processingMethod          String?
   dateAssigned              DateTime                 @default(now())
   sheet                     ProcessingPipelineSheet  @default(PIPELINE)
   pipelineStatus            ProcessingPipelineStatus @default(SUBBED_TO_UW)
@@ -501,6 +502,7 @@ model ProcessingPipelineLoan {
   @@index([seniorProcessorId, sheet])
   @@index([juniorProcessorId])
   @@index([assignmentGroup])
+  @@index([processingMethod])
 }
 
 model Lender {
