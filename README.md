@@ -51,6 +51,7 @@ Copy `.env.example` to `.env` and fill in values:
   `MS_SENDER_DISCLOSURES_EMAIL`, `MS_SENDER_ORIGINATIONS_EMAIL`,
   `MS_SENDER_PROCESSING_EMAIL` (functional Microsoft 365 mailboxes)
 - `MS_REQUIRE_CATEGORY_SENDERS` (set `true` after the BISU cutover)
+- `MS_DISABLE_PROCESSING_EMAILS` (set `true` to pause VA/Jr Processing emails)
 
 `MS_SENDER_EMAIL` remains a temporary backward-compatible fallback during the
 email migration. See

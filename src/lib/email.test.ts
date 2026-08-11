@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveSenderEmail } from './email';
+import { isEmailSenderCategoryDisabled, resolveSenderEmail } from './email';
 
 describe('resolveSenderEmail', () => {
   it('routes each category to its dedicated sender', () => {
@@ -45,5 +45,23 @@ describe('resolveSenderEmail', () => {
     expect(() => resolveSenderEmail('noreply', {})).toThrow(
       'MS_SENDER_NOREPLY_EMAIL or MS_SENDER_EMAIL'
     );
+  });
+});
+
+describe('isEmailSenderCategoryDisabled', () => {
+  it('pauses processing emails when the processing pause flag is enabled', () => {
+    expect(
+      isEmailSenderCategoryDisabled('processing', {
+        MS_DISABLE_PROCESSING_EMAILS: 'true',
+      })
+    ).toBe(true);
+  });
+
+  it('does not pause any other email category', () => {
+    expect(
+      isEmailSenderCategoryDisabled('disclosures', {
+        MS_DISABLE_PROCESSING_EMAILS: 'true',
+      })
+    ).toBe(false);
   });
 });

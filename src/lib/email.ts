@@ -53,6 +53,13 @@ function isEnabled(value: string | undefined) {
   return ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
 }
 
+export function isEmailSenderCategoryDisabled(
+  category: EmailSenderCategory,
+  env: Readonly<Record<string, string | undefined>> = process.env
+): boolean {
+  return category === 'processing' && isEnabled(env.MS_DISABLE_PROCESSING_EMAILS);
+}
+
 export function resolveSenderEmail(
   category: EmailSenderCategory,
   env: Readonly<Record<string, string | undefined>> = process.env
@@ -162,6 +169,12 @@ export async function sendEmail({
   timeoutMs?: number;
   label?: string;
 }): Promise<EmailSendReceipt> {
+  if (isEmailSenderCategoryDisabled(senderCategory)) {
+    throw new Error(
+      `Email sending for "${senderCategory}" is paused by MS_DISABLE_PROCESSING_EMAILS.`
+    );
+  }
+
   const senderEmail = resolveSenderEmail(senderCategory);
 
   const contentType = html ? 'HTML' : 'Text';
