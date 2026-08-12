@@ -11,6 +11,7 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
+  MoreHorizontal,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -29,8 +30,10 @@ import {
   moveProcessingPipelineLoan,
   updateProcessingPipelineCell,
   updateProcessingPipelineRateLock,
+  updateProcessingRestructureWorkflow,
   type ProcessingPipelineRow,
   type ProcessingPipelineFilters,
+  type ProcessingRestructureAction,
 } from '@/app/actions/processingPipelineActions';
 import {
   PROCESSING_ITEM_STATUS_OPTIONS,
@@ -39,8 +42,14 @@ import {
   isAppraisalBackOverdue,
   isCdSentOverdue,
   isConditionItemOverdue,
+  isOrderedItemOverdue,
   isRateLockExpiring,
+  isRateLockOverdueAfterAppraisal,
 } from '@/lib/processingPipeline';
+import {
+  PROCESSING_METHOD_SELF_PROCESSED,
+  PROCESSING_METHOD_THIRD_PARTY,
+} from '@/lib/processingRouting';
 
 type PipelineResult = Extract<Awaited<ReturnType<typeof getProcessingPipeline>>, { success: true }>;
 type PipelineFilterOptions = Extract<
@@ -52,6 +61,10 @@ type Props = {
   initialData: PipelineResult;
   role: UserRole;
 };
+
+type RestructureDialogAction =
+  | ProcessingRestructureAction
+  | 'MOVE_TO_RESTRUCTURE';
 
 const EMPTY_FILTER_OPTIONS: PipelineFilterOptions = {
   loanOfficers: [],
@@ -77,6 +90,7 @@ type EditableField =
   | 'missingItemsCurrentStatus'
   | 'extraNotes'
   | 'lender'
+  | 'propertyState'
   | 'finalRevenue';
 
 type ColumnId =
@@ -84,6 +98,7 @@ type ColumnId =
   | 'dateAssigned'
   | 'loanNumber'
   | 'borrowerName'
+  | 'propertyState'
   | 'loanAmount'
   | 'loanType'
   | 'lender'
@@ -100,6 +115,7 @@ type ColumnId =
   | 'appraisalBackAt'
   | 'cdSent'
   | 'missingItemsCurrentStatus'
+  | 'restructureNotes'
   | 'extraNotes'
   | 'rateLock'
   | 'fundedAt'
@@ -114,6 +130,7 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'dateAssigned', label: 'Assigned', width: 94 },
   { id: 'loanNumber', label: 'Arrive #', width: 96 },
   { id: 'borrowerName', label: 'Borrower', width: 154 },
+  { id: 'propertyState', label: 'State', width: 76 },
   { id: 'lender', label: 'Lender', width: 140 },
   { id: 'loanAmount', label: 'Loan Amount', width: 126 },
   { id: 'loanType', label: 'Loan Type', width: 108 },
@@ -121,6 +138,7 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'seniorProcessor', label: 'Processor', width: 118 },
   { id: 'pipelineStatus', label: 'Pipeline Status', width: 164 },
   { id: 'missingItemsCurrentStatus', label: 'Pending Items', width: 220 },
+  { id: 'restructureNotes', label: 'Restructure Notes', width: 280 },
   { id: 'titleStatus', label: 'Title', width: 124 },
   { id: 'payoffStatus', label: 'Payoff', width: 124 },
   { id: 'hoiStatus', label: 'HOI', width: 124 },
@@ -141,6 +159,7 @@ const FUNDING_COLUMNS: Array<{ id: ColumnId; label: string; width: number; optio
   { id: 'dateAssigned', label: 'Assigned', width: 96 },
   { id: 'loanNumber', label: 'Arrive #', width: 100 },
   { id: 'borrowerName', label: 'Borrower', width: 170 },
+  { id: 'propertyState', label: 'State', width: 76 },
   { id: 'loanType', label: 'Loan Type', width: 112 },
   { id: 'juniorProcessor', label: 'Junior', width: 130 },
   { id: 'seniorProcessor', label: 'Senior', width: 130 },
@@ -156,6 +175,7 @@ const PIPELINE_FOCUS_COLUMNS = new Set<ColumnId>([
   'dateAssigned',
   'loanNumber',
   'borrowerName',
+  'propertyState',
   'lender',
   'loanAmount',
   'loanType',
@@ -163,6 +183,7 @@ const PIPELINE_FOCUS_COLUMNS = new Set<ColumnId>([
   'seniorProcessor',
   'pipelineStatus',
   'missingItemsCurrentStatus',
+  'restructureNotes',
   'titleStatus',
   'payoffStatus',
   'hoiStatus',
@@ -174,6 +195,7 @@ const FUNDING_FOCUS_COLUMNS = new Set<ColumnId>([
   'dateAssigned',
   'loanNumber',
   'borrowerName',
+  'propertyState',
   'loanType',
   'juniorProcessor',
   'seniorProcessor',
@@ -187,6 +209,17 @@ const YES_NO_FILTER_OPTIONS: FilterOption[] = [
   { value: 'NO', label: 'No' },
   { value: 'BLANK', label: 'Blank / Not set' },
 ];
+const RESTRUCTURE_STATUS_VALUES = new Set<ProcessingPipelineStatus>([
+  ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE,
+  ProcessingPipelineStatus.ADVERSE_PENDING,
+  ProcessingPipelineStatus.PENDING_APPROVAL,
+]);
+const RESTRUCTURE_STATUS_OPTIONS = PROCESSING_PIPELINE_STATUS_OPTIONS.filter((option) =>
+  RESTRUCTURE_STATUS_VALUES.has(option.value),
+);
+const STANDARD_STATUS_OPTIONS = PROCESSING_PIPELINE_STATUS_OPTIONS.filter((option) =>
+  !RESTRUCTURE_STATUS_VALUES.has(option.value),
+);
 
 const statusTone: Record<ProcessingPipelineStatus, string> = {
   SUBBED_TO_UW: 'border-sky-200 bg-sky-100 text-sky-900',
@@ -196,6 +229,8 @@ const statusTone: Record<ProcessingPipelineStatus, string> = {
   DOCS_OUT: 'border-green-700 bg-green-700 text-white',
   FUNDED: 'border-amber-300 bg-amber-300 text-amber-950',
   SUSPENDED_RESTRUCTURE: 'border-red-500 bg-red-500 text-white',
+  ADVERSE_PENDING: 'border-red-900 bg-red-800 text-white',
+  PENDING_APPROVAL: 'border-orange-300 bg-orange-200 text-orange-950',
 };
 
 const rowSurfaceTone: Record<ProcessingPipelineStatus, string> = {
@@ -206,6 +241,8 @@ const rowSurfaceTone: Record<ProcessingPipelineStatus, string> = {
   DOCS_OUT: 'bg-green-100/80 hover:bg-green-200/80',
   FUNDED: 'bg-amber-50/80 hover:bg-amber-100/80',
   SUSPENDED_RESTRUCTURE: 'bg-red-50/80 hover:bg-red-100/80',
+  ADVERSE_PENDING: 'bg-red-200/90 hover:bg-red-300/90',
+  PENDING_APPROVAL: 'bg-orange-50/90 hover:bg-orange-100/90',
 };
 
 const stickyRowSurfaceTone: Record<ProcessingPipelineStatus, string> = {
@@ -216,6 +253,8 @@ const stickyRowSurfaceTone: Record<ProcessingPipelineStatus, string> = {
   DOCS_OUT: 'bg-green-100 group-hover:bg-green-200',
   FUNDED: 'bg-amber-50 group-hover:bg-amber-100',
   SUSPENDED_RESTRUCTURE: 'bg-red-50 group-hover:bg-red-100',
+  ADVERSE_PENDING: 'bg-red-200 group-hover:bg-red-300',
+  PENDING_APPROVAL: 'bg-orange-50 group-hover:bg-orange-100',
 };
 
 const itemStatusTone: Record<ProcessingItemStatus, string> = {
@@ -233,6 +272,14 @@ const booleanTone = (value: boolean | null) => {
 
 const deadlineTone =
   '!border-red-400 !bg-red-200 !text-red-950 ring-1 ring-inset ring-red-300';
+const neutralNoTone = '!border-slate-200 !bg-white !text-slate-700';
+
+function processorLabel(row: ProcessingPipelineRow) {
+  if (row.seniorProcessor?.name) return row.seniorProcessor.name;
+  if (row.processingMethod === PROCESSING_METHOD_THIRD_PARTY) return '3rd Party';
+  if (row.processingMethod === PROCESSING_METHOD_SELF_PROCESSED) return 'Self Processed';
+  return 'Unassigned';
+}
 
 function ResizableHeader({
   id,
@@ -468,6 +515,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [savingRows, setSavingRows] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [historyRow, setHistoryRow] = useState<ProcessingPipelineRow | null>(null);
+  const [actionsMenuRow, setActionsMenuRow] = useState<ProcessingPipelineRow | null>(null);
+  const [restructureDialog, setRestructureDialog] = useState<{
+    row: ProcessingPipelineRow;
+    action: RestructureDialogAction;
+  } | null>(null);
+  const [restructureNotesDraft, setRestructureNotesDraft] = useState('');
   const [rateLockDialogRow, setRateLockDialogRow] = useState<ProcessingPipelineRow | null>(null);
   const [rateLockExpiryDraft, setRateLockExpiryDraft] = useState('');
   const [clockNow, setClockNow] = useState(() => new Date());
@@ -485,6 +538,10 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const canEditRow = (row: ProcessingPipelineRow) => canEdit && row.canEdit;
   const isProcessor =
     role === UserRole.PROCESSOR_SR || role === UserRole.PROCESSOR_JR;
+  const statusOptions =
+    sheet === ProcessingPipelineSheet.RESTRUCTURE
+      ? RESTRUCTURE_STATUS_OPTIONS
+      : STANDARD_STATUS_OPTIONS;
 
   useEffect(() => {
     try {
@@ -570,19 +627,22 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     : PIPELINE_FOCUS_COLUMNS;
   const isColumnVisible = (id: ColumnId) =>
     (id !== 'loanOfficer' || !isLoanOfficer) &&
+    (id !== 'restructureNotes' || sheet === ProcessingPipelineSheet.RESTRUCTURE) &&
     (!isProcessor || (id !== 'loanAmount' && id !== 'projectedRevenue')) &&
     (detailsExpanded || focusColumns.has(id));
   const visibleColumnCount = currentColumns.filter((column) => isColumnVisible(column.id)).length;
   const tableWidth = currentColumns
     .filter((column) => isColumnVisible(column.id))
     .reduce((sum, column) => sum + (columnWidths[column.id] || column.width), 0);
-  const loadedUnassigned = visibleRows.filter((row) => !row.seniorProcessor).length;
+  const loadedUnassigned = visibleRows.filter((row) => processorLabel(row) === 'Unassigned').length;
   const loadedAtClosing = visibleRows.filter((row) =>
     row.pipelineStatus === ProcessingPipelineStatus.CTC ||
     row.pipelineStatus === ProcessingPipelineStatus.DOCS_OUT
   ).length;
   const loadedNeedsAttention = visibleRows.filter((row) =>
     row.pipelineStatus === ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE ||
+    row.pipelineStatus === ProcessingPipelineStatus.ADVERSE_PENDING ||
+    row.pipelineStatus === ProcessingPipelineStatus.PENDING_APPROVAL ||
     row.pipelineStatus === ProcessingPipelineStatus.RE_SUB
   ).length;
   const activeFilterCount = Object.values(appliedFilters).filter((value) => {
@@ -716,18 +776,73 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     setRateLockExpiryDraft(dateInputValue(row.rateLockExpiresAt));
   };
 
-  const moveRow = async (row: ProcessingPipelineRow, destination: ProcessingPipelineSheet) => {
-    if (destination === row.sheet || !canEditRow(row)) return;
+  const moveRow = async (
+    row: ProcessingPipelineRow,
+    destination: ProcessingPipelineSheet,
+    notes?: string,
+  ) => {
+    if (destination === row.sheet || !canEditRow(row)) return false;
     let fundedAt: string | null = null;
     if (destination === ProcessingPipelineSheet.FUNDING) {
       fundedAt = window.prompt('Funded / signing date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
-      if (!fundedAt) return;
+      if (!fundedAt) return false;
     }
     setSavingRows((current) => new Set(current).add(row.id));
     const result = await moveProcessingPipelineLoan({
       id: row.id,
       sheet: destination,
       fundedAt,
+      notes,
+      version: row.version,
+    });
+    setSavingRows((current) => {
+      const next = new Set(current);
+      next.delete(row.id);
+      return next;
+    });
+    if (!result.success) {
+      setMessage(result.error);
+      if ('conflict' in result) loadRows();
+      return false;
+    }
+    setRows((current) => current.filter((candidate) => candidate.id !== row.id));
+    setTotal((current) => Math.max(0, current - 1));
+    setMessage(`Moved ${row.loan.borrowerName} to ${
+      PROCESSING_PIPELINE_SHEETS.find((option) => option.value === destination)?.label
+    }.`);
+    return true;
+  };
+
+  const openRestructureDialog = (
+    row: ProcessingPipelineRow,
+    action: RestructureDialogAction,
+  ) => {
+    setActionsMenuRow(null);
+    setRestructureDialog({ row, action });
+    setRestructureNotesDraft('');
+    setMessage('');
+  };
+
+  const submitRestructureDialog = async () => {
+    if (!restructureDialog || !restructureNotesDraft.trim()) return;
+    const { row, action } = restructureDialog;
+    if (action === 'MOVE_TO_RESTRUCTURE') {
+      const moved = await moveRow(
+        row,
+        ProcessingPipelineSheet.RESTRUCTURE,
+        restructureNotesDraft.trim(),
+      );
+      if (!moved) return;
+      setRestructureDialog(null);
+      setRestructureNotesDraft('');
+      return;
+    }
+
+    setSavingRows((current) => new Set(current).add(row.id));
+    const result = await updateProcessingRestructureWorkflow({
+      id: row.id,
+      action,
+      notes: restructureNotesDraft.trim(),
       version: row.version,
     });
     setSavingRows((current) => {
@@ -740,11 +855,14 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       if ('conflict' in result) loadRows();
       return;
     }
-    setRows((current) => current.filter((candidate) => candidate.id !== row.id));
-    setTotal((current) => Math.max(0, current - 1));
-    setMessage(`Moved ${row.loan.borrowerName} to ${
-      PROCESSING_PIPELINE_SHEETS.find((option) => option.value === destination)?.label
-    }.`);
+    patchRow(row.id, { ...result.patch, version: result.version });
+    setRestructureDialog(null);
+    setRestructureNotesDraft('');
+    setMessage(
+      action === 'REQUEST_ADVERSE'
+        ? `${row.loan.borrowerName} is now Adverse Pending.`
+        : `${row.loan.borrowerName} is now Pending Approval.`,
+    );
   };
 
   const openHistory = async (row: ProcessingPipelineRow) => {
@@ -840,15 +958,27 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
         { value: 'true', label: 'Yes' },
         { value: 'false', label: 'No' },
       ],
-      overdue ? deadlineTone : booleanTone(row.cdSent),
+      overdue
+        ? `${deadlineTone} motion-safe:animate-pulse`
+        : row.cdSent
+          ? booleanTone(true)
+          : neutralNoTone,
     );
   };
 
   const rateLockCell = (row: ProcessingPipelineRow) => {
     const expiring = isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow);
-    const tone = expiring
+    const overdueAfterAppraisal = isRateLockOverdueAfterAppraisal(
+      row.rateLock,
+      row.appraisalBackAt,
+      clockNow,
+    );
+    const warning = expiring || overdueAfterAppraisal;
+    const tone = warning
       ? `${deadlineTone} motion-safe:animate-pulse`
-      : booleanTone(row.rateLock);
+      : row.rateLock
+        ? booleanTone(true)
+        : neutralNoTone;
     if (!canEditRow(row)) {
       return (
         <div className="space-y-1">
@@ -856,7 +986,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             {row.rateLock ? 'Yes' : 'No'}
           </span>
           {row.rateLockExpiresAt && (
-            <p className={`text-[10px] font-bold ${expiring ? 'text-red-800' : 'text-slate-500'}`}>
+            <p className={`text-[10px] font-bold ${warning ? 'text-red-800' : 'text-slate-500'}`}>
               Expires {formatDateOnly(row.rateLockExpiresAt)}
             </p>
           )}
@@ -864,7 +994,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       );
     }
     return (
-      <div className={`space-y-1 rounded-lg ${expiring ? 'motion-safe:animate-pulse' : ''}`}>
+      <div className={`space-y-1 rounded-lg ${warning ? 'motion-safe:animate-pulse' : ''}`}>
         <select
           aria-label="Rate Lock"
           value={String(row.rateLock)}
@@ -882,7 +1012,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             type="button"
             onClick={() => openRateLockCalendar(row)}
             className={`block w-full rounded-md px-1 py-0.5 text-left text-[10px] font-bold underline-offset-2 hover:underline ${
-              expiring ? 'text-red-900' : 'text-slate-600'
+              warning ? 'text-red-900' : 'text-slate-600'
             }`}
           >
             Expires {formatDateOnly(row.rateLockExpiresAt)}
@@ -1060,7 +1190,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     <MultiSelectFilter
                       label="Pipeline Statuses"
                       values={draftFilters.pipelineStatuses || []}
-                      options={PROCESSING_PIPELINE_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                      options={statusOptions.map((option) => ({ value: option.value, label: option.label }))}
                       onChange={(values) => setDraftFilter('pipelineStatuses', values as ProcessingPipelineStatus[])}
                     />
                     <FilterInput label="Days in Status Min" type="number" value={draftFilters.daysInStatusMin} onChange={(value) => setDraftFilter('daysInStatusMin', value === '' ? undefined : Number(value))} placeholder="0" />
@@ -1102,6 +1232,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     />
                     <FilterInput label="Pending Items" value={draftFilters.missingItemsCurrentStatus} onChange={(value) => setDraftFilter('missingItemsCurrentStatus', value || undefined)} placeholder="Contains text…" />
                     <FilterInput label="Extra Notes" value={draftFilters.extraNotes} onChange={(value) => setDraftFilter('extraNotes', value || undefined)} placeholder="Contains text…" />
+                    {sheet === ProcessingPipelineSheet.RESTRUCTURE && (
+                      <FilterInput label="Restructure Notes" value={draftFilters.restructureNotes} onChange={(value) => setDraftFilter('restructureNotes', value || undefined)} placeholder="Contains text…" />
+                    )}
                     <FilterInput label="Revenue Min" type="number" value={draftFilters.projectedRevenueMin} onChange={(value) => setDraftFilter('projectedRevenueMin', value === '' ? undefined : Number(value))} placeholder="0" />
                     <FilterInput label="Revenue Max" type="number" value={draftFilters.projectedRevenueMax} onChange={(value) => setDraftFilter('projectedRevenueMax', value === '' ? undefined : Number(value))} placeholder="10000" />
                     <MultiSelectFilter
@@ -1182,7 +1315,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               >
                 All
               </button>
-              {PROCESSING_PIPELINE_STATUS_OPTIONS.map((option) => {
+              {statusOptions.map((option) => {
                 const selected = appliedFilters.pipelineStatuses?.includes(option.value) || false;
                 return (
                   <button
@@ -1250,6 +1383,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     </button>
                   </ResizableHeader>
                 )}
+                {isColumnVisible('propertyState') && (
+                  <ResizableHeader id="propertyState" width={columnWidths.propertyState} onResize={resizeColumn}>
+                    State
+                  </ResizableHeader>
+                )}
                 {sheet === ProcessingPipelineSheet.FUNDING ? (
                   <>
                     {isColumnVisible('loanType') && <ResizableHeader id="loanType" width={columnWidths.loanType} onResize={resizeColumn}>Loan Type</ResizableHeader>}
@@ -1270,6 +1408,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     {isColumnVisible('seniorProcessor') && <ResizableHeader id="seniorProcessor" width={columnWidths.seniorProcessor} onResize={resizeColumn}>Processor</ResizableHeader>}
                     {isColumnVisible('pipelineStatus') && <ResizableHeader id="pipelineStatus" width={columnWidths.pipelineStatus} onResize={resizeColumn}>Pipeline Status</ResizableHeader>}
                     {isColumnVisible('missingItemsCurrentStatus') && <ResizableHeader id="missingItemsCurrentStatus" width={columnWidths.missingItemsCurrentStatus} onResize={resizeColumn}>Pending Items</ResizableHeader>}
+                    {isColumnVisible('restructureNotes') && <ResizableHeader id="restructureNotes" width={columnWidths.restructureNotes} onResize={resizeColumn}>Restructure Notes</ResizableHeader>}
                     {isColumnVisible('titleStatus') && <ResizableHeader id="titleStatus" width={columnWidths.titleStatus} onResize={resizeColumn}>Title</ResizableHeader>}
                     {isColumnVisible('payoffStatus') && <ResizableHeader id="payoffStatus" width={columnWidths.payoffStatus} onResize={resizeColumn}>Payoff</ResizableHeader>}
                     {isColumnVisible('hoiStatus') && <ResizableHeader id="hoiStatus" width={columnWidths.hoiStatus} onResize={resizeColumn}>HOI</ResizableHeader>}
@@ -1304,6 +1443,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   row.approvedWithConditionsAt,
                   row.payoffStatus,
                   clockNow,
+                ) || isOrderedItemOverdue(row.payoffOrderedAt, row.payoffStatus, clockNow);
+                const hoiOverdue = isOrderedItemOverdue(
+                  row.hoiOrderedAt,
+                  row.hoiStatus,
+                  clockNow,
                 );
                 const appraisalBackOverdue = isAppraisalBackOverdue(
                   row.appraisalOrderedAt,
@@ -1326,11 +1470,16 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   {isColumnVisible('borrowerName') && (
                     <td className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 ${cellPadding}`} title={row.loan.borrowerName}>{row.loan.borrowerName}</td>
                   )}
+                  {isColumnVisible('propertyState') && (
+                    <td className="border-b border-r border-slate-200 px-1.5 py-1">
+                      {textCell(row, 'propertyState', row.propertyState)}
+                    </td>
+                  )}
                   {sheet === ProcessingPipelineSheet.FUNDING ? (
                     <>
                       {isColumnVisible('loanType') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.loanType || undefined}>{row.loanType || '—'}</td>}
                       {isColumnVisible('juniorProcessor') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`}>{row.juniorProcessor?.name || '—'}</td>}
-                      {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`}>{row.seniorProcessor?.name || 'Unassigned'}</td>}
+                      {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={processorLabel(row)}>{processorLabel(row)}</td>}
                       {isColumnVisible('fundedAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.fundedAt)}</td>}
                       {isColumnVisible('projectedRevenue') && <td className={`border-b border-r border-slate-200 font-semibold ${cellPadding}`}>{formatMoney(row.projectedRevenue)}</td>}
                       {isColumnVisible('finalRevenue') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>
@@ -1357,11 +1506,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       {isColumnVisible('loanAmount') && <td className={`truncate border-b border-r border-slate-200 font-semibold tabular-nums text-slate-700 ${cellPadding}`}>{formatMoney(row.loan.amount)}</td>}
                       {isColumnVisible('loanType') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.loanType || undefined}>{row.loanType || '—'}</td>}
                       {isColumnVisible('juniorProcessor') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.juniorProcessor?.name}>{row.juniorProcessor?.name || '—'}</td>}
-                      {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={row.seniorProcessor?.name || 'Unassigned'}>{row.seniorProcessor?.name || 'Unassigned'}</td>}
+                      {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={processorLabel(row)}>{processorLabel(row)}</td>}
                       {isColumnVisible('pipelineStatus') && (
                         <td className="border-b border-r border-slate-200 px-1.5 py-1">
-                          {canEditRow(row)
-                            ? editableSelect(row, 'pipelineStatus', row.pipelineStatus, PROCESSING_PIPELINE_STATUS_OPTIONS, statusTone[row.pipelineStatus])
+                          {canEditRow(row) && sheet !== ProcessingPipelineSheet.RESTRUCTURE
+                            ? editableSelect(row, 'pipelineStatus', row.pipelineStatus, statusOptions, statusTone[row.pipelineStatus])
                             : (
                               <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-1 text-xs font-bold ${statusTone[row.pipelineStatus]}`}>
                                 {PROCESSING_PIPELINE_STATUS_OPTIONS.find((option) => option.value === row.pipelineStatus)?.label}
@@ -1370,16 +1519,31 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                         </td>
                       )}
                       {isColumnVisible('missingItemsCurrentStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'missingItemsCurrentStatus', row.missingItemsCurrentStatus)}</td>}
+                      {isColumnVisible('restructureNotes') && (
+                        <td className="border-b border-r border-slate-200 px-3 py-2 align-top">
+                          <div
+                            className="max-h-24 overflow-y-auto whitespace-pre-wrap text-xs font-medium leading-5 text-slate-700"
+                            title={row.restructureNotes || 'No restructure notes'}
+                          >
+                            {row.restructureNotes || '—'}
+                          </div>
+                        </td>
+                      )}
                       {isColumnVisible('titleStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${titleOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'titleStatus', row.titleStatus, PROCESSING_ITEM_STATUS_OPTIONS, titleOverdue ? deadlineTone : itemStatusTone[row.titleStatus])}</td>}
-                      {isColumnVisible('payoffStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${payoffOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS, payoffOverdue ? deadlineTone : itemStatusTone[row.payoffStatus])}</td>}
-                      {isColumnVisible('hoiStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{editableSelect(row, 'hoiStatus', row.hoiStatus, PROCESSING_ITEM_STATUS_OPTIONS, itemStatusTone[row.hoiStatus])}</td>}
+                      {isColumnVisible('payoffStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${payoffOverdue ? 'bg-red-100 motion-safe:animate-pulse' : ''}`}>{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS, payoffOverdue ? `${deadlineTone} motion-safe:animate-pulse` : itemStatusTone[row.payoffStatus])}</td>}
+                      {isColumnVisible('hoiStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${hoiOverdue ? 'bg-red-100 motion-safe:animate-pulse' : ''}`}>{editableSelect(row, 'hoiStatus', row.hoiStatus, PROCESSING_ITEM_STATUS_OPTIONS, hoiOverdue ? `${deadlineTone} motion-safe:animate-pulse` : itemStatusTone[row.hoiStatus])}</td>}
                       {isColumnVisible('appraisalNeeded') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{yesNoCell(row, 'appraisalNeeded', row.appraisalNeeded)}</td>}
                       {isColumnVisible('appraisalNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'appraisalNotes', row.appraisalNotes)}</td>}
                       {isColumnVisible('appraisalOrderedAt') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{dateCell(row, 'appraisalOrderedAt', row.appraisalOrderedAt)}</td>}
                       {isColumnVisible('appraisalBackAt') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${appraisalBackOverdue ? 'bg-red-100' : ''}`}>{dateCell(row, 'appraisalBackAt', row.appraisalBackAt, appraisalBackOverdue ? deadlineTone : '')}</td>}
-                      {isColumnVisible('cdSent') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow) ? 'bg-red-100' : ''}`}>{cdSentCell(row)}</td>}
+                      {isColumnVisible('cdSent') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow) ? 'bg-red-100 motion-safe:animate-pulse' : ''}`}>{cdSentCell(row)}</td>}
                       {isColumnVisible('extraNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'extraNotes', row.extraNotes)}</td>}
-                      {isColumnVisible('rateLock') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow) ? 'bg-red-100 motion-safe:animate-pulse' : ''}`}>{rateLockCell(row)}</td>}
+                      {isColumnVisible('rateLock') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${
+                        isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow) ||
+                        isRateLockOverdueAfterAppraisal(row.rateLock, row.appraisalBackAt, clockNow)
+                          ? 'bg-red-100 motion-safe:animate-pulse'
+                          : ''
+                      }`}>{rateLockCell(row)}</td>}
                       {isColumnVisible('daysInStatus') && (
                         <td className={`border-b border-r border-slate-200 text-center ${cellPadding}`}>
                           <span className={`inline-flex min-w-8 justify-center rounded-full px-2 py-1 text-xs font-bold ${row.daysInStatus > 7 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
@@ -1393,25 +1557,15 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   <td className={`sticky right-0 z-10 border-b border-slate-200 px-2 py-2 shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}>
                     <div className="flex items-center justify-end gap-1.5">
                       {savingRows.has(row.id) && <Loader2 className="h-4 w-4 animate-spin text-blue-600" aria-label="Saving" />}
-                      <button type="button" onClick={() => openHistory(row)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition hover:border-blue-200 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" title="View change history">
-                        <History className="h-4 w-4" />
+                      <button
+                        type="button"
+                        onClick={() => setActionsMenuRow(row)}
+                        className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                        aria-label={`Open actions for ${row.loan.borrowerName}`}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                        Actions
                       </button>
-                      {canEditRow(row) && (
-                        <label className="flex min-w-0 items-center gap-1">
-                          <span className="sr-only">Move loan</span>
-                          <select
-                            aria-label={`Move ${row.loan.borrowerName}`}
-                            value=""
-                            onChange={(event) => moveRow(row, event.target.value as ProcessingPipelineSheet)}
-                            className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 shadow-sm outline-none transition hover:border-blue-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                          >
-                            <option value="">Move…</option>
-                            {PROCESSING_PIPELINE_SHEETS.filter((option) => option.value !== sheet).map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                        </label>
-                      )}
                     </div>
                   </td>
                 </tr>
@@ -1478,6 +1632,215 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 {savingRows.has(rateLockDialogRow.id) && <Loader2 className="h-4 w-4 animate-spin" />}
                 Save Rate Lock
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {restructureDialog && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="restructure-dialog-title"
+          onClick={() => {
+            if (!savingRows.has(restructureDialog.row.id)) {
+              setRestructureDialog(null);
+              setRestructureNotesDraft('');
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-xs font-bold uppercase tracking-wider text-red-600">
+              Restructure workflow
+            </p>
+            <h2 id="restructure-dialog-title" className="mt-1 text-xl font-black text-slate-950">
+              {restructureDialog.action === 'MOVE_TO_RESTRUCTURE'
+                ? 'Move to Restructures'
+                : restructureDialog.action === 'REQUEST_ADVERSE'
+                  ? 'Request to Adverse'
+                  : 'Send to Underwriting'}
+            </h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              {restructureDialog.row.loan.borrowerName} · Arrive #{restructureDialog.row.loan.loanNumber}
+            </p>
+            <label className="mt-5 block">
+              <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">
+                Required notes
+              </span>
+              <textarea
+                autoFocus
+                rows={5}
+                value={restructureNotesDraft}
+                onChange={(event) => setRestructureNotesDraft(event.target.value)}
+                placeholder={
+                  restructureDialog.action === 'MOVE_TO_RESTRUCTURE'
+                    ? 'Explain why this loan is being moved to Restructures…'
+                    : 'Document the reason and relevant details…'
+                }
+                className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+            <p className="mt-2 text-xs font-medium text-slate-500">
+              This entry will be added to the Restructure Notes column and audit history.
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRestructureDialog(null);
+                  setRestructureNotesDraft('');
+                }}
+                disabled={savingRows.has(restructureDialog.row.id)}
+                className="app-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitRestructureDialog()}
+                disabled={
+                  !restructureNotesDraft.trim() ||
+                  savingRows.has(restructureDialog.row.id)
+                }
+                className={
+                  restructureDialog.action === 'REQUEST_ADVERSE'
+                    ? 'inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-50'
+                    : 'app-btn-primary disabled:cursor-not-allowed disabled:opacity-50'
+                }
+              >
+                {savingRows.has(restructureDialog.row.id) && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {actionsMenuRow && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pipeline-actions-title"
+          onClick={() => setActionsMenuRow(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Loan actions</p>
+                <h2 id="pipeline-actions-title" className="mt-1 text-xl font-black text-slate-950">
+                  {actionsMenuRow.loan.borrowerName}
+                </h2>
+                <p className="text-sm font-medium text-slate-500">
+                  Arrive #{actionsMenuRow.loan.loanNumber}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActionsMenuRow(null)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                aria-label="Close loan actions"
+                autoFocus
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const row = actionsMenuRow;
+                  setActionsMenuRow(null);
+                  void openHistory(row);
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              >
+                <History className="h-4 w-4 text-blue-600" />
+                View change history
+              </button>
+
+              {canEditRow(actionsMenuRow) &&
+                actionsMenuRow.sheet === ProcessingPipelineSheet.RESTRUCTURE && (
+                  <>
+                    {actionsMenuRow.pipelineStatus !== ProcessingPipelineStatus.ADVERSE_PENDING && (
+                      <button
+                        type="button"
+                        onClick={() => openRestructureDialog(actionsMenuRow, 'REQUEST_ADVERSE')}
+                        className="flex w-full items-center justify-between rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-left text-sm font-bold text-red-800 transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+                      >
+                        Request to Adverse
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    )}
+                    {actionsMenuRow.pipelineStatus !== ProcessingPipelineStatus.PENDING_APPROVAL && (
+                      <button
+                        type="button"
+                        onClick={() => openRestructureDialog(actionsMenuRow, 'SEND_TO_UNDERWRITING')}
+                        className="flex w-full items-center justify-between rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-left text-sm font-bold text-orange-900 transition hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+                      >
+                        Send to Underwriting
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    )}
+                    {role !== UserRole.LOAN_OFFICER && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const row = actionsMenuRow;
+                          setActionsMenuRow(null);
+                          void moveRow(row, ProcessingPipelineSheet.PIPELINE);
+                        }}
+                        className="flex w-full items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-bold text-blue-800 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                      >
+                        Return to Pipeline
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    )}
+                  </>
+                )}
+
+              {canEditRow(actionsMenuRow) &&
+                actionsMenuRow.sheet !== ProcessingPipelineSheet.RESTRUCTURE && (
+                <details className="group rounded-xl border border-slate-200 bg-white">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300">
+                    <span>Move to…</span>
+                    <ChevronDown className="h-4 w-4 text-slate-400 transition group-open:rotate-180" />
+                  </summary>
+                  <div className="space-y-2 border-t border-slate-100 p-3">
+                    {PROCESSING_PIPELINE_SHEETS.filter(
+                      (option) => option.value !== actionsMenuRow.sheet,
+                    ).map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          const row = actionsMenuRow;
+                          if (option.value === ProcessingPipelineSheet.RESTRUCTURE) {
+                            openRestructureDialog(row, 'MOVE_TO_RESTRUCTURE');
+                          } else {
+                            setActionsMenuRow(null);
+                            void moveRow(row, option.value);
+                          }
+                        }}
+                        className="flex w-full items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                      >
+                        {option.label}
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
           </div>
         </div>

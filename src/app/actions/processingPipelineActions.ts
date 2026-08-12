@@ -17,6 +17,7 @@ import {
   canEditProcessingPipelineMethod,
   getApprovedWithConditionsAt,
   getCdWarningStartsAt,
+  getItemOrderedAt,
   getProcessingPipelineAccess,
   parseOptionalBoolean,
   parseOptionalMoney,
@@ -87,7 +88,9 @@ function serializeRow(row: {
   statusChangedAt: Date;
   titleStatus: ProcessingItemStatus;
   payoffStatus: ProcessingItemStatus;
+  payoffOrderedAt: Date | null;
   hoiStatus: ProcessingItemStatus;
+  hoiOrderedAt: Date | null;
   dateAssigned: Date;
   appraisalNeeded: boolean | null;
   appraisalNotes: string | null;
@@ -97,6 +100,7 @@ function serializeRow(row: {
   cdWarningStartsAt: Date | null;
   missingItemsCurrentStatus: string | null;
   extraNotes: string | null;
+  restructureNotes: string | null;
   rateLock: boolean;
   rateLockExpiresAt: Date | null;
   rateLockConfirmedAt: Date | null;
@@ -129,6 +133,8 @@ function serializeRow(row: {
     statusChangedAt: row.statusChangedAt.toISOString(),
     appraisalOrderedAt: row.appraisalOrderedAt?.toISOString() || null,
     appraisalBackAt: row.appraisalBackAt?.toISOString() || null,
+    payoffOrderedAt: row.payoffOrderedAt?.toISOString() || null,
+    hoiOrderedAt: row.hoiOrderedAt?.toISOString() || null,
     cdWarningStartsAt: row.cdWarningStartsAt?.toISOString() || null,
     rateLockExpiresAt: row.rateLockExpiresAt?.toISOString() || null,
     rateLockConfirmedAt: row.rateLockConfirmedAt?.toISOString() || null,
@@ -178,6 +184,7 @@ export type ProcessingPipelineFilters = {
   cdSent?: Array<'YES' | 'NO' | 'BLANK'>;
   missingItemsCurrentStatus?: string;
   extraNotes?: string;
+  restructureNotes?: string;
   rateLock?: Array<'YES' | 'NO' | 'BLANK'>;
   rateLockExpiresFrom?: string;
   rateLockExpiresTo?: string;
@@ -331,6 +338,9 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   }
   if (filters.extraNotes?.trim()) {
     clauses.push({ extraNotes: { contains: filters.extraNotes.trim(), mode: 'insensitive' } });
+  }
+  if (filters.restructureNotes?.trim()) {
+    clauses.push({ restructureNotes: { contains: filters.restructureNotes.trim(), mode: 'insensitive' } });
   }
   if (filters.projectedRevenueMin !== undefined || filters.projectedRevenueMax !== undefined) {
     clauses.push({
@@ -528,9 +538,27 @@ const EDITABLE_FIELDS = [
   'missingItemsCurrentStatus',
   'extraNotes',
   'lender',
+  'propertyState',
   'finalRevenue',
 ] as const;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
+
+const RESTRUCTURE_PIPELINE_STATUSES = new Set<ProcessingPipelineStatus>([
+  ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE,
+  ProcessingPipelineStatus.ADVERSE_PENDING,
+  ProcessingPipelineStatus.PENDING_APPROVAL,
+]);
+
+function appendRestructureNote(
+  current: string | null,
+  actor: Actor,
+  action: string,
+  notes: string,
+  now: Date,
+) {
+  const entry = `${now.toISOString()} | ${actor.name} | ${action}\n${notes.trim()}`;
+  return current?.trim() ? `${current.trim()}\n\n${entry}` : entry;
+}
 
 function normalizeCellValue(field: EditableField, value: unknown) {
   if (field === 'pipelineStatus') {
@@ -563,6 +591,13 @@ function normalizeCellValue(field: EditableField, value: unknown) {
     if (parsed === null) throw new Error('Invalid currency value.');
     return parsed;
   }
+  if (field === 'propertyState') {
+    const normalized = String(value ?? '').trim().toUpperCase();
+    if (normalized && !/^[A-Z]{2}$/.test(normalized)) {
+      throw new Error('State must be a valid two-letter abbreviation.');
+    }
+    return normalized || null;
+  }
   return String(value ?? '').trim() || null;
 }
 
@@ -593,9 +628,20 @@ export async function updateProcessingPipelineCell(input: {
       }
 
       const nextValue = normalizeCellValue(input.field, input.value);
+      if (input.field === 'pipelineStatus') {
+        const nextStatus = nextValue as ProcessingPipelineStatus;
+        const isRestructureStatus = RESTRUCTURE_PIPELINE_STATUSES.has(nextStatus);
+        if (current.sheet === ProcessingPipelineSheet.RESTRUCTURE) {
+          throw new Error('Use the Restructure action buttons to change this status.');
+        }
+        if (isRestructureStatus) {
+          throw new Error('That status is not available in this pipeline section.');
+        }
+      }
       const now = new Date();
       let approvedWithConditionsAt = current.approvedWithConditionsAt;
-      let cdWarningStartsAt = current.cdWarningStartsAt;
+      let payoffOrderedAt = current.payoffOrderedAt;
+      let hoiOrderedAt = current.hoiOrderedAt;
       const data: Prisma.ProcessingPipelineLoanUpdateManyMutationInput = {
         [input.field]: nextValue,
         version: { increment: 1 },
@@ -612,14 +658,21 @@ export async function updateProcessingPipelineCell(input: {
           data.approvedWithConditionsAt = now;
         }
       }
-      if (input.field === 'appraisalBackAt') {
-        cdWarningStartsAt = getCdWarningStartsAt(
-          nextValue instanceof Date ? nextValue : null,
-          current.rateLock,
-          current.rateLockExpiresAt,
+      if (input.field === 'payoffStatus') {
+        payoffOrderedAt = getItemOrderedAt(
+          nextValue as ProcessingItemStatus,
+          current.payoffOrderedAt,
           now,
         );
-        data.cdWarningStartsAt = cdWarningStartsAt;
+        data.payoffOrderedAt = payoffOrderedAt;
+      }
+      if (input.field === 'hoiStatus') {
+        hoiOrderedAt = getItemOrderedAt(
+          nextValue as ProcessingItemStatus,
+          current.hoiOrderedAt,
+          now,
+        );
+        data.hoiOrderedAt = hoiOrderedAt;
       }
       const updated = await tx.processingPipelineLoan.updateMany({
         where: { id: current.id, version: input.version },
@@ -649,7 +702,8 @@ export async function updateProcessingPipelineCell(input: {
         version: input.version + 1,
         patch: {
           approvedWithConditionsAt: approvedWithConditionsAt?.toISOString() || null,
-          cdWarningStartsAt: cdWarningStartsAt?.toISOString() || null,
+          payoffOrderedAt: payoffOrderedAt?.toISOString() || null,
+          hoiOrderedAt: hoiOrderedAt?.toISOString() || null,
         },
       };
     });
@@ -714,11 +768,12 @@ export async function updateProcessingPipelineRateLock(input: {
       }
 
       const now = new Date();
-      const rateLockConfirmedAt = input.rateLock ? now : null;
+      const rateLockConfirmedAt = input.rateLock
+        ? current.rateLockConfirmedAt ?? now
+        : null;
       const cdWarningStartsAt = getCdWarningStartsAt(
-        current.appraisalBackAt,
         input.rateLock,
-        expiresAt,
+        current.cdWarningStartsAt,
         now,
       );
       const updated = await tx.processingPipelineLoan.updateMany({
@@ -785,10 +840,117 @@ export async function updateProcessingPipelineRateLock(input: {
   }
 }
 
+export type ProcessingRestructureAction =
+  | 'REQUEST_ADVERSE'
+  | 'SEND_TO_UNDERWRITING';
+
+export async function updateProcessingRestructureWorkflow(input: {
+  id: string;
+  action: ProcessingRestructureAction;
+  notes: string;
+  version: number;
+}) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const access = getProcessingPipelineAccess(actor.role);
+  if (!access.canEdit && actor.role !== UserRole.LOAN_OFFICER) {
+    return { success: false as const, error: 'This pipeline is read-only.' };
+  }
+  const notes = input.notes.trim();
+  if (!notes) {
+    return { success: false as const, error: 'Restructure notes are required.' };
+  }
+  if (input.action !== 'REQUEST_ADVERSE' && input.action !== 'SEND_TO_UNDERWRITING') {
+    return { success: false as const, error: 'Invalid restructure action.' };
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const current = await tx.processingPipelineLoan.findFirst({
+      where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
+    });
+    if (!current || current.sheet !== ProcessingPipelineSheet.RESTRUCTURE) {
+      return { kind: 'error' as const, error: 'Restructure loan not found.' };
+    }
+    if (current.version !== input.version) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+
+    const now = new Date();
+    const pipelineStatus =
+      input.action === 'REQUEST_ADVERSE'
+        ? ProcessingPipelineStatus.ADVERSE_PENDING
+        : ProcessingPipelineStatus.PENDING_APPROVAL;
+    const actionLabel =
+      input.action === 'REQUEST_ADVERSE'
+        ? 'Requested to Adverse'
+        : 'Sent to Underwriting';
+    const restructureNotes = appendRestructureNote(
+      current.restructureNotes,
+      actor,
+      actionLabel,
+      notes,
+      now,
+    );
+    const updated = await tx.processingPipelineLoan.updateMany({
+      where: { id: current.id, version: input.version },
+      data: {
+        pipelineStatus,
+        statusChangedAt: now,
+        restructureNotes,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+
+    await tx.auditLog.create({
+      data: {
+        loanId: current.loanId,
+        userId: actor.id,
+        action: `PROCESSING_RESTRUCTURE_${input.action}`,
+        details: JSON.stringify({
+          processingPipelineLoanId: current.id,
+          previousStatus: current.pipelineStatus,
+          newStatus: pipelineStatus,
+          notes,
+          actorName: actor.name,
+        }),
+      },
+    });
+
+    return {
+      kind: 'ok' as const,
+      version: input.version + 1,
+      patch: {
+        pipelineStatus,
+        statusChangedAt: now.toISOString(),
+        restructureNotes,
+      },
+    };
+  });
+
+  if (result.kind === 'error') return { success: false as const, error: result.error };
+  if (result.kind === 'conflict') {
+    return {
+      success: false as const,
+      conflict: true as const,
+      version: result.version,
+      error: 'This row changed in another session. Refreshing the latest values.',
+    };
+  }
+  return {
+    success: true as const,
+    version: result.version,
+    patch: result.patch,
+  };
+}
+
 export async function moveProcessingPipelineLoan(input: {
   id: string;
   sheet: ProcessingPipelineSheet;
   fundedAt?: string | null;
+  notes?: string | null;
   version: number;
 }) {
   const actor = await getActor();
@@ -799,6 +961,10 @@ export async function moveProcessingPipelineLoan(input: {
   }
   if (!Object.values(ProcessingPipelineSheet).includes(input.sheet)) {
     return { success: false as const, error: 'Invalid destination.' };
+  }
+  const restructureNotes = input.notes?.trim() || '';
+  if (input.sheet === ProcessingPipelineSheet.RESTRUCTURE && !restructureNotes) {
+    return { success: false as const, error: 'A reason is required to move this loan to Restructures.' };
   }
 
   let fundedAt: Date | null = null;
@@ -817,12 +983,44 @@ export async function moveProcessingPipelineLoan(input: {
     if (current.version !== input.version) {
       return { kind: 'conflict' as const, version: current.version };
     }
+    if (
+      actor.role === UserRole.LOAN_OFFICER &&
+      current.sheet === ProcessingPipelineSheet.RESTRUCTURE &&
+      input.sheet !== ProcessingPipelineSheet.RESTRUCTURE
+    ) {
+      return {
+        kind: 'error' as const,
+        error: 'Only Processors, Managers, and Admins can return a restructured loan.',
+      };
+    }
     const now = new Date();
+    const movingToRestructure = input.sheet === ProcessingPipelineSheet.RESTRUCTURE;
+    const returningToPipeline =
+      current.sheet === ProcessingPipelineSheet.RESTRUCTURE &&
+      input.sheet === ProcessingPipelineSheet.PIPELINE;
+    const nextRestructureNotes = movingToRestructure
+      ? appendRestructureNote(
+          current.restructureNotes,
+          actor,
+          'Moved to Restructures',
+          restructureNotes,
+          now,
+        )
+      : current.restructureNotes;
     const updated = await tx.processingPipelineLoan.updateMany({
       where: { id: current.id, version: input.version },
       data: {
         sheet: input.sheet,
         movedAt: now,
+        ...(movingToRestructure || returningToPipeline
+          ? {
+              pipelineStatus: movingToRestructure
+                ? ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE
+                : ProcessingPipelineStatus.RE_SUB,
+              statusChangedAt: now,
+            }
+          : {}),
+        ...(movingToRestructure ? { restructureNotes: nextRestructureNotes } : {}),
         version: { increment: 1 },
         ...(input.sheet === ProcessingPipelineSheet.FUNDING && fundedAt
           ? {
@@ -844,11 +1042,21 @@ export async function moveProcessingPipelineLoan(input: {
           fromSheet: current.sheet,
           toSheet: input.sheet,
           fundedAt: fundedAt?.toISOString() || null,
+          notes: restructureNotes || null,
           actorName: actor.name,
         }),
       },
     });
-    return { kind: 'ok' as const, version: input.version + 1 };
+    return {
+      kind: 'ok' as const,
+      version: input.version + 1,
+      pipelineStatus: movingToRestructure
+        ? ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE
+        : returningToPipeline
+          ? ProcessingPipelineStatus.RE_SUB
+          : current.pipelineStatus,
+      restructureNotes: nextRestructureNotes,
+    };
   });
 
   if (result.kind === 'error') return { success: false as const, error: result.error };
@@ -860,7 +1068,14 @@ export async function moveProcessingPipelineLoan(input: {
       error: 'This row changed in another session. Refreshing the latest values.',
     };
   }
-  return { success: true as const, version: result.version };
+  return {
+    success: true as const,
+    version: result.version,
+    patch: {
+      pipelineStatus: result.pipelineStatus,
+      restructureNotes: result.restructureNotes,
+    },
+  };
 }
 
 export async function getProcessingPipelineHistory(id: string) {

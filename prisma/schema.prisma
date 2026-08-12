@@ -252,6 +252,8 @@ enum ProcessingPipelineStatus {
   DOCS_OUT
   FUNDED
   SUSPENDED_RESTRUCTURE
+  ADVERSE_PENDING
+  PENDING_APPROVAL
 }
 
 enum ProcessingItemStatus {
@@ -470,7 +472,9 @@ model ProcessingPipelineLoan {
   statusChangedAt           DateTime                 @default(now())
   titleStatus               ProcessingItemStatus     @default(NOT_STARTED)
   payoffStatus              ProcessingItemStatus     @default(NOT_STARTED)
+  payoffOrderedAt           DateTime?
   hoiStatus                 ProcessingItemStatus     @default(NOT_STARTED)
+  hoiOrderedAt              DateTime?
   appraisalNeeded           Boolean?
   appraisalNotes            String?
   appraisalOrderedAt        DateTime?
@@ -479,6 +483,7 @@ model ProcessingPipelineLoan {
   cdWarningStartsAt         DateTime?
   missingItemsCurrentStatus String?
   extraNotes                String?
+  restructureNotes          String?
   rateLock                  Boolean                  @default(false)
   rateLockExpiresAt         DateTime?
   rateLockConfirmedAt       DateTime?

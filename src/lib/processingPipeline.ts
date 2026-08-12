@@ -18,6 +18,8 @@ export const PROCESSING_PIPELINE_STATUS_OPTIONS = [
   { value: ProcessingPipelineStatus.DOCS_OUT, label: 'Docs out' },
   { value: ProcessingPipelineStatus.FUNDED, label: 'Funded' },
   { value: ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE, label: 'Suspended/Restructure' },
+  { value: ProcessingPipelineStatus.ADVERSE_PENDING, label: 'Adverse Pending' },
+  { value: ProcessingPipelineStatus.PENDING_APPROVAL, label: 'Pending Approval' },
 ] as const;
 
 export const PROCESSING_ITEM_STATUS_OPTIONS = [
@@ -92,6 +94,16 @@ export function isRateLockExpiring(
   return expiration.getTime() - now.getTime() <= 3 * DAY_MS;
 }
 
+export function isRateLockOverdueAfterAppraisal(
+  rateLock: boolean,
+  appraisalBackAt: Date | string | null,
+  now = new Date(),
+) {
+  const appraisalBack = validDate(appraisalBackAt);
+  if (rateLock || !appraisalBack) return false;
+  return now.getTime() - appraisalBack.getTime() >= 5 * DAY_MS;
+}
+
 export function isCdSentOverdue(
   cdSent: boolean,
   warningStartsAt: Date | string | null,
@@ -112,6 +124,16 @@ export function isConditionItemOverdue(
   return now.getTime() - approvedAt.getTime() >= 2 * DAY_MS;
 }
 
+export function isOrderedItemOverdue(
+  orderedAt: Date | string | null,
+  status: ProcessingItemStatus,
+  now = new Date(),
+) {
+  const ordered = validDate(orderedAt);
+  if (!ordered || status !== ProcessingItemStatus.ORDERED) return false;
+  return now.getTime() - ordered.getTime() >= 2 * DAY_MS;
+}
+
 export function isAppraisalBackOverdue(
   appraisalOrderedAt: Date | string | null,
   appraisalBackAt: Date | string | null,
@@ -123,14 +145,19 @@ export function isAppraisalBackOverdue(
 }
 
 export function getCdWarningStartsAt(
-  appraisalBackAt: Date | string | null,
   rateLock: boolean,
-  rateLockExpiresAt: Date | string | null,
+  currentValue: Date | null,
   now = new Date(),
 ) {
-  return validDate(appraisalBackAt) && rateLock && validDate(rateLockExpiresAt)
-    ? now
-    : null;
+  return rateLock ? currentValue ?? now : null;
+}
+
+export function getItemOrderedAt(
+  status: ProcessingItemStatus,
+  currentValue: Date | null,
+  now = new Date(),
+) {
+  return status === ProcessingItemStatus.ORDERED ? currentValue ?? now : null;
 }
 
 export function getApprovedWithConditionsAt(

@@ -10,10 +10,13 @@ import {
   canEditProcessingPipelineMethod,
   getApprovedWithConditionsAt,
   getCdWarningStartsAt,
+  getItemOrderedAt,
   getProcessingPipelineAccess,
   isAppraisalBackOverdue,
   isCdSentOverdue,
   isConditionItemOverdue,
+  isOrderedItemOverdue,
+  isRateLockOverdueAfterAppraisal,
   isRateLockExpiring,
   parseOptionalBoolean,
   parseOptionalMoney,
@@ -91,7 +94,14 @@ describe('processing pipeline values', () => {
     expect(isRateLockExpiring(false, '2026-08-11T12:00:00.000Z', now)).toBe(false);
   });
 
-  it('warns for an unsent CD two days after both prerequisites complete', () => {
+  it('warns when a rate remains unlocked five days after appraisal back', () => {
+    const now = new Date('2026-08-10T12:00:00.000Z');
+    expect(isRateLockOverdueAfterAppraisal(false, '2026-08-05T12:00:00.000Z', now)).toBe(true);
+    expect(isRateLockOverdueAfterAppraisal(false, '2026-08-05T12:00:01.000Z', now)).toBe(false);
+    expect(isRateLockOverdueAfterAppraisal(true, '2026-08-01T12:00:00.000Z', now)).toBe(false);
+  });
+
+  it('warns for an unsent CD two days after Rate Lock is enabled', () => {
     const now = new Date('2026-08-10T12:00:00.000Z');
     expect(isCdSentOverdue(false, '2026-08-08T12:00:00.000Z', now)).toBe(true);
     expect(isCdSentOverdue(false, '2026-08-08T12:00:01.000Z', now)).toBe(false);
@@ -112,6 +122,20 @@ describe('processing pipeline values', () => {
     )).toBe(false);
   });
 
+  it('warns two days after Payoff or HOI remains ordered', () => {
+    const now = new Date('2026-08-10T12:00:00.000Z');
+    expect(isOrderedItemOverdue(
+      '2026-08-08T12:00:00.000Z',
+      ProcessingItemStatus.ORDERED,
+      now,
+    )).toBe(true);
+    expect(isOrderedItemOverdue(
+      '2026-08-01T12:00:00.000Z',
+      ProcessingItemStatus.RECEIVED,
+      now,
+    )).toBe(false);
+  });
+
   it('warns seven days after appraisal order until a back date exists', () => {
     const now = new Date('2026-08-10T12:00:00.000Z');
     expect(isAppraisalBackOverdue('2026-08-03T12:00:00.000Z', null, now)).toBe(true);
@@ -122,16 +146,20 @@ describe('processing pipeline values', () => {
     )).toBe(false);
   });
 
-  it('starts the CD timer only when both prerequisites are complete', () => {
+  it('starts the CD timer once when Rate Lock is enabled', () => {
+    const previous = new Date('2026-08-09T00:00:00.000Z');
     const now = new Date('2026-08-10T12:00:00.000Z');
-    expect(getCdWarningStartsAt(
-      '2026-08-09T00:00:00.000Z',
-      true,
-      '2026-09-01T00:00:00.000Z',
-      now,
-    )).toBe(now);
-    expect(getCdWarningStartsAt(null, true, '2026-09-01T00:00:00.000Z', now)).toBeNull();
-    expect(getCdWarningStartsAt('2026-08-09T00:00:00.000Z', false, null, now)).toBeNull();
+    expect(getCdWarningStartsAt(true, null, now)).toBe(now);
+    expect(getCdWarningStartsAt(true, previous, now)).toBe(previous);
+    expect(getCdWarningStartsAt(false, previous, now)).toBeNull();
+  });
+
+  it('records ordered timestamps until the item leaves Ordered', () => {
+    const previous = new Date('2026-08-09T00:00:00.000Z');
+    const now = new Date('2026-08-10T12:00:00.000Z');
+    expect(getItemOrderedAt(ProcessingItemStatus.ORDERED, null, now)).toBe(now);
+    expect(getItemOrderedAt(ProcessingItemStatus.ORDERED, previous, now)).toBe(previous);
+    expect(getItemOrderedAt(ProcessingItemStatus.RECEIVED, previous, now)).toBeNull();
   });
 
   it('records each Approved with Conditions transition without clearing history later', () => {
