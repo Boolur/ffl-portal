@@ -158,6 +158,7 @@ export type ProcessingPipelineRow = ReturnType<typeof serializeRow> & { canEdit:
 
 export type ProcessingPipelineFilters = {
   loanOfficerIds?: string[];
+  teamLoanOfficerIds?: string[];
   assignedFrom?: string;
   assignedTo?: string;
   loanNumbers?: string[];
@@ -245,6 +246,9 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   const clauses: Prisma.ProcessingPipelineLoanWhereInput[] = [];
   if (filters.loanOfficerIds?.length) {
     clauses.push({ loan: { loanOfficerId: { in: filters.loanOfficerIds } } });
+  }
+  if (filters.teamLoanOfficerIds?.length) {
+    clauses.push({ loan: { loanOfficerId: { in: filters.teamLoanOfficerIds } } });
   }
   if (filters.loanNumbers?.length) {
     clauses.push({ loan: { loanNumber: { in: filters.loanNumbers } } });
@@ -411,7 +415,7 @@ export async function getProcessingPipeline(input?: {
     ];
   }
 
-  const [rows, total] = await prisma.$transaction([
+  const [rows, total, teams] = await prisma.$transaction([
     prisma.processingPipelineLoan.findMany({
       where,
       include: {
@@ -430,6 +434,17 @@ export async function getProcessingPipeline(input?: {
       orderBy,
     }),
     prisma.processingPipelineLoan.count({ where }),
+    prisma.leadUserTeam.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+        colors: true,
+        members: { select: { userId: true } },
+      },
+    }),
   ]);
 
   return {
@@ -441,6 +456,14 @@ export async function getProcessingPipeline(input?: {
     total,
     page: 1,
     pageSize: Math.max(1, total),
+    teams: teams.map((team) => ({
+      id: team.id,
+      name: team.name,
+      color: team.color,
+      colors: team.colors?.length ? team.colors : [team.color],
+      memberCount: team.members.length,
+      memberIds: team.members.map((member) => member.userId),
+    })),
     canEdit: access.canEdit || actor.role === UserRole.LOAN_OFFICER,
     role: actor.role,
   };

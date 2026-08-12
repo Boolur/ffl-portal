@@ -432,7 +432,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
       task.parentTaskId
   );
   const includeCrossTaskTimelineAttachments =
-    (isLoanOfficer || isAdminOrManager) &&
+    (isLoanOfficer || isLoanOfficerAssistant || isAdminOrManager) &&
     hasTimelineRelevantTasks &&
     process.env.TASK_TIMELINE_EAGER !== 'false';
 
@@ -1093,7 +1093,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     [UserRole.LOAN_OFFICER]:
       'Manage submitted requests, complete LO actions, and track returns sent back to Disclosure.',
     [UserRole.LOA]:
-      'Submit requests and monitor loan officer workflows across Disclosure and Jr Processing.',
+      'Review company-wide Disclosure and Jr Processing requests with Loan Officer response controls.',
     // Admins (all tiers) mirror the Manager copy so the Tasks surface reads
     // the same for every leadership role.
     ADMIN: 'Oversee Disclosure and Jr Processing queues with full desk-level actions.',

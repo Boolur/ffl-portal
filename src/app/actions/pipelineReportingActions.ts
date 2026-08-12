@@ -1018,7 +1018,10 @@ function buildPipelineGroupRows(
 export async function getPipelineReport(filters: PipelineReportFilters = {}): Promise<PipelineReport> {
   noStore();
   const actor = await assertPipelineActor();
-  const canViewAll = actor.role === UserRole.MANAGER || isAdmin(actor.role);
+  const canViewAll =
+    actor.role === UserRole.LOA ||
+    actor.role === UserRole.MANAGER ||
+    isAdmin(actor.role);
   const { preset, start, end } = resolveDateRange(filters);
   const {
     preset: trendPreset,

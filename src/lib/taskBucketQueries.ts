@@ -934,7 +934,10 @@ async function hydrateTaskRows(
 ): Promise<TaskBucketQueryRow[]> {
   const includeCrossTaskTimelineAttachments =
     includeTimelineAttachments &&
-    (role === UserRole.LOAN_OFFICER || role === UserRole.MANAGER || isAdmin(role)) &&
+    (role === UserRole.LOAN_OFFICER ||
+      role === UserRole.LOA ||
+      role === UserRole.MANAGER ||
+      isAdmin(role)) &&
     tasks.some(
       (task) =>
         task.kind === TaskKind.VA_TITLE ||

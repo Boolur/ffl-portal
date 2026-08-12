@@ -1,5 +1,5 @@
 import { UserRole } from '@prisma/client';
-import { isAdmin } from '@/lib/adminTiers';
+import { isAdmin } from './adminTiers';
 
 export type PipelineAccessUser = {
   role?: string | UserRole | null;
@@ -16,6 +16,7 @@ export function canAccessPipelinePortal(user: PipelineAccessUser) {
   const role = normalizeRole(user.role);
   if (!role) return false;
   return role === UserRole.LOAN_OFFICER ||
+    role === UserRole.LOA ||
     role === UserRole.MANAGER ||
     role === UserRole.PROCESSOR_JR ||
     role === UserRole.PROCESSOR_SR ||

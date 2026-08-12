@@ -46,6 +46,9 @@ export function getProcessingPipelineAccess(role?: UserRole | null): ProcessingP
   if (role === UserRole.LOAN_OFFICER) {
     return { canView: true, canEdit: false, scope: 'OWN_LOANS' };
   }
+  if (role === UserRole.LOA) {
+    return { canView: true, canEdit: false, scope: 'COMPANY' };
+  }
   if (role === UserRole.PROCESSOR_SR) {
     return { canView: true, canEdit: true, scope: 'ASSIGNED' };
   }

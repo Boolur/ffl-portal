@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   SlidersHorizontal,
+  Users2,
   X,
 } from 'lucide-react';
 import {
@@ -50,6 +51,8 @@ import {
   PROCESSING_METHOD_SELF_PROCESSED,
   PROCESSING_METHOD_THIRD_PARTY,
 } from '@/lib/processingRouting';
+import { isAdmin } from '@/lib/adminTiers';
+import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
 
 type PipelineResult = Extract<Awaited<ReturnType<typeof getProcessingPipeline>>, { success: true }>;
 type PipelineFilterOptions = Extract<
@@ -281,6 +284,20 @@ function processorLabel(row: ProcessingPipelineRow) {
   return 'Unassigned';
 }
 
+function renderTeamDots(colors: string[]) {
+  const safeColors = (colors.length > 0 ? colors : ['blue']).slice(0, 3);
+  return (
+    <span className="inline-flex shrink-0 items-center -space-x-0.5" aria-hidden="true">
+      {safeColors.map((color, index) => (
+        <span
+          key={`${color}-${index}`}
+          className={`inline-block h-2 w-2 rounded-full ring-1 ring-white ${teamColorClasses(color).dot}`}
+        />
+      ))}
+    </span>
+  );
+}
+
 function ResizableHeader({
   id,
   width,
@@ -503,6 +520,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [appliedFilters, setAppliedFilters] = useState<ProcessingPipelineFilters>({});
   const [draftFilters, setDraftFilters] = useState<ProcessingPipelineFilters>({});
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [filterOptions, setFilterOptions] = useState<PipelineFilterOptions>(EMPTY_FILTER_OPTIONS);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<ColumnId, number>>(
@@ -538,6 +556,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const canEditRow = (row: ProcessingPipelineRow) => canEdit && row.canEdit;
   const isProcessor =
     role === UserRole.PROCESSOR_SR || role === UserRole.PROCESSOR_JR;
+  const canFilterByTeam =
+    isProcessor || role === UserRole.MANAGER || isAdmin(role);
   const statusOptions =
     sheet === ProcessingPipelineSheet.RESTRUCTURE
       ? RESTRUCTURE_STATUS_OPTIONS
@@ -665,9 +685,40 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   };
 
   const clearFilters = () => {
+    setSelectedTeamIds([]);
     setDraftFilters({});
     setAppliedFilters({});
     loadRows(sheet, search, sortBy, sortDirection, {});
+  };
+
+  const selectTeam = (teamId: string | null) => {
+    const nextTeamIds = !teamId
+      ? []
+      : selectedTeamIds.includes(teamId)
+        ? selectedTeamIds.filter((id) => id !== teamId)
+        : [...selectedTeamIds, teamId];
+    const memberIds = Array.from(new Set(
+      initialData.teams
+        .filter((team) => nextTeamIds.includes(team.id))
+        .flatMap((team) => team.memberIds),
+    ));
+    const teamLoanOfficerIds =
+      nextTeamIds.length > 0
+        ? memberIds.length > 0
+          ? memberIds
+          : ['__NO_TEAM_MEMBERS__']
+        : undefined;
+    const nextFilters: ProcessingPipelineFilters = {
+      ...appliedFilters,
+      teamLoanOfficerIds,
+    };
+    setSelectedTeamIds(nextTeamIds);
+    setAppliedFilters(nextFilters);
+    setDraftFilters((current) => ({
+      ...current,
+      teamLoanOfficerIds,
+    }));
+    loadRows(sheet, search, sortBy, sortDirection, nextFilters);
   };
 
   const toggleQuickStatus = (status?: ProcessingPipelineStatus) => {
@@ -1042,6 +1093,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 onClick={() => {
                   setSheet(option.value);
                   setDetailsExpanded(false);
+                  setSelectedTeamIds([]);
                   setDraftFilters({});
                   setAppliedFilters({});
                   loadRows(option.value, search, sortBy, sortDirection, {});
@@ -1120,6 +1172,49 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               </span>
             )}
           </button>
+          {canFilterByTeam && initialData.teams.length > 0 && (
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
+              <div className="mr-1 flex shrink-0 items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <Users2 className="h-3.5 w-3.5" />
+                Teams
+              </div>
+              <button
+                type="button"
+                aria-pressed={selectedTeamIds.length === 0}
+                onClick={() => selectTeam(null)}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                  selectedTeamIds.length === 0
+                    ? 'border-slate-300 bg-slate-100 text-slate-800 ring-1 ring-slate-300'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                All
+              </button>
+              {initialData.teams.map((team) => {
+                const accent = team.colors?.[0] ?? team.color;
+                const classes = teamColorClasses(accent);
+                const isActive = selectedTeamIds.includes(team.id);
+                return (
+                  <button
+                    key={team.id}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => selectTeam(team.id)}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                      isActive ? classes.chipActive : classes.chipInactive
+                    } ${isActive ? `ring-1 ${classes.ring}` : ''}`}
+                    title={isActive ? `Remove ${team.name}` : `Add ${team.name}`}
+                  >
+                    {renderTeamDots(team.colors ?? [accent])}
+                    <span className="max-w-[150px] truncate">{team.name}</span>
+                    <span className="text-[10px] font-semibold tabular-nums opacity-70">
+                      {team.memberCount}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {activeFilterCount > 0 && (
             <button
               type="button"

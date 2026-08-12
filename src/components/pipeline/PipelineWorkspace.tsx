@@ -71,6 +71,8 @@ export function PipelineWorkspace({ role, initialReport, initialProcessing }: Pr
               <p className="mt-1 max-w-2xl text-sm font-medium text-slate-500">
                 {role === UserRole.LOAN_OFFICER
                   ? 'Manage your Self Processed and Contract/3rd Party loans. In-House loans remain read-only.'
+                  : role === UserRole.LOA
+                  ? 'Review company-wide processing milestones, restructures, and fundings in a read-only workspace.'
                   : initialProcessing.canEdit
                   ? 'Manage assignments, milestones, restructures, fundings, and audited updates from one workspace.'
                   : 'Track every milestone after your loans enter Processing. This view is read-only.'}

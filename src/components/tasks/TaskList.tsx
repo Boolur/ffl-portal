@@ -1006,13 +1006,17 @@ function isVaTimelineRole(role: UserRole | null) {
   );
 }
 
+function isLoanOfficerTimelineRole(role: UserRole | null) {
+  return role === UserRole.LOAN_OFFICER || role === UserRole.LOA;
+}
+
 function getVaSafeTimelineItems(items: TimelineItem[]): TimelineItem[] {
   return items.filter((item) => {
     if (item.type === 'attachment') {
       // VA lanes only keep proof attachments produced in VA/LO response channel.
       if (item.attachmentPurpose !== TaskAttachmentPurpose.PROOF) return false;
       const isVaOrLoAttachmentActor =
-        isVaTimelineRole(item.actorRole) || item.actorRole === UserRole.LOAN_OFFICER;
+        isVaTimelineRole(item.actorRole) || isLoanOfficerTimelineRole(item.actorRole);
       if (!isVaOrLoAttachmentActor) return false;
       if (item.sourceTaskKind) {
         return (
@@ -1024,14 +1028,14 @@ function getVaSafeTimelineItems(items: TimelineItem[]): TimelineItem[] {
         );
       }
       return (
-        isVaTimelineRole(item.actorRole) || item.actorRole === UserRole.LOAN_OFFICER
+        isVaTimelineRole(item.actorRole) || isLoanOfficerTimelineRole(item.actorRole)
       );
     }
     if (item.noteEntryType === 'jrChecklist') {
       return true;
     }
     return (
-      isVaTimelineRole(item.actorRole) || item.actorRole === UserRole.LOAN_OFFICER
+      isVaTimelineRole(item.actorRole) || isLoanOfficerTimelineRole(item.actorRole)
     );
   });
 }
@@ -4180,7 +4184,7 @@ export function TaskList({
         const vaLoResponseEntries = needsDetailedTaskData
           ? noteHistoryEntries
               .filter((entry) => {
-                if (entry.role !== UserRole.LOAN_OFFICER) return false;
+                if (!isLoanOfficerTimelineRole(entry.role)) return false;
                 if (!entry.message || !entry.message.trim()) return false;
                 if (!vaTaskCreatedAtMs || !Number.isFinite(vaTaskCreatedAtMs)) return true;
                 const entryMs = new Date(entry.date).getTime();

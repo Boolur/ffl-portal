@@ -97,8 +97,19 @@ async function canAccessTaskForAttachment(taskId: string, role: UserRole, userId
     role === UserRole.LOAN_OFFICER &&
     task.loan &&
     canLoanOfficerViewLoan(task.loan, userId);
+  const isLoanOfficerAssistantResponder =
+    role === UserRole.LOA &&
+    (task.assignedRole === UserRole.LOAN_OFFICER ||
+      task.assignedRole === UserRole.LOA ||
+      task.kind === TaskKind.LO_NEEDS_INFO);
 
-  if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
+  if (
+    !canManageAll &&
+    !isAssignedToUser &&
+    !isAssignedToRole &&
+    !isLoanOwner &&
+    !isLoanOfficerAssistantResponder
+  ) {
     return { ok: false as const, error: 'Not authorized.' };
   }
   if (!canManageAll && role === UserRole.PROCESSOR_JR && isJrTaskOwnedByDifferentUser(task, userId)) {

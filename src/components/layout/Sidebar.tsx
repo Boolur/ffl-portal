@@ -162,6 +162,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       href: '/pipeline',
       roles: [
         UserRole.LOAN_OFFICER,
+        UserRole.LOA,
         UserRole.MANAGER,
         UserRole.PROCESSOR_JR,
         UserRole.PROCESSOR_SR,

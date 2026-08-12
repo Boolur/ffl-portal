@@ -21,6 +21,7 @@ import {
   parseOptionalBoolean,
   parseOptionalMoney,
 } from './processingPipeline';
+import { canAccessPipelinePortal } from './pipelinePilot';
 
 describe('processing pipeline access', () => {
   it('scopes Loan Officers to a read-only mirror', () => {
@@ -28,6 +29,15 @@ describe('processing pipeline access', () => {
       canView: true,
       canEdit: false,
       scope: 'OWN_LOANS',
+    });
+  });
+
+  it('gives LO Assistants read-only company visibility', () => {
+    expect(canAccessPipelinePortal({ role: UserRole.LOA })).toBe(true);
+    expect(getProcessingPipelineAccess(UserRole.LOA)).toEqual({
+      canView: true,
+      canEdit: false,
+      scope: 'COMPANY',
     });
   });
 
