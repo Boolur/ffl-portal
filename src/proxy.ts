@@ -40,7 +40,7 @@ const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.ADMIN_I]: ADMIN_I_PATHS,
   [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders', '/payroll', '/admin/support'],
   [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources', '/lenders', '/leads', '/payroll', '/admin/support'],
-  [UserRole.LOA]: ['/', '/tasks', '/resources', '/lenders', '/leads', '/admin/support'],
+  [UserRole.LOA]: ['/', '/pipeline', '/tasks', '/resources', '/lenders', '/leads', '/admin/support'],
   [UserRole.DISCLOSURE_SPECIALIST]: ['/', '/tasks', '/resources', '/lenders', '/admin/support'],
   [UserRole.VA]: [],
   [UserRole.VA_TITLE]: [],
