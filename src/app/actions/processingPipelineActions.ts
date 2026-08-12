@@ -10,6 +10,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
+import { isAdmin } from '@/lib/adminTiers';
 import { prisma } from '@/lib/prisma';
 import {
   addMonthsClamped,
@@ -43,10 +44,13 @@ async function getActor(): Promise<Actor | null> {
 
 function scopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInput {
   const access = getProcessingPipelineAccess(actor.role);
-  if (access.scope === 'COMPANY') return {};
-  if (access.scope === 'ASSIGNED') return { seniorProcessorId: actor.id };
+  if (access.scope === 'COMPANY') return { archivedAt: null };
+  if (access.scope === 'ASSIGNED') {
+    return { seniorProcessorId: actor.id, archivedAt: null };
+  }
   if (access.scope === 'OWN_LOANS') {
     return {
+      archivedAt: null,
       loan: {
         OR: [
           { loanOfficerId: actor.id },
@@ -104,6 +108,8 @@ function serializeRow(row: {
   rateLock: boolean;
   rateLockExpiresAt: Date | null;
   rateLockConfirmedAt: Date | null;
+  rateLockRequestedAt: Date | null;
+  rateLockRequestedById: string | null;
   approvedWithConditionsAt: Date | null;
   loanType: string | null;
   propertyState: string | null;
@@ -114,6 +120,8 @@ function serializeRow(row: {
   firstPaymentAt: Date | null;
   sixthPaymentAt: Date | null;
   movedAt: Date | null;
+  archivedAt: Date | null;
+  archivedById: string | null;
   updatedAt: Date;
   assignmentGroup: string | null;
   processingMethod: string | null;
@@ -138,11 +146,13 @@ function serializeRow(row: {
     cdWarningStartsAt: row.cdWarningStartsAt?.toISOString() || null,
     rateLockExpiresAt: row.rateLockExpiresAt?.toISOString() || null,
     rateLockConfirmedAt: row.rateLockConfirmedAt?.toISOString() || null,
+    rateLockRequestedAt: row.rateLockRequestedAt?.toISOString() || null,
     approvedWithConditionsAt: row.approvedWithConditionsAt?.toISOString() || null,
     fundedAt: row.fundedAt?.toISOString() || null,
     firstPaymentAt: row.firstPaymentAt?.toISOString() || null,
     sixthPaymentAt: row.sixthPaymentAt?.toISOString() || null,
     movedAt: row.movedAt?.toISOString() || null,
+    archivedAt: row.archivedAt?.toISOString() || null,
     updatedAt: row.updatedAt.toISOString(),
     projectedRevenue: row.projectedRevenue === null ? null : Number(row.projectedRevenue),
     finalRevenue: row.finalRevenue === null ? null : Number(row.finalRevenue),
@@ -367,6 +377,7 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
 
 export async function getProcessingPipeline(input?: {
   sheet?: ProcessingPipelineSheet;
+  rateLockRequestsOnly?: boolean;
   search?: string;
   sortBy?: 'pipelineStatus' | 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber';
   sortDirection?: 'asc' | 'desc';
@@ -377,12 +388,22 @@ export async function getProcessingPipeline(input?: {
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canView) return { success: false as const, error: 'Not authorized.' };
+  const rateLockRequestsOnly = input?.rateLockRequestsOnly === true;
+  if (
+    rateLockRequestsOnly &&
+    actor.role !== UserRole.MANAGER &&
+    !isAdmin(actor.role)
+  ) {
+    return { success: false as const, error: 'Rate Lock Requests are limited to Managers and Admins.' };
+  }
 
   const search = input?.search?.trim();
   const where: Prisma.ProcessingPipelineLoanWhereInput = {
     AND: [
       scopeWhere(actor),
-      { sheet: input?.sheet || ProcessingPipelineSheet.PIPELINE },
+      rateLockRequestsOnly
+        ? { rateLockRequestedAt: { not: null } }
+        : { sheet: input?.sheet || ProcessingPipelineSheet.PIPELINE },
       ...(search
         ? [{
             OR: [
@@ -488,15 +509,32 @@ export async function getProcessingPipelineSheetCounts() {
   return { success: true as const, counts };
 }
 
-export async function getProcessingPipelineFilterOptions(sheet: ProcessingPipelineSheet) {
+export async function getProcessingPipelineFilterOptions(
+  sheet: ProcessingPipelineSheet,
+  rateLockRequestsOnly = false,
+) {
   noStore();
   const actor = await getActor();
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canView) return { success: false as const, error: 'Not authorized.' };
+  if (
+    rateLockRequestsOnly &&
+    actor.role !== UserRole.MANAGER &&
+    !isAdmin(actor.role)
+  ) {
+    return { success: false as const, error: 'Rate Lock Requests are limited to Managers and Admins.' };
+  }
 
   const rows = await prisma.processingPipelineLoan.findMany({
-    where: { AND: [scopeWhere(actor), { sheet }] },
+    where: {
+      AND: [
+        scopeWhere(actor),
+        rateLockRequestsOnly
+          ? { rateLockRequestedAt: { not: null } }
+          : { sheet },
+      ],
+    },
     select: {
       loanType: true,
       propertyState: true,
@@ -806,6 +844,12 @@ export async function updateProcessingPipelineRateLock(input: {
           rateLockExpiresAt: expiresAt,
           rateLockConfirmedAt,
           cdWarningStartsAt,
+          ...(input.rateLock
+            ? {
+                rateLockRequestedAt: null,
+                rateLockRequestedById: null,
+              }
+            : {}),
           version: { increment: 1 },
         },
       });
@@ -829,6 +873,22 @@ export async function updateProcessingPipelineRateLock(input: {
           }),
         },
       });
+      if (input.rateLock && current.rateLockRequestedAt) {
+        await tx.auditLog.create({
+          data: {
+            loanId: current.loanId,
+            userId: actor.id,
+            action: 'PROCESSING_RATE_LOCK_REQUEST_FULFILLED',
+            details: JSON.stringify({
+              processingPipelineLoanId: current.id,
+              requestedAt: current.rateLockRequestedAt.toISOString(),
+              requestedById: current.rateLockRequestedById,
+              expiresAt: expiresAt?.toISOString() || null,
+              actorName: actor.name,
+            }),
+          },
+        });
+      }
 
       return {
         conflict: false as const,
@@ -838,6 +898,12 @@ export async function updateProcessingPipelineRateLock(input: {
           rateLockExpiresAt: expiresAt?.toISOString() || null,
           rateLockConfirmedAt: rateLockConfirmedAt?.toISOString() || null,
           cdWarningStartsAt: cdWarningStartsAt?.toISOString() || null,
+          ...(input.rateLock
+            ? {
+                rateLockRequestedAt: null,
+                rateLockRequestedById: null,
+              }
+            : {}),
         },
       };
     });
@@ -861,6 +927,218 @@ export async function updateProcessingPipelineRateLock(input: {
       error: error instanceof Error ? error.message : 'Unable to save Rate Lock.',
     };
   }
+}
+
+export async function requestProcessingRateLock(input: {
+  id: string;
+  version: number;
+}) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const canRequest =
+    actor.role === UserRole.LOAN_OFFICER ||
+    actor.role === UserRole.PROCESSOR_JR ||
+    actor.role === UserRole.PROCESSOR_SR;
+  if (!canRequest) {
+    return { success: false as const, error: 'Only Loan Officers and Processors can request a Rate Lock.' };
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const current = await tx.processingPipelineLoan.findFirst({
+      where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
+    });
+    if (!current) return { kind: 'error' as const, error: 'Pipeline row not found.' };
+    if (current.version !== input.version) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+    if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+      return { kind: 'error' as const, error: 'Funded loans cannot request a Rate Lock.' };
+    }
+    if (current.rateLock) {
+      return { kind: 'error' as const, error: 'This loan already has a confirmed Rate Lock.' };
+    }
+    if (current.rateLockRequestedAt) {
+      return { kind: 'error' as const, error: 'A Rate Lock has already been requested.' };
+    }
+
+    const now = new Date();
+    const updated = await tx.processingPipelineLoan.updateMany({
+      where: { id: current.id, version: input.version },
+      data: {
+        rateLockRequestedAt: now,
+        rateLockRequestedById: actor.id,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+    await tx.auditLog.create({
+      data: {
+        loanId: current.loanId,
+        userId: actor.id,
+        action: 'PROCESSING_RATE_LOCK_REQUESTED',
+        details: JSON.stringify({
+          processingPipelineLoanId: current.id,
+          requestedAt: now.toISOString(),
+          actorName: actor.name,
+        }),
+      },
+    });
+    return {
+      kind: 'ok' as const,
+      version: input.version + 1,
+      requestedAt: now.toISOString(),
+    };
+  });
+
+  if (result.kind === 'error') return { success: false as const, error: result.error };
+  if (result.kind === 'conflict') {
+    return {
+      success: false as const,
+      conflict: true as const,
+      version: result.version,
+      error: 'This row changed in another session. Refreshing the latest values.',
+    };
+  }
+  return {
+    success: true as const,
+    version: result.version,
+    patch: {
+      rateLockRequestedAt: result.requestedAt,
+      rateLockRequestedById: actor.id,
+    },
+  };
+}
+
+export async function dismissProcessingRateLockRequest(input: {
+  id: string;
+  version: number;
+}) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  if (actor.role !== UserRole.MANAGER && !isAdmin(actor.role)) {
+    return { success: false as const, error: 'Only Managers and Admins can dismiss Rate Lock Requests.' };
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const current = await tx.processingPipelineLoan.findFirst({
+      where: { AND: [{ id: input.id }, scopeWhere(actor)] },
+    });
+    if (!current || !current.rateLockRequestedAt) {
+      return { kind: 'error' as const, error: 'Active Rate Lock Request not found.' };
+    }
+    if (current.version !== input.version) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+    const updated = await tx.processingPipelineLoan.updateMany({
+      where: { id: current.id, version: input.version },
+      data: {
+        rateLockRequestedAt: null,
+        rateLockRequestedById: null,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+    await tx.auditLog.create({
+      data: {
+        loanId: current.loanId,
+        userId: actor.id,
+        action: 'PROCESSING_RATE_LOCK_REQUEST_DISMISSED',
+        details: JSON.stringify({
+          processingPipelineLoanId: current.id,
+          requestedAt: current.rateLockRequestedAt.toISOString(),
+          requestedById: current.rateLockRequestedById,
+          actorName: actor.name,
+        }),
+      },
+    });
+    return { kind: 'ok' as const };
+  });
+
+  if (result.kind === 'error') return { success: false as const, error: result.error };
+  if (result.kind === 'conflict') {
+    return {
+      success: false as const,
+      conflict: true as const,
+      version: result.version,
+      error: 'This row changed in another session. Refreshing the latest values.',
+    };
+  }
+  return { success: true as const };
+}
+
+export async function declineProcessingPipelineLoan(input: {
+  id: string;
+  version: number;
+}) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const canDecline =
+    actor.role === UserRole.PROCESSOR_JR ||
+    actor.role === UserRole.PROCESSOR_SR ||
+    actor.role === UserRole.MANAGER ||
+    isAdmin(actor.role);
+  if (!canDecline) {
+    return { success: false as const, error: 'Only Processors, Managers, and Admins can decline loans.' };
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const current = await tx.processingPipelineLoan.findFirst({
+      where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
+    });
+    if (
+      !current ||
+      current.sheet !== ProcessingPipelineSheet.RESTRUCTURE ||
+      current.pipelineStatus !== ProcessingPipelineStatus.ADVERSE_PENDING
+    ) {
+      return { kind: 'error' as const, error: 'Only Adverse Pending restructure loans can be declined.' };
+    }
+    if (current.version !== input.version) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+    const now = new Date();
+    const updated = await tx.processingPipelineLoan.updateMany({
+      where: { id: current.id, version: input.version },
+      data: {
+        archivedAt: now,
+        archivedById: actor.id,
+        rateLockRequestedAt: null,
+        rateLockRequestedById: null,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+    await tx.auditLog.create({
+      data: {
+        loanId: current.loanId,
+        userId: actor.id,
+        action: 'PROCESSING_PIPELINE_LOAN_DECLINED',
+        details: JSON.stringify({
+          processingPipelineLoanId: current.id,
+          previousStatus: current.pipelineStatus,
+          archivedAt: now.toISOString(),
+          actorName: actor.name,
+        }),
+      },
+    });
+    return { kind: 'ok' as const };
+  });
+
+  if (result.kind === 'error') return { success: false as const, error: result.error };
+  if (result.kind === 'conflict') {
+    return {
+      success: false as const,
+      conflict: true as const,
+      version: result.version,
+      error: 'This row changed in another session. Refreshing the latest values.',
+    };
+  }
+  return { success: true as const };
 }
 
 export type ProcessingRestructureAction =

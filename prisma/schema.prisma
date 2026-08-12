@@ -487,6 +487,8 @@ model ProcessingPipelineLoan {
   rateLock                  Boolean                  @default(false)
   rateLockExpiresAt         DateTime?
   rateLockConfirmedAt       DateTime?
+  rateLockRequestedAt       DateTime?
+  rateLockRequestedById     String?
   approvedWithConditionsAt  DateTime?
   loanType                  String?
   propertyState             String?
@@ -497,6 +499,8 @@ model ProcessingPipelineLoan {
   firstPaymentAt            DateTime?
   sixthPaymentAt            DateTime?
   movedAt                   DateTime?
+  archivedAt                DateTime?
+  archivedById              String?
   version                   Int                      @default(1)
   createdAt                 DateTime                 @default(now())
   updatedAt                 DateTime                 @updatedAt
@@ -508,6 +512,8 @@ model ProcessingPipelineLoan {
   @@index([juniorProcessorId])
   @@index([assignmentGroup])
   @@index([processingMethod])
+  @@index([rateLockRequestedAt])
+  @@index([archivedAt])
 }
 
 model Lender {

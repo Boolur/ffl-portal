@@ -4,11 +4,13 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
 import {
   Check,
+  Archive,
   ChevronDown,
   Clock3,
   Filter,
   History,
   Loader2,
+  Lock,
   Maximize2,
   Minimize2,
   MoreHorizontal,
@@ -28,7 +30,10 @@ import {
   getProcessingPipeline,
   getProcessingPipelineFilterOptions,
   getProcessingPipelineHistory,
+  declineProcessingPipelineLoan,
+  dismissProcessingRateLockRequest,
   moveProcessingPipelineLoan,
+  requestProcessingRateLock,
   updateProcessingPipelineCell,
   updateProcessingPipelineRateLock,
   updateProcessingRestructureWorkflow,
@@ -64,6 +69,9 @@ type Props = {
   initialData: PipelineResult;
   role: UserRole;
 };
+
+const RATE_LOCK_REQUESTS_VIEW = 'RATE_LOCK_REQUESTS' as const;
+type PipelineView = ProcessingPipelineSheet | typeof RATE_LOCK_REQUESTS_VIEW;
 
 type RestructureDialogAction =
   | ProcessingRestructureAction
@@ -511,9 +519,9 @@ function parseAuditDetails(details: string | null) {
 export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const hasSearchEffectMounted = useRef(false);
   const filterOptionsBySheet = useRef(
-    new Map<ProcessingPipelineSheet, PipelineFilterOptions>()
+    new Map<PipelineView, PipelineFilterOptions>()
   );
-  const [sheet, setSheet] = useState<ProcessingPipelineSheet>(ProcessingPipelineSheet.PIPELINE);
+  const [sheet, setSheet] = useState<PipelineView>(ProcessingPipelineSheet.PIPELINE);
   const [rows, setRows] = useState(initialData.rows);
   const [total, setTotal] = useState(initialData.total);
   const [search, setSearch] = useState('');
@@ -556,12 +564,26 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const canEditRow = (row: ProcessingPipelineRow) => canEdit && row.canEdit;
   const isProcessor =
     role === UserRole.PROCESSOR_SR || role === UserRole.PROCESSOR_JR;
+  const isManagerOrAdmin = role === UserRole.MANAGER || isAdmin(role);
+  const isRateLockRequestsView = sheet === RATE_LOCK_REQUESTS_VIEW;
+  const pipelineViews: Array<{ value: PipelineView; label: string }> = [
+    { value: ProcessingPipelineSheet.PIPELINE, label: 'Pipeline' },
+    { value: ProcessingPipelineSheet.RESTRUCTURE, label: 'Restructures' },
+    ...(isManagerOrAdmin
+      ? [{ value: RATE_LOCK_REQUESTS_VIEW, label: 'Rate Lock Requests' } as const]
+      : []),
+    { value: ProcessingPipelineSheet.FUNDING, label: 'Fundings' },
+  ];
+  const activeViewLabel =
+    pipelineViews.find((option) => option.value === sheet)?.label || 'Pipeline';
   const canFilterByTeam =
     isProcessor || role === UserRole.MANAGER || isAdmin(role);
   const statusOptions =
     sheet === ProcessingPipelineSheet.RESTRUCTURE
       ? RESTRUCTURE_STATUS_OPTIONS
-      : STANDARD_STATUS_OPTIONS;
+      : isRateLockRequestsView
+        ? PROCESSING_PIPELINE_STATUS_OPTIONS
+        : STANDARD_STATUS_OPTIONS;
 
   useEffect(() => {
     try {
@@ -592,7 +614,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   ) => {
     startTransition(async () => {
       const result = await getProcessingPipeline({
-        sheet: nextSheet,
+        sheet:
+          nextSheet === RATE_LOCK_REQUESTS_VIEW
+            ? undefined
+            : nextSheet,
+        rateLockRequestsOnly: nextSheet === RATE_LOCK_REQUESTS_VIEW,
         search: nextSearch,
         sortBy: nextSortBy,
         sortDirection: nextSortDirection,
@@ -627,7 +653,10 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       return;
     }
     let cancelled = false;
-    getProcessingPipelineFilterOptions(sheet).then((result) => {
+    getProcessingPipelineFilterOptions(
+      isRateLockRequestsView ? ProcessingPipelineSheet.PIPELINE : sheet,
+      isRateLockRequestsView,
+    ).then((result) => {
       if (cancelled || !result.success) return;
       filterOptionsBySheet.current.set(sheet, result.options);
       setFilterOptions(result.options);
@@ -635,7 +664,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [filtersExpanded, sheet]);
+  }, [filtersExpanded, isRateLockRequestsView, sheet]);
 
   const visibleRows = rows;
 
@@ -644,10 +673,14 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     : PIPELINE_COLUMNS;
   const focusColumns = sheet === ProcessingPipelineSheet.FUNDING
     ? FUNDING_FOCUS_COLUMNS
-    : PIPELINE_FOCUS_COLUMNS;
+    : isRateLockRequestsView
+      ? new Set<ColumnId>([...PIPELINE_FOCUS_COLUMNS, 'rateLock'])
+      : PIPELINE_FOCUS_COLUMNS;
   const isColumnVisible = (id: ColumnId) =>
     (id !== 'loanOfficer' || !isLoanOfficer) &&
-    (id !== 'restructureNotes' || sheet === ProcessingPipelineSheet.RESTRUCTURE) &&
+    (id !== 'restructureNotes' ||
+      sheet === ProcessingPipelineSheet.RESTRUCTURE ||
+      isRateLockRequestsView) &&
     (!isProcessor || (id !== 'loanAmount' && id !== 'projectedRevenue')) &&
     (detailsExpanded || focusColumns.has(id));
   const visibleColumnCount = currentColumns.filter((column) => isColumnVisible(column.id)).length;
@@ -817,7 +850,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       if ('conflict' in result) loadRows();
       return;
     }
-    patchRow(row.id, { ...result.patch, version: result.version });
+    if (isRateLockRequestsView && rateLock) {
+      setRows((current) => current.filter((candidate) => candidate.id !== row.id));
+      setTotal((current) => Math.max(0, current - 1));
+    } else {
+      patchRow(row.id, { ...result.patch, version: result.version });
+    }
     setRateLockDialogRow(null);
     setRateLockExpiryDraft('');
   };
@@ -825,6 +863,75 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const openRateLockCalendar = (row: ProcessingPipelineRow) => {
     setRateLockDialogRow(row);
     setRateLockExpiryDraft(dateInputValue(row.rateLockExpiresAt));
+  };
+
+  const requestRateLock = async (row: ProcessingPipelineRow) => {
+    setActionsMenuRow(null);
+    setSavingRows((current) => new Set(current).add(row.id));
+    const result = await requestProcessingRateLock({
+      id: row.id,
+      version: row.version,
+    });
+    setSavingRows((current) => {
+      const next = new Set(current);
+      next.delete(row.id);
+      return next;
+    });
+    if (!result.success) {
+      setMessage(result.error);
+      if ('conflict' in result) loadRows();
+      return;
+    }
+    patchRow(row.id, { ...result.patch, version: result.version });
+    setMessage(`Rate Lock requested for ${row.loan.borrowerName}.`);
+  };
+
+  const dismissRateLockRequest = async (row: ProcessingPipelineRow) => {
+    setActionsMenuRow(null);
+    setSavingRows((current) => new Set(current).add(row.id));
+    const result = await dismissProcessingRateLockRequest({
+      id: row.id,
+      version: row.version,
+    });
+    setSavingRows((current) => {
+      const next = new Set(current);
+      next.delete(row.id);
+      return next;
+    });
+    if (!result.success) {
+      setMessage(result.error);
+      if ('conflict' in result) loadRows();
+      return;
+    }
+    setRows((current) => current.filter((candidate) => candidate.id !== row.id));
+    setTotal((current) => Math.max(0, current - 1));
+    setMessage(`Rate Lock request dismissed for ${row.loan.borrowerName}.`);
+  };
+
+  const declineLoan = async (row: ProcessingPipelineRow) => {
+    const confirmed = window.confirm(
+      `Decline and archive ${row.loan.borrowerName}? This removes the loan from all pipeline views.`,
+    );
+    if (!confirmed) return;
+    setActionsMenuRow(null);
+    setSavingRows((current) => new Set(current).add(row.id));
+    const result = await declineProcessingPipelineLoan({
+      id: row.id,
+      version: row.version,
+    });
+    setSavingRows((current) => {
+      const next = new Set(current);
+      next.delete(row.id);
+      return next;
+    });
+    if (!result.success) {
+      setMessage(result.error);
+      if ('conflict' in result) loadRows();
+      return;
+    }
+    setRows((current) => current.filter((candidate) => candidate.id !== row.id));
+    setTotal((current) => Math.max(0, current - 1));
+    setMessage(`${row.loan.borrowerName} was declined and archived.`);
   };
 
   const moveRow = async (
@@ -994,10 +1101,10 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
   const yesNoCell = (row: ProcessingPipelineRow, field: EditableField, value: boolean | null) =>
     editableSelect(row, field, value, [
-      { value: '', label: 'N/A' },
+      { value: '', label: 'Select' },
       { value: 'true', label: 'Yes' },
       { value: 'false', label: 'No' },
-    ], booleanTone(value));
+    ], value === false ? neutralNoTone : booleanTone(value));
 
   const cdSentCell = (row: ProcessingPipelineRow) => {
     const overdue = isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow);
@@ -1041,6 +1148,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               Expires {formatDateOnly(row.rateLockExpiresAt)}
             </p>
           )}
+          {row.rateLockRequestedAt && (
+            <p className="text-[10px] font-bold text-blue-700">
+              Requested {formatDate(row.rateLockRequestedAt)}
+            </p>
+          )}
         </div>
       );
     }
@@ -1069,6 +1181,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             Expires {formatDateOnly(row.rateLockExpiresAt)}
           </button>
         )}
+        {row.rateLockRequestedAt && (
+          <p className="px-1 text-[10px] font-bold text-blue-700">
+            Requested {formatDate(row.rateLockRequestedAt)}
+          </p>
+        )}
       </div>
     );
   };
@@ -1084,7 +1201,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             role="tablist"
             aria-label="Processing pipeline sheets"
           >
-            {PROCESSING_PIPELINE_SHEETS.map((option) => (
+            {pipelineViews.map((option) => (
               <button
                 key={option.value}
                 type="button"
@@ -1134,7 +1251,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: 'Loans in view', value: total, helper: PROCESSING_PIPELINE_SHEETS.find((option) => option.value === sheet)?.label || 'Pipeline', tone: 'border-blue-100 from-blue-50/90', valueTone: 'text-blue-950' },
+          { label: 'Loans in view', value: total, helper: activeViewLabel, tone: 'border-blue-100 from-blue-50/90', valueTone: 'text-blue-950' },
           { label: 'Loaded closing soon', value: loadedAtClosing, helper: 'CTC or docs out', tone: 'border-emerald-100 from-emerald-50/90', valueTone: 'text-emerald-950' },
           { label: 'Loaded attention', value: loadedNeedsAttention, helper: 'Re-sub or restructure', tone: 'border-amber-100 from-amber-50/90', valueTone: 'text-amber-950' },
           { label: 'Loaded unassigned', value: loadedUnassigned, helper: 'No Sr Processor', tone: 'border-violet-100 from-violet-50/90', valueTone: 'text-violet-950' },
@@ -1327,7 +1444,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     />
                     <FilterInput label="Pending Items" value={draftFilters.missingItemsCurrentStatus} onChange={(value) => setDraftFilter('missingItemsCurrentStatus', value || undefined)} placeholder="Contains text…" />
                     <FilterInput label="Extra Notes" value={draftFilters.extraNotes} onChange={(value) => setDraftFilter('extraNotes', value || undefined)} placeholder="Contains text…" />
-                    {sheet === ProcessingPipelineSheet.RESTRUCTURE && (
+                    {(sheet === ProcessingPipelineSheet.RESTRUCTURE ||
+                      isRateLockRequestsView) && (
                       <FilterInput label="Restructure Notes" value={draftFilters.restructureNotes} onChange={(value) => setDraftFilter('restructureNotes', value || undefined)} placeholder="Contains text…" />
                     )}
                     <FilterInput label="Revenue Min" type="number" value={draftFilters.projectedRevenueMin} onChange={(value) => setDraftFilter('projectedRevenueMin', value === '' ? undefined : Number(value))} placeholder="0" />
@@ -1390,7 +1508,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
         <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="shrink-0">
             <p className="text-sm font-bold text-slate-900">
-              {PROCESSING_PIPELINE_SHEETS.find((option) => option.value === sheet)?.label}
+              {activeViewLabel}
             </p>
             <p className="mt-0.5 text-xs text-slate-500">
               Resize headers or click Expand to show every available detail.
@@ -1443,7 +1561,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               aria-live="polite"
             >
               <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-              Updating {PROCESSING_PIPELINE_SHEETS.find((option) => option.value === sheet)?.label}…
+              Updating {activeViewLabel}…
             </div>
           )}
           <table
@@ -1604,7 +1722,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={processorLabel(row)}>{processorLabel(row)}</td>}
                       {isColumnVisible('pipelineStatus') && (
                         <td className="border-b border-r border-slate-200 px-1.5 py-1">
-                          {canEditRow(row) && sheet !== ProcessingPipelineSheet.RESTRUCTURE
+                          {canEditRow(row) && row.sheet !== ProcessingPipelineSheet.RESTRUCTURE
                             ? editableSelect(row, 'pipelineStatus', row.pipelineStatus, statusOptions, statusTone[row.pipelineStatus])
                             : (
                               <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-1 text-xs font-bold ${statusTone[row.pipelineStatus]}`}>
@@ -1864,9 +1982,61 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 View change history
               </button>
 
+              {(isLoanOfficer || isProcessor) &&
+                canEditRow(actionsMenuRow) &&
+                actionsMenuRow.sheet !== ProcessingPipelineSheet.FUNDING &&
+                !actionsMenuRow.rateLock && (
+                  actionsMenuRow.rateLockRequestedAt ? (
+                    <div className="flex w-full items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">
+                      <Lock className="h-4 w-4" />
+                      Rate Lock Requested
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void requestRateLock(actionsMenuRow)}
+                      className="flex w-full items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-bold text-blue-800 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                    >
+                      <span className="inline-flex items-center gap-3">
+                        <Lock className="h-4 w-4" />
+                        Request Rate Lock
+                      </span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  )
+                )}
+
+              {isRateLockRequestsView &&
+                isManagerOrAdmin &&
+                actionsMenuRow.rateLockRequestedAt && (
+                  <button
+                    type="button"
+                    onClick={() => void dismissRateLockRequest(actionsMenuRow)}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                  >
+                    Dismiss Rate Lock Request
+                    <span aria-hidden="true">×</span>
+                  </button>
+                )}
+
               {canEditRow(actionsMenuRow) &&
                 actionsMenuRow.sheet === ProcessingPipelineSheet.RESTRUCTURE && (
                   <>
+                    {actionsMenuRow.pipelineStatus === ProcessingPipelineStatus.ADVERSE_PENDING &&
+                      !isLoanOfficer &&
+                      role !== UserRole.LOA && (
+                        <button
+                          type="button"
+                          onClick={() => void declineLoan(actionsMenuRow)}
+                          className="flex w-full items-center justify-between rounded-xl border border-red-400 bg-red-100 px-4 py-3 text-left text-sm font-black text-red-900 transition hover:bg-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                        >
+                          <span className="inline-flex items-center gap-3">
+                            <Archive className="h-4 w-4" />
+                            Decline Loan
+                          </span>
+                          <span aria-hidden="true">→</span>
+                        </button>
+                      )}
                     {actionsMenuRow.pipelineStatus !== ProcessingPipelineStatus.ADVERSE_PENDING && (
                       <button
                         type="button"
