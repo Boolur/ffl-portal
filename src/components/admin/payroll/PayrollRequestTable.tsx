@@ -457,7 +457,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
   return (
     <div className={embedded ? 'overflow-hidden' : 'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm'}>
       <div className="overflow-x-auto">
-        <table className="table-fixed text-sm" style={{ width: tableWidth }}>
+        <table className="table-fixed text-sm" style={{ width: compact ? '100%' : tableWidth }}>
           <colgroup>
             {visibleColumns.map((column) => (
               <col key={column.id} style={{ width: columnWidths[column.id] || defaultColumnWidth(column, compact) }} />

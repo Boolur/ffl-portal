@@ -131,7 +131,7 @@ export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests
         </Link>
       </div>
 
-      <section className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(280px,0.75fr)]">
+      <section className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.85fr)]">
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
             <div>
