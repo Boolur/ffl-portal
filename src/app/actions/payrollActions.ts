@@ -232,6 +232,7 @@ export type PayrollRequestRow = {
   calculationSnapshot: PayrollCalculationSnapshot | null;
   status: PayrollCompRequestStatus;
   submittedAt: string;
+  fundedAt: string | null;
   reviewedAt: string | null;
   paidAt: string | null;
   editedAt: string | null;
@@ -330,6 +331,13 @@ type SessionActor = {
 
 const requestInclude = {
   loanOfficer: { select: { id: true, name: true, email: true } },
+  loan: {
+    select: {
+      processingPipeline: {
+        select: { fundedAt: true },
+      },
+    },
+  },
   splits: {
     orderBy: { sortOrder: 'asc' as const },
     select: {
@@ -911,6 +919,7 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     calculationSnapshot,
     status: request.status,
     submittedAt: request.submittedAt.toISOString(),
+    fundedAt: request.loan?.processingPipeline?.fundedAt?.toISOString() ?? null,
     reviewedAt: request.reviewedAt?.toISOString() ?? null,
     paidAt: request.paidAt?.toISOString() ?? null,
     editedAt: request.editedAt?.toISOString() ?? null,
