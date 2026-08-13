@@ -92,6 +92,7 @@ type PayrollColumn = {
   id: PayrollColumnId;
   label: string;
   width: number;
+  compactWidth?: number;
   align?: 'left' | 'right' | 'center';
   compact?: boolean;
 };
@@ -110,15 +111,15 @@ type ColumnFilterRule = {
 
 const PAYROLL_WIDTH_STORAGE_KEY = 'ffl:payroll-request-widths-v1';
 const PAYROLL_COLUMNS: PayrollColumn[] = [
-  { id: 'loan', label: 'Loan', width: 220, compact: true },
+  { id: 'loan', label: 'Loan', width: 220, compactWidth: 180, compact: true },
   { id: 'loanOfficer', label: 'Loan Officer', width: 220 },
-  { id: 'fundedAt', label: 'Funded Date', width: 140, compact: true },
+  { id: 'fundedAt', label: 'Funded Date', width: 140, compactWidth: 116, compact: true },
   { id: 'loanType', label: 'Loan Type', width: 150 },
-  { id: 'lender', label: 'Lender', width: 210, compact: true },
-  { id: 'splitBasis', label: 'Split Basis', width: 140, align: 'right', compact: true },
-  { id: 'status', label: 'Status', width: 150, compact: true },
+  { id: 'lender', label: 'Lender', width: 210, compactWidth: 165, compact: true },
+  { id: 'splitBasis', label: 'Split Basis', width: 140, compactWidth: 120, align: 'right', compact: true },
+  { id: 'status', label: 'Status', width: 150, compactWidth: 130, compact: true },
   { id: 'submittedAt', label: 'Submitted', width: 140 },
-  { id: 'review', label: 'Review', width: 120, align: 'right', compact: true },
+  { id: 'review', label: 'Review', width: 120, compactWidth: 92, align: 'right', compact: true },
 ];
 const DATE_COLUMN_IDS = new Set<PayrollColumnId>(['fundedAt', 'submittedAt']);
 const NUMBER_COLUMN_IDS = new Set<PayrollColumnId>(['splitBasis']);
@@ -161,22 +162,27 @@ function isColumnFilterActive(rule?: ColumnFilterRule) {
   );
 }
 
+function defaultColumnWidth(column: PayrollColumn, compact: boolean) {
+  return compact && column.compactWidth ? column.compactWidth : column.width;
+}
+
 export function PayrollRequestTable({ rows, compact = false, embedded = false }: Props) {
   const [selectedRequest, setSelectedRequest] = useState<PayrollRequestRow | null>(null);
   const [editMode, setEditMode] = useState(false);
+  const widthStorageKey = compact ? `${PAYROLL_WIDTH_STORAGE_KEY}:compact-v2` : `${PAYROLL_WIDTH_STORAGE_KEY}:full-v2`;
   const [columnWidths, setColumnWidths] = useState<Record<PayrollColumnId, number>>(() => {
     if (typeof window === 'undefined') {
-      return Object.fromEntries(PAYROLL_COLUMNS.map((column) => [column.id, column.width])) as Record<PayrollColumnId, number>;
+      return Object.fromEntries(PAYROLL_COLUMNS.map((column) => [column.id, defaultColumnWidth(column, compact)])) as Record<PayrollColumnId, number>;
     }
     try {
-      const stored = window.localStorage.getItem(PAYROLL_WIDTH_STORAGE_KEY);
+      const stored = window.localStorage.getItem(widthStorageKey);
       const parsed = stored ? JSON.parse(stored) : {};
       return Object.fromEntries(PAYROLL_COLUMNS.map((column) => [
         column.id,
-        typeof parsed[column.id] === 'number' ? parsed[column.id] : column.width,
+        typeof parsed[column.id] === 'number' ? parsed[column.id] : defaultColumnWidth(column, compact),
       ])) as Record<PayrollColumnId, number>;
     } catch {
-      return Object.fromEntries(PAYROLL_COLUMNS.map((column) => [column.id, column.width])) as Record<PayrollColumnId, number>;
+      return Object.fromEntries(PAYROLL_COLUMNS.map((column) => [column.id, defaultColumnWidth(column, compact)])) as Record<PayrollColumnId, number>;
     }
   });
   const [columnSort, setColumnSort] = useState<ColumnSort | null>(null);
@@ -282,7 +288,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
     return Array.from(new Set(rows.map((row) => columnDisplayValue(row, columnMenu.id))))
       .sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }));
   }, [columnMenu, rows]);
-  const tableWidth = visibleColumns.reduce((sum, column) => sum + (columnWidths[column.id] || column.width), 0);
+  const tableWidth = visibleColumns.reduce((sum, column) => sum + (columnWidths[column.id] || defaultColumnWidth(column, compact)), 0);
 
   useEffect(() => {
     if (!currentRequest) return;
@@ -324,8 +330,8 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
     });
   }, [currentRequest]);
   useEffect(() => {
-    window.localStorage.setItem(PAYROLL_WIDTH_STORAGE_KEY, JSON.stringify(columnWidths));
-  }, [columnWidths]);
+    window.localStorage.setItem(widthStorageKey, JSON.stringify(columnWidths));
+  }, [columnWidths, widthStorageKey]);
   useEffect(() => {
     if (!columnMenu) return;
     const closeOnPointerDown = (event: PointerEvent) => {
@@ -454,7 +460,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
         <table className="table-fixed text-sm" style={{ width: tableWidth }}>
           <colgroup>
             {visibleColumns.map((column) => (
-              <col key={column.id} style={{ width: columnWidths[column.id] || column.width }} />
+              <col key={column.id} style={{ width: columnWidths[column.id] || defaultColumnWidth(column, compact) }} />
             ))}
           </colgroup>
           <thead>
@@ -463,7 +469,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                 <ResizablePayrollHeader
                   key={column.id}
                   column={column}
-                  width={columnWidths[column.id] || column.width}
+                  width={columnWidths[column.id] || defaultColumnWidth(column, compact)}
                   active={columnMenu?.id === column.id || columnSort?.id === column.id || isColumnFilterActive(columnFilters[column.id])}
                   onOpenMenu={openColumnMenu}
                   onResize={resizeColumn}

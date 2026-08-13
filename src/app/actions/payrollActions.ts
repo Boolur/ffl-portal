@@ -942,6 +942,34 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
   };
 }
 
+async function hydratePipelineFundedDates(rows: PayrollRequestRow[]) {
+  const missingLoanNumbers = Array.from(new Set(rows
+    .filter((row) => !row.fundedAt)
+    .map((row) => row.loanNumber.trim())
+    .filter(Boolean)));
+  if (missingLoanNumbers.length === 0) return rows;
+
+  const pipelineRows = await prisma.processingPipelineLoan.findMany({
+    where: {
+      fundedAt: { not: null },
+      loan: { loanNumber: { in: missingLoanNumbers } },
+    },
+    select: {
+      fundedAt: true,
+      loan: { select: { loanNumber: true } },
+    },
+  });
+  const fundedDateByLoanNumber = new Map(
+    pipelineRows.map((row) => [row.loan.loanNumber.trim().toLowerCase(), row.fundedAt?.toISOString() ?? null]),
+  );
+
+  return rows.map((row) => (
+    row.fundedAt
+      ? row
+      : { ...row, fundedAt: fundedDateByLoanNumber.get(row.loanNumber.trim().toLowerCase()) ?? null }
+  ));
+}
+
 async function buildSplitSnapshots(
   loanOfficerId: string,
   expectedRevenue: number,
@@ -1629,7 +1657,7 @@ export async function getMyPayrollPortalData() {
     }),
     getBrokerRetailRoutingSettings(),
   ]);
-  const rows = requests.map(serializeRequest);
+  const rows = await hydratePipelineFundedDates(requests.map(serializeRequest));
   const summary = summarizeRequests(rows);
   const salaryAmount = salaryPerPaycheckAmount(decimalToNumber(plan?.salaryPerPaycheck), plan?.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY);
   const commissionAmount = money(nextSplits.reduce((sum, split) => sum + decimalToNumber(split.amount), 0));
@@ -1680,7 +1708,7 @@ export async function getPayrollRequests(filters: PayrollRequestFilters = {}) {
     take: 500,
     include: requestInclude,
   });
-  return requests.map(serializeRequest);
+  return hydratePipelineFundedDates(requests.map(serializeRequest));
 }
 
 export async function getPayrollSettingsDatabase(): Promise<PayrollSettingsDatabase> {
