@@ -139,9 +139,9 @@ type ColumnId =
   | 'actions';
 
 const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; optional?: boolean }> = [
-  { id: 'loanOfficer', label: 'Loan Officer', width: 128 },
   { id: 'dateAssigned', label: 'Assigned', width: 94 },
-  { id: 'loanNumber', label: 'Arrive #', width: 96 },
+  { id: 'loanNumber', label: 'Arive #', width: 96 },
+  { id: 'loanOfficer', label: 'Loan Officer', width: 128 },
   { id: 'borrowerName', label: 'Borrower', width: 154 },
   { id: 'propertyState', label: 'State', width: 76 },
   { id: 'lender', label: 'Lender', width: 140 },
@@ -168,9 +168,9 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
 ];
 
 const FUNDING_COLUMNS: Array<{ id: ColumnId; label: string; width: number; optional?: boolean }> = [
-  { id: 'loanOfficer', label: 'Loan Officer', width: 140 },
   { id: 'dateAssigned', label: 'Assigned', width: 96 },
-  { id: 'loanNumber', label: 'Arrive #', width: 100 },
+  { id: 'loanNumber', label: 'Arive #', width: 100 },
+  { id: 'loanOfficer', label: 'Loan Officer', width: 140 },
   { id: 'borrowerName', label: 'Borrower', width: 170 },
   { id: 'propertyState', label: 'State', width: 76 },
   { id: 'loanType', label: 'Loan Type', width: 112 },
@@ -187,6 +187,7 @@ const FUNDING_COLUMNS: Array<{ id: ColumnId; label: string; width: number; optio
 const PIPELINE_FOCUS_COLUMNS = new Set<ColumnId>([
   'dateAssigned',
   'loanNumber',
+  'loanOfficer',
   'borrowerName',
   'propertyState',
   'lender',
@@ -207,6 +208,7 @@ const PIPELINE_FOCUS_COLUMNS = new Set<ColumnId>([
 const FUNDING_FOCUS_COLUMNS = new Set<ColumnId>([
   'dateAssigned',
   'loanNumber',
+  'loanOfficer',
   'borrowerName',
   'propertyState',
   'loanType',
@@ -711,7 +713,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       ? new Set<ColumnId>([...pipelineFocusColumns, 'rateLock'])
       : pipelineFocusColumns;
   const isColumnVisible = (id: ColumnId) =>
-    (id !== 'loanOfficer' || !isLoanOfficer) &&
     (id !== 'restructureNotes' ||
       sheet === ProcessingPipelineSheet.RESTRUCTURE ||
       isRateLockRequestsView) &&
@@ -1275,7 +1276,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search borrower, Arrive #, processor or lender"
+                placeholder="Search borrower, Arive #, processor or lender"
                 className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
               />
             </label>
@@ -1424,7 +1425,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   )}
                   <FilterInput label="Assigned From" type="date" value={draftFilters.assignedFrom} onChange={(value) => setDraftFilter('assignedFrom', value || undefined)} />
                   <FilterInput label="Assigned To" type="date" value={draftFilters.assignedTo} onChange={(value) => setDraftFilter('assignedTo', value || undefined)} />
-                  <MultiSelectFilter label="Arrive Numbers" values={draftFilters.loanNumbers || []} options={filterOptions.loanNumbers} onChange={(values) => setDraftFilter('loanNumbers', values)} />
+                  <MultiSelectFilter label="Arive Numbers" values={draftFilters.loanNumbers || []} options={filterOptions.loanNumbers} onChange={(values) => setDraftFilter('loanNumbers', values)} />
                   <MultiSelectFilter label="Borrowers" values={draftFilters.borrowerNames || []} options={filterOptions.borrowerNames} onChange={(values) => setDraftFilter('borrowerNames', values)} />
                   <FilterInput label="Loan Amount Min" type="number" value={draftFilters.loanAmountMin} onChange={(value) => setDraftFilter('loanAmountMin', value === '' ? undefined : Number(value))} placeholder="0" />
                   <FilterInput label="Loan Amount Max" type="number" value={draftFilters.loanAmountMax} onChange={(value) => setDraftFilter('loanAmountMax', value === '' ? undefined : Number(value))} placeholder="1000000" />
@@ -1613,11 +1614,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
           >
             <thead className="sticky top-0 z-30">
               <tr>
-                {isColumnVisible('loanOfficer') && (
-                  <ResizableHeader id="loanOfficer" width={columnWidths.loanOfficer} onResize={resizeColumn} className="sticky left-0 z-40 shadow-[1px_0_0_#e2e8f0]">
-                    Loan Officer
-                  </ResizableHeader>
-                )}
                 {isColumnVisible('dateAssigned') && (
                   <ResizableHeader id="dateAssigned" width={columnWidths.dateAssigned} onResize={resizeColumn}>
                     <button type="button" onClick={() => changeSort('dateAssigned')} className="w-full text-left hover:text-blue-700">
@@ -1628,8 +1624,13 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 {isColumnVisible('loanNumber') && (
                   <ResizableHeader id="loanNumber" width={columnWidths.loanNumber} onResize={resizeColumn}>
                     <button type="button" onClick={() => changeSort('loanNumber')} className="w-full text-left hover:text-blue-700">
-                      Arrive #
+                      Arive #
                     </button>
+                  </ResizableHeader>
+                )}
+                {isColumnVisible('loanOfficer') && (
+                  <ResizableHeader id="loanOfficer" width={columnWidths.loanOfficer} onResize={resizeColumn}>
+                    Loan Officer
                   </ResizableHeader>
                 )}
                 {isColumnVisible('borrowerName') && (
@@ -1712,16 +1713,16 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 );
                 return (
                 <tr key={row.id} className={`group transition-colors ${rowSurfaceTone[row.pipelineStatus]}`}>
-                  {isColumnVisible('loanOfficer') && (
-                    <td className={`sticky left-0 z-10 truncate border-b border-r border-slate-200 font-semibold text-slate-900 shadow-[1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]} ${cellPadding}`} title={row.loan.loanOfficer.name}>
-                      {row.loan.loanOfficer.name}
-                    </td>
-                  )}
                   {isColumnVisible('dateAssigned') && (
                     <td className={`truncate border-b border-r border-slate-200 font-medium text-slate-600 ${cellPadding}`}>{formatDate(row.dateAssigned)}</td>
                   )}
                   {isColumnVisible('loanNumber') && (
                     <td className={`truncate border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 ${cellPadding}`}>{row.loan.loanNumber}</td>
+                  )}
+                  {isColumnVisible('loanOfficer') && (
+                    <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-900 ${cellPadding}`} title={row.loan.loanOfficer.name}>
+                      {row.loan.loanOfficer.name}
+                    </td>
                   )}
                   {isColumnVisible('borrowerName') && (
                     <td className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 ${cellPadding}`} title={row.loan.borrowerName}>{row.loan.borrowerName}</td>
@@ -1850,7 +1851,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               Select the expiration date
             </h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              {rateLockDialogRow.loan.borrowerName} · Arrive #{rateLockDialogRow.loan.loanNumber}
+              {rateLockDialogRow.loan.borrowerName} · Arive #{rateLockDialogRow.loan.loanNumber}
             </p>
             <label className="mt-5 block">
               <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">
@@ -1921,7 +1922,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   : 'Send to Underwriting'}
             </h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              {restructureDialog.row.loan.borrowerName} · Arrive #{restructureDialog.row.loan.loanNumber}
+              {restructureDialog.row.loan.borrowerName} · Arive #{restructureDialog.row.loan.loanNumber}
             </p>
             <label className="mt-5 block">
               <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">
@@ -1997,7 +1998,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   {actionsMenuRow.loan.borrowerName}
                 </h2>
                 <p className="text-sm font-medium text-slate-500">
-                  Arrive #{actionsMenuRow.loan.loanNumber}
+                  Arive #{actionsMenuRow.loan.loanNumber}
                 </p>
               </div>
               <button
@@ -2163,7 +2164,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Change history</p>
                 <h2 className="mt-1 text-xl font-bold text-slate-950">{historyRow.loan.borrowerName}</h2>
-                <p className="text-sm text-slate-500">Arrive #{historyRow.loan.loanNumber}</p>
+                <p className="text-sm text-slate-500">Arive #{historyRow.loan.loanNumber}</p>
               </div>
               <button type="button" className="app-btn-secondary" onClick={() => setHistoryRow(null)}>Close</button>
             </div>
