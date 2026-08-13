@@ -11,6 +11,7 @@ import {
   getApprovedWithConditionsAt,
   getCdWarningStartsAt,
   getItemOrderedAt,
+  getMortgageFirstPaymentDate,
   getProcessingPipelineAccess,
   getProcessingPipelineLeadSource,
   getProcessingPipelineLockedDefaults,
@@ -161,6 +162,19 @@ describe('processing pipeline values', () => {
       .toBe('2026-02-28T00:00:00.000Z');
     expect(addMonthsClamped(new Date('2026-08-31T00:00:00.000Z'), 6).toISOString())
       .toBe('2027-02-28T00:00:00.000Z');
+  });
+
+  it('sets mortgage first payments to the first of the second following month', () => {
+    expect(
+      getMortgageFirstPaymentDate(
+        new Date('2026-08-15T12:00:00.000Z'),
+      ).toISOString(),
+    ).toBe('2026-10-01T12:00:00.000Z');
+    expect(
+      getMortgageFirstPaymentDate(
+        new Date('2026-12-31T12:00:00.000Z'),
+      ).toISOString(),
+    ).toBe('2027-02-01T12:00:00.000Z');
   });
 
   it('warns three days before a locked rate expires', () => {

@@ -300,3 +300,14 @@ export function addMonthsClamped(date: Date, months: number) {
   result.setUTCDate(Math.min(originalDay, lastDay));
   return result;
 }
+
+export function getMortgageFirstPaymentDate(fundedAt: Date) {
+  return new Date(
+    Date.UTC(
+      fundedAt.getUTCFullYear(),
+      fundedAt.getUTCMonth() + 2,
+      1,
+      12,
+    ),
+  );
+}

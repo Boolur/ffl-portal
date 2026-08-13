@@ -299,3 +299,15 @@ export function addMonthsClampedUtc(value, months) {
   target.setUTCDate(Math.min(day, lastDay));
   return target;
 }
+
+export function getMortgageFirstPaymentDateUtc(value) {
+  const fundedAt = new Date(value);
+  return new Date(
+    Date.UTC(
+      fundedAt.getUTCFullYear(),
+      fundedAt.getUTCMonth() + 2,
+      1,
+      12,
+    ),
+  );
+}

@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "import:funded": "node src/scripts/importFundedData.mjs",
+    "import:pipeline": "node src/scripts/importProcessingPipelineData.mjs",
     "postinstall": "prisma generate"
   },
   "dependencies": {

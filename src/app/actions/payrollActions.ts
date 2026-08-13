@@ -426,6 +426,73 @@ async function assertPayrollPortalUser() {
 function revalidatePayroll() {
   for (const path of PAYROLL_ADMIN_PATHS) revalidatePath(path);
   revalidatePath(PAYROLL_PORTAL_PATH);
+  revalidatePath('/pipeline');
+}
+
+async function resolvePayrollLoanId(
+  client: Prisma.TransactionClient | typeof prisma,
+  loanNumber: string,
+) {
+  const matches = await client.loan.findMany({
+    where: { loanNumber: { equals: loanNumber, mode: 'insensitive' } },
+    select: { id: true },
+    take: 2,
+  });
+  return matches.length === 1 ? matches[0].id : null;
+}
+
+async function syncApprovedPayrollRevenue(
+  tx: Prisma.TransactionClient,
+  requestId: string,
+  actorId: string,
+) {
+  const request = await tx.payrollCompRequest.findUnique({
+    where: { id: requestId },
+    select: {
+      id: true,
+      loanId: true,
+      loanNumber: true,
+      expectedRevenue: true,
+    },
+  });
+  if (!request) return;
+  const loanId =
+    request.loanId || await resolvePayrollLoanId(tx, request.loanNumber);
+  if (!loanId) return;
+  if (!request.loanId) {
+    await tx.payrollCompRequest.update({
+      where: { id: request.id },
+      data: { loanId },
+    });
+  }
+  const pipeline = await tx.processingPipelineLoan.findUnique({
+    where: { loanId },
+    select: { id: true, finalRevenue: true },
+  });
+  if (!pipeline || Number(pipeline.finalRevenue) === Number(request.expectedRevenue)) {
+    return;
+  }
+  await tx.processingPipelineLoan.update({
+    where: { id: pipeline.id },
+    data: {
+      finalRevenue: request.expectedRevenue,
+      version: { increment: 1 },
+    },
+  });
+  await tx.auditLog.create({
+    data: {
+      loanId,
+      userId: actorId,
+      action: 'PROCESSING_PIPELINE_PAYROLL_REVENUE_SYNCED',
+      details: JSON.stringify({
+        processingPipelineLoanId: pipeline.id,
+        payrollCompRequestId: request.id,
+        previousFinalRevenue:
+          pipeline.finalRevenue === null ? null : Number(pipeline.finalRevenue),
+        approvedFinalRevenue: Number(request.expectedRevenue),
+      }),
+    },
+  });
 }
 
 function decimalToNumber(value: Prisma.Decimal | number | string | null | undefined) {
@@ -1563,10 +1630,12 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
   const appliedPlanType = snapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
   const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
+  const loanId = await resolvePayrollLoanId(prisma, loanNumber);
 
   await prisma.payrollCompRequest.create({
     data: {
       loanOfficerId: actor.userId,
+      loanId,
       loanNumber,
       borrowerName: cleanText(input.borrowerName, "Borrower's name"),
       loanType: cleanText(input.loanType, 'Loan type'),
@@ -2006,6 +2075,9 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         sortOrder: split.sortOrder,
       })),
     });
+    if (request.status === PayrollCompRequestStatus.APPROVED) {
+      await syncApprovedPayrollRevenue(tx, input.requestId, actor.userId);
+    }
   });
 
   revalidatePayroll();
@@ -2025,15 +2097,18 @@ export async function approvePayrollRequest(requestId: string, adminNotes?: stri
     throw new Error('Only pending or rejected requests can be approved.');
   }
   if (recalculate) await replaceRequestSplits(requestId);
-  await prisma.payrollCompRequest.update({
-    where: { id: requestId },
-    data: {
-      status: PayrollCompRequestStatus.APPROVED,
-      reviewedAt: new Date(),
-      reviewedById: actor.userId,
-      adminNotes: adminNotes?.trim() || null,
-      rejectionReason: null,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.payrollCompRequest.update({
+      where: { id: requestId },
+      data: {
+        status: PayrollCompRequestStatus.APPROVED,
+        reviewedAt: new Date(),
+        reviewedById: actor.userId,
+        adminNotes: adminNotes?.trim() || null,
+        rejectionReason: null,
+      },
+    });
+    await syncApprovedPayrollRevenue(tx, requestId, actor.userId);
   });
   revalidatePayroll();
 }
@@ -2082,14 +2157,17 @@ export async function markPayrollRequestPaid(requestId: string, adminNotes?: str
   if (request.status !== PayrollCompRequestStatus.APPROVED) {
     throw new Error('Only approved requests can be marked paid.');
   }
-  await prisma.payrollCompRequest.update({
-    where: { id: requestId },
-    data: {
-      status: PayrollCompRequestStatus.PAID,
-      paidAt: new Date(),
-      paidById: actor.userId,
-      adminNotes: adminNotes?.trim() || undefined,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.payrollCompRequest.update({
+      where: { id: requestId },
+      data: {
+        status: PayrollCompRequestStatus.PAID,
+        paidAt: new Date(),
+        paidById: actor.userId,
+        adminNotes: adminNotes?.trim() || undefined,
+      },
+    });
+    await syncApprovedPayrollRevenue(tx, requestId, actor.userId);
   });
   revalidatePayroll();
 }

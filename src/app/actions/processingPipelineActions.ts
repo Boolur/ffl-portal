@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import {
   Prisma,
+  PayrollCompRequestStatus,
   ProcessingItemStatus,
   ProcessingPipelineSheet,
   ProcessingPipelineStatus,
@@ -19,6 +20,7 @@ import {
   getApprovedWithConditionsAt,
   getCdWarningStartsAt,
   getItemOrderedAt,
+  getMortgageFirstPaymentDate,
   getProcessingPipelineLockedDefaults,
   getProcessingPipelineAccess,
   isProcessingPipelineFieldLocked,
@@ -154,6 +156,10 @@ function serializeRow(row: {
     borrowerName: string;
     amount: Prisma.Decimal;
     loanOfficer: { id: string; name: string };
+    payrollCompRequests: Array<{
+      status: PayrollCompRequestStatus;
+      expectedRevenue: Prisma.Decimal;
+    }>;
   };
   seniorProcessor: { id: string; name: string } | null;
   juniorProcessor: { id: string; name: string } | null;
@@ -180,6 +186,8 @@ function serializeRow(row: {
     updatedAt: row.updatedAt.toISOString(),
     projectedRevenue: row.projectedRevenue === null ? null : Number(row.projectedRevenue),
     finalRevenue: row.finalRevenue === null ? null : Number(row.finalRevenue),
+    payrollSubmitted: row.loan.payrollCompRequests.length > 0,
+    payrollStatus: row.loan.payrollCompRequests[0]?.status || null,
     daysInStatus: calculateDaysInStatus(row.statusChangedAt),
     loan: {
       ...row.loan,
@@ -487,6 +495,15 @@ export async function getProcessingPipeline(input?: {
             borrowerName: true,
             amount: true,
             loanOfficer: { select: { id: true, name: true } },
+            payrollCompRequests: {
+              where: { status: { not: PayrollCompRequestStatus.REJECTED } },
+              orderBy: { submittedAt: 'desc' },
+              take: 1,
+              select: {
+                status: true,
+                expectedRevenue: true,
+              },
+            },
           },
         },
         seniorProcessor: { select: { id: true, name: true } },
@@ -1512,7 +1529,7 @@ export async function moveProcessingPipelineLoan(input: {
         ...(input.sheet === ProcessingPipelineSheet.FUNDING && fundedAt
           ? {
               fundedAt,
-              firstPaymentAt: addMonthsClamped(fundedAt, 1),
+              firstPaymentAt: getMortgageFirstPaymentDate(fundedAt),
               sixthPaymentAt: addMonthsClamped(fundedAt, 6),
             }
           : {}),

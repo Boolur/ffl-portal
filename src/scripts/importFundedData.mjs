@@ -25,6 +25,7 @@ import {
 import {
   FUNDED_IMPORT_SOURCE,
   addMonthsClampedUtc,
+  getMortgageFirstPaymentDateUtc,
   normalizeAriveNumber,
   parseFundedWorkbook,
   payrollLeadProvidedByFor,
@@ -487,7 +488,7 @@ async function applyEntry(entry, context) {
       projectedRevenue: row.finalRevenue,
       finalRevenue: row.finalRevenue,
       fundedAt: row.fundedAt,
-      firstPaymentAt: addMonthsClampedUtc(row.fundedAt, 1),
+      firstPaymentAt: getMortgageFirstPaymentDateUtc(row.fundedAt),
       sixthPaymentAt: addMonthsClampedUtc(row.fundedAt, 6),
       movedAt: row.fundedAt,
       archivedAt: null,

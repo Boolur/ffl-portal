@@ -666,6 +666,24 @@ function formatMoney(value: number | null) {
   }).format(value);
 }
 
+type FundingRangePreset = 'currentMonth' | 'lastMonth' | 'filters';
+
+function fundingMonthFilters(monthOffset: 0 | -1): ProcessingPipelineFilters {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: 'numeric',
+  }).formatToParts(new Date());
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value) - 1;
+  const start = new Date(Date.UTC(year, month + monthOffset, 1));
+  const end = new Date(Date.UTC(year, month + monthOffset + 1, 0));
+  return {
+    fundedFrom: start.toISOString().slice(0, 10),
+    fundedTo: end.toISOString().slice(0, 10),
+  };
+}
+
 function parseAuditDetails(details: string | null) {
   if (!details) return null;
   try {
@@ -685,6 +703,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [total, setTotal] = useState(initialData.total);
   const [search, setSearch] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [fundingRangePreset, setFundingRangePreset] =
+    useState<FundingRangePreset>('currentMonth');
   const [appliedFilters, setAppliedFilters] = useState<ProcessingPipelineFilters>({});
   const [draftFilters, setDraftFilters] = useState<ProcessingPipelineFilters>({});
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
@@ -1036,12 +1056,18 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   };
 
   const applyFilters = () => {
+    if (sheet === ProcessingPipelineSheet.FUNDING) {
+      setFundingRangePreset('filters');
+    }
     setAppliedFilters(draftFilters);
     loadRows(sheet, search, sortBy, sortDirection, draftFilters);
     setFiltersExpanded(false);
   };
 
   const clearFilters = () => {
+    if (sheet === ProcessingPipelineSheet.FUNDING) {
+      setFundingRangePreset('filters');
+    }
     setSelectedTeamIds([]);
     setColumnFilters({});
     setColumnSort(null);
@@ -1049,6 +1075,25 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     setDraftFilters({});
     setAppliedFilters({});
     loadRows(sheet, search, sortBy, sortDirection, {});
+  };
+
+  const selectFundingRange = (preset: Exclude<FundingRangePreset, 'filters'>) => {
+    const rangeFilters = fundingMonthFilters(preset === 'currentMonth' ? 0 : -1);
+    const nextFilters: ProcessingPipelineFilters = {
+      ...appliedFilters,
+      ...rangeFilters,
+    };
+    setFundingRangePreset(preset);
+    setDraftFilters(nextFilters);
+    setAppliedFilters(nextFilters);
+    setFiltersExpanded(false);
+    loadRows(
+      ProcessingPipelineSheet.FUNDING,
+      search,
+      sortBy,
+      sortDirection,
+      nextFilters,
+    );
   };
 
   const selectTeam = (teamId: string | null) => {
@@ -1588,15 +1633,28 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 role="tab"
                 aria-selected={sheet === option.value}
                 onClick={() => {
+                  const nextFilters =
+                    option.value === ProcessingPipelineSheet.FUNDING
+                      ? fundingMonthFilters(0)
+                      : {};
                   setSheet(option.value);
+                  if (option.value === ProcessingPipelineSheet.FUNDING) {
+                    setFundingRangePreset('currentMonth');
+                  }
                   setDetailsExpanded(false);
                   setSelectedTeamIds([]);
                   setColumnFilters({});
                   setColumnSort(null);
                   setColumnMenu(null);
-                  setDraftFilters({});
-                  setAppliedFilters({});
-                  loadRows(option.value, search, sortBy, sortDirection, {});
+                  setDraftFilters(nextFilters);
+                  setAppliedFilters(nextFilters);
+                  loadRows(
+                    option.value,
+                    search,
+                    sortBy,
+                    sortDirection,
+                    nextFilters,
+                  );
                 }}
                 className={`rounded-lg px-4 py-2 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
                   sheet === option.value
@@ -1634,19 +1692,59 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
       <div className="relative z-40 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+          {sheet === ProcessingPipelineSheet.FUNDING && (
+            <div
+              className="inline-flex w-fit rounded-xl border border-slate-200 bg-slate-50 p-1"
+              aria-label="Funding month range"
+            >
+              {[
+                { value: 'currentMonth' as const, label: 'Current Month' },
+                { value: 'lastMonth' as const, label: 'Last Month' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={fundingRangePreset === option.value}
+                  onClick={() => selectFundingRange(option.value)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                    fundingRangePreset === option.value
+                      ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                      : 'text-slate-500 hover:bg-white/70 hover:text-slate-800'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             aria-expanded={filtersExpanded}
-            onClick={() => setFiltersExpanded((expanded) => !expanded)}
+            aria-pressed={
+              sheet === ProcessingPipelineSheet.FUNDING
+                ? fundingRangePreset === 'filters'
+                : undefined
+            }
+            onClick={() => {
+              if (sheet === ProcessingPipelineSheet.FUNDING) {
+                setFundingRangePreset('filters');
+              }
+              setFiltersExpanded((expanded) => !expanded);
+            }}
             className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-bold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
-              filtersExpanded || activeFilterCount > 0
+              filtersExpanded ||
+              (sheet === ProcessingPipelineSheet.FUNDING
+                ? fundingRangePreset === 'filters'
+                : activeFilterCount > 0)
                 ? 'border-blue-300 bg-blue-50 text-blue-700'
                 : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
             }`}
           >
             <Filter className="h-4 w-4" />
             Filters
-            {activeFilterCount > 0 && (
+            {activeFilterCount > 0 &&
+              (sheet !== ProcessingPipelineSheet.FUNDING ||
+                fundingRangePreset === 'filters') && (
               <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-black text-white">
                 {activeFilterCount}
               </span>
@@ -1695,7 +1793,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               })}
             </div>
           )}
-          {activeFilterCount > 0 && (
+          {activeFilterCount > 0 &&
+            (sheet !== ProcessingPipelineSheet.FUNDING ||
+              fundingRangePreset === 'filters') && (
             <button
               type="button"
               onClick={clearFilters}
@@ -2077,7 +2177,36 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       {isColumnVisible('juniorProcessor') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`}>{row.juniorProcessor?.name || '—'}</td>}
                       {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={processorLabel(row)}>{processorLabel(row)}</td>}
                       {isColumnVisible('fundedAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.fundedAt)}</td>}
-                      {isColumnVisible('finalRevenue') && <td className={`border-b border-r border-slate-200 font-semibold ${cellPadding}`}>{formatMoney(row.finalRevenue)}</td>}
+                      {isColumnVisible('finalRevenue') && (
+                        <td className={`border-b border-r border-slate-200 font-semibold ${cellPadding}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="tabular-nums">{formatMoney(row.finalRevenue)}</span>
+                            <span
+                              className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+                                row.payrollSubmitted
+                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
+                                  : 'border-red-300 bg-red-100 text-red-700'
+                              }`}
+                              aria-label={
+                                row.payrollSubmitted
+                                  ? `Payroll request submitted: ${row.payrollStatus?.replaceAll('_', ' ') || 'Submitted'}`
+                                  : 'Payroll request not submitted'
+                              }
+                              title={
+                                row.payrollSubmitted
+                                  ? `Payroll request: ${row.payrollStatus?.replaceAll('_', ' ') || 'Submitted'}`
+                                  : 'Payroll request has not been submitted'
+                              }
+                            >
+                              {row.payrollSubmitted ? (
+                                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                              ) : (
+                                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              )}
+                            </span>
+                          </div>
+                        </td>
+                      )}
                       {isColumnVisible('firstPaymentAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.firstPaymentAt)}</td>}
                       {isColumnVisible('sixthPaymentAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.sixthPaymentAt)}</td>}
                     </>

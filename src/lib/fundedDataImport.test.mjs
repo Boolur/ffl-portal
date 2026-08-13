@@ -3,6 +3,7 @@ import {
   canonicalLeadSource,
   canonicalLender,
   chooseCanonicalFundedRows,
+  getMortgageFirstPaymentDateUtc,
   normalizeAriveNumber,
   parseFundedDate,
   parseRevenue,
@@ -63,6 +64,14 @@ describe('funded data normalization', () => {
       parseFundedDate('Funded 10/29', new Date('2025-10-03T12:00:00.000Z'))?.toISOString(),
     ).toBe('2025-10-29T12:00:00.000Z');
     expect(parseRevenue('$4,500.25')).toBe(4500.25);
+  });
+
+  it('uses the mortgage first-payment calendar rule', () => {
+    expect(
+      getMortgageFirstPaymentDateUtc(
+        new Date('2026-08-15T12:00:00.000Z'),
+      ).toISOString(),
+    ).toBe('2026-10-01T12:00:00.000Z');
   });
 });
 
