@@ -109,6 +109,7 @@ type EditableField =
   | 'appraisalNotes'
   | 'appraisalOrderedAt'
   | 'appraisalBackAt'
+  | 'estimatedSigningAt'
   | 'cdSent'
   | 'missingItemsCurrentStatus'
   | 'extraNotes'
@@ -129,6 +130,7 @@ type ColumnId =
   | 'juniorProcessor'
   | 'seniorProcessor'
   | 'pipelineStatus'
+  | 'estimatedSigningAt'
   | 'daysInStatus'
   | 'titleStatus'
   | 'payoffStatus'
@@ -162,6 +164,7 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'juniorProcessor', label: 'Jr Processor', width: 118 },
   { id: 'seniorProcessor', label: 'Processor', width: 118 },
   { id: 'pipelineStatus', label: 'Pipeline Status', width: 164 },
+  { id: 'estimatedSigningAt', label: 'Est. Signing', width: 132, optional: true },
   { id: 'missingItemsCurrentStatus', label: 'Pending Items', width: 220 },
   { id: 'restructureNotes', label: 'Restructure Notes', width: 280 },
   { id: 'titleStatus', label: 'Title', width: 124 },
@@ -327,6 +330,7 @@ type ColumnFilterRule = {
 
 const DATE_COLUMN_IDS = new Set<ColumnId>([
   'dateAssigned',
+  'estimatedSigningAt',
   'appraisalOrderedAt',
   'appraisalBackAt',
   'fundedAt',
@@ -358,6 +362,7 @@ function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | numb
       (option) => option.value === row.pipelineStatus,
     )?.label || row.pipelineStatus;
   }
+  if (id === 'estimatedSigningAt') return row.estimatedSigningAt;
   if (id === 'daysInStatus') return row.daysInStatus;
   if (id === 'titleStatus') {
     return PROCESSING_ITEM_STATUS_OPTIONS.find((option) => option.value === row.titleStatus)?.label || row.titleStatus;
@@ -1014,17 +1019,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const tableWidth = currentColumns
     .filter((column) => isColumnVisible(column.id))
     .reduce((sum, column) => sum + (columnWidths[column.id] || column.width), 0);
-  const loadedUnassigned = visibleRows.filter((row) => processorLabel(row) === 'Unassigned').length;
-  const loadedAtClosing = visibleRows.filter((row) =>
-    row.pipelineStatus === ProcessingPipelineStatus.CTC ||
-    row.pipelineStatus === ProcessingPipelineStatus.DOCS_OUT
-  ).length;
-  const loadedNeedsAttention = visibleRows.filter((row) =>
-    row.pipelineStatus === ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE ||
-    row.pipelineStatus === ProcessingPipelineStatus.ADVERSE_PENDING ||
-    row.pipelineStatus === ProcessingPipelineStatus.PENDING_APPROVAL ||
-    row.pipelineStatus === ProcessingPipelineStatus.RE_SUB
-  ).length;
   const activeServerFilterCount = Object.values(appliedFilters).filter((value) => {
     if (Array.isArray(value)) return value.length > 0;
     if (typeof value === 'string') return value.trim().length > 0;
@@ -1118,6 +1112,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     row: ProcessingPipelineRow,
     field: EditableField,
     value: unknown,
+    options?: { estimatedSigningAt?: string | null },
   ) => {
     if (!canEditRow(row) || isLockedField(row, field)) return;
     const clientValue =
@@ -1131,6 +1126,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       ...(field === 'pipelineStatus'
         ? { statusChangedAt: new Date().toISOString(), daysInStatus: 0 }
         : {}),
+      ...(options?.estimatedSigningAt
+        ? { estimatedSigningAt: new Date(options.estimatedSigningAt).toISOString() }
+        : {}),
     };
 
     patchRow(row.id, optimisticPatch);
@@ -1140,6 +1138,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       id: row.id,
       field,
       value,
+      estimatedSigningAt: options?.estimatedSigningAt,
       version: row.version,
     });
     setSavingRows((current) => {
@@ -1383,7 +1382,44 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     <select
       aria-label={field}
       value={value === null ? '' : String(value)}
-      onChange={(event) => saveCell(row, field, event.target.value)}
+      onChange={(event) => {
+        if (
+          field === 'pipelineStatus' &&
+          event.target.value === ProcessingPipelineStatus.DOCS_OUT
+        ) {
+          const estimatedSigningAt = window.prompt(
+            'Estimated signing date (YYYY-MM-DD):',
+            dateInputValue(row.estimatedSigningAt) || todayInputValue(),
+          );
+          if (!estimatedSigningAt) return;
+          const parsedSigningDate = new Date(
+            `${estimatedSigningAt}T00:00:00.000Z`,
+          );
+          if (
+            !/^\d{4}-\d{2}-\d{2}$/.test(estimatedSigningAt) ||
+            Number.isNaN(parsedSigningDate.getTime()) ||
+            parsedSigningDate.toISOString().slice(0, 10) !== estimatedSigningAt
+          ) {
+            window.alert('Enter a valid estimated signing date in YYYY-MM-DD format.');
+            return;
+          }
+          void saveCell(
+            row,
+            field,
+            event.target.value,
+            { estimatedSigningAt },
+          );
+          return;
+        }
+        if (
+          field === 'pipelineStatus' &&
+          event.target.value === ProcessingPipelineStatus.FUNDED
+        ) {
+          void moveRow(row, ProcessingPipelineSheet.FUNDING);
+          return;
+        }
+        void saveCell(row, field, event.target.value);
+      }}
       className={`w-full rounded-full border px-2.5 py-1.5 text-[13px] font-semibold shadow-sm outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 ${className || 'border-slate-200 bg-white text-slate-700'}`}
     >
       {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -1596,26 +1632,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          { label: 'Loans in view', value: visibleRows.length, helper: activeViewLabel, tone: 'border-blue-100 from-blue-50/90', valueTone: 'text-blue-950' },
-          { label: 'Loaded closing soon', value: loadedAtClosing, helper: 'CTC or docs out', tone: 'border-emerald-100 from-emerald-50/90', valueTone: 'text-emerald-950' },
-          { label: 'Loaded attention', value: loadedNeedsAttention, helper: 'Re-sub or restructure', tone: 'border-amber-100 from-amber-50/90', valueTone: 'text-amber-950' },
-          { label: 'Loaded unassigned', value: loadedUnassigned, helper: 'No Sr Processor', tone: 'border-violet-100 from-violet-50/90', valueTone: 'text-violet-950' },
-        ].map((metric) => (
-          <div
-            key={metric.label}
-            className={`rounded-2xl border bg-gradient-to-br ${metric.tone} via-white to-white p-4 shadow-sm shadow-slate-200/40`}
-          >
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">{metric.label}</p>
-            <div className="mt-2 flex items-end justify-between gap-3">
-              <p className={`text-3xl font-black tracking-tight ${metric.valueTone}`}>{metric.value}</p>
-              <p className="text-right text-xs font-medium text-slate-400">{metric.helper}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
       <div className="relative z-40 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           <button
@@ -1755,6 +1771,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     />
                     <FilterInput label="Days in Status Min" type="number" value={draftFilters.daysInStatusMin} onChange={(value) => setDraftFilter('daysInStatusMin', value === '' ? undefined : Number(value))} placeholder="0" />
                     <FilterInput label="Days in Status Max" type="number" value={draftFilters.daysInStatusMax} onChange={(value) => setDraftFilter('daysInStatusMax', value === '' ? undefined : Number(value))} placeholder="30" />
+                    <FilterInput label="Est. Signing From" type="date" value={draftFilters.estimatedSigningFrom} onChange={(value) => setDraftFilter('estimatedSigningFrom', value || undefined)} />
+                    <FilterInput label="Est. Signing To" type="date" value={draftFilters.estimatedSigningTo} onChange={(value) => setDraftFilter('estimatedSigningTo', value || undefined)} />
                     <MultiSelectFilter
                       label="Title Statuses"
                       values={draftFilters.titleStatuses || []}
@@ -1974,6 +1992,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     {isColumnVisible('juniorProcessor') && <ResizableHeader id="juniorProcessor" width={columnWidths.juniorProcessor} onResize={resizeColumn}>Jr Processor</ResizableHeader>}
                     {isColumnVisible('seniorProcessor') && <ResizableHeader id="seniorProcessor" width={columnWidths.seniorProcessor} onResize={resizeColumn}>Processor</ResizableHeader>}
                     {isColumnVisible('pipelineStatus') && <ResizableHeader id="pipelineStatus" width={columnWidths.pipelineStatus} onResize={resizeColumn}>Pipeline Status</ResizableHeader>}
+                    {isColumnVisible('estimatedSigningAt') && <ResizableHeader id="estimatedSigningAt" width={columnWidths.estimatedSigningAt} onResize={resizeColumn}>Est. Signing</ResizableHeader>}
                     {isColumnVisible('missingItemsCurrentStatus') && <ResizableHeader id="missingItemsCurrentStatus" width={columnWidths.missingItemsCurrentStatus} onResize={resizeColumn}>Pending Items</ResizableHeader>}
                     {isColumnVisible('restructureNotes') && <ResizableHeader id="restructureNotes" width={columnWidths.restructureNotes} onResize={resizeColumn}>Restructure Notes</ResizableHeader>}
                     {isColumnVisible('titleStatus') && <ResizableHeader id="titleStatus" width={columnWidths.titleStatus} onResize={resizeColumn}>Title</ResizableHeader>}
@@ -2078,6 +2097,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                                 {PROCESSING_PIPELINE_STATUS_OPTIONS.find((option) => option.value === row.pipelineStatus)?.label}
                               </span>
                             )}
+                        </td>
+                      )}
+                      {isColumnVisible('estimatedSigningAt') && (
+                        <td className="border-b border-r border-slate-200 px-1.5 py-1">
+                          {dateCell(row, 'estimatedSigningAt', row.estimatedSigningAt)}
                         </td>
                       )}
                       {isColumnVisible('missingItemsCurrentStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'missingItemsCurrentStatus', row.missingItemsCurrentStatus)}</td>}

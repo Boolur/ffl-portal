@@ -34,6 +34,7 @@ type Actor = {
   id: string;
   role: UserRole;
   name: string;
+  processingAssignmentGroups: string[];
 };
 
 async function getActor(): Promise<Actor | null> {
@@ -41,13 +42,31 @@ async function getActor(): Promise<Actor | null> {
   const id = session?.user?.id;
   const role = (session?.user?.activeRole || session?.user?.role) as UserRole | undefined;
   if (!id || !role) return null;
-  return { id, role, name: session.user.name || 'Unknown user' };
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { processingAssignmentGroups: true },
+  });
+  if (!user) return null;
+  return {
+    id,
+    role,
+    name: session.user.name || 'Unknown user',
+    processingAssignmentGroups: user.processingAssignmentGroups,
+  };
 }
 
 function scopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInput {
   const access = getProcessingPipelineAccess(actor.role);
   if (access.scope === 'COMPANY') return { archivedAt: null };
   if (access.scope === 'ASSIGNED') {
+    if (actor.role === UserRole.PROCESSOR_JR) {
+      return actor.processingAssignmentGroups.length > 0
+        ? {
+            assignmentGroup: { in: actor.processingAssignmentGroups },
+            archivedAt: null,
+          }
+        : { id: '__NO_ASSIGNED_PROCESSOR__' };
+    }
     return { seniorProcessorId: actor.id, archivedAt: null };
   }
   if (access.scope === 'OWN_LOANS') {
@@ -92,6 +111,7 @@ function serializeRow(row: {
   sheet: ProcessingPipelineSheet;
   pipelineStatus: ProcessingPipelineStatus;
   statusChangedAt: Date;
+  estimatedSigningAt: Date | null;
   titleStatus: ProcessingItemStatus;
   payoffStatus: ProcessingItemStatus;
   payoffOrderedAt: Date | null;
@@ -142,6 +162,7 @@ function serializeRow(row: {
     ...row,
     dateAssigned: row.dateAssigned.toISOString(),
     statusChangedAt: row.statusChangedAt.toISOString(),
+    estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
     appraisalOrderedAt: row.appraisalOrderedAt?.toISOString() || null,
     appraisalBackAt: row.appraisalBackAt?.toISOString() || null,
     payoffOrderedAt: row.payoffOrderedAt?.toISOString() || null,
@@ -205,6 +226,8 @@ export type ProcessingPipelineFilters = {
   rateLockExpiresTo?: string;
   fundedFrom?: string;
   fundedTo?: string;
+  estimatedSigningFrom?: string;
+  estimatedSigningTo?: string;
   firstPaymentFrom?: string;
   firstPaymentTo?: string;
   sixthPaymentFrom?: string;
@@ -318,6 +341,16 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   const fundedFrom = startOfInputDay(filters.fundedFrom);
   const fundedTo = endOfInputDay(filters.fundedTo);
   if (fundedFrom || fundedTo) clauses.push({ fundedAt: { gte: fundedFrom, lte: fundedTo } });
+  const estimatedSigningFrom = startOfInputDay(filters.estimatedSigningFrom);
+  const estimatedSigningTo = endOfInputDay(filters.estimatedSigningTo);
+  if (estimatedSigningFrom || estimatedSigningTo) {
+    clauses.push({
+      estimatedSigningAt: {
+        gte: estimatedSigningFrom,
+        lte: estimatedSigningTo,
+      },
+    });
+  }
   const firstPaymentFrom = startOfInputDay(filters.firstPaymentFrom);
   const firstPaymentTo = endOfInputDay(filters.firstPaymentTo);
   if (firstPaymentFrom || firstPaymentTo) {
@@ -604,6 +637,7 @@ const EDITABLE_FIELDS = [
   'appraisalNotes',
   'appraisalOrderedAt',
   'appraisalBackAt',
+  'estimatedSigningAt',
   'cdSent',
   'missingItemsCurrentStatus',
   'extraNotes',
@@ -649,7 +683,11 @@ function normalizeCellValue(field: EditableField, value: unknown) {
     if (parsed === null) throw new Error('Invalid Yes/No value.');
     return parsed;
   }
-  if (field === 'appraisalOrderedAt' || field === 'appraisalBackAt') {
+  if (
+    field === 'appraisalOrderedAt' ||
+    field === 'appraisalBackAt' ||
+    field === 'estimatedSigningAt'
+  ) {
     if (!value) return null;
     const parsed = new Date(String(value));
     if (Number.isNaN(parsed.getTime())) throw new Error('Invalid date.');
@@ -675,6 +713,7 @@ export async function updateProcessingPipelineCell(input: {
   id: string;
   field: EditableField;
   value: unknown;
+  estimatedSigningAt?: string | null;
   version: number;
 }) {
   const actor = await getActor();
@@ -725,6 +764,9 @@ export async function updateProcessingPipelineCell(input: {
       const nextValue = normalizeCellValue(input.field, input.value);
       if (input.field === 'pipelineStatus') {
         const nextStatus = nextValue as ProcessingPipelineStatus;
+        if (nextStatus === ProcessingPipelineStatus.FUNDED) {
+          throw new Error('Use Move to Fundings so a funded date is recorded.');
+        }
         const isRestructureStatus = RESTRUCTURE_PIPELINE_STATUSES.has(nextStatus);
         if (current.sheet === ProcessingPipelineSheet.RESTRUCTURE) {
           throw new Error('Use the Restructure action buttons to change this status.');
@@ -734,6 +776,26 @@ export async function updateProcessingPipelineCell(input: {
         }
       }
       const now = new Date();
+      let estimatedSigningAt = current.estimatedSigningAt;
+      if (
+        input.field === 'pipelineStatus' &&
+        nextValue === ProcessingPipelineStatus.DOCS_OUT
+      ) {
+        const signingDateInput = input.estimatedSigningAt || '';
+        const parsedSigningDate = /^\d{4}-\d{2}-\d{2}$/.test(signingDateInput)
+          ? new Date(`${signingDateInput}T00:00:00.000Z`)
+          : null;
+        if (
+          !parsedSigningDate ||
+          Number.isNaN(parsedSigningDate.getTime()) ||
+          parsedSigningDate.toISOString().slice(0, 10) !== signingDateInput
+        ) {
+          throw new Error('A valid estimated signing date is required for Docs Out.');
+        }
+        estimatedSigningAt = parsedSigningDate;
+      } else if (input.field === 'estimatedSigningAt') {
+        estimatedSigningAt = nextValue as Date | null;
+      }
       let approvedWithConditionsAt = current.approvedWithConditionsAt;
       let payoffOrderedAt = current.payoffOrderedAt;
       let hoiOrderedAt = current.hoiOrderedAt;
@@ -744,6 +806,9 @@ export async function updateProcessingPipelineCell(input: {
       };
       if (input.field === 'pipelineStatus') {
         data.statusChangedAt = now;
+        if (nextValue === ProcessingPipelineStatus.DOCS_OUT) {
+          data.estimatedSigningAt = estimatedSigningAt;
+        }
         const nextApprovedWithConditionsAt = getApprovedWithConditionsAt(
           nextValue as ProcessingPipelineStatus,
           current.approvedWithConditionsAt,
@@ -825,6 +890,11 @@ export async function updateProcessingPipelineCell(input: {
               ? previousValue.toISOString()
               : previousValue,
             newValue: nextValue instanceof Date ? nextValue.toISOString() : nextValue,
+            estimatedSigningAt:
+              input.field === 'pipelineStatus' &&
+              nextValue === ProcessingPipelineStatus.DOCS_OUT
+                ? estimatedSigningAt?.toISOString() || null
+                : undefined,
             lockedDefaultsApplied:
               input.field === 'lender' && Object.keys(lockedDefaultsPatch).length > 0
                 ? lockedDefaultsPatch
@@ -840,6 +910,7 @@ export async function updateProcessingPipelineCell(input: {
           approvedWithConditionsAt: approvedWithConditionsAt?.toISOString() || null,
           payoffOrderedAt: payoffOrderedAt?.toISOString() || null,
           hoiOrderedAt: hoiOrderedAt?.toISOString() || null,
+          estimatedSigningAt: estimatedSigningAt?.toISOString() || null,
           ...lockedDefaultsPatch,
         },
       };
@@ -1402,6 +1473,7 @@ export async function moveProcessingPipelineLoan(input: {
     }
     const now = new Date();
     const movingToRestructure = input.sheet === ProcessingPipelineSheet.RESTRUCTURE;
+    const movingToFunding = input.sheet === ProcessingPipelineSheet.FUNDING;
     const returningToPipeline =
       current.sheet === ProcessingPipelineSheet.RESTRUCTURE &&
       input.sheet === ProcessingPipelineSheet.PIPELINE;
@@ -1419,12 +1491,20 @@ export async function moveProcessingPipelineLoan(input: {
       data: {
         sheet: input.sheet,
         movedAt: now,
-        ...(movingToRestructure || returningToPipeline
+        ...(movingToRestructure || returningToPipeline || movingToFunding
           ? {
-              pipelineStatus: movingToRestructure
-                ? ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE
-                : ProcessingPipelineStatus.RE_SUB,
+              pipelineStatus: movingToFunding
+                ? ProcessingPipelineStatus.FUNDED
+                : movingToRestructure
+                  ? ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE
+                  : ProcessingPipelineStatus.RE_SUB,
               statusChangedAt: now,
+            }
+          : {}),
+        ...(movingToFunding
+          ? {
+              rateLockRequestedAt: null,
+              rateLockRequestedById: null,
             }
           : {}),
         ...(movingToRestructure ? { restructureNotes: nextRestructureNotes } : {}),
@@ -1459,6 +1539,8 @@ export async function moveProcessingPipelineLoan(input: {
       version: input.version + 1,
       pipelineStatus: movingToRestructure
         ? ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE
+        : movingToFunding
+          ? ProcessingPipelineStatus.FUNDED
         : returningToPipeline
           ? ProcessingPipelineStatus.RE_SUB
           : current.pipelineStatus,

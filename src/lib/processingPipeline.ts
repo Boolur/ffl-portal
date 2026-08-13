@@ -52,8 +52,10 @@ export function getProcessingPipelineAccess(role?: UserRole | null): ProcessingP
   if (role === UserRole.PROCESSOR_SR) {
     return { canView: true, canEdit: true, scope: 'ASSIGNED' };
   }
+  if (role === UserRole.PROCESSOR_JR) {
+    return { canView: true, canEdit: true, scope: 'ASSIGNED' };
+  }
   if (
-    role === UserRole.PROCESSOR_JR ||
     role === UserRole.MANAGER ||
     isAdmin(role)
   ) {

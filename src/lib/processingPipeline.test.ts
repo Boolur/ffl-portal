@@ -53,8 +53,15 @@ describe('processing pipeline access', () => {
     });
   });
 
+  it('scopes Jr Processors to their assigned processor groups', () => {
+    expect(getProcessingPipelineAccess(UserRole.PROCESSOR_JR)).toEqual({
+      canView: true,
+      canEdit: true,
+      scope: 'ASSIGNED',
+    });
+  });
+
   it.each([
-    UserRole.PROCESSOR_JR,
     UserRole.MANAGER,
     UserRole.ADMIN,
     UserRole.ADMIN_I,

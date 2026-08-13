@@ -470,6 +470,7 @@ model ProcessingPipelineLoan {
   sheet                     ProcessingPipelineSheet  @default(PIPELINE)
   pipelineStatus            ProcessingPipelineStatus @default(SUBBED_TO_UW)
   statusChangedAt           DateTime                 @default(now())
+  estimatedSigningAt        DateTime?
   titleStatus               ProcessingItemStatus     @default(NOT_STARTED)
   payoffStatus              ProcessingItemStatus     @default(NOT_STARTED)
   payoffOrderedAt           DateTime?
