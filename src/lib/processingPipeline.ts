@@ -81,6 +81,96 @@ export function calculateDaysInStatus(statusChangedAt: Date | string, now = new 
 
 const DAY_MS = 86_400_000;
 
+export type LockedProcessingPipelineField =
+  | 'titleStatus'
+  | 'payoffStatus'
+  | 'hoiStatus'
+  | 'appraisalNeeded'
+  | 'cdSent'
+  | 'rateLock';
+
+export type ProcessingPipelineLockedDefaults = {
+  kind: 'SPECIAL_LENDER' | 'THIRD_PARTY';
+  label: string;
+  lockedFields: readonly LockedProcessingPipelineField[];
+  values: {
+    titleStatus: ProcessingItemStatus;
+    payoffStatus: ProcessingItemStatus;
+    hoiStatus: ProcessingItemStatus;
+    appraisalNeeded?: boolean;
+    cdSent?: boolean;
+    rateLock?: boolean;
+  };
+};
+
+const SPECIAL_PIPELINE_LENDERS = ['AVEN', 'FIGURE', 'NFTY'] as const;
+
+export function normalizeProcessingLender(value: string | null | undefined) {
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+export function getProcessingPipelineLockedDefaults(
+  lender: string | null | undefined,
+  processingMethod: string | null | undefined,
+): ProcessingPipelineLockedDefaults | null {
+  const normalizedLender = normalizeProcessingLender(lender);
+  const specialLender = SPECIAL_PIPELINE_LENDERS.find(
+    (name) => normalizedLender === name || normalizedLender.startsWith(`${name} `),
+  );
+  if (specialLender) {
+    return {
+      kind: 'SPECIAL_LENDER',
+      label: specialLender,
+      lockedFields: [
+        'titleStatus',
+        'payoffStatus',
+        'hoiStatus',
+        'appraisalNeeded',
+        'cdSent',
+        'rateLock',
+      ],
+      values: {
+        titleStatus: ProcessingItemStatus.RECEIVED,
+        payoffStatus: ProcessingItemStatus.RECEIVED,
+        hoiStatus: ProcessingItemStatus.RECEIVED,
+        appraisalNeeded: false,
+        cdSent: true,
+        rateLock: true,
+      },
+    };
+  }
+  if (
+    String(processingMethod ?? '').trim().toUpperCase() ===
+    PROCESSING_METHOD_THIRD_PARTY
+  ) {
+    return {
+      kind: 'THIRD_PARTY',
+      label: '3rd Party Processing',
+      lockedFields: ['titleStatus', 'payoffStatus', 'hoiStatus'],
+      values: {
+        titleStatus: ProcessingItemStatus.NOT_APPLICABLE,
+        payoffStatus: ProcessingItemStatus.NOT_APPLICABLE,
+        hoiStatus: ProcessingItemStatus.NOT_APPLICABLE,
+      },
+    };
+  }
+  return null;
+}
+
+export function isProcessingPipelineFieldLocked(
+  field: LockedProcessingPipelineField,
+  lender: string | null | undefined,
+  processingMethod: string | null | undefined,
+) {
+  return Boolean(
+    getProcessingPipelineLockedDefaults(lender, processingMethod)?.lockedFields.includes(field),
+  );
+}
+
 function validDate(value: Date | string | null | undefined) {
   if (!value) return null;
   const date = new Date(value);

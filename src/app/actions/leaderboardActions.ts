@@ -116,6 +116,7 @@ export type LeaderboardReport = {
   };
   generatedAt: string;
   canEdit: boolean;
+  canExportReports: boolean;
   canViewAllDetails: boolean;
   currentUserId: string;
   rows: LeaderboardOfficerRow[];
@@ -427,10 +428,13 @@ async function getLeaderboardSessionUser() {
   const roles = Array.isArray(session?.user?.roles)
     ? session.user.roles.map((userRole) => normalizeRole(userRole)).filter((userRole): userRole is UserRole => Boolean(userRole))
     : [];
+  const isAdminUser = Boolean((role && isAdmin(role)) || hasAnyAdminRole(roles));
+  const canExportReports = isAdminUser || role === UserRole.MANAGER || roles.includes(UserRole.MANAGER);
   return {
     session,
     role,
-    isAdminUser: Boolean((role && isAdmin(role)) || hasAnyAdminRole(roles)),
+    isAdminUser,
+    canExportReports,
     userId: session?.user?.id || null,
     name: session?.user?.name || 'Admin',
   };
@@ -460,6 +464,11 @@ function parsePositiveMoney(value: unknown, label: string) {
 
 function payrollLeadSourceFromDisplay(value: string) {
   const key = value.trim().toUpperCase().replace(/[\s-]+/g, '_');
+  if (key.startsWith('LEAD_BUY')) return PayrollLeadSource.LEAD_BUY;
+  if (key === 'WARM_TRANSFER' || key === 'WARM_XFER') return PayrollLeadSource.WARM_TRANSFER;
+  if (key === 'MAIL' || key === 'MAILER') return PayrollLeadSource.MAILER;
+  if (key === 'REFERRAL' || key === 'REFERALL' || key === 'REFFERAL') return PayrollLeadSource.REFERRAL;
+  if (key === 'RETURN_CLIENT' || key === 'REPEAT_CLIENT') return PayrollLeadSource.RETURN_CLIENT;
   return (Object.values(PayrollLeadSource) as string[]).includes(key)
     ? (key as PayrollLeadSource)
     : PayrollLeadSource.OTHER;
@@ -704,7 +713,7 @@ export async function getLeaderboardReport(
   filters: LeaderboardReportFilters = {}
 ): Promise<LeaderboardReport> {
   noStore();
-  const { session, role, isAdminUser, userId } = await getLeaderboardSessionUser();
+  const { session, role, isAdminUser, canExportReports, userId } = await getLeaderboardSessionUser();
   if (
     !session?.user?.id ||
     !canAccessLeaderboardPortal({
@@ -819,6 +828,7 @@ export async function getLeaderboardReport(
         expectedRevenue: true,
         lender: true,
         leadSource: true,
+        leadSourceDetail: true,
         status: true,
         paidAt: true,
         submittedAt: true,
@@ -1001,7 +1011,8 @@ export async function getLeaderboardReport(
     const amount = money(funding.loan?.amount) || 0;
     const revenue = money(funding.expectedRevenue) || 0;
     const lenderRow = getOrCreateLenderRow(lenderMap, funding.lender);
-    const leadSourceRow = getOrCreateLeadSourceRow(leadSourceMap, funding.leadSource);
+    const fundedLeadSource = funding.leadSourceDetail || funding.leadSource;
+    const leadSourceRow = getOrCreateLeadSourceRow(leadSourceMap, fundedLeadSource);
     addMetric(row, 'fundings', amount, revenue);
     addMetric(lenderRow, 'fundings', amount, revenue);
     addMetric(leadSourceRow, 'fundings', amount, revenue);
@@ -1062,6 +1073,7 @@ export async function getLeaderboardReport(
     },
     generatedAt: new Date().toISOString(),
     canEdit: isAdminUser,
+    canExportReports,
     canViewAllDetails,
     currentUserId: userId || '',
     rows,
@@ -1097,8 +1109,8 @@ export async function getLeaderboardReport(
 export async function getLeaderboardFallOutReport(
   filters: LeaderboardReportFilters = {}
 ): Promise<LeaderboardFallOutReport> {
-  const { session, isAdminUser } = await getLeaderboardSessionUser();
-  if (!session?.user?.id || !isAdminUser) {
+  const { session, canExportReports } = await getLeaderboardSessionUser();
+  if (!session?.user?.id || !canExportReports) {
     throw new Error('Unauthorized');
   }
 
@@ -1219,8 +1231,8 @@ export async function getLeaderboardFallOutReport(
 export async function getLeaderboardWaterfallReport(
   filters: LeaderboardReportFilters = {}
 ): Promise<LeaderboardWaterfallReport> {
-  const { session, isAdminUser } = await getLeaderboardSessionUser();
-  if (!session?.user?.id || !isAdminUser) {
+  const { session, canExportReports } = await getLeaderboardSessionUser();
+  if (!session?.user?.id || !canExportReports) {
     throw new Error('Unauthorized');
   }
 
@@ -1487,8 +1499,8 @@ export async function actionPendingStpLoan(
 export async function getLeaderboardDeadDealReport(
   filters: LeaderboardReportFilters = {}
 ): Promise<LeaderboardDeadDealReport> {
-  const { session, isAdminUser } = await getLeaderboardSessionUser();
-  if (!session?.user?.id || !isAdminUser) {
+  const { session, canExportReports } = await getLeaderboardSessionUser();
+  if (!session?.user?.id || !canExportReports) {
     throw new Error('Unauthorized');
   }
 
@@ -1707,6 +1719,7 @@ export async function updateLeaderboardLoanDetails(
             expectedRevenue: true,
             lender: true,
             leadSource: true,
+            leadSourceDetail: true,
             loanOfficerId: true,
             loan: {
               select: {
@@ -1737,6 +1750,7 @@ export async function updateLeaderboardLoanDetails(
             expectedRevenue: revenue || 0,
             lender,
             leadSource: payrollLeadSourceFromDisplay(leadSource),
+            leadSourceDetail: leadSource,
             loanOfficerId: primaryLoanOfficerId,
             editedAt: new Date(),
             editedById: userId,

@@ -1325,6 +1325,9 @@ model PayrollCompRequest {
   netCompAmount                Decimal?                   @db.Decimal(12, 2)
   calculationSnapshot          Json?
   mismoDetails                 Json?
+  leadSourceDetail             String?
+  fundedImportKey              String?                    @unique
+  fundedImportMetadata         Json?
 
   status          PayrollCompRequestStatus @default(PENDING_REVIEW)
   submitterNotes  String?

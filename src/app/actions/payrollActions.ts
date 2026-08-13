@@ -198,6 +198,7 @@ export type PayrollRequestRow = {
   loanChannel: PayrollLoanChannel;
   processingType: PayrollProcessingType;
   leadSource: PayrollLeadSource;
+  leadSourceDetail: string | null;
   leadProvidedBy: PayrollLeadProvidedBy;
   appliedPlanType: PayrollCompPlanType;
   reimbursementTarget: PayrollReimbursementTarget;
@@ -876,6 +877,7 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     loanChannel: request.loanChannel,
     processingType: request.processingType,
     leadSource: request.leadSource,
+    leadSourceDetail: request.leadSourceDetail,
     leadProvidedBy: request.leadProvidedBy,
     appliedPlanType: request.appliedPlanType,
     reimbursementTarget: request.reimbursementTarget,
@@ -1535,6 +1537,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
       loanChannel: input.loanChannel,
       processingType: input.processingType,
       leadSource: input.leadSource,
+      leadSourceDetail: input.leadSource,
       leadProvidedBy: input.leadProvidedBy,
       appliedPlanType,
       reimbursementTarget,
@@ -1911,6 +1914,7 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         loanChannel: input.loanChannel,
         processingType: input.processingType,
         leadSource: input.leadSource,
+        leadSourceDetail: input.leadSource,
         leadProvidedBy: input.leadProvidedBy,
         appliedPlanType: input.appliedPlanType,
         reimbursementTarget,

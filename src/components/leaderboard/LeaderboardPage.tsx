@@ -1748,7 +1748,7 @@ export function LeaderboardPage({ initialReport }: Props) {
 
         <div className="flex flex-wrap items-center justify-start gap-2">
           <LeaderboardViewSwitch view={view} onChange={handleViewChange} />
-          {report.canEdit && (
+          {report.canExportReports && (
             <button
               type="button"
               onClick={() => setIsReportsOpen(true)}
@@ -2115,7 +2115,7 @@ function LeaderboardReportsModal({
       >
         <div className="flex items-start justify-between gap-5 border-b border-slate-200/70 px-6 py-5">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Admin reports</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Leaderboard reports</p>
             <h2 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">
               Export Reports
             </h2>

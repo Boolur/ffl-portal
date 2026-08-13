@@ -45,12 +45,14 @@ import {
   PROCESSING_ITEM_STATUS_OPTIONS,
   PROCESSING_PIPELINE_SHEETS,
   PROCESSING_PIPELINE_STATUS_OPTIONS,
+  getProcessingPipelineLockedDefaults,
   isAppraisalBackOverdue,
   isCdSentOverdue,
   isConditionItemOverdue,
   isOrderedItemOverdue,
   isRateLockExpiring,
   isRateLockOverdueAfterAppraisal,
+  type LockedProcessingPipelineField,
 } from '@/lib/processingPipeline';
 import {
   PROCESSING_METHOD_SELF_PROCESSED,
@@ -562,9 +564,29 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const canEdit = initialData.canEdit;
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const canEditRow = (row: ProcessingPipelineRow) => canEdit && row.canEdit;
+  const isLockedField = (
+    row: ProcessingPipelineRow,
+    field: EditableField | 'rateLock',
+  ) => {
+    const lockableFields: readonly LockedProcessingPipelineField[] = [
+      'titleStatus',
+      'payoffStatus',
+      'hoiStatus',
+      'appraisalNeeded',
+      'cdSent',
+      'rateLock',
+    ];
+    if (!lockableFields.includes(field as LockedProcessingPipelineField)) return false;
+    return Boolean(
+      getProcessingPipelineLockedDefaults(row.lender, row.processingMethod)
+        ?.lockedFields.includes(field as LockedProcessingPipelineField),
+    );
+  };
   const isProcessor =
     role === UserRole.PROCESSOR_SR || role === UserRole.PROCESSOR_JR;
   const isManagerOrAdmin = role === UserRole.MANAGER || isAdmin(role);
+  const usesLeadershipCondensedColumns =
+    isLoanOfficer || role === UserRole.LOA || isManagerOrAdmin;
   const isRateLockRequestsView = sheet === RATE_LOCK_REQUESTS_VIEW;
   const pipelineViews: Array<{ value: PipelineView; label: string }> = [
     { value: ProcessingPipelineSheet.PIPELINE, label: 'Pipeline' },
@@ -671,11 +693,23 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const currentColumns = sheet === ProcessingPipelineSheet.FUNDING
     ? FUNDING_COLUMNS
     : PIPELINE_COLUMNS;
+  const pipelineFocusColumns = usesLeadershipCondensedColumns
+    ? new Set<ColumnId>([
+        ...Array.from(PIPELINE_FOCUS_COLUMNS).filter(
+          (id) =>
+            id !== 'titleStatus' &&
+            id !== 'payoffStatus' &&
+            id !== 'hoiStatus',
+        ),
+        'appraisalNotes',
+        'projectedRevenue',
+      ])
+    : PIPELINE_FOCUS_COLUMNS;
   const focusColumns = sheet === ProcessingPipelineSheet.FUNDING
     ? FUNDING_FOCUS_COLUMNS
     : isRateLockRequestsView
-      ? new Set<ColumnId>([...PIPELINE_FOCUS_COLUMNS, 'rateLock'])
-      : PIPELINE_FOCUS_COLUMNS;
+      ? new Set<ColumnId>([...pipelineFocusColumns, 'rateLock'])
+      : pipelineFocusColumns;
   const isColumnVisible = (id: ColumnId) =>
     (id !== 'loanOfficer' || !isLoanOfficer) &&
     (id !== 'restructureNotes' ||
@@ -786,7 +820,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     field: EditableField,
     value: unknown,
   ) => {
-    if (!canEditRow(row)) return;
+    if (!canEditRow(row) || isLockedField(row, field)) return;
     const clientValue =
       field === 'appraisalNeeded' || field === 'cdSent'
         ? value === true || value === 'true'
@@ -831,7 +865,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     rateLock: boolean,
     expiresAt: string | null,
   ) => {
-    if (!canEditRow(row)) return;
+    if (!canEditRow(row) || isLockedField(row, 'rateLock')) return;
     setSavingRows((current) => new Set(current).add(row.id));
     setMessage('');
     const result = await updateProcessingPipelineRateLock({
@@ -1044,7 +1078,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     value: string | boolean | null,
     options: ReadonlyArray<{ value: string; label: string }>,
     className = '',
-  ) => canEditRow(row) ? (
+  ) => canEditRow(row) && !isLockedField(row, field) ? (
     <select
       aria-label={field}
       value={value === null ? '' : String(value)}
@@ -1054,7 +1088,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
   ) : (
-    <span className={`inline-flex max-w-full rounded-full border px-2.5 py-1 text-xs font-bold ${className || 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+    <span
+      className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-bold ${className || 'border-slate-200 bg-slate-100 text-slate-600'}`}
+      title={isLockedField(row, field) ? 'Automatically controlled by lender or processing method' : undefined}
+    >
+      {isLockedField(row, field) && <Lock className="h-3 w-3 shrink-0" aria-hidden="true" />}
       {options.find((option) => option.value === String(value))?.label || '—'}
     </span>
   );
@@ -1137,10 +1175,15 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       : row.rateLock
         ? booleanTone(true)
         : neutralNoTone;
-    if (!canEditRow(row)) {
+    const locked = isLockedField(row, 'rateLock');
+    if (!canEditRow(row) || locked) {
       return (
         <div className="space-y-1">
-          <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${tone}`}>
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-bold ${tone}`}
+            title={locked ? 'Automatically controlled by lender' : undefined}
+          >
+            {locked && <Lock className="h-3 w-3 shrink-0" aria-hidden="true" />}
             {row.rateLock ? 'Yes' : 'No'}
           </span>
           {row.rateLockExpiresAt && (
@@ -1985,6 +2028,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               {(isLoanOfficer || isProcessor) &&
                 canEditRow(actionsMenuRow) &&
                 actionsMenuRow.sheet !== ProcessingPipelineSheet.FUNDING &&
+                !isLockedField(actionsMenuRow, 'rateLock') &&
                 !actionsMenuRow.rateLock && (
                   actionsMenuRow.rateLockRequestedAt ? (
                     <div className="flex w-full items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">

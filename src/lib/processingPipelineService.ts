@@ -1,5 +1,6 @@
 import { Prisma, UserRole } from '@prisma/client';
 import {
+  getProcessingPipelineLockedDefaults,
   parseOptionalBoolean,
   parseOptionalMoney,
 } from './processingPipeline';
@@ -101,12 +102,31 @@ export async function upsertProcessingPipelineForCompletedTask(
   const explicitlyNeeded = parseOptionalBoolean(data.appraisalNeeded);
   const appraisalWaiver = parseOptionalBoolean(data.appraisalWaiver);
   const completedAt = input.completedAt ?? new Date();
+  const processingMethod = optionalString(data.processingMethod);
+  const lender = optionalString(data.investor) || optionalString(data.lender);
+  const lockedDefaults = getProcessingPipelineLockedDefaults(lender, processingMethod);
+  const lockedPipelineData = lockedDefaults
+    ? {
+        ...lockedDefaults.values,
+        payoffOrderedAt: null,
+        hoiOrderedAt: null,
+        ...(lockedDefaults.kind === 'SPECIAL_LENDER'
+          ? {
+              cdWarningStartsAt: null,
+              rateLockExpiresAt: null,
+              rateLockConfirmedAt: completedAt,
+              rateLockRequestedAt: null,
+              rateLockRequestedById: null,
+            }
+          : {}),
+      }
+    : {};
   const pipelineData = {
     sourceTaskId: task.id,
     seniorProcessorId: senior.seniorProcessorId,
     juniorProcessorId: task.assignedUserId || input.actorId,
     assignmentGroup,
-    processingMethod: optionalString(data.processingMethod),
+    processingMethod,
     dateAssigned: completedAt,
     appraisalNeeded:
       explicitlyNeeded ?? (appraisalWaiver === null ? null : !appraisalWaiver),
@@ -115,8 +135,9 @@ export async function upsertProcessingPipelineForCompletedTask(
     propertyState:
       optionalString(data.propertyState) ||
       optionalString(data.state),
-    lender: optionalString(data.investor) || optionalString(data.lender),
+    lender,
     projectedRevenue: parseOptionalMoney(data.projectedRevenue),
+    ...lockedPipelineData,
   };
 
   const existing = await tx.processingPipelineLoan.findUnique({
@@ -144,7 +165,7 @@ export async function upsertProcessingPipelineForCompletedTask(
         processingPipelineLoanId: row.id,
         sourceTaskId: task.id,
         assignmentGroup,
-        processingMethod: optionalString(data.processingMethod),
+        processingMethod,
         seniorProcessorId: senior.seniorProcessorId,
         assignmentResolution: senior.resolution,
       }),

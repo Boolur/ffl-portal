@@ -19,7 +19,9 @@ import {
   getApprovedWithConditionsAt,
   getCdWarningStartsAt,
   getItemOrderedAt,
+  getProcessingPipelineLockedDefaults,
   getProcessingPipelineAccess,
+  isProcessingPipelineFieldLocked,
   parseOptionalBoolean,
   parseOptionalMoney,
 } from '@/lib/processingPipeline';
@@ -687,6 +689,28 @@ export async function updateProcessingPipelineCell(input: {
       if (current.version !== input.version) {
         return { conflict: true as const, version: current.version };
       }
+      if (
+        (
+          input.field === 'titleStatus' ||
+          input.field === 'payoffStatus' ||
+          input.field === 'hoiStatus' ||
+          input.field === 'appraisalNeeded' ||
+          input.field === 'cdSent'
+        ) &&
+        isProcessingPipelineFieldLocked(
+          input.field,
+          current.lender,
+          current.processingMethod,
+        )
+      ) {
+        const rule = getProcessingPipelineLockedDefaults(
+          current.lender,
+          current.processingMethod,
+        );
+        throw new Error(
+          `${input.field} is locked by the ${rule?.label || 'pipeline'} default rule.`,
+        );
+      }
 
       const nextValue = normalizeCellValue(input.field, input.value);
       if (input.field === 'pipelineStatus') {
@@ -703,6 +727,7 @@ export async function updateProcessingPipelineCell(input: {
       let approvedWithConditionsAt = current.approvedWithConditionsAt;
       let payoffOrderedAt = current.payoffOrderedAt;
       let hoiOrderedAt = current.hoiOrderedAt;
+      let lockedDefaultsPatch: Record<string, unknown> = {};
       const data: Prisma.ProcessingPipelineLoanUpdateManyMutationInput = {
         [input.field]: nextValue,
         version: { increment: 1 },
@@ -735,6 +760,42 @@ export async function updateProcessingPipelineCell(input: {
         );
         data.hoiOrderedAt = hoiOrderedAt;
       }
+      if (input.field === 'lender') {
+        const lockedDefaults = getProcessingPipelineLockedDefaults(
+          nextValue as string | null,
+          current.processingMethod,
+        );
+        if (lockedDefaults) {
+          Object.assign(data, lockedDefaults.values, {
+            payoffOrderedAt: null,
+            hoiOrderedAt: null,
+          });
+          payoffOrderedAt = null;
+          hoiOrderedAt = null;
+          lockedDefaultsPatch = {
+            ...lockedDefaults.values,
+            payoffOrderedAt: null,
+            hoiOrderedAt: null,
+          };
+          if (lockedDefaults.kind === 'SPECIAL_LENDER') {
+            const rateLockConfirmedAt = current.rateLockConfirmedAt ?? now;
+            Object.assign(data, {
+              cdWarningStartsAt: null,
+              rateLockExpiresAt: null,
+              rateLockConfirmedAt,
+              rateLockRequestedAt: null,
+              rateLockRequestedById: null,
+            });
+            Object.assign(lockedDefaultsPatch, {
+              cdWarningStartsAt: null,
+              rateLockExpiresAt: null,
+              rateLockConfirmedAt: rateLockConfirmedAt.toISOString(),
+              rateLockRequestedAt: null,
+              rateLockRequestedById: null,
+            });
+          }
+        }
+      }
       const updated = await tx.processingPipelineLoan.updateMany({
         where: { id: current.id, version: input.version },
         data,
@@ -754,6 +815,10 @@ export async function updateProcessingPipelineCell(input: {
               ? previousValue.toISOString()
               : previousValue,
             newValue: nextValue instanceof Date ? nextValue.toISOString() : nextValue,
+            lockedDefaultsApplied:
+              input.field === 'lender' && Object.keys(lockedDefaultsPatch).length > 0
+                ? lockedDefaultsPatch
+                : null,
             actorName: actor.name,
           }),
         },
@@ -765,6 +830,7 @@ export async function updateProcessingPipelineCell(input: {
           approvedWithConditionsAt: approvedWithConditionsAt?.toISOString() || null,
           payoffOrderedAt: payoffOrderedAt?.toISOString() || null,
           hoiOrderedAt: hoiOrderedAt?.toISOString() || null,
+          ...lockedDefaultsPatch,
         },
       };
     });
@@ -800,12 +866,12 @@ export async function updateProcessingPipelineRateLock(input: {
   }
 
   let expiresAt: Date | null = null;
-  if (input.rateLock) {
-    expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
-    if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
+  if (input.rateLock && input.expiresAt) {
+    expiresAt = new Date(input.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
       return {
         success: false as const,
-        error: 'A valid expiration date is required when Rate Lock is Yes.',
+        error: 'A valid Rate Lock expiration date is required.',
       };
     }
     const today = new Date();
@@ -826,6 +892,18 @@ export async function updateProcessingPipelineRateLock(input: {
       if (!current) throw new Error('Pipeline row not found.');
       if (current.version !== input.version) {
         return { conflict: true as const, version: current.version };
+      }
+      if (
+        isProcessingPipelineFieldLocked(
+          'rateLock',
+          current.lender,
+          current.processingMethod,
+        )
+      ) {
+        throw new Error('Rate Lock is controlled by this lender and cannot be changed.');
+      }
+      if (input.rateLock && !expiresAt) {
+        throw new Error('A valid expiration date is required when Rate Lock is Yes.');
       }
 
       const now = new Date();
@@ -953,6 +1031,15 @@ export async function requestProcessingRateLock(input: {
     }
     if (current.sheet === ProcessingPipelineSheet.FUNDING) {
       return { kind: 'error' as const, error: 'Funded loans cannot request a Rate Lock.' };
+    }
+    if (
+      isProcessingPipelineFieldLocked(
+        'rateLock',
+        current.lender,
+        current.processingMethod,
+      )
+    ) {
+      return { kind: 'error' as const, error: 'Rate Lock is automatically controlled by this lender.' };
     }
     if (current.rateLock) {
       return { kind: 'error' as const, error: 'This loan already has a confirmed Rate Lock.' };

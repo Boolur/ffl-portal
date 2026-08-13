@@ -12,12 +12,15 @@ import {
   getCdWarningStartsAt,
   getItemOrderedAt,
   getProcessingPipelineAccess,
+  getProcessingPipelineLockedDefaults,
   isAppraisalBackOverdue,
   isCdSentOverdue,
   isConditionItemOverdue,
   isOrderedItemOverdue,
   isRateLockOverdueAfterAppraisal,
   isRateLockExpiring,
+  isProcessingPipelineFieldLocked,
+  normalizeProcessingLender,
   parseOptionalBoolean,
   parseOptionalMoney,
 } from './processingPipeline';
@@ -73,6 +76,55 @@ describe('processing pipeline access', () => {
     expect(canEditProcessingPipelineMethod(UserRole.LOAN_OFFICER, 'THIRD_PARTY')).toBe(true);
     expect(canEditProcessingPipelineMethod(UserRole.LOAN_OFFICER, 'IN_HOUSE')).toBe(false);
     expect(canEditProcessingPipelineMethod(UserRole.LOAN_OFFICER, null)).toBe(false);
+  });
+});
+
+describe('processing pipeline locked defaults', () => {
+  it('normalizes and recognizes supported lender name variants', () => {
+    expect(normalizeProcessingLender('  Figure-Lending, LLC ')).toBe('FIGURE LENDING LLC');
+    expect(getProcessingPipelineLockedDefaults('Aven Financial', null)?.kind)
+      .toBe('SPECIAL_LENDER');
+    expect(getProcessingPipelineLockedDefaults('NFTYDoor', null)).toBeNull();
+  });
+
+  it('uses special lender defaults ahead of third-party defaults', () => {
+    const defaults = getProcessingPipelineLockedDefaults('NFTY Home', 'THIRD_PARTY');
+    expect(defaults).toMatchObject({
+      kind: 'SPECIAL_LENDER',
+      values: {
+        titleStatus: ProcessingItemStatus.RECEIVED,
+        payoffStatus: ProcessingItemStatus.RECEIVED,
+        hoiStatus: ProcessingItemStatus.RECEIVED,
+        appraisalNeeded: false,
+        cdSent: true,
+        rateLock: true,
+      },
+    });
+    expect(isProcessingPipelineFieldLocked(
+      'rateLock',
+      'NFTY Home',
+      'THIRD_PARTY',
+    )).toBe(true);
+  });
+
+  it('locks third-party condition items to N/A', () => {
+    const defaults = getProcessingPipelineLockedDefaults(
+      'Other Lender',
+      'THIRD_PARTY',
+    );
+    expect(defaults).toMatchObject({
+      kind: 'THIRD_PARTY',
+      values: {
+        titleStatus: ProcessingItemStatus.NOT_APPLICABLE,
+        payoffStatus: ProcessingItemStatus.NOT_APPLICABLE,
+        hoiStatus: ProcessingItemStatus.NOT_APPLICABLE,
+      },
+    });
+    expect(isProcessingPipelineFieldLocked(
+      'appraisalNeeded',
+      'Other Lender',
+      'THIRD_PARTY',
+    )).toBe(false);
   });
 });
 
