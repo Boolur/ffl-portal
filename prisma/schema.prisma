@@ -493,6 +493,7 @@ model ProcessingPipelineLoan {
   loanType                  String?
   propertyState             String?
   lender                    String?
+  leadSource                String?
   projectedRevenue          Decimal?                 @db.Decimal(12, 2)
   finalRevenue              Decimal?                 @db.Decimal(12, 2)
   fundedAt                  DateTime?

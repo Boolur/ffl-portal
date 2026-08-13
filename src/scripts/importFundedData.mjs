@@ -425,6 +425,7 @@ async function applyEntry(entry, context) {
       leadSource: row.leadSource,
       investor: row.lender,
       lender: row.lender,
+      leadSource: row.leadSource,
       loanType: row.loanType,
       propertyState: row.propertyState,
       state: row.propertyState,

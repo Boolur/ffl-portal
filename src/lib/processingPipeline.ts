@@ -113,6 +113,16 @@ export function normalizeProcessingLender(value: string | null | undefined) {
     .replace(/\s+/g, ' ');
 }
 
+export function getProcessingPipelineLeadSource(
+  leadSource: unknown,
+  leadVendor?: unknown,
+) {
+  const source = String(leadSource ?? '').trim();
+  const vendor = String(leadVendor ?? '').trim();
+  if (source.toUpperCase() === 'LEAD BUY' && vendor) return vendor;
+  return source || null;
+}
+
 export function getProcessingPipelineLockedDefaults(
   lender: string | null | undefined,
   processingMethod: string | null | undefined,

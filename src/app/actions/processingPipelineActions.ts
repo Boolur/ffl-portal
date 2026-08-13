@@ -116,6 +116,7 @@ function serializeRow(row: {
   loanType: string | null;
   propertyState: string | null;
   lender: string | null;
+  leadSource: string | null;
   projectedRevenue: Prisma.Decimal | null;
   finalRevenue: Prisma.Decimal | null;
   fundedAt: Date | null;
@@ -180,6 +181,7 @@ export type ProcessingPipelineFilters = {
   loanTypes?: string[];
   states?: string[];
   lenders?: string[];
+  leadSources?: string[];
   juniorProcessorIds?: string[];
   seniorProcessorIds?: string[];
   pipelineStatuses?: ProcessingPipelineStatus[];
@@ -281,6 +283,9 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   if (filters.loanTypes?.length) clauses.push({ loanType: { in: filters.loanTypes } });
   if (filters.states?.length) clauses.push({ propertyState: { in: filters.states } });
   if (filters.lenders?.length) clauses.push({ lender: { in: filters.lenders } });
+  if (filters.leadSources?.length) {
+    clauses.push({ leadSource: { in: filters.leadSources } });
+  }
   const junior = processorFilter('juniorProcessorId', filters.juniorProcessorIds);
   const senior = processorFilter('seniorProcessorId', filters.seniorProcessorIds);
   if (junior) clauses.push(junior);
@@ -541,6 +546,7 @@ export async function getProcessingPipelineFilterOptions(
       loanType: true,
       propertyState: true,
       lender: true,
+      leadSource: true,
       loan: {
         select: {
           loanNumber: true,
@@ -576,6 +582,7 @@ export async function getProcessingPipelineFilterOptions(
       loanTypes: uniqueTextOptions(rows.map((row) => row.loanType)),
       states: uniqueTextOptions(rows.map((row) => row.propertyState)),
       lenders: uniqueTextOptions(rows.map((row) => row.lender)),
+      leadSources: uniqueTextOptions(rows.map((row) => row.leadSource)),
       juniorProcessors: [
         { value: '__unassigned__', label: 'Unassigned' },
         ...uniqueUserOptions(rows.map((row) => row.juniorProcessor)),
@@ -686,6 +693,9 @@ export async function updateProcessingPipelineCell(input: {
         where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
       });
       if (!current) throw new Error('Pipeline row not found.');
+      if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+        throw new Error('Funded loans are read-only.');
+      }
       if (current.version !== input.version) {
         return { conflict: true as const, version: current.version };
       }
@@ -890,6 +900,9 @@ export async function updateProcessingPipelineRateLock(input: {
         where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
       });
       if (!current) throw new Error('Pipeline row not found.');
+      if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+        throw new Error('Funded loans are read-only.');
+      }
       if (current.version !== input.version) {
         return { conflict: true as const, version: current.version };
       }
@@ -1114,6 +1127,9 @@ export async function dismissProcessingRateLockRequest(input: {
     });
     if (!current || !current.rateLockRequestedAt) {
       return { kind: 'error' as const, error: 'Active Rate Lock Request not found.' };
+    }
+    if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+      return { kind: 'error' as const, error: 'Funded loans are read-only.' };
     }
     if (current.version !== input.version) {
       return { kind: 'conflict' as const, version: current.version };
@@ -1368,6 +1384,9 @@ export async function moveProcessingPipelineLoan(input: {
       where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
     });
     if (!current) return { kind: 'error' as const, error: 'Pipeline row not found.' };
+    if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+      return { kind: 'error' as const, error: 'Funded loans are read-only.' };
+    }
     if (current.version !== input.version) {
       return { kind: 'conflict' as const, version: current.version };
     }

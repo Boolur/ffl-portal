@@ -1,6 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react';
 import type { ReactNode } from 'react';
 import {
   Check,
@@ -9,6 +17,7 @@ import {
   Clock3,
   Filter,
   History,
+  ListFilter,
   Loader2,
   Lock,
   Maximize2,
@@ -86,6 +95,7 @@ const EMPTY_FILTER_OPTIONS: PipelineFilterOptions = {
   loanTypes: [],
   states: [],
   lenders: [],
+  leadSources: [],
   juniorProcessors: [],
   seniorProcessors: [],
 };
@@ -115,6 +125,7 @@ type ColumnId =
   | 'loanAmount'
   | 'loanType'
   | 'lender'
+  | 'leadSource'
   | 'juniorProcessor'
   | 'seniorProcessor'
   | 'pipelineStatus'
@@ -145,6 +156,7 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'borrowerName', label: 'Borrower', width: 154 },
   { id: 'propertyState', label: 'State', width: 76 },
   { id: 'lender', label: 'Lender', width: 140 },
+  { id: 'leadSource', label: 'Lead Source', width: 140, optional: true },
   { id: 'loanAmount', label: 'Loan Amount', width: 126 },
   { id: 'loanType', label: 'Loan Type', width: 108 },
   { id: 'juniorProcessor', label: 'Jr Processor', width: 118 },
@@ -172,16 +184,16 @@ const FUNDING_COLUMNS: Array<{ id: ColumnId; label: string; width: number; optio
   { id: 'loanNumber', label: 'Arive #', width: 100 },
   { id: 'loanOfficer', label: 'Loan Officer', width: 140 },
   { id: 'borrowerName', label: 'Borrower', width: 170 },
+  { id: 'leadSource', label: 'Lead Source', width: 140 },
   { id: 'propertyState', label: 'State', width: 76 },
   { id: 'loanType', label: 'Loan Type', width: 112 },
+  { id: 'lender', label: 'Lender', width: 140 },
   { id: 'juniorProcessor', label: 'Junior', width: 130 },
   { id: 'seniorProcessor', label: 'Senior', width: 130 },
   { id: 'fundedAt', label: 'Funded Date', width: 120 },
-  { id: 'projectedRevenue', label: 'Projected Revenue', width: 140 },
   { id: 'finalRevenue', label: 'Final Revenue', width: 140 },
   { id: 'firstPaymentAt', label: 'First Payment', width: 120 },
   { id: 'sixthPaymentAt', label: '6th Payment', width: 120 },
-  { id: 'actions', label: 'Actions', width: 142 },
 ];
 
 const PIPELINE_FOCUS_COLUMNS = new Set<ColumnId>([
@@ -210,13 +222,16 @@ const FUNDING_FOCUS_COLUMNS = new Set<ColumnId>([
   'loanNumber',
   'loanOfficer',
   'borrowerName',
+  'leadSource',
   'propertyState',
   'loanType',
+  'lender',
   'juniorProcessor',
   'seniorProcessor',
   'fundedAt',
   'finalRevenue',
-  'actions',
+  'firstPaymentAt',
+  'sixthPaymentAt',
 ]);
 const WIDTH_STORAGE_KEY = 'ffl:processing-pipeline-widths-v2';
 const YES_NO_FILTER_OPTIONS: FilterOption[] = [
@@ -296,6 +311,114 @@ function processorLabel(row: ProcessingPipelineRow) {
   return 'Unassigned';
 }
 
+type ColumnSort = {
+  id: ColumnId;
+  direction: 'asc' | 'desc';
+};
+
+type ColumnFilterRule = {
+  query?: string;
+  selected?: string[];
+  from?: string;
+  to?: string;
+  min?: string;
+  max?: string;
+};
+
+const DATE_COLUMN_IDS = new Set<ColumnId>([
+  'dateAssigned',
+  'appraisalOrderedAt',
+  'appraisalBackAt',
+  'fundedAt',
+  'firstPaymentAt',
+  'sixthPaymentAt',
+]);
+
+const NUMBER_COLUMN_IDS = new Set<ColumnId>([
+  'loanAmount',
+  'daysInStatus',
+  'projectedRevenue',
+  'finalRevenue',
+]);
+
+function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | number | null {
+  if (id === 'loanOfficer') return row.loan.loanOfficer.name;
+  if (id === 'dateAssigned') return row.dateAssigned;
+  if (id === 'loanNumber') return row.loan.loanNumber;
+  if (id === 'borrowerName') return row.loan.borrowerName;
+  if (id === 'propertyState') return row.propertyState;
+  if (id === 'loanAmount') return row.loan.amount;
+  if (id === 'loanType') return row.loanType;
+  if (id === 'lender') return row.lender;
+  if (id === 'leadSource') return row.leadSource;
+  if (id === 'juniorProcessor') return row.juniorProcessor?.name || 'Unassigned';
+  if (id === 'seniorProcessor') return processorLabel(row);
+  if (id === 'pipelineStatus') {
+    return PROCESSING_PIPELINE_STATUS_OPTIONS.find(
+      (option) => option.value === row.pipelineStatus,
+    )?.label || row.pipelineStatus;
+  }
+  if (id === 'daysInStatus') return row.daysInStatus;
+  if (id === 'titleStatus') {
+    return PROCESSING_ITEM_STATUS_OPTIONS.find((option) => option.value === row.titleStatus)?.label || row.titleStatus;
+  }
+  if (id === 'payoffStatus') {
+    return PROCESSING_ITEM_STATUS_OPTIONS.find((option) => option.value === row.payoffStatus)?.label || row.payoffStatus;
+  }
+  if (id === 'hoiStatus') {
+    return PROCESSING_ITEM_STATUS_OPTIONS.find((option) => option.value === row.hoiStatus)?.label || row.hoiStatus;
+  }
+  if (id === 'appraisalNeeded') return row.appraisalNeeded === null ? 'Not set' : row.appraisalNeeded ? 'Yes' : 'No';
+  if (id === 'appraisalNotes') return row.appraisalNotes;
+  if (id === 'appraisalOrderedAt') return row.appraisalOrderedAt;
+  if (id === 'appraisalBackAt') return row.appraisalBackAt;
+  if (id === 'cdSent') return row.cdSent ? 'Yes' : 'No';
+  if (id === 'missingItemsCurrentStatus') return row.missingItemsCurrentStatus;
+  if (id === 'restructureNotes') return row.restructureNotes;
+  if (id === 'extraNotes') return row.extraNotes;
+  if (id === 'rateLock') return row.rateLock ? 'Yes' : 'No';
+  if (id === 'fundedAt') return row.fundedAt;
+  if (id === 'projectedRevenue') return row.projectedRevenue;
+  if (id === 'finalRevenue') return row.finalRevenue;
+  if (id === 'firstPaymentAt') return row.firstPaymentAt;
+  if (id === 'sixthPaymentAt') return row.sixthPaymentAt;
+  return null;
+}
+
+function columnDisplayValue(row: ProcessingPipelineRow, id: ColumnId) {
+  const value = columnRawValue(row, id);
+  if (value === null || value === '') return 'Blank';
+  if (DATE_COLUMN_IDS.has(id)) return formatDate(String(value));
+  if (
+    id === 'loanAmount' ||
+    id === 'projectedRevenue' ||
+    id === 'finalRevenue'
+  ) {
+    return formatMoney(Number(value));
+  }
+  return String(value);
+}
+
+function isColumnFilterActive(rule?: ColumnFilterRule) {
+  return Boolean(
+    rule?.query?.trim() ||
+    rule?.selected?.length ||
+    rule?.from ||
+    rule?.to ||
+    rule?.min ||
+    rule?.max,
+  );
+}
+
+type ColumnMenuContextValue = {
+  activeColumnId: ColumnId | null;
+  activeSort: ColumnSort | null;
+  activeFilters: Partial<Record<ColumnId, ColumnFilterRule>>;
+  open: (id: ColumnId, button: HTMLButtonElement) => void;
+};
+
+const ColumnMenuContext = createContext<ColumnMenuContextValue | null>(null);
+
 function renderTeamDots(colors: string[]) {
   const safeColors = (colors.length > 0 ? colors : ['blue']).slice(0, 3);
   return (
@@ -323,13 +446,40 @@ function ResizableHeader({
   children: ReactNode;
   className?: string;
 }) {
+  const columnMenu = useContext(ColumnMenuContext);
+  const menuActive =
+    columnMenu?.activeColumnId === id ||
+    columnMenu?.activeSort?.id === id ||
+    isColumnFilterActive(columnMenu?.activeFilters[id]);
   return (
     <th
       scope="col"
       style={{ width, minWidth: width, maxWidth: width }}
       className={`group/header relative border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500 ${className}`}
     >
-      <div className="truncate">{children}</div>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <div className="min-w-0 flex-1 truncate">{children}</div>
+        {id !== 'actions' && columnMenu && (
+          <button
+            type="button"
+            data-column-menu-trigger
+            aria-label={`Sort and filter ${id} column`}
+            aria-expanded={columnMenu.activeColumnId === id}
+            title="Sort and filter"
+            onClick={(event) => {
+              event.stopPropagation();
+              columnMenu.open(id, event.currentTarget);
+            }}
+            className={`mr-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+              menuActive
+                ? 'bg-blue-100 text-blue-700'
+                : 'text-slate-400 hover:bg-slate-200 hover:text-slate-700'
+            }`}
+          >
+            <ListFilter className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
       <button
         type="button"
         aria-label={`Resize ${typeof children === 'string' ? children : id} column`}
@@ -542,6 +692,16 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   );
   const [sortBy, setSortBy] = useState<'pipelineStatus' | 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber'>('pipelineStatus');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [columnSort, setColumnSort] = useState<ColumnSort | null>(null);
+  const [columnFilters, setColumnFilters] = useState<
+    Partial<Record<ColumnId, ColumnFilterRule>>
+  >({});
+  const [columnMenu, setColumnMenu] = useState<{
+    id: ColumnId;
+    left: number;
+    top: number;
+  } | null>(null);
+  const [columnOptionSearch, setColumnOptionSearch] = useState('');
   const [savingRows, setSavingRows] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [historyRow, setHistoryRow] = useState<ProcessingPipelineRow | null>(null);
@@ -690,7 +850,139 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     };
   }, [filtersExpanded, isRateLockRequestsView, sheet]);
 
-  const visibleRows = rows;
+  useEffect(() => {
+    if (!columnMenu) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest('[data-column-menu-panel]') ||
+        target?.closest('[data-column-menu-trigger]')
+      ) return;
+      setColumnMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setColumnMenu(null);
+    };
+    window.addEventListener('pointerdown', closeOnPointerDown);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('pointerdown', closeOnPointerDown);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [columnMenu]);
+
+  const openColumnMenu = (id: ColumnId, button: HTMLButtonElement) => {
+    if (columnMenu?.id === id) {
+      setColumnMenu(null);
+      return;
+    }
+    const rect = button.getBoundingClientRect();
+    setColumnOptionSearch(columnFilters[id]?.query || '');
+    setColumnMenu({
+      id,
+      left: Math.max(12, Math.min(window.innerWidth - 332, rect.right - 320)),
+      top: Math.max(12, Math.min(window.innerHeight - 420, rect.bottom + 6)),
+    });
+  };
+
+  const columnMenuContextValue: ColumnMenuContextValue = {
+    activeColumnId: columnMenu?.id || null,
+    activeSort: columnSort,
+    activeFilters: columnFilters,
+    open: openColumnMenu,
+  };
+
+  const visibleRows = useMemo(() => {
+    const filtered = rows.filter((row) =>
+      Object.entries(columnFilters).every(([rawId, rule]) => {
+        const id = rawId as ColumnId;
+        if (!rule || !isColumnFilterActive(rule)) return true;
+        const rawValue = columnRawValue(row, id);
+        const displayValue = columnDisplayValue(row, id);
+        if (
+          rule.query?.trim() &&
+          !displayValue.toLowerCase().includes(rule.query.trim().toLowerCase())
+        ) return false;
+        if (rule.selected?.length && !rule.selected.includes(displayValue)) {
+          return false;
+        }
+        if (DATE_COLUMN_IDS.has(id)) {
+          if (!rawValue) return false;
+          const dateValue = String(rawValue).slice(0, 10);
+          if (rule.from && dateValue < rule.from) return false;
+          if (rule.to && dateValue > rule.to) return false;
+        }
+        if (NUMBER_COLUMN_IDS.has(id)) {
+          const numberValue =
+            typeof rawValue === 'number' ? rawValue : Number(rawValue);
+          if (!Number.isFinite(numberValue)) return false;
+          if (rule.min && numberValue < Number(rule.min)) return false;
+          if (rule.max && numberValue > Number(rule.max)) return false;
+        }
+        return true;
+      }),
+    );
+    if (!columnSort) return filtered;
+    return [...filtered].sort((leftRow, rightRow) => {
+      const left = columnRawValue(leftRow, columnSort.id);
+      const right = columnRawValue(rightRow, columnSort.id);
+      if (left === right) return 0;
+      if (left === null || left === '') return 1;
+      if (right === null || right === '') return -1;
+      let comparison: number;
+      if (DATE_COLUMN_IDS.has(columnSort.id)) {
+        comparison = new Date(String(left)).getTime() - new Date(String(right)).getTime();
+      } else if (
+        NUMBER_COLUMN_IDS.has(columnSort.id) ||
+        typeof left === 'number' ||
+        typeof right === 'number'
+      ) {
+        comparison = Number(left) - Number(right);
+      } else {
+        comparison = String(left).localeCompare(String(right), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      }
+      return columnSort.direction === 'asc' ? comparison : -comparison;
+    });
+  }, [columnFilters, columnSort, rows]);
+
+  const activeColumnRule = columnMenu ? columnFilters[columnMenu.id] || {} : {};
+  const activeColumnLabel = columnMenu
+    ? [...PIPELINE_COLUMNS, ...FUNDING_COLUMNS].find(
+        (column) => column.id === columnMenu.id,
+      )?.label || columnMenu.id
+    : '';
+  const columnValueOptions = useMemo(() => {
+    if (!columnMenu || DATE_COLUMN_IDS.has(columnMenu.id) || NUMBER_COLUMN_IDS.has(columnMenu.id)) {
+      return [];
+    }
+    return Array.from(
+      new Set(rows.map((row) => columnDisplayValue(row, columnMenu.id))),
+    ).sort((left, right) => left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }));
+  }, [columnMenu, rows]);
+
+  const updateColumnFilter = (
+    id: ColumnId,
+    patch: Partial<ColumnFilterRule>,
+  ) => {
+    setColumnFilters((current) => ({
+      ...current,
+      [id]: { ...current[id], ...patch },
+    }));
+  };
+
+  const clearColumnFilter = (id: ColumnId) => {
+    setColumnFilters((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  };
 
   const currentColumns = sheet === ProcessingPipelineSheet.FUNDING
     ? FUNDING_COLUMNS
@@ -733,11 +1025,14 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     row.pipelineStatus === ProcessingPipelineStatus.PENDING_APPROVAL ||
     row.pipelineStatus === ProcessingPipelineStatus.RE_SUB
   ).length;
-  const activeFilterCount = Object.values(appliedFilters).filter((value) => {
+  const activeServerFilterCount = Object.values(appliedFilters).filter((value) => {
     if (Array.isArray(value)) return value.length > 0;
     if (typeof value === 'string') return value.trim().length > 0;
     return value !== undefined && value !== null;
   }).length;
+  const activeColumnFilterCount = Object.values(columnFilters)
+    .filter((rule) => isColumnFilterActive(rule)).length;
+  const activeFilterCount = activeServerFilterCount + activeColumnFilterCount;
 
   const setDraftFilter = <K extends keyof ProcessingPipelineFilters>(
     key: K,
@@ -754,6 +1049,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
   const clearFilters = () => {
     setSelectedTeamIds([]);
+    setColumnFilters({});
+    setColumnSort(null);
+    setColumnMenu(null);
     setDraftFilters({});
     setAppliedFilters({});
     loadRows(sheet, search, sortBy, sortDirection, {});
@@ -1068,9 +1366,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
   const changeSort = (nextSort: typeof sortBy) => {
     const direction = sortBy === nextSort && sortDirection === 'desc' ? 'asc' : 'desc';
+    const columnId: ColumnId =
+      nextSort === 'statusChangedAt' ? 'daysInStatus' : nextSort;
     setSortBy(nextSort);
     setSortDirection(direction);
-    loadRows(sheet, search, nextSort, direction);
+    setColumnSort({ id: columnId, direction });
   };
 
   const editableSelect = (
@@ -1255,6 +1555,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   setSheet(option.value);
                   setDetailsExpanded(false);
                   setSelectedTeamIds([]);
+                  setColumnFilters({});
+                  setColumnSort(null);
+                  setColumnMenu(null);
                   setDraftFilters({});
                   setAppliedFilters({});
                   loadRows(option.value, search, sortBy, sortDirection, {});
@@ -1295,7 +1598,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: 'Loans in view', value: total, helper: activeViewLabel, tone: 'border-blue-100 from-blue-50/90', valueTone: 'text-blue-950' },
+          { label: 'Loans in view', value: visibleRows.length, helper: activeViewLabel, tone: 'border-blue-100 from-blue-50/90', valueTone: 'text-blue-950' },
           { label: 'Loaded closing soon', value: loadedAtClosing, helper: 'CTC or docs out', tone: 'border-emerald-100 from-emerald-50/90', valueTone: 'text-emerald-950' },
           { label: 'Loaded attention', value: loadedNeedsAttention, helper: 'Re-sub or restructure', tone: 'border-amber-100 from-amber-50/90', valueTone: 'text-amber-950' },
           { label: 'Loaded unassigned', value: loadedUnassigned, helper: 'No Sr Processor', tone: 'border-violet-100 from-violet-50/90', valueTone: 'text-violet-950' },
@@ -1431,6 +1734,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   <FilterInput label="Loan Amount Max" type="number" value={draftFilters.loanAmountMax} onChange={(value) => setDraftFilter('loanAmountMax', value === '' ? undefined : Number(value))} placeholder="1000000" />
                   <MultiSelectFilter label="Loan Types" values={draftFilters.loanTypes || []} options={filterOptions.loanTypes} onChange={(values) => setDraftFilter('loanTypes', values)} />
                   <MultiSelectFilter label="Lenders" values={draftFilters.lenders || []} options={filterOptions.lenders} onChange={(values) => setDraftFilter('lenders', values)} />
+                  <MultiSelectFilter label="Lead Sources" values={draftFilters.leadSources || []} options={filterOptions.leadSources} onChange={(values) => setDraftFilter('leadSources', values)} />
                   <MultiSelectFilter label="Jr Processors" values={draftFilters.juniorProcessorIds || []} options={filterOptions.juniorProcessors} onChange={(values) => setDraftFilter('juniorProcessorIds', values)} />
                   <MultiSelectFilter label="Sr Processors" values={draftFilters.seniorProcessorIds || []} options={filterOptions.seniorProcessors} onChange={(values) => setDraftFilter('seniorProcessorIds', values)} />
                 </div>
@@ -1608,6 +1912,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               Updating {activeViewLabel}…
             </div>
           )}
+          <ColumnMenuContext.Provider value={columnMenuContextValue}>
           <table
             className="border-separate border-spacing-0 text-left text-[13px] leading-5 text-slate-700"
             style={{ width: Math.max(tableWidth, 720), tableLayout: 'fixed' }}
@@ -1640,6 +1945,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     </button>
                   </ResizableHeader>
                 )}
+                {isColumnVisible('leadSource') && (
+                  <ResizableHeader id="leadSource" width={columnWidths.leadSource} onResize={resizeColumn}>
+                    Lead Source
+                  </ResizableHeader>
+                )}
                 {isColumnVisible('propertyState') && (
                   <ResizableHeader id="propertyState" width={columnWidths.propertyState} onResize={resizeColumn}>
                     State
@@ -1648,10 +1958,10 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 {sheet === ProcessingPipelineSheet.FUNDING ? (
                   <>
                     {isColumnVisible('loanType') && <ResizableHeader id="loanType" width={columnWidths.loanType} onResize={resizeColumn}>Loan Type</ResizableHeader>}
+                    {isColumnVisible('lender') && <ResizableHeader id="lender" width={columnWidths.lender} onResize={resizeColumn}>Lender</ResizableHeader>}
                     {isColumnVisible('juniorProcessor') && <ResizableHeader id="juniorProcessor" width={columnWidths.juniorProcessor} onResize={resizeColumn}>Junior</ResizableHeader>}
                     {isColumnVisible('seniorProcessor') && <ResizableHeader id="seniorProcessor" width={columnWidths.seniorProcessor} onResize={resizeColumn}>Senior</ResizableHeader>}
                     {isColumnVisible('fundedAt') && <ResizableHeader id="fundedAt" width={columnWidths.fundedAt} onResize={resizeColumn}>Funded Date</ResizableHeader>}
-                    {isColumnVisible('projectedRevenue') && <ResizableHeader id="projectedRevenue" width={columnWidths.projectedRevenue} onResize={resizeColumn}>Projected Revenue</ResizableHeader>}
                     {isColumnVisible('finalRevenue') && <ResizableHeader id="finalRevenue" width={columnWidths.finalRevenue} onResize={resizeColumn}>Final Revenue</ResizableHeader>}
                     {isColumnVisible('firstPaymentAt') && <ResizableHeader id="firstPaymentAt" width={columnWidths.firstPaymentAt} onResize={resizeColumn}>First Payment</ResizableHeader>}
                     {isColumnVisible('sixthPaymentAt') && <ResizableHeader id="sixthPaymentAt" width={columnWidths.sixthPaymentAt} onResize={resizeColumn}>6th Payment</ResizableHeader>}
@@ -1684,9 +1994,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     {isColumnVisible('projectedRevenue') && <ResizableHeader id="projectedRevenue" width={columnWidths.projectedRevenue} onResize={resizeColumn}>Revenue</ResizableHeader>}
                   </>
                 )}
-                <ResizableHeader id="actions" width={columnWidths.actions} onResize={resizeColumn} className="sticky right-0 z-40 shadow-[-1px_0_0_#e2e8f0]">
-                  Actions
-                </ResizableHeader>
+                {sheet !== ProcessingPipelineSheet.FUNDING && (
+                  <ResizableHeader id="actions" width={columnWidths.actions} onResize={resizeColumn} className="sticky right-0 z-40 shadow-[-1px_0_0_#e2e8f0]">
+                    Actions
+                  </ResizableHeader>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -1727,33 +2039,26 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   {isColumnVisible('borrowerName') && (
                     <td className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 ${cellPadding}`} title={row.loan.borrowerName}>{row.loan.borrowerName}</td>
                   )}
+                  {isColumnVisible('leadSource') && (
+                    <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.leadSource || undefined}>
+                      {row.leadSource || '—'}
+                    </td>
+                  )}
                   {isColumnVisible('propertyState') && (
                     <td className="border-b border-r border-slate-200 px-1.5 py-1">
-                      {textCell(row, 'propertyState', row.propertyState)}
+                      {sheet === ProcessingPipelineSheet.FUNDING
+                        ? <span className="block px-2 py-1.5">{row.propertyState || '—'}</span>
+                        : textCell(row, 'propertyState', row.propertyState)}
                     </td>
                   )}
                   {sheet === ProcessingPipelineSheet.FUNDING ? (
                     <>
                       {isColumnVisible('loanType') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.loanType || undefined}>{row.loanType || '—'}</td>}
+                      {isColumnVisible('lender') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.lender || undefined}>{row.lender || '—'}</td>}
                       {isColumnVisible('juniorProcessor') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`}>{row.juniorProcessor?.name || '—'}</td>}
                       {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={processorLabel(row)}>{processorLabel(row)}</td>}
                       {isColumnVisible('fundedAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.fundedAt)}</td>}
-                      {isColumnVisible('projectedRevenue') && <td className={`border-b border-r border-slate-200 font-semibold ${cellPadding}`}>{formatMoney(row.projectedRevenue)}</td>}
-                      {isColumnVisible('finalRevenue') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>
-                        {canEditRow(row) ? (
-                          <input
-                            inputMode="decimal"
-                            aria-label="Final revenue"
-                            defaultValue={row.finalRevenue ?? ''}
-                            onBlur={(event) => {
-                              if (event.target.value !== String(row.finalRevenue ?? '')) {
-                                saveCell(row, 'finalRevenue', event.target.value);
-                              }
-                            }}
-                            className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1.5 font-semibold hover:border-slate-200 hover:bg-white focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100"
-                          />
-                        ) : formatMoney(row.finalRevenue)}
-                      </td>}
+                      {isColumnVisible('finalRevenue') && <td className={`border-b border-r border-slate-200 font-semibold ${cellPadding}`}>{formatMoney(row.finalRevenue)}</td>}
                       {isColumnVisible('firstPaymentAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.firstPaymentAt)}</td>}
                       {isColumnVisible('sixthPaymentAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.sixthPaymentAt)}</td>}
                     </>
@@ -1811,6 +2116,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       {isColumnVisible('projectedRevenue') && <td className={`border-b border-r border-slate-200 font-semibold tabular-nums text-slate-700 ${cellPadding}`}>{formatMoney(row.projectedRevenue)}</td>}
                     </>
                   )}
+                  {sheet !== ProcessingPipelineSheet.FUNDING && (
                   <td className={`sticky right-0 z-10 border-b border-slate-200 px-2 py-2 shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}>
                     <div className="flex items-center justify-end gap-1.5">
                       {savingRows.has(row.id) && <Loader2 className="h-4 w-4 animate-spin text-blue-600" aria-label="Saving" />}
@@ -1825,6 +2131,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       </button>
                     </div>
                   </td>
+                  )}
                 </tr>
                 );
               })}
@@ -1837,9 +2144,163 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               )}
             </tbody>
           </table>
+          </ColumnMenuContext.Provider>
         </div>
+        {columnMenu && (
+          <div
+            data-column-menu-panel
+            role="dialog"
+            aria-label={`Sort and filter ${activeColumnLabel}`}
+            className="fixed z-[90] w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl shadow-slate-400/30"
+            style={{ left: columnMenu.left, top: columnMenu.top }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.12em] text-blue-600">
+                  Column options
+                </p>
+                <h3 className="mt-1 text-sm font-black text-slate-950">
+                  {activeColumnLabel}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setColumnMenu(null)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                aria-label="Close column options"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {(['asc', 'desc'] as const).map((direction) => (
+                <button
+                  key={direction}
+                  type="button"
+                  onClick={() => setColumnSort({ id: columnMenu.id, direction })}
+                  className={`rounded-lg border px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                    columnSort?.id === columnMenu.id &&
+                    columnSort.direction === direction
+                      ? 'border-blue-300 bg-blue-50 text-blue-800'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {direction === 'asc' ? 'Sort A → Z / Oldest' : 'Sort Z → A / Newest'}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              {DATE_COLUMN_IDS.has(columnMenu.id) ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <FilterInput
+                    label="From"
+                    type="date"
+                    value={activeColumnRule.from}
+                    onChange={(value) => updateColumnFilter(columnMenu.id, { from: value })}
+                  />
+                  <FilterInput
+                    label="To"
+                    type="date"
+                    value={activeColumnRule.to}
+                    onChange={(value) => updateColumnFilter(columnMenu.id, { to: value })}
+                  />
+                </div>
+              ) : NUMBER_COLUMN_IDS.has(columnMenu.id) ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <FilterInput
+                    label="Minimum"
+                    type="number"
+                    value={activeColumnRule.min}
+                    onChange={(value) => updateColumnFilter(columnMenu.id, { min: value })}
+                  />
+                  <FilterInput
+                    label="Maximum"
+                    type="number"
+                    value={activeColumnRule.max}
+                    onChange={(value) => updateColumnFilter(columnMenu.id, { max: value })}
+                  />
+                </div>
+              ) : (
+                <>
+                  <label className="relative block">
+                    <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <span className="sr-only">Search {activeColumnLabel}</span>
+                    <input
+                      autoFocus
+                      value={activeColumnRule.query || ''}
+                      onChange={(event) => {
+                        setColumnOptionSearch(event.target.value);
+                        updateColumnFilter(columnMenu.id, { query: event.target.value });
+                      }}
+                      placeholder={`Search ${activeColumnLabel.toLowerCase()}…`}
+                      className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    />
+                  </label>
+                  <div className="mt-3 max-h-52 space-y-1 overflow-y-auto pr-1">
+                    {columnValueOptions
+                      .filter((value) =>
+                        value.toLowerCase().includes(
+                          columnOptionSearch.trim().toLowerCase(),
+                        ),
+                      )
+                      .map((value) => {
+                        const selected = activeColumnRule.selected?.includes(value) || false;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => updateColumnFilter(columnMenu.id, {
+                              selected: selected
+                                ? activeColumnRule.selected?.filter((item) => item !== value)
+                                : [...(activeColumnRule.selected || []), value],
+                            })}
+                            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                          >
+                            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                              selected
+                                ? 'border-blue-500 bg-blue-600 text-white'
+                                : 'border-slate-300 bg-white'
+                            }`}>
+                              {selected && <Check className="h-3.5 w-3.5" />}
+                            </span>
+                            <span className="truncate">{value}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  clearColumnFilter(columnMenu.id);
+                  if (columnSort?.id === columnMenu.id) setColumnSort(null);
+                  setColumnOptionSearch('');
+                }}
+                className="text-xs font-bold text-slate-500 hover:text-slate-800"
+              >
+                Clear column
+              </button>
+              <button
+                type="button"
+                onClick={() => setColumnMenu(null)}
+                className="app-btn-primary !h-8 !rounded-lg !px-3 !text-xs"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
         <div className="border-t border-slate-200 px-4 py-3 text-xs font-semibold text-slate-600">
-          {total} loan{total === 1 ? '' : 's'} · All loans displayed
+          {visibleRows.length} loan{visibleRows.length === 1 ? '' : 's'} · {
+            visibleRows.length === total ? 'All loans displayed' : `${total} loaded`
+          }
         </div>
       </div>
 

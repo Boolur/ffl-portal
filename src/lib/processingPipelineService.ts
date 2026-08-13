@@ -1,6 +1,7 @@
 import { Prisma, UserRole } from '@prisma/client';
 import {
   getProcessingPipelineLockedDefaults,
+  getProcessingPipelineLeadSource,
   parseOptionalBoolean,
   parseOptionalMoney,
 } from './processingPipeline';
@@ -136,6 +137,7 @@ export async function upsertProcessingPipelineForCompletedTask(
       optionalString(data.propertyState) ||
       optionalString(data.state),
     lender,
+    leadSource: getProcessingPipelineLeadSource(data.leadSource, data.leadVendor),
     projectedRevenue: parseOptionalMoney(data.projectedRevenue),
     ...lockedPipelineData,
   };

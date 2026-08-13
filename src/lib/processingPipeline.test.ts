@@ -12,6 +12,7 @@ import {
   getCdWarningStartsAt,
   getItemOrderedAt,
   getProcessingPipelineAccess,
+  getProcessingPipelineLeadSource,
   getProcessingPipelineLockedDefaults,
   isAppraisalBackOverdue,
   isCdSentOverdue,
@@ -80,6 +81,12 @@ describe('processing pipeline access', () => {
 });
 
 describe('processing pipeline locked defaults', () => {
+  it('uses the lead vendor as the pipeline source for lead buys', () => {
+    expect(getProcessingPipelineLeadSource('Lead Buy', 'Lead Point')).toBe('Lead Point');
+    expect(getProcessingPipelineLeadSource('Mailer', 'Ignored Vendor')).toBe('Mailer');
+    expect(getProcessingPipelineLeadSource('', '')).toBeNull();
+  });
+
   it('normalizes and recognizes supported lender name variants', () => {
     expect(normalizeProcessingLender('  Figure-Lending, LLC ')).toBe('FIGURE LENDING LLC');
     expect(getProcessingPipelineLockedDefaults('Aven Financial', null)?.kind)
