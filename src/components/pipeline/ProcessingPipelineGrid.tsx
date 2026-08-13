@@ -1594,7 +1594,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       );
     }
     return (
-      <div className={`space-y-1 rounded-lg ${warning ? 'motion-safe:animate-pulse' : ''}`}>
+      <div className="space-y-1 rounded-lg">
         <select
           aria-label="Rate Lock"
           value={String(row.rateLock)}
@@ -2261,18 +2261,18 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                         </td>
                       )}
                       {isColumnVisible('titleStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${titleOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'titleStatus', row.titleStatus, PROCESSING_ITEM_STATUS_OPTIONS, titleOverdue ? deadlineTone : itemStatusTone[row.titleStatus])}</td>}
-                      {isColumnVisible('payoffStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${payoffOverdue ? 'bg-red-100 motion-safe:animate-pulse' : ''}`}>{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS, payoffOverdue ? `${deadlineTone} motion-safe:animate-pulse` : itemStatusTone[row.payoffStatus])}</td>}
-                      {isColumnVisible('hoiStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${hoiOverdue ? 'bg-red-100 motion-safe:animate-pulse' : ''}`}>{editableSelect(row, 'hoiStatus', row.hoiStatus, PROCESSING_ITEM_STATUS_OPTIONS, hoiOverdue ? `${deadlineTone} motion-safe:animate-pulse` : itemStatusTone[row.hoiStatus])}</td>}
+                      {isColumnVisible('payoffStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${payoffOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS, payoffOverdue ? `${deadlineTone} motion-safe:animate-pulse` : itemStatusTone[row.payoffStatus])}</td>}
+                      {isColumnVisible('hoiStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${hoiOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'hoiStatus', row.hoiStatus, PROCESSING_ITEM_STATUS_OPTIONS, hoiOverdue ? `${deadlineTone} motion-safe:animate-pulse` : itemStatusTone[row.hoiStatus])}</td>}
                       {isColumnVisible('appraisalNeeded') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{yesNoCell(row, 'appraisalNeeded', row.appraisalNeeded)}</td>}
                       {isColumnVisible('appraisalNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'appraisalNotes', row.appraisalNotes)}</td>}
                       {isColumnVisible('appraisalOrderedAt') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{dateCell(row, 'appraisalOrderedAt', row.appraisalOrderedAt)}</td>}
                       {isColumnVisible('appraisalBackAt') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${appraisalBackOverdue ? 'bg-red-100' : ''}`}>{dateCell(row, 'appraisalBackAt', row.appraisalBackAt, appraisalBackOverdue ? deadlineTone : '')}</td>}
-                      {isColumnVisible('cdSent') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow) ? 'bg-red-100 motion-safe:animate-pulse' : ''}`}>{cdSentCell(row)}</td>}
+                      {isColumnVisible('cdSent') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow) ? 'bg-red-100' : ''}`}>{cdSentCell(row)}</td>}
                       {isColumnVisible('extraNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'extraNotes', row.extraNotes)}</td>}
                       {isColumnVisible('rateLock') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${
                         isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow) ||
                         isRateLockOverdueAfterAppraisal(row.rateLock, row.appraisalBackAt, clockNow)
-                          ? 'bg-red-100 motion-safe:animate-pulse'
+                          ? 'bg-red-100'
                           : ''
                       }`}>{rateLockCell(row)}</td>}
                       {isColumnVisible('daysInStatus') && (
