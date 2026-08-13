@@ -666,7 +666,11 @@ function formatMoney(value: number | null) {
   }).format(value);
 }
 
-type FundingRangePreset = 'currentMonth' | 'lastMonth' | 'filters';
+type FundingRangePreset =
+  | 'currentMonth'
+  | 'lastMonth'
+  | 'allFundings'
+  | 'dateRange';
 
 function fundingMonthFilters(monthOffset: 0 | -1): ProcessingPipelineFilters {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -1056,8 +1060,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   };
 
   const applyFilters = () => {
-    if (sheet === ProcessingPipelineSheet.FUNDING) {
-      setFundingRangePreset('filters');
+    if (
+      sheet === ProcessingPipelineSheet.FUNDING &&
+      (draftFilters.fundedFrom || draftFilters.fundedTo)
+    ) {
+      setFundingRangePreset('dateRange');
     }
     setAppliedFilters(draftFilters);
     loadRows(sheet, search, sortBy, sortDirection, draftFilters);
@@ -1066,7 +1073,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
 
   const clearFilters = () => {
     if (sheet === ProcessingPipelineSheet.FUNDING) {
-      setFundingRangePreset('filters');
+      setFundingRangePreset('allFundings');
     }
     setSelectedTeamIds([]);
     setColumnFilters({});
@@ -1077,8 +1084,13 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     loadRows(sheet, search, sortBy, sortDirection, {});
   };
 
-  const selectFundingRange = (preset: Exclude<FundingRangePreset, 'filters'>) => {
-    const rangeFilters = fundingMonthFilters(preset === 'currentMonth' ? 0 : -1);
+  const selectFundingRange = (
+    preset: Exclude<FundingRangePreset, 'dateRange'>,
+  ) => {
+    const rangeFilters =
+      preset === 'allFundings'
+        ? { fundedFrom: undefined, fundedTo: undefined }
+        : fundingMonthFilters(preset === 'currentMonth' ? 0 : -1);
     const nextFilters: ProcessingPipelineFilters = {
       ...appliedFilters,
       ...rangeFilters,
@@ -1694,18 +1706,27 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           {sheet === ProcessingPipelineSheet.FUNDING && (
             <div
-              className="inline-flex w-fit rounded-xl border border-slate-200 bg-slate-50 p-1"
+              className="inline-flex w-fit flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-1"
               aria-label="Funding month range"
             >
               {[
                 { value: 'currentMonth' as const, label: 'Current Month' },
-                { value: 'lastMonth' as const, label: 'Last Month' },
+                { value: 'lastMonth' as const, label: 'Previous Month' },
+                { value: 'allFundings' as const, label: 'All Fundings' },
+                { value: 'dateRange' as const, label: 'Date Range' },
               ].map((option) => (
                 <button
                   key={option.value}
                   type="button"
                   aria-pressed={fundingRangePreset === option.value}
-                  onClick={() => selectFundingRange(option.value)}
+                  onClick={() => {
+                    if (option.value === 'dateRange') {
+                      setFundingRangePreset('dateRange');
+                      setFiltersExpanded(true);
+                      return;
+                    }
+                    selectFundingRange(option.value);
+                  }}
                   className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
                     fundingRangePreset === option.value
                       ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
@@ -1722,19 +1743,14 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             aria-expanded={filtersExpanded}
             aria-pressed={
               sheet === ProcessingPipelineSheet.FUNDING
-                ? fundingRangePreset === 'filters'
+                ? filtersExpanded
                 : undefined
             }
-            onClick={() => {
-              if (sheet === ProcessingPipelineSheet.FUNDING) {
-                setFundingRangePreset('filters');
-              }
-              setFiltersExpanded((expanded) => !expanded);
-            }}
+            onClick={() => setFiltersExpanded((expanded) => !expanded)}
             className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-bold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
               filtersExpanded ||
               (sheet === ProcessingPipelineSheet.FUNDING
-                ? fundingRangePreset === 'filters'
+                ? false
                 : activeFilterCount > 0)
                 ? 'border-blue-300 bg-blue-50 text-blue-700'
                 : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -1744,7 +1760,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             Filters
             {activeFilterCount > 0 &&
               (sheet !== ProcessingPipelineSheet.FUNDING ||
-                fundingRangePreset === 'filters') && (
+                fundingRangePreset === 'dateRange') && (
               <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-black text-white">
                 {activeFilterCount}
               </span>
@@ -1795,7 +1811,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
           )}
           {activeFilterCount > 0 &&
             (sheet !== ProcessingPipelineSheet.FUNDING ||
-              fundingRangePreset === 'filters') && (
+              fundingRangePreset === 'dateRange') && (
             <button
               type="button"
               onClick={clearFilters}

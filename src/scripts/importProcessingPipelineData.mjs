@@ -335,7 +335,7 @@ function resolveRows(workbook, indexes) {
 
 function buildPipelineData(entry) {
   const { row, loan, task, pipeline, junior, senior, appraisal, assignmentGroup } = entry;
-  const statusChangedAt = pipeline?.statusChangedAt || row.assignedAt;
+  const statusChangedAt = pipeline?.statusChangedAt || new Date();
   const processingMethod = assignmentGroup
     ? 'IN_HOUSE'
     : pipeline?.processingMethod || null;
