@@ -76,14 +76,33 @@ function scopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInput {
       archivedAt: null,
       loan: {
         OR: [
-          { loanOfficerId: actor.id },
           { secondaryLoanOfficerId: actor.id },
+          {
+            AND: [
+              { secondaryLoanOfficerId: null },
+              { loanOfficerId: actor.id },
+            ],
+          },
           { visibilitySubmitterUserId: actor.id },
         ],
       },
     };
   }
   return { id: '__NO_ACCESS__' };
+}
+
+function effectiveLoanOfficerWhere(userIds: string[]): Prisma.LoanWhereInput {
+  return {
+    OR: [
+      { secondaryLoanOfficerId: { in: userIds } },
+      {
+        AND: [
+          { secondaryLoanOfficerId: null },
+          { loanOfficerId: { in: userIds } },
+        ],
+      },
+    ],
+  };
 }
 
 function editableScopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInput {
@@ -156,6 +175,7 @@ function serializeRow(row: {
     borrowerName: string;
     amount: Prisma.Decimal;
     loanOfficer: { id: string; name: string };
+    secondaryLoanOfficer: { id: string; name: string } | null;
     payrollCompRequests: Array<{
       status: PayrollCompRequestStatus;
       expectedRevenue: Prisma.Decimal;
@@ -192,6 +212,7 @@ function serializeRow(row: {
     loan: {
       ...row.loan,
       amount: Number(row.loan.amount),
+      loanOfficer: row.loan.secondaryLoanOfficer || row.loan.loanOfficer,
     },
   };
 }
@@ -290,10 +311,10 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   if (!filters) return [] as Prisma.ProcessingPipelineLoanWhereInput[];
   const clauses: Prisma.ProcessingPipelineLoanWhereInput[] = [];
   if (filters.loanOfficerIds?.length) {
-    clauses.push({ loan: { loanOfficerId: { in: filters.loanOfficerIds } } });
+    clauses.push({ loan: effectiveLoanOfficerWhere(filters.loanOfficerIds) });
   }
   if (filters.teamLoanOfficerIds?.length) {
-    clauses.push({ loan: { loanOfficerId: { in: filters.teamLoanOfficerIds } } });
+    clauses.push({ loan: effectiveLoanOfficerWhere(filters.teamLoanOfficerIds) });
   }
   if (filters.loanNumbers?.length) {
     clauses.push({ loan: { loanNumber: { in: filters.loanNumbers } } });
@@ -457,7 +478,27 @@ export async function getProcessingPipeline(input?: {
             OR: [
               { loan: { loanNumber: { contains: search, mode: 'insensitive' as const } } },
               { loan: { borrowerName: { contains: search, mode: 'insensitive' as const } } },
-              { loan: { loanOfficer: { name: { contains: search, mode: 'insensitive' as const } } } },
+              {
+                loan: {
+                  OR: [
+                    {
+                      secondaryLoanOfficer: {
+                        name: { contains: search, mode: 'insensitive' as const },
+                      },
+                    },
+                    {
+                      AND: [
+                        { secondaryLoanOfficerId: null },
+                        {
+                          loanOfficer: {
+                            name: { contains: search, mode: 'insensitive' as const },
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
               { seniorProcessor: { name: { contains: search, mode: 'insensitive' as const } } },
               { juniorProcessor: { name: { contains: search, mode: 'insensitive' as const } } },
               { lender: { contains: search, mode: 'insensitive' as const } },
@@ -495,6 +536,7 @@ export async function getProcessingPipeline(input?: {
             borrowerName: true,
             amount: true,
             loanOfficer: { select: { id: true, name: true } },
+            secondaryLoanOfficer: { select: { id: true, name: true } },
             payrollCompRequests: {
               where: { status: { not: PayrollCompRequestStatus.REJECTED } },
               orderBy: { submittedAt: 'desc' },
@@ -602,6 +644,7 @@ export async function getProcessingPipelineFilterOptions(
           loanNumber: true,
           borrowerName: true,
           loanOfficer: { select: { id: true, name: true } },
+          secondaryLoanOfficer: { select: { id: true, name: true } },
         },
       },
       juniorProcessor: { select: { id: true, name: true } },
@@ -626,7 +669,9 @@ export async function getProcessingPipelineFilterOptions(
   return {
     success: true as const,
     options: {
-      loanOfficers: uniqueUserOptions(rows.map((row) => row.loan.loanOfficer)),
+      loanOfficers: uniqueUserOptions(
+        rows.map((row) => row.loan.secondaryLoanOfficer || row.loan.loanOfficer),
+      ),
       loanNumbers: uniqueTextOptions(rows.map((row) => row.loan.loanNumber)),
       borrowerNames: uniqueTextOptions(rows.map((row) => row.loan.borrowerName)),
       loanTypes: uniqueTextOptions(rows.map((row) => row.loanType)),
