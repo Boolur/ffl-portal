@@ -473,7 +473,7 @@ function ResizableHeader({
       scope="col"
       style={{ width, minWidth: width, maxWidth: width, left: stickyLeft }}
       className={`group/header border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500 ${
-        stickyLeft === undefined ? 'relative' : 'sticky z-40'
+        stickyLeft === undefined ? 'relative' : 'relative lg:sticky lg:z-30'
       } ${className}`}
     >
       <div className="flex min-w-0 items-center gap-1.5">
@@ -1745,7 +1745,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
         </div>
       </div>
 
-      <div className="relative z-40 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="relative z-20 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           {sheet === ProcessingPipelineSheet.FUNDING && (
             <div
@@ -2177,7 +2177,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   </>
                 )}
                 {sheet !== ProcessingPipelineSheet.FUNDING && (
-                  <ResizableHeader id="actions" width={columnWidths.actions} onResize={resizeColumn} className="sticky right-0 z-40 shadow-[-1px_0_0_#e2e8f0]">
+                  <ResizableHeader id="actions" width={columnWidths.actions} onResize={resizeColumn} className="lg:sticky lg:right-0 lg:z-30 lg:shadow-[-1px_0_0_#e2e8f0]">
                     Actions
                   </ResizableHeader>
                 )}
@@ -2226,7 +2226,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   {isColumnVisible('dateAssigned') && (
                     <td
                       style={{ left: stickyLeftByColumn.get('dateAssigned') }}
-                      className={`sticky z-20 truncate border-b border-r border-slate-200 font-medium text-slate-600 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+                      className={`truncate border-b border-r border-slate-200 font-medium text-slate-600 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
                     >
                       {formatDate(row.dateAssigned)}
                     </td>
@@ -2234,7 +2234,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   {isColumnVisible('loanNumber') && (
                     <td
                       style={{ left: stickyLeftByColumn.get('loanNumber') }}
-                      className={`sticky z-20 truncate border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+                      className={`truncate border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
                     >
                       {row.loan.loanNumber}
                     </td>
@@ -2242,7 +2242,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   {isColumnVisible('loanOfficer') && (
                     <td
                       style={{ left: stickyLeftByColumn.get('loanOfficer') }}
-                      className={`sticky z-20 truncate border-b border-r border-slate-200 font-semibold text-slate-900 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+                      className={`truncate border-b border-r border-slate-200 font-semibold text-slate-900 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
                       title={row.loan.loanOfficer.name}
                     >
                       {row.loan.loanOfficer.name}
@@ -2251,7 +2251,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   {isColumnVisible('borrowerName') && (
                     <td
                       style={{ left: stickyLeftByColumn.get('borrowerName') }}
-                      className={`sticky z-20 truncate border-b border-r border-slate-200 font-bold text-slate-950 shadow-[1px_0_0_#cbd5e1] ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+                      className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 lg:sticky lg:z-10 lg:shadow-[1px_0_0_#cbd5e1] ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
                       title={row.loan.borrowerName}
                     >
                       {row.loan.borrowerName}
@@ -2369,7 +2369,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     </>
                   )}
                   {sheet !== ProcessingPipelineSheet.FUNDING && (
-                  <td className={`sticky right-0 z-30 border-b border-slate-200 px-2 py-2 shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}>
+                  <td className={`border-b border-slate-200 px-2 py-2 lg:sticky lg:right-0 lg:z-20 lg:shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}>
                     <div className="flex items-center justify-end gap-1.5">
                       {savingRows.has(row.id) && <Loader2 className="h-4 w-4 animate-spin text-blue-600" aria-label="Saving" />}
                       <button
