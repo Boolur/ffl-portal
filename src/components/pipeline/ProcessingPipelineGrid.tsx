@@ -10,6 +10,7 @@ import {
   useTransition,
 } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Check,
@@ -757,6 +758,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [restructureNotesDraft, setRestructureNotesDraft] = useState('');
   const [rateLockDialogRow, setRateLockDialogRow] = useState<ProcessingPipelineRow | null>(null);
   const [rateLockExpiryDraft, setRateLockExpiryDraft] = useState('');
+  const [portalReady, setPortalReady] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const [historyEntries, setHistoryEntries] = useState<Array<{
     id: string;
@@ -812,6 +814,10 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       : isRateLockRequestsView
         ? PROCESSING_PIPELINE_STATUS_OPTIONS
         : STANDARD_STATUS_OPTIONS;
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   useEffect(() => {
     try {
@@ -1640,9 +1646,16 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
       <div className="space-y-1 rounded-lg">
         <select
           aria-label="Rate Lock"
-          value={String(row.rateLock)}
+          value={
+            rateLockDialogRow?.id === row.id
+              ? 'true'
+              : String(row.rateLock)
+          }
           onChange={(event) => {
-            if (event.target.value === 'true') openRateLockCalendar(row);
+            if (event.target.value === 'true') {
+              event.currentTarget.blur();
+              openRateLockCalendar(row);
+            }
             else void saveRateLock(row, false, null);
           }}
           className={`w-full rounded-full border px-2.5 py-1.5 text-[13px] font-semibold shadow-sm outline-none focus:ring-4 focus:ring-blue-100 ${tone}`}
@@ -2565,9 +2578,23 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
         </div>
       </div>
 
-      {rateLockDialogRow && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true" aria-labelledby="rate-lock-title">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+      {portalReady && rateLockDialogRow && createPortal(
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rate-lock-title"
+          onClick={() => {
+            if (!savingRows.has(rateLockDialogRow.id)) {
+              setRateLockDialogRow(null);
+              setRateLockExpiryDraft('');
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
             <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Rate Lock</p>
             <h2 id="rate-lock-title" className="mt-1 text-xl font-black text-slate-950">
               Select the expiration date
@@ -2613,7 +2640,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {restructureDialog && (
