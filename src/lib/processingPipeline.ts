@@ -16,6 +16,7 @@ export const PROCESSING_PIPELINE_STATUS_OPTIONS = [
   { value: ProcessingPipelineStatus.RE_SUB, label: 'Re-sub' },
   { value: ProcessingPipelineStatus.CTC, label: 'CTC' },
   { value: ProcessingPipelineStatus.DOCS_OUT, label: 'Docs out' },
+  { value: ProcessingPipelineStatus.SUSPENDED, label: 'Suspended' },
   { value: ProcessingPipelineStatus.FUNDED, label: 'Funded' },
   { value: ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE, label: 'Suspended/Restructure' },
   { value: ProcessingPipelineStatus.ADVERSE_PENDING, label: 'Adverse Pending' },

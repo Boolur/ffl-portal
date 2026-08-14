@@ -10,6 +10,7 @@ import {
   useTransition,
 } from 'react';
 import type { ReactNode } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Check,
   Archive,
@@ -164,7 +165,6 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'juniorProcessor', label: 'Jr Processor', width: 118 },
   { id: 'seniorProcessor', label: 'Processor', width: 118 },
   { id: 'pipelineStatus', label: 'Pipeline Status', width: 164 },
-  { id: 'estimatedSigningAt', label: 'Est. Signing', width: 132, optional: true },
   { id: 'missingItemsCurrentStatus', label: 'Pending Items', width: 220 },
   { id: 'restructureNotes', label: 'Restructure Notes', width: 280 },
   { id: 'titleStatus', label: 'Title', width: 124 },
@@ -176,6 +176,7 @@ const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; opti
   { id: 'appraisalOrderedAt', label: 'Appraisal Ordered', width: 146, optional: true },
   { id: 'appraisalBackAt', label: 'Appraisal Back', width: 140, optional: true },
   { id: 'cdSent', label: 'CD Sent?', width: 112, optional: true },
+  { id: 'estimatedSigningAt', label: 'Est. Signing', width: 132, optional: true },
   { id: 'extraNotes', label: 'Extra Notes', width: 210, optional: true },
   { id: 'rateLock', label: 'Rate Lock', width: 112, optional: true },
   { id: 'projectedRevenue', label: 'Revenue', width: 130, optional: true },
@@ -236,6 +237,12 @@ const FUNDING_FOCUS_COLUMNS = new Set<ColumnId>([
   'firstPaymentAt',
   'sixthPaymentAt',
 ]);
+const STICKY_IDENTITY_COLUMNS = [
+  'dateAssigned',
+  'loanNumber',
+  'loanOfficer',
+  'borrowerName',
+] as const satisfies readonly ColumnId[];
 const WIDTH_STORAGE_KEY = 'ffl:processing-pipeline-widths-v2';
 const YES_NO_FILTER_OPTIONS: FilterOption[] = [
   { value: 'YES', label: 'Yes' },
@@ -260,6 +267,7 @@ const statusTone: Record<ProcessingPipelineStatus, string> = {
   RE_SUB: 'border-green-300 bg-green-200 text-green-900',
   CTC: 'border-green-400 bg-green-300 text-green-950',
   DOCS_OUT: 'border-green-700 bg-green-700 text-white',
+  SUSPENDED: 'border-orange-400 bg-orange-300 text-orange-950',
   FUNDED: 'border-amber-300 bg-amber-300 text-amber-950',
   SUSPENDED_RESTRUCTURE: 'border-red-500 bg-red-500 text-white',
   ADVERSE_PENDING: 'border-red-900 bg-red-800 text-white',
@@ -272,6 +280,7 @@ const rowSurfaceTone: Record<ProcessingPipelineStatus, string> = {
   RE_SUB: 'bg-green-50/80 hover:bg-green-100/80',
   CTC: 'bg-emerald-50/80 hover:bg-emerald-100/80',
   DOCS_OUT: 'bg-green-100/80 hover:bg-green-200/80',
+  SUSPENDED: 'bg-orange-50/90 hover:bg-orange-100/90',
   FUNDED: 'bg-amber-50/80 hover:bg-amber-100/80',
   SUSPENDED_RESTRUCTURE: 'bg-red-50/80 hover:bg-red-100/80',
   ADVERSE_PENDING: 'bg-red-200/90 hover:bg-red-300/90',
@@ -284,6 +293,7 @@ const stickyRowSurfaceTone: Record<ProcessingPipelineStatus, string> = {
   RE_SUB: 'bg-green-50 group-hover:bg-green-100',
   CTC: 'bg-emerald-50 group-hover:bg-emerald-100',
   DOCS_OUT: 'bg-green-100 group-hover:bg-green-200',
+  SUSPENDED: 'bg-orange-50 group-hover:bg-orange-100',
   FUNDED: 'bg-amber-50 group-hover:bg-amber-100',
   SUSPENDED_RESTRUCTURE: 'bg-red-50 group-hover:bg-red-100',
   ADVERSE_PENDING: 'bg-red-200 group-hover:bg-red-300',
@@ -444,12 +454,14 @@ function ResizableHeader({
   onResize,
   children,
   className = '',
+  stickyLeft,
 }: {
   id: ColumnId;
   width: number;
   onResize: (id: ColumnId, width: number) => void;
   children: ReactNode;
   className?: string;
+  stickyLeft?: number;
 }) {
   const columnMenu = useContext(ColumnMenuContext);
   const menuActive =
@@ -459,8 +471,10 @@ function ResizableHeader({
   return (
     <th
       scope="col"
-      style={{ width, minWidth: width, maxWidth: width }}
-      className={`group/header relative border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500 ${className}`}
+      style={{ width, minWidth: width, maxWidth: width, left: stickyLeft }}
+      className={`group/header border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500 ${
+        stickyLeft === undefined ? 'relative' : 'sticky z-40'
+      } ${className}`}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <div className="min-w-0 flex-1 truncate">{children}</div>
@@ -699,6 +713,7 @@ function parseAuditDetails(details: string | null) {
 
 export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const hasSearchEffectMounted = useRef(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const filterOptionsBySheet = useRef(
     new Map<PipelineView, PipelineFilterOptions>()
   );
@@ -1037,12 +1052,40 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     (id !== 'restructureNotes' ||
       sheet === ProcessingPipelineSheet.RESTRUCTURE ||
       isRateLockRequestsView) &&
-    (!isProcessor || (id !== 'loanAmount' && id !== 'projectedRevenue')) &&
+    (!isProcessor ||
+      (id !== 'loanAmount' &&
+        id !== 'projectedRevenue' &&
+        id !== 'leadSource')) &&
     (detailsExpanded || focusColumns.has(id));
   const visibleColumnCount = currentColumns.filter((column) => isColumnVisible(column.id)).length;
   const tableWidth = currentColumns
     .filter((column) => isColumnVisible(column.id))
     .reduce((sum, column) => sum + (columnWidths[column.id] || column.width), 0);
+  const stickyLeftByColumn = new Map<ColumnId, number>();
+  let stickyLeft = 0;
+  for (const id of STICKY_IDENTITY_COLUMNS) {
+    if (!isColumnVisible(id)) continue;
+    stickyLeftByColumn.set(id, stickyLeft);
+    stickyLeft += columnWidths[id];
+  }
+  const rowVirtualizer = useVirtualizer({
+    count: visibleRows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 52,
+    getItemKey: (index) => visibleRows[index]?.id ?? index,
+    overscan: 8,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const virtualPaddingBottom =
+    virtualRows.length > 0
+      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
+      : 0;
+
+  useEffect(() => {
+    rowVirtualizer.measure();
+  }, [columnWidths, detailsExpanded, rowVirtualizer]);
+
   const activeServerFilterCount = Object.values(appliedFilters).filter((value) => {
     if (Array.isArray(value)) return value.length > 0;
     if (typeof value === 'string') return value.trim().length > 0;
@@ -1866,7 +1909,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   <FilterInput label="Loan Amount Max" type="number" value={draftFilters.loanAmountMax} onChange={(value) => setDraftFilter('loanAmountMax', value === '' ? undefined : Number(value))} placeholder="1000000" />
                   <MultiSelectFilter label="Loan Types" values={draftFilters.loanTypes || []} options={filterOptions.loanTypes} onChange={(values) => setDraftFilter('loanTypes', values)} />
                   <MultiSelectFilter label="Lenders" values={draftFilters.lenders || []} options={filterOptions.lenders} onChange={(values) => setDraftFilter('lenders', values)} />
-                  <MultiSelectFilter label="Lead Sources" values={draftFilters.leadSources || []} options={filterOptions.leadSources} onChange={(values) => setDraftFilter('leadSources', values)} />
+                  {!isProcessor && (
+                    <MultiSelectFilter label="Lead Sources" values={draftFilters.leadSources || []} options={filterOptions.leadSources} onChange={(values) => setDraftFilter('leadSources', values)} />
+                  )}
                   <MultiSelectFilter label="Jr Processors" values={draftFilters.juniorProcessorIds || []} options={filterOptions.juniorProcessors} onChange={(values) => setDraftFilter('juniorProcessorIds', values)} />
                   <MultiSelectFilter label="Sr Processors" values={draftFilters.seniorProcessorIds || []} options={filterOptions.seniorProcessors} onChange={(values) => setDraftFilter('seniorProcessorIds', values)} />
                 </div>
@@ -1887,8 +1932,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     />
                     <FilterInput label="Days in Status Min" type="number" value={draftFilters.daysInStatusMin} onChange={(value) => setDraftFilter('daysInStatusMin', value === '' ? undefined : Number(value))} placeholder="0" />
                     <FilterInput label="Days in Status Max" type="number" value={draftFilters.daysInStatusMax} onChange={(value) => setDraftFilter('daysInStatusMax', value === '' ? undefined : Number(value))} placeholder="30" />
-                    <FilterInput label="Est. Signing From" type="date" value={draftFilters.estimatedSigningFrom} onChange={(value) => setDraftFilter('estimatedSigningFrom', value || undefined)} />
-                    <FilterInput label="Est. Signing To" type="date" value={draftFilters.estimatedSigningTo} onChange={(value) => setDraftFilter('estimatedSigningTo', value || undefined)} />
                     <MultiSelectFilter
                       label="Title Statuses"
                       values={draftFilters.titleStatuses || []}
@@ -1924,6 +1967,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       options={YES_NO_FILTER_OPTIONS.filter((option) => option.value !== 'BLANK')}
                       onChange={(values) => setDraftFilter('cdSent', values as Array<'YES' | 'NO'>)}
                     />
+                    <FilterInput label="Est. Signing From" type="date" value={draftFilters.estimatedSigningFrom} onChange={(value) => setDraftFilter('estimatedSigningFrom', value || undefined)} />
+                    <FilterInput label="Est. Signing To" type="date" value={draftFilters.estimatedSigningTo} onChange={(value) => setDraftFilter('estimatedSigningTo', value || undefined)} />
                     <FilterInput label="Pending Items" value={draftFilters.missingItemsCurrentStatus} onChange={(value) => setDraftFilter('missingItemsCurrentStatus', value || undefined)} placeholder="Contains text…" />
                     <FilterInput label="Extra Notes" value={draftFilters.extraNotes} onChange={(value) => setDraftFilter('extraNotes', value || undefined)} placeholder="Contains text…" />
                     {(sheet === ProcessingPipelineSheet.RESTRUCTURE ||
@@ -2033,6 +2078,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
           )}
         </div>
         <div
+          ref={scrollContainerRef}
           className="relative max-h-[66vh] min-h-72 overflow-auto"
           aria-busy={isPending}
         >
@@ -2050,30 +2096,31 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
           <table
             className="border-separate border-spacing-0 text-left text-[13px] leading-5 text-slate-700"
             style={{ width: Math.max(tableWidth, 720), tableLayout: 'fixed' }}
+            aria-rowcount={visibleRows.length + 1}
           >
             <thead className="sticky top-0 z-30">
               <tr>
                 {isColumnVisible('dateAssigned') && (
-                  <ResizableHeader id="dateAssigned" width={columnWidths.dateAssigned} onResize={resizeColumn}>
+                  <ResizableHeader id="dateAssigned" width={columnWidths.dateAssigned} onResize={resizeColumn} stickyLeft={stickyLeftByColumn.get('dateAssigned')}>
                     <button type="button" onClick={() => changeSort('dateAssigned')} className="w-full text-left hover:text-blue-700">
                       Assigned
                     </button>
                   </ResizableHeader>
                 )}
                 {isColumnVisible('loanNumber') && (
-                  <ResizableHeader id="loanNumber" width={columnWidths.loanNumber} onResize={resizeColumn}>
+                  <ResizableHeader id="loanNumber" width={columnWidths.loanNumber} onResize={resizeColumn} stickyLeft={stickyLeftByColumn.get('loanNumber')}>
                     <button type="button" onClick={() => changeSort('loanNumber')} className="w-full text-left hover:text-blue-700">
                       Arive #
                     </button>
                   </ResizableHeader>
                 )}
                 {isColumnVisible('loanOfficer') && (
-                  <ResizableHeader id="loanOfficer" width={columnWidths.loanOfficer} onResize={resizeColumn}>
+                  <ResizableHeader id="loanOfficer" width={columnWidths.loanOfficer} onResize={resizeColumn} stickyLeft={stickyLeftByColumn.get('loanOfficer')}>
                     Loan Officer
                   </ResizableHeader>
                 )}
                 {isColumnVisible('borrowerName') && (
-                  <ResizableHeader id="borrowerName" width={columnWidths.borrowerName} onResize={resizeColumn}>
+                  <ResizableHeader id="borrowerName" width={columnWidths.borrowerName} onResize={resizeColumn} stickyLeft={stickyLeftByColumn.get('borrowerName')} className="shadow-[1px_0_0_#cbd5e1]">
                     <button type="button" onClick={() => changeSort('borrowerName')} className="w-full text-left hover:text-blue-700">
                       Borrower
                     </button>
@@ -2108,7 +2155,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     {isColumnVisible('juniorProcessor') && <ResizableHeader id="juniorProcessor" width={columnWidths.juniorProcessor} onResize={resizeColumn}>Jr Processor</ResizableHeader>}
                     {isColumnVisible('seniorProcessor') && <ResizableHeader id="seniorProcessor" width={columnWidths.seniorProcessor} onResize={resizeColumn}>Processor</ResizableHeader>}
                     {isColumnVisible('pipelineStatus') && <ResizableHeader id="pipelineStatus" width={columnWidths.pipelineStatus} onResize={resizeColumn}>Pipeline Status</ResizableHeader>}
-                    {isColumnVisible('estimatedSigningAt') && <ResizableHeader id="estimatedSigningAt" width={columnWidths.estimatedSigningAt} onResize={resizeColumn}>Est. Signing</ResizableHeader>}
                     {isColumnVisible('missingItemsCurrentStatus') && <ResizableHeader id="missingItemsCurrentStatus" width={columnWidths.missingItemsCurrentStatus} onResize={resizeColumn}>Pending Items</ResizableHeader>}
                     {isColumnVisible('restructureNotes') && <ResizableHeader id="restructureNotes" width={columnWidths.restructureNotes} onResize={resizeColumn}>Restructure Notes</ResizableHeader>}
                     {isColumnVisible('titleStatus') && <ResizableHeader id="titleStatus" width={columnWidths.titleStatus} onResize={resizeColumn}>Title</ResizableHeader>}
@@ -2119,6 +2165,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     {isColumnVisible('appraisalOrderedAt') && <ResizableHeader id="appraisalOrderedAt" width={columnWidths.appraisalOrderedAt} onResize={resizeColumn}>Appraisal Ordered</ResizableHeader>}
                     {isColumnVisible('appraisalBackAt') && <ResizableHeader id="appraisalBackAt" width={columnWidths.appraisalBackAt} onResize={resizeColumn}>Appraisal Back</ResizableHeader>}
                     {isColumnVisible('cdSent') && <ResizableHeader id="cdSent" width={columnWidths.cdSent} onResize={resizeColumn}>CD Sent?</ResizableHeader>}
+                    {isColumnVisible('estimatedSigningAt') && <ResizableHeader id="estimatedSigningAt" width={columnWidths.estimatedSigningAt} onResize={resizeColumn}>Est. Signing</ResizableHeader>}
                     {isColumnVisible('extraNotes') && <ResizableHeader id="extraNotes" width={columnWidths.extraNotes} onResize={resizeColumn}>Extra Notes</ResizableHeader>}
                     {isColumnVisible('rateLock') && <ResizableHeader id="rateLock" width={columnWidths.rateLock} onResize={resizeColumn}>Rate Lock</ResizableHeader>}
                     {isColumnVisible('daysInStatus') && (
@@ -2137,7 +2184,17 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((row) => {
+              {virtualPaddingTop > 0 && (
+                <tr aria-hidden="true">
+                  <td
+                    colSpan={visibleColumnCount}
+                    className="border-0 p-0"
+                    style={{ height: virtualPaddingTop }}
+                  />
+                </tr>
+              )}
+              {virtualRows.map((virtualRow) => {
+                const row = visibleRows[virtualRow.index];
                 const titleOverdue = isConditionItemOverdue(
                   row.approvedWithConditionsAt,
                   row.titleStatus,
@@ -2159,20 +2216,46 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   clockNow,
                 );
                 return (
-                <tr key={row.id} className={`group transition-colors ${rowSurfaceTone[row.pipelineStatus]}`}>
+                <tr
+                  key={row.id}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  aria-rowindex={virtualRow.index + 2}
+                  className={`group transition-colors ${rowSurfaceTone[row.pipelineStatus]}`}
+                >
                   {isColumnVisible('dateAssigned') && (
-                    <td className={`truncate border-b border-r border-slate-200 font-medium text-slate-600 ${cellPadding}`}>{formatDate(row.dateAssigned)}</td>
+                    <td
+                      style={{ left: stickyLeftByColumn.get('dateAssigned') }}
+                      className={`sticky z-20 truncate border-b border-r border-slate-200 font-medium text-slate-600 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+                    >
+                      {formatDate(row.dateAssigned)}
+                    </td>
                   )}
                   {isColumnVisible('loanNumber') && (
-                    <td className={`truncate border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 ${cellPadding}`}>{row.loan.loanNumber}</td>
+                    <td
+                      style={{ left: stickyLeftByColumn.get('loanNumber') }}
+                      className={`sticky z-20 truncate border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+                    >
+                      {row.loan.loanNumber}
+                    </td>
                   )}
                   {isColumnVisible('loanOfficer') && (
-                    <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-900 ${cellPadding}`} title={row.loan.loanOfficer.name}>
+                    <td
+                      style={{ left: stickyLeftByColumn.get('loanOfficer') }}
+                      className={`sticky z-20 truncate border-b border-r border-slate-200 font-semibold text-slate-900 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+                      title={row.loan.loanOfficer.name}
+                    >
                       {row.loan.loanOfficer.name}
                     </td>
                   )}
                   {isColumnVisible('borrowerName') && (
-                    <td className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 ${cellPadding}`} title={row.loan.borrowerName}>{row.loan.borrowerName}</td>
+                    <td
+                      style={{ left: stickyLeftByColumn.get('borrowerName') }}
+                      className={`sticky z-20 truncate border-b border-r border-slate-200 font-bold text-slate-950 shadow-[1px_0_0_#cbd5e1] ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+                      title={row.loan.borrowerName}
+                    >
+                      {row.loan.borrowerName}
+                    </td>
                   )}
                   {isColumnVisible('leadSource') && (
                     <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.leadSource || undefined}>
@@ -2244,11 +2327,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                             )}
                         </td>
                       )}
-                      {isColumnVisible('estimatedSigningAt') && (
-                        <td className="border-b border-r border-slate-200 px-1.5 py-1">
-                          {dateCell(row, 'estimatedSigningAt', row.estimatedSigningAt)}
-                        </td>
-                      )}
                       {isColumnVisible('missingItemsCurrentStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'missingItemsCurrentStatus', row.missingItemsCurrentStatus)}</td>}
                       {isColumnVisible('restructureNotes') && (
                         <td className="border-b border-r border-slate-200 px-3 py-2 align-top">
@@ -2268,6 +2346,11 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       {isColumnVisible('appraisalOrderedAt') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{dateCell(row, 'appraisalOrderedAt', row.appraisalOrderedAt)}</td>}
                       {isColumnVisible('appraisalBackAt') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${appraisalBackOverdue ? 'bg-red-100' : ''}`}>{dateCell(row, 'appraisalBackAt', row.appraisalBackAt, appraisalBackOverdue ? deadlineTone : '')}</td>}
                       {isColumnVisible('cdSent') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow) ? 'bg-red-100' : ''}`}>{cdSentCell(row)}</td>}
+                      {isColumnVisible('estimatedSigningAt') && (
+                        <td className="border-b border-r border-slate-200 px-1.5 py-1">
+                          {dateCell(row, 'estimatedSigningAt', row.estimatedSigningAt)}
+                        </td>
+                      )}
                       {isColumnVisible('extraNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'extraNotes', row.extraNotes)}</td>}
                       {isColumnVisible('rateLock') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${
                         isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow) ||
@@ -2286,7 +2369,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     </>
                   )}
                   {sheet !== ProcessingPipelineSheet.FUNDING && (
-                  <td className={`sticky right-0 z-10 border-b border-slate-200 px-2 py-2 shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}>
+                  <td className={`sticky right-0 z-30 border-b border-slate-200 px-2 py-2 shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}>
                     <div className="flex items-center justify-end gap-1.5">
                       {savingRows.has(row.id) && <Loader2 className="h-4 w-4 animate-spin text-blue-600" aria-label="Saving" />}
                       <button
@@ -2304,6 +2387,15 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 </tr>
                 );
               })}
+              {virtualPaddingBottom > 0 && (
+                <tr aria-hidden="true">
+                  <td
+                    colSpan={visibleColumnCount}
+                    className="border-0 p-0"
+                    style={{ height: virtualPaddingBottom }}
+                  />
+                </tr>
+              )}
               {visibleRows.length === 0 && (
                 <tr>
                   <td colSpan={visibleColumnCount} className="px-6 py-16 text-center text-sm font-medium text-slate-500">

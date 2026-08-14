@@ -1,0 +1,1 @@
+ALTER TYPE "ProcessingPipelineStatus" ADD VALUE 'SUSPENDED' BEFORE 'FUNDED';

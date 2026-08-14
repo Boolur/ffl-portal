@@ -83,6 +83,7 @@ export function normalizePipelineStatus(value) {
   if (key === 'suspendedrestructure' || key === 'restructure') {
     return 'SUSPENDED_RESTRUCTURE';
   }
+  if (key === 'suspended') return 'SUSPENDED';
   if (key === 'adversepending') return 'ADVERSE_PENDING';
   if (key === 'pendingapproval') return 'PENDING_APPROVAL';
   return null;

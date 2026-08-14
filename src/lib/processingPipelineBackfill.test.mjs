@@ -35,6 +35,11 @@ describe('processing pipeline workbook normalization', () => {
     expect(normalizePipelineStatus('Approved with Conditions')).toBe(
       'APPROVED_WITH_CONDITIONS',
     );
+    expect(normalizePipelineStatus('Suspended')).toBe('SUSPENDED');
+    expect(normalizePipelineStatus('Suspended/Restructure')).toBe(
+      'SUSPENDED_RESTRUCTURE',
+    );
+    expect(normalizePipelineStatus('Restructure')).toBe('SUSPENDED_RESTRUCTURE');
     expect(normalizeItemStatus('✅Recieved ')).toBe('RECEIVED');
     expect(normalizeItemStatus('RECEVEID')).toBe('RECEIVED');
     expect(normalizeItemStatus('🟡 Ordered')).toBe('ORDERED');
