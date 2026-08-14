@@ -4,6 +4,8 @@
  * Usage:
  *   npm run import:pipeline -- "C:\path\Updated Pipeline Backfill.xlsx"
  *   npm run import:pipeline -- "C:\path\Updated Pipeline Backfill.xlsx" --apply
+ *   node src/scripts/importProcessingPipelineData.mjs "C:\path\file.xlsx" --only=17088608,17112767 --apply
+ *   node src/scripts/importProcessingPipelineData.mjs "C:\path\file.xlsx" --source-rows=105 --apply
  *
  * Dry-run is the default. Rows without one existing portal loan and one
  * unique ARIVE match are quarantined instead of creating incomplete loans.
@@ -13,6 +15,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
+  LoanStage,
   PrismaClient,
   ProcessingPipelineSheet,
   ProcessingPipelineStatus,
@@ -49,10 +52,30 @@ function parseArgs() {
   const workbookPath = args.find((arg) => !arg.startsWith('--'));
   if (!workbookPath) throw new Error('Workbook path is required.');
   const reportArg = args.indexOf('--report');
+  const onlyArg = args.find((arg) => arg.startsWith('--only='));
+  const sourceRowsArg = args.find((arg) => arg.startsWith('--source-rows='));
   const absoluteWorkbookPath = resolve(workbookPath);
   return {
     workbookPath: absoluteWorkbookPath,
     apply: args.includes('--apply'),
+    onlyArives: onlyArg
+      ? new Set(
+          onlyArg
+            .slice('--only='.length)
+            .split(',')
+            .map((value) => normalizeAriveNumber(value))
+            .filter(Boolean),
+        )
+      : null,
+    sourceRows: sourceRowsArg
+      ? new Set(
+          sourceRowsArg
+            .slice('--source-rows='.length)
+            .split(',')
+            .map(Number)
+            .filter((value) => Number.isInteger(value) && value > 1),
+        )
+      : null,
     reportPath:
       reportArg >= 0 && args[reportArg + 1]
         ? resolve(args[reportArg + 1])
@@ -105,6 +128,15 @@ function sheetForStatus(status) {
     return ProcessingPipelineSheet.RESTRUCTURE;
   }
   return ProcessingPipelineSheet.PIPELINE;
+}
+
+function loanStageForPipelineStatus(status) {
+  if (status === ProcessingPipelineStatus.CTC) return LoanStage.CLEAR_TO_CLOSE;
+  if (status === ProcessingPipelineStatus.APPROVED_WITH_CONDITIONS) {
+    return LoanStage.CONDITIONAL_APPROVAL;
+  }
+  if (status === ProcessingPipelineStatus.FUNDED) return LoanStage.CLOSED;
+  return LoanStage.PROCESSING;
 }
 
 function assignmentGroupForSenior(value) {
@@ -286,15 +318,31 @@ function resolveRows(workbook, indexes) {
   for (const row of workbook.rows) {
     const loanIds = [...(indexes.loanIdsByArive.get(row.ariveNumber) || [])];
     const reasons = [];
-    if (loanIds.length === 0) reasons.push('No existing portal loan matches ARIVE');
     if (loanIds.length > 1) reasons.push('ARIVE matches multiple portal loans');
     const loan = loanIds.length === 1 ? indexes.loansById.get(loanIds[0]) : null;
+    if (
+      loan &&
+      !nameKey(loan.borrowerName).includes(nameKey(row.borrowerName)) &&
+      !nameKey(row.borrowerName).includes(nameKey(loan.borrowerName))
+    ) {
+      reasons.push(
+        `ARIVE belongs to portal borrower ${loan.borrowerName}, not ${row.borrowerName}`,
+      );
+    }
     const pipeline = loan ? indexes.pipelineByLoanId.get(loan.id) || null : null;
     const processingTasks = loan ? indexes.tasksByLoanId.get(loan.id) || [] : [];
     const task =
       processingTasks.find((candidate) => candidate.id === pipeline?.sourceTaskId) ||
       processingTasks[0] ||
       null;
+    const placeholderLoanOfficer = loan
+      ? { user: null, resolution: 'EXISTING_LOAN' }
+      : resolvePerson(indexes.users, row.loanOfficer, UserRole.LOAN_OFFICER);
+    if (!loan && !placeholderLoanOfficer.user) {
+      reasons.push(
+        `Loan Officer ${row.loanOfficer}: ${placeholderLoanOfficer.resolution}`,
+      );
+    }
     if (reasons.length > 0) {
       blocked.push({ row, reasons });
       continue;
@@ -306,6 +354,7 @@ function resolveRows(workbook, indexes) {
     const warnings = [];
     if (!junior.user) warnings.push(`Jr Processor ${row.juniorProcessor}: ${junior.resolution}`);
     if (!senior.user) warnings.push(`Processor ${row.seniorProcessor}: ${senior.resolution}`);
+    if (!loan) warnings.push('A placeholder portal loan is required');
     if (!task) warnings.push('A synthetic completed Submit to Processing task is required');
     if (appraisal.source === 'UNRESOLVED') warnings.push('Appraisal TBD could not be resolved');
     if (!row.loanType) warnings.push('Loan Type is blank; preserving portal value');
@@ -323,6 +372,7 @@ function resolveRows(workbook, indexes) {
       loan,
       task,
       pipeline,
+      placeholderLoanOfficer,
       junior,
       senior,
       appraisal,
@@ -393,7 +443,7 @@ function buildPipelineData(entry) {
       row.pipelineStatus === ProcessingPipelineStatus.APPROVED_WITH_CONDITIONS
         ? pipeline?.approvedWithConditionsAt || statusChangedAt
         : pipeline?.approvedWithConditionsAt || null,
-    loanType: row.loanType || pipeline?.loanType || loan.program || null,
+    loanType: row.loanType || pipeline?.loanType || loan?.program || null,
     propertyState: row.propertyState || pipeline?.propertyState || null,
     lender: row.lender || pipeline?.lender || null,
     archivedAt: null,
@@ -439,6 +489,17 @@ async function resolveActor() {
 
 async function applyEntry(entry, context) {
   return prisma.$transaction(async (tx) => {
+    const loan = entry.loan || await tx.loan.create({
+      data: {
+        loanNumber: entry.row.ariveNumber,
+        borrowerName: entry.row.borrowerName,
+        amount: 0,
+        program: entry.row.loanType,
+        stage: loanStageForPipelineStatus(entry.row.pipelineStatus),
+        loanOfficerId: entry.placeholderLoanOfficer.user.id,
+        secondaryLoanOfficerId: entry.placeholderLoanOfficer.user.id,
+      },
+    });
     const task = entry.task || await tx.task.create({
       data: {
         title: 'Historical current pipeline import',
@@ -448,7 +509,7 @@ async function applyEntry(entry, context) {
         kind: TaskKind.SUBMIT_PROCESSING,
         assignedRole: UserRole.PROCESSOR_JR,
         assignedUserId: entry.junior.user?.id || null,
-        loanId: entry.loan.id,
+        loanId: loan.id,
         createdAt: entry.row.assignedAt,
         completedAt: entry.row.assignedAt,
         submissionData: {
@@ -472,7 +533,7 @@ async function applyEntry(entry, context) {
         },
       },
     });
-    const data = buildPipelineData({ ...entry, task });
+    const data = buildPipelineData({ ...entry, loan, task });
     const before = entry.pipeline
       ? JSON.parse(JSON.stringify(entry.pipeline, (_key, value) =>
           typeof value === 'bigint' ? value.toString() : value))
@@ -483,11 +544,11 @@ async function applyEntry(entry, context) {
           data: { ...data, version: { increment: 1 } },
         })
       : await tx.processingPipelineLoan.create({
-          data: { loanId: entry.loan.id, ...data },
+          data: { loanId: loan.id, ...data },
         });
     await tx.auditLog.create({
       data: {
-        loanId: entry.loan.id,
+        loanId: loan.id,
         userId: context.actor.id,
         action: entry.pipeline
           ? 'PROCESSING_PIPELINE_BACKFILL_UPDATED'
@@ -498,6 +559,7 @@ async function applyEntry(entry, context) {
           sourceSheet: entry.row.sourceSheet,
           sourceRow: entry.row.sourceRow,
           ariveNumber: entry.row.ariveNumber,
+          placeholderLoanCreated: !entry.loan,
           tbdAppraisalResolution: entry.appraisal.source,
           inferredAppraisalOrderedAt: inferredAppraisalOrderedAt(entry),
           before,
@@ -508,6 +570,8 @@ async function applyEntry(entry, context) {
     return {
       ariveNumber: entry.row.ariveNumber,
       pipelineId: pipeline.id,
+      loanId: loan.id,
+      loanCreated: !entry.loan,
       created: !entry.pipeline,
     };
   }, { maxWait: 15_000, timeout: 45_000 });
@@ -517,8 +581,21 @@ async function main() {
   const options = parseArgs();
   const workbookHash = fingerprint(options.workbookPath);
   const workbook = await parseProcessingPipelineWorkbook(options.workbookPath);
+  const scopedWorkbook = options.sourceRows
+    ? {
+        ...workbook,
+        rows: [...workbook.rows, ...workbook.invalid].filter((row) =>
+          options.sourceRows.has(row.sourceRow),
+        ),
+      }
+    : options.onlyArives
+    ? {
+        ...workbook,
+        rows: workbook.rows.filter((row) => options.onlyArives.has(row.ariveNumber)),
+      }
+    : workbook;
   const indexes = await loadIndexes();
-  const { accepted, blocked } = resolveRows(workbook, indexes);
+  const { accepted, blocked } = resolveRows(scopedWorkbook, indexes);
   const acceptedWithChanges = accepted.map((entry) => ({
     ...entry,
     changedFields: changedPipelineFields(entry),
@@ -539,6 +616,7 @@ async function main() {
   console.log(`Duplicate ARIVE groups:     ${workbook.duplicates.length}`);
   console.log(`Blocked portal matches:     ${blocked.length}`);
   console.log(`Accepted rows:              ${accepted.length}`);
+  console.log(`Placeholder loans to create: ${accepted.filter((entry) => !entry.loan).length}`);
   console.log(`Pipeline create/update:     ${entriesToApply.filter((entry) => !entry.pipeline).length}/${entriesToApply.filter((entry) => entry.pipeline).length}`);
   console.log(`Already consistent:         ${acceptedWithChanges.filter((entry) => entry.changedFields.length === 0).length}`);
   console.log(`Rows with warnings:         ${accepted.filter((entry) => entry.warnings.length > 0).length}`);
@@ -565,6 +643,8 @@ async function main() {
       sha256: workbookHash,
       sheets: workbook.sheets,
       keyedRows: workbook.parsedRowCount,
+      selectedArives: options.onlyArives ? [...options.onlyArives] : null,
+      selectedSourceRows: options.sourceRows ? [...options.sourceRows] : null,
     },
     summary: {
       canonicalValidRows: workbook.rows.length,
@@ -572,6 +652,7 @@ async function main() {
       duplicateAriveGroups: workbook.duplicates.length,
       blockedPortalMatches: blocked.length,
       acceptedRows: accepted.length,
+      placeholderLoansToCreate: accepted.filter((entry) => !entry.loan).length,
       pipelinesToCreate: entriesToApply.filter((entry) => !entry.pipeline).length,
       pipelinesToUpdate: entriesToApply.filter((entry) => entry.pipeline).length,
       alreadyConsistent: acceptedWithChanges.filter(
@@ -603,6 +684,13 @@ async function main() {
       row: entry.row.sourceRow,
       ariveNumber: entry.row.ariveNumber,
       borrowerName: entry.row.borrowerName,
+      placeholderLoanOfficer: entry.loan
+        ? null
+        : {
+            workbook: entry.row.loanOfficer,
+            matched: entry.placeholderLoanOfficer.user?.name || null,
+            resolution: entry.placeholderLoanOfficer.resolution,
+          },
       existingPipeline: Boolean(entry.pipeline),
       juniorProcessor: {
         workbook: entry.row.juniorProcessor,
