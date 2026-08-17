@@ -1733,7 +1733,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                     : 'text-slate-500 hover:bg-white/70 hover:text-slate-800'
                 }`}
               >
-                {option.label}
+                <span className="inline-flex items-center gap-2">
+                  {isPending && sheet === option.value && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" aria-hidden="true" />
+                  )}
+                  {option.label}
+                </span>
               </button>
             ))}
           </div>
@@ -2093,27 +2098,38 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             </div>
           )}
         </div>
-        <div
-          ref={scrollContainerRef}
-          className="relative max-h-[66vh] min-h-72 overflow-auto"
-          aria-busy={isPending}
-        >
+        <div className="relative min-h-72">
           {isPending && (
             <div
-              className="pointer-events-none absolute right-4 top-4 z-50 flex w-fit items-center gap-2 rounded-xl border border-blue-100 bg-white/95 px-3 py-2 text-xs font-bold text-slate-700 shadow-lg shadow-slate-200/70"
+              className="absolute inset-0 z-[60] flex min-h-72 cursor-wait items-center justify-center bg-white/75 px-6 backdrop-blur-[2px]"
               role="status"
               aria-live="polite"
+              aria-label={`Loading ${activeViewLabel}`}
             >
-              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-              Updating {activeViewLabel}…
+              <div className="flex max-w-sm flex-col items-center rounded-2xl border border-blue-100 bg-white px-8 py-6 text-center shadow-xl shadow-slate-300/40">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 ring-1 ring-blue-100">
+                  <Loader2 className="h-7 w-7 animate-spin text-blue-600" aria-hidden="true" />
+                </div>
+                <p className="mt-4 text-sm font-black text-slate-950">
+                  Loading {activeViewLabel}…
+                </p>
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  Please wait while the pipeline list refreshes.
+                </p>
+              </div>
             </div>
           )}
-          <ColumnMenuContext.Provider value={columnMenuContextValue}>
-          <table
-            className="border-separate border-spacing-0 text-left text-[13px] leading-5 text-slate-700"
-            style={{ width: Math.max(tableWidth, 720), tableLayout: 'fixed' }}
-            aria-rowcount={visibleRows.length + 1}
+          <div
+            ref={scrollContainerRef}
+            className="relative max-h-[66vh] min-h-72 overflow-auto"
+            aria-busy={isPending}
           >
+            <ColumnMenuContext.Provider value={columnMenuContextValue}>
+            <table
+              className="border-separate border-spacing-0 text-left text-[13px] leading-5 text-slate-700"
+              style={{ width: Math.max(tableWidth, 720), tableLayout: 'fixed' }}
+              aria-rowcount={visibleRows.length + 1}
+            >
             <thead className="sticky top-0 z-30">
               <tr>
                 {isColumnVisible('dateAssigned') && (
@@ -2427,8 +2443,9 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                 </tr>
               )}
             </tbody>
-          </table>
-          </ColumnMenuContext.Provider>
+            </table>
+            </ColumnMenuContext.Provider>
+          </div>
         </div>
         {columnMenu && (
           <div
