@@ -71,6 +71,7 @@ import {
 } from '@/lib/processingRouting';
 import { isAdmin } from '@/lib/adminTiers';
 import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
+import { ProcessingBorrowerWorkspace } from './ProcessingBorrowerWorkspace';
 
 type PipelineResult = Extract<Awaited<ReturnType<typeof getProcessingPipeline>>, { success: true }>;
 type PipelineFilterOptions = Extract<
@@ -750,6 +751,8 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [savingRows, setSavingRows] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [historyRow, setHistoryRow] = useState<ProcessingPipelineRow | null>(null);
+  const [borrowerWorkspaceRowId, setBorrowerWorkspaceRowId] =
+    useState<string | null>(null);
   const [actionsMenuRow, setActionsMenuRow] = useState<ProcessingPipelineRow | null>(null);
   const [restructureDialog, setRestructureDialog] = useState<{
     row: ProcessingPipelineRow;
@@ -2267,7 +2270,14 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                       className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 lg:sticky lg:z-10 lg:shadow-[1px_0_0_#cbd5e1] ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
                       title={row.loan.borrowerName}
                     >
-                      {row.loan.borrowerName}
+                      <button
+                        type="button"
+                        onClick={() => setBorrowerWorkspaceRowId(row.id)}
+                        className="max-w-full truncate text-left font-bold text-blue-800 underline decoration-blue-300 decoration-1 underline-offset-2 transition hover:text-blue-950 hover:decoration-blue-600 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                        aria-label={`Open borrower workspace for ${row.loan.borrowerName}`}
+                      >
+                        {row.loan.borrowerName}
+                      </button>
                     </td>
                   )}
                   {isColumnVisible('leadSource') && (
@@ -2642,6 +2652,13 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
           </div>
         </div>,
         document.body,
+      )}
+
+      {borrowerWorkspaceRowId && (
+        <ProcessingBorrowerWorkspace
+          pipelineLoanId={borrowerWorkspaceRowId}
+          onClose={() => setBorrowerWorkspaceRowId(null)}
+        />
       )}
 
       {restructureDialog && (

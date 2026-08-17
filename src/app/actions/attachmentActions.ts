@@ -234,7 +234,9 @@ export async function finalizeTaskAttachment(input: {
 export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
   try {
     const session = await getServerSession(authOptions);
-    const role = session?.user?.role as UserRole | undefined;
+    const role = (session?.user?.activeRole || session?.user?.role) as
+      | UserRole
+      | undefined;
     const userId = session?.user?.id as string | undefined;
     if (!role || !userId) return { success: false, error: 'Not authenticated.' };
 
@@ -249,6 +251,12 @@ export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
             kind: true,
             assignedRole: true,
             assignedUserId: true,
+            processingPipelineSource: {
+              select: {
+                seniorProcessorId: true,
+                juniorProcessorId: true,
+              },
+            },
             loan: {
               select: {
                 loanOfficerId: true,
@@ -270,8 +278,17 @@ export async function getTaskAttachmentDownloadUrl(attachmentId: string) {
     const isLoanOwner =
       role === UserRole.LOAN_OFFICER &&
       canLoanOfficerViewLoan(attachment.task.loan, userId);
+    const isAssignedPipelineProcessor =
+      attachment.task.processingPipelineSource?.seniorProcessorId === userId ||
+      attachment.task.processingPipelineSource?.juniorProcessorId === userId;
 
-    if (!canManageAll && !isAssignedToUser && !isAssignedToRole && !isLoanOwner) {
+    if (
+      !canManageAll &&
+      !isAssignedToUser &&
+      !isAssignedToRole &&
+      !isLoanOwner &&
+      !isAssignedPipelineProcessor
+    ) {
       return { success: false, error: 'Not authorized.' };
     }
     if (

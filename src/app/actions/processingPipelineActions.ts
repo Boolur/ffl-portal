@@ -31,6 +31,12 @@ import {
   PROCESSING_METHOD_SELF_PROCESSED,
   PROCESSING_METHOD_THIRD_PARTY,
 } from '@/lib/processingRouting';
+import {
+  readSubmissionNotes,
+  readSubmissionString,
+  safeSubmissionObject,
+  sanitizeProcessingSubmissionData,
+} from '@/lib/processingBorrowerDetails';
 
 type Actor = {
   id: string;
@@ -1625,6 +1631,218 @@ export async function moveProcessingPipelineLoan(input: {
     patch: {
       pipelineStatus: result.pipelineStatus,
       restructureNotes: result.restructureNotes,
+    },
+  };
+}
+
+export async function getProcessingBorrowerDetails(id: string) {
+  noStore();
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const access = getProcessingPipelineAccess(actor.role);
+  if (!access.canView) return { success: false as const, error: 'Not authorized.' };
+
+  const row = await prisma.processingPipelineLoan.findFirst({
+    where: { AND: [{ id }, scopeWhere(actor)] },
+    include: {
+      loan: {
+        include: {
+          loanOfficer: { select: { id: true, name: true, email: true } },
+          secondaryLoanOfficer: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      },
+      seniorProcessor: { select: { id: true, name: true, email: true } },
+      juniorProcessor: { select: { id: true, name: true, email: true } },
+      sourceTask: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          createdAt: true,
+          completedAt: true,
+          submissionData: true,
+          attachments: {
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              filename: true,
+              contentType: true,
+              sizeBytes: true,
+              purpose: true,
+              createdAt: true,
+              uploadedBy: { select: { name: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!row) return { success: false as const, error: 'Pipeline row not found.' };
+
+  const submission = safeSubmissionObject(row.sourceTask.submissionData);
+  const effectiveLoanOfficer =
+    row.loan.secondaryLoanOfficer || row.loan.loanOfficer;
+  const propertyAddress =
+    row.loan.propertyAddress ||
+    readSubmissionString(
+      submission,
+      'propertyAddress',
+      'subjectPropertyAddress',
+    ) ||
+    [
+      [
+        readSubmissionString(submission, 'propertyStreet'),
+        readSubmissionString(submission, 'propertyUnit'),
+      ].filter(Boolean).join(' '),
+      readSubmissionString(submission, 'propertyCity'),
+      [
+        readSubmissionString(submission, 'propertyState'),
+        readSubmissionString(submission, 'propertyZip'),
+      ].filter(Boolean).join(' '),
+    ].filter(Boolean).join(', ') ||
+    null;
+
+  const audit = await prisma.auditLog.findMany({
+    where: {
+      loanId: row.loanId,
+      action: { startsWith: 'PROCESSING_' },
+    },
+    include: { user: { select: { name: true, role: true } } },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+
+  return {
+    success: true as const,
+    details: {
+      id: row.id,
+      canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
+      borrower: {
+        name: row.loan.borrowerName,
+        firstName: readSubmissionString(submission, 'borrowerFirstName'),
+        lastName: readSubmissionString(submission, 'borrowerLastName'),
+        phone:
+          row.loan.borrowerPhone ||
+          readSubmissionString(submission, 'borrowerPhone'),
+        email:
+          row.loan.borrowerEmail ||
+          readSubmissionString(submission, 'borrowerEmail'),
+        coBorrower: {
+          firstName: readSubmissionString(submission, 'coBorrowerFirstName'),
+          lastName: readSubmissionString(submission, 'coBorrowerLastName'),
+          phone: readSubmissionString(submission, 'coBorrowerPhone'),
+          email: readSubmissionString(submission, 'coBorrowerEmail'),
+        },
+      },
+      property: {
+        address: propertyAddress,
+        street: readSubmissionString(submission, 'propertyStreet'),
+        unit: readSubmissionString(submission, 'propertyUnit'),
+        city: readSubmissionString(submission, 'propertyCity'),
+        state:
+          row.propertyState ||
+          readSubmissionString(submission, 'propertyState'),
+        zip: readSubmissionString(submission, 'propertyZip'),
+        occupancy: readSubmissionString(
+          submission,
+          'propertyOccupancy',
+          'occupancyType',
+        ),
+        estimatedValue: readSubmissionString(
+          submission,
+          'homeValue',
+          'estimatedValue',
+        ),
+        yearBuilt: readSubmissionString(
+          submission,
+          'yearBuiltProperty',
+          'yearBuilt',
+        ),
+        yearAcquired: readSubmissionString(
+          submission,
+          'yearAquired',
+          'yearAcquired',
+        ),
+        titleHeldAs: readSubmissionString(
+          submission,
+          'mannerInWhichTitleWillBeHeld',
+        ),
+      },
+      loan: {
+        id: row.loan.id,
+        loanNumber: row.loan.loanNumber,
+        amount: Number(row.loan.amount),
+        program:
+          row.loan.program ||
+          readSubmissionString(submission, 'loanProgram'),
+        loanType:
+          row.loanType || readSubmissionString(submission, 'loanType'),
+        lender: row.lender,
+        channel: readSubmissionString(submission, 'channel'),
+        purpose: readSubmissionString(submission, 'loanPurpose', 'loanProgram'),
+        leadSource: row.leadSource,
+        cashBack: readSubmissionString(submission, 'cashBack'),
+        projectedRevenue:
+          row.projectedRevenue === null ? null : Number(row.projectedRevenue),
+      },
+      ownership: {
+        loanOfficer: effectiveLoanOfficer,
+        primaryLoanOfficer: row.loan.loanOfficer,
+        secondaryLoanOfficer: row.loan.secondaryLoanOfficer,
+        juniorProcessor: row.juniorProcessor,
+        seniorProcessor: row.seniorProcessor,
+        assignmentGroup: row.assignmentGroup,
+        processingMethod: row.processingMethod,
+      },
+      processing: {
+        sheet: row.sheet,
+        pipelineStatus: row.pipelineStatus,
+        daysInStatus: calculateDaysInStatus(row.statusChangedAt),
+        statusChangedAt: row.statusChangedAt.toISOString(),
+        dateAssigned: row.dateAssigned.toISOString(),
+        estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
+        titleStatus: row.titleStatus,
+        payoffStatus: row.payoffStatus,
+        hoiStatus: row.hoiStatus,
+        missingItemsCurrentStatus: row.missingItemsCurrentStatus,
+        extraNotes: row.extraNotes,
+        restructureNotes: row.restructureNotes,
+        rateLock: row.rateLock,
+        rateLockExpiresAt: row.rateLockExpiresAt?.toISOString() || null,
+        cdSent: row.cdSent,
+        fundedAt: row.fundedAt?.toISOString() || null,
+      },
+      appraisal: {
+        needed: row.appraisalNeeded,
+        notes: row.appraisalNotes,
+        waiver: readSubmissionString(submission, 'appraisalWaiver'),
+        orderedAt: row.appraisalOrderedAt?.toISOString() || null,
+        backAt: row.appraisalBackAt?.toISOString() || null,
+      },
+      sourceTask: {
+        id: row.sourceTask.id,
+        title: row.sourceTask.title,
+        status: row.sourceTask.status,
+        createdAt: row.sourceTask.createdAt.toISOString(),
+        completedAt: row.sourceTask.completedAt?.toISOString() || null,
+      },
+      notes: readSubmissionNotes(submission),
+      attachments: row.sourceTask.attachments.map((attachment) => ({
+        ...attachment,
+        createdAt: attachment.createdAt.toISOString(),
+        uploadedBy: attachment.uploadedBy.name,
+      })),
+      activity: audit.map((entry) => ({
+        id: entry.id,
+        action: entry.action,
+        details: entry.details,
+        createdAt: entry.createdAt.toISOString(),
+        actor: entry.user.name,
+        actorRole: entry.user.role,
+      })),
+      submission: sanitizeProcessingSubmissionData(submission),
     },
   };
 }

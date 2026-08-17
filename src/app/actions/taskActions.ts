@@ -46,6 +46,10 @@ import {
   type TaskBucketSort,
 } from '@/lib/taskBucketQueries';
 import { upsertProcessingPipelineForCompletedTask } from '@/lib/processingPipelineService';
+import {
+  normalizeProcessingProperty,
+  validateProcessingBorrowerContact,
+} from '@/lib/processingBorrowerDetails';
 
 function revalidatePath(path: string) {
   // Task clients patch or reload only the affected bucket. Invalidating the
@@ -2995,7 +2999,13 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     let processingMethod = '';
     let processingAssignmentGroup: string | null = null;
     let processingAssignmentLabel: string | null = null;
+    let processingPropertyStreet = '';
+    let processingPropertyUnit = '';
+    let processingPropertyCity = '';
     let processingPropertyState = '';
+    let processingPropertyZip = '';
+    let processingPropertyAddress = '';
+    let processingLoanProgram = '';
     let processingLender = '';
     let processingAppraisalNeeded: boolean | null = null;
     let processingAppraisalNotes = '';
@@ -3019,6 +3029,11 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         !Array.isArray(submissionData)
           ? (submissionData as Record<string, unknown>)
           : null;
+      const contact = validateProcessingBorrowerContact({
+        phone: borrowerPhone,
+        email: borrowerEmail,
+      });
+      if (!contact.success) return contact;
       const leadSource = String(submissionObject?.leadSource ?? '').trim();
       const leadVendor = String(submissionObject?.leadVendor ?? '').trim();
       if (!leadSource) {
@@ -3041,15 +3056,21 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         };
       }
       processingLender = qcInvestor;
-      processingPropertyState = String(submissionObject?.propertyState ?? '')
-        .trim()
-        .toUpperCase();
-      if (!/^[A-Z]{2}$/.test(processingPropertyState)) {
-        return {
-          success: false,
-          error: 'A valid two-letter Subject Property State is required before submitting Processing.',
-        };
-      }
+      const property = normalizeProcessingProperty({
+        street: submissionObject?.propertyStreet,
+        unit: submissionObject?.propertyUnit,
+        city: submissionObject?.propertyCity,
+        state: submissionObject?.propertyState,
+        zip: submissionObject?.propertyZip,
+      });
+      if (!property.success) return property;
+      processingPropertyStreet = property.street;
+      processingPropertyUnit = property.unit;
+      processingPropertyCity = property.city;
+      processingPropertyState = property.state;
+      processingPropertyZip = property.zip;
+      processingPropertyAddress = property.address;
+      processingLoanProgram = String(submissionObject?.loanProgram ?? '').trim();
       const rawAppraisalNeeded = submissionObject?.appraisalNeeded;
       if (typeof rawAppraisalNeeded === 'boolean') {
         processingAppraisalNeeded = rawAppraisalNeeded;
@@ -3231,6 +3252,8 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
           borrowerPhone: borrowerPhone?.trim() || null,
           borrowerEmail: borrowerEmail?.trim() || null,
           amount: Number(loanAmount || 0),
+          program: processingLoanProgram || null,
+          propertyAddress: processingPropertyAddress || null,
           loanOfficerId: loanOfficerUser.id,
           secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId,
           visibilitySubmitterUserId,
@@ -3246,11 +3269,15 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       const shouldUpdateVisibilitySubmitter =
         (loan.visibilitySubmitterUserId || null) !== visibilitySubmitterUserId;
       const shouldPromoteIntakeStage = loan.stage === 'INTAKE';
+      const shouldUpdateBorrowerDetails =
+        Boolean(borrowerPhone?.trim() || borrowerEmail?.trim()) ||
+        Boolean(processingLoanProgram || processingPropertyAddress);
       if (
         shouldReassignLoanOfficer ||
         shouldPromoteIntakeStage ||
         shouldUpdateSecondaryLoanOfficer ||
-        shouldUpdateVisibilitySubmitter
+        shouldUpdateVisibilitySubmitter ||
+        shouldUpdateBorrowerDetails
       ) {
         loan = await prisma.loan.update({
           where: { id: loan.id },
@@ -3265,6 +3292,10 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
               : {}),
             borrowerPhone: borrowerPhone?.trim() || loan.borrowerPhone || null,
             borrowerEmail: borrowerEmail?.trim() || loan.borrowerEmail || null,
+            ...(processingLoanProgram ? { program: processingLoanProgram } : {}),
+            ...(processingPropertyAddress
+              ? { propertyAddress: processingPropertyAddress }
+              : {}),
           },
         });
       }
@@ -3295,10 +3326,24 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       dataObj.processingMethodLabel = getProcessingMethodLabel(processingMethod);
       dataObj.processingAssignmentGroup = processingAssignmentGroup;
       dataObj.processingAssignmentLabel = processingAssignmentLabel;
+      dataObj.propertyStreet = processingPropertyStreet;
+      dataObj.propertyUnit = processingPropertyUnit || null;
+      dataObj.propertyCity = processingPropertyCity;
       dataObj.propertyState = processingPropertyState;
+      dataObj.propertyZip = processingPropertyZip;
+      dataObj.propertyAddress = processingPropertyAddress;
       dataObj.lender = processingLender;
       dataObj.appraisalNeeded = processingAppraisalNeeded;
       dataObj.appraisalNotes = processingAppraisalNotes;
+      for (const key of Object.keys(dataObj)) {
+        if (
+          /^(?:cardNumber|creditCardNumber|debitCardNumber|cardCvc|cardCvv|cvc|cvv|pan)$/i.test(
+            key,
+          )
+        ) {
+          delete dataObj[key];
+        }
+      }
       finalSubmissionData = dataObj as Prisma.JsonObject;
     }
     if (notes?.trim()) {

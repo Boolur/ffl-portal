@@ -273,6 +273,9 @@ type MismoPrefill = {
   borrowerLastName?: string;
   borrowerPhone?: string;
   borrowerEmail?: string;
+  coBorrowerFirstName?: string;
+  coBorrowerLastName?: string;
+  coBorrowerPhone?: string;
   coBorrowerEmail?: string;
   hasMultipleBorrowers?: boolean;
   arriveLoanNumber?: string;
@@ -281,7 +284,12 @@ type MismoPrefill = {
   loanType?: string;
   loanProgram?: string;
   loanAmount?: string;
+  propertyStreet?: string;
+  propertyUnit?: string;
+  propertyCity?: string;
   propertyState?: string;
+  propertyZip?: string;
+  propertyOccupancy?: string;
   homeValue?: string;
   employerName?: string;
   employerAddress?: string;
@@ -512,6 +520,15 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     ]);
   const coBorrowerParty = borrowerParties.length > 1 ? borrowerParties[1] : null;
   const hasMultipleBorrowers = borrowerParties.length > 1;
+  const coBorrowerFirstName = getTextFromElement(coBorrowerParty, 'FirstName');
+  const coBorrowerLastName = getTextFromElement(coBorrowerParty, 'LastName');
+  const coBorrowerPhone = getFirstText(coBorrowerParty, [
+    'ContactPointTelephoneValue',
+    'TelephoneNumber',
+    'PhoneNumber',
+    'PhoneNumberValue',
+    'BorrowerHomeTelephoneNumber',
+  ]);
   const borrowerEmail =
     getEmailFromParty(borrowerParty) ||
     getFirstText(doc, [
@@ -614,12 +631,38 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     doc.getElementsByTagNameNS('*', 'SUBJECT_PROPERTY')[0] ??
     doc.getElementsByTagNameNS('*', 'PROPERTY')[0] ??
     null;
+  const propertyStreet = getFirstText(subjectProperty, [
+    'AddressLineText',
+    'AddressLine1Text',
+    'StreetAddress',
+    'PropertyStreetAddress',
+  ]);
+  const propertyUnit = getFirstText(subjectProperty, [
+    'AddressUnitIdentifier',
+    'UnitIdentifier',
+    'UnitNumber',
+  ]);
+  const propertyCity = getFirstText(subjectProperty, [
+    'CityName',
+    'AddressCityName',
+    'PropertyCityName',
+  ]);
   const propertyState = (
     getFirstText(subjectProperty, ['StateCode', 'AddressStateCode', 'PropertyStateCode']) ||
     getFirstText(doc, ['SubjectPropertyStateCode', 'PropertyStateCode'])
   )
     .trim()
     .toUpperCase();
+  const propertyZip = getFirstText(subjectProperty, [
+    'PostalCode',
+    'AddressPostalCode',
+    'PropertyPostalCode',
+  ]);
+  const propertyOccupancy = getFirstText(subjectProperty, [
+    'PropertyUsageType',
+    'OccupancyType',
+    'IntendedOccupancyType',
+  ]);
 
   const mortgageType = getText(doc, 'MortgageType');
   const mortgageTypeNormalized = mortgageType.trim().toUpperCase();
@@ -690,6 +733,9 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     borrowerLastName,
     borrowerPhone,
     borrowerEmail,
+    coBorrowerFirstName,
+    coBorrowerLastName,
+    coBorrowerPhone,
     coBorrowerEmail,
     hasMultipleBorrowers,
     arriveLoanNumber,
@@ -698,7 +744,12 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     loanType,
     loanProgram,
     loanAmount,
+    propertyStreet,
+    propertyUnit,
+    propertyCity,
     propertyState,
+    propertyZip,
+    propertyOccupancy,
     homeValue,
     employerName,
     employerAddress,
@@ -1879,6 +1930,10 @@ function QcForm({
     borrowerLastName: '',
     borrowerPhone: '',
     borrowerEmail: '',
+    coBorrowerFirstName: '',
+    coBorrowerLastName: '',
+    coBorrowerPhone: '',
+    coBorrowerEmail: '',
     arriveLoanNumber: '',
     channel: '',
     investor: '',
@@ -1890,7 +1945,16 @@ function QcForm({
     loanType: '',
     loanProgram: '',
     loanAmount: '',
+    propertyStreet: '',
+    propertyUnit: '',
+    propertyCity: '',
     propertyState: '',
+    propertyZip: '',
+    propertyOccupancy: '',
+    homeValue: '',
+    yearBuiltProperty: '',
+    yearAquired: '',
+    mannerInWhichTitleWillBeHeld: '',
     cashBack: '',
     projectedRevenue: '',
     aus: '',
@@ -1930,7 +1994,10 @@ function QcForm({
     { key: 'loanType', label: 'Loan Type' },
     { key: 'loanProgram', label: 'Loan Program' },
     { key: 'loanAmount', label: 'Loan Amount' },
+    { key: 'propertyStreet', label: 'Subject Property Street' },
+    { key: 'propertyCity', label: 'Subject Property City' },
     { key: 'propertyState', label: 'Subject Property State' },
+    { key: 'propertyZip', label: 'Subject Property ZIP' },
     { key: 'cashBack', label: 'Cash Back' },
     { key: 'projectedRevenue', label: 'Projected Revenue' },
     { key: 'aus', label: 'AUS' },
@@ -2092,13 +2159,32 @@ function QcForm({
         borrowerLastName: prefill.borrowerLastName || prev.borrowerLastName,
         borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
         borrowerEmail: prefill.borrowerEmail || prev.borrowerEmail,
+        coBorrowerFirstName:
+          prefill.coBorrowerFirstName || prev.coBorrowerFirstName,
+        coBorrowerLastName:
+          prefill.coBorrowerLastName || prev.coBorrowerLastName,
+        coBorrowerPhone: prefill.coBorrowerPhone || prev.coBorrowerPhone,
+        coBorrowerEmail: prefill.coBorrowerEmail || prev.coBorrowerEmail,
         arriveLoanNumber: prefill.arriveLoanNumber || prev.arriveLoanNumber,
         channel: prefill.channel || prev.channel,
         investor: prefill.investor || prev.investor,
         loanType: prefill.loanType || prev.loanType,
         loanProgram: prefill.loanProgram || prev.loanProgram,
         loanAmount: prefill.loanAmount || prev.loanAmount,
+        propertyStreet: prefill.propertyStreet || prev.propertyStreet,
+        propertyUnit: prefill.propertyUnit || prev.propertyUnit,
+        propertyCity: prefill.propertyCity || prev.propertyCity,
         propertyState: prefill.propertyState || prev.propertyState,
+        propertyZip: prefill.propertyZip || prev.propertyZip,
+        propertyOccupancy:
+          prefill.propertyOccupancy || prev.propertyOccupancy,
+        homeValue: prefill.homeValue || prev.homeValue,
+        yearBuiltProperty:
+          prefill.yearBuiltProperty || prev.yearBuiltProperty,
+        yearAquired: prefill.yearAquired || prev.yearAquired,
+        mannerInWhichTitleWillBeHeld:
+          prefill.mannerInWhichTitleWillBeHeld ||
+          prev.mannerInWhichTitleWillBeHeld,
         creditReportNotesExp:
           prefill.creditReportNotesExp || prev.creditReportNotesExp,
         creditReportNotesEqf:
@@ -2165,6 +2251,12 @@ function QcForm({
         </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="md:col-span-2 border-b border-slate-200 pb-2">
+          <h3 className="text-sm font-black text-slate-900">Borrower and ownership</h3>
+          <p className="text-xs font-medium text-slate-500">
+            Confirm the primary contact and assigned Loan Officers.
+          </p>
+        </div>
         <label className="space-y-1 text-sm">
           <span
             className={
@@ -2235,10 +2327,23 @@ function QcForm({
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required invalid={highlightedMissingFields.has('borrowerLastName')} />
         <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required invalid={highlightedMissingFields.has('borrowerPhone')} />
         <Input label="Borrower Email" value={form.borrowerEmail} onChange={(v) => update('borrowerEmail', v)} required invalid={highlightedMissingFields.has('borrowerEmail')} />
+        <Input label="Co-Borrower First Name" value={form.coBorrowerFirstName} onChange={(v) => update('coBorrowerFirstName', v)} />
+        <Input label="Co-Borrower Last Name" value={form.coBorrowerLastName} onChange={(v) => update('coBorrowerLastName', v)} />
+        <Input label="Co-Borrower Phone" value={form.coBorrowerPhone} onChange={(v) => update('coBorrowerPhone', v)} />
+        <Input label="Co-Borrower Email" value={form.coBorrowerEmail} onChange={(v) => update('coBorrowerEmail', v)} />
+        <div className="md:col-span-2 border-b border-slate-200 pb-2 pt-2">
+          <h3 className="text-sm font-black text-slate-900">Loan and property</h3>
+          <p className="text-xs font-medium text-slate-500">
+            MISMO values are editable so incomplete exports can be corrected before submission.
+          </p>
+        </div>
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={loanTypeOptions} required invalid={highlightedMissingFields.has('loanType')} />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required invalid={highlightedMissingFields.has('loanProgram')} />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
+        <Input label="Subject Property Street" value={form.propertyStreet} onChange={(v) => update('propertyStreet', v)} required invalid={highlightedMissingFields.has('propertyStreet')} />
+        <Input label="Unit / Apt" value={form.propertyUnit} onChange={(v) => update('propertyUnit', v)} />
+        <Input label="Subject Property City" value={form.propertyCity} onChange={(v) => update('propertyCity', v)} required invalid={highlightedMissingFields.has('propertyCity')} />
         <Input
           label="Subject Property State"
           value={form.propertyState}
@@ -2247,6 +2352,18 @@ function QcForm({
           required
           invalid={highlightedMissingFields.has('propertyState')}
         />
+        <Input label="Subject Property ZIP" value={form.propertyZip} onChange={(v) => update('propertyZip', v.replace(/[^0-9-]/g, '').slice(0, 10))} required invalid={highlightedMissingFields.has('propertyZip')} />
+        <Input label="Occupancy" value={form.propertyOccupancy} onChange={(v) => update('propertyOccupancy', v)} />
+        <Input label="Estimated Property Value" value={form.homeValue} onChange={(v) => update('homeValue', v)} />
+        <Input label="Year Built" value={form.yearBuiltProperty} onChange={(v) => update('yearBuiltProperty', v)} />
+        <Input label="Year Acquired" value={form.yearAquired} onChange={(v) => update('yearAquired', v)} />
+        <Input label="Title Will Be Held As" value={form.mannerInWhichTitleWillBeHeld} onChange={(v) => update('mannerInWhichTitleWillBeHeld', v)} />
+        <div className="md:col-span-2 border-b border-slate-200 pb-2 pt-2">
+          <h3 className="text-sm font-black text-slate-900">Processing and appraisal</h3>
+          <p className="text-xs font-medium text-slate-500">
+            Operational details used by the processor after the request is completed.
+          </p>
+        </div>
         <Input label="Cash Back" value={form.cashBack} onChange={(v) => update('cashBack', v)} required invalid={highlightedMissingFields.has('cashBack')} />
         <Input label="Projected Revenue" value={form.projectedRevenue} onChange={(v) => update('projectedRevenue', v)} required invalid={highlightedMissingFields.has('projectedRevenue')} />
         <Select
