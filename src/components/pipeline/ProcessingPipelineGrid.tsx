@@ -997,6 +997,8 @@ export function ProcessingPipelineGrid({
       return definition ? [{ ...definition, width: column.width }] : [];
     });
   const currentColumns = detailsExpanded ? canonicalColumns : condensedColumns;
+  const actionsPinnedRight =
+    currentColumns[currentColumns.length - 1]?.id === 'actions';
   const visibleColumnCount = currentColumns.length;
   const tableWidth = currentColumns.reduce(
     (sum, column) =>
@@ -1687,7 +1689,7 @@ export function ProcessingPipelineGrid({
         onResize={resizeColumn}
         stickyLeft={stickyLeftByColumn.get(id)}
         className={
-          id === 'actions'
+          id === 'actions' && actionsPinnedRight
             ? 'lg:sticky lg:right-0 lg:z-30 lg:shadow-[-1px_0_0_#e2e8f0]'
             : id === 'borrowerName'
               ? 'shadow-[1px_0_0_#cbd5e1]'
@@ -2093,7 +2095,11 @@ export function ProcessingPipelineGrid({
         return (
           <td
             key={id}
-            className={`border-b border-slate-200 px-2 py-2 lg:sticky lg:right-0 lg:z-20 lg:shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+            className={`border-b border-slate-200 px-2 py-2 ${
+              actionsPinnedRight
+                ? 'lg:sticky lg:right-0 lg:z-20 lg:shadow-[-1px_0_0_#e2e8f0]'
+                : ''
+            } ${stickyRowSurfaceTone[row.pipelineStatus]}`}
           >
             <div className="flex items-center justify-end gap-1.5">
               {savingRows.has(row.id) && (

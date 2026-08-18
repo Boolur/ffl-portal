@@ -108,6 +108,7 @@ export const PROCESSING_MANDATORY_COLUMN_IDS = [
   'loanOfficer',
   'borrowerName',
   'pipelineStatus',
+  'actions',
 ] as const satisfies readonly ProcessingPipelineColumnId[];
 
 export type ProcessingLayoutColumn = {

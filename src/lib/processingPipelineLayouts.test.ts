@@ -79,6 +79,7 @@ describe('processing pipeline saved layouts', () => {
       'loanOfficer',
       'borrowerName',
       'pipelineStatus',
+      'actions',
     ]);
     expect(mandatoryColumnsForBucket('FUNDING', UserRole.LOAN_OFFICER)).toEqual([
       'dateAssigned',
