@@ -19,6 +19,7 @@ import {
   Clock3,
   Filter,
   History,
+  LayoutTemplate,
   ListFilter,
   Loader2,
   Lock,
@@ -53,6 +54,11 @@ import {
   type ProcessingRestructureAction,
 } from '@/app/actions/processingPipelineActions';
 import {
+  activateProcessingPipelineLayout,
+  updateProcessingPipelineLayout,
+  type ProcessingPipelineSavedLayout,
+} from '@/app/actions/processingPipelineLayoutActions';
+import {
   PROCESSING_ITEM_STATUS_OPTIONS,
   PROCESSING_PIPELINE_SHEETS,
   PROCESSING_PIPELINE_STATUS_OPTIONS,
@@ -72,6 +78,15 @@ import {
 import { isAdmin } from '@/lib/adminTiers';
 import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
 import { ProcessingBorrowerWorkspace } from './ProcessingBorrowerWorkspace';
+import { ProcessingPipelineLayoutManager } from './ProcessingPipelineLayoutManager';
+import {
+  buildDefaultProcessingLayoutConfig,
+  processingLayoutBucketColumns,
+  PROCESSING_FUNDING_COLUMNS,
+  PROCESSING_PIPELINE_COLUMNS,
+  type ProcessingLayoutBucket,
+  type ProcessingPipelineColumnId,
+} from '@/lib/processingPipelineLayouts';
 
 type PipelineResult = Extract<Awaited<ReturnType<typeof getProcessingPipeline>>, { success: true }>;
 type PipelineFilterOptions = Extract<
@@ -81,6 +96,7 @@ type PipelineFilterOptions = Extract<
 
 type Props = {
   initialData: PipelineResult;
+  initialLayouts: ProcessingPipelineSavedLayout[];
   role: UserRole;
 };
 
@@ -120,125 +136,9 @@ type EditableField =
   | 'propertyState'
   | 'finalRevenue';
 
-type ColumnId =
-  | 'loanOfficer'
-  | 'dateAssigned'
-  | 'loanNumber'
-  | 'borrowerName'
-  | 'propertyState'
-  | 'loanAmount'
-  | 'loanType'
-  | 'lender'
-  | 'leadSource'
-  | 'juniorProcessor'
-  | 'seniorProcessor'
-  | 'pipelineStatus'
-  | 'estimatedSigningAt'
-  | 'daysInStatus'
-  | 'titleStatus'
-  | 'payoffStatus'
-  | 'hoiStatus'
-  | 'appraisalNeeded'
-  | 'appraisalNotes'
-  | 'appraisalOrderedAt'
-  | 'appraisalBackAt'
-  | 'cdSent'
-  | 'missingItemsCurrentStatus'
-  | 'restructureNotes'
-  | 'extraNotes'
-  | 'rateLock'
-  | 'fundedAt'
-  | 'projectedRevenue'
-  | 'finalRevenue'
-  | 'firstPaymentAt'
-  | 'sixthPaymentAt'
-  | 'actions';
-
-const PIPELINE_COLUMNS: Array<{ id: ColumnId; label: string; width: number; optional?: boolean }> = [
-  { id: 'dateAssigned', label: 'Assigned', width: 94 },
-  { id: 'loanNumber', label: 'Arive #', width: 96 },
-  { id: 'loanOfficer', label: 'Loan Officer', width: 128 },
-  { id: 'borrowerName', label: 'Borrower', width: 154 },
-  { id: 'propertyState', label: 'State', width: 76 },
-  { id: 'lender', label: 'Lender', width: 140 },
-  { id: 'leadSource', label: 'Lead Source', width: 140, optional: true },
-  { id: 'loanAmount', label: 'Loan Amount', width: 126 },
-  { id: 'loanType', label: 'Loan Type', width: 108 },
-  { id: 'juniorProcessor', label: 'Jr Processor', width: 118 },
-  { id: 'seniorProcessor', label: 'Processor', width: 118 },
-  { id: 'pipelineStatus', label: 'Pipeline Status', width: 164 },
-  { id: 'missingItemsCurrentStatus', label: 'Pending Items', width: 220 },
-  { id: 'restructureNotes', label: 'Restructure Notes', width: 280 },
-  { id: 'titleStatus', label: 'Title', width: 124 },
-  { id: 'payoffStatus', label: 'Payoff', width: 124 },
-  { id: 'hoiStatus', label: 'HOI', width: 124 },
-  { id: 'appraisalNeeded', label: 'Appraisal?', width: 118 },
-  { id: 'daysInStatus', label: 'Days', width: 68 },
-  { id: 'appraisalNotes', label: 'Appraisal Notes', width: 220, optional: true },
-  { id: 'appraisalOrderedAt', label: 'Appraisal Ordered', width: 146, optional: true },
-  { id: 'appraisalBackAt', label: 'Appraisal Back', width: 140, optional: true },
-  { id: 'cdSent', label: 'CD Sent?', width: 112, optional: true },
-  { id: 'estimatedSigningAt', label: 'Est. Signing', width: 132, optional: true },
-  { id: 'extraNotes', label: 'Extra Notes', width: 210, optional: true },
-  { id: 'rateLock', label: 'Rate Lock', width: 112, optional: true },
-  { id: 'projectedRevenue', label: 'Revenue', width: 130, optional: true },
-  { id: 'actions', label: 'Actions', width: 142 },
-];
-
-const FUNDING_COLUMNS: Array<{ id: ColumnId; label: string; width: number; optional?: boolean }> = [
-  { id: 'dateAssigned', label: 'Assigned', width: 96 },
-  { id: 'loanNumber', label: 'Arive #', width: 100 },
-  { id: 'loanOfficer', label: 'Loan Officer', width: 140 },
-  { id: 'borrowerName', label: 'Borrower', width: 170 },
-  { id: 'leadSource', label: 'Lead Source', width: 140 },
-  { id: 'propertyState', label: 'State', width: 76 },
-  { id: 'loanType', label: 'Loan Type', width: 112 },
-  { id: 'lender', label: 'Lender', width: 140 },
-  { id: 'juniorProcessor', label: 'Junior', width: 130 },
-  { id: 'seniorProcessor', label: 'Senior', width: 130 },
-  { id: 'fundedAt', label: 'Funded Date', width: 120 },
-  { id: 'finalRevenue', label: 'Final Revenue', width: 140 },
-  { id: 'firstPaymentAt', label: 'First Payment', width: 120 },
-  { id: 'sixthPaymentAt', label: '6th Payment', width: 120 },
-];
-
-const PIPELINE_FOCUS_COLUMNS = new Set<ColumnId>([
-  'dateAssigned',
-  'loanNumber',
-  'loanOfficer',
-  'borrowerName',
-  'propertyState',
-  'lender',
-  'loanAmount',
-  'loanType',
-  'juniorProcessor',
-  'seniorProcessor',
-  'pipelineStatus',
-  'missingItemsCurrentStatus',
-  'restructureNotes',
-  'titleStatus',
-  'payoffStatus',
-  'hoiStatus',
-  'appraisalNeeded',
-  'daysInStatus',
-  'actions',
-]);
-const FUNDING_FOCUS_COLUMNS = new Set<ColumnId>([
-  'dateAssigned',
-  'loanNumber',
-  'loanOfficer',
-  'borrowerName',
-  'leadSource',
-  'propertyState',
-  'loanType',
-  'lender',
-  'juniorProcessor',
-  'seniorProcessor',
-  'fundedAt',
-  'finalRevenue',
-  'firstPaymentAt',
-  'sixthPaymentAt',
-]);
+type ColumnId = ProcessingPipelineColumnId;
+const PIPELINE_COLUMNS = PROCESSING_PIPELINE_COLUMNS;
+const FUNDING_COLUMNS = PROCESSING_FUNDING_COLUMNS;
 const STICKY_IDENTITY_COLUMNS = [
   'dateAssigned',
   'loanNumber',
@@ -713,8 +613,15 @@ function parseAuditDetails(details: string | null) {
   }
 }
 
-export function ProcessingPipelineGrid({ initialData, role }: Props) {
+export function ProcessingPipelineGrid({
+  initialData,
+  initialLayouts,
+  role,
+}: Props) {
   const hasSearchEffectMounted = useRef(false);
+  const layoutWidthSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const filterOptionsBySheet = useRef(
     new Map<PipelineView, PipelineFilterOptions>()
@@ -731,6 +638,12 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [filterOptions, setFilterOptions] = useState<PipelineFilterOptions>(EMPTY_FILTER_OPTIONS);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [layouts, setLayouts] =
+    useState<ProcessingPipelineSavedLayout[]>(initialLayouts);
+  const [layoutManagerOpen, setLayoutManagerOpen] = useState(false);
+  const [activatingLayoutId, setActivatingLayoutId] = useState<string | null>(
+    null,
+  );
   const [columnWidths, setColumnWidths] = useState<Record<ColumnId, number>>(
     () => Object.fromEntries(
       [...PIPELINE_COLUMNS, ...FUNDING_COLUMNS].map((column) => [column.id, column.width])
@@ -796,8 +709,6 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   const isProcessor =
     role === UserRole.PROCESSOR_SR || role === UserRole.PROCESSOR_JR;
   const isManagerOrAdmin = role === UserRole.MANAGER || isAdmin(role);
-  const usesLeadershipCondensedColumns =
-    isLoanOfficer || role === UserRole.LOA || isManagerOrAdmin;
   const isRateLockRequestsView = sheet === RATE_LOCK_REQUESTS_VIEW;
   const pipelineViews: Array<{ value: PipelineView; label: string }> = [
     { value: ProcessingPipelineSheet.PIPELINE, label: 'Pipeline' },
@@ -841,6 +752,15 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     const interval = window.setInterval(() => setClockNow(new Date()), 60_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (layoutWidthSaveTimer.current) {
+        clearTimeout(layoutWidthSaveTimer.current);
+      }
+    },
+    [],
+  );
 
   const loadRows = (
     nextSheet = sheet,
@@ -1037,45 +957,65 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     });
   };
 
-  const currentColumns = sheet === ProcessingPipelineSheet.FUNDING
-    ? FUNDING_COLUMNS
-    : PIPELINE_COLUMNS;
-  const pipelineFocusColumns = usesLeadershipCondensedColumns
-    ? new Set<ColumnId>([
-        ...Array.from(PIPELINE_FOCUS_COLUMNS).filter(
-          (id) =>
-            id !== 'titleStatus' &&
-            id !== 'payoffStatus' &&
-            id !== 'hoiStatus',
-        ),
-        'appraisalNotes',
-        'projectedRevenue',
-      ])
-    : PIPELINE_FOCUS_COLUMNS;
-  const focusColumns = sheet === ProcessingPipelineSheet.FUNDING
-    ? FUNDING_FOCUS_COLUMNS
-    : isRateLockRequestsView
-      ? new Set<ColumnId>([...pipelineFocusColumns, 'rateLock'])
-      : pipelineFocusColumns;
-  const isColumnVisible = (id: ColumnId) =>
-    (id !== 'restructureNotes' ||
-      sheet === ProcessingPipelineSheet.RESTRUCTURE ||
-      isRateLockRequestsView) &&
-    (!isProcessor ||
-      (id !== 'loanAmount' &&
-        id !== 'projectedRevenue' &&
-        id !== 'leadSource')) &&
-    (detailsExpanded || focusColumns.has(id));
-  const visibleColumnCount = currentColumns.filter((column) => isColumnVisible(column.id)).length;
-  const tableWidth = currentColumns
-    .filter((column) => isColumnVisible(column.id))
-    .reduce((sum, column) => sum + (columnWidths[column.id] || column.width), 0);
+  const selectSavedLayout = async (id: string) => {
+    if (id === activeLayout?.id || activatingLayoutId) return;
+    const previous = layouts;
+    setActivatingLayoutId(id);
+    setLayouts((current) =>
+      current.map((layout) => ({ ...layout, isActive: layout.id === id })),
+    );
+    const result = await activateProcessingPipelineLayout(id);
+    setActivatingLayoutId(null);
+    if (!result.success) {
+      setLayouts(previous);
+      setMessage(result.error);
+      return;
+    }
+    setLayouts(result.layouts);
+    setMessage('');
+  };
+
+  const layoutBucket: ProcessingLayoutBucket =
+    sheet === ProcessingPipelineSheet.FUNDING
+      ? 'FUNDING'
+      : sheet === ProcessingPipelineSheet.RESTRUCTURE
+        ? 'RESTRUCTURE'
+        : isRateLockRequestsView
+          ? 'RATE_LOCK_REQUESTS'
+          : 'PIPELINE';
+  const activeLayout = layouts.find((layout) => layout.isActive) || null;
+  const activeLayoutConfig =
+    activeLayout?.config || buildDefaultProcessingLayoutConfig(role);
+  const canonicalColumns = processingLayoutBucketColumns(layoutBucket, role);
+  const canonicalById = new Map(
+    canonicalColumns.map((column) => [column.id, column]),
+  );
+  const condensedColumns = activeLayoutConfig.buckets[layoutBucket].columns
+    .filter((column) => column.visible)
+    .flatMap((column) => {
+      const definition = canonicalById.get(column.id);
+      return definition ? [{ ...definition, width: column.width }] : [];
+    });
+  const currentColumns = detailsExpanded ? canonicalColumns : condensedColumns;
+  const visibleColumnCount = currentColumns.length;
+  const tableWidth = currentColumns.reduce(
+    (sum, column) =>
+      sum +
+      (detailsExpanded
+        ? columnWidths[column.id] || column.width
+        : column.width),
+    0,
+  );
   const stickyLeftByColumn = new Map<ColumnId, number>();
   let stickyLeft = 0;
-  for (const id of STICKY_IDENTITY_COLUMNS) {
-    if (!isColumnVisible(id)) continue;
-    stickyLeftByColumn.set(id, stickyLeft);
-    stickyLeft += columnWidths[id];
+  for (const column of currentColumns) {
+    if (!STICKY_IDENTITY_COLUMNS.includes(
+      column.id as (typeof STICKY_IDENTITY_COLUMNS)[number],
+    )) continue;
+    stickyLeftByColumn.set(column.id, stickyLeft);
+    stickyLeft += detailsExpanded
+      ? columnWidths[column.id] || column.width
+      : column.width;
   }
   const rowVirtualizer = useVirtualizer({
     count: visibleRows.length,
@@ -1090,10 +1030,13 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
     virtualRows.length > 0
       ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
       : 0;
+  const layoutMeasureKey = currentColumns
+    .map((column) => `${column.id}:${column.width}`)
+    .join('|');
 
   useEffect(() => {
     rowVirtualizer.measure();
-  }, [columnWidths, detailsExpanded, rowVirtualizer]);
+  }, [columnWidths, detailsExpanded, layoutMeasureKey, rowVirtualizer]);
 
   const activeServerFilterCount = Object.values(appliedFilters).filter((value) => {
     if (Array.isArray(value)) return value.length > 0;
@@ -1210,7 +1153,41 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   };
 
   const resizeColumn = (id: ColumnId, width: number) => {
-    setColumnWidths((current) => ({ ...current, [id]: Math.round(width) }));
+    const roundedWidth = Math.round(width);
+    setColumnWidths((current) => ({ ...current, [id]: roundedWidth }));
+    if (detailsExpanded || !activeLayout) return;
+    const nextConfig = {
+      ...activeLayout.config,
+      buckets: {
+        ...activeLayout.config.buckets,
+        [layoutBucket]: {
+          columns: activeLayout.config.buckets[layoutBucket].columns.map(
+            (column) =>
+              column.id === id
+                ? { ...column, width: roundedWidth }
+                : column,
+          ),
+        },
+      },
+    };
+    setLayouts((current) =>
+      current.map((layout) =>
+        layout.id === activeLayout.id
+          ? { ...layout, config: nextConfig }
+          : layout,
+      ),
+    );
+    if (layoutWidthSaveTimer.current) {
+      clearTimeout(layoutWidthSaveTimer.current);
+    }
+    layoutWidthSaveTimer.current = setTimeout(async () => {
+      const result = await updateProcessingPipelineLayout({
+        id: activeLayout.id,
+        name: activeLayout.name,
+        config: nextConfig,
+      });
+      if (result.success) setLayouts(result.layouts);
+    }, 600);
   };
 
   const patchRow = (id: string, patch: Partial<ProcessingPipelineRow>) => {
@@ -1687,6 +1664,458 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
   };
 
   const cellPadding = 'px-3 py-3';
+  const renderHeader = (column: (typeof currentColumns)[number]) => {
+    const id = column.id;
+    const sortableBy =
+      id === 'dateAssigned'
+        ? 'dateAssigned'
+        : id === 'loanNumber'
+          ? 'loanNumber'
+          : id === 'borrowerName'
+            ? 'borrowerName'
+            : id === 'daysInStatus'
+              ? 'statusChangedAt'
+              : null;
+    const width = detailsExpanded
+      ? columnWidths[id] || column.width
+      : column.width;
+    return (
+      <ResizableHeader
+        key={id}
+        id={id}
+        width={width}
+        onResize={resizeColumn}
+        stickyLeft={stickyLeftByColumn.get(id)}
+        className={
+          id === 'actions'
+            ? 'lg:sticky lg:right-0 lg:z-30 lg:shadow-[-1px_0_0_#e2e8f0]'
+            : id === 'borrowerName'
+              ? 'shadow-[1px_0_0_#cbd5e1]'
+              : ''
+        }
+      >
+        {sortableBy ? (
+          <button
+            type="button"
+            onClick={() => changeSort(sortableBy)}
+            className="w-full text-left hover:text-blue-700"
+          >
+            {column.label}
+          </button>
+        ) : (
+          column.label
+        )}
+      </ResizableHeader>
+    );
+  };
+
+  const renderCell = (
+    row: ProcessingPipelineRow,
+    id: ColumnId,
+    overdue: {
+      title: boolean;
+      payoff: boolean;
+      hoi: boolean;
+      appraisalBack: boolean;
+    },
+  ) => {
+    switch (id) {
+      case 'dateAssigned':
+        return (
+          <td
+            key={id}
+            style={{ left: stickyLeftByColumn.get(id) }}
+            className={`truncate border-b border-r border-slate-200 font-medium text-slate-600 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+          >
+            {formatDate(row.dateAssigned)}
+          </td>
+        );
+      case 'loanNumber':
+        return (
+          <td
+            key={id}
+            style={{ left: stickyLeftByColumn.get(id) }}
+            className={`truncate border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+          >
+            {row.loan.loanNumber}
+          </td>
+        );
+      case 'loanOfficer':
+        return (
+          <td
+            key={id}
+            style={{ left: stickyLeftByColumn.get(id) }}
+            className={`truncate border-b border-r border-slate-200 font-semibold text-slate-900 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+            title={row.loan.loanOfficer.name}
+          >
+            {row.loan.loanOfficer.name}
+          </td>
+        );
+      case 'borrowerName':
+        return (
+          <td
+            key={id}
+            style={{ left: stickyLeftByColumn.get(id) }}
+            className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 lg:sticky lg:z-10 lg:shadow-[1px_0_0_#cbd5e1] ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+            title={row.loan.borrowerName}
+          >
+            <button
+              type="button"
+              onClick={() => setBorrowerWorkspaceRowId(row.id)}
+              className="max-w-full truncate text-left font-bold text-blue-800 underline decoration-blue-300 decoration-1 underline-offset-2 transition hover:text-blue-950 hover:decoration-blue-600 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              aria-label={`Open borrower workspace for ${row.loan.borrowerName}`}
+            >
+              {row.loan.borrowerName}
+            </button>
+          </td>
+        );
+      case 'leadSource':
+        return (
+          <td
+            key={id}
+            className={`truncate border-b border-r border-slate-200 ${cellPadding}`}
+            title={row.leadSource || undefined}
+          >
+            {row.leadSource || '—'}
+          </td>
+        );
+      case 'propertyState':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {sheet === ProcessingPipelineSheet.FUNDING ? (
+              <span className="block px-2 py-1.5">{row.propertyState || '—'}</span>
+            ) : (
+              textCell(row, 'propertyState', row.propertyState)
+            )}
+          </td>
+        );
+      case 'lender':
+        return sheet === ProcessingPipelineSheet.FUNDING ? (
+          <td
+            key={id}
+            className={`truncate border-b border-r border-slate-200 ${cellPadding}`}
+            title={row.lender || undefined}
+          >
+            {row.lender || '—'}
+          </td>
+        ) : (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {textCell(row, 'lender', row.lender)}
+          </td>
+        );
+      case 'loanAmount':
+        return (
+          <td
+            key={id}
+            className={`truncate border-b border-r border-slate-200 font-semibold tabular-nums text-slate-700 ${cellPadding}`}
+          >
+            {formatMoney(row.loan.amount)}
+          </td>
+        );
+      case 'loanType':
+        return (
+          <td
+            key={id}
+            className={`truncate border-b border-r border-slate-200 ${cellPadding}`}
+            title={row.loanType || undefined}
+          >
+            {row.loanType || '—'}
+          </td>
+        );
+      case 'juniorProcessor':
+        return (
+          <td
+            key={id}
+            className={`truncate border-b border-r border-slate-200 ${cellPadding}`}
+            title={row.juniorProcessor?.name}
+          >
+            {row.juniorProcessor?.name || '—'}
+          </td>
+        );
+      case 'seniorProcessor':
+        return (
+          <td
+            key={id}
+            className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`}
+            title={processorLabel(row)}
+          >
+            {processorLabel(row)}
+          </td>
+        );
+      case 'pipelineStatus':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {canEditRow(row) && row.sheet !== ProcessingPipelineSheet.RESTRUCTURE ? (
+              editableSelect(
+                row,
+                'pipelineStatus',
+                row.pipelineStatus,
+                statusOptions,
+                statusTone[row.pipelineStatus],
+              )
+            ) : (
+              <span
+                className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-1 text-xs font-bold ${statusTone[row.pipelineStatus]}`}
+              >
+                {
+                  PROCESSING_PIPELINE_STATUS_OPTIONS.find(
+                    (option) => option.value === row.pipelineStatus,
+                  )?.label
+                }
+              </span>
+            )}
+          </td>
+        );
+      case 'missingItemsCurrentStatus':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {textCell(
+              row,
+              'missingItemsCurrentStatus',
+              row.missingItemsCurrentStatus,
+            )}
+          </td>
+        );
+      case 'restructureNotes':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-3 py-2 align-top">
+            <div
+              className="max-h-24 overflow-y-auto whitespace-pre-wrap text-xs font-medium leading-5 text-slate-700"
+              title={row.restructureNotes || 'No restructure notes'}
+            >
+              {row.restructureNotes || '—'}
+            </div>
+          </td>
+        );
+      case 'titleStatus':
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 px-1.5 py-1 ${overdue.title ? 'bg-red-100' : ''}`}
+          >
+            {editableSelect(
+              row,
+              'titleStatus',
+              row.titleStatus,
+              PROCESSING_ITEM_STATUS_OPTIONS,
+              overdue.title ? deadlineTone : itemStatusTone[row.titleStatus],
+            )}
+          </td>
+        );
+      case 'payoffStatus':
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 px-1.5 py-1 ${overdue.payoff ? 'bg-red-100' : ''}`}
+          >
+            {editableSelect(
+              row,
+              'payoffStatus',
+              row.payoffStatus,
+              PROCESSING_ITEM_STATUS_OPTIONS,
+              overdue.payoff
+                ? `${deadlineTone} motion-safe:animate-pulse`
+                : itemStatusTone[row.payoffStatus],
+            )}
+          </td>
+        );
+      case 'hoiStatus':
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 px-1.5 py-1 ${overdue.hoi ? 'bg-red-100' : ''}`}
+          >
+            {editableSelect(
+              row,
+              'hoiStatus',
+              row.hoiStatus,
+              PROCESSING_ITEM_STATUS_OPTIONS,
+              overdue.hoi
+                ? `${deadlineTone} motion-safe:animate-pulse`
+                : itemStatusTone[row.hoiStatus],
+            )}
+          </td>
+        );
+      case 'appraisalNeeded':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {yesNoCell(row, 'appraisalNeeded', row.appraisalNeeded)}
+          </td>
+        );
+      case 'appraisalNotes':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {textCell(row, 'appraisalNotes', row.appraisalNotes)}
+          </td>
+        );
+      case 'appraisalOrderedAt':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {dateCell(row, 'appraisalOrderedAt', row.appraisalOrderedAt)}
+          </td>
+        );
+      case 'appraisalBackAt':
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 px-1.5 py-1 ${overdue.appraisalBack ? 'bg-red-100' : ''}`}
+          >
+            {dateCell(
+              row,
+              'appraisalBackAt',
+              row.appraisalBackAt,
+              overdue.appraisalBack ? deadlineTone : '',
+            )}
+          </td>
+        );
+      case 'cdSent':
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 px-1.5 py-1 ${
+              isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow)
+                ? 'bg-red-100'
+                : ''
+            }`}
+          >
+            {cdSentCell(row)}
+          </td>
+        );
+      case 'estimatedSigningAt':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {dateCell(row, 'estimatedSigningAt', row.estimatedSigningAt)}
+          </td>
+        );
+      case 'extraNotes':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {textCell(row, 'extraNotes', row.extraNotes)}
+          </td>
+        );
+      case 'rateLock':
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 px-1.5 py-1 ${
+              isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow) ||
+              isRateLockOverdueAfterAppraisal(
+                row.rateLock,
+                row.appraisalBackAt,
+                clockNow,
+              )
+                ? 'bg-red-100'
+                : ''
+            }`}
+          >
+            {rateLockCell(row)}
+          </td>
+        );
+      case 'daysInStatus':
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 text-center ${cellPadding}`}
+          >
+            <span
+              className={`inline-flex min-w-8 justify-center rounded-full px-2 py-1 text-xs font-bold ${
+                row.daysInStatus > 7
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {row.daysInStatus}
+            </span>
+          </td>
+        );
+      case 'projectedRevenue':
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 font-semibold tabular-nums text-slate-700 ${cellPadding}`}
+          >
+            {formatMoney(row.projectedRevenue)}
+          </td>
+        );
+      case 'fundedAt':
+        return (
+          <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}>
+            {formatDate(row.fundedAt)}
+          </td>
+        );
+      case 'finalRevenue':
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 font-semibold ${cellPadding}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="tabular-nums">{formatMoney(row.finalRevenue)}</span>
+              <span
+                className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+                  row.payrollSubmitted
+                    ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
+                    : 'border-red-300 bg-red-100 text-red-700'
+                }`}
+                aria-label={
+                  row.payrollSubmitted
+                    ? `Payroll request submitted: ${row.payrollStatus?.replaceAll('_', ' ') || 'Submitted'}`
+                    : 'Payroll request not submitted'
+                }
+                title={
+                  row.payrollSubmitted
+                    ? `Payroll request: ${row.payrollStatus?.replaceAll('_', ' ') || 'Submitted'}`
+                    : 'Payroll request has not been submitted'
+                }
+              >
+                {row.payrollSubmitted ? (
+                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+              </span>
+            </div>
+          </td>
+        );
+      case 'firstPaymentAt':
+        return (
+          <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}>
+            {formatDate(row.firstPaymentAt)}
+          </td>
+        );
+      case 'sixthPaymentAt':
+        return (
+          <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}>
+            {formatDate(row.sixthPaymentAt)}
+          </td>
+        );
+      case 'actions':
+        return (
+          <td
+            key={id}
+            className={`border-b border-slate-200 px-2 py-2 lg:sticky lg:right-0 lg:z-20 lg:shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+          >
+            <div className="flex items-center justify-end gap-1.5">
+              {savingRows.has(row.id) && (
+                <Loader2
+                  className="h-4 w-4 animate-spin text-blue-600"
+                  aria-label="Saving"
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => setActionsMenuRow(row)}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                aria-label={`Open actions for ${row.loan.borrowerName}`}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+                Actions
+              </button>
+            </div>
+          </td>
+        );
+    }
+  };
 
   return (
     <section className="space-y-5">
@@ -1885,11 +2314,42 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
               Clear
             </button>
           )}
+          <div className="flex max-w-full items-center gap-2 overflow-x-auto lg:ml-auto">
+            {layouts.map((layout) => (
+              <button
+                key={layout.id}
+                type="button"
+                aria-pressed={layout.isActive}
+                disabled={activatingLayoutId !== null}
+                onClick={() => selectSavedLayout(layout.id)}
+                className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border px-3 text-xs font-bold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                  layout.isActive
+                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50/50 hover:text-blue-700'
+                }`}
+              >
+                {activatingLayoutId === layout.id ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : layout.isActive ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : null}
+                {layout.name}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setLayoutManagerOpen(true)}
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+            >
+              <LayoutTemplate className="h-4 w-4 text-blue-600" />
+              Views &amp; Layouts
+            </button>
+          </div>
           <button
             type="button"
             aria-pressed={detailsExpanded}
             onClick={() => setDetailsExpanded((expanded) => !expanded)}
-            className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-bold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 lg:ml-auto ${
+            className={`flex h-10 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-bold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
               detailsExpanded
                 ? 'border-blue-300 bg-blue-50 text-blue-700'
                 : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -2132,87 +2592,7 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             >
             <thead className="sticky top-0 z-30">
               <tr>
-                {isColumnVisible('dateAssigned') && (
-                  <ResizableHeader id="dateAssigned" width={columnWidths.dateAssigned} onResize={resizeColumn} stickyLeft={stickyLeftByColumn.get('dateAssigned')}>
-                    <button type="button" onClick={() => changeSort('dateAssigned')} className="w-full text-left hover:text-blue-700">
-                      Assigned
-                    </button>
-                  </ResizableHeader>
-                )}
-                {isColumnVisible('loanNumber') && (
-                  <ResizableHeader id="loanNumber" width={columnWidths.loanNumber} onResize={resizeColumn} stickyLeft={stickyLeftByColumn.get('loanNumber')}>
-                    <button type="button" onClick={() => changeSort('loanNumber')} className="w-full text-left hover:text-blue-700">
-                      Arive #
-                    </button>
-                  </ResizableHeader>
-                )}
-                {isColumnVisible('loanOfficer') && (
-                  <ResizableHeader id="loanOfficer" width={columnWidths.loanOfficer} onResize={resizeColumn} stickyLeft={stickyLeftByColumn.get('loanOfficer')}>
-                    Loan Officer
-                  </ResizableHeader>
-                )}
-                {isColumnVisible('borrowerName') && (
-                  <ResizableHeader id="borrowerName" width={columnWidths.borrowerName} onResize={resizeColumn} stickyLeft={stickyLeftByColumn.get('borrowerName')} className="shadow-[1px_0_0_#cbd5e1]">
-                    <button type="button" onClick={() => changeSort('borrowerName')} className="w-full text-left hover:text-blue-700">
-                      Borrower
-                    </button>
-                  </ResizableHeader>
-                )}
-                {isColumnVisible('leadSource') && (
-                  <ResizableHeader id="leadSource" width={columnWidths.leadSource} onResize={resizeColumn}>
-                    Lead Source
-                  </ResizableHeader>
-                )}
-                {isColumnVisible('propertyState') && (
-                  <ResizableHeader id="propertyState" width={columnWidths.propertyState} onResize={resizeColumn}>
-                    State
-                  </ResizableHeader>
-                )}
-                {sheet === ProcessingPipelineSheet.FUNDING ? (
-                  <>
-                    {isColumnVisible('loanType') && <ResizableHeader id="loanType" width={columnWidths.loanType} onResize={resizeColumn}>Loan Type</ResizableHeader>}
-                    {isColumnVisible('lender') && <ResizableHeader id="lender" width={columnWidths.lender} onResize={resizeColumn}>Lender</ResizableHeader>}
-                    {isColumnVisible('juniorProcessor') && <ResizableHeader id="juniorProcessor" width={columnWidths.juniorProcessor} onResize={resizeColumn}>Junior</ResizableHeader>}
-                    {isColumnVisible('seniorProcessor') && <ResizableHeader id="seniorProcessor" width={columnWidths.seniorProcessor} onResize={resizeColumn}>Senior</ResizableHeader>}
-                    {isColumnVisible('fundedAt') && <ResizableHeader id="fundedAt" width={columnWidths.fundedAt} onResize={resizeColumn}>Funded Date</ResizableHeader>}
-                    {isColumnVisible('finalRevenue') && <ResizableHeader id="finalRevenue" width={columnWidths.finalRevenue} onResize={resizeColumn}>Final Revenue</ResizableHeader>}
-                    {isColumnVisible('firstPaymentAt') && <ResizableHeader id="firstPaymentAt" width={columnWidths.firstPaymentAt} onResize={resizeColumn}>First Payment</ResizableHeader>}
-                    {isColumnVisible('sixthPaymentAt') && <ResizableHeader id="sixthPaymentAt" width={columnWidths.sixthPaymentAt} onResize={resizeColumn}>6th Payment</ResizableHeader>}
-                  </>
-                ) : (
-                  <>
-                    {isColumnVisible('lender') && <ResizableHeader id="lender" width={columnWidths.lender} onResize={resizeColumn}>Lender</ResizableHeader>}
-                    {isColumnVisible('loanAmount') && <ResizableHeader id="loanAmount" width={columnWidths.loanAmount} onResize={resizeColumn}>Loan Amount</ResizableHeader>}
-                    {isColumnVisible('loanType') && <ResizableHeader id="loanType" width={columnWidths.loanType} onResize={resizeColumn}>Loan Type</ResizableHeader>}
-                    {isColumnVisible('juniorProcessor') && <ResizableHeader id="juniorProcessor" width={columnWidths.juniorProcessor} onResize={resizeColumn}>Jr Processor</ResizableHeader>}
-                    {isColumnVisible('seniorProcessor') && <ResizableHeader id="seniorProcessor" width={columnWidths.seniorProcessor} onResize={resizeColumn}>Processor</ResizableHeader>}
-                    {isColumnVisible('pipelineStatus') && <ResizableHeader id="pipelineStatus" width={columnWidths.pipelineStatus} onResize={resizeColumn}>Pipeline Status</ResizableHeader>}
-                    {isColumnVisible('missingItemsCurrentStatus') && <ResizableHeader id="missingItemsCurrentStatus" width={columnWidths.missingItemsCurrentStatus} onResize={resizeColumn}>Pending Items</ResizableHeader>}
-                    {isColumnVisible('restructureNotes') && <ResizableHeader id="restructureNotes" width={columnWidths.restructureNotes} onResize={resizeColumn}>Restructure Notes</ResizableHeader>}
-                    {isColumnVisible('titleStatus') && <ResizableHeader id="titleStatus" width={columnWidths.titleStatus} onResize={resizeColumn}>Title</ResizableHeader>}
-                    {isColumnVisible('payoffStatus') && <ResizableHeader id="payoffStatus" width={columnWidths.payoffStatus} onResize={resizeColumn}>Payoff</ResizableHeader>}
-                    {isColumnVisible('hoiStatus') && <ResizableHeader id="hoiStatus" width={columnWidths.hoiStatus} onResize={resizeColumn}>HOI</ResizableHeader>}
-                    {isColumnVisible('appraisalNeeded') && <ResizableHeader id="appraisalNeeded" width={columnWidths.appraisalNeeded} onResize={resizeColumn}>Appraisal?</ResizableHeader>}
-                    {isColumnVisible('appraisalNotes') && <ResizableHeader id="appraisalNotes" width={columnWidths.appraisalNotes} onResize={resizeColumn}>Appraisal Notes</ResizableHeader>}
-                    {isColumnVisible('appraisalOrderedAt') && <ResizableHeader id="appraisalOrderedAt" width={columnWidths.appraisalOrderedAt} onResize={resizeColumn}>Appraisal Ordered</ResizableHeader>}
-                    {isColumnVisible('appraisalBackAt') && <ResizableHeader id="appraisalBackAt" width={columnWidths.appraisalBackAt} onResize={resizeColumn}>Appraisal Back</ResizableHeader>}
-                    {isColumnVisible('cdSent') && <ResizableHeader id="cdSent" width={columnWidths.cdSent} onResize={resizeColumn}>CD Sent?</ResizableHeader>}
-                    {isColumnVisible('estimatedSigningAt') && <ResizableHeader id="estimatedSigningAt" width={columnWidths.estimatedSigningAt} onResize={resizeColumn}>Est. Signing</ResizableHeader>}
-                    {isColumnVisible('extraNotes') && <ResizableHeader id="extraNotes" width={columnWidths.extraNotes} onResize={resizeColumn}>Extra Notes</ResizableHeader>}
-                    {isColumnVisible('rateLock') && <ResizableHeader id="rateLock" width={columnWidths.rateLock} onResize={resizeColumn}>Rate Lock</ResizableHeader>}
-                    {isColumnVisible('daysInStatus') && (
-                      <ResizableHeader id="daysInStatus" width={columnWidths.daysInStatus} onResize={resizeColumn}>
-                        <button type="button" onClick={() => changeSort('statusChangedAt')} className="w-full text-left hover:text-blue-700">Days</button>
-                      </ResizableHeader>
-                    )}
-                    {isColumnVisible('projectedRevenue') && <ResizableHeader id="projectedRevenue" width={columnWidths.projectedRevenue} onResize={resizeColumn}>Revenue</ResizableHeader>}
-                  </>
-                )}
-                {sheet !== ProcessingPipelineSheet.FUNDING && (
-                  <ResizableHeader id="actions" width={columnWidths.actions} onResize={resizeColumn} className="lg:sticky lg:right-0 lg:z-30 lg:shadow-[-1px_0_0_#e2e8f0]">
-                    Actions
-                  </ResizableHeader>
-                )}
+                {currentColumns.map(renderHeader)}
               </tr>
             </thead>
             <tbody>
@@ -2255,173 +2635,13 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
                   aria-rowindex={virtualRow.index + 2}
                   className={`group transition-colors ${rowSurfaceTone[row.pipelineStatus]}`}
                 >
-                  {isColumnVisible('dateAssigned') && (
-                    <td
-                      style={{ left: stickyLeftByColumn.get('dateAssigned') }}
-                      className={`truncate border-b border-r border-slate-200 font-medium text-slate-600 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
-                    >
-                      {formatDate(row.dateAssigned)}
-                    </td>
-                  )}
-                  {isColumnVisible('loanNumber') && (
-                    <td
-                      style={{ left: stickyLeftByColumn.get('loanNumber') }}
-                      className={`truncate border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
-                    >
-                      {row.loan.loanNumber}
-                    </td>
-                  )}
-                  {isColumnVisible('loanOfficer') && (
-                    <td
-                      style={{ left: stickyLeftByColumn.get('loanOfficer') }}
-                      className={`truncate border-b border-r border-slate-200 font-semibold text-slate-900 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
-                      title={row.loan.loanOfficer.name}
-                    >
-                      {row.loan.loanOfficer.name}
-                    </td>
-                  )}
-                  {isColumnVisible('borrowerName') && (
-                    <td
-                      style={{ left: stickyLeftByColumn.get('borrowerName') }}
-                      className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 lg:sticky lg:z-10 lg:shadow-[1px_0_0_#cbd5e1] ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
-                      title={row.loan.borrowerName}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setBorrowerWorkspaceRowId(row.id)}
-                        className="max-w-full truncate text-left font-bold text-blue-800 underline decoration-blue-300 decoration-1 underline-offset-2 transition hover:text-blue-950 hover:decoration-blue-600 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
-                        aria-label={`Open borrower workspace for ${row.loan.borrowerName}`}
-                      >
-                        {row.loan.borrowerName}
-                      </button>
-                    </td>
-                  )}
-                  {isColumnVisible('leadSource') && (
-                    <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.leadSource || undefined}>
-                      {row.leadSource || '—'}
-                    </td>
-                  )}
-                  {isColumnVisible('propertyState') && (
-                    <td className="border-b border-r border-slate-200 px-1.5 py-1">
-                      {sheet === ProcessingPipelineSheet.FUNDING
-                        ? <span className="block px-2 py-1.5">{row.propertyState || '—'}</span>
-                        : textCell(row, 'propertyState', row.propertyState)}
-                    </td>
-                  )}
-                  {sheet === ProcessingPipelineSheet.FUNDING ? (
-                    <>
-                      {isColumnVisible('loanType') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.loanType || undefined}>{row.loanType || '—'}</td>}
-                      {isColumnVisible('lender') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.lender || undefined}>{row.lender || '—'}</td>}
-                      {isColumnVisible('juniorProcessor') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`}>{row.juniorProcessor?.name || '—'}</td>}
-                      {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={processorLabel(row)}>{processorLabel(row)}</td>}
-                      {isColumnVisible('fundedAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.fundedAt)}</td>}
-                      {isColumnVisible('finalRevenue') && (
-                        <td className={`border-b border-r border-slate-200 font-semibold ${cellPadding}`}>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="tabular-nums">{formatMoney(row.finalRevenue)}</span>
-                            <span
-                              className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
-                                row.payrollSubmitted
-                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
-                                  : 'border-red-300 bg-red-100 text-red-700'
-                              }`}
-                              aria-label={
-                                row.payrollSubmitted
-                                  ? `Payroll request submitted: ${row.payrollStatus?.replaceAll('_', ' ') || 'Submitted'}`
-                                  : 'Payroll request not submitted'
-                              }
-                              title={
-                                row.payrollSubmitted
-                                  ? `Payroll request: ${row.payrollStatus?.replaceAll('_', ' ') || 'Submitted'}`
-                                  : 'Payroll request has not been submitted'
-                              }
-                            >
-                              {row.payrollSubmitted ? (
-                                <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                              ) : (
-                                <X className="h-3.5 w-3.5" aria-hidden="true" />
-                              )}
-                            </span>
-                          </div>
-                        </td>
-                      )}
-                      {isColumnVisible('firstPaymentAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.firstPaymentAt)}</td>}
-                      {isColumnVisible('sixthPaymentAt') && <td className={`border-b border-r border-slate-200 ${cellPadding}`}>{formatDate(row.sixthPaymentAt)}</td>}
-                    </>
-                  ) : (
-                    <>
-                      {isColumnVisible('lender') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'lender', row.lender)}</td>}
-                      {isColumnVisible('loanAmount') && <td className={`truncate border-b border-r border-slate-200 font-semibold tabular-nums text-slate-700 ${cellPadding}`}>{formatMoney(row.loan.amount)}</td>}
-                      {isColumnVisible('loanType') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.loanType || undefined}>{row.loanType || '—'}</td>}
-                      {isColumnVisible('juniorProcessor') && <td className={`truncate border-b border-r border-slate-200 ${cellPadding}`} title={row.juniorProcessor?.name}>{row.juniorProcessor?.name || '—'}</td>}
-                      {isColumnVisible('seniorProcessor') && <td className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`} title={processorLabel(row)}>{processorLabel(row)}</td>}
-                      {isColumnVisible('pipelineStatus') && (
-                        <td className="border-b border-r border-slate-200 px-1.5 py-1">
-                          {canEditRow(row) && row.sheet !== ProcessingPipelineSheet.RESTRUCTURE
-                            ? editableSelect(row, 'pipelineStatus', row.pipelineStatus, statusOptions, statusTone[row.pipelineStatus])
-                            : (
-                              <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-1 text-xs font-bold ${statusTone[row.pipelineStatus]}`}>
-                                {PROCESSING_PIPELINE_STATUS_OPTIONS.find((option) => option.value === row.pipelineStatus)?.label}
-                              </span>
-                            )}
-                        </td>
-                      )}
-                      {isColumnVisible('missingItemsCurrentStatus') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'missingItemsCurrentStatus', row.missingItemsCurrentStatus)}</td>}
-                      {isColumnVisible('restructureNotes') && (
-                        <td className="border-b border-r border-slate-200 px-3 py-2 align-top">
-                          <div
-                            className="max-h-24 overflow-y-auto whitespace-pre-wrap text-xs font-medium leading-5 text-slate-700"
-                            title={row.restructureNotes || 'No restructure notes'}
-                          >
-                            {row.restructureNotes || '—'}
-                          </div>
-                        </td>
-                      )}
-                      {isColumnVisible('titleStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${titleOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'titleStatus', row.titleStatus, PROCESSING_ITEM_STATUS_OPTIONS, titleOverdue ? deadlineTone : itemStatusTone[row.titleStatus])}</td>}
-                      {isColumnVisible('payoffStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${payoffOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'payoffStatus', row.payoffStatus, PROCESSING_ITEM_STATUS_OPTIONS, payoffOverdue ? `${deadlineTone} motion-safe:animate-pulse` : itemStatusTone[row.payoffStatus])}</td>}
-                      {isColumnVisible('hoiStatus') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${hoiOverdue ? 'bg-red-100' : ''}`}>{editableSelect(row, 'hoiStatus', row.hoiStatus, PROCESSING_ITEM_STATUS_OPTIONS, hoiOverdue ? `${deadlineTone} motion-safe:animate-pulse` : itemStatusTone[row.hoiStatus])}</td>}
-                      {isColumnVisible('appraisalNeeded') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{yesNoCell(row, 'appraisalNeeded', row.appraisalNeeded)}</td>}
-                      {isColumnVisible('appraisalNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'appraisalNotes', row.appraisalNotes)}</td>}
-                      {isColumnVisible('appraisalOrderedAt') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{dateCell(row, 'appraisalOrderedAt', row.appraisalOrderedAt)}</td>}
-                      {isColumnVisible('appraisalBackAt') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${appraisalBackOverdue ? 'bg-red-100' : ''}`}>{dateCell(row, 'appraisalBackAt', row.appraisalBackAt, appraisalBackOverdue ? deadlineTone : '')}</td>}
-                      {isColumnVisible('cdSent') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow) ? 'bg-red-100' : ''}`}>{cdSentCell(row)}</td>}
-                      {isColumnVisible('estimatedSigningAt') && (
-                        <td className="border-b border-r border-slate-200 px-1.5 py-1">
-                          {dateCell(row, 'estimatedSigningAt', row.estimatedSigningAt)}
-                        </td>
-                      )}
-                      {isColumnVisible('extraNotes') && <td className="border-b border-r border-slate-200 px-1.5 py-1">{textCell(row, 'extraNotes', row.extraNotes)}</td>}
-                      {isColumnVisible('rateLock') && <td className={`border-b border-r border-slate-200 px-1.5 py-1 ${
-                        isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow) ||
-                        isRateLockOverdueAfterAppraisal(row.rateLock, row.appraisalBackAt, clockNow)
-                          ? 'bg-red-100'
-                          : ''
-                      }`}>{rateLockCell(row)}</td>}
-                      {isColumnVisible('daysInStatus') && (
-                        <td className={`border-b border-r border-slate-200 text-center ${cellPadding}`}>
-                          <span className={`inline-flex min-w-8 justify-center rounded-full px-2 py-1 text-xs font-bold ${row.daysInStatus > 7 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
-                            {row.daysInStatus}
-                          </span>
-                        </td>
-                      )}
-                      {isColumnVisible('projectedRevenue') && <td className={`border-b border-r border-slate-200 font-semibold tabular-nums text-slate-700 ${cellPadding}`}>{formatMoney(row.projectedRevenue)}</td>}
-                    </>
-                  )}
-                  {sheet !== ProcessingPipelineSheet.FUNDING && (
-                  <td className={`border-b border-slate-200 px-2 py-2 lg:sticky lg:right-0 lg:z-20 lg:shadow-[-1px_0_0_#e2e8f0] ${stickyRowSurfaceTone[row.pipelineStatus]}`}>
-                    <div className="flex items-center justify-end gap-1.5">
-                      {savingRows.has(row.id) && <Loader2 className="h-4 w-4 animate-spin text-blue-600" aria-label="Saving" />}
-                      <button
-                        type="button"
-                        onClick={() => setActionsMenuRow(row)}
-                        className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
-                        aria-label={`Open actions for ${row.loan.borrowerName}`}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                        Actions
-                      </button>
-                    </div>
-                  </td>
+                  {currentColumns.map((column) =>
+                    renderCell(row, column.id, {
+                      title: titleOverdue,
+                      payoff: payoffOverdue,
+                      hoi: hoiOverdue,
+                      appraisalBack: appraisalBackOverdue,
+                    }),
                   )}
                 </tr>
                 );
@@ -2978,6 +3198,15 @@ export function ProcessingPipelineGrid({ initialData, role }: Props) {
             </ol>
           </aside>
         </div>
+      )}
+      {layoutManagerOpen && (
+        <ProcessingPipelineLayoutManager
+          open
+          role={role}
+          layouts={layouts}
+          onClose={() => setLayoutManagerOpen(false)}
+          onLayoutsChange={setLayouts}
+        />
       )}
     </section>
   );

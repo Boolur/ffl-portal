@@ -8,6 +8,7 @@ import { redirect } from 'next/navigation';
 import { canAccessPipelinePortal } from '@/lib/pipelinePilot';
 import { getPipelineReport } from '@/app/actions/pipelineReportingActions';
 import { getProcessingPipeline } from '@/app/actions/processingPipelineActions';
+import { getProcessingPipelineLayouts } from '@/app/actions/processingPipelineLayoutActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,13 +23,14 @@ export default async function Pipeline() {
   const role = (session.user.activeRole || session.user.role) as UserRole;
   const isProcessingRole =
     role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSOR_SR;
-  const [initialProcessing, initialReport] = await Promise.all([
+  const [initialProcessing, initialReport, initialLayouts] = await Promise.all([
     getProcessingPipeline({
       sheet: ProcessingPipelineSheet.PIPELINE,
       sortBy: 'pipelineStatus',
       sortDirection: 'asc',
     }),
     isProcessingRole ? Promise.resolve(null) : getPipelineReport(),
+    getProcessingPipelineLayouts(),
   ]);
   if (!initialProcessing.success) redirect('/');
   const user = {
@@ -42,6 +44,7 @@ export default async function Pipeline() {
         role={role}
         initialReport={initialReport}
         initialProcessing={initialProcessing}
+        initialLayouts={initialLayouts.success ? initialLayouts.layouts : []}
       />
     </DashboardShell>
   );

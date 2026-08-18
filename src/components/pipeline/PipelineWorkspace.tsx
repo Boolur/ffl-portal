@@ -5,6 +5,7 @@ import { BarChart3, CheckCircle2, Sheet } from 'lucide-react';
 import { UserRole } from '@prisma/client';
 import type { PipelineReport } from '@/app/actions/pipelineReportingActions';
 import type { getProcessingPipeline } from '@/app/actions/processingPipelineActions';
+import type { ProcessingPipelineSavedLayout } from '@/app/actions/processingPipelineLayoutActions';
 import { PipelinePage } from '@/components/pipeline/PipelinePage';
 import { ProcessingPipelineGrid } from '@/components/pipeline/ProcessingPipelineGrid';
 
@@ -14,9 +15,15 @@ type Props = {
   role: UserRole;
   initialReport: PipelineReport | null;
   initialProcessing: ProcessingResult;
+  initialLayouts: ProcessingPipelineSavedLayout[];
 };
 
-export function PipelineWorkspace({ role, initialReport, initialProcessing }: Props) {
+export function PipelineWorkspace({
+  role,
+  initialReport,
+  initialProcessing,
+  initialLayouts,
+}: Props) {
   const isProcessingRole = role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSOR_SR;
   const [view, setView] = useState<'pre-processing' | 'processing'>(
     isProcessingRole || !initialReport ? 'processing' : 'pre-processing',
@@ -87,7 +94,11 @@ export function PipelineWorkspace({ role, initialReport, initialProcessing }: Pr
                 : 'Live processing visibility'}
             </div>
           </header>
-          <ProcessingPipelineGrid initialData={initialProcessing} role={role} />
+          <ProcessingPipelineGrid
+            initialData={initialProcessing}
+            initialLayouts={initialLayouts}
+            role={role}
+          />
         </div>
       )}
     </div>

@@ -319,16 +319,17 @@ model User {
   websiteLoanOfficerProfile     WebsiteLoanOfficerProfile?
 
   // Payroll / compensation relations
-  payrollCompPlans           PayrollCompPlan[]         @relation("PayrollCompPlanLoanOfficer")
-  payrollSplitRecipients     PayrollCompSplit[]        @relation("PayrollCompSplitRecipient")
-  payrollRequests            PayrollCompRequest[]      @relation("PayrollCompRequestLoanOfficer")
-  payrollReviewedRequests    PayrollCompRequest[]      @relation("PayrollCompRequestReviewedBy")
-  payrollPaidRequests        PayrollCompRequest[]      @relation("PayrollCompRequestPaidBy")
-  payrollEditedRequests      PayrollCompRequest[]      @relation("PayrollCompRequestEditedBy")
-  payrollRequestSplits       PayrollCompRequestSplit[] @relation("PayrollCompRequestSplitRecipient")
+  payrollCompPlans           PayrollCompPlan[]          @relation("PayrollCompPlanLoanOfficer")
+  payrollSplitRecipients     PayrollCompSplit[]         @relation("PayrollCompSplitRecipient")
+  payrollRequests            PayrollCompRequest[]       @relation("PayrollCompRequestLoanOfficer")
+  payrollReviewedRequests    PayrollCompRequest[]       @relation("PayrollCompRequestReviewedBy")
+  payrollPaidRequests        PayrollCompRequest[]       @relation("PayrollCompRequestPaidBy")
+  payrollEditedRequests      PayrollCompRequest[]       @relation("PayrollCompRequestEditedBy")
+  payrollRequestSplits       PayrollCompRequestSplit[]  @relation("PayrollCompRequestSplitRecipient")
   payrollUserSettings        PayrollUserSetting?
-  processingPipelineAsSenior ProcessingPipelineLoan[]  @relation("ProcessingPipelineSenior")
-  processingPipelineAsJunior ProcessingPipelineLoan[]  @relation("ProcessingPipelineJunior")
+  processingPipelineAsSenior ProcessingPipelineLoan[]   @relation("ProcessingPipelineSenior")
+  processingPipelineAsJunior ProcessingPipelineLoan[]   @relation("ProcessingPipelineJunior")
+  processingPipelineLayouts  ProcessingPipelineLayout[]
 }
 
 model WebsiteLoanOfficerProfile {
@@ -517,6 +518,23 @@ model ProcessingPipelineLoan {
   @@index([processingMethod])
   @@index([rateLockRequestedAt])
   @@index([archivedAt])
+}
+
+model ProcessingPipelineLayout {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  nameKey   String
+  config    Json
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, nameKey])
+  @@index([userId, sortOrder])
+  @@index([userId, isActive])
 }
 
 model Lender {
