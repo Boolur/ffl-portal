@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -20,7 +21,9 @@ import {
   Landmark,
   Loader2,
   MapPin,
+  Pencil,
   Phone,
+  Save,
   ShieldCheck,
   UserRound,
   Users,
@@ -28,6 +31,8 @@ import {
 } from 'lucide-react';
 import {
   getProcessingBorrowerDetails,
+  updateProcessingBorrowerDetails,
+  type ProcessingBorrowerDetailsInput,
 } from '@/app/actions/processingPipelineActions';
 import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import {
@@ -190,20 +195,176 @@ function DetailGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{children}</div>;
 }
 
+function dateInputValue(value: string | null | undefined) {
+  return value ? value.slice(0, 10) : '';
+}
+
+function buildEditDraft(details: DetailResult): ProcessingBorrowerDetailsInput {
+  return {
+    id: details.id,
+    version: details.version,
+    borrowerFirstName: details.borrower.firstName || '',
+    borrowerLastName: details.borrower.lastName || '',
+    borrowerPhone: details.borrower.phone || '',
+    borrowerEmail: details.borrower.email || '',
+    coBorrowerFirstName: details.borrower.coBorrower.firstName || '',
+    coBorrowerLastName: details.borrower.coBorrower.lastName || '',
+    coBorrowerPhone: details.borrower.coBorrower.phone || '',
+    coBorrowerEmail: details.borrower.coBorrower.email || '',
+    propertyStreet: details.property.street || '',
+    propertyUnit: details.property.unit || '',
+    propertyCity: details.property.city || '',
+    propertyState: details.property.state || '',
+    propertyZip: details.property.zip || '',
+    propertyOccupancy: details.property.occupancy || '',
+    estimatedValue: details.property.estimatedValue || '',
+    yearBuilt: details.property.yearBuilt || '',
+    yearAcquired: details.property.yearAcquired || '',
+    titleHeldAs: details.property.titleHeldAs || '',
+    loanAmount: String(details.loan.amount ?? ''),
+    loanType: details.loan.loanType || '',
+    loanProgram: details.loan.program || '',
+    lender: details.loan.lender || '',
+    channel: details.loan.channel || '',
+    loanPurpose: details.loan.purpose || '',
+    leadSource: details.loan.leadSource || '',
+    cashBack: details.loan.cashBack || '',
+    projectedRevenue: String(details.loan.projectedRevenue ?? ''),
+    appraisalNeeded: details.appraisal.needed,
+    appraisalWaiver: details.appraisal.waiver || '',
+    appraisalOrderedAt: dateInputValue(details.appraisal.orderedAt),
+    appraisalBackAt: dateInputValue(details.appraisal.backAt),
+    appraisalNotes: details.appraisal.notes || '',
+    sheet: details.processing.sheet,
+    pipelineStatus: details.processing.pipelineStatus,
+    dateAssigned: dateInputValue(details.processing.dateAssigned),
+    estimatedSigningAt: dateInputValue(details.processing.estimatedSigningAt),
+    titleStatus: details.processing.titleStatus,
+    payoffStatus: details.processing.payoffStatus,
+    hoiStatus: details.processing.hoiStatus,
+    missingItemsCurrentStatus:
+      details.processing.missingItemsCurrentStatus || '',
+    extraNotes: details.processing.extraNotes || '',
+    restructureNotes: details.processing.restructureNotes || '',
+    rateLock: details.processing.rateLock,
+    rateLockExpiresAt: dateInputValue(details.processing.rateLockExpiresAt),
+    cdSent: details.processing.cdSent,
+    fundedAt: dateInputValue(details.processing.fundedAt),
+  };
+}
+
+function EditField({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  required = false,
+  multiline = false,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: 'text' | 'email' | 'tel' | 'number' | 'date';
+  required?: boolean;
+  multiline?: boolean;
+  placeholder?: string;
+}) {
+  const classes =
+    'mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100';
+  return (
+    <label className="block min-w-0">
+      <span className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">
+        {label}
+        {required && <span className="ml-1 text-red-500">*</span>}
+      </span>
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={`${classes} min-h-24 resize-y`}
+          placeholder={placeholder}
+          required={required}
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={classes}
+          placeholder={placeholder}
+          required={required}
+          min={type === 'number' ? 0 : undefined}
+          step={type === 'number' ? 'any' : undefined}
+        />
+      )}
+    </label>
+  );
+}
+
+function EditSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block min-w-0">
+      <span className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function ProcessingBorrowerWorkspace({
   pipelineLoanId,
   onClose,
+  onSaved,
 }: {
   pipelineLoanId: string;
   onClose: () => void;
+  onSaved?: () => void;
 }) {
   const [details, setDetails] = useState<DetailResult | null>(null);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('overview');
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<ProcessingBorrowerDetailsInput | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [saveError, setSaveError] = useState('');
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  const requestClose = useCallback(() => {
+    if (
+      editing &&
+      !saving &&
+      !window.confirm('Discard your unsaved borrower detail changes?')
+    ) {
+      return;
+    }
+    if (!saving) onClose();
+  }, [editing, onClose, saving]);
 
   useEffect(() => {
     restoreFocusRef.current = document.activeElement as HTMLElement | null;
@@ -235,7 +396,7 @@ export function ProcessingBorrowerWorkspace({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        requestClose();
         return;
       }
       if (event.key !== 'Tab' || !panelRef.current) return;
@@ -257,7 +418,7 @@ export function ProcessingBorrowerWorkspace({
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [requestClose]);
 
   const initials = useMemo(
     () =>
@@ -278,6 +439,46 @@ export function ProcessingBorrowerWorkspace({
       return;
     }
     window.open(result.url, '_blank', 'noopener,noreferrer');
+  };
+
+  const patchDraft = <Key extends keyof ProcessingBorrowerDetailsInput>(
+    key: Key,
+    value: ProcessingBorrowerDetailsInput[Key],
+  ) => {
+    setDraft((current) => (current ? { ...current, [key]: value } : current));
+  };
+
+  const beginEditing = () => {
+    if (!details?.canEdit) return;
+    setDraft(buildEditDraft(details));
+    setSaveMessage('');
+    setSaveError('');
+    setEditing(true);
+    if (activeTab === 'overview') setActiveTab('borrower');
+  };
+
+  const saveDetails = async () => {
+    if (!draft) return;
+    setSaving(true);
+    setSaveError('');
+    setSaveMessage('');
+    const result = await updateProcessingBorrowerDetails(draft);
+    if (!result.success) {
+      setSaving(false);
+      setSaveError(result.error);
+      return;
+    }
+    const refreshed = await getProcessingBorrowerDetails(pipelineLoanId);
+    setSaving(false);
+    if (!refreshed.success) {
+      setError(refreshed.error);
+      return;
+    }
+    setDetails(refreshed.details);
+    setDraft(null);
+    setEditing(false);
+    setSaveMessage('Changes saved and added to the activity history.');
+    onSaved?.();
   };
 
   const renderOverview = () =>
@@ -362,6 +563,28 @@ export function ProcessingBorrowerWorkspace({
     if (!details) return null;
     if (activeTab === 'overview') return renderOverview();
     if (activeTab === 'borrower') {
+      if (editing && draft) {
+        return (
+          <div className="grid gap-4 xl:grid-cols-2">
+            <DetailCard title="Primary borrower" description="At least one primary borrower name is required." icon={UserRound}>
+              <DetailGrid>
+                <EditField label="First name" value={draft.borrowerFirstName} onChange={(value) => patchDraft('borrowerFirstName', value)} />
+                <EditField label="Last name" value={draft.borrowerLastName} onChange={(value) => patchDraft('borrowerLastName', value)} />
+                <EditField label="Phone" type="tel" value={draft.borrowerPhone} onChange={(value) => patchDraft('borrowerPhone', value)} />
+                <EditField label="Email" type="email" value={draft.borrowerEmail} onChange={(value) => patchDraft('borrowerEmail', value)} />
+              </DetailGrid>
+            </DetailCard>
+            <DetailCard title="Co-borrower" description="Optional co-borrower identity and contact details." icon={Users}>
+              <DetailGrid>
+                <EditField label="First name" value={draft.coBorrowerFirstName} onChange={(value) => patchDraft('coBorrowerFirstName', value)} />
+                <EditField label="Last name" value={draft.coBorrowerLastName} onChange={(value) => patchDraft('coBorrowerLastName', value)} />
+                <EditField label="Phone" type="tel" value={draft.coBorrowerPhone} onChange={(value) => patchDraft('coBorrowerPhone', value)} />
+                <EditField label="Email" type="email" value={draft.coBorrowerEmail} onChange={(value) => patchDraft('coBorrowerEmail', value)} />
+              </DetailGrid>
+            </DetailCard>
+          </div>
+        );
+      }
       const coBorrowerName = [
         details.borrower.coBorrower.firstName,
         details.borrower.coBorrower.lastName,
@@ -386,6 +609,24 @@ export function ProcessingBorrowerWorkspace({
       );
     }
     if (activeTab === 'property') {
+      if (editing && draft) {
+        return (
+          <DetailCard title="Subject property" description="Update the structured property details used throughout processing." icon={MapPin}>
+            <DetailGrid>
+              <EditField label="Street" value={draft.propertyStreet} onChange={(value) => patchDraft('propertyStreet', value)} />
+              <EditField label="Unit" value={draft.propertyUnit} onChange={(value) => patchDraft('propertyUnit', value)} />
+              <EditField label="City" value={draft.propertyCity} onChange={(value) => patchDraft('propertyCity', value)} />
+              <EditField label="State" value={draft.propertyState} onChange={(value) => patchDraft('propertyState', value.toUpperCase())} placeholder="FL" />
+              <EditField label="ZIP" value={draft.propertyZip} onChange={(value) => patchDraft('propertyZip', value)} />
+              <EditField label="Occupancy" value={draft.propertyOccupancy} onChange={(value) => patchDraft('propertyOccupancy', value)} />
+              <EditField label="Estimated value" type="number" value={draft.estimatedValue} onChange={(value) => patchDraft('estimatedValue', value)} />
+              <EditField label="Year built" type="number" value={draft.yearBuilt} onChange={(value) => patchDraft('yearBuilt', value)} />
+              <EditField label="Year acquired" type="number" value={draft.yearAcquired} onChange={(value) => patchDraft('yearAcquired', value)} />
+              <EditField label="Title held as" value={draft.titleHeldAs} onChange={(value) => patchDraft('titleHeldAs', value)} />
+            </DetailGrid>
+          </DetailCard>
+        );
+      }
       return (
         <DetailCard title="Subject property" description="Structured MISMO and submission address details." icon={MapPin}>
           <DetailGrid>
@@ -405,6 +646,24 @@ export function ProcessingBorrowerWorkspace({
       );
     }
     if (activeTab === 'loan') {
+      if (editing && draft) {
+        return (
+          <DetailCard title="Loan structure" description="Arive # is the permanent file identifier and cannot be changed." icon={Landmark}>
+            <DetailGrid>
+              <DetailField label="Arive # · locked" value={details.loan.loanNumber} copyable />
+              <EditField label="Loan amount" type="number" value={draft.loanAmount} onChange={(value) => patchDraft('loanAmount', value)} required />
+              <EditField label="Loan type" value={draft.loanType} onChange={(value) => patchDraft('loanType', value)} />
+              <EditField label="Program" value={draft.loanProgram} onChange={(value) => patchDraft('loanProgram', value)} />
+              <EditField label="Lender" value={draft.lender} onChange={(value) => patchDraft('lender', value)} />
+              <EditField label="Channel" value={draft.channel} onChange={(value) => patchDraft('channel', value)} />
+              <EditField label="Purpose" value={draft.loanPurpose} onChange={(value) => patchDraft('loanPurpose', value)} />
+              <EditField label="Lead source" value={draft.leadSource} onChange={(value) => patchDraft('leadSource', value)} />
+              <EditField label="Cash back" type="number" value={draft.cashBack} onChange={(value) => patchDraft('cashBack', value)} />
+              <EditField label="Projected revenue" type="number" value={draft.projectedRevenue} onChange={(value) => patchDraft('projectedRevenue', value)} />
+            </DetailGrid>
+          </DetailCard>
+        );
+      }
       return (
         <DetailCard title="Loan structure" description="Origination and revenue information." icon={Landmark}>
           <DetailGrid>
@@ -422,6 +681,114 @@ export function ProcessingBorrowerWorkspace({
       );
     }
     if (activeTab === 'processing') {
+      if (editing && draft) {
+        const restructureStatusValues = new Set([
+          'SUSPENDED_RESTRUCTURE',
+          'ADVERSE_PENDING',
+          'PENDING_APPROVAL',
+        ]);
+        const statusOptions = PROCESSING_PIPELINE_STATUS_OPTIONS.filter(
+          (option) =>
+            draft.sheet === 'FUNDING'
+              ? option.value === 'FUNDED'
+              : draft.sheet === 'RESTRUCTURE'
+                ? restructureStatusValues.has(option.value)
+                : option.value !== 'FUNDED' &&
+                  !restructureStatusValues.has(option.value),
+        );
+        return (
+          <div className="space-y-4">
+            <DetailCard title="Milestones" description="Workflow changes are validated and audited when saved." icon={Building2}>
+              <DetailGrid>
+                <EditSelect
+                  label="Sheet"
+                  value={draft.sheet}
+                  options={[
+                    { value: 'PIPELINE', label: 'Pipeline' },
+                    { value: 'RESTRUCTURE', label: 'Restructures' },
+                    { value: 'FUNDING', label: 'Fundings' },
+                  ]}
+                  onChange={(value) => {
+                    setDraft((current) => {
+                      if (!current) return current;
+                      const sheet = value as ProcessingBorrowerDetailsInput['sheet'];
+                      const pipelineStatus =
+                        sheet === 'FUNDING'
+                          ? 'FUNDED'
+                          : sheet === 'RESTRUCTURE'
+                            ? 'SUSPENDED_RESTRUCTURE'
+                            : 'RE_SUB';
+                      return { ...current, sheet, pipelineStatus };
+                    });
+                  }}
+                />
+                <EditSelect
+                  label="Pipeline status"
+                  value={draft.pipelineStatus}
+                  options={statusOptions}
+                  onChange={(value) =>
+                    patchDraft(
+                      'pipelineStatus',
+                      value as ProcessingBorrowerDetailsInput['pipelineStatus'],
+                    )
+                  }
+                />
+                <EditField label="Assigned" type="date" value={draft.dateAssigned} onChange={(value) => patchDraft('dateAssigned', value)} required />
+                <EditField label="Estimated signing" type="date" value={draft.estimatedSigningAt} onChange={(value) => patchDraft('estimatedSigningAt', value)} />
+                {draft.sheet === 'FUNDING' && (
+                  <EditField label="Funded date" type="date" value={draft.fundedAt} onChange={(value) => patchDraft('fundedAt', value)} required />
+                )}
+                <EditSelect
+                  label="Title"
+                  value={draft.titleStatus}
+                  options={PROCESSING_ITEM_STATUS_OPTIONS}
+                  onChange={(value) => patchDraft('titleStatus', value as ProcessingBorrowerDetailsInput['titleStatus'])}
+                />
+                <EditSelect
+                  label="Payoff"
+                  value={draft.payoffStatus}
+                  options={PROCESSING_ITEM_STATUS_OPTIONS}
+                  onChange={(value) => patchDraft('payoffStatus', value as ProcessingBorrowerDetailsInput['payoffStatus'])}
+                />
+                <EditSelect
+                  label="HOI"
+                  value={draft.hoiStatus}
+                  options={PROCESSING_ITEM_STATUS_OPTIONS}
+                  onChange={(value) => patchDraft('hoiStatus', value as ProcessingBorrowerDetailsInput['hoiStatus'])}
+                />
+                <EditSelect
+                  label="Rate lock"
+                  value={draft.rateLock ? 'true' : 'false'}
+                  options={[
+                    { value: 'false', label: 'No' },
+                    { value: 'true', label: 'Yes' },
+                  ]}
+                  onChange={(value) => patchDraft('rateLock', value === 'true')}
+                />
+                {draft.rateLock && (
+                  <EditField label="Lock expiration" type="date" value={draft.rateLockExpiresAt} onChange={(value) => patchDraft('rateLockExpiresAt', value)} />
+                )}
+                <EditSelect
+                  label="CD sent"
+                  value={draft.cdSent ? 'true' : 'false'}
+                  options={[
+                    { value: 'false', label: 'No' },
+                    { value: 'true', label: 'Yes' },
+                  ]}
+                  onChange={(value) => patchDraft('cdSent', value === 'true')}
+                />
+              </DetailGrid>
+            </DetailCard>
+            <DetailCard title="Processor notes" description="Open items and workflow context." icon={Clipboard}>
+              <div className="grid gap-3 lg:grid-cols-3">
+                <EditField label="Pending items" value={draft.missingItemsCurrentStatus} onChange={(value) => patchDraft('missingItemsCurrentStatus', value)} multiline />
+                <EditField label="Extra notes" value={draft.extraNotes} onChange={(value) => patchDraft('extraNotes', value)} multiline />
+                <EditField label="Restructure notes" value={draft.restructureNotes} onChange={(value) => patchDraft('restructureNotes', value)} multiline />
+              </div>
+            </DetailCard>
+          </div>
+        );
+      }
       return (
         <div className="space-y-4">
           <DetailCard title="Milestones" description="Current processing status and checklist." icon={Building2}>
@@ -451,6 +818,38 @@ export function ProcessingBorrowerWorkspace({
       );
     }
     if (activeTab === 'appraisal') {
+      if (editing && draft) {
+        return (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.8fr)]">
+            <DetailCard title="Appraisal workflow" description="Update appraisal intent, dates, waiver, and notes." icon={ShieldCheck}>
+              <DetailGrid>
+                <label className="block min-w-0">
+                  <span className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Appraisal needed</span>
+                  <select
+                    value={draft.appraisalNeeded === null ? '' : draft.appraisalNeeded ? 'true' : 'false'}
+                    onChange={(event) => patchDraft('appraisalNeeded', event.target.value === '' ? null : event.target.value === 'true')}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value="">Not set</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </label>
+                <EditField label="Waiver" value={draft.appraisalWaiver} onChange={(value) => patchDraft('appraisalWaiver', value)} />
+                <EditField label="Ordered" type="date" value={draft.appraisalOrderedAt} onChange={(value) => patchDraft('appraisalOrderedAt', value)} />
+                <EditField label="Received" type="date" value={draft.appraisalBackAt} onChange={(value) => patchDraft('appraisalBackAt', value)} />
+                <EditField label="Notes" value={draft.appraisalNotes} onChange={(value) => patchDraft('appraisalNotes', value)} multiline />
+              </DetailGrid>
+            </DetailCard>
+            <DetailCard title="Payment method" description="Card data is intentionally not stored in this portal." icon={DollarSign}>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <p className="text-sm font-bold text-amber-900">Secure capture not configured</p>
+                <p className="mt-1 text-xs font-medium leading-5 text-amber-800">Payment card details remain outside this editable workspace.</p>
+              </div>
+            </DetailCard>
+          </div>
+        );
+      }
       return (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.8fr)]">
           <DetailCard title="Appraisal workflow" description="Submission intent and processing dates." icon={ShieldCheck}>
@@ -556,7 +955,7 @@ export function ProcessingBorrowerWorkspace({
       aria-labelledby="processing-borrower-workspace-title"
       data-live-refresh-pause="true"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) requestClose();
       }}
     >
       <div
@@ -586,10 +985,35 @@ export function ProcessingBorrowerWorkspace({
                   : 'Loading the complete processing file…'}
               </p>
             </div>
+            {details?.canEdit && !editing && (
+              <button
+                type="button"
+                onClick={beginEditing}
+                className="app-btn-secondary !h-10 !rounded-xl"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit details
+              </button>
+            )}
+            {editing && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(false);
+                  setDraft(null);
+                  setSaveError('');
+                }}
+                disabled={saving}
+                className="app-btn-secondary !h-10 !rounded-xl"
+              >
+                Cancel
+              </button>
+            )}
             <button
               ref={closeButtonRef}
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
+              disabled={saving}
               className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
               aria-label="Close borrower workspace"
             >
@@ -640,17 +1064,45 @@ export function ProcessingBorrowerWorkspace({
               </div>
             </div>
           ) : (
-            renderTab()
+            <>
+              {saveError && (
+                <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800">
+                  {saveError}
+                </div>
+              )}
+              {saveMessage && (
+                <div role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+                  {saveMessage}
+                </div>
+              )}
+              {renderTab()}
+            </>
           )}
         </main>
 
         {details && (
           <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3 text-xs font-semibold text-slate-500 sm:px-6">
             <span>Source: {details.sourceTask.title} · {formatDate(details.sourceTask.createdAt)}</span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Role-scoped file access
-            </span>
+            {editing ? (
+              <button
+                type="button"
+                onClick={() => void saveDetails()}
+                disabled={saving}
+                className="app-btn-primary !h-10 !rounded-xl disabled:cursor-wait disabled:opacity-60"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {saving ? 'Saving…' : 'Save changes'}
+              </button>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {details.canEdit ? 'Audited editing enabled' : 'Role-scoped file access'}
+              </span>
+            )}
           </footer>
         )}
       </div>

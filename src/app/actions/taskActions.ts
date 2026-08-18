@@ -48,6 +48,7 @@ import {
 import { upsertProcessingPipelineForCompletedTask } from '@/lib/processingPipelineService';
 import {
   normalizeProcessingProperty,
+  splitBorrowerName,
   validateProcessingBorrowerContact,
 } from '@/lib/processingBorrowerDetails';
 
@@ -1043,18 +1044,24 @@ function hasRenderableSubmissionFields(data: Record<string, unknown>): boolean {
 function buildLoanSubmissionFallback(loan: {
   loanNumber: string;
   borrowerName: string;
+  borrowerFirstName: string | null;
+  borrowerLastName: string | null;
   borrowerPhone: string | null;
   borrowerEmail: string | null;
   amount: Prisma.Decimal;
   propertyAddress: string | null;
 }): Record<string, unknown> {
   const borrowerName = loan.borrowerName?.trim() || '';
-  const [firstName, ...lastNameParts] = borrowerName.split(/\s+/).filter(Boolean);
-  const lastName = lastNameParts.join(' ');
+  const fallbackName = splitBorrowerName(borrowerName);
   return {
     arriveLoanNumber: loan.loanNumber,
-    borrowerFirstName: firstName || borrowerName || 'Unknown',
-    borrowerLastName: lastName || '',
+    borrowerFirstName:
+      loan.borrowerFirstName?.trim() ||
+      fallbackName.firstName ||
+      borrowerName ||
+      'Unknown',
+    borrowerLastName:
+      loan.borrowerLastName?.trim() || fallbackName.lastName,
     borrowerPhone: loan.borrowerPhone || '',
     borrowerEmail: loan.borrowerEmail || '',
     loanAmount: loan.amount?.toString?.() ?? '',
@@ -1091,6 +1098,8 @@ async function ensureVaTasksForLoanFromQcCompletion(loanId: string, qcTaskId?: s
       select: {
         loanNumber: true,
         borrowerName: true,
+        borrowerFirstName: true,
+        borrowerLastName: true,
         borrowerPhone: true,
         borrowerEmail: true,
         amount: true,
@@ -2645,6 +2654,8 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
         data: {
           loanNumber: normalizedArriveLoanNumber,
           borrowerName,
+          borrowerFirstName: payload.borrowerFirstName.trim() || null,
+          borrowerLastName: payload.borrowerLastName.trim() || null,
           borrowerPhone: payload.borrowerPhone?.trim() || null,
           borrowerEmail: payload.borrowerEmail?.trim() || null,
           amount: parseMoneyNumber(payload.loanAmount),
@@ -2660,10 +2671,15 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
         (loan.secondaryLoanOfficerId || null) !== normalizedSecondaryLoanOfficerId;
       const shouldUpdateVisibilitySubmitter =
         (loan.visibilitySubmitterUserId || null) !== visibilitySubmitterUserId;
+      const shouldUpdateBorrowerName =
+        loan.borrowerName !== borrowerName ||
+        (loan.borrowerFirstName || '') !== payload.borrowerFirstName.trim() ||
+        (loan.borrowerLastName || '') !== payload.borrowerLastName.trim();
       if (
         shouldReassignLoanOfficer ||
         shouldUpdateSecondaryLoanOfficer ||
-        shouldUpdateVisibilitySubmitter
+        shouldUpdateVisibilitySubmitter ||
+        shouldUpdateBorrowerName
       ) {
         loan = await prisma.loan.update({
           where: { id: loan.id },
@@ -2673,6 +2689,9 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
               ? { secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId }
               : {}),
             ...(shouldUpdateVisibilitySubmitter ? { visibilitySubmitterUserId } : {}),
+            borrowerName,
+            borrowerFirstName: payload.borrowerFirstName.trim() || null,
+            borrowerLastName: payload.borrowerLastName.trim() || null,
             borrowerPhone: payload.borrowerPhone?.trim() || loan.borrowerPhone || null,
             borrowerEmail: payload.borrowerEmail?.trim() || loan.borrowerEmail || null,
           },
@@ -3249,6 +3268,8 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         data: {
           loanNumber: normalizedArriveLoanNumber,
           borrowerName: `${borrowerFirstName} ${borrowerLastName}`.trim(),
+          borrowerFirstName: borrowerFirstName.trim() || null,
+          borrowerLastName: borrowerLastName.trim() || null,
           borrowerPhone: borrowerPhone?.trim() || null,
           borrowerEmail: borrowerEmail?.trim() || null,
           amount: Number(loanAmount || 0),
@@ -3270,7 +3291,12 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         (loan.visibilitySubmitterUserId || null) !== visibilitySubmitterUserId;
       const shouldPromoteIntakeStage = loan.stage === 'INTAKE';
       const shouldUpdateBorrowerDetails =
-        Boolean(borrowerPhone?.trim() || borrowerEmail?.trim()) ||
+        Boolean(
+          borrowerFirstName.trim() ||
+          borrowerLastName.trim() ||
+          borrowerPhone?.trim() ||
+          borrowerEmail?.trim(),
+        ) ||
         Boolean(processingLoanProgram || processingPropertyAddress);
       if (
         shouldReassignLoanOfficer ||
@@ -3290,6 +3316,9 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
             ...(shouldUpdateVisibilitySubmitter
               ? { visibilitySubmitterUserId }
               : {}),
+            borrowerName: `${borrowerFirstName} ${borrowerLastName}`.trim(),
+            borrowerFirstName: borrowerFirstName.trim() || null,
+            borrowerLastName: borrowerLastName.trim() || null,
             borrowerPhone: borrowerPhone?.trim() || loan.borrowerPhone || null,
             borrowerEmail: borrowerEmail?.trim() || loan.borrowerEmail || null,
             ...(processingLoanProgram ? { program: processingLoanProgram } : {}),

@@ -13,6 +13,9 @@ export const PROCESSING_PIPELINE_COLUMN_IDS = [
   'dateAssigned',
   'loanNumber',
   'loanOfficer',
+  'borrowerFirstName',
+  'borrowerLastName',
+  // Legacy saved layouts are normalized into the two structured columns.
   'borrowerName',
   'propertyState',
   'lender',
@@ -58,7 +61,8 @@ export const PROCESSING_PIPELINE_COLUMNS: ProcessingPipelineColumnDefinition[] =
   { id: 'dateAssigned', label: 'Assignment Date', width: 94 },
   { id: 'loanNumber', label: 'Arive #', width: 96 },
   { id: 'loanOfficer', label: 'Loan Officer', width: 128 },
-  { id: 'borrowerName', label: 'Borrower', width: 154 },
+  { id: 'borrowerFirstName', label: 'First Name', width: 126 },
+  { id: 'borrowerLastName', label: 'Last Name', width: 126 },
   { id: 'propertyState', label: 'State', width: 76 },
   { id: 'lender', label: 'Lender', width: 140 },
   { id: 'leadSource', label: 'Lead Source', width: 140, optional: true },
@@ -89,7 +93,8 @@ export const PROCESSING_FUNDING_COLUMNS: ProcessingPipelineColumnDefinition[] = 
   { id: 'dateAssigned', label: 'Assignment Date', width: 96 },
   { id: 'loanNumber', label: 'Arive #', width: 100 },
   { id: 'loanOfficer', label: 'Loan Officer', width: 140 },
-  { id: 'borrowerName', label: 'Borrower', width: 170 },
+  { id: 'borrowerFirstName', label: 'First Name', width: 132 },
+  { id: 'borrowerLastName', label: 'Last Name', width: 132 },
   { id: 'leadSource', label: 'Lead Source', width: 140 },
   { id: 'propertyState', label: 'State', width: 76 },
   { id: 'loanType', label: 'Loan Type', width: 112 },
@@ -106,9 +111,13 @@ export const PROCESSING_MANDATORY_COLUMN_IDS = [
   'dateAssigned',
   'loanNumber',
   'loanOfficer',
-  'borrowerName',
   'pipelineStatus',
   'actions',
+] as const satisfies readonly ProcessingPipelineColumnId[];
+
+export const PROCESSING_BORROWER_NAME_COLUMN_IDS = [
+  'borrowerFirstName',
+  'borrowerLastName',
 ] as const satisfies readonly ProcessingPipelineColumnId[];
 
 export type ProcessingLayoutColumn = {
@@ -130,7 +139,8 @@ const PIPELINE_DEFAULT_FOCUS = new Set<ProcessingPipelineColumnId>([
   'dateAssigned',
   'loanNumber',
   'loanOfficer',
-  'borrowerName',
+  'borrowerFirstName',
+  'borrowerLastName',
   'propertyState',
   'lender',
   'loanAmount',
@@ -264,6 +274,7 @@ export function normalizeProcessingLayoutConfig(
     const encountered = new Set<string>();
     const knownIds = new Set<string>(PROCESSING_PIPELINE_COLUMN_IDS);
     const columns: ProcessingLayoutColumn[] = [];
+    let legacyBorrowerNameVisible = false;
     for (const rawColumn of rawColumns) {
       if (!rawColumn || typeof rawColumn !== 'object' || Array.isArray(rawColumn)) {
         return { success: false, error: `${bucket} contains an invalid column.` };
@@ -284,6 +295,9 @@ export function normalizeProcessingLayoutConfig(
         };
       }
       encountered.add(id);
+      if (id === 'borrowerName' && candidate.visible === true) {
+        legacyBorrowerNameVisible = true;
+      }
       const definition = definitionById.get(id);
       if (!definition) continue;
       const width = Number(candidate.width);
@@ -301,7 +315,11 @@ export function normalizeProcessingLayoutConfig(
       if (!seen.has(definition.id)) {
         columns.push({
           id: definition.id,
-          visible: false,
+          visible:
+            legacyBorrowerNameVisible &&
+            PROCESSING_BORROWER_NAME_COLUMN_IDS.includes(
+              definition.id as (typeof PROCESSING_BORROWER_NAME_COLUMN_IDS)[number],
+            ),
           width: definition.width,
         });
       }
@@ -309,6 +327,14 @@ export function normalizeProcessingLayoutConfig(
     const mandatory = new Set(mandatoryColumnsForBucket(bucket, role));
     for (const column of columns) {
       if (mandatory.has(column.id)) column.visible = true;
+    }
+    const nameColumns = columns.filter((column) =>
+      PROCESSING_BORROWER_NAME_COLUMN_IDS.includes(
+        column.id as (typeof PROCESSING_BORROWER_NAME_COLUMN_IDS)[number],
+      ),
+    );
+    if (!nameColumns.some((column) => column.visible) && nameColumns[0]) {
+      nameColumns[0].visible = true;
     }
     buckets[bucket] = { columns };
   }

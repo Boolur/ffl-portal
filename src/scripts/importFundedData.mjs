@@ -88,8 +88,8 @@ function loanNumberFromSubmission(value) {
 function splitBorrowerName(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   return {
-    firstName: parts[0] || '',
-    lastName: parts.slice(1).join(' '),
+    firstName: parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '',
+    lastName: parts.length > 1 ? parts[parts.length - 1] : '',
   };
 }
 
@@ -381,6 +381,7 @@ function importMetadata(row, workbookHash, importedAt) {
 async function applyEntry(entry, context) {
   const { row, loanOfficer } = entry;
   const importedAt = new Date().toISOString();
+  const borrower = splitBorrowerName(row.borrowerName);
   return prisma.$transaction(async (tx) => {
     const loanBefore = entry.loan ? serialize(entry.loan) : null;
     const loan = entry.loan
@@ -389,6 +390,8 @@ async function applyEntry(entry, context) {
           data: {
             loanNumber: row.ariveNumber,
             borrowerName: row.borrowerName,
+            borrowerFirstName: borrower.firstName || null,
+            borrowerLastName: borrower.lastName || null,
             program: row.loanType,
             loanOfficerId: loanOfficer.id,
             secondaryLoanOfficerId: null,
@@ -399,6 +402,8 @@ async function applyEntry(entry, context) {
           data: {
             loanNumber: row.ariveNumber,
             borrowerName: row.borrowerName,
+            borrowerFirstName: borrower.firstName || null,
+            borrowerLastName: borrower.lastName || null,
             amount: 0,
             program: row.loanType,
             stage: 'CLOSED',
@@ -406,7 +411,6 @@ async function applyEntry(entry, context) {
           },
         });
 
-    const borrower = splitBorrowerName(row.borrowerName);
     const sourceMetadata = {
       source: FUNDED_IMPORT_SOURCE,
       workbookSha256: context.workbookHash,

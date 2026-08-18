@@ -489,10 +489,16 @@ async function resolveActor() {
 
 async function applyEntry(entry, context) {
   return prisma.$transaction(async (tx) => {
+    const borrowerNameParts = entry.row.borrowerName.trim().split(/\s+/);
+    const borrowerLastName =
+      borrowerNameParts.length > 1 ? borrowerNameParts.pop() : null;
+    const borrowerFirstName = borrowerNameParts.join(' ');
     const loan = entry.loan || await tx.loan.create({
       data: {
         loanNumber: entry.row.ariveNumber,
         borrowerName: entry.row.borrowerName,
+        borrowerFirstName: borrowerFirstName || entry.row.borrowerName,
+        borrowerLastName,
         amount: 0,
         program: entry.row.loanType,
         stage: loanStageForPipelineStatus(entry.row.pipelineStatus),

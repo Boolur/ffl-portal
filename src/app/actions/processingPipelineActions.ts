@@ -36,6 +36,7 @@ import {
   readSubmissionString,
   safeSubmissionObject,
   sanitizeProcessingSubmissionData,
+  splitBorrowerName,
 } from '@/lib/processingBorrowerDetails';
 
 type Actor = {
@@ -179,6 +180,8 @@ function serializeRow(row: {
     id: string;
     loanNumber: string;
     borrowerName: string;
+    borrowerFirstName: string | null;
+    borrowerLastName: string | null;
     amount: Prisma.Decimal;
     loanOfficer: { id: string; name: string };
     secondaryLoanOfficer: { id: string; name: string } | null;
@@ -190,6 +193,7 @@ function serializeRow(row: {
   seniorProcessor: { id: string; name: string } | null;
   juniorProcessor: { id: string; name: string } | null;
 }) {
+  const fallbackBorrowerName = splitBorrowerName(row.loan.borrowerName);
   return {
     ...row,
     dateAssigned: row.dateAssigned.toISOString(),
@@ -218,6 +222,10 @@ function serializeRow(row: {
     loan: {
       ...row.loan,
       amount: Number(row.loan.amount),
+      borrowerFirstName:
+        row.loan.borrowerFirstName || fallbackBorrowerName.firstName,
+      borrowerLastName:
+        row.loan.borrowerLastName || fallbackBorrowerName.lastName,
       loanOfficer: row.loan.secondaryLoanOfficer || row.loan.loanOfficer,
     },
   };
@@ -540,6 +548,8 @@ export async function getProcessingPipeline(input?: {
             id: true,
             loanNumber: true,
             borrowerName: true,
+            borrowerFirstName: true,
+            borrowerLastName: true,
             amount: true,
             loanOfficer: { select: { id: true, name: true } },
             secondaryLoanOfficer: { select: { id: true, name: true } },
@@ -1635,6 +1645,489 @@ export async function moveProcessingPipelineLoan(input: {
   };
 }
 
+export type ProcessingBorrowerDetailsInput = {
+  id: string;
+  version: number;
+  borrowerFirstName: string;
+  borrowerLastName: string;
+  borrowerPhone: string;
+  borrowerEmail: string;
+  coBorrowerFirstName: string;
+  coBorrowerLastName: string;
+  coBorrowerPhone: string;
+  coBorrowerEmail: string;
+  propertyStreet: string;
+  propertyUnit: string;
+  propertyCity: string;
+  propertyState: string;
+  propertyZip: string;
+  propertyOccupancy: string;
+  estimatedValue: string;
+  yearBuilt: string;
+  yearAcquired: string;
+  titleHeldAs: string;
+  loanAmount: string;
+  loanType: string;
+  loanProgram: string;
+  lender: string;
+  channel: string;
+  loanPurpose: string;
+  leadSource: string;
+  cashBack: string;
+  projectedRevenue: string;
+  appraisalNeeded: boolean | null;
+  appraisalWaiver: string;
+  appraisalOrderedAt: string;
+  appraisalBackAt: string;
+  appraisalNotes: string;
+  sheet: ProcessingPipelineSheet;
+  pipelineStatus: ProcessingPipelineStatus;
+  dateAssigned: string;
+  estimatedSigningAt: string;
+  titleStatus: ProcessingItemStatus;
+  payoffStatus: ProcessingItemStatus;
+  hoiStatus: ProcessingItemStatus;
+  missingItemsCurrentStatus: string;
+  extraNotes: string;
+  restructureNotes: string;
+  rateLock: boolean;
+  rateLockExpiresAt: string;
+  cdSent: boolean;
+  fundedAt: string;
+};
+
+function canEditProcessingBorrowerWorkspace(role: UserRole) {
+  return (
+    role === UserRole.PROCESSOR_JR ||
+    role === UserRole.PROCESSOR_SR ||
+    role === UserRole.MANAGER ||
+    isAdmin(role)
+  );
+}
+
+function borrowerDetailText(value: unknown, maxLength = 500) {
+  return String(value ?? '').trim().slice(0, maxLength);
+}
+
+function borrowerDetailDate(value: string) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+export async function updateProcessingBorrowerDetails(
+  input: ProcessingBorrowerDetailsInput,
+) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const access = getProcessingPipelineAccess(actor.role);
+  if (!access.canView || !canEditProcessingBorrowerWorkspace(actor.role)) {
+    return { success: false as const, error: 'Not authorized.' };
+  }
+
+  const firstName = borrowerDetailText(input.borrowerFirstName, 100);
+  const lastName = borrowerDetailText(input.borrowerLastName, 100);
+  if (!firstName && !lastName) {
+    return {
+      success: false as const,
+      error: 'At least one primary borrower name is required.',
+    };
+  }
+  const borrowerEmail = borrowerDetailText(input.borrowerEmail, 254).toLowerCase();
+  const coBorrowerEmail = borrowerDetailText(
+    input.coBorrowerEmail,
+    254,
+  ).toLowerCase();
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (
+    (borrowerEmail && !validEmail.test(borrowerEmail)) ||
+    (coBorrowerEmail && !validEmail.test(coBorrowerEmail))
+  ) {
+    return { success: false as const, error: 'Enter a valid borrower email address.' };
+  }
+  const propertyState = borrowerDetailText(input.propertyState, 2).toUpperCase();
+  if (propertyState && !/^[A-Z]{2}$/.test(propertyState)) {
+    return { success: false as const, error: 'Property state must use a two-letter code.' };
+  }
+  const loanAmount = Number(input.loanAmount);
+  const projectedRevenue = input.projectedRevenue
+    ? Number(input.projectedRevenue)
+    : null;
+  if (!Number.isFinite(loanAmount) || loanAmount < 0) {
+    return { success: false as const, error: 'Loan amount must be a valid positive amount.' };
+  }
+  if (
+    projectedRevenue !== null &&
+    (!Number.isFinite(projectedRevenue) || projectedRevenue < 0)
+  ) {
+    return { success: false as const, error: 'Projected revenue must be a valid positive amount.' };
+  }
+  const appraisalOrderedAt = borrowerDetailDate(input.appraisalOrderedAt);
+  const appraisalBackAt = borrowerDetailDate(input.appraisalBackAt);
+  if (appraisalOrderedAt === undefined || appraisalBackAt === undefined) {
+    return { success: false as const, error: 'Enter valid appraisal dates.' };
+  }
+  if (
+    !Object.values(ProcessingPipelineSheet).includes(input.sheet) ||
+    !Object.values(ProcessingPipelineStatus).includes(input.pipelineStatus) ||
+    !Object.values(ProcessingItemStatus).includes(input.titleStatus) ||
+    !Object.values(ProcessingItemStatus).includes(input.payoffStatus) ||
+    !Object.values(ProcessingItemStatus).includes(input.hoiStatus)
+  ) {
+    return { success: false as const, error: 'One or more processing values are invalid.' };
+  }
+  const dateAssigned = borrowerDetailDate(input.dateAssigned);
+  const estimatedSigningAt = borrowerDetailDate(input.estimatedSigningAt);
+  const rateLockExpiresAt = borrowerDetailDate(input.rateLockExpiresAt);
+  const fundedAt = borrowerDetailDate(input.fundedAt);
+  if (
+    !dateAssigned ||
+    estimatedSigningAt === undefined ||
+    rateLockExpiresAt === undefined ||
+    fundedAt === undefined
+  ) {
+    return { success: false as const, error: 'Enter valid processing dates.' };
+  }
+  const restructureStatuses = new Set<ProcessingPipelineStatus>([
+    ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE,
+    ProcessingPipelineStatus.ADVERSE_PENDING,
+    ProcessingPipelineStatus.PENDING_APPROVAL,
+  ]);
+  if (
+    input.sheet === ProcessingPipelineSheet.RESTRUCTURE &&
+    !restructureStatuses.has(input.pipelineStatus)
+  ) {
+    return {
+      success: false as const,
+      error: 'Restructures must use Suspended/Restructure, Adverse Pending, or Pending Approval.',
+    };
+  }
+  if (
+    input.sheet === ProcessingPipelineSheet.PIPELINE &&
+    (restructureStatuses.has(input.pipelineStatus) ||
+      input.pipelineStatus === ProcessingPipelineStatus.FUNDED)
+  ) {
+    return { success: false as const, error: 'Select a status valid for the Pipeline sheet.' };
+  }
+  if (
+    input.pipelineStatus === ProcessingPipelineStatus.DOCS_OUT &&
+    !estimatedSigningAt
+  ) {
+    return { success: false as const, error: 'Estimated signing is required for Docs Out.' };
+  }
+  if (input.sheet === ProcessingPipelineSheet.FUNDING && !fundedAt) {
+    return { success: false as const, error: 'A funded date is required for Fundings.' };
+  }
+  if (
+    input.sheet === ProcessingPipelineSheet.RESTRUCTURE &&
+    !borrowerDetailText(input.restructureNotes, 4000)
+  ) {
+    return { success: false as const, error: 'Restructure notes are required.' };
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const current = await tx.processingPipelineLoan.findFirst({
+        where: { AND: [{ id: input.id }, scopeWhere(actor)] },
+        include: {
+          loan: true,
+          sourceTask: { select: { submissionData: true } },
+        },
+      });
+      if (!current) return { kind: 'missing' as const };
+      if (
+        !canEditProcessingBorrowerWorkspace(actor.role) ||
+        current.sheet === ProcessingPipelineSheet.FUNDING
+      ) {
+        return { kind: 'forbidden' as const };
+      }
+      if (current.version !== input.version) {
+        return { kind: 'conflict' as const };
+      }
+
+      const submission = safeSubmissionObject(
+        sanitizeProcessingSubmissionData(current.sourceTask.submissionData),
+      );
+      const submissionPatch = {
+        borrowerFirstName: firstName,
+        borrowerLastName: lastName,
+        borrowerPhone: borrowerDetailText(input.borrowerPhone, 50),
+        borrowerEmail,
+        coBorrowerFirstName: borrowerDetailText(input.coBorrowerFirstName, 100),
+        coBorrowerLastName: borrowerDetailText(input.coBorrowerLastName, 100),
+        coBorrowerPhone: borrowerDetailText(input.coBorrowerPhone, 50),
+        coBorrowerEmail,
+        propertyStreet: borrowerDetailText(input.propertyStreet, 200),
+        propertyUnit: borrowerDetailText(input.propertyUnit, 50),
+        propertyCity: borrowerDetailText(input.propertyCity, 100),
+        propertyState,
+        propertyZip: borrowerDetailText(input.propertyZip, 10),
+        propertyOccupancy: borrowerDetailText(input.propertyOccupancy, 100),
+        homeValue: borrowerDetailText(input.estimatedValue, 30),
+        yearBuiltProperty: borrowerDetailText(input.yearBuilt, 4),
+        yearAquired: borrowerDetailText(input.yearAcquired, 4),
+        mannerInWhichTitleWillBeHeld: borrowerDetailText(input.titleHeldAs, 200),
+        loanAmount: String(loanAmount),
+        loanType: borrowerDetailText(input.loanType, 100),
+        loanProgram: borrowerDetailText(input.loanProgram, 200),
+        lender: borrowerDetailText(input.lender, 200),
+        channel: borrowerDetailText(input.channel, 100),
+        loanPurpose: borrowerDetailText(input.loanPurpose, 100),
+        leadSource: borrowerDetailText(input.leadSource, 200),
+        cashBack: borrowerDetailText(input.cashBack, 30),
+        projectedRevenue:
+          projectedRevenue === null ? '' : String(projectedRevenue),
+        appraisalNeeded: input.appraisalNeeded,
+        appraisalWaiver: borrowerDetailText(input.appraisalWaiver, 100),
+        appraisalNotes: borrowerDetailText(input.appraisalNotes, 2000),
+      };
+      const propertyAddress = [
+        [
+          submissionPatch.propertyStreet,
+          submissionPatch.propertyUnit,
+        ].filter(Boolean).join(' '),
+        submissionPatch.propertyCity,
+        [propertyState, submissionPatch.propertyZip].filter(Boolean).join(' '),
+      ].filter(Boolean).join(', ') || null;
+
+      const nextLender = submissionPatch.lender || null;
+      const lockedDefaults = getProcessingPipelineLockedDefaults(
+        nextLender,
+        current.processingMethod,
+      );
+      const now = new Date();
+      const nextStatus =
+        input.sheet === ProcessingPipelineSheet.FUNDING
+          ? ProcessingPipelineStatus.FUNDED
+          : input.pipelineStatus;
+      const statusChanged =
+        current.pipelineStatus !== nextStatus || current.sheet !== input.sheet;
+      const lockedAppraisal = isProcessingPipelineFieldLocked(
+        'appraisalNeeded',
+        nextLender,
+        current.processingMethod,
+      );
+      const lockedTitle = isProcessingPipelineFieldLocked(
+        'titleStatus',
+        nextLender,
+        current.processingMethod,
+      );
+      const lockedPayoff = isProcessingPipelineFieldLocked(
+        'payoffStatus',
+        nextLender,
+        current.processingMethod,
+      );
+      const lockedHoi = isProcessingPipelineFieldLocked(
+        'hoiStatus',
+        nextLender,
+        current.processingMethod,
+      );
+      const lockedCdSent = isProcessingPipelineFieldLocked(
+        'cdSent',
+        nextLender,
+        current.processingMethod,
+      );
+      const lockedRateLock = isProcessingPipelineFieldLocked(
+        'rateLock',
+        nextLender,
+        current.processingMethod,
+      );
+      if (input.rateLock && !rateLockExpiresAt && !lockedRateLock) {
+        return {
+          kind: 'validation' as const,
+          error: 'A Rate Lock expiration date is required when Rate Lock is Yes.',
+        };
+      }
+      const nextRateLock = lockedRateLock ? current.rateLock : input.rateLock;
+      const nextRateLockConfirmedAt = nextRateLock
+        ? current.rateLockConfirmedAt ?? now
+        : null;
+      const nextCdSent = lockedCdSent ? current.cdSent : input.cdSent;
+      const pipelineData: Prisma.ProcessingPipelineLoanUpdateManyMutationInput = {
+        version: { increment: 1 },
+        sheet: input.sheet,
+        movedAt: current.sheet === input.sheet ? current.movedAt : now,
+        pipelineStatus: nextStatus,
+        statusChangedAt: statusChanged ? now : current.statusChangedAt,
+        dateAssigned,
+        estimatedSigningAt:
+          nextStatus === ProcessingPipelineStatus.DOCS_OUT
+            ? estimatedSigningAt
+            : estimatedSigningAt || null,
+        approvedWithConditionsAt: getApprovedWithConditionsAt(
+          nextStatus,
+          current.approvedWithConditionsAt,
+          now,
+        ),
+        propertyState: propertyState || null,
+        loanType: submissionPatch.loanType || null,
+        lender: nextLender,
+        leadSource: submissionPatch.leadSource || null,
+        projectedRevenue,
+        titleStatus: lockedTitle ? current.titleStatus : input.titleStatus,
+        payoffStatus: lockedPayoff ? current.payoffStatus : input.payoffStatus,
+        payoffOrderedAt: lockedPayoff
+          ? current.payoffOrderedAt
+          : getItemOrderedAt(
+              input.payoffStatus,
+              current.payoffOrderedAt,
+              now,
+            ),
+        hoiStatus: lockedHoi ? current.hoiStatus : input.hoiStatus,
+        hoiOrderedAt: lockedHoi
+          ? current.hoiOrderedAt
+          : getItemOrderedAt(input.hoiStatus, current.hoiOrderedAt, now),
+        missingItemsCurrentStatus:
+          borrowerDetailText(input.missingItemsCurrentStatus, 2000) || null,
+        extraNotes: borrowerDetailText(input.extraNotes, 4000) || null,
+        restructureNotes:
+          borrowerDetailText(input.restructureNotes, 4000) || null,
+        rateLock: nextRateLock,
+        rateLockExpiresAt: lockedRateLock
+          ? current.rateLockExpiresAt
+          : nextRateLock
+            ? rateLockExpiresAt
+            : null,
+        rateLockConfirmedAt: nextRateLockConfirmedAt,
+        cdSent: nextCdSent,
+        cdWarningStartsAt: nextCdSent
+          ? null
+          : getCdWarningStartsAt(
+              nextRateLock,
+              current.cdWarningStartsAt,
+              now,
+            ),
+        appraisalNeeded: lockedAppraisal
+          ? current.appraisalNeeded
+          : input.appraisalNeeded,
+        appraisalNotes: submissionPatch.appraisalNotes || null,
+        appraisalOrderedAt,
+        appraisalBackAt,
+        ...(nextRateLock
+          ? {
+              rateLockRequestedAt: null,
+              rateLockRequestedById: null,
+            }
+          : {}),
+        ...(input.sheet === ProcessingPipelineSheet.FUNDING && fundedAt
+          ? {
+              fundedAt,
+              firstPaymentAt: getMortgageFirstPaymentDate(fundedAt),
+              sixthPaymentAt: addMonthsClamped(fundedAt, 6),
+              rateLockRequestedAt: null,
+              rateLockRequestedById: null,
+            }
+          : input.sheet !== ProcessingPipelineSheet.FUNDING
+            ? {
+                fundedAt: null,
+                firstPaymentAt: null,
+                sixthPaymentAt: null,
+              }
+            : {}),
+      };
+      if (lockedDefaults) {
+        submissionPatch.appraisalNeeded =
+          lockedDefaults.values.appraisalNeeded ?? submissionPatch.appraisalNeeded;
+        Object.assign(pipelineData, lockedDefaults.values, {
+          payoffOrderedAt: null,
+          hoiOrderedAt: null,
+        });
+        if (lockedDefaults.kind === 'SPECIAL_LENDER') {
+          Object.assign(pipelineData, {
+            cdWarningStartsAt: null,
+            rateLockExpiresAt: null,
+            rateLockConfirmedAt: current.rateLockConfirmedAt ?? new Date(),
+            rateLockRequestedAt: null,
+            rateLockRequestedById: null,
+          });
+        }
+      }
+      const updated = await tx.processingPipelineLoan.updateMany({
+        where: { id: current.id, version: current.version },
+        data: pipelineData,
+      });
+      if (updated.count !== 1) return { kind: 'conflict' as const };
+
+      await tx.loan.update({
+        where: { id: current.loanId },
+        data: {
+          borrowerName: [firstName, lastName].filter(Boolean).join(' '),
+          borrowerFirstName: firstName || null,
+          borrowerLastName: lastName || null,
+          borrowerPhone: submissionPatch.borrowerPhone || null,
+          borrowerEmail: borrowerEmail || null,
+          amount: loanAmount,
+          program: submissionPatch.loanProgram || null,
+          propertyAddress,
+        },
+      });
+      await tx.task.update({
+        where: { id: current.sourceTaskId },
+        data: {
+          submissionData: {
+            ...submission,
+            ...submissionPatch,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          loanId: current.loanId,
+          userId: actor.id,
+          action: 'PROCESSING_BORROWER_DETAILS_UPDATED',
+          details: JSON.stringify({
+            source: 'borrower_workspace',
+            fields: [
+              ...Object.keys(submissionPatch),
+              'sheet',
+              'pipelineStatus',
+              'dateAssigned',
+              'estimatedSigningAt',
+              'titleStatus',
+              'payoffStatus',
+              'hoiStatus',
+              'missingItemsCurrentStatus',
+              'extraNotes',
+              'restructureNotes',
+              'rateLock',
+              'rateLockExpiresAt',
+              'cdSent',
+              'fundedAt',
+              'appraisalOrderedAt',
+              'appraisalBackAt',
+            ],
+          }),
+        },
+      });
+      return { kind: 'ok' as const };
+    });
+
+    if (result.kind === 'missing') {
+      return { success: false as const, error: 'Pipeline row not found.' };
+    }
+    if (result.kind === 'forbidden') {
+      return {
+        success: false as const,
+        error: 'You do not have permission to edit this file.',
+      };
+    }
+    if (result.kind === 'validation') {
+      return { success: false as const, error: result.error };
+    }
+    if (result.kind === 'conflict') {
+      return {
+        success: false as const,
+        conflict: true as const,
+        error: 'This file changed while you were editing it. Reload and try again.',
+      };
+    }
+    return { success: true as const };
+  } catch (error) {
+    console.error('Failed to update processing borrower details:', error);
+    return { success: false as const, error: 'Unable to save borrower details.' };
+  }
+}
+
 export async function getProcessingBorrowerDetails(id: string) {
   noStore();
   const actor = await getActor();
@@ -1718,11 +2211,18 @@ export async function getProcessingBorrowerDetails(id: string) {
     success: true as const,
     details: {
       id: row.id,
-      canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
+      version: row.version,
+      canEdit:
+        row.sheet !== ProcessingPipelineSheet.FUNDING &&
+        canEditProcessingBorrowerWorkspace(actor.role),
       borrower: {
         name: row.loan.borrowerName,
-        firstName: readSubmissionString(submission, 'borrowerFirstName'),
-        lastName: readSubmissionString(submission, 'borrowerLastName'),
+        firstName:
+          row.loan.borrowerFirstName ||
+          readSubmissionString(submission, 'borrowerFirstName'),
+        lastName:
+          row.loan.borrowerLastName ||
+          readSubmissionString(submission, 'borrowerLastName'),
         phone:
           row.loan.borrowerPhone ||
           readSubmissionString(submission, 'borrowerPhone'),

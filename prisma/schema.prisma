@@ -359,14 +359,16 @@ model WebsiteLoanOfficerProfile {
 }
 
 model Loan {
-  id              String  @id @default(uuid())
-  loanNumber      String  @unique // Internal ID
-  borrowerName    String
-  borrowerPhone   String?
-  borrowerEmail   String?
-  amount          Decimal @db.Decimal(12, 2)
-  program         String? // e.g. "FHA 30yr Fixed"
-  propertyAddress String?
+  id                String  @id @default(uuid())
+  loanNumber        String  @unique // Internal ID
+  borrowerName      String
+  borrowerFirstName String?
+  borrowerLastName  String?
+  borrowerPhone     String?
+  borrowerEmail     String?
+  amount            Decimal @db.Decimal(12, 2)
+  program           String? // e.g. "FHA 30yr Fixed"
+  propertyAddress   String?
 
   stage           LoanStage      @default(INTAKE)
   pipelineStageId String?

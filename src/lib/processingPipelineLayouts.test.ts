@@ -28,21 +28,46 @@ describe('processing pipeline saved layouts', () => {
   it('keeps mandatory columns visible while preserving their custom order', () => {
     const config = buildDefaultProcessingLayoutConfig(UserRole.MANAGER);
     const columns = config.buckets.PIPELINE.columns;
-    const borrowerIndex = columns.findIndex(
-      (column) => column.id === 'borrowerName',
+    const statusIndex = columns.findIndex(
+      (column) => column.id === 'pipelineStatus',
     );
-    const [borrower] = columns.splice(borrowerIndex, 1);
-    borrower.visible = false;
-    columns.unshift(borrower);
+    const [status] = columns.splice(statusIndex, 1);
+    status.visible = false;
+    columns.unshift(status);
 
     const result = normalizeProcessingLayoutConfig(config, UserRole.MANAGER);
 
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.config.buckets.PIPELINE.columns[0]).toMatchObject({
-      id: 'borrowerName',
+      id: 'pipelineStatus',
       visible: true,
     });
+  });
+
+  it('requires at least one structured borrower name column', () => {
+    const config = buildDefaultProcessingLayoutConfig(UserRole.MANAGER);
+    for (const column of config.buckets.PIPELINE.columns) {
+      if (
+        column.id === 'borrowerFirstName' ||
+        column.id === 'borrowerLastName'
+      ) {
+        column.visible = false;
+      }
+    }
+
+    const result = normalizeProcessingLayoutConfig(config, UserRole.MANAGER);
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(
+      result.config.buckets.PIPELINE.columns.filter(
+        (column) =>
+          (column.id === 'borrowerFirstName' ||
+            column.id === 'borrowerLastName') &&
+          column.visible,
+      ),
+    ).toHaveLength(1);
   });
 
   it('removes processor-restricted financial and lead columns', () => {
@@ -77,7 +102,6 @@ describe('processing pipeline saved layouts', () => {
       'dateAssigned',
       'loanNumber',
       'loanOfficer',
-      'borrowerName',
       'pipelineStatus',
       'actions',
     ]);
@@ -85,7 +109,6 @@ describe('processing pipeline saved layouts', () => {
       'dateAssigned',
       'loanNumber',
       'loanOfficer',
-      'borrowerName',
     ]);
   });
 

@@ -48,6 +48,7 @@ import {
   buildDefaultProcessingLayoutConfig,
   mandatoryColumnsForBucket,
   processingLayoutBucketColumns,
+  PROCESSING_BORROWER_NAME_COLUMN_IDS,
   PROCESSING_LAYOUT_BUCKETS,
   type ProcessingLayoutBucket,
   type ProcessingLayoutColumn,
@@ -97,6 +98,7 @@ function SortableColumnRow({
   column,
   label,
   mandatory,
+  requirementLabel,
   onVisibilityChange,
   onWidthChange,
   onMove,
@@ -106,6 +108,7 @@ function SortableColumnRow({
   column: ProcessingLayoutColumn;
   label: string;
   mandatory: boolean;
+  requirementLabel?: string;
   onVisibilityChange: (visible: boolean) => void;
   onWidthChange: (width: number) => void;
   onMove: (direction: -1 | 1) => void;
@@ -159,7 +162,7 @@ function SortableColumnRow({
           {mandatory ? (
             <>
               <LockKeyhole className="h-3 w-3 text-blue-500" />
-              Always visible
+              {requirementLabel || 'Always visible'}
             </>
           ) : column.visible ? (
             'Visible in condensed view'
@@ -278,6 +281,13 @@ export function ProcessingPipelineLayoutManager({
     [role, selectedBucket],
   );
   const columns = draft?.config.buckets[selectedBucket].columns || [];
+  const visibleBorrowerNameCount = columns.filter(
+    (column) =>
+      column.visible &&
+      PROCESSING_BORROWER_NAME_COLUMN_IDS.includes(
+        column.id as (typeof PROCESSING_BORROWER_NAME_COLUMN_IDS)[number],
+      ),
+  ).length;
 
   const selectLayout = (layout: ProcessingPipelineSavedLayout) => {
     setDraft({
@@ -665,23 +675,46 @@ export function ProcessingPipelineLayoutManager({
                 >
                   <div className="space-y-2">
                     {columns.map((column, index) => (
-                      <SortableColumnRow
-                        key={column.id}
-                        column={column}
-                        label={labels.get(column.id) || column.id}
-                        mandatory={mandatory.has(column.id)}
-                        onVisibilityChange={(visible) =>
-                          patchColumn(column.id, { visible })
-                        }
-                        onWidthChange={(width) =>
-                          patchColumn(column.id, {
-                            width: Math.max(64, Math.min(420, width || 64)),
-                          })
-                        }
-                        onMove={(direction) => moveColumn(index, direction)}
-                        index={index}
-                        count={columns.length}
-                      />
+                      (() => {
+                        const isBorrowerNameColumn =
+                          PROCESSING_BORROWER_NAME_COLUMN_IDS.includes(
+                            column.id as (typeof PROCESSING_BORROWER_NAME_COLUMN_IDS)[number],
+                          );
+                        const isOnlyVisibleBorrowerName =
+                          isBorrowerNameColumn &&
+                          column.visible &&
+                          visibleBorrowerNameCount === 1;
+                        return (
+                          <SortableColumnRow
+                            key={column.id}
+                            column={column}
+                            label={labels.get(column.id) || column.id}
+                            mandatory={
+                              mandatory.has(column.id) ||
+                              isOnlyVisibleBorrowerName
+                            }
+                            requirementLabel={
+                              isOnlyVisibleBorrowerName
+                                ? 'At least one borrower name is required'
+                                : undefined
+                            }
+                            onVisibilityChange={(visible) =>
+                              patchColumn(column.id, { visible })
+                            }
+                            onWidthChange={(width) =>
+                              patchColumn(column.id, {
+                                width: Math.max(
+                                  64,
+                                  Math.min(420, width || 64),
+                                ),
+                              })
+                            }
+                            onMove={(direction) => moveColumn(index, direction)}
+                            index={index}
+                            count={columns.length}
+                          />
+                        );
+                      })()
                     ))}
                   </div>
                 </SortableContext>

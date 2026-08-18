@@ -143,7 +143,8 @@ const STICKY_IDENTITY_COLUMNS = [
   'dateAssigned',
   'loanNumber',
   'loanOfficer',
-  'borrowerName',
+  'borrowerFirstName',
+  'borrowerLastName',
 ] as const satisfies readonly ColumnId[];
 const WIDTH_STORAGE_KEY = 'ffl:processing-pipeline-widths-v2';
 const YES_NO_FILTER_OPTIONS: FilterOption[] = [
@@ -261,6 +262,8 @@ function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | numb
   if (id === 'loanOfficer') return row.loan.loanOfficer.name;
   if (id === 'dateAssigned') return row.dateAssigned;
   if (id === 'loanNumber') return row.loan.loanNumber;
+  if (id === 'borrowerFirstName') return row.loan.borrowerFirstName;
+  if (id === 'borrowerLastName') return row.loan.borrowerLastName;
   if (id === 'borrowerName') return row.loan.borrowerName;
   if (id === 'propertyState') return row.propertyState;
   if (id === 'loanAmount') return row.loan.amount;
@@ -1691,7 +1694,7 @@ export function ProcessingPipelineGrid({
         className={
           id === 'actions' && actionsPinnedRight
             ? 'lg:sticky lg:right-0 lg:z-30 lg:shadow-[-1px_0_0_#e2e8f0]'
-            : id === 'borrowerName'
+            : id === 'borrowerLastName'
               ? 'shadow-[1px_0_0_#cbd5e1]'
               : ''
         }
@@ -1751,6 +1754,42 @@ export function ProcessingPipelineGrid({
             title={row.loan.loanOfficer.name}
           >
             {row.loan.loanOfficer.name}
+          </td>
+        );
+      case 'borrowerFirstName':
+        return (
+          <td
+            key={id}
+            style={{ left: stickyLeftByColumn.get(id) }}
+            className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+            title={row.loan.borrowerFirstName}
+          >
+            <button
+              type="button"
+              onClick={() => setBorrowerWorkspaceRowId(row.id)}
+              className="max-w-full truncate text-left font-bold text-blue-800 underline decoration-blue-300 decoration-1 underline-offset-2 transition hover:text-blue-950 hover:decoration-blue-600 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              aria-label={`Open borrower workspace for ${row.loan.borrowerName}`}
+            >
+              {row.loan.borrowerFirstName || '—'}
+            </button>
+          </td>
+        );
+      case 'borrowerLastName':
+        return (
+          <td
+            key={id}
+            style={{ left: stickyLeftByColumn.get(id) }}
+            className={`truncate border-b border-r border-slate-200 font-bold text-slate-950 lg:sticky lg:z-10 lg:shadow-[1px_0_0_#cbd5e1] ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+            title={row.loan.borrowerLastName || undefined}
+          >
+            <button
+              type="button"
+              onClick={() => setBorrowerWorkspaceRowId(row.id)}
+              className="max-w-full truncate text-left font-bold text-blue-800 underline decoration-blue-300 decoration-1 underline-offset-2 transition hover:text-blue-950 hover:decoration-blue-600 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              aria-label={`Open borrower workspace for ${row.loan.borrowerName}`}
+            >
+              {row.loan.borrowerLastName || '—'}
+            </button>
           </td>
         );
       case 'borrowerName':
@@ -2901,6 +2940,7 @@ export function ProcessingPipelineGrid({
         <ProcessingBorrowerWorkspace
           pipelineLoanId={borrowerWorkspaceRowId}
           onClose={() => setBorrowerWorkspaceRowId(null)}
+          onSaved={() => loadRows()}
         />
       )}
 
