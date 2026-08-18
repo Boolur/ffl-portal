@@ -82,6 +82,39 @@ describe('processing borrower detail helpers', () => {
     ).toBe(false);
   });
 
+  it('accepts and formats an unhyphenated 9-digit ZIP+4', () => {
+    expect(
+      normalizeProcessingProperty({
+        street: '123 Main St',
+        city: 'Orlando',
+        state: 'FL',
+        zip: '328011234',
+      }),
+    ).toEqual({
+      success: true,
+      street: '123 Main St',
+      unit: '',
+      city: 'Orlando',
+      state: 'FL',
+      zip: '32801-1234',
+      address: '123 Main St, Orlando, FL 32801-1234',
+    });
+  });
+
+  it('returns a ZIP-specific error for an invalid ZIP', () => {
+    expect(
+      normalizeProcessingProperty({
+        street: '123 Main St',
+        city: 'Orlando',
+        state: 'FL',
+        zip: '3280',
+      }),
+    ).toEqual({
+      success: false,
+      error: 'Subject Property ZIP must be 5 digits or a 9-digit ZIP+4.',
+    });
+  });
+
   it('requires a valid borrower contact email', () => {
     expect(
       validateProcessingBorrowerContact({

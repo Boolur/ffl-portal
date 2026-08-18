@@ -96,17 +96,25 @@ export function normalizeProcessingProperty(input: {
   const unit = String(input.unit ?? '').trim();
   const city = String(input.city ?? '').trim();
   const state = String(input.state ?? '').trim().toUpperCase();
-  const zip = String(input.zip ?? '').trim();
+  const rawZip = String(input.zip ?? '').trim();
+  const zip = /^\d{9}$/.test(rawZip)
+    ? `${rawZip.slice(0, 5)}-${rawZip.slice(5)}`
+    : rawZip;
   if (
     !street ||
     !city ||
-    !/^[A-Z]{2}$/.test(state) ||
-    !/^\d{5}(?:-\d{4})?$/.test(zip)
+    !/^[A-Z]{2}$/.test(state)
   ) {
     return {
       success: false as const,
       error:
         'A complete Subject Property street, city, state, and ZIP is required before submitting Processing.',
+    };
+  }
+  if (!/^\d{5}(?:-\d{4})?$/.test(zip)) {
+    return {
+      success: false as const,
+      error: 'Subject Property ZIP must be 5 digits or a 9-digit ZIP+4.',
     };
   }
   return {
