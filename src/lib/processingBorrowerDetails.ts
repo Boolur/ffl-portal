@@ -68,6 +68,17 @@ export function readSubmissionString(
   return null;
 }
 
+export function splitBorrowerName(value: unknown) {
+  const fullName = String(value ?? '').trim().replace(/\s+/g, ' ');
+  if (!fullName) return { firstName: '', lastName: '' };
+  const parts = fullName.split(' ');
+  if (parts.length === 1) return { firstName: fullName, lastName: '' };
+  return {
+    firstName: parts.slice(0, -1).join(' '),
+    lastName: parts[parts.length - 1],
+  };
+}
+
 export function readSubmissionNotes(data: Record<string, unknown>) {
   const history = Array.isArray(data.notesHistory) ? data.notesHistory : [];
   return history.flatMap((entry, index) => {
@@ -85,6 +96,16 @@ export function readSubmissionNotes(data: Record<string, unknown>) {
   });
 }
 
+export function normalizeProcessingZip(value: unknown) {
+  const rawZip = String(value ?? '').trim();
+  const zipWithLeadingZero = /^\d{8}$/.test(rawZip)
+    ? `0${rawZip}`
+    : rawZip;
+  return /^\d{9}$/.test(zipWithLeadingZero)
+    ? `${zipWithLeadingZero.slice(0, 5)}-${zipWithLeadingZero.slice(5)}`
+    : zipWithLeadingZero;
+}
+
 export function normalizeProcessingProperty(input: {
   street: unknown;
   unit?: unknown;
@@ -96,19 +117,18 @@ export function normalizeProcessingProperty(input: {
   const unit = String(input.unit ?? '').trim();
   const city = String(input.city ?? '').trim();
   const state = String(input.state ?? '').trim().toUpperCase();
-  const rawZip = String(input.zip ?? '').trim();
-  const zip = /^\d{9}$/.test(rawZip)
-    ? `${rawZip.slice(0, 5)}-${rawZip.slice(5)}`
-    : rawZip;
-  if (
-    !street ||
-    !city ||
-    !/^[A-Z]{2}$/.test(state)
-  ) {
+  const zip = normalizeProcessingZip(input.zip);
+  if (!street || !city || !state || !zip) {
     return {
       success: false as const,
       error:
         'A complete Subject Property street, city, state, and ZIP is required before submitting Processing.',
+    };
+  }
+  if (!/^[A-Z]{2}$/.test(state)) {
+    return {
+      success: false as const,
+      error: 'Subject Property State must be a valid 2-letter abbreviation.',
     };
   }
   if (!/^\d{5}(?:-\d{4})?$/.test(zip)) {

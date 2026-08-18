@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   isSensitivePaymentKey,
   normalizeProcessingProperty,
+  normalizeProcessingZip,
   readSubmissionNotes,
   readSubmissionString,
   sanitizeProcessingSubmissionData,
+  splitBorrowerName,
   validateProcessingBorrowerContact,
 } from './processingBorrowerDetails';
 
@@ -17,6 +19,17 @@ describe('processing borrower detail helpers', () => {
         'subjectPropertyAddress',
       ),
     ).toBe('123 Main St');
+  });
+
+  it('splits historical names using the final word as last name', () => {
+    expect(splitBorrowerName('  Mary Jane Smith  ')).toEqual({
+      firstName: 'Mary Jane',
+      lastName: 'Smith',
+    });
+    expect(splitBorrowerName('Prince')).toEqual({
+      firstName: 'Prince',
+      lastName: '',
+    });
   });
 
   it('redacts payment credentials recursively', () => {
@@ -98,6 +111,26 @@ describe('processing borrower detail helpers', () => {
       state: 'FL',
       zip: '32801-1234',
       address: '123 Main St, Orlando, FL 32801-1234',
+    });
+  });
+
+  it('restores a leading zero dropped from an 8-digit ZIP+4', () => {
+    expect(normalizeProcessingZip('70901234')).toBe('07090-1234');
+    expect(
+      normalizeProcessingProperty({
+        street: '123 Main St',
+        city: 'Teaneck',
+        state: 'NJ',
+        zip: '70901234',
+      }),
+    ).toEqual({
+      success: true,
+      street: '123 Main St',
+      unit: '',
+      city: 'Teaneck',
+      state: 'NJ',
+      zip: '07090-1234',
+      address: '123 Main St, Teaneck, NJ 07090-1234',
     });
   });
 

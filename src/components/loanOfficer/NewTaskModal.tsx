@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createPlusOneSubmission, createSubmissionTask } from '@/app/actions/taskActions';
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
 import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
+import { normalizeProcessingZip } from '@/lib/processingBorrowerDetails';
 import {
   PROCESSING_ASSIGNMENT_THIRD_PARTY,
   PROCESSING_METHOD_IN_HOUSE,
@@ -653,11 +654,13 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
   )
     .trim()
     .toUpperCase();
-  const propertyZip = getFirstText(subjectProperty, [
-    'PostalCode',
-    'AddressPostalCode',
-    'PropertyPostalCode',
-  ]);
+  const propertyZip = normalizeProcessingZip(
+    getFirstText(subjectProperty, [
+      'PostalCode',
+      'AddressPostalCode',
+      'PropertyPostalCode',
+    ])
+  );
   const propertyOccupancy = getFirstText(subjectProperty, [
     'PropertyUsageType',
     'OccupancyType',
