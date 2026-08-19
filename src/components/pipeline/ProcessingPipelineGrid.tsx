@@ -26,6 +26,7 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  Pencil,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -46,6 +47,7 @@ import {
   dismissProcessingRateLockRequest,
   moveProcessingPipelineLoan,
   requestProcessingRateLock,
+  reassignProcessingPipelineJuniorProcessor,
   updateProcessingPipelineCell,
   updateProcessingPipelineRateLock,
   updateProcessingRestructureWorkflow,
@@ -670,6 +672,8 @@ export function ProcessingPipelineGrid({
   const [borrowerWorkspaceRowId, setBorrowerWorkspaceRowId] =
     useState<string | null>(null);
   const [actionsMenuRow, setActionsMenuRow] = useState<ProcessingPipelineRow | null>(null);
+  const [juniorProcessorEditorRowId, setJuniorProcessorEditorRowId] =
+    useState<string | null>(null);
   const [restructureDialog, setRestructureDialog] = useState<{
     row: ProcessingPipelineRow;
     action: RestructureDialogAction;
@@ -1247,6 +1251,42 @@ export function ProcessingPipelineGrid({
       version: result.version,
       ...result.patch,
     });
+  };
+
+  const reassignJuniorProcessor = async (
+    row: ProcessingPipelineRow,
+    juniorProcessorId: string | null,
+  ) => {
+    if (!isManagerOrAdmin || row.sheet === ProcessingPipelineSheet.FUNDING) {
+      return;
+    }
+    setSavingRows((current) => new Set(current).add(row.id));
+    setMessage('');
+    const result = await reassignProcessingPipelineJuniorProcessor({
+      id: row.id,
+      version: row.version,
+      juniorProcessorId,
+    });
+    setSavingRows((current) => {
+      const next = new Set(current);
+      next.delete(row.id);
+      return next;
+    });
+    if (!result.success) {
+      setMessage(result.error);
+      if ('conflict' in result) loadRows();
+      return;
+    }
+    setJuniorProcessorEditorRowId(null);
+    patchRow(row.id, {
+      ...result.patch,
+      version: result.version,
+    });
+    setMessage(
+      `${row.loan.borrowerName} reassigned to ${
+        result.patch.juniorProcessor?.name || 'Unassigned'
+      }.`,
+    );
   };
 
   const saveRateLock = async (
@@ -1867,10 +1907,56 @@ export function ProcessingPipelineGrid({
         return (
           <td
             key={id}
-            className={`truncate border-b border-r border-slate-200 ${cellPadding}`}
-            title={row.juniorProcessor?.name}
+            className={`border-b border-r border-slate-200 ${cellPadding}`}
           >
-            {row.juniorProcessor?.name || '—'}
+            {juniorProcessorEditorRowId === row.id &&
+            isManagerOrAdmin &&
+            row.sheet !== ProcessingPipelineSheet.FUNDING ? (
+              <select
+                autoFocus
+                value={row.juniorProcessor?.id || ''}
+                onBlur={() => setJuniorProcessorEditorRowId(null)}
+                onChange={(event) =>
+                  void reassignJuniorProcessor(row, event.target.value || null)
+                }
+                disabled={savingRows.has(row.id)}
+                aria-label={`Reassign Jr Processor for ${row.loan.borrowerName}`}
+                className="app-input h-8 w-full min-w-0 rounded-lg px-2 py-1 text-xs font-semibold"
+              >
+                <option value="">Unassigned</option>
+                {initialData.juniorProcessorOptions.map((processor) => (
+                  <option key={processor.id} value={processor.id}>
+                    {processor.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="min-w-0 flex-1 truncate"
+                  title={row.juniorProcessor?.name || 'Unassigned'}
+                >
+                  {row.juniorProcessor?.name || '—'}
+                </span>
+                {isManagerOrAdmin &&
+                  row.sheet !== ProcessingPipelineSheet.FUNDING && (
+                    <button
+                      type="button"
+                      onClick={() => setJuniorProcessorEditorRowId(row.id)}
+                      disabled={savingRows.has(row.id)}
+                      aria-label={`Edit Jr Processor for ${row.loan.borrowerName}`}
+                      title="Reassign Jr Processor"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {savingRows.has(row.id) ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Pencil className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  )}
+              </div>
+            )}
           </td>
         );
       case 'seniorProcessor':

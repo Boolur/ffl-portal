@@ -69,12 +69,22 @@ function scopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInput {
   if (access.scope === 'COMPANY') return { archivedAt: null };
   if (access.scope === 'ASSIGNED') {
     if (actor.role === UserRole.PROCESSOR_JR) {
-      return actor.processingAssignmentGroups.length > 0
-        ? {
-            assignmentGroup: { in: actor.processingAssignmentGroups },
-            archivedAt: null,
-          }
-        : { id: '__NO_ASSIGNED_PROCESSOR__' };
+      return {
+        archivedAt: null,
+        OR: [
+          { juniorProcessorId: actor.id },
+          ...(actor.processingAssignmentGroups.length > 0
+            ? [
+                {
+                  juniorProcessorId: null,
+                  assignmentGroup: {
+                    in: actor.processingAssignmentGroups,
+                  },
+                },
+              ]
+            : []),
+        ],
+      };
     }
     return { seniorProcessorId: actor.id, archivedAt: null };
   }
@@ -539,7 +549,7 @@ export async function getProcessingPipeline(input?: {
     ];
   }
 
-  const [rows, total, teams] = await prisma.$transaction([
+  const [rows, total, teams, juniorProcessors] = await prisma.$transaction([
     prisma.processingPipelineLoan.findMany({
       where,
       include: {
@@ -581,6 +591,17 @@ export async function getProcessingPipeline(input?: {
         members: { select: { userId: true } },
       },
     }),
+    prisma.user.findMany({
+      where: {
+        active: true,
+        OR: [
+          { role: UserRole.PROCESSOR_JR },
+          { roles: { has: UserRole.PROCESSOR_JR } },
+        ],
+      },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    }),
   ]);
 
   return {
@@ -600,6 +621,10 @@ export async function getProcessingPipeline(input?: {
       memberCount: team.members.length,
       memberIds: team.members.map((member) => member.userId),
     })),
+    juniorProcessorOptions:
+      actor.role === UserRole.MANAGER || isAdmin(actor.role)
+        ? juniorProcessors
+        : [],
     canEdit: access.canEdit || actor.role === UserRole.LOAN_OFFICER,
     role: actor.role,
   };
@@ -703,6 +728,121 @@ export async function getProcessingPipelineFilterOptions(
         ...uniqueUserOptions(rows.map((row) => row.seniorProcessor)),
       ],
     },
+  };
+}
+
+export async function reassignProcessingPipelineJuniorProcessor(input: {
+  id: string;
+  version: number;
+  juniorProcessorId: string | null;
+}) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  if (actor.role !== UserRole.MANAGER && !isAdmin(actor.role)) {
+    return {
+      success: false as const,
+      error: 'Only Managers and Admins can reassign Jr Processors.',
+    };
+  }
+
+  const juniorProcessorId = input.juniorProcessorId?.trim() || null;
+  const result = await prisma.$transaction(async (tx) => {
+    const current = await tx.processingPipelineLoan.findFirst({
+      where: { AND: [{ id: input.id }, scopeWhere(actor)] },
+      select: {
+        id: true,
+        loanId: true,
+        sheet: true,
+        version: true,
+        juniorProcessorId: true,
+        juniorProcessor: { select: { id: true, name: true } },
+      },
+    });
+    if (!current) {
+      return { kind: 'error' as const, error: 'Pipeline row not found.' };
+    }
+    if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+      return { kind: 'error' as const, error: 'Funded loans are read-only.' };
+    }
+    if (current.version !== input.version) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+
+    const nextJuniorProcessor = juniorProcessorId
+      ? await tx.user.findFirst({
+          where: {
+            id: juniorProcessorId,
+            active: true,
+            OR: [
+              { role: UserRole.PROCESSOR_JR },
+              { roles: { has: UserRole.PROCESSOR_JR } },
+            ],
+          },
+          select: { id: true, name: true },
+        })
+      : null;
+    if (juniorProcessorId && !nextJuniorProcessor) {
+      return {
+        kind: 'error' as const,
+        error: 'Select an active Jr Processor.',
+      };
+    }
+    if (current.juniorProcessorId === juniorProcessorId) {
+      return {
+        kind: 'ok' as const,
+        version: current.version,
+        juniorProcessor: current.juniorProcessor,
+      };
+    }
+
+    const updated = await tx.processingPipelineLoan.updateMany({
+      where: { id: current.id, version: input.version },
+      data: {
+        juniorProcessorId,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+
+    await tx.auditLog.create({
+      data: {
+        loanId: current.loanId,
+        userId: actor.id,
+        action: 'PROCESSING_PIPELINE_JR_PROCESSOR_REASSIGNED',
+        details: JSON.stringify({
+          processingPipelineLoanId: current.id,
+          previousJuniorProcessorId: current.juniorProcessor?.id || null,
+          previousJuniorProcessorName: current.juniorProcessor?.name || null,
+          newJuniorProcessorId: nextJuniorProcessor?.id || null,
+          newJuniorProcessorName: nextJuniorProcessor?.name || null,
+          actorName: actor.name,
+        }),
+      },
+    });
+    return {
+      kind: 'ok' as const,
+      version: input.version + 1,
+      juniorProcessor: nextJuniorProcessor,
+    };
+  });
+
+  if (result.kind === 'error') {
+    return { success: false as const, error: result.error };
+  }
+  if (result.kind === 'conflict') {
+    return {
+      success: false as const,
+      conflict: true as const,
+      version: result.version,
+      error: 'This row changed in another session. Refreshing the latest values.',
+    };
+  }
+  return {
+    success: true as const,
+    version: result.version,
+    patch: { juniorProcessor: result.juniorProcessor },
   };
 }
 
