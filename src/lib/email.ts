@@ -42,6 +42,22 @@ export type EmailSendReceipt = {
   acceptedAt: string;
 };
 
+export function assertEmailDeliveriesSucceeded(
+  results: PromiseSettledResult<EmailSendReceipt>[],
+  label: string,
+) {
+  const failures = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : [],
+  );
+  if (failures.length === 0) return;
+  const messages = failures.map((failure) =>
+    failure instanceof Error ? failure.message : String(failure),
+  );
+  throw new Error(
+    `${label}: ${failures.length} of ${results.length} email deliveries failed. ${messages.join(' | ')}`,
+  );
+}
+
 type InlineEmailAttachment = {
   name: string;
   contentType: string;

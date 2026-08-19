@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isEmailSenderCategoryDisabled, resolveSenderEmail } from './email';
+import {
+  assertEmailDeliveriesSucceeded,
+  isEmailSenderCategoryDisabled,
+  resolveSenderEmail,
+} from './email';
 
 describe('resolveSenderEmail', () => {
   it('routes each category to its dedicated sender', () => {
@@ -63,5 +67,23 @@ describe('isEmailSenderCategoryDisabled', () => {
         MS_DISABLE_PROCESSING_EMAILS: 'true',
       })
     ).toBe(false);
+  });
+});
+
+describe('assertEmailDeliveriesSucceeded', () => {
+  it('surfaces provider failures instead of treating settled promises as sent', () => {
+    expect(() =>
+      assertEmailDeliveriesSucceeded(
+        [
+          {
+            status: 'rejected',
+            reason: new Error('Graph send failed (403): mailbox out of scope'),
+          },
+        ],
+        'Disclosure Desk Task Completed',
+      ),
+    ).toThrow(
+      'Disclosure Desk Task Completed: 1 of 1 email deliveries failed. Graph send failed (403): mailbox out of scope',
+    );
   });
 });

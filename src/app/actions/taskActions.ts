@@ -15,7 +15,7 @@ import {
 import { revalidatePath as nextRevalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { sendEmail } from '@/lib/email';
+import { assertEmailDeliveriesSucceeded, sendEmail } from '@/lib/email';
 import { filterEmailRecipientsByPreference } from '@/lib/emailPreferences';
 import { getTaskEmailSenderCategory } from '@/lib/emailRouting';
 import { randomUUID } from 'crypto';
@@ -1672,7 +1672,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         taskUrl,
       });
 
-      await Promise.allSettled(
+      const deliveryResults = await Promise.allSettled(
         emailRecipients.map((to) =>
           sendEmail({
             to,
@@ -1682,6 +1682,10 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
             senderCategory,
           })
         )
+      );
+      assertEmailDeliveriesSucceeded(
+        deliveryResults,
+        `${deskLabel} ${copy.eventLabel}`,
       );
     };
 
@@ -1695,7 +1699,7 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
     return true;
   } catch (error) {
     console.error('Failed to send task workflow notifications:', error);
-    return false;
+    throw error;
   }
 }
 
