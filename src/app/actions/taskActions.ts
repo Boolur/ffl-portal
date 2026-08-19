@@ -15,7 +15,11 @@ import {
 import { revalidatePath as nextRevalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { assertEmailDeliveriesSucceeded, sendEmail } from '@/lib/email';
+import {
+  assertEmailDeliveriesSucceeded,
+  isEmailSenderCategoryDisabled,
+  sendEmail,
+} from '@/lib/email';
 import { filterEmailRecipientsByPreference } from '@/lib/emailPreferences';
 import { getTaskEmailSenderCategory } from '@/lib/emailRouting';
 import { randomUUID } from 'crypto';
@@ -1636,6 +1640,9 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         // Keep email delivery resilient even if in-app notifications fail.
         console.error('Failed to create in-app task notifications:', error);
       }
+      if (isEmailSenderCategoryDisabled(senderCategory)) {
+        return;
+      }
       const emailRecipients =
         await filterEmailRecipientsByPreference(normalizedRecipients);
       if (emailRecipients.length === 0) return;
@@ -1687,6 +1694,19 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
         deliveryResults,
         `${deskLabel} ${copy.eventLabel}`,
       );
+      console.info('[email] Task workflow delivered', {
+        taskId: task.id,
+        senderCategory,
+        senders: Array.from(
+          new Set(
+            deliveryResults.flatMap((result) =>
+              result.status === 'fulfilled' ? [result.value.sender] : [],
+            ),
+          ),
+        ),
+        eventLabel: copy.eventLabel,
+        recipientCount: emailRecipients.length,
+      });
     };
 
     await sendByAudience(
@@ -1942,9 +1962,24 @@ export async function drainNotificationOutboxBatch(input?: { batchSize?: number 
     skipped: 0,
   };
 
-  const candidates = await prisma.notificationOutbox.findMany({
+  await prisma.notificationOutbox.updateMany({
     where: {
-      status: { in: [NotificationOutboxStatus.PENDING, NotificationOutboxStatus.RETRY] },
+      status: NotificationOutboxStatus.PROCESSING,
+      processingStartedAt: {
+        lt: new Date(now.getTime() - 10 * 60 * 1000),
+      },
+    },
+    data: {
+      status: NotificationOutboxStatus.RETRY,
+      processingStartedAt: null,
+      nextAttemptAt: now,
+      lastError: 'Recovered stale notification worker claim.',
+    },
+  });
+
+  const pendingCandidates = await prisma.notificationOutbox.findMany({
+    where: {
+      status: NotificationOutboxStatus.PENDING,
       nextAttemptAt: { lte: now },
     },
     orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
@@ -1953,6 +1988,20 @@ export async function drainNotificationOutboxBatch(input?: { batchSize?: number 
       id: true,
     },
   });
+  const remainingCapacity = batchSize - pendingCandidates.length;
+  const retryCandidates =
+    remainingCapacity > 0
+      ? await prisma.notificationOutbox.findMany({
+          where: {
+            status: NotificationOutboxStatus.RETRY,
+            nextAttemptAt: { lte: now },
+          },
+          orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
+          take: remainingCapacity,
+          select: { id: true },
+        })
+      : [];
+  const candidates = [...pendingCandidates, ...retryCandidates];
 
   for (const candidate of candidates) {
     const claim = await prisma.notificationOutbox.updateMany({

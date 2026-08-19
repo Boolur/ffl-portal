@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/internal/notifications/drain?batchSize=25",
+      "path": "/api/internal/notifications/drain?batchSize=5",
       "schedule": "* * * * *"
     },
     {
