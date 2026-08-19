@@ -25,6 +25,7 @@ export type ProcessingMethod = (typeof PROCESSING_METHOD_OPTIONS)[number]['value
 export const PROCESSING_ASSIGNMENT_KATHY_BUI = 'KATHY_BUI';
 export const PROCESSING_ASSIGNMENT_JACK_NGO = 'JACK_NGO';
 export const PROCESSING_ASSIGNMENT_MARTIN_SON_BUI = 'MARTIN_SON_BUI';
+export const PROCESSING_ASSIGNMENT_MINDY_NAGY = 'MINDY_NAGY';
 export const PROCESSING_ASSIGNMENT_THIRD_PARTY = 'THIRD_PARTY';
 
 export const PROCESSING_ASSIGNMENT_OPTIONS = [
@@ -41,6 +42,11 @@ export const PROCESSING_ASSIGNMENT_OPTIONS = [
   {
     value: PROCESSING_ASSIGNMENT_MARTIN_SON_BUI,
     label: 'Martin Son Bui',
+    method: PROCESSING_METHOD_IN_HOUSE,
+  },
+  {
+    value: PROCESSING_ASSIGNMENT_MINDY_NAGY,
+    label: 'Mindy Nagy',
     method: PROCESSING_METHOD_IN_HOUSE,
   },
   {
