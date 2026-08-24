@@ -13,6 +13,7 @@ import { isAdmin } from '@/lib/adminTiers';
 import { canAccessPipelinePortal } from '@/lib/pipelinePilot';
 import { prisma } from '@/lib/prisma';
 import { buildLoanOfficerLoanOrClauses } from '@/lib/loanOfficerVisibility';
+import { derivePipelineSubmissionShortcuts } from '@/lib/pipelineSubmissionShortcuts';
 
 export type PipelineRangePreset = 'daily' | 'weekly' | 'monthly' | 'previousMonth' | 'ytd' | 'allTime' | 'custom';
 export type PipelineMilestoneKey = 'plusOne' | 'disclosures' | 'pendingStp' | 'processing' | 'fundings';
@@ -119,6 +120,10 @@ export type PipelineMilestoneRow = {
     label: string;
     tone: 'danger' | 'success' | 'info' | 'neutral';
   } | null;
+  availableSubmissions: {
+    disclosures: boolean;
+    processing: boolean;
+  };
   fileDetails: {
     loan: {
       borrowerPhone: string | null;
@@ -1367,6 +1372,69 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     .filter((row) => row.plusOne + row.disclosures + row.pendingStp + row.processing + row.fundings > 0)
     .sort((a, b) => b.fundings - a.fundings || b.plusOne - a.plusOne || a.loanOfficerName.localeCompare(b.loanOfficerName));
 
+  const reportLoanIds = Array.from(
+    new Set(taskRows.map((task) => task.loan.id)),
+  );
+  const progressionTasks = reportLoanIds.length
+    ? await prisma.task.findMany({
+        where: {
+          loanId: { in: reportLoanIds },
+          kind: {
+            in: [
+              TaskKind.SUBMIT_PLUS_ONE,
+              TaskKind.SUBMIT_DISCLOSURES,
+              ...PROCESSING_KINDS,
+            ],
+          },
+        },
+        select: {
+          loanId: true,
+          kind: true,
+          status: true,
+          completedAt: true,
+        },
+      })
+    : [];
+  const shortcutSettings =
+    actor.role === UserRole.LOAN_OFFICER
+      ? await prisma.user.findUnique({
+          where: { id: actor.userId },
+          select: {
+            loDisclosureSubmissionEnabled: true,
+            loQcSubmissionEnabled: true,
+          },
+        })
+      : null;
+  const progressionTasksByLoan = new Map<
+    string,
+    typeof progressionTasks
+  >();
+  for (const task of progressionTasks) {
+    const current = progressionTasksByLoan.get(task.loanId) || [];
+    current.push(task);
+    progressionTasksByLoan.set(task.loanId, current);
+  }
+  const canCreateSubmissionShortcuts =
+    actor.role === UserRole.LOAN_OFFICER &&
+    selectedLoanOfficerId === actor.userId;
+  const availableSubmissions = (
+    loanId: string | null,
+    milestone: PipelineMilestoneKey,
+  ) => {
+    const eligibility = derivePipelineSubmissionShortcuts(
+      milestone,
+      loanId ? progressionTasksByLoan.get(loanId) || [] : [],
+      canCreateSubmissionShortcuts,
+    );
+    return {
+      disclosures:
+        eligibility.disclosures &&
+        Boolean(shortcutSettings?.loDisclosureSubmissionEnabled),
+      processing:
+        eligibility.processing && Boolean(shortcutSettings?.loQcSubmissionEnabled),
+    };
+  };
+
   const recentTaskRows: PipelineMilestoneRow[] = taskRows.slice(0, 24).flatMap((task) => {
     const milestone = taskKindToMilestone(task.kind);
     if (!milestone) return [];
@@ -1387,6 +1455,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         status: task.status,
         occurredAt: task.createdAt.toISOString(),
         updateSignal: taskUpdateSignal(task),
+        availableSubmissions: availableSubmissions(task.loan.id, milestone),
         fileDetails: {
           loan: loanFileDetails(task.loan, task.submissionData),
           task: {
@@ -1420,6 +1489,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     status: funding.status,
     occurredAt: (funding.paidAt || funding.submittedAt).toISOString(),
     updateSignal: fundingUpdateSignal(funding.status),
+    availableSubmissions: availableSubmissions(funding.loanId, 'fundings'),
     fileDetails: {
       loan: funding.loan
         ? loanFileDetails(funding.loan, funding.mismoDetails)
@@ -1468,6 +1538,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         status: task.status,
         occurredAt: task.createdAt.toISOString(),
         updateSignal: taskUpdateSignal(task),
+        availableSubmissions: availableSubmissions(task.loan.id, milestone),
         fileDetails: {
           loan: loanFileDetails(task.loan, task.submissionData),
           task: {
@@ -1498,6 +1569,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     status: task.status,
     occurredAt: task.createdAt.toISOString(),
     updateSignal: taskUpdateSignal(task),
+    availableSubmissions: availableSubmissions(task.loan.id, 'pendingStp'),
     fileDetails: {
       loan: loanFileDetails(task.loan, task.submissionData),
       task: {
@@ -1528,6 +1600,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     status: funding.status,
     occurredAt: (funding.paidAt || funding.submittedAt).toISOString(),
     updateSignal: fundingUpdateSignal(funding.status),
+    availableSubmissions: availableSubmissions(funding.loanId, 'fundings'),
     fileDetails: {
       loan: funding.loan
         ? loanFileDetails(funding.loan, funding.mismoDetails)

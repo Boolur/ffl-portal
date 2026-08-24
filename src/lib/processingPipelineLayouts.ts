@@ -85,7 +85,8 @@ export const PROCESSING_PIPELINE_COLUMNS: ProcessingPipelineColumnDefinition[] =
   { id: 'estimatedSigningAt', label: 'Est. Signing', width: 132, optional: true },
   { id: 'extraNotes', label: 'Extra Notes', width: 210, optional: true },
   { id: 'rateLock', label: 'Rate Lock', width: 112, optional: true },
-  { id: 'projectedRevenue', label: 'Revenue', width: 130, optional: true },
+  { id: 'projectedRevenue', label: 'Projected Revenue', width: 150, optional: true },
+  { id: 'finalRevenue', label: 'Final Revenue', width: 140, optional: true },
   { id: 'actions', label: 'Actions', width: 142 },
 ];
 

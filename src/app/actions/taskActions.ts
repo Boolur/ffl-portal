@@ -55,6 +55,7 @@ import {
   splitBorrowerName,
   validateProcessingBorrowerContact,
 } from '@/lib/processingBorrowerDetails';
+import { buildPipelineSubmissionPrefill } from '@/lib/pipelineSubmissionShortcuts';
 
 function revalidatePath(path: string) {
   // Task clients patch or reload only the affected bucket. Invalidating the
@@ -1070,6 +1071,138 @@ function buildLoanSubmissionFallback(loan: {
     borrowerEmail: loan.borrowerEmail || '',
     loanAmount: loan.amount?.toString?.() ?? '',
     ...(loan.propertyAddress ? { subjectPropertyAddress: loan.propertyAddress } : {}),
+  };
+}
+
+export type SubmissionPrefillTarget = 'DISCLOSURES' | 'QC';
+
+export async function getSubmissionPrefillContext(input: {
+  loanId: string;
+  target: SubmissionPrefillTarget;
+}) {
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id;
+  const role = normalizeSessionTaskRole(
+    session?.user?.activeRole || session?.user?.role,
+  );
+  if (!userId || role !== UserRole.LOAN_OFFICER) {
+    return { success: false as const, error: 'Unauthorized' };
+  }
+
+  const actor = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      active: true,
+      loDisclosureSubmissionEnabled: true,
+      loQcSubmissionEnabled: true,
+    },
+  });
+  if (!actor?.active) {
+    return { success: false as const, error: 'Unauthorized' };
+  }
+  if (
+    (input.target === 'DISCLOSURES' &&
+      !actor.loDisclosureSubmissionEnabled) ||
+    (input.target === 'QC' && !actor.loQcSubmissionEnabled)
+  ) {
+    return {
+      success: false as const,
+      error: 'This submission type is not enabled for your account.',
+    };
+  }
+
+  const loan = await prisma.loan.findUnique({
+    where: { id: input.loanId },
+    select: {
+      id: true,
+      loanNumber: true,
+      borrowerName: true,
+      borrowerFirstName: true,
+      borrowerLastName: true,
+      borrowerPhone: true,
+      borrowerEmail: true,
+      amount: true,
+      program: true,
+      propertyAddress: true,
+      loanOfficerId: true,
+      secondaryLoanOfficerId: true,
+      visibilitySubmitterUserId: true,
+      loanOfficer: { select: { name: true } },
+    },
+  });
+  if (!loan || !canLoanOfficerViewLoan(loan, userId)) {
+    return { success: false as const, error: 'Loan not found.' };
+  }
+
+  const existingTarget = await prisma.task.findFirst({
+    where: {
+      loanId: loan.id,
+      kind:
+        input.target === 'DISCLOSURES'
+          ? TaskKind.SUBMIT_DISCLOSURES
+          : { in: [TaskKind.SUBMIT_PROCESSING, TaskKind.SUBMIT_QC] },
+    },
+    select: { id: true },
+  });
+  if (existingTarget) {
+    return {
+      success: false as const,
+      error:
+        input.target === 'DISCLOSURES'
+          ? 'A disclosure request already exists for this loan.'
+          : 'A processing request already exists for this loan.',
+    };
+  }
+
+  const completedWhere = {
+    loanId: loan.id,
+    OR: [
+      { status: TaskStatus.COMPLETED },
+      { completedAt: { not: null } },
+    ],
+  } satisfies Prisma.TaskWhereInput;
+  const source =
+    input.target === 'DISCLOSURES'
+      ? await prisma.task.findFirst({
+          where: {
+            ...completedWhere,
+            kind: TaskKind.SUBMIT_PLUS_ONE,
+          },
+          orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, submissionData: true },
+        })
+      : (await prisma.task.findFirst({
+          where: {
+            ...completedWhere,
+            kind: TaskKind.SUBMIT_DISCLOSURES,
+          },
+          orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, submissionData: true },
+        })) ||
+        (await prisma.task.findFirst({
+          where: {
+            ...completedWhere,
+            kind: TaskKind.SUBMIT_PLUS_ONE,
+          },
+          orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, submissionData: true },
+        }));
+
+  if (!source) {
+    return {
+      success: false as const,
+      error: 'The required prior submission has not been completed.',
+    };
+  }
+
+  return {
+    success: true as const,
+    context: {
+      loanId: loan.id,
+      sourceTaskId: source.id,
+      target: input.target,
+      prefill: buildPipelineSubmissionPrefill(loan, source.submissionData),
+    },
   };
 }
 
@@ -2813,6 +2946,7 @@ type SubmissionType = 'DISCLOSURES' | 'QC';
 
 type SubmissionPayload = {
   submissionType: SubmissionType;
+  sourceLoanId?: string;
   loanOfficerName?: string;
   loanOfficerId?: string;
   secondaryLoanOfficerId?: string | null;
@@ -2869,6 +3003,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
   try {
     const {
       submissionType,
+      sourceLoanId,
       loanOfficerName,
       loanOfficerId,
       secondaryLoanOfficerId,
@@ -3313,6 +3448,21 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       where: { loanNumber: normalizedArriveLoanNumber },
     });
 
+    if (sourceLoanId) {
+      if (
+        role !== UserRole.LOAN_OFFICER ||
+        !sessionUserId ||
+        !loan ||
+        loan.id !== sourceLoanId ||
+        !canLoanOfficerViewLoan(loan, sessionUserId)
+      ) {
+        return {
+          success: false,
+          error: 'This loan is not available for a pipeline submission.',
+        };
+      }
+    }
+
     const targetStage =
       submissionType === 'QC' ? 'PROCESSING' : 'DISCLOSURES_PENDING';
 
@@ -3454,31 +3604,60 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       finalSubmissionData = dataObj as Prisma.JsonObject;
     }
 
-    const createdTask = await prisma.task.create({
-      data: {
-        loanId: loan.id,
-        title: taskTitle,
-        kind,
-        description: notes || null,
-        submissionData: finalSubmissionData ?? undefined,
-        status:
-          submissionType === 'QC' && processingMethod === PROCESSING_METHOD_SELF_PROCESSED
-            ? TaskStatus.COMPLETED
-            : TaskStatus.PENDING,
-        priority: TaskPriority.NORMAL,
-        assignedRole:
-          submissionType === 'QC' && processingMethod === PROCESSING_METHOD_SELF_PROCESSED
-            ? null
-            : assignedRole,
-        completedAt:
-          submissionType === 'QC' && processingMethod === PROCESSING_METHOD_SELF_PROCESSED
-            ? new Date()
-            : null,
-        dueDate:
-          submissionType === 'QC' && processingMethod === PROCESSING_METHOD_SELF_PROCESSED
-            ? null
-            : new Date(Date.now() + 24 * 60 * 60 * 1000),
-      },
+    const createdTask = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtext(${`pipeline-submission:${loan.id}:${kind}`})
+        )
+      `;
+      const duplicate = await tx.task.findFirst({
+        where: {
+          loanId: loan.id,
+          kind:
+            submissionType === 'QC'
+              ? { in: [TaskKind.SUBMIT_PROCESSING, TaskKind.SUBMIT_QC] }
+              : TaskKind.SUBMIT_DISCLOSURES,
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new Error(
+          submissionType === 'QC'
+            ? 'A processing request already exists for this loan.'
+            : 'A disclosure request already exists for this loan.',
+        );
+      }
+
+      return tx.task.create({
+        data: {
+          loanId: loan.id,
+          title: taskTitle,
+          kind,
+          description: notes || null,
+          submissionData: finalSubmissionData ?? undefined,
+          status:
+            submissionType === 'QC' &&
+            processingMethod === PROCESSING_METHOD_SELF_PROCESSED
+              ? TaskStatus.COMPLETED
+              : TaskStatus.PENDING,
+          priority: TaskPriority.NORMAL,
+          assignedRole:
+            submissionType === 'QC' &&
+            processingMethod === PROCESSING_METHOD_SELF_PROCESSED
+              ? null
+              : assignedRole,
+          completedAt:
+            submissionType === 'QC' &&
+            processingMethod === PROCESSING_METHOD_SELF_PROCESSED
+              ? new Date()
+              : null,
+          dueDate:
+            submissionType === 'QC' &&
+            processingMethod === PROCESSING_METHOD_SELF_PROCESSED
+              ? null
+              : new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
     });
 
     if (

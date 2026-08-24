@@ -64,12 +64,15 @@ describe('Sr Processor account-name mapping', () => {
 
 describe('upsertProcessingPipelineForCompletedTask', () => {
   it('creates once, then refreshes the existing loan row and audits both events', async () => {
-    let existing: { id: string } | null = null;
+    let existing: { id: string; finalRevenue: number | null } | null = null;
     const create = vi.fn(async () => {
-      existing = { id: 'pipeline-1' };
+      existing = { id: 'pipeline-1', finalRevenue: 4500 };
       return existing;
     });
-    const update = vi.fn(async () => existing);
+    const update = vi.fn(async (input: unknown) => {
+      void input;
+      return existing;
+    });
     const auditCreate = vi.fn().mockResolvedValue({ id: 'audit-1' });
     const tx = asTx({
       task: {
@@ -128,8 +131,13 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
         propertyState: 'CA',
         lender: 'UWM',
         projectedRevenue: 4500,
+        finalRevenue: 4500,
       }),
     }));
+    const updateInput = update.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(updateInput.data).not.toHaveProperty('finalRevenue');
     expect(auditCreate).toHaveBeenCalledTimes(2);
     expect(auditCreate.mock.calls[0][0].data.action).toBe('PROCESSING_PIPELINE_CREATED');
     expect(auditCreate.mock.calls[1][0].data.action).toBe('PROCESSING_PIPELINE_REFRESHED');

@@ -2177,7 +2177,41 @@ export function ProcessingPipelineGrid({
             className={`border-b border-r border-slate-200 font-semibold ${cellPadding}`}
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="tabular-nums">{formatMoney(row.finalRevenue)}</span>
+              {canEditRow(row) ? (
+                <label className="flex min-w-0 flex-1 items-center rounded-lg border border-transparent bg-transparent px-2 py-1 hover:border-slate-200 hover:bg-white focus-within:border-blue-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-100">
+                  <span className="shrink-0 text-xs text-slate-500">$</span>
+                  <input
+                    key={`${row.id}-${row.version}-finalRevenue`}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    aria-label={`Final Revenue for ${row.loan.borrowerName}`}
+                    defaultValue={
+                      row.finalRevenue === null ? '' : String(row.finalRevenue)
+                    }
+                    onBlur={(event) => {
+                      const currentValue =
+                        row.finalRevenue === null ? '' : String(row.finalRevenue);
+                      if (event.target.value !== currentValue) {
+                        void saveCell(
+                          row,
+                          'finalRevenue',
+                          event.target.value,
+                        );
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') event.currentTarget.blur();
+                    }}
+                    className="min-w-0 flex-1 bg-transparent pl-1 text-[13px] font-semibold tabular-nums outline-none"
+                    placeholder="0.00"
+                  />
+                </label>
+              ) : (
+                <span className="tabular-nums">
+                  {formatMoney(row.finalRevenue)}
+                </span>
+              )}
               <span
                 className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
                   row.payrollSubmitted

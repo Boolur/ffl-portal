@@ -35,6 +35,12 @@ type NewTaskModalProps = {
   initialType?: SubmissionType;
   disclosureEnabled?: boolean;
   qcEnabled?: boolean;
+  shortcutPrefill?: {
+    loanId: string;
+    target: 'DISCLOSURES' | 'QC';
+    data: Record<string, unknown>;
+  } | null;
+  onSubmissionSuccess?: () => void;
 };
 
 type SubmissionType = 'PLUS_ONE' | 'DISCLOSURES' | 'QC';
@@ -71,6 +77,26 @@ const leadSourceOptions = ['Lead Buy', 'Mailer', 'Warm Transfer', 'Self Generate
 const leadVendorOptions = ['Lending Tree', 'Freerate Update', 'Lead Point'];
 const SECONDARY_LO_NA_VALUE = '__NA__';
 
+function initializePrefilledForm<T extends Record<string, string | boolean>>(
+  defaults: T,
+  prefill?: Record<string, unknown>,
+): T {
+  if (!prefill) return defaults;
+  const result = { ...defaults };
+  for (const key of Object.keys(defaults) as Array<keyof T>) {
+    const value = prefill[String(key)];
+    if (value === undefined || value === null) continue;
+    if (typeof defaults[key] === 'boolean') {
+      result[key] = Boolean(value) as T[keyof T];
+    } else if (key === 'appraisalNeeded' && typeof value === 'boolean') {
+      result[key] = (value ? 'Yes' : 'No') as T[keyof T];
+    } else {
+      result[key] = String(value) as T[keyof T];
+    }
+  }
+  return result;
+}
+
 function isValidQcInvestorValue(value: string | null | undefined) {
   const normalized = String(value ?? '').trim().toUpperCase();
   return normalized.length > 0 && qcInvestorOptionSet.has(normalized);
@@ -84,6 +110,8 @@ export function NewTaskModal({
   initialType = 'DISCLOSURES',
   disclosureEnabled = true,
   qcEnabled = false,
+  shortcutPrefill = null,
+  onSubmissionSuccess,
 }: NewTaskModalProps) {
   const resolveAvailableType = useCallback(
     (requestedType: SubmissionType): SubmissionType => {
@@ -109,23 +137,23 @@ export function NewTaskModal({
   const handleClose = useCallback(() => {
     if (submissionOverlay) return;
     setType(resolveAvailableType('DISCLOSURES'));
-    setCurrentStep(1);
+    setCurrentStep(shortcutPrefill ? 2 : 1);
     onClose();
-  }, [onClose, resolveAvailableType, submissionOverlay]);
+  }, [onClose, resolveAvailableType, shortcutPrefill, submissionOverlay]);
 
   useEffect(() => {
     if (!open) return;
 
     const timeout = window.setTimeout(() => {
       setType(resolveAvailableType(initialType));
-      setCurrentStep(1);
+      setCurrentStep(shortcutPrefill ? 2 : 1);
       setSubmissionOverlay(null);
 
       closeButtonRef.current?.focus();
     }, 0);
 
     return () => window.clearTimeout(timeout);
-  }, [open, initialType, resolveAvailableType]);
+  }, [open, initialType, resolveAvailableType, shortcutPrefill]);
 
   useEffect(() => {
     if (!open) return;
@@ -146,11 +174,12 @@ export function NewTaskModal({
       setSubmissionOverlay(null);
       setType(resolveAvailableType('DISCLOSURES'));
       setCurrentStep(1);
+      onSubmissionSuccess?.();
       onClose();
       router.refresh();
     }, 1500);
     return () => window.clearTimeout(timeout);
-  }, [submissionOverlay, onClose, router, resolveAvailableType]);
+  }, [submissionOverlay, onClose, onSubmissionSuccess, router, resolveAvailableType]);
 
   if (!open) return null;
 
@@ -220,7 +249,7 @@ export function NewTaskModal({
             currentStep={currentStep}
             totalSteps={type === 'QC' ? 3 : 2}
             onStepRequest={(step) => {
-              if (step <= currentStep) {
+              if (step <= currentStep && (!shortcutPrefill || step >= 2)) {
                 setCurrentStep(step as SubmissionStep);
               }
             }}
@@ -241,8 +270,11 @@ export function NewTaskModal({
             />
           ) : type === 'DISCLOSURES' ? (
             <DisclosuresForm
+              key={`disclosures-${shortcutPrefill?.loanId || 'new'}`}
               isLoanOfficerAssistant={isLoanOfficerAssistant}
               loanOfficerOptions={loanOfficerOptions}
+              sourceLoanId={shortcutPrefill?.loanId}
+              initialPrefill={shortcutPrefill?.data}
               onStepChange={setCurrentStep}
               currentStep={currentStep}
               onSubmissionOverlay={setSubmissionOverlay}
@@ -252,8 +284,11 @@ export function NewTaskModal({
             />
           ) : (
             <QcForm
+              key={`qc-${shortcutPrefill?.loanId || 'new'}`}
               isLoanOfficerAssistant={isLoanOfficerAssistant}
               loanOfficerOptions={loanOfficerOptions}
+              sourceLoanId={shortcutPrefill?.loanId}
+              initialPrefill={shortcutPrefill?.data}
               onStepChange={setCurrentStep}
               currentStep={currentStep}
               onSubmissionOverlay={setSubmissionOverlay}
@@ -1171,6 +1206,8 @@ function PlusOneForm({
 function DisclosuresForm({
   isLoanOfficerAssistant,
   loanOfficerOptions,
+  sourceLoanId,
+  initialPrefill,
   onSubmitted,
   onStepChange,
   currentStep,
@@ -1178,6 +1215,8 @@ function DisclosuresForm({
 }: {
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
+  sourceLoanId?: string;
+  initialPrefill?: Record<string, unknown>;
   onSubmitted: () => void;
   onStepChange: (step: SubmissionStep) => void;
   currentStep: SubmissionStep;
@@ -1186,46 +1225,54 @@ function DisclosuresForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(true);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
-  const [form, setForm] = useState({
-    qualificationStatus: '',
-    loanOfficer: '',
-    loanOfficerId: '',
-    secondaryLoanOfficerId: '',
-    borrowerFirstName: '',
-    borrowerLastName: '',
-    borrowerPhone: '',
-    borrowerEmail: '',
-    coBorrowerEmail: '',
-    hasMultipleBorrowers: false,
-    arriveLoanNumber: '',
-    channel: '',
-    investor: '',
-    leadSource: '',
-    leadVendor: '',
-    processingMethod: '',
-    processingAssignmentGroup: '',
-    processingAssignmentLabel: '',
-    loanType: '',
-    loanProgram: '',
-    loanAmount: '',
-    projectedRevenue: '',
-    homeValue: '',
-    employerName: '',
-    employerAddress: '',
-    employerDurationLineOfWork: '',
-    yearBuiltProperty: '',
-    yearAquired: '',
-    mannerInWhichTitleWillBeHeld: '',
-    runId: '',
-    pricingOption: '',
-    aus: '',
-    creditReportType: '',
-    notes: '',
-  });
+  const [form, setForm] = useState(() =>
+    initializePrefilledForm(
+      {
+        qualificationStatus: '',
+        loanOfficer: '',
+        loanOfficerId: '',
+        secondaryLoanOfficerId: '',
+        borrowerFirstName: '',
+        borrowerLastName: '',
+        borrowerPhone: '',
+        borrowerEmail: '',
+        coBorrowerEmail: '',
+        hasMultipleBorrowers: false as boolean,
+        arriveLoanNumber: '',
+        channel: '',
+        investor: '',
+        leadSource: '',
+        leadVendor: '',
+        processingMethod: '',
+        processingAssignmentGroup: '',
+        processingAssignmentLabel: '',
+        loanType: '',
+        loanProgram: '',
+        loanAmount: '',
+        projectedRevenue: '',
+        homeValue: '',
+        employerName: '',
+        employerAddress: '',
+        employerDurationLineOfWork: '',
+        yearBuiltProperty: '',
+        yearAquired: '',
+        mannerInWhichTitleWillBeHeld: '',
+        runId: '',
+        pricingOption: '',
+        aus: '',
+        creditReportType: '',
+        notes: '',
+      },
+      initialPrefill,
+    ),
+  );
   const [importError, setImportError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [mismoIncomeProfile, setMismoIncomeProfile] = useState<MismoIncomeProfile>(
-    DEFAULT_MISMO_INCOME_PROFILE
+    initialPrefill?.incomeProfile &&
+      typeof initialPrefill.incomeProfile === 'object'
+      ? (initialPrefill.incomeProfile as MismoIncomeProfile)
+      : DEFAULT_MISMO_INCOME_PROFILE
   );
   const mimoRequiredFieldsRef = useRef<HTMLDivElement | null>(null);
   const [buttonFiles, setButtonFiles] = useState<{
@@ -1451,6 +1498,7 @@ function DisclosuresForm({
     try {
       res = await createSubmissionTask({
         submissionType: 'DISCLOSURES',
+        sourceLoanId,
         loanOfficerName: form.loanOfficer,
         loanOfficerId: form.loanOfficerId || undefined,
         secondaryLoanOfficerId:
@@ -1711,7 +1759,7 @@ function DisclosuresForm({
             ))}
           </select>
         </label>
-        <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
+        <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} readOnly={Boolean(sourceLoanId)} />
         <Input label="Borrower First Name" value={form.borrowerFirstName} onChange={(v) => update('borrowerFirstName', v)} required invalid={highlightedMissingFields.has('borrowerFirstName')} />
         <Input label="Borrower Last Name" value={form.borrowerLastName} onChange={(v) => update('borrowerLastName', v)} required invalid={highlightedMissingFields.has('borrowerLastName')} />
         <Input label="Borrower Phone" value={form.borrowerPhone} onChange={(v) => update('borrowerPhone', v)} required invalid={highlightedMissingFields.has('borrowerPhone')} />
@@ -1812,33 +1860,55 @@ function DisclosuresForm({
               value={form.employerName}
               required={mismoIncomeProfile.employmentFieldsRequired}
               isMissing={missingReadonlyKeys.has('employerName')}
+              onChange={
+                sourceLoanId ? (value) => update('employerName', value) : undefined
+              }
             />
             <ReadonlyRequiredField
               label="Employer Address"
               value={form.employerAddress}
               required={mismoIncomeProfile.employmentFieldsRequired}
               isMissing={missingReadonlyKeys.has('employerAddress')}
+              onChange={
+                sourceLoanId ? (value) => update('employerAddress', value) : undefined
+              }
             />
             <ReadonlyRequiredField
               label="Employer - Duration in Line of Work"
               value={form.employerDurationLineOfWork}
               required={mismoIncomeProfile.employmentFieldsRequired}
               isMissing={missingReadonlyKeys.has('employerDurationLineOfWork')}
+              onChange={
+                sourceLoanId
+                  ? (value) => update('employerDurationLineOfWork', value)
+                  : undefined
+              }
             />
             <ReadonlyRequiredField
               label="Year Built (Property)"
               value={form.yearBuiltProperty}
               isMissing={missingReadonlyKeys.has('yearBuiltProperty')}
+              onChange={
+                sourceLoanId ? (value) => update('yearBuiltProperty', value) : undefined
+              }
             />
             <ReadonlyRequiredField
               label="Year Aquired"
               value={form.yearAquired}
               isMissing={missingReadonlyKeys.has('yearAquired')}
+              onChange={
+                sourceLoanId ? (value) => update('yearAquired', value) : undefined
+              }
             />
             <ReadonlyRequiredField
               label="Manner in Which Title Will be Held"
               value={form.mannerInWhichTitleWillBeHeld}
               isMissing={missingReadonlyKeys.has('mannerInWhichTitleWillBeHeld')}
+              onChange={
+                sourceLoanId
+                  ? (value) => update('mannerInWhichTitleWillBeHeld', value)
+                  : undefined
+              }
             />
             {isButtonInvestor && (
               <ReadonlyRequiredField
@@ -1909,6 +1979,8 @@ function DisclosuresForm({
 function QcForm({
   isLoanOfficerAssistant,
   loanOfficerOptions,
+  sourceLoanId,
+  initialPrefill,
   onSubmitted,
   onStepChange,
   currentStep,
@@ -1916,6 +1988,8 @@ function QcForm({
 }: {
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
+  sourceLoanId?: string;
+  initialPrefill?: Record<string, unknown>;
   onSubmitted: () => void;
   onStepChange: (step: SubmissionStep) => void;
   currentStep: SubmissionStep;
@@ -1924,55 +1998,60 @@ function QcForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(true);
-  const [form, setForm] = useState({
-    preApproved: '',
-    loanOfficer: '',
-    loanOfficerId: '',
-    secondaryLoanOfficerId: '',
-    borrowerFirstName: '',
-    borrowerLastName: '',
-    borrowerPhone: '',
-    borrowerEmail: '',
-    coBorrowerFirstName: '',
-    coBorrowerLastName: '',
-    coBorrowerPhone: '',
-    coBorrowerEmail: '',
-    arriveLoanNumber: '',
-    channel: '',
-    investor: '',
-    leadSource: '',
-    leadVendor: '',
-    processingMethod: '',
-    processingAssignmentGroup: '',
-    processingAssignmentLabel: '',
-    loanType: '',
-    loanProgram: '',
-    loanAmount: '',
-    propertyStreet: '',
-    propertyUnit: '',
-    propertyCity: '',
-    propertyState: '',
-    propertyZip: '',
-    propertyOccupancy: '',
-    homeValue: '',
-    yearBuiltProperty: '',
-    yearAquired: '',
-    mannerInWhichTitleWillBeHeld: '',
-    cashBack: '',
-    projectedRevenue: '',
-    aus: '',
-    creditReportType: '',
-    uwmFreeCreditUsed: '',
-    communityPropertyState: '',
-    creditReportNotesExp: '',
-    creditReportNotesEqf: '',
-    creditReportNotesTui: '',
-    titleCompany: '',
-    appraisalWaiver: '',
-    appraisalNeeded: '',
-    appraisalNotes: '',
-    notesGoals: '',
-  });
+  const [form, setForm] = useState(() =>
+    initializePrefilledForm(
+      {
+        preApproved: '',
+        loanOfficer: '',
+        loanOfficerId: '',
+        secondaryLoanOfficerId: '',
+        borrowerFirstName: '',
+        borrowerLastName: '',
+        borrowerPhone: '',
+        borrowerEmail: '',
+        coBorrowerFirstName: '',
+        coBorrowerLastName: '',
+        coBorrowerPhone: '',
+        coBorrowerEmail: '',
+        arriveLoanNumber: '',
+        channel: '',
+        investor: '',
+        leadSource: '',
+        leadVendor: '',
+        processingMethod: '',
+        processingAssignmentGroup: '',
+        processingAssignmentLabel: '',
+        loanType: '',
+        loanProgram: '',
+        loanAmount: '',
+        propertyStreet: '',
+        propertyUnit: '',
+        propertyCity: '',
+        propertyState: '',
+        propertyZip: '',
+        propertyOccupancy: '',
+        homeValue: '',
+        yearBuiltProperty: '',
+        yearAquired: '',
+        mannerInWhichTitleWillBeHeld: '',
+        cashBack: '',
+        projectedRevenue: '',
+        aus: '',
+        creditReportType: '',
+        uwmFreeCreditUsed: '',
+        communityPropertyState: '',
+        creditReportNotesExp: '',
+        creditReportNotesEqf: '',
+        creditReportNotesTui: '',
+        titleCompany: '',
+        appraisalWaiver: '',
+        appraisalNeeded: '',
+        appraisalNotes: '',
+        notesGoals: '',
+      },
+      initialPrefill,
+    ),
+  );
   const [importError, setImportError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const qcStep = currentStep;
@@ -2116,6 +2195,7 @@ function QcForm({
     try {
       res = await createSubmissionTask({
         submissionType: 'QC',
+        sourceLoanId,
         loanOfficerName: form.loanOfficer,
         loanOfficerId: form.loanOfficerId || undefined,
         secondaryLoanOfficerId:
@@ -2220,6 +2300,7 @@ function QcForm({
           onSelectMethod={selectProcessingMethod}
           onSelectInHouseProcessor={selectInHouseProcessor}
           onBack={() => onStepChange(1)}
+          showBack={!sourceLoanId}
           onContinue={() => {
             if (!canContinueFromProcessingMethod) {
               setSubmitError('Please select a processing method before continuing.');
@@ -2340,7 +2421,7 @@ function QcForm({
             MISMO values are editable so incomplete exports can be corrected before submission.
           </p>
         </div>
-        <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} />
+        <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} readOnly={Boolean(sourceLoanId)} />
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={loanTypeOptions} required invalid={highlightedMissingFields.has('loanType')} />
         <Select label="Loan Program" value={form.loanProgram} onChange={(v) => update('loanProgram', v)} options={['Cash out', 'Rate and Term', 'IRRRL', 'Streamline', 'Purchase']} required invalid={highlightedMissingFields.has('loanProgram')} />
         <Input label="Loan Amount" value={form.loanAmount} onChange={(v) => update('loanAmount', v)} required invalid={highlightedMissingFields.has('loanAmount')} />
@@ -2507,6 +2588,7 @@ function ProcessingMethodStep({
   onContinue,
   canContinue,
   error,
+  showBack = true,
 }: {
   selectedMethod: ProcessingMethod | '';
   selectedAssignmentGroup: string;
@@ -2516,6 +2598,7 @@ function ProcessingMethodStep({
   onContinue: () => void;
   canContinue: boolean;
   error: string;
+  showBack?: boolean;
 }) {
   const methodIconByValue: Record<ProcessingMethod, React.ComponentType<{ className?: string }>> = {
     [PROCESSING_METHOD_IN_HOUSE]: Building2,
@@ -2622,9 +2705,13 @@ function ProcessingMethodStep({
       )}
 
       <div className="flex justify-between gap-3 pt-2">
-        <button type="button" onClick={onBack} className="app-btn-secondary">
-          Back
-        </button>
+        {showBack ? (
+          <button type="button" onClick={onBack} className="app-btn-secondary">
+            Back
+          </button>
+        ) : (
+          <span />
+        )}
         <button
           type="button"
           onClick={onContinue}
@@ -2823,11 +2910,13 @@ function ReadonlyRequiredField({
   value,
   required = true,
   isMissing = false,
+  onChange,
 }: {
   label: string;
   value: string;
   required?: boolean;
   isMissing?: boolean;
+  onChange?: (value: string) => void;
 }) {
   return (
     <label className="space-y-1 text-sm">
@@ -2837,13 +2926,16 @@ function ReadonlyRequiredField({
       </span>
       <input
         value={value}
-        readOnly
-        disabled
-        placeholder="Populated from MISMO import"
-        className={`w-full rounded-lg px-3 py-2 text-sm cursor-not-allowed ${
+        onChange={onChange ? (event) => onChange(event.target.value) : undefined}
+        readOnly={!onChange}
+        disabled={!onChange}
+        placeholder={onChange ? 'Enter required value' : 'Populated from MISMO import'}
+        className={`w-full rounded-lg px-3 py-2 text-sm ${
           isMissing
             ? 'border border-red-300 bg-red-50 text-red-700'
-            : 'border border-slate-200 bg-slate-100 text-slate-600'
+            : onChange
+            ? 'border border-slate-300 bg-white text-slate-900'
+            : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-600'
         }`}
       />
     </label>
@@ -2857,6 +2949,7 @@ function Input({
   required,
   invalid,
   placeholder,
+  readOnly = false,
 }: {
   label: string;
   value: string;
@@ -2864,6 +2957,7 @@ function Input({
   required?: boolean;
   invalid?: boolean;
   placeholder?: string;
+  readOnly?: boolean;
 }) {
   return (
     <label className="space-y-1 text-sm">
@@ -2881,6 +2975,8 @@ function Input({
         onChange={(e) => onChange(e.target.value)}
         required={required}
         placeholder={placeholder}
+        readOnly={readOnly}
+        aria-readonly={readOnly}
       />
     </label>
   );

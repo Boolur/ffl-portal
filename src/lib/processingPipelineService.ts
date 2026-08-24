@@ -105,6 +105,7 @@ export async function upsertProcessingPipelineForCompletedTask(
   const completedAt = input.completedAt ?? new Date();
   const processingMethod = optionalString(data.processingMethod);
   const lender = optionalString(data.investor) || optionalString(data.lender);
+  const submittedRevenue = parseOptionalMoney(data.projectedRevenue);
   const lockedDefaults = getProcessingPipelineLockedDefaults(lender, processingMethod);
   const lockedPipelineData = lockedDefaults
     ? {
@@ -138,23 +139,29 @@ export async function upsertProcessingPipelineForCompletedTask(
       optionalString(data.state),
     lender,
     leadSource: getProcessingPipelineLeadSource(data.leadSource, data.leadVendor),
-    projectedRevenue: parseOptionalMoney(data.projectedRevenue),
+    projectedRevenue: submittedRevenue,
     ...lockedPipelineData,
   };
 
   const existing = await tx.processingPipelineLoan.findUnique({
     where: { loanId: task.loanId },
-    select: { id: true },
+    select: { id: true, finalRevenue: true },
   });
   const row = existing
     ? await tx.processingPipelineLoan.update({
         where: { id: existing.id },
-        data: pipelineData,
+        data: {
+          ...pipelineData,
+          ...(existing.finalRevenue == null
+            ? { finalRevenue: submittedRevenue }
+            : {}),
+        },
       })
     : await tx.processingPipelineLoan.create({
         data: {
           loanId: task.loanId,
           ...pipelineData,
+          finalRevenue: submittedRevenue,
         },
       });
 

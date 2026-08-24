@@ -16,6 +16,11 @@ type Props = {
   initialReport: PipelineReport | null;
   initialProcessing: ProcessingResult;
   initialLayouts: ProcessingPipelineSavedLayout[];
+  submissionConfig: {
+    disclosureEnabled: boolean;
+    qcEnabled: boolean;
+    loanOfficerOptions: Array<{ id: string; name: string }>;
+  } | null;
 };
 
 export function PipelineWorkspace({
@@ -23,6 +28,7 @@ export function PipelineWorkspace({
   initialReport,
   initialProcessing,
   initialLayouts,
+  submissionConfig,
 }: Props) {
   const isProcessingRole = role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSOR_SR;
   const [view, setView] = useState<'pre-processing' | 'processing'>(
@@ -65,7 +71,10 @@ export function PipelineWorkspace({
       )}
 
       {view === 'pre-processing' && initialReport ? (
-        <PipelinePage initialReport={initialReport} />
+        <PipelinePage
+          initialReport={initialReport}
+          submissionConfig={submissionConfig}
+        />
       ) : (
         <div className="space-y-6">
           <header className="app-page-header flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

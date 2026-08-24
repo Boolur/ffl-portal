@@ -9,6 +9,7 @@ import { canAccessPipelinePortal } from '@/lib/pipelinePilot';
 import { getPipelineReport } from '@/app/actions/pipelineReportingActions';
 import { getProcessingPipeline } from '@/app/actions/processingPipelineActions';
 import { getProcessingPipelineLayouts } from '@/app/actions/processingPipelineLayoutActions';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,7 @@ export default async function Pipeline() {
   const role = (session.user.activeRole || session.user.role) as UserRole;
   const isProcessingRole =
     role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSOR_SR;
-  const [initialProcessing, initialReport, initialLayouts] = await Promise.all([
+  const [initialProcessing, initialReport, initialLayouts, submissionConfig] = await Promise.all([
     getProcessingPipeline({
       sheet: ProcessingPipelineSheet.PIPELINE,
       sortBy: 'pipelineStatus',
@@ -31,6 +32,32 @@ export default async function Pipeline() {
     }),
     isProcessingRole ? Promise.resolve(null) : getPipelineReport(),
     getProcessingPipelineLayouts(),
+    role === UserRole.LOAN_OFFICER
+      ? Promise.all([
+          prisma.user.findUnique({
+            where: { id: session.user.id },
+            select: {
+              loDisclosureSubmissionEnabled: true,
+              loQcSubmissionEnabled: true,
+            },
+          }),
+          prisma.user.findMany({
+            where: {
+              active: true,
+              OR: [
+                { role: UserRole.LOAN_OFFICER },
+                { roles: { has: UserRole.LOAN_OFFICER } },
+              ],
+            },
+            orderBy: { name: 'asc' },
+            select: { id: true, name: true },
+          }),
+        ]).then(([actor, loanOfficerOptions]) => ({
+          disclosureEnabled: actor?.loDisclosureSubmissionEnabled ?? false,
+          qcEnabled: actor?.loQcSubmissionEnabled ?? false,
+          loanOfficerOptions,
+        }))
+      : Promise.resolve(null),
   ]);
   if (!initialProcessing.success) redirect('/');
   const user = {
@@ -45,6 +72,7 @@ export default async function Pipeline() {
         initialReport={initialReport}
         initialProcessing={initialProcessing}
         initialLayouts={initialLayouts.success ? initialLayouts.layouts : []}
+        submissionConfig={submissionConfig}
       />
     </DashboardShell>
   );

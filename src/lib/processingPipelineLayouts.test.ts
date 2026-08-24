@@ -79,6 +79,7 @@ describe('processing pipeline saved layouts', () => {
     expect(ids).not.toContain('loanAmount');
     expect(ids).not.toContain('projectedRevenue');
     expect(ids).not.toContain('leadSource');
+    expect(ids).toContain('finalRevenue');
   });
 
   it('rejects duplicate columns and invalid widths', () => {

@@ -31,9 +31,16 @@ import {
   type PipelineReportFilters,
   type PipelineRangePreset,
 } from '@/app/actions/pipelineReportingActions';
+import { getSubmissionPrefillContext } from '@/app/actions/taskActions';
+import { NewTaskModal } from '@/components/loanOfficer/NewTaskModal';
 
 type Props = {
   initialReport: PipelineReport;
+  submissionConfig: {
+    disclosureEnabled: boolean;
+    qcEnabled: boolean;
+    loanOfficerOptions: Array<{ id: string; name: string }>;
+  } | null;
 };
 
 type PipelineBoardView = 'pipeline' | 'lenders' | 'leadSources';
@@ -315,7 +322,7 @@ function loadReviewedUpdates() {
   }
 }
 
-export function PipelinePage({ initialReport }: Props) {
+export function PipelinePage({ initialReport, submissionConfig }: Props) {
   const router = useRouter();
   const [report, setReport] = useState(initialReport);
   const [boardView, setBoardView] = useState<PipelineBoardView>('pipeline');
@@ -325,6 +332,12 @@ export function PipelinePage({ initialReport }: Props) {
   const [loanOfficerId, setLoanOfficerId] = useState<string>(initialReport.filters.loanOfficerId);
   const [selectedCard, setSelectedCard] = useState<PipelineMilestoneRow | null>(null);
   const [actioningRow, setActioningRow] = useState<PipelineMilestoneRow | null>(null);
+  const [shortcutPrefill, setShortcutPrefill] = useState<{
+    loanId: string;
+    target: 'DISCLOSURES' | 'QC';
+    data: Record<string, unknown>;
+  } | null>(null);
+  const [shortcutLoading, setShortcutLoading] = useState<string | null>(null);
   const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => new Set());
   const [pipelineSearch, setPipelineSearch] = useState('');
   const [isPipelineSearchLoading, setIsPipelineSearchLoading] = useState(false);
@@ -400,6 +413,34 @@ export function PipelinePage({ initialReport }: Props) {
   const openBorrowerDetails = (row: PipelineMilestoneRow) => {
     markUpdateReviewed(row);
     setSelectedCard(row);
+  };
+
+  const openSubmissionShortcut = async (
+    row: PipelineMilestoneRow,
+    target: 'DISCLOSURES' | 'QC',
+  ) => {
+    if (!row.loanId) {
+      setError('This pipeline record is not linked to a loan.');
+      return;
+    }
+    const loadingKey = `${row.id}:${target}`;
+    setShortcutLoading(loadingKey);
+    setError(null);
+    const result = await getSubmissionPrefillContext({
+      loanId: row.loanId,
+      target,
+    });
+    setShortcutLoading(null);
+    if (!result.success) {
+      setError(result.error);
+      return;
+    }
+    setSelectedCard(null);
+    setShortcutPrefill({
+      loanId: result.context.loanId,
+      target: result.context.target,
+      data: result.context.prefill,
+    });
   };
 
   const loadReport = (nextFilters?: Partial<PipelineReportFilters>) => {
@@ -792,6 +833,10 @@ export function PipelinePage({ initialReport }: Props) {
           signal={visibleUpdateSignal(selectedCard, reviewedUpdates)}
           onReviewUpdate={() => reviewUpdate(selectedCard)}
           onActionPendingStp={() => setActioningRow(selectedCard)}
+          shortcutLoading={shortcutLoading}
+          onSubmissionShortcut={(target) =>
+            void openSubmissionShortcut(selectedCard, target)
+          }
           onClose={() => setSelectedCard(null)}
         />
       )}
@@ -802,6 +847,24 @@ export function PipelinePage({ initialReport }: Props) {
           onClose={() => setActioningRow(null)}
         />
       )}
+      <NewTaskModal
+        open={Boolean(shortcutPrefill)}
+        onClose={() => setShortcutPrefill(null)}
+        initialType={shortcutPrefill?.target || 'DISCLOSURES'}
+        disclosureEnabled={submissionConfig?.disclosureEnabled ?? false}
+        qcEnabled={submissionConfig?.qcEnabled ?? false}
+        loanOfficerOptions={submissionConfig?.loanOfficerOptions || []}
+        shortcutPrefill={
+          shortcutPrefill
+            ? {
+                loanId: shortcutPrefill.loanId,
+                target: shortcutPrefill.target,
+                data: shortcutPrefill.data,
+              }
+            : null
+        }
+        onSubmissionSuccess={() => loadReport()}
+      />
     </div>
   );
 }
@@ -1229,12 +1292,16 @@ function ClientDetailsModal({
   signal,
   onReviewUpdate,
   onActionPendingStp,
+  shortcutLoading,
+  onSubmissionShortcut,
   onClose,
 }: {
   row: PipelineMilestoneRow;
   signal: PipelineMilestoneRow['updateSignal'];
   onReviewUpdate: () => void;
   onActionPendingStp: () => void;
+  shortcutLoading: string | null;
+  onSubmissionShortcut: (target: 'DISCLOSURES' | 'QC') => void;
   onClose: () => void;
 }) {
   const submittedFields = row.fileDetails.task?.submittedFields || [];
@@ -1473,6 +1540,37 @@ function ClientDetailsModal({
                 >
                   {reviewLabel}
                 </button>
+                {(row.availableSubmissions.disclosures ||
+                  row.availableSubmissions.processing) && (
+                  <div className="mt-2 grid gap-2">
+                    {row.availableSubmissions.disclosures && (
+                      <button
+                        type="button"
+                        onClick={() => onSubmissionShortcut('DISCLOSURES')}
+                        disabled={Boolean(shortcutLoading)}
+                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-bold text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {shortcutLoading === `${row.id}:DISCLOSURES` && (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        )}
+                        Submit for Disclosures
+                      </button>
+                    )}
+                    {row.availableSubmissions.processing && (
+                      <button
+                        type="button"
+                        onClick={() => onSubmissionShortcut('QC')}
+                        disabled={Boolean(shortcutLoading)}
+                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-violet-600 px-3 text-sm font-bold text-white transition hover:bg-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {shortcutLoading === `${row.id}:QC` && (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        )}
+                        Submit for Processing
+                      </button>
+                    )}
+                  </div>
+                )}
               </section>
             )}
           </aside>
