@@ -3,6 +3,7 @@
 import { unstable_noStore as noStore } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import {
+  LeadStatus,
   Prisma,
   PayrollCompRequestStatus,
   ProcessingItemStatus,
@@ -38,6 +39,7 @@ import {
   sanitizeProcessingSubmissionData,
   splitBorrowerName,
 } from '@/lib/processingBorrowerDetails';
+import { syncLeadStatusForLoan } from '@/lib/leadPipelineSync';
 
 type Actor = {
   id: string;
@@ -1121,6 +1123,15 @@ export async function updateProcessingPipelineCell(input: {
           }),
         },
       });
+      if (input.field === 'pipelineStatus') {
+        await syncLeadStatusForLoan(tx, {
+          loanId: current.loanId,
+          taskId: current.sourceTaskId,
+          nextStatus: LeadStatus.SUBMITTED_PROCESSING,
+          actorId: actor.id,
+          source: 'processing-pipeline-status-changed',
+        });
+      }
       return {
         conflict: false as const,
         version: input.version + 1,
@@ -1612,6 +1623,14 @@ export async function updateProcessingRestructureWorkflow(input: {
       },
     });
 
+    await syncLeadStatusForLoan(tx, {
+      loanId: current.loanId,
+      taskId: current.sourceTaskId,
+      nextStatus: LeadStatus.SUBMITTED_PROCESSING,
+      actorId: actor.id,
+      source: `processing-restructure-${input.action.toLowerCase()}`,
+    });
+
     return {
       kind: 'ok' as const,
       version: input.version + 1,
@@ -1751,6 +1770,13 @@ export async function moveProcessingPipelineLoan(input: {
           actorName: actor.name,
         }),
       },
+    });
+    await syncLeadStatusForLoan(tx, {
+      loanId: current.loanId,
+      taskId: current.sourceTaskId,
+      nextStatus: LeadStatus.SUBMITTED_PROCESSING,
+      actorId: actor.id,
+      source: 'processing-pipeline-moved',
     });
     return {
       kind: 'ok' as const,
@@ -2238,6 +2264,13 @@ export async function updateProcessingBorrowerDetails(
             ],
           }),
         },
+      });
+      await syncLeadStatusForLoan(tx, {
+        loanId: current.loanId,
+        taskId: current.sourceTaskId,
+        nextStatus: LeadStatus.SUBMITTED_PROCESSING,
+        actorId: actor.id,
+        source: 'processing-borrower-details-updated',
       });
       return { kind: 'ok' as const };
     });

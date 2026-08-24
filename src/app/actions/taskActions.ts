@@ -51,6 +51,10 @@ import {
 } from '@/lib/taskBucketQueries';
 import { upsertProcessingPipelineForCompletedTask } from '@/lib/processingPipelineService';
 import {
+  leadStatusForTaskKind,
+  syncLeadStatusForLoan,
+} from '@/lib/leadPipelineSync';
+import {
   normalizeProcessingProperty,
   splitBorrowerName,
   validateProcessingBorrowerContact,
@@ -2925,6 +2929,19 @@ export async function createPlusOneSubmission(payload: PlusOnePayload) {
       },
     });
 
+    const plusOneLeadStatus = leadStatusForTaskKind(createdTask.kind);
+    if (plusOneLeadStatus) {
+      await prisma.$transaction((tx) =>
+        syncLeadStatusForLoan(tx, {
+          loanId: loan.id,
+          taskId: createdTask.id,
+          nextStatus: plusOneLeadStatus,
+          actorId: sessionUserId,
+          source: 'submit-plus-one',
+        }),
+      );
+    }
+
     await dispatchPlusOneSubmittedNotification({
       taskId: createdTask.id,
       changedBy: session?.user?.name || loanOfficerUser.name,
@@ -3673,6 +3690,19 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       );
     }
 
+    const submittedLeadStatus = leadStatusForTaskKind(createdTask.kind);
+    if (submittedLeadStatus) {
+      await prisma.$transaction((tx) =>
+        syncLeadStatusForLoan(tx, {
+          loanId: loan.id,
+          taskId: createdTask.id,
+          nextStatus: submittedLeadStatus,
+          actorId: sessionUserId || loanOfficerUser.id,
+          source: 'pipeline-submission-task',
+        }),
+      );
+    }
+
     if (submissionType === 'DISCLOSURES') {
       const existingPlusOneTask = await prisma.task.findFirst({
         where: {
@@ -3723,6 +3753,19 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
             completedAt: new Date(),
           },
         });
+
+        const autoPlusOneLeadStatus = leadStatusForTaskKind(plusOneTask.kind);
+        if (autoPlusOneLeadStatus) {
+          await prisma.$transaction((tx) =>
+            syncLeadStatusForLoan(tx, {
+              loanId: loan.id,
+              taskId: plusOneTask.id,
+              nextStatus: autoPlusOneLeadStatus,
+              actorId: sessionUserId || loanOfficerUser.id,
+              source: 'auto-created-plus-one-from-disclosures',
+            }),
+          );
+        }
 
         try {
           await dispatchPlusOneSubmittedNotification({

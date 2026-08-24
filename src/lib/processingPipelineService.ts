@@ -1,4 +1,4 @@
-import { Prisma, UserRole } from '@prisma/client';
+import { LeadStatus, Prisma, UserRole } from '@prisma/client';
 import {
   getProcessingPipelineLockedDefaults,
   getProcessingPipelineLeadSource,
@@ -9,6 +9,7 @@ import {
   getProcessingAssignmentSeniorNames,
   isInHouseProcessingAssignmentGroup,
 } from './processingRouting';
+import { syncLeadStatusForLoan } from './leadPipelineSync';
 
 type TransactionClient = Prisma.TransactionClient;
 
@@ -179,6 +180,16 @@ export async function upsertProcessingPipelineForCompletedTask(
         assignmentResolution: senior.resolution,
       }),
     },
+  });
+
+  await syncLeadStatusForLoan(tx, {
+    loanId: task.loanId,
+    taskId: task.id,
+    nextStatus: LeadStatus.SUBMITTED_PROCESSING,
+    actorId: input.actorId,
+    source: existing
+      ? 'processing-pipeline-refreshed'
+      : 'processing-pipeline-created',
   });
 
   return row;
