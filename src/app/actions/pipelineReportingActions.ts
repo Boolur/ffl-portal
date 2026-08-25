@@ -1373,7 +1373,10 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     .sort((a, b) => b.fundings - a.fundings || b.plusOne - a.plusOne || a.loanOfficerName.localeCompare(b.loanOfficerName));
 
   const reportLoanIds = Array.from(
-    new Set(taskRows.map((task) => task.loan.id)),
+    new Set([
+      ...taskRows.map((task) => task.loan.id),
+      ...pendingStpTaskRows.map((task) => task.loan.id),
+    ]),
   );
   const progressionTasks = reportLoanIds.length
     ? await prisma.task.findMany({
@@ -1404,7 +1407,10 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
             loQcSubmissionEnabled: true,
           },
         })
-      : null;
+      : {
+          loDisclosureSubmissionEnabled: true,
+          loQcSubmissionEnabled: true,
+        };
   const progressionTasksByLoan = new Map<
     string,
     typeof progressionTasks
@@ -1415,8 +1421,10 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     progressionTasksByLoan.set(task.loanId, current);
   }
   const canCreateSubmissionShortcuts =
-    actor.role === UserRole.LOAN_OFFICER &&
-    selectedLoanOfficerId === actor.userId;
+    actor.role === UserRole.LOAN_OFFICER ||
+    actor.role === UserRole.LOA ||
+    actor.role === UserRole.MANAGER ||
+    isAdmin(actor.role);
   const availableSubmissions = (
     loanId: string | null,
     milestone: PipelineMilestoneKey,

@@ -12,7 +12,7 @@ const completed = (kind: TaskKind) => ({
 });
 
 describe('pipeline submission shortcut eligibility', () => {
-  it('offers both downstream submissions after a completed +1', () => {
+  it('offers both downstream submissions for a +1 loan', () => {
     expect(
       derivePipelineSubmissionShortcuts(
         'plusOne',
@@ -22,7 +22,7 @@ describe('pipeline submission shortcut eligibility', () => {
     ).toEqual({ disclosures: true, processing: true });
   });
 
-  it('advances from a completed disclosure and blocks existing targets', () => {
+  it('advances from a disclosure and blocks existing targets', () => {
     const history = [
       completed(TaskKind.SUBMIT_PLUS_ONE),
       completed(TaskKind.SUBMIT_DISCLOSURES),
@@ -44,7 +44,7 @@ describe('pipeline submission shortcut eligibility', () => {
     ).toEqual({ disclosures: false, processing: false });
   });
 
-  it('requires completion and submission permission', () => {
+  it('supports pending +1 and Pending STP rows but still requires permission', () => {
     const pendingPlusOne = [{
       kind: TaskKind.SUBMIT_PLUS_ONE,
       status: TaskStatus.PENDING,
@@ -52,7 +52,10 @@ describe('pipeline submission shortcut eligibility', () => {
     }];
     expect(
       derivePipelineSubmissionShortcuts('plusOne', pendingPlusOne, true),
-    ).toEqual({ disclosures: false, processing: false });
+    ).toEqual({ disclosures: true, processing: true });
+    expect(
+      derivePipelineSubmissionShortcuts('pendingStp', pendingPlusOne, true),
+    ).toEqual({ disclosures: true, processing: true });
     expect(
       derivePipelineSubmissionShortcuts(
         'plusOne',

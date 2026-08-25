@@ -10,6 +10,7 @@ import { getPipelineReport } from '@/app/actions/pipelineReportingActions';
 import { getProcessingPipeline } from '@/app/actions/processingPipelineActions';
 import { getProcessingPipelineLayouts } from '@/app/actions/processingPipelineLayoutActions';
 import { prisma } from '@/lib/prisma';
+import { isAdmin } from '@/lib/adminTiers';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,11 @@ export default async function Pipeline() {
   const role = (session.user.activeRole || session.user.role) as UserRole;
   const isProcessingRole =
     role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSOR_SR;
+  const canUseSubmissionShortcuts =
+    role === UserRole.LOAN_OFFICER ||
+    role === UserRole.LOA ||
+    role === UserRole.MANAGER ||
+    isAdmin(role);
   const [initialProcessing, initialReport, initialLayouts, submissionConfig] = await Promise.all([
     getProcessingPipeline({
       sheet: ProcessingPipelineSheet.PIPELINE,
@@ -32,7 +38,7 @@ export default async function Pipeline() {
     }),
     isProcessingRole ? Promise.resolve(null) : getPipelineReport(),
     getProcessingPipelineLayouts(),
-    role === UserRole.LOAN_OFFICER
+    canUseSubmissionShortcuts
       ? Promise.all([
           prisma.user.findUnique({
             where: { id: session.user.id },
@@ -53,8 +59,14 @@ export default async function Pipeline() {
             select: { id: true, name: true },
           }),
         ]).then(([actor, loanOfficerOptions]) => ({
-          disclosureEnabled: actor?.loDisclosureSubmissionEnabled ?? false,
-          qcEnabled: actor?.loQcSubmissionEnabled ?? false,
+          disclosureEnabled:
+            role === UserRole.LOAN_OFFICER
+              ? actor?.loDisclosureSubmissionEnabled ?? false
+              : true,
+          qcEnabled:
+            role === UserRole.LOAN_OFFICER
+              ? actor?.loQcSubmissionEnabled ?? false
+              : true,
           loanOfficerOptions,
         }))
       : Promise.resolve(null),

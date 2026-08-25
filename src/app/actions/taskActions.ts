@@ -1080,6 +1080,15 @@ function buildLoanSubmissionFallback(loan: {
 
 export type SubmissionPrefillTarget = 'DISCLOSURES' | 'QC';
 
+function canUsePipelineSubmissionShortcut(role: UserRole | null) {
+  return (
+    role === UserRole.LOAN_OFFICER ||
+    role === UserRole.LOA ||
+    role === UserRole.MANAGER ||
+    (role !== null && isAdmin(role))
+  );
+}
+
 export async function getSubmissionPrefillContext(input: {
   loanId: string;
   target: SubmissionPrefillTarget;
@@ -1089,7 +1098,7 @@ export async function getSubmissionPrefillContext(input: {
   const role = normalizeSessionTaskRole(
     session?.user?.activeRole || session?.user?.role,
   );
-  if (!userId || role !== UserRole.LOAN_OFFICER) {
+  if (!userId || !canUsePipelineSubmissionShortcut(role)) {
     return { success: false as const, error: 'Unauthorized' };
   }
 
@@ -1105,9 +1114,10 @@ export async function getSubmissionPrefillContext(input: {
     return { success: false as const, error: 'Unauthorized' };
   }
   if (
-    (input.target === 'DISCLOSURES' &&
+    role === UserRole.LOAN_OFFICER &&
+    ((input.target === 'DISCLOSURES' &&
       !actor.loDisclosureSubmissionEnabled) ||
-    (input.target === 'QC' && !actor.loQcSubmissionEnabled)
+      (input.target === 'QC' && !actor.loQcSubmissionEnabled))
   ) {
     return {
       success: false as const,
@@ -1134,7 +1144,11 @@ export async function getSubmissionPrefillContext(input: {
       loanOfficer: { select: { name: true } },
     },
   });
-  if (!loan || !canLoanOfficerViewLoan(loan, userId)) {
+  if (
+    !loan ||
+    (role === UserRole.LOAN_OFFICER &&
+      !canLoanOfficerViewLoan(loan, userId))
+  ) {
     return { success: false as const, error: 'Loan not found.' };
   }
 
@@ -1158,18 +1172,14 @@ export async function getSubmissionPrefillContext(input: {
     };
   }
 
-  const completedWhere = {
+  const sourceWhere = {
     loanId: loan.id,
-    OR: [
-      { status: TaskStatus.COMPLETED },
-      { completedAt: { not: null } },
-    ],
   } satisfies Prisma.TaskWhereInput;
   const source =
     input.target === 'DISCLOSURES'
       ? await prisma.task.findFirst({
           where: {
-            ...completedWhere,
+            ...sourceWhere,
             kind: TaskKind.SUBMIT_PLUS_ONE,
           },
           orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
@@ -1177,7 +1187,7 @@ export async function getSubmissionPrefillContext(input: {
         })
       : (await prisma.task.findFirst({
           where: {
-            ...completedWhere,
+            ...sourceWhere,
             kind: TaskKind.SUBMIT_DISCLOSURES,
           },
           orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
@@ -1185,7 +1195,7 @@ export async function getSubmissionPrefillContext(input: {
         })) ||
         (await prisma.task.findFirst({
           where: {
-            ...completedWhere,
+            ...sourceWhere,
             kind: TaskKind.SUBMIT_PLUS_ONE,
           },
           orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
@@ -1195,7 +1205,7 @@ export async function getSubmissionPrefillContext(input: {
   if (!source) {
     return {
       success: false as const,
-      error: 'The required prior submission has not been completed.',
+      error: 'The required prior submission could not be found.',
     };
   }
 
@@ -3467,11 +3477,12 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 
     if (sourceLoanId) {
       if (
-        role !== UserRole.LOAN_OFFICER ||
+        !canUsePipelineSubmissionShortcut(role || null) ||
         !sessionUserId ||
         !loan ||
         loan.id !== sourceLoanId ||
-        !canLoanOfficerViewLoan(loan, sessionUserId)
+        (role === UserRole.LOAN_OFFICER &&
+          !canLoanOfficerViewLoan(loan, sessionUserId))
       ) {
         return {
           success: false,

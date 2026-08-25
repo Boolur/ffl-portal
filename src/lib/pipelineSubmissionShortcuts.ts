@@ -28,10 +28,6 @@ const PROCESSING_TASK_KINDS = new Set<TaskKind>([
   TaskKind.SUBMIT_QC,
 ]);
 
-function isCompleted(task: SubmissionProgressTask) {
-  return task.status === TaskStatus.COMPLETED || Boolean(task.completedAt);
-}
-
 export function derivePipelineSubmissionShortcuts(
   milestone: PipelineShortcutMilestone,
   tasks: SubmissionProgressTask[],
@@ -39,12 +35,6 @@ export function derivePipelineSubmissionShortcuts(
 ): PipelineSubmissionShortcutEligibility {
   if (!canSubmit) return { disclosures: false, processing: false };
 
-  const completedPlusOne = tasks.some(
-    (task) => task.kind === TaskKind.SUBMIT_PLUS_ONE && isCompleted(task),
-  );
-  const completedDisclosure = tasks.some(
-    (task) => task.kind === TaskKind.SUBMIT_DISCLOSURES && isCompleted(task),
-  );
   const hasDisclosure = tasks.some(
     (task) => task.kind === TaskKind.SUBMIT_DISCLOSURES,
   );
@@ -54,11 +44,13 @@ export function derivePipelineSubmissionShortcuts(
 
   return {
     disclosures:
-      milestone === 'plusOne' && completedPlusOne && !hasDisclosure,
+      (milestone === 'plusOne' || milestone === 'pendingStp') &&
+      !hasDisclosure,
     processing:
       !hasProcessing &&
-      ((milestone === 'plusOne' && completedPlusOne) ||
-        (milestone === 'disclosures' && completedDisclosure)),
+      (milestone === 'plusOne' ||
+        milestone === 'disclosures' ||
+        milestone === 'pendingStp'),
   };
 }
 

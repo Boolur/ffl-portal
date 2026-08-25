@@ -777,16 +777,19 @@ export function ProcessingPipelineGrid({
     nextFilters = appliedFilters,
   ) => {
     startTransition(async () => {
+      const isGlobalSearch = Boolean(nextSearch.trim());
       const result = await getProcessingPipeline({
         sheet:
           nextSheet === RATE_LOCK_REQUESTS_VIEW
             ? undefined
             : nextSheet,
-        rateLockRequestsOnly: nextSheet === RATE_LOCK_REQUESTS_VIEW,
+        rateLockRequestsOnly:
+          !isGlobalSearch && nextSheet === RATE_LOCK_REQUESTS_VIEW,
+        allSheets: isGlobalSearch,
         search: nextSearch,
         sortBy: nextSortBy,
         sortDirection: nextSortDirection,
-        filters: nextFilters,
+        filters: isGlobalSearch ? {} : nextFilters,
       });
       if (!result.success) {
         setMessage(result.error);
@@ -1764,6 +1767,13 @@ export function ProcessingPipelineGrid({
       appraisalBack: boolean;
     },
   ) => {
+    const resultBucketLabel = row.rateLockRequestedAt
+      ? 'Rate Lock'
+      : row.sheet === ProcessingPipelineSheet.RESTRUCTURE
+        ? 'Restructure'
+        : row.sheet === ProcessingPipelineSheet.FUNDING
+          ? 'Funding'
+          : 'Pipeline';
     switch (id) {
       case 'dateAssigned':
         return (
@@ -1780,9 +1790,14 @@ export function ProcessingPipelineGrid({
           <td
             key={id}
             style={{ left: stickyLeftByColumn.get(id) }}
-            className={`truncate border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
+            className={`border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
           >
-            {row.loan.loanNumber}
+            <span className="block truncate">{row.loan.loanNumber}</span>
+            {search.trim() && (
+              <span className="mt-1 inline-flex max-w-full truncate rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-sans text-[9px] font-bold uppercase tracking-wide text-blue-700">
+                {resultBucketLabel}
+              </span>
+            )}
           </td>
         );
       case 'loanOfficer':
@@ -2343,7 +2358,8 @@ export function ProcessingPipelineGrid({
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search borrower, Arive #, processor or lender"
+                placeholder="Search all buckets by borrower, Arive #, processor or lender"
+                aria-describedby="processing-search-scope"
                 className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
               />
             </label>
@@ -2358,6 +2374,16 @@ export function ProcessingPipelineGrid({
             </button>
           </div>
         </div>
+        <p
+          id="processing-search-scope"
+          className={`mt-2 text-xs font-semibold ${
+            search.trim() ? 'text-blue-700' : 'sr-only'
+          }`}
+          role={search.trim() ? 'status' : undefined}
+        >
+          Search results include Pipeline, Restructures, Rate Lock Requests, and
+          Fundings. Each result is labeled with its bucket.
+        </p>
       </div>
 
       <div className="relative z-20 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

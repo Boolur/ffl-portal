@@ -473,6 +473,7 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
 export async function getProcessingPipeline(input?: {
   sheet?: ProcessingPipelineSheet;
   rateLockRequestsOnly?: boolean;
+  allSheets?: boolean;
   search?: string;
   sortBy?: 'pipelineStatus' | 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber';
   sortDirection?: 'asc' | 'desc';
@@ -484,6 +485,7 @@ export async function getProcessingPipeline(input?: {
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canView) return { success: false as const, error: 'Not authorized.' };
   const rateLockRequestsOnly = input?.rateLockRequestsOnly === true;
+  const allSheets = input?.allSheets === true && Boolean(input?.search?.trim());
   if (
     rateLockRequestsOnly &&
     actor.role !== UserRole.MANAGER &&
@@ -496,9 +498,11 @@ export async function getProcessingPipeline(input?: {
   const where: Prisma.ProcessingPipelineLoanWhereInput = {
     AND: [
       scopeWhere(actor),
-      rateLockRequestsOnly
-        ? { rateLockRequestedAt: { not: null } }
-        : { sheet: input?.sheet || ProcessingPipelineSheet.PIPELINE },
+      allSheets
+        ? {}
+        : rateLockRequestsOnly
+          ? { rateLockRequestedAt: { not: null } }
+          : { sheet: input?.sheet || ProcessingPipelineSheet.PIPELINE },
       ...(search
         ? [{
             OR: [
