@@ -12,6 +12,8 @@ import {
   updateUserDeskPermissions,
   updateUserProcessingAssignments,
   updateUserName,
+  updateUserEmail,
+  migrateActiveUserEmailsToBisuDomain,
   resetUserPassword,
   requestPasswordReset,
   deleteInvite,
@@ -143,6 +145,7 @@ export function UserManagement({
   const [pendingStatus, setPendingStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isInviting, setIsInviting] = useState(false);
+  const [isMigratingEmails, setIsMigratingEmails] = useState(false);
   const [formState, setFormState] = useState<{
     name: string;
     email: string;
@@ -511,6 +514,63 @@ export function UserManagement({
     router.refresh();
   };
 
+  const handleEditUserEmail = async (userId: string, currentEmail: string) => {
+    const nextEmail = window.prompt('Enter updated sign-in email:', currentEmail);
+    if (!nextEmail) return;
+    const normalized = nextEmail.toLowerCase().trim();
+    if (!normalized || normalized === currentEmail.toLowerCase().trim()) return;
+    const confirmed = window.confirm(
+      `Update this user's sign-in email to ${normalized} and notify the new address?`
+    );
+    if (!confirmed) return;
+
+    const result = await updateUserEmail(userId, normalized);
+    if (!result.success) {
+      const message = result.error || 'Failed to update email.';
+      setDirectoryStatus({ type: 'error', message });
+      window.alert(message);
+      return;
+    }
+    setDirectoryStatus({
+      type: result.warning ? 'error' : 'success',
+      message: result.warning || `Email updated to ${normalized} and notification sent.`,
+    });
+    router.refresh();
+  };
+
+  const handleMigrateActiveUserEmails = async () => {
+    if (isMigratingEmails) return;
+    const confirmed = window.confirm(
+      'Update every active user to the same local address at @bisuhomeloans.com and send each user a branded notification? The migration will stop before changing anything if an address collision is found.'
+    );
+    if (!confirmed) return;
+
+    setDirectoryStatus(null);
+    setIsMigratingEmails(true);
+    try {
+      const result = await migrateActiveUserEmailsToBisuDomain();
+      if (!result.success) {
+        const message = result.error || 'Failed to migrate active-user emails.';
+        setDirectoryStatus({ type: 'error', message });
+        window.alert(message);
+        return;
+      }
+      const failures = result.notificationFailures ?? [];
+      setDirectoryStatus({
+        type: failures.length > 0 ? 'error' : 'success',
+        message:
+          result.migratedCount === 0
+            ? 'All active users already use @bisuhomeloans.com.'
+            : failures.length > 0
+              ? `${result.migratedCount} emails updated, but ${failures.length} notifications failed: ${failures.join(', ')}`
+              : `${result.migratedCount} active-user emails updated and notifications sent.`,
+      });
+      router.refresh();
+    } finally {
+      setIsMigratingEmails(false);
+    }
+  };
+
   const renderStatus = (
     sectionStatus: { type: 'success' | 'error'; message: string } | null
   ) =>
@@ -685,6 +745,21 @@ export function UserManagement({
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {actorRoles.some((role) => getAdminTier(role) === 3) && (
+              <button
+                type="button"
+                onClick={handleMigrateActiveUserEmails}
+                disabled={isMigratingEmails}
+                className="app-btn-secondary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isMigratingEmails ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Mail className="h-4 w-4" />
+                )}
+                {isMigratingEmails ? 'Migrating...' : 'Migrate Active Emails'}
+              </button>
+            )}
             <span className="hidden sm:inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
               {filteredUsers.length} Users
             </span>
@@ -967,7 +1042,15 @@ export function UserManagement({
                                 title={!manageable && !isSelf ? disabledTitle : undefined}
                                 className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                Edit
+                                Edit Name
+                              </button>
+                              <button
+                                onClick={() => handleEditUserEmail(user.id, user.email)}
+                                disabled={!manageable && !isSelf}
+                                title={!manageable && !isSelf ? disabledTitle : undefined}
+                                className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                Edit Email
                               </button>
                               <button
                                 onClick={() => handleResetPassword(user.id)}
@@ -1216,7 +1299,15 @@ export function UserManagement({
                           title={!manageable && !isSelf ? disabledTitle : undefined}
                           className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          Edit
+                          Edit Name
+                        </button>
+                        <button
+                          onClick={() => handleEditUserEmail(user.id, user.email)}
+                          disabled={!manageable && !isSelf}
+                          title={!manageable && !isSelf ? disabledTitle : undefined}
+                          className="app-btn-secondary h-8 px-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Edit Email
                         </button>
                         <button
                           onClick={() => handleResetPassword(user.id)}

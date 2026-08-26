@@ -18,6 +18,7 @@ import {
   canAccessUserManagement,
   canAssignRole,
   canManageUser,
+  highestAdminTier,
 } from '@/lib/adminTiers';
 import { ensureWebsiteLoanOfficerProfileDraft } from '@/lib/websiteLoanOfficerProfiles';
 
@@ -36,9 +37,16 @@ const ALLOWED_ROLES: UserRole[] = Object.values(UserRole).filter(
 const INVITE_TTL_DAYS = 7;
 const INVITE_TTL_HOURS = INVITE_TTL_DAYS * 24;
 const RESET_TTL_HOURS = 2;
+const BISU_EMAIL_DOMAIN = 'bisuhomeloans.com';
 
 const normalizeEmail = (email: string) => email.toLowerCase().trim();
 const getBaseUrl = () => process.env.NEXTAUTH_URL || 'http://localhost:3000';
+const isValidEmail = (email: string) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const toBisuEmail = (email: string) => {
+  const localPart = normalizeEmail(email).split('@')[0];
+  return localPart ? `${localPart}@${BISU_EMAIL_DOMAIN}` : '';
+};
 const normalizeRoleList = (roles: UserRole[]) =>
   Array.from(new Set(roles.filter((role) => ALLOWED_ROLES.includes(role))));
 
@@ -299,6 +307,68 @@ function buildPasswordResetEmail(input: {
     `Reset your password: ${input.resetUrl}`,
     '',
     'If you did not request this, you can ignore this email.',
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
+function buildEmailUpdatedEmail(input: {
+  recipientName: string;
+  newEmail: string;
+  baseUrl: string;
+}) {
+  const subject = 'Your BISU Portal email has been updated';
+  const logoUrl = process.env.EMAIL_BRAND_LOGO_URL?.trim() || `${input.baseUrl}/logo.png`;
+  const portalUrl = input.baseUrl;
+
+  const html = `
+  <div style="margin:0;padding:24px;background:#f8fafc;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" style="max-width:680px;width:100%;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+      <tr>
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;background:linear-gradient(135deg,#eff6ff,#eef2ff);">
+          <table role="presentation" style="width:100%;">
+            <tr>
+              <td style="vertical-align:middle;">
+                <img src="${escapeHtml(logoUrl)}" alt="BISU Home Loans" width="180" style="display:block;width:180px;max-width:180px;height:auto;max-height:44px;object-fit:contain;" />
+              </td>
+              <td style="vertical-align:middle;text-align:right;">
+                <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">Account Update</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:28px 24px 8px;">
+          <h1 style="margin:0 0 10px;font-size:24px;line-height:1.2;color:#0f172a;">Your sign-in email has been updated</h1>
+          <p style="margin:0;color:#475569;font-size:15px;line-height:1.7;">
+            Hi ${escapeHtml(input.recipientName)}, your email has been updated on
+            <a href="${portalUrl}" style="color:#2563eb;text-decoration:none;">www.bisuportal.com</a>
+            to <strong style="color:#0f172a;">${escapeHtml(input.newEmail)}</strong>.
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:16px 24px 28px;">
+          <p style="margin:0;color:#475569;font-size:14px;line-height:1.7;">
+            Use this new email address the next time you sign in. Your password has not changed.
+          </p>
+          <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;line-height:1.6;">
+            If you were not expecting this update, contact your BISU Portal administrator.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </div>
+  `;
+
+  const text = [
+    `Hi ${input.recipientName},`,
+    '',
+    `Your email has been updated on www.bisuportal.com to ${input.newEmail}.`,
+    'Use this new email address the next time you sign in. Your password has not changed.',
+    '',
+    'If you were not expecting this update, contact your BISU Portal administrator.',
   ].join('\n');
 
   return { subject, html, text };
@@ -1041,6 +1111,214 @@ export async function updateUserName(userId: string, name: string) {
 
   revalidatePath('/admin/users');
   return { success: true };
+}
+
+export async function updateUserEmail(userId: string, email: string) {
+  const actor = await getUserManagementActor();
+  if (!actor) return { success: false, error: 'Not authorized.' };
+
+  const nextEmail = normalizeEmail(email);
+  if (!userId) {
+    return { success: false, error: 'Missing user ID.' };
+  }
+  if (!isValidEmail(nextEmail)) {
+    return { success: false, error: 'Enter a valid email address.' };
+  }
+
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, name: true, role: true, roles: true },
+  });
+  if (!target) return { success: false, error: 'User not found.' };
+
+  const targetRoles = Array.from(new Set([target.role, ...(target.roles ?? [])]));
+  if (userId !== actor.userId && !canManageUser(actor.roles, targetRoles)) {
+    return {
+      success: false,
+      error: 'You cannot manage users at or above your own admin tier.',
+    };
+  }
+
+  const previousEmail = normalizeEmail(target.email);
+  if (previousEmail === nextEmail) return { success: true };
+
+  const existing = await prisma.user.findUnique({
+    where: { email: nextEmail },
+    select: { id: true },
+  });
+  if (existing && existing.id !== userId) {
+    return { success: false, error: 'A user with this email already exists.' };
+  }
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: userId },
+      data: { email: nextEmail },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: actor.userId,
+        action: 'USER_EMAIL_UPDATED',
+        details: JSON.stringify({
+          targetUserId: userId,
+          previousEmail,
+          newEmail: nextEmail,
+        }),
+      },
+    }),
+  ]);
+
+  const message = buildEmailUpdatedEmail({
+    recipientName: target.name?.trim() || nextEmail,
+    newEmail: nextEmail,
+    baseUrl: getBaseUrl(),
+  });
+
+  try {
+    await sendEmail({
+      to: nextEmail,
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
+      senderCategory: 'noreply',
+      label: 'user email update',
+    });
+  } catch (error) {
+    console.error('User email updated but notification failed', {
+      userId,
+      nextEmail,
+      error,
+    });
+    revalidatePath('/admin/users');
+    return {
+      success: true,
+      warning: `Email updated to ${nextEmail}, but the notification could not be sent.`,
+    };
+  }
+
+  revalidatePath('/admin/users');
+  return { success: true };
+}
+
+export async function migrateActiveUserEmailsToBisuDomain() {
+  const actor = await getUserManagementActor();
+  if (!actor || highestAdminTier(actor.roles) !== 3) {
+    return { success: false, error: 'Only an Admin III can run this migration.' };
+  }
+
+  const activeUsers = await prisma.user.findMany({
+    where: { active: true },
+    select: { id: true, name: true, email: true },
+    orderBy: { name: 'asc' },
+  });
+  const changes = activeUsers
+    .map((user) => ({
+      ...user,
+      previousEmail: normalizeEmail(user.email),
+      newEmail: toBisuEmail(user.email),
+    }))
+    .filter((user) => user.newEmail && user.newEmail !== user.previousEmail);
+
+  if (changes.length === 0) {
+    return {
+      success: true,
+      migratedCount: 0,
+      notificationFailures: [] as string[],
+    };
+  }
+
+  const targetOwners = new Map<string, string[]>();
+  for (const change of changes) {
+    const owners = targetOwners.get(change.newEmail) ?? [];
+    owners.push(change.name);
+    targetOwners.set(change.newEmail, owners);
+  }
+  const duplicateTargets = Array.from(targetOwners.entries()).filter(
+    ([, owners]) => owners.length > 1
+  );
+  if (duplicateTargets.length > 0) {
+    return {
+      success: false,
+      error: `Migration stopped because multiple active users would share: ${duplicateTargets
+        .map(([email]) => email)
+        .join(', ')}.`,
+    };
+  }
+
+  const occupiedTargets = await prisma.user.findMany({
+    where: { email: { in: changes.map((change) => change.newEmail) } },
+    select: { email: true },
+  });
+  if (occupiedTargets.length > 0) {
+    return {
+      success: false,
+      error: `Migration stopped because these addresses already exist: ${occupiedTargets
+        .map((user) => user.email)
+        .join(', ')}.`,
+    };
+  }
+
+  await prisma.$transaction([
+    ...changes.map((change) =>
+      prisma.user.update({
+        where: { id: change.id },
+        data: { email: change.newEmail },
+      })
+    ),
+    ...changes.map((change) =>
+      prisma.auditLog.create({
+        data: {
+          userId: actor.userId,
+          action: 'USER_EMAIL_UPDATED',
+          details: JSON.stringify({
+            targetUserId: change.id,
+            previousEmail: change.previousEmail,
+            newEmail: change.newEmail,
+            source: 'BISU_DOMAIN_MIGRATION',
+          }),
+        },
+      })
+    ),
+  ]);
+
+  const notificationFailures: string[] = [];
+  const batchSize = 5;
+  for (let index = 0; index < changes.length; index += batchSize) {
+    const batch = changes.slice(index, index + batchSize);
+    const results = await Promise.allSettled(
+      batch.map((change) => {
+        const message = buildEmailUpdatedEmail({
+          recipientName: change.name?.trim() || change.newEmail,
+          newEmail: change.newEmail,
+          baseUrl: getBaseUrl(),
+        });
+        return sendEmail({
+          to: change.newEmail,
+          subject: message.subject,
+          html: message.html,
+          text: message.text,
+          senderCategory: 'noreply',
+          label: 'BISU domain migration',
+        });
+      })
+    );
+    results.forEach((result, resultIndex) => {
+      if (result.status === 'rejected') {
+        notificationFailures.push(batch[resultIndex].newEmail);
+        console.error('BISU domain migration notification failed', {
+          email: batch[resultIndex].newEmail,
+          error: result.reason,
+        });
+      }
+    });
+  }
+
+  revalidatePath('/admin/users');
+  return {
+    success: true,
+    migratedCount: changes.length,
+    notificationFailures,
+  };
 }
 
 export async function deleteUser(userId: string, currentUserId?: string) {
