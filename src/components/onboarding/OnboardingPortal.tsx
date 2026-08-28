@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   LogOut,
-  Sparkles,
 } from 'lucide-react';
 import { OnboardingItemStatus, OnboardingStatus } from '@prisma/client';
 import {
@@ -29,17 +28,6 @@ import {
   ProfileFormValues,
   WizardStep,
 } from './OnboardingWizardTypes';
-
-const statusCopy: Record<OnboardingStatus, { label: string; message: string }> = {
-  INVITED: { label: 'Invited', message: 'Create your profile to begin.' },
-  IN_PROGRESS: { label: 'In progress', message: 'Complete the items below when you are ready.' },
-  SUBMITTED: { label: 'Submitted', message: 'Your information is waiting for management review.' },
-  UNDER_REVIEW: { label: 'Under review', message: 'The BISU team is reviewing your onboarding.' },
-  CHANGES_REQUESTED: { label: 'Changes requested', message: 'Please review the requested updates and resubmit.' },
-  APPROVED: { label: 'Approved', message: 'Your onboarding is approved and your workspace is being prepared.' },
-  COMPLETED: { label: 'Complete', message: 'Your assigned BISU Portal access is ready.' },
-  CANCELLED: { label: 'Cancelled', message: 'This onboarding process is no longer active.' },
-};
 
 const STEP_ORDER: WizardStep[] = ['personal', 'documents', 'review'];
 const submittedItemStatuses = new Set<OnboardingItemStatus>([
@@ -105,12 +93,6 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
     return () => window.clearTimeout(timeout);
   }, [stepRenderKey]);
 
-  const completed = onboardingCase.items.filter(
-    (item) => submittedItemStatuses.has(item.status),
-  ).length;
-  const percent = onboardingCase.items.length
-    ? Math.round((completed / onboardingCase.items.length) * 100)
-    : 0;
   const latestRequestedChange = useMemo(
     () => onboardingCase.events.find((event) => event.action === 'CHANGES_REQUESTED'),
     [onboardingCase.events],
@@ -242,31 +224,12 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
       </header>
 
       <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
-        <section className="relative overflow-hidden rounded-3xl bg-[#3e8dc8] p-6 text-slate-950 shadow-[0_20px_60px_-30px_rgba(62,141,200,0.8)] sm:p-8">
-          <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-white/20 blur-2xl" />
-          <div className="pointer-events-none absolute -bottom-28 left-1/3 h-56 w-56 rounded-full bg-emerald-300/20 blur-3xl" />
-          <div className="relative flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="flex items-center gap-2 text-sm font-bold text-slate-950/75">
-                <Sparkles className="h-4 w-4" aria-hidden="true" />
-                Welcome to BISU
-              </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Hi, {profile.preferredFirstName || onboardingCase.candidateName}</h1>
-              <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-slate-950/75">{statusCopy[onboardingCase.status].message}</p>
-            </div>
-            <div className="rounded-2xl border border-white/30 bg-white/35 px-5 py-4 shadow-sm backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-950/70">Status</p>
-              <p className="mt-1 font-semibold">{statusCopy[onboardingCase.status].label}</p>
-            </div>
-          </div>
-          <div className="relative mt-7">
-            <div className="mb-2 flex justify-between text-xs font-medium text-slate-950/75">
-              <span>Overall checklist completion</span><span>{percent}%</span>
-            </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-slate-950/15">
-              <div className="h-full rounded-full bg-emerald-400 transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${percent}%` }} />
-            </div>
-          </div>
+        <section className="py-1 sm:py-2">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#347eb5]">Welcome to BISU</p>
+          <h1 className="mt-1.5 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+            Hi, {profile.preferredFirstName || onboardingCase.candidateName}
+          </h1>
+          <p className="mt-1.5 text-sm font-medium text-slate-600">Complete the items below when you are ready.</p>
         </section>
 
         {latestRequestedChange && (
