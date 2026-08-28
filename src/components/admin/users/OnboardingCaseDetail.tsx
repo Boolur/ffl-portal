@@ -57,7 +57,11 @@ type CaseDetail = {
     preferredFirstName: string | null;
     dateOfBirth: string;
     mobilePhone: string | null;
-    homeAddress: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
     offerDate: string;
     startDate: string;
     jobTitle: string | null;
@@ -98,6 +102,8 @@ type CaseDetail = {
 
 const pretty = (value: string) =>
   value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const displayValue = (value: string | null | undefined) => value || 'Not provided';
 
 function ChecklistRow({
   item,
@@ -315,6 +321,57 @@ export function OnboardingCaseDetail({
       </section>
 
       {notice && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800" role="status">{notice}</div>}
+
+      {onboardingCase.permissions.canEditDetails && onboardingCase.profile && (
+        <section className="app-surface-card p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Personal information</h2>
+          <p className="mt-1 text-sm text-slate-500">Private details provided by the new hire.</p>
+          <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Legal name</dt>
+              <dd className="mt-1 text-sm text-slate-800">
+                {displayValue(
+                  [onboardingCase.profile.firstName, onboardingCase.profile.lastName]
+                    .filter(Boolean)
+                    .join(' '),
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Preferred name</dt>
+              <dd className="mt-1 text-sm text-slate-800">{displayValue(onboardingCase.profile.preferredFirstName)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Date of birth</dt>
+              <dd className="mt-1 text-sm text-slate-800">{displayValue(onboardingCase.profile.dateOfBirth)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Mobile phone</dt>
+              <dd className="mt-1 text-sm text-slate-800">{displayValue(onboardingCase.profile.mobilePhone)}</dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Home address</dt>
+              <dd className="mt-1 text-sm text-slate-800">
+                {onboardingCase.profile.addressLine1 ? (
+                  <>
+                    <span className="block">{onboardingCase.profile.addressLine1}</span>
+                    {onboardingCase.profile.addressLine2 && (
+                      <span className="block">{onboardingCase.profile.addressLine2}</span>
+                    )}
+                    <span className="block">
+                      {[
+                        onboardingCase.profile.city,
+                        onboardingCase.profile.state,
+                        onboardingCase.profile.postalCode,
+                      ].filter(Boolean).join(', ').replace(/,\s(?=\d)/, ' ')}
+                    </span>
+                  </>
+                ) : 'Not provided'}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
 
       {onboardingCase.permissions.canEditDetails && (
       <form onSubmit={saveProfile} className="app-surface-card p-6">

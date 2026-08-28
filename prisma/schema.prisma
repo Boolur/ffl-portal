@@ -979,7 +979,12 @@ model OnboardingProfile {
   preferredFirstName String?
   dateOfBirth        DateTime?
   mobilePhone        String?
-  homeAddress        String?
+  homeAddress        String? // Legacy rolling-deploy compatibility; no longer written.
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  state              String?
+  postalCode         String?
   offerDate          DateTime?
   startDate          DateTime?
   jobTitle           String?

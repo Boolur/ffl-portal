@@ -40,6 +40,7 @@ import { ensureWebsiteLoanOfficerProfileDraft } from '@/lib/websiteLoanOfficerPr
 import { isOnboardingEnabled } from '@/lib/onboardingFeature';
 import { getESignAdapter } from '@/lib/esign';
 import { replayUnmatchedOnboardingESignEvents } from '@/lib/onboardingEsignProcessor';
+import { isCompleteOnboardingAddress } from '@/lib/onboardingAddress';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
@@ -446,7 +447,11 @@ export async function getMyOnboardingCase() {
           preferredFirstName: onboardingCase.profile.preferredFirstName,
           dateOfBirth: dateInput(onboardingCase.profile.dateOfBirth),
           mobilePhone: onboardingCase.profile.mobilePhone,
-          homeAddress: onboardingCase.profile.homeAddress,
+          addressLine1: onboardingCase.profile.addressLine1,
+          addressLine2: onboardingCase.profile.addressLine2,
+          city: onboardingCase.profile.city,
+          state: onboardingCase.profile.state,
+          postalCode: onboardingCase.profile.postalCode,
         }
       : null,
   };
@@ -497,6 +502,11 @@ export async function getOnboardingCaseForManagement(caseId: string) {
           dateOfBirth: canSeeFullCase ? dateInput(onboardingCase.profile.dateOfBirth) : '',
           mobilePhone: canSeeFullCase ? onboardingCase.profile.mobilePhone : null,
           homeAddress: canSeeFullCase ? onboardingCase.profile.homeAddress : null,
+          addressLine1: canSeeFullCase ? onboardingCase.profile.addressLine1 : null,
+          addressLine2: canSeeFullCase ? onboardingCase.profile.addressLine2 : null,
+          city: canSeeFullCase ? onboardingCase.profile.city : null,
+          state: canSeeFullCase ? onboardingCase.profile.state : null,
+          postalCode: canSeeFullCase ? onboardingCase.profile.postalCode : null,
           basePay: isAdmin ? onboardingCase.profile.basePay : null,
           compensationPlan: isAdmin ? onboardingCase.profile.compensationPlan : null,
         }
@@ -632,7 +642,11 @@ export async function updateCandidateProfile(input: {
   preferredFirstName?: string;
   dateOfBirth: string;
   mobilePhone: string;
-  homeAddress: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
 }) {
   const actor = await getActor();
   if (!actor || !actor.roles.includes(UserRole.ONBOARDING)) {
@@ -650,18 +664,38 @@ export async function updateCandidateProfile(input: {
     preferredFirstName: cleanText(input.preferredFirstName, 100) || null,
     dateOfBirth: toDate(input.dateOfBirth),
     mobilePhone: cleanText(input.mobilePhone, 40),
-    homeAddress: cleanText(input.homeAddress, 300),
+    addressLine1: cleanText(input.addressLine1, 200),
+    addressLine2: cleanText(input.addressLine2, 200) || null,
+    city: cleanText(input.city, 100),
+    state: cleanText(input.state, 20).toUpperCase(),
+    postalCode: cleanText(input.postalCode, 20),
   };
-  if (!values.firstName || !values.lastName || !values.dateOfBirth || !values.mobilePhone || !values.homeAddress) {
+  if (!values.firstName || !values.lastName || !values.dateOfBirth || !values.mobilePhone) {
     return { success: false, error: 'Complete all required fields.' };
   }
+  if (!isCompleteOnboardingAddress(values)) {
+    return {
+      success: false,
+      error: 'Enter address line 1, city, a valid U.S. state, and a valid ZIP or ZIP+4.',
+    };
+  }
+  const persistedValues = {
+    ...values,
+    // Keep the retired field synchronized until a later contract migration
+    // removes it after all rolling-deploy instances use structured addresses.
+    homeAddress: [
+      values.addressLine1,
+      values.addressLine2,
+      `${values.city}, ${values.state} ${values.postalCode}`,
+    ].filter(Boolean).join('\n'),
+  };
   await prisma.$transaction(async (tx) => {
     await tx.onboardingProfile.upsert({
       where: { caseId: onboardingCase.id },
-      update: values,
-      create: { caseId: onboardingCase.id, ...values },
+      update: persistedValues,
+      create: { caseId: onboardingCase.id, ...persistedValues },
     });
-    const fieldKeys = Object.entries(values)
+    const fieldKeys = Object.entries(persistedValues)
       .filter(([, value]) => Boolean(value))
       .map(([key]) => key);
     fieldKeys.push('personalEmail');
@@ -700,7 +734,11 @@ export async function updateCandidateProfile(input: {
       caseId: onboardingCase.id,
       actorId: actor.userId,
       action: 'CANDIDATE_PROFILE_UPDATED',
-      details: { fields: Object.keys(values) },
+      details: {
+        fields: Object.keys(values),
+        addressComplete: true,
+        sensitiveValuesRedacted: true,
+      },
     });
   });
   revalidatePath('/onboarding');
@@ -720,8 +758,19 @@ export async function updateOnboardingItem(input: {
   const item = await prisma.onboardingItem.findUnique({
     where: { id: input.itemId },
     include: {
+      templateItem: { select: { fieldKey: true } },
       case: {
-        include: { items: { select: { assignedUserId: true } } },
+        include: {
+          items: { select: { assignedUserId: true } },
+          profile: {
+            select: {
+              addressLine1: true,
+              city: true,
+              state: true,
+              postalCode: true,
+            },
+          },
+        },
       },
     },
   });
@@ -751,6 +800,16 @@ export async function updateOnboardingItem(input: {
       ? input.status
       : OnboardingItemStatus.SUBMITTED
     : input.status;
+  if (
+    item.templateItem?.fieldKey === 'homeAddress' &&
+    status === OnboardingItemStatus.COMPLETED &&
+    (!item.case.profile || !isCompleteOnboardingAddress(item.case.profile))
+  ) {
+    return {
+      success: false,
+      error: 'Home Address is complete only after a valid structured address is saved.',
+    };
+  }
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "OnboardingCase" WHERE "id" = ${item.caseId} FOR UPDATE`;
     const currentCase = await tx.onboardingCase.findUnique({
@@ -806,7 +865,13 @@ export async function submitOnboardingCase() {
     return { success: false, error: 'This onboarding case cannot be submitted.' };
   }
   const profile = onboardingCase.profile;
-  if (!profile?.firstName || !profile.lastName || !profile.dateOfBirth || !profile.mobilePhone || !profile.homeAddress) {
+  if (
+    !profile?.firstName ||
+    !profile.lastName ||
+    !profile.dateOfBirth ||
+    !profile.mobilePhone ||
+    !isCompleteOnboardingAddress(profile)
+  ) {
     return { success: false, error: 'Complete your required personal information first.' };
   }
   const submittedStatuses = new Set<OnboardingItemStatus>([

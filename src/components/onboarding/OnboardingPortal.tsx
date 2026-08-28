@@ -1,18 +1,14 @@
 'use client';
 
-import { FormEvent, useMemo, useRef, useState, useTransition } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import {
+  AlertTriangle,
   CheckCircle2,
-  Circle,
-  Clock3,
-  FileText,
-  Loader2,
   LogOut,
-  ShieldCheck,
-  Upload,
+  Sparkles,
 } from 'lucide-react';
 import { OnboardingItemStatus, OnboardingStatus } from '@prisma/client';
 import {
@@ -22,44 +18,17 @@ import {
   submitOnboardingCase,
   updateCandidateProfile,
 } from '@/app/actions/onboardingActions';
-
-type CandidateCase = {
-  id: string;
-  candidateName: string;
-  personalEmail: string;
-  status: OnboardingStatus;
-  profile: {
-    firstName: string | null;
-    lastName: string | null;
-    preferredFirstName: string | null;
-    dateOfBirth: string;
-    mobilePhone: string | null;
-    homeAddress: string | null;
-  } | null;
-  items: Array<{
-    id: string;
-    category: string;
-    label: string;
-    description: string | null;
-    status: OnboardingItemStatus;
-    required: boolean;
-    candidateNote: string | null;
-  }>;
-  documents: Array<{
-    id: string;
-    name: string;
-    mimeType: string;
-    sizeBytes: number;
-    status: string;
-    createdAt: string;
-  }>;
-  events: Array<{
-    id: string;
-    action: string;
-    details: unknown;
-    createdAt: string;
-  }>;
-};
+import { isCompleteOnboardingAddress } from '@/lib/onboardingAddress';
+import { OnboardingDocumentsStep } from './OnboardingDocumentsStep';
+import { OnboardingPersonalStep } from './OnboardingPersonalStep';
+import { OnboardingReviewStep } from './OnboardingReviewStep';
+import { OnboardingWelcomeIntro } from './OnboardingWelcomeIntro';
+import { OnboardingWizardProgress } from './OnboardingWizardProgress';
+import {
+  CandidateOnboardingCase,
+  ProfileFormValues,
+  WizardStep,
+} from './OnboardingWizardTypes';
 
 const statusCopy: Record<OnboardingStatus, { label: string; message: string }> = {
   INVITED: { label: 'Invited', message: 'Create your profile to begin.' },
@@ -72,40 +41,72 @@ const statusCopy: Record<OnboardingStatus, { label: string; message: string }> =
   CANCELLED: { label: 'Cancelled', message: 'This onboarding process is no longer active.' },
 };
 
-function ItemIcon({ status }: { status: OnboardingItemStatus }) {
-  if (status === OnboardingItemStatus.COMPLETED) {
-    return <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden="true" />;
-  }
-  if (status === OnboardingItemStatus.SUBMITTED) {
-    return <Clock3 className="h-5 w-5 text-amber-600" aria-hidden="true" />;
-  }
-  return <Circle className="h-5 w-5 text-slate-300" aria-hidden="true" />;
-}
+const STEP_ORDER: WizardStep[] = ['personal', 'documents', 'review'];
+const submittedItemStatuses = new Set<OnboardingItemStatus>([
+  OnboardingItemStatus.COMPLETED,
+  OnboardingItemStatus.SUBMITTED,
+]);
 
-export function OnboardingPortal({ onboardingCase }: { onboardingCase: CandidateCase }) {
+export function OnboardingPortal({ onboardingCase }: { onboardingCase: CandidateOnboardingCase }) {
   const router = useRouter();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const stepRegionRef = useRef<HTMLDivElement>(null);
   const [pending, startTransition] = useTransition();
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [profile, setProfile] = useState({
+  const [profile, setProfile] = useState<ProfileFormValues>({
     firstName: onboardingCase.profile?.firstName || '',
     lastName: onboardingCase.profile?.lastName || '',
     preferredFirstName: onboardingCase.profile?.preferredFirstName || '',
     dateOfBirth: onboardingCase.profile?.dateOfBirth || '',
     mobilePhone: onboardingCase.profile?.mobilePhone || '',
-    homeAddress: onboardingCase.profile?.homeAddress || '',
+    addressLine1: onboardingCase.profile?.addressLine1 || '',
+    addressLine2: onboardingCase.profile?.addressLine2 || '',
+    city: onboardingCase.profile?.city || '',
+    state: onboardingCase.profile?.state || '',
+    postalCode: onboardingCase.profile?.postalCode || '',
   });
+  const [profileDirty, setProfileDirty] = useState(false);
   const editableStatuses = new Set<OnboardingStatus>([
     OnboardingStatus.INVITED,
     OnboardingStatus.IN_PROGRESS,
     OnboardingStatus.CHANGES_REQUESTED,
   ]);
   const editable = editableStatuses.has(onboardingCase.status);
+  const profileComplete = Boolean(
+    profile.firstName.trim() &&
+      profile.lastName.trim() &&
+      profile.dateOfBirth &&
+      profile.mobilePhone.trim() &&
+      isCompleteOnboardingAddress(profile),
+  );
+  const requiredItemsComplete = onboardingCase.items
+    .filter((item) => item.required)
+    .every((item) => submittedItemStatuses.has(item.status));
+  const readyToSubmit = profileComplete && requiredItemsComplete;
+  const savedProfileComplete = profileComplete && !profileDirty;
+  const [documentsVisited, setDocumentsVisited] = useState(!editable && profileComplete);
+  const [currentStep, setCurrentStep] = useState<WizardStep>(
+    !editable ? 'review' : profileComplete ? 'documents' : 'personal',
+  );
+  const [stepMotion, setStepMotion] = useState<'forward' | 'back'>('forward');
+  const [stepRenderKey, setStepRenderKey] = useState(0);
+
+  useEffect(() => {
+    const reviewedKey = `bisu-onboarding-documents-reviewed:${onboardingCase.id}`;
+    if (window.sessionStorage.getItem(reviewedKey) && savedProfileComplete) {
+      setDocumentsVisited(true);
+      setCurrentStep((step) => step === 'documents' ? 'review' : step);
+    }
+  }, [onboardingCase.id, savedProfileComplete]);
+
+  useEffect(() => {
+    if (stepRenderKey === 0) return;
+    const timeout = window.setTimeout(() => stepRegionRef.current?.focus(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [stepRenderKey]);
+
   const completed = onboardingCase.items.filter(
-    (item) =>
-      item.status === OnboardingItemStatus.COMPLETED ||
-      item.status === OnboardingItemStatus.SUBMITTED,
+    (item) => submittedItemStatuses.has(item.status),
   ).length;
   const percent = onboardingCase.items.length
     ? Math.round((completed / onboardingCase.items.length) * 100)
@@ -122,7 +123,18 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
       ? (latestRequestedChange.details as { note: string }).note
       : '';
 
-  const saveProfile = (event: FormEvent) => {
+  const goToStep = (step: WizardStep, preserveMessage = false) => {
+    if (uploading && step !== 'documents') return;
+    const currentIndex = STEP_ORDER.indexOf(currentStep);
+    const nextIndex = STEP_ORDER.indexOf(step);
+    setStepMotion(nextIndex >= currentIndex ? 'forward' : 'back');
+    setCurrentStep(step);
+    setStepRenderKey((key) => key + 1);
+    if (!preserveMessage) setMessage(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const saveProfile = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage(null);
     startTransition(async () => {
@@ -131,7 +143,11 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
         type: result.success ? 'success' : 'error',
         text: result.success ? 'Personal information saved.' : result.error || 'Unable to save.',
       });
-      if (result.success) router.refresh();
+      if (result.success) {
+        setProfileDirty(false);
+        router.refresh();
+        goToStep('documents', true);
+      }
     });
   };
 
@@ -143,7 +159,10 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
         type: result.success ? 'success' : 'error',
         text: result.success ? 'Onboarding submitted for review.' : result.error || 'Unable to submit.',
       });
-      if (result.success) router.refresh();
+      if (result.success) {
+        router.refresh();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     });
   };
 
@@ -184,7 +203,6 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
       });
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
     }
   };
 
@@ -194,168 +212,129 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
     else setMessage({ type: 'error', text: result.error || 'Unable to open document.' });
   };
 
+  const completeDocumentsStep = () => {
+    window.sessionStorage.setItem(`bisu-onboarding-documents-reviewed:${onboardingCase.id}`, 'true');
+    setDocumentsVisited(true);
+    goToStep('review');
+  };
+
+  const completedSteps = new Set<WizardStep>();
+  if (savedProfileComplete) completedSteps.add('personal');
+  if (documentsVisited || !editable) completedSteps.add('documents');
+  if (!editable || onboardingCase.status === OnboardingStatus.SUBMITTED) completedSteps.add('review');
+
+  const unlockedSteps = new Set<WizardStep>(['personal']);
+  if (savedProfileComplete || !editable) unlockedSteps.add('documents');
+  if (((savedProfileComplete && documentsVisited) || !editable) && !uploading) unlockedSteps.add('review');
+
   return (
-    <main className="min-h-screen bg-slate-50">
-      <header className="border-b border-[#3e8dc8]/25 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <Image src="/logo.png" alt="BISU Home Loans" width={260} height={126} className="h-auto w-44 object-contain sm:w-64" priority />
-          <button type="button" onClick={() => signOut({ callbackUrl: '/login' })} className="app-btn-secondary">
+    <main className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_50%_0%,rgba(62,141,200,0.12),transparent_34%),#f8fafc]">
+      <OnboardingWelcomeIntro caseId={onboardingCase.id} />
+
+      <header className="border-b border-[#3e8dc8]/20 bg-white/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-2 sm:px-6">
+          <Image src="/logo.png" alt="BISU Home Loans" width={260} height={126} className="h-auto w-40 object-contain sm:w-56" priority />
+          <button type="button" onClick={() => signOut({ callbackUrl: '/login' })} className="app-btn-secondary shrink-0">
             <LogOut className="h-4 w-4" aria-hidden="true" />
             Sign out
           </button>
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6">
-        <section className="overflow-hidden rounded-2xl bg-[#3e8dc8] p-6 text-slate-950 shadow-sm sm:p-8">
-          <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
+        <section className="relative overflow-hidden rounded-3xl bg-[#3e8dc8] p-6 text-slate-950 shadow-[0_20px_60px_-30px_rgba(62,141,200,0.8)] sm:p-8">
+          <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-white/20 blur-2xl" />
+          <div className="pointer-events-none absolute -bottom-28 left-1/3 h-56 w-56 rounded-full bg-emerald-300/20 blur-3xl" />
+          <div className="relative flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-950/75">Welcome to BISU</p>
-              <h1 className="mt-1 text-3xl font-bold">Hi, {profile.preferredFirstName || onboardingCase.candidateName}</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-950/80">{statusCopy[onboardingCase.status].message}</p>
+              <p className="flex items-center gap-2 text-sm font-bold text-slate-950/75">
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                Welcome to BISU
+              </p>
+              <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Hi, {profile.preferredFirstName || onboardingCase.candidateName}</h1>
+              <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-slate-950/75">{statusCopy[onboardingCase.status].message}</p>
             </div>
-            <div className="rounded-xl bg-white/30 px-4 py-3 backdrop-blur">
+            <div className="rounded-2xl border border-white/30 bg-white/35 px-5 py-4 shadow-sm backdrop-blur">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-950/70">Status</p>
               <p className="mt-1 font-semibold">{statusCopy[onboardingCase.status].label}</p>
             </div>
           </div>
-          <div className="mt-6">
+          <div className="relative mt-7">
             <div className="mb-2 flex justify-between text-xs font-medium text-slate-950/75">
-              <span>Your checklist</span><span>{percent}%</span>
+              <span>Overall checklist completion</span><span>{percent}%</span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-950/15">
-              <div className="h-full rounded-full bg-white transition-all" style={{ width: `${percent}%` }} />
+            <div className="h-2.5 overflow-hidden rounded-full bg-slate-950/15">
+              <div className="h-full rounded-full bg-emerald-400 transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${percent}%` }} />
             </div>
           </div>
         </section>
 
         {latestRequestedChange && (
-          <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" role="status">
-            <strong>Changes requested.</strong>{' '}
-            {requestedChangeNote || 'Review your information and documents, then submit again.'}
+          <section className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm" role="status">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
+            <p><strong>Changes requested.</strong>{' '}{requestedChangeNote || 'Review your information and documents, then submit again.'}</p>
           </section>
         )}
         {message && (
-          <div className={`rounded-xl border p-4 text-sm ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`} role="status">
+          <div className={`flex items-center gap-3 rounded-2xl border p-4 text-sm font-medium shadow-sm ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`} role="status">
+            {message.type === 'success' ? <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden="true" /> : <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />}
             {message.text}
           </div>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
-          <form onSubmit={saveProfile} className="app-surface-card p-6">
-            <div className="flex items-start gap-3">
-              <div className="rounded-lg bg-blue-50 p-2 text-blue-700"><ShieldCheck className="h-5 w-5" aria-hidden="true" /></div>
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Personal information</h2>
-                <p className="text-sm text-slate-500">Only authorized onboarding staff can review this information.</p>
-              </div>
-            </div>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {[
-                ['firstName', 'First name', 'text'],
-                ['lastName', 'Last name', 'text'],
-                ['preferredFirstName', 'Preferred first name', 'text'],
-                ['dateOfBirth', 'Date of birth', 'date'],
-                ['mobilePhone', 'Mobile phone', 'tel'],
-              ].map(([key, label, type]) => (
-                <label key={key} className="block text-sm font-medium text-slate-700">
-                  {label}
-                  <input
-                    type={type}
-                    value={profile[key as keyof typeof profile]}
-                    onChange={(event) => setProfile((current) => ({ ...current, [key]: event.target.value }))}
-                    className="app-input mt-1.5 w-full"
-                    disabled={!editable || pending}
-                    required={!['preferredFirstName'].includes(key)}
-                    autoComplete={key === 'mobilePhone' ? 'tel' : key === 'firstName' ? 'given-name' : key === 'lastName' ? 'family-name' : undefined}
-                  />
-                </label>
-              ))}
-              <label className="block text-sm font-medium text-slate-700 sm:col-span-2">
-                Home address
-                <textarea
-                  value={profile.homeAddress}
-                  onChange={(event) => setProfile((current) => ({ ...current, homeAddress: event.target.value }))}
-                  className="app-input mt-1.5 min-h-24 w-full"
-                  disabled={!editable || pending}
-                  required
-                  autoComplete="street-address"
-                />
-              </label>
-            </div>
-            {editable && (
-              <div className="mt-5 flex justify-end">
-                <button type="submit" disabled={pending} className="app-btn-primary">
-                  {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-                  Save information
-                </button>
-              </div>
-            )}
-          </form>
+        <OnboardingWizardProgress
+          currentStep={currentStep}
+          completedSteps={completedSteps}
+          unlockedSteps={unlockedSteps}
+          onStepChange={goToStep}
+        />
 
-          <section className="app-surface-card p-6">
-            <h2 className="text-lg font-semibold text-slate-900">Your checklist</h2>
-            <div className="mt-4 space-y-3">
-              {onboardingCase.items.map((item) => (
-                <div key={item.id} className="flex gap-3 rounded-xl border border-slate-200 p-3">
-                  <ItemIcon status={item.status} />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-800">{item.label}</p>
-                    <p className="text-xs text-slate-500">{item.required ? 'Required' : 'Optional'}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+        <div
+          key={`${currentStep}-${stepRenderKey}`}
+          ref={stepRegionRef}
+          tabIndex={-1}
+          aria-label={`${currentStep === 'personal' ? 'Personal information' : currentStep === 'documents' ? 'Documents' : 'Review and submit'} step`}
+          className={`${stepMotion === 'forward' ? 'onboarding-step-forward' : 'onboarding-step-back'} outline-none`}
+        >
+          {currentStep === 'personal' && (
+            <OnboardingPersonalStep
+              profile={profile}
+              personalEmail={onboardingCase.personalEmail}
+              editable={editable}
+              pending={pending}
+              onChange={(nextProfile) => {
+                setProfile(nextProfile);
+                setProfileDirty(true);
+              }}
+              onSubmit={saveProfile}
+            />
+          )}
+          {currentStep === 'documents' && (
+            <OnboardingDocumentsStep
+              documents={onboardingCase.documents}
+              editable={editable}
+              uploading={uploading}
+              onUpload={upload}
+              onDownload={download}
+              onBack={() => goToStep('personal')}
+              onContinue={completeDocumentsStep}
+            />
+          )}
+          {currentStep === 'review' && (
+            <OnboardingReviewStep
+              profile={profile}
+              personalEmail={onboardingCase.personalEmail}
+              items={onboardingCase.items}
+              documents={onboardingCase.documents}
+              editable={editable}
+              pending={pending}
+              ready={readyToSubmit && !profileDirty}
+              onBack={() => goToStep('documents')}
+              onEditPersonal={() => goToStep('personal')}
+              onSubmit={submit}
+            />
+          )}
         </div>
-
-        <section className="app-surface-card p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Documents</h2>
-              <p className="text-sm text-slate-500">PDF, Word, JPG, or PNG files up to 15 MB.</p>
-            </div>
-            {editable && (
-              <>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  className="sr-only"
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                  onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])}
-                />
-                <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} className="app-btn-secondary">
-                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Upload className="h-4 w-4" aria-hidden="true" />}
-                  Upload document
-                </button>
-              </>
-            )}
-          </div>
-          <div className="mt-5 divide-y divide-slate-100">
-            {onboardingCase.documents.length === 0 ? (
-              <p className="py-8 text-center text-sm text-slate-500">No documents have been added yet.</p>
-            ) : onboardingCase.documents.map((document) => (
-              <button key={document.id} type="button" onClick={() => download(document.id)} className="flex w-full items-center gap-3 py-3 text-left hover:bg-slate-50">
-                <FileText className="h-5 w-5 text-blue-600" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{document.name}</span>
-                <span className="text-xs text-slate-500">{Math.max(1, Math.round(document.sizeBytes / 1024))} KB</span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {editable && (
-          <section className="flex flex-col gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-6 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="font-semibold text-blue-950">Ready for review?</h2>
-              <p className="text-sm text-blue-800">Confirm your information is accurate before submitting.</p>
-            </div>
-            <button type="button" onClick={submit} disabled={pending} className="app-btn-primary">
-              {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-              Submit onboarding
-            </button>
-          </section>
-        )}
       </div>
     </main>
   );
