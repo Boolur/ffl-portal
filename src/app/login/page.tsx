@@ -23,7 +23,7 @@ export default function LoginPage() {
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-foreground tracking-tight">Employee Portal</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Sign in with your Federal First Lending credentials
+              Sign in with your BISU Home Loans credentials
             </p>
           </div>
           <LoginForm />
@@ -31,7 +31,7 @@ export default function LoginPage() {
 
         <div className="mt-8 text-center">
           <p className="text-xs text-muted-foreground">
-            Secure internal portal for Federal First Lending employees.
+            Secure internal portal for BISU Home Loans employees.
             <br />
             Need access? Contact your IT administrator.
           </p>

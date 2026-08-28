@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
-import { signIn } from 'next-auth/react';
+import { getSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { UserRole } from '@prisma/client';
 
 export function LoginForm() {
   const router = useRouter();
@@ -19,25 +20,36 @@ export function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const result = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-      callbackUrl: '/',
-    });
+    try {
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+        callbackUrl: '/',
+      });
 
-    if (result?.error) {
-      setError('Invalid email or password.');
+      if (result?.error) {
+        setError('Invalid email or password.');
+        setLoading(false);
+        return;
+      }
+      if (result?.ok) {
+        const session = await getSession();
+        const roles = session?.user?.roles || [];
+        const destination =
+          session?.user?.role === UserRole.ONBOARDING || roles.includes(UserRole.ONBOARDING)
+            ? '/onboarding'
+            : result.url || '/';
+        router.replace(destination);
+        return;
+      }
+
+      setError('Sign in failed. Please try again.');
       setLoading(false);
-      return;
+    } catch {
+      setError('Sign in failed. Please try again.');
+      setLoading(false);
     }
-    if (result?.ok) {
-      router.replace(result.url || '/');
-      return;
-    }
-
-    setError('Sign in failed. Please try again.');
-    setLoading(false);
   };
 
   return (
@@ -56,7 +68,7 @@ export function LoginForm() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           className="w-full rounded-lg border border-input bg-background/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-          placeholder="you@federalfirstlending.com"
+          placeholder="you@bisuhomeloans.com"
           required
         />
       </div>
