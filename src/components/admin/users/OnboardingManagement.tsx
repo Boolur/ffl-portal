@@ -139,7 +139,7 @@ export function OnboardingManagement({
             {Object.values(OnboardingStatus).map((value) => <option key={value} value={value}>{statusLabel(value)}</option>)}
           </select>
           {assignableRoles.length > 0 && (
-            <button type="button" onClick={() => setOpen(true)} className="app-btn-primary">
+            <button type="button" onClick={() => setOpen(true)} className="app-btn-primary shrink-0 whitespace-nowrap">
               <Plus className="h-4 w-4" aria-hidden="true" /> Start onboarding
             </button>
           )}

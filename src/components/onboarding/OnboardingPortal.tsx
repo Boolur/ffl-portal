@@ -196,9 +196,9 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
 
   return (
     <main className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-          <Image src="/logo.png" alt="BISU Home Loans" width={150} height={48} className="h-10 w-auto object-contain" priority />
+      <header className="border-b border-[#3e8dc8]/25 bg-white">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <Image src="/logo.png" alt="BISU Home Loans" width={260} height={126} className="h-auto w-44 object-contain sm:w-64" priority />
           <button type="button" onClick={() => signOut({ callbackUrl: '/login' })} className="app-btn-secondary">
             <LogOut className="h-4 w-4" aria-hidden="true" />
             Sign out
@@ -207,23 +207,23 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
       </header>
 
       <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6">
-        <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-blue-700 to-indigo-700 p-6 text-white shadow-sm sm:p-8">
+        <section className="overflow-hidden rounded-2xl bg-[#3e8dc8] p-6 text-slate-950 shadow-sm sm:p-8">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-blue-100">Welcome to BISU</p>
+              <p className="text-sm font-semibold text-slate-950/75">Welcome to BISU</p>
               <h1 className="mt-1 text-3xl font-bold">Hi, {profile.preferredFirstName || onboardingCase.candidateName}</h1>
-              <p className="mt-2 max-w-2xl text-sm text-blue-100">{statusCopy[onboardingCase.status].message}</p>
+              <p className="mt-2 max-w-2xl text-sm text-slate-950/80">{statusCopy[onboardingCase.status].message}</p>
             </div>
-            <div className="rounded-xl bg-white/10 px-4 py-3 backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-wide text-blue-100">Status</p>
+            <div className="rounded-xl bg-white/30 px-4 py-3 backdrop-blur">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-950/70">Status</p>
               <p className="mt-1 font-semibold">{statusCopy[onboardingCase.status].label}</p>
             </div>
           </div>
           <div className="mt-6">
-            <div className="mb-2 flex justify-between text-xs font-medium text-blue-100">
+            <div className="mb-2 flex justify-between text-xs font-medium text-slate-950/75">
               <span>Your checklist</span><span>{percent}%</span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-white/20">
+            <div className="h-2 overflow-hidden rounded-full bg-slate-950/15">
               <div className="h-full rounded-full bg-white transition-all" style={{ width: `${percent}%` }} />
             </div>
           </div>

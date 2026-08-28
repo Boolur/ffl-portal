@@ -19,6 +19,7 @@ import {
   assignableRolesFor,
   canAssignRole,
   hasAnyAdminRole,
+  isAdmin as isAdminRole,
 } from '@/lib/adminTiers';
 import {
   canCandidateEdit,
@@ -182,7 +183,9 @@ export async function getOnboardingManagementContext() {
   return {
     authorized: true,
     assignableRoles: hasAnyAdminRole(actor.roles)
-      ? assignableRolesFor(actor.roles).filter((role) => role !== UserRole.ONBOARDING)
+      ? assignableRolesFor(actor.roles).filter(
+          (role) => role !== UserRole.ONBOARDING && !isAdminRole(role),
+        )
       : [],
     managers,
   };
@@ -241,13 +244,18 @@ export async function createOnboardingCase(input: {
   }
   const candidateName = cleanText(input.candidateName, 160);
   const personalEmail = normalizeEmail(input.personalEmail);
-  const targetRoles = Array.from(new Set(input.targetRoles)).filter(
-    (role) => role !== UserRole.ONBOARDING && role !== UserRole.ADMIN,
-  );
+  const targetRoles = Array.from(new Set(input.targetRoles));
   if (!candidateName || !validEmail(personalEmail)) {
     return { success: false, error: 'A valid name and personal email are required.' };
   }
-  if (!targetRoles.length || targetRoles.some((role) => !canAssignRole(actor.roles, role))) {
+  if (targetRoles.some(isAdminRole)) {
+    return { success: false, error: 'Administrative roles cannot be assigned through onboarding.' };
+  }
+  if (
+    !targetRoles.length ||
+    targetRoles.includes(UserRole.ONBOARDING) ||
+    targetRoles.some((role) => !canAssignRole(actor.roles, role))
+  ) {
     return { success: false, error: 'Select at least one role you are allowed to assign.' };
   }
   if (input.ownerId && !(await isEligibleOnboardingOwner(input.ownerId))) {
@@ -519,7 +527,7 @@ export async function updateOnboardingCaseDetails(input: {
     return { success: false, error: 'Only the onboarding owner can edit case details.' };
   }
   const targetRoles = input.targetRoles
-    ? Array.from(new Set(input.targetRoles)).filter((role) => role !== UserRole.ONBOARDING)
+    ? Array.from(new Set(input.targetRoles))
     : undefined;
   const roleLockedStatuses = new Set<OnboardingStatus>([
     OnboardingStatus.APPROVED,
@@ -529,10 +537,14 @@ export async function updateOnboardingCaseDetails(input: {
   if (targetRoles && roleLockedStatuses.has(onboardingCase.status)) {
     return { success: false, error: 'Destination roles are locked after final approval.' };
   }
+  if (targetRoles?.some(isAdminRole)) {
+    return { success: false, error: 'Administrative roles cannot be assigned through onboarding.' };
+  }
   if (
     targetRoles &&
     (!isAdmin ||
       !targetRoles.length ||
+      targetRoles.includes(UserRole.ONBOARDING) ||
       targetRoles.some((role) => !canAssignRole(actor.roles, role)))
   ) {
     return { success: false, error: 'The destination roles are invalid.' };
@@ -969,8 +981,13 @@ export async function completeOnboardingCase(caseId: string) {
       ) {
         throw new Error('An approved, accepted case is required.');
       }
-      const targetRoles = current.targetRoles.filter((role) => role !== UserRole.ONBOARDING);
-      if (!targetRoles.length || targetRoles.some((role) => !canAssignRole(actor.roles, role))) {
+      const targetRoles = current.targetRoles;
+      if (
+        !targetRoles.length ||
+        targetRoles.includes(UserRole.ONBOARDING) ||
+        targetRoles.some(isAdminRole) ||
+        targetRoles.some((role) => !canAssignRole(actor.roles, role))
+      ) {
         throw new Error('The destination roles are invalid.');
       }
       const completedStatuses = new Set<OnboardingItemStatus>([
