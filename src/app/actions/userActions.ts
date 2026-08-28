@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
-import { ProcessingPipelineSheet, UserRole } from '@prisma/client';
+import { OnboardingStatus, ProcessingPipelineSheet, UserRole } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { sendEmail } from '@/lib/email';
@@ -21,12 +21,14 @@ import {
   highestAdminTier,
 } from '@/lib/adminTiers';
 import { ensureWebsiteLoanOfficerProfileDraft } from '@/lib/websiteLoanOfficerProfiles';
+import { isOnboardingEnabled } from '@/lib/onboardingFeature';
 
 // The legacy `UserRole.ADMIN` value should never be assigned to new users;
 // admins must pick one of the explicit tiers instead.
 const ALLOWED_ROLES: UserRole[] = Object.values(UserRole).filter(
   (role) =>
     role !== UserRole.ADMIN &&
+    role !== UserRole.ONBOARDING &&
     role !== UserRole.QC &&
     role !== UserRole.VA &&
     role !== UserRole.VA_TITLE &&
@@ -376,6 +378,7 @@ function buildEmailUpdatedEmail(input: {
 
 export async function getAllUsers() {
   return prisma.user.findMany({
+    where: { role: { not: UserRole.ONBOARDING } },
     orderBy: { createdAt: 'desc' },
     select: {
       id: true,
@@ -479,6 +482,7 @@ export async function getPendingInvites() {
     where: {
       acceptedAt: null,
       expiresAt: { gt: now },
+      role: { not: UserRole.ONBOARDING },
     },
     select: {
       id: true,
@@ -678,10 +682,20 @@ export async function acceptInvite({
   try {
     const invite = await prisma.inviteToken.findUnique({
       where: { token },
+      include: { onboardingCase: { select: { id: true, status: true } } },
     });
 
     if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
       return { success: false, error: 'Invite is invalid or expired.' };
+    }
+    if (invite.role === UserRole.ONBOARDING && !isOnboardingEnabled()) {
+      return { success: false, error: 'Employee onboarding is temporarily unavailable.' };
+    }
+    if (
+      invite.onboardingCase &&
+      invite.onboardingCase.status !== OnboardingStatus.INVITED
+    ) {
+      return { success: false, error: 'This onboarding invitation is no longer active.' };
     }
 
     const trimmedName = invite.name?.trim() || name?.trim() || invite.email;
@@ -692,37 +706,88 @@ export async function acceptInvite({
 
     const passwordHash = await hash(trimmedPassword, 10);
 
-    const user = await prisma.user.upsert({
-      where: { email: invite.email },
-      update: {
-        name: trimmedName,
-        role: invite.role,
-        roles: [invite.role],
-        loDisclosureSubmissionEnabled: false,
-        loQcSubmissionEnabled: true,
-        passwordHash,
-        active: true,
-      },
-      create: {
-        email: invite.email,
-        name: trimmedName,
-        role: invite.role,
-        roles: [invite.role],
-        loDisclosureSubmissionEnabled: false,
-        loQcSubmissionEnabled: true,
-        passwordHash,
-        active: true,
-      },
-      select: { id: true, name: true },
+    const user = await prisma.$transaction(async (tx) => {
+      const inviteClaim = await tx.inviteToken.updateMany({
+        where: {
+          id: invite.id,
+          acceptedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        data: { acceptedAt: new Date() },
+      });
+      if (inviteClaim.count !== 1) {
+        throw new Error('Invite is invalid or expired.');
+      }
+      const existingUser = await tx.user.findUnique({
+        where: { email: invite.email },
+        select: { id: true, active: true },
+      });
+      if (existingUser?.active) {
+        throw new Error('An active portal account already uses this email.');
+      }
+      let acceptedUser: { id: string; name: string };
+      if (existingUser) {
+        const reactivated = await tx.user.updateMany({
+          where: { id: existingUser.id, active: false },
+          data: {
+            name: trimmedName,
+            role: invite.role,
+            roles: [invite.role],
+            loDisclosureSubmissionEnabled: false,
+            loQcSubmissionEnabled: true,
+            passwordHash,
+            active: true,
+          },
+        });
+        if (reactivated.count !== 1) {
+          throw new Error('An active portal account already uses this email.');
+        }
+        acceptedUser = { id: existingUser.id, name: trimmedName };
+      } else {
+        acceptedUser = await tx.user.create({
+          data: {
+            email: invite.email,
+            name: trimmedName,
+            role: invite.role,
+            roles: [invite.role],
+            loDisclosureSubmissionEnabled: false,
+            loQcSubmissionEnabled: true,
+            passwordHash,
+            active: true,
+          },
+          select: { id: true, name: true },
+        });
+      }
+      if (invite.onboardingCase) {
+        const caseClaim = await tx.onboardingCase.updateMany({
+          where: {
+            id: invite.onboardingCase.id,
+            status: OnboardingStatus.INVITED,
+          },
+          data: {
+            userId: acceptedUser.id,
+            status: OnboardingStatus.IN_PROGRESS,
+          },
+        });
+        if (caseClaim.count !== 1) {
+          throw new Error('This onboarding invitation is no longer active.');
+        }
+        await tx.onboardingEvent.create({
+          data: {
+            caseId: invite.onboardingCase.id,
+            actorId: acceptedUser.id,
+            action: 'INVITE_ACCEPTED',
+          },
+        });
+      }
+      return acceptedUser;
     });
     await syncWebsiteProfileForRoles(user.id, user.name, [invite.role]);
-
-    await prisma.inviteToken.update({
-      where: { token },
-      data: { acceptedAt: new Date() },
-    });
-
-    return { success: true, email: invite.email };
+    return {
+      success: true,
+      email: invite.email,
+      callbackUrl: invite.role === UserRole.ONBOARDING ? '/onboarding' : '/',
+    };
   } catch (error) {
     console.error('Failed to accept invite', error);
     const message =

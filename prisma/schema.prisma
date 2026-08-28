@@ -16,6 +16,7 @@ enum UserRole {
   ADMIN_I
   ADMIN_II
   ADMIN_III
+  ONBOARDING
   MANAGER
   LOAN_OFFICER
   LOA
@@ -109,6 +110,57 @@ enum NotificationOutboxEventType {
   VA_FANOUT
   PLUS_ONE_SUBMITTED
   SUPPORT_CHAT
+  ONBOARDING
+}
+
+enum OnboardingStatus {
+  INVITED
+  IN_PROGRESS
+  SUBMITTED
+  UNDER_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  COMPLETED
+  CANCELLED
+}
+
+enum OnboardingItemStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  CHANGES_REQUESTED
+  COMPLETED
+  NOT_APPLICABLE
+}
+
+enum OnboardingItemOwner {
+  NEW_HIRE
+  MANAGEMENT
+  INTERNAL
+}
+
+enum OnboardingFieldType {
+  CHECKBOX
+  TEXT
+  DATE
+  FILE
+  SELECT
+}
+
+enum OnboardingDocumentVisibility {
+  NEW_HIRE
+  INTERNAL
+  BOTH
+}
+
+enum OnboardingDocumentStatus {
+  REQUESTED
+  UPLOADED
+  PENDING_SIGNATURE
+  SIGNED
+  APPROVED
+  REJECTED
+  VOIDED
 }
 
 enum SupportDesk {
@@ -297,6 +349,7 @@ model User {
   externalUsers                     ExternalUser[]
   leadMailboxLeads                  LeadMailboxLead[]
   invitesCreated                    InviteToken[]                  @relation("InvitesCreated")
+  onboardingCase                    OnboardingCase?                @relation("OnboardingCandidate")
   passwordResets                    PasswordResetToken[]
   notifications                     Notification[]
   supportConversationsRequested     SupportConversation[]          @relation("SupportConversationRequester")
@@ -840,18 +893,186 @@ model PendingStpDisposition {
 }
 
 model InviteToken {
-  id          String    @id @default(uuid())
-  token       String    @unique
-  email       String
-  name        String?
-  role        UserRole
-  createdById String
-  createdBy   User      @relation("InvitesCreated", fields: [createdById], references: [id])
-  expiresAt   DateTime
-  createdAt   DateTime  @default(now())
-  acceptedAt  DateTime?
+  id             String          @id @default(uuid())
+  token          String          @unique
+  email          String
+  name           String?
+  role           UserRole
+  createdById    String
+  createdBy      User            @relation("InvitesCreated", fields: [createdById], references: [id])
+  expiresAt      DateTime
+  createdAt      DateTime        @default(now())
+  acceptedAt     DateTime?
+  onboardingCase OnboardingCase?
 
   @@index([email])
+}
+
+model OnboardingTemplate {
+  id        String                   @id @default(uuid())
+  name      String
+  version   Int                      @default(1)
+  active    Boolean                  @default(true)
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+  items     OnboardingTemplateItem[]
+  cases     OnboardingCase[]
+
+  @@unique([name, version])
+}
+
+model OnboardingTemplateItem {
+  id          String              @id @default(uuid())
+  templateId  String
+  template    OnboardingTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  category    String
+  label       String
+  description String?
+  owner       OnboardingItemOwner
+  fieldType   OnboardingFieldType @default(CHECKBOX)
+  fieldKey    String?
+  required    Boolean             @default(true)
+  sortOrder   Int
+  options     Json?
+  caseItems   OnboardingItem[]
+
+  @@unique([templateId, sortOrder])
+  @@index([templateId, category, sortOrder])
+}
+
+model OnboardingCase {
+  id            String               @id @default(uuid())
+  userId        String?              @unique
+  user          User?                @relation("OnboardingCandidate", fields: [userId], references: [id], onDelete: SetNull)
+  inviteId      String?              @unique
+  invite        InviteToken?         @relation(fields: [inviteId], references: [id], onDelete: SetNull)
+  templateId    String
+  template      OnboardingTemplate   @relation(fields: [templateId], references: [id])
+  candidateName String
+  personalEmail String
+  status        OnboardingStatus     @default(INVITED)
+  targetRoles   UserRole[]           @default([])
+  ownerId       String?
+  createdById   String
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  profile       OnboardingProfile?
+  items         OnboardingItem[]
+  documents     OnboardingDocument[]
+  events        OnboardingEvent[]
+
+  @@index([status, updatedAt])
+  @@index([ownerId, status])
+  @@index([personalEmail])
+}
+
+model OnboardingProfile {
+  id                 String         @id @default(uuid())
+  caseId             String         @unique
+  case               OnboardingCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  firstName          String?
+  lastName           String?
+  preferredFirstName String?
+  dateOfBirth        DateTime?
+  mobilePhone        String?
+  homeAddress        String?
+  offerDate          DateTime?
+  startDate          DateTime?
+  jobTitle           String?
+  managerName        String?
+  basePay            String?
+  compensationPlan   String?
+  location           String?
+  department         String?
+  updatedAt          DateTime       @updatedAt
+}
+
+model OnboardingItem {
+  id             String                  @id @default(uuid())
+  caseId         String
+  case           OnboardingCase          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  templateItemId String?
+  templateItem   OnboardingTemplateItem? @relation(fields: [templateItemId], references: [id], onDelete: SetNull)
+  category       String
+  label          String
+  description    String?
+  owner          OnboardingItemOwner
+  assignedUserId String?
+  status         OnboardingItemStatus    @default(NOT_STARTED)
+  required       Boolean                 @default(true)
+  sortOrder      Int
+  dueAt          DateTime?
+  response       Json?
+  candidateNote  String?
+  internalNote   String?
+  submittedAt    DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  documents      OnboardingDocument[]
+
+  @@unique([caseId, sortOrder])
+  @@index([caseId, owner, status])
+  @@index([assignedUserId, status])
+}
+
+model OnboardingDocument {
+  id                 String                       @id @default(uuid())
+  caseId             String
+  case               OnboardingCase               @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  itemId             String?
+  item               OnboardingItem?              @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  uploadedById       String
+  name               String
+  mimeType           String
+  sizeBytes          Int
+  storagePath        String?
+  visibility         OnboardingDocumentVisibility @default(BOTH)
+  status             OnboardingDocumentStatus     @default(UPLOADED)
+  documentType       String?
+  templateVersion    String?
+  signatureProvider  String?
+  externalEnvelopeId String?                      @unique
+  signerStatus       Json?
+  signedStoragePath  String?
+  webhookUpdatedAt   DateTime?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  esignEvents        OnboardingESignEvent[]
+
+  @@index([caseId, createdAt])
+  @@index([itemId])
+}
+
+model OnboardingEvent {
+  id        String         @id @default(uuid())
+  caseId    String
+  case      OnboardingCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  actorId   String?
+  action    String
+  details   Json?
+  createdAt DateTime       @default(now())
+
+  @@index([caseId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model OnboardingESignEvent {
+  id              String              @id @default(uuid())
+  providerEventId String              @unique
+  documentId      String?
+  document        OnboardingDocument? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  envelopeId      String
+  eventType       String
+  payload         Json
+  processedAt     DateTime            @default(now())
+
+  @@index([documentId, processedAt])
+  @@index([envelopeId])
 }
 
 model PasswordResetToken {

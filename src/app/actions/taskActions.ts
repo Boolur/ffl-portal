@@ -2063,6 +2063,16 @@ function parsePlusOneSubmittedPayload(
   return { taskId, changedBy };
 }
 
+function parseOnboardingNotificationPayload(payload: Prisma.JsonValue) {
+  if (!isRecord(payload)) return null;
+  const to = String(payload.to ?? '').trim();
+  const subject = String(payload.subject ?? '').trim();
+  const text = String(payload.text ?? '').trim();
+  const href = String(payload.href ?? '').trim();
+  if (!to || !subject || !text) return null;
+  return { to, subject, text, href };
+}
+
 async function processNotificationOutboxJob(job: {
   id: string;
   eventType: NotificationOutboxEventType;
@@ -2090,6 +2100,28 @@ async function processNotificationOutboxJob(job: {
       throw new Error('Invalid PLUS_ONE_SUBMITTED payload.');
     }
     delivered = await sendPlusOneSubmittedNotifications(parsed);
+  } else if (job.eventType === NotificationOutboxEventType.ONBOARDING) {
+    const parsed = parseOnboardingNotificationPayload(job.payload);
+    if (!parsed) {
+      throw new Error('Invalid ONBOARDING payload.');
+    }
+    const html = `
+      <div style="font-family:Inter,Segoe UI,Arial,sans-serif;max-width:640px;margin:0 auto;color:#0f172a">
+        <img src="${process.env.EMAIL_BRAND_LOGO_URL?.trim() || `${getPortalBaseUrl()}/logo.png`}" alt="BISU Home Loans" width="180" style="display:block;margin-bottom:24px" />
+        <h1 style="font-size:24px;margin:0 0 16px">${escapeHtml(parsed.subject)}</h1>
+        <p style="font-size:15px;line-height:1.7;white-space:pre-line">${escapeHtml(parsed.text)}</p>
+        ${parsed.href ? `<p style="margin-top:24px"><a href="${escapeHtml(parsed.href)}" style="display:inline-block;border-radius:10px;background:#2563eb;color:#fff;padding:12px 18px;text-decoration:none;font-weight:700">Open BISU Portal</a></p>` : ''}
+      </div>
+    `;
+    await sendEmail({
+      to: parsed.to,
+      subject: parsed.subject,
+      text: parsed.text,
+      html,
+      senderCategory: 'noreply',
+      label: 'onboarding',
+    });
+    delivered = true;
   }
 
   if (!delivered) {

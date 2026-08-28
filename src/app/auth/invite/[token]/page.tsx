@@ -51,7 +51,7 @@ export default function InviteAcceptPage() {
         email,
         password,
         redirect: true,
-        callbackUrl: '/',
+        callbackUrl: result.callbackUrl || '/',
       });
       if (signInResult?.error) {
         setStatus({ type: 'error', message: 'Account created, but login failed.' });

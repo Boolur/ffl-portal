@@ -16,6 +16,7 @@ import {
   Inbox,
   Trophy,
   MessageCircle,
+  ClipboardCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -37,10 +38,12 @@ import {
   canAccessReports,
   canAccessSupportInbox,
   canAccessTeamPage,
+  canAccessOnboardingManagement,
   canAccessUserManagement,
   isAdmin,
 } from '@/lib/adminTiers';
 import { getMySupportDeskAccess } from '@/app/actions/supportChatActions';
+import { isOnboardingEnabled } from '@/lib/onboardingFeature';
 
 type SidebarProps = {
   collapsed: boolean;
@@ -229,6 +232,13 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       visible: () => canAccessPayroll(activeRoleArr),
     },
     {
+      name: 'Onboarding',
+      icon: ClipboardCheck,
+      href: '/admin/users/onboarding',
+      roles: [] as UserRole[],
+      visible: () => isOnboardingEnabled() && canAccessOnboardingManagement(activeRoleArr),
+    },
+    {
       name: 'User Management',
       icon: Shield,
       href: '/admin/users',
@@ -287,7 +297,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     return v ? v() : false;
   };
 
-  const MANAGEMENT_NAMES = ['User Management', 'Support Inbox', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'];
+  const MANAGEMENT_NAMES = ['Onboarding', 'User Management', 'Support Inbox', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'];
   const mainNavItems = navItems.filter(
     (item) =>
       isVisible(item) &&

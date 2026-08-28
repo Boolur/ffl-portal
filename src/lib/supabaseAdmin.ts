@@ -33,6 +33,10 @@ export function getClientDocumentsBucket() {
   return process.env.SUPABASE_STORAGE_BUCKET_CLIENT_DOCUMENTS || 'client-documents';
 }
 
+export function getOnboardingDocumentsBucket() {
+  return process.env.SUPABASE_STORAGE_BUCKET_ONBOARDING_DOCUMENTS || 'onboarding-documents';
+}
+
 export function getLenderLogosBucket() {
   return process.env.SUPABASE_STORAGE_BUCKET_LENDER_LOGOS || getClientDocumentsBucket();
 }

@@ -1,6 +1,9 @@
 import { UserRole } from '@prisma/client';
 
 export function getRoleBubbleClass(role: UserRole | null) {
+  if (role === UserRole.ONBOARDING) {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  }
   if (role === UserRole.DISCLOSURE_SPECIALIST) {
     return 'border-blue-200 bg-blue-50 text-blue-700';
   }

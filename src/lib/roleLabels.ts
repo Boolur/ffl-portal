@@ -1,6 +1,7 @@
 import { UserRole } from '@prisma/client';
 
 const ROLE_LABEL_OVERRIDES: Partial<Record<UserRole, string>> = {
+  [UserRole.ONBOARDING]: 'Onboarding',
   [UserRole.VA_APPRAISAL]: 'Appraisal Specialist',
   [UserRole.PROCESSOR_JR]: 'Jr Processor',
   [UserRole.PROCESSOR_SR]: 'Sr Processor',

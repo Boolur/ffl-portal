@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { SupportDesk, UserRole } from '@prisma/client';
 import {
@@ -64,12 +64,15 @@ type UserManagementProps = {
   currentUserId: string;
   actorRoles: UserRole[];
   assignableRoles: UserRole[];
+  view?: 'people' | 'invites';
 };
 
 // The legacy UserRole.ADMIN value is intentionally hidden from every picker:
 // it exists only for enum stability and is backfilled to ADMIN_III at the DB
 // layer. All role filters below are role-tier aware.
-const ALL_ROLE_OPTIONS: UserRole[] = Object.values(UserRole).filter((r) => r !== UserRole.ADMIN);
+const ALL_ROLE_OPTIONS: UserRole[] = Object.values(UserRole).filter(
+  (r) => r !== UserRole.ADMIN && r !== UserRole.ONBOARDING,
+);
 const ACTIVE_ROLE_OPTIONS: UserRole[] = ALL_ROLE_OPTIONS.filter(
   (r) =>
     r !== UserRole.QC &&
@@ -121,6 +124,7 @@ export function UserManagement({
   currentUserId,
   actorRoles,
   assignableRoles,
+  view = 'people',
 }: UserManagementProps) {
   const router = useRouter();
   const assignableSet = useMemo(() => new Set(assignableRoles), [assignableRoles]);
@@ -146,6 +150,34 @@ export function UserManagement({
   const [isCreating, setIsCreating] = useState(false);
   const [isInviting, setIsInviting] = useState(false);
   const [isMigratingEmails, setIsMigratingEmails] = useState(false);
+  const dialogResolver = useRef<((value: string | null) => void) | null>(null);
+  const [actionDialog, setActionDialog] = useState<{
+    mode: 'confirm' | 'prompt';
+    title: string;
+    message: string;
+    value: string;
+    inputType?: 'text' | 'email' | 'password';
+  } | null>(null);
+  const openConfirm = (title: string, message: string) =>
+    new Promise<boolean>((resolve) => {
+      dialogResolver.current = (value) => resolve(value === 'confirmed');
+      setActionDialog({ mode: 'confirm', title, message, value: '' });
+    });
+  const openPrompt = (
+    title: string,
+    message: string,
+    value = '',
+    inputType: 'text' | 'email' | 'password' = 'text',
+  ) =>
+    new Promise<string | null>((resolve) => {
+      dialogResolver.current = resolve;
+      setActionDialog({ mode: 'prompt', title, message, value, inputType });
+    });
+  const closeActionDialog = (value: string | null) => {
+    dialogResolver.current?.(value);
+    dialogResolver.current = null;
+    setActionDialog(null);
+  };
   const [formState, setFormState] = useState<{
     name: string;
     email: string;
@@ -276,7 +308,10 @@ export function UserManagement({
   };
 
   const handleSendResetEmail = async (email: string) => {
-    const confirmed = window.confirm(`Send reset link to ${email}?`);
+    const confirmed = await openConfirm(
+      'Send password reset',
+      `Send a secure password reset link to ${email}?`,
+    );
     if (!confirmed) return;
     const result = await requestPasswordReset(email);
     if (!result.success) {
@@ -298,7 +333,10 @@ export function UserManagement({
   };
 
   const handleDeleteInvite = async (inviteId: string) => {
-    const confirmed = window.confirm('Delete this invite?');
+    const confirmed = await openConfirm(
+      'Delete invitation',
+      'Delete this pending invitation? The existing link will no longer work.',
+    );
     if (!confirmed) return;
     setPendingStatus(null);
     const result = await deleteInvite(inviteId);
@@ -461,7 +499,12 @@ export function UserManagement({
   };
 
   const handleResetPassword = async (userId: string) => {
-    const nextPassword = window.prompt('Enter a new password for this user:');
+    const nextPassword = await openPrompt(
+      'Set a temporary password',
+      'Enter a new password for this user.',
+      '',
+      'password',
+    );
     if (!nextPassword) return;
     const result = await resetUserPassword(userId, nextPassword);
     if (!result.success) {
@@ -472,8 +515,9 @@ export function UserManagement({
   };
 
   const handleDeleteUser = async (userId: string) => {
-    const confirmed = window.confirm(
-      'Delete this account permanently? This cannot be undone.'
+    const confirmed = await openConfirm(
+      'Delete account permanently',
+      'This cannot be undone. Users with protected loan or document history cannot be deleted.',
     );
     if (!confirmed) return;
     setDirectoryStatus(null);
@@ -482,11 +526,9 @@ export function UserManagement({
       if (!result.success) {
         const message = result.error || 'Failed to delete user.';
         setDirectoryStatus({ type: 'error', message });
-        window.alert(message);
         return;
       }
       setDirectoryStatus({ type: 'success', message: 'User deleted.' });
-      window.alert('User deleted.');
       router.refresh();
     } catch (error) {
       console.error('Delete user failed unexpectedly', error);
@@ -498,7 +540,11 @@ export function UserManagement({
   };
 
   const handleEditUserName = async (userId: string, currentName: string) => {
-    const nextName = window.prompt('Enter updated display name:', currentName);
+    const nextName = await openPrompt(
+      'Edit display name',
+      'Enter the name shown throughout the portal.',
+      currentName,
+    );
     if (!nextName) return;
     const trimmed = nextName.trim();
     if (!trimmed || trimmed === currentName.trim()) return;
@@ -507,7 +553,6 @@ export function UserManagement({
     if (!result.success) {
       const message = result.error || 'Failed to update name.';
       setDirectoryStatus({ type: 'error', message });
-      window.alert(message);
       return;
     }
     setDirectoryStatus({ type: 'success', message: 'User name updated.' });
@@ -515,12 +560,18 @@ export function UserManagement({
   };
 
   const handleEditUserEmail = async (userId: string, currentEmail: string) => {
-    const nextEmail = window.prompt('Enter updated sign-in email:', currentEmail);
+    const nextEmail = await openPrompt(
+      'Edit sign-in email',
+      'The user will receive a notification at the new address.',
+      currentEmail,
+      'email',
+    );
     if (!nextEmail) return;
     const normalized = nextEmail.toLowerCase().trim();
     if (!normalized || normalized === currentEmail.toLowerCase().trim()) return;
-    const confirmed = window.confirm(
-      `Update this user's sign-in email to ${normalized} and notify the new address?`
+    const confirmed = await openConfirm(
+      'Confirm email change',
+      `Update this user's sign-in email to ${normalized} and notify the new address?`,
     );
     if (!confirmed) return;
 
@@ -528,7 +579,6 @@ export function UserManagement({
     if (!result.success) {
       const message = result.error || 'Failed to update email.';
       setDirectoryStatus({ type: 'error', message });
-      window.alert(message);
       return;
     }
     setDirectoryStatus({
@@ -540,8 +590,9 @@ export function UserManagement({
 
   const handleMigrateActiveUserEmails = async () => {
     if (isMigratingEmails) return;
-    const confirmed = window.confirm(
-      'Update every active user to the same local address at @bisuhomeloans.com and send each user a branded notification? The migration will stop before changing anything if an address collision is found.'
+    const confirmed = await openConfirm(
+      'Migrate active user emails',
+      'Update every active user to the same local address at @bisuhomeloans.com and notify each user. The migration stops before changing anything if an address collision is found.',
     );
     if (!confirmed) return;
 
@@ -552,7 +603,6 @@ export function UserManagement({
       if (!result.success) {
         const message = result.error || 'Failed to migrate active-user emails.';
         setDirectoryStatus({ type: 'error', message });
-        window.alert(message);
         return;
       }
       const failures = result.notificationFailures ?? [];
@@ -588,7 +638,7 @@ export function UserManagement({
 
   return (
     <div className="space-y-6">
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <div className={`app-surface-card p-6 ${view === 'invites' ? 'hidden' : ''}`}>
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Account Provisioning</h2>
@@ -736,7 +786,7 @@ export function UserManagement({
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <div className={`app-surface-card p-6 ${view === 'invites' ? 'hidden' : ''}`}>
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">User Directory</h2>
@@ -1352,7 +1402,7 @@ export function UserManagement({
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <div className={`app-surface-card p-6 ${view === 'people' ? 'hidden' : ''}`}>
         <h2 className="text-lg font-semibold text-slate-900">Pending Invites</h2>
         <p className="text-sm text-slate-500 mt-1">Invitations waiting to be accepted.</p>
         <div className="mt-4 space-y-2">
@@ -1403,6 +1453,62 @@ export function UserManagement({
           })}
         </div>
       </div>
+
+      {actionDialog && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4">
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="user-action-dialog-title"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onSubmit={(event) => {
+              event.preventDefault();
+              closeActionDialog(
+                actionDialog.mode === 'confirm' ? 'confirmed' : actionDialog.value.trim() || null,
+              );
+            }}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="user-action-dialog-title" className="text-lg font-semibold text-slate-900">
+                  {actionDialog.title}
+                </h2>
+                <p className="mt-2 text-sm text-slate-600">{actionDialog.message}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => closeActionDialog(null)}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {actionDialog.mode === 'prompt' && (
+              <input
+                autoFocus
+                type={actionDialog.inputType || 'text'}
+                value={actionDialog.value}
+                onChange={(event) =>
+                  setActionDialog((current) =>
+                    current ? { ...current, value: event.target.value } : current,
+                  )
+                }
+                className="app-input mt-5 w-full"
+                required
+              />
+            )}
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => closeActionDialog(null)} className="app-btn-secondary">
+                Cancel
+              </button>
+              <button type="submit" className={actionDialog.title.includes('Delete') ? 'app-btn-danger' : 'app-btn-primary'}>
+                Confirm
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {chatDesignationUser && (
         <div

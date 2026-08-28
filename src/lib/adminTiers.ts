@@ -83,6 +83,8 @@ export const canAccessReports = (roles: UserRole[] = []) =>
   highestAdminTier(roles) === 3;
 export const canAccessUserManagement = (roles: UserRole[] = []) =>
   hasAnyAdminRole(roles);
+export const canAccessOnboardingManagement = (roles: UserRole[] = []) =>
+  hasAnyAdminRole(roles) || roles.includes(UserRole.MANAGER);
 export const canAccessLenderManagement = (roles: UserRole[] = []) =>
   hasAnyAdminRole(roles);
 export const canAccessSupportInbox = (roles: UserRole[] = []) =>
@@ -138,7 +140,10 @@ export function canAssignRole(
 export function assignableRolesFor(actorRoles: UserRole[] | undefined | null): UserRole[] {
   // The legacy ADMIN value is never presented as an assignable option.
   const candidates = Object.values(UserRole).filter(
-    (r) => r !== UserRole.ADMIN && !RETIRED_ASSIGNABLE_ROLES.has(r as UserRole),
+    (r) =>
+      r !== UserRole.ADMIN &&
+      r !== UserRole.ONBOARDING &&
+      !RETIRED_ASSIGNABLE_ROLES.has(r as UserRole),
   ) as UserRole[];
   return candidates.filter((r) => canAssignRole(actorRoles, r));
 }

@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/auth';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { WebsiteLoanOfficerProfiles } from '@/components/admin/WebsiteLoanOfficerProfiles';
 import { listWebsiteLoanOfficerProfiles } from '@/app/actions/websiteLoanOfficerProfileActions';
+import { UserManagementNav } from '@/components/admin/users/UserManagementNav';
 
 export default async function WebsiteLoanOfficerProfilesPage() {
   const session = await getServerSession(authOptions);
@@ -27,6 +28,7 @@ export default async function WebsiteLoanOfficerProfilesPage() {
           Complete and publish the profiles shown on the BISU Home Loans website.
         </p>
       </div>
+      <UserManagementNav />
       <WebsiteLoanOfficerProfiles
         profiles={profiles.map((profile) => ({
           ...profile,

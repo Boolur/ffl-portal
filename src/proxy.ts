@@ -38,7 +38,8 @@ const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.ADMIN_III]: ADMIN_III_PATHS,
   [UserRole.ADMIN_II]: ADMIN_II_PATHS,
   [UserRole.ADMIN_I]: ADMIN_I_PATHS,
-  [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders', '/payroll', '/admin/support'],
+  [UserRole.ONBOARDING]: ['/onboarding'],
+  [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders', '/payroll', '/admin/support', '/admin/users/onboarding'],
   [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources', '/lenders', '/leads', '/payroll', '/admin/support'],
   [UserRole.LOA]: ['/', '/pipeline', '/tasks', '/resources', '/lenders', '/leads', '/admin/support'],
   [UserRole.DISCLOSURE_SPECIALIST]: ['/', '/tasks', '/resources', '/lenders', '/admin/support'],
@@ -126,6 +127,6 @@ export const proxy = authProxy;
 
 export const config = {
   matcher: [
-    '/((?!api/auth|api/internal/loan-officers|api/webhooks/lead-mailbox|api/webhooks/leads|login|auth|_next|favicon.ico|.*\\..*).*)',
+    '/((?!api/auth|api/internal/loan-officers|api/internal/onboarding|api/webhooks/esign|api/webhooks/lead-mailbox|api/webhooks/leads|login|auth|_next|favicon.ico|.*\\..*).*)',
   ],
 };
