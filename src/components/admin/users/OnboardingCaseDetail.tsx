@@ -18,6 +18,7 @@ import {
   Upload,
   UserRound,
   X,
+  XCircle,
 } from 'lucide-react';
 import {
   OnboardingDocumentStatus,
@@ -545,12 +546,16 @@ export function OnboardingCaseDetail({
                         : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'
                     }`}
                   >
-                    <span className="block truncate text-sm font-bold">{category}</span>
-                    <span className="mt-1 flex items-center gap-2 text-xs">
-                      <span className={categoryComplete === categoryItems.length ? 'text-emerald-700' : 'text-slate-500'}>
-                        {categoryComplete}/{categoryItems.length} complete
+                    <span className="flex items-start justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-bold">{category}</span>
+                        <span className={`mt-1 block text-xs ${categoryComplete === categoryItems.length ? 'text-emerald-700' : 'text-slate-500'}`}>
+                          {categoryComplete}/{categoryItems.length} complete
+                        </span>
                       </span>
-                      {categoryComplete === categoryItems.length && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" aria-hidden="true" />}
+                      {categoryComplete === categoryItems.length
+                        ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" aria-label="Category complete" />
+                        : <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" aria-label="Category incomplete" />}
                     </span>
                   </button>
                 );
