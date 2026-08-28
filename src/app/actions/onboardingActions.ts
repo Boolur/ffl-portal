@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import {
   NotificationOutboxEventType,
+  NotificationOutboxStatus,
   OnboardingDocumentStatus,
   OnboardingDocumentVisibility,
   OnboardingItemOwner,
@@ -141,7 +142,7 @@ async function recordEvent(
       data: {
         eventType: NotificationOutboxEventType.ONBOARDING,
         idempotencyKey: `onboarding:${event.id}`,
-        payload: input.email,
+        payload: { ...input.email, caseId: input.caseId },
       },
     });
     const target = await tx.onboardingCase.findUnique({
@@ -161,6 +162,78 @@ async function recordEvent(
     }
   }
   return event;
+}
+
+async function processOnboardingFileDeletionJob(jobId: string) {
+  const job = await prisma.onboardingFileDeletionJob.findUnique({ where: { id: jobId } });
+  if (!job) return true;
+  try {
+    const bucket = getSupabaseAdmin().storage.from(getOnboardingDocumentsBucket());
+    const caseFolder = `onboarding/${job.caseId}`;
+    const listFolder = async (folder: string) => {
+      const paths: string[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await bucket.list(folder, { limit: 1000, offset });
+        if (error) throw error;
+        const objects = data || [];
+        paths.push(
+          ...objects
+            .filter((object) => Boolean(object.id))
+            .map((object) => `${folder}/${object.name}`),
+        );
+        if (objects.length < 1000) break;
+      }
+      return paths;
+    };
+    const [rootPaths, signedPaths] = await Promise.all([
+      listFolder(caseFolder),
+      listFolder(`${caseFolder}/signed`),
+    ]);
+    const discoveredPaths = [...rootPaths, ...signedPaths];
+    const paths = Array.from(new Set([...job.storagePaths, ...discoveredPaths]));
+    if (paths.length > 0) {
+      const { error } = await bucket.remove(paths);
+      if (error) throw error;
+    }
+    const gracePeriodElapsed = Date.now() - job.createdAt.getTime() >= 24 * 60 * 60 * 1000;
+    if (gracePeriodElapsed) {
+      const [remainingRoot, remainingSigned] = await Promise.all([
+        listFolder(caseFolder),
+        listFolder(`${caseFolder}/signed`),
+      ]);
+      if (remainingRoot.length === 0 && remainingSigned.length === 0) {
+        await prisma.onboardingFileDeletionJob.deleteMany({ where: { id: job.id } });
+      }
+    } else {
+      await prisma.onboardingFileDeletionJob.updateMany({
+        where: { id: job.id },
+        data: { lastError: null },
+      });
+    }
+    return true;
+  } catch (error) {
+    await prisma.onboardingFileDeletionJob.updateMany({
+      where: { id: job.id },
+      data: {
+        attempts: { increment: 1 },
+        lastError: error instanceof Error ? error.message.slice(0, 1000) : 'Storage cleanup failed.',
+      },
+    });
+    return false;
+  }
+}
+
+async function drainOnboardingFileDeletionJobs(limit = 20) {
+  const jobs = await prisma.onboardingFileDeletionJob.findMany({
+    orderBy: { updatedAt: 'asc' },
+    take: Math.max(1, Math.min(100, limit)),
+    select: { id: true },
+  });
+  let cleaned = 0;
+  for (const job of jobs) {
+    if (await processOnboardingFileDeletionJob(job.id)) cleaned += 1;
+  }
+  return { inspected: jobs.length, cleaned };
 }
 
 export async function getOnboardingManagementContext() {
@@ -397,6 +470,170 @@ export async function resendOnboardingInvite(caseId: string) {
     });
   });
   revalidatePath(`/admin/users/onboarding/${caseId}`);
+  return { success: true };
+}
+
+export async function deleteOnboardingCase(caseId: string) {
+  if (!isOnboardingEnabled()) {
+    return { success: false, error: 'Employee onboarding is not enabled.' };
+  }
+  const actor = await getActor();
+  if (!actor || !hasAnyAdminRole(actor.roles)) {
+    return { success: false, error: 'Only an administrator can delete onboarding records.' };
+  }
+
+  let cleanupJobId: string | null = null;
+  try {
+    cleanupJobId = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "OnboardingCase" WHERE "id" = ${caseId} FOR UPDATE`;
+      const current = await tx.onboardingCase.findUnique({
+        where: { id: caseId },
+        select: {
+          id: true,
+          inviteId: true,
+          status: true,
+          createdAt: true,
+          user: { select: { id: true, role: true, roles: true, createdAt: true } },
+          documents: {
+            select: {
+              storagePath: true,
+              signedStoragePath: true,
+              status: true,
+              externalEnvelopeId: true,
+              signatureProvider: true,
+            },
+          },
+          events: { select: { id: true } },
+          items: { select: { id: true } },
+        },
+      });
+      if (!current) throw new Error('Onboarding record not found.');
+      if (current.status === OnboardingStatus.COMPLETED) {
+        throw new Error('Completed employee accounts cannot be deleted from onboarding.');
+      }
+      if (
+        current.user &&
+        (current.user.role !== UserRole.ONBOARDING ||
+          current.user.roles.some((role) => role !== UserRole.ONBOARDING))
+      ) {
+        throw new Error('This account has active portal roles and cannot be deleted from onboarding.');
+      }
+      if (current.user && current.user.createdAt < current.createdAt) {
+        throw new Error(
+          'This onboarding reused a pre-existing account. Remove the onboarding record through an administrator-assisted cleanup instead.',
+        );
+      }
+      if (
+        current.documents.some(
+          (document) =>
+            document.status === OnboardingDocumentStatus.PENDING_SIGNATURE &&
+            (Boolean(document.externalEnvelopeId) ||
+              document.signatureProvider === 'creating' ||
+              (Boolean(document.signatureProvider) && document.signatureProvider !== 'manual')),
+        )
+      ) {
+        throw new Error(
+          'Void active external signature requests before deleting this onboarding.',
+        );
+      }
+      const storagePaths = Array.from(
+        new Set(
+          current.documents.flatMap((document) =>
+            [document.storagePath, document.signedStoragePath].filter(
+              (path): path is string => Boolean(path),
+            ),
+          ),
+        ),
+      );
+
+      await tx.auditLog.create({
+        data: {
+          userId: actor.userId,
+          action: 'ONBOARDING_CASE_DELETED',
+          details: JSON.stringify({
+            caseId: current.id,
+            temporaryAccountDeleted: Boolean(current.user),
+            documentCount: current.documents.length,
+          }),
+        },
+      });
+      const outboxPrefixes = [
+        ...current.events.map((event) => `onboarding:${event.id}`),
+        ...current.items.map((item) => `onboarding-reminder:${item.id}:`),
+      ];
+      if (outboxPrefixes.length > 0) {
+        const outboxWhere = {
+          OR: outboxPrefixes.map((prefix) => ({
+            idempotencyKey: { startsWith: prefix },
+          })),
+        };
+        await tx.notificationOutbox.updateMany({
+          where: {
+            ...outboxWhere,
+            status: {
+              in: [NotificationOutboxStatus.PENDING, NotificationOutboxStatus.RETRY],
+            },
+          },
+          data: {
+            status: NotificationOutboxStatus.FAILED,
+            processingStartedAt: null,
+            lastError: 'Cancelled because the onboarding case was deleted.',
+          },
+        });
+        const delivering = await tx.notificationOutbox.count({
+          where: { ...outboxWhere, status: NotificationOutboxStatus.PROCESSING },
+        });
+        if (delivering > 0) {
+          throw new Error('An onboarding email is currently being delivered. Try deleting again shortly.');
+        }
+        await tx.notificationOutbox.deleteMany({
+          where: outboxWhere,
+        });
+      }
+      const cleanupJob = await tx.onboardingFileDeletionJob.create({
+        data: { caseId: current.id, storagePaths },
+        select: { id: true },
+      });
+      await tx.onboardingCase.delete({ where: { id: current.id } });
+      if (current.inviteId) {
+        await tx.inviteToken.deleteMany({ where: { id: current.inviteId } });
+      }
+      if (current.user) {
+        await tx.passwordResetToken.deleteMany({ where: { userId: current.user.id } });
+        await tx.externalUser.deleteMany({ where: { userId: current.user.id } });
+        await tx.auditLog.deleteMany({ where: { userId: current.user.id } });
+        await tx.user.delete({ where: { id: current.user.id } });
+      }
+      return cleanupJob.id;
+    });
+  } catch (error) {
+    console.error('[onboarding] Failed to delete onboarding case', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unable to delete onboarding.',
+    };
+  }
+
+  if (cleanupJobId) {
+    const cleaned = await processOnboardingFileDeletionJob(cleanupJobId);
+    if (!cleaned) {
+      console.error('[onboarding] Deleted case but storage cleanup failed', { caseId });
+      await prisma.auditLog
+        .create({
+          data: {
+            userId: actor.userId,
+            action: 'ONBOARDING_FILE_CLEANUP_FAILED',
+            details: JSON.stringify({ caseId, cleanupJobId }),
+          },
+        })
+        .catch((error) => {
+          console.error('[onboarding] Failed to record storage cleanup failure', error);
+        });
+    }
+  }
+
+  revalidatePath('/admin/users');
+  revalidatePath('/admin/users/onboarding');
   return { success: true };
 }
 
@@ -929,6 +1166,7 @@ export async function submitOnboardingCase() {
             eventType: NotificationOutboxEventType.ONBOARDING,
             idempotencyKey: `onboarding:${submissionEvent.id}:owner`,
             payload: {
+              caseId: onboardingCase.id,
               to: owner.email,
               subject: `${onboardingCase.candidateName} is ready for onboarding review`,
               text: 'The new hire submitted their onboarding information. Open BISU Portal to begin review.',
@@ -1483,6 +1721,7 @@ export async function enqueueOverdueOnboardingReminders(workerSecret?: string) {
   if (!expectedSecret || workerSecret !== expectedSecret) {
     return { queued: 0, inspected: 0, unauthorized: true };
   }
+  await drainOnboardingFileDeletionJobs();
   const now = new Date();
   const dayKey = now.toISOString().slice(0, 10);
   const items = await prisma.onboardingItem.findMany({
@@ -1524,6 +1763,7 @@ export async function enqueueOverdueOnboardingReminders(workerSecret?: string) {
             eventType: NotificationOutboxEventType.ONBOARDING,
             idempotencyKey: `onboarding-reminder:${item.id}:${dayKey}`,
             payload: {
+              caseId: item.case.id,
               to,
               subject: `Overdue onboarding item: ${item.label}`,
               text: `${item.label} for ${item.case.candidateName} is overdue. Open BISU Portal to review the next step.`,

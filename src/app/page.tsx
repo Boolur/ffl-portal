@@ -1,4 +1,5 @@
 import React from 'react';
+import { redirect } from 'next/navigation';
 import { DashboardWrapper } from '@/components/dashboard/DashboardWrapper';
 import { getAllTasks } from '@/app/actions/adminActions';
 import { getServerSession } from 'next-auth';
@@ -107,6 +108,7 @@ export default async function Home() {
   const session = await getServerSession(authOptions);
   const sessionUserId = session?.user?.id || '';
   const sessionRole = (session?.user?.activeRole || session?.user?.role || 'LOAN_OFFICER') as UserRole;
+  if (sessionRole === UserRole.ONBOARDING) redirect('/onboarding');
   const sessionRoles = ((session?.user?.roles as UserRole[] | undefined) || [sessionRole]);
   const userFlags = sessionUserId
     ? await prisma.user.findUnique({

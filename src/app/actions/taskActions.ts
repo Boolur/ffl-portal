@@ -2069,8 +2069,9 @@ function parseOnboardingNotificationPayload(payload: Prisma.JsonValue) {
   const subject = String(payload.subject ?? '').trim();
   const text = String(payload.text ?? '').trim();
   const href = String(payload.href ?? '').trim();
+  const caseId = String(payload.caseId ?? '').trim();
   if (!to || !subject || !text) return null;
-  return { to, subject, text, href };
+  return { to, subject, text, href, caseId };
 }
 
 async function processNotificationOutboxJob(job: {
@@ -2104,6 +2105,10 @@ async function processNotificationOutboxJob(job: {
     const parsed = parseOnboardingNotificationPayload(job.payload);
     if (!parsed) {
       throw new Error('Invalid ONBOARDING payload.');
+    }
+    if (parsed.caseId) {
+      const activeCase = await prisma.onboardingCase.count({ where: { id: parsed.caseId } });
+      if (activeCase === 0) return;
     }
     const html = `
       <div style="font-family:Inter,Segoe UI,Arial,sans-serif;max-width:640px;margin:0 auto;color:#0f172a">

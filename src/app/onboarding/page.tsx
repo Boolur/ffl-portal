@@ -10,7 +10,7 @@ export default async function OnboardingPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) redirect('/login');
   const onboardingCase = await getMyOnboardingCase();
-  if (!onboardingCase) redirect('/');
+  if (!onboardingCase) redirect('/login');
 
   const data = {
     id: onboardingCase.id,

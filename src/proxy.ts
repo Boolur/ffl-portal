@@ -38,7 +38,9 @@ const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.ADMIN_III]: ADMIN_III_PATHS,
   [UserRole.ADMIN_II]: ADMIN_II_PATHS,
   [UserRole.ADMIN_I]: ADMIN_I_PATHS,
-  [UserRole.ONBOARDING]: ['/onboarding'],
+  // Root is a safe routing bridge: the server page immediately redirects
+  // onboarding-only accounts into their restricted workspace.
+  [UserRole.ONBOARDING]: ['/', '/onboarding'],
   [UserRole.MANAGER]: ['/', '/pipeline', '/tasks', '/reports', '/team', '/resources', '/lenders', '/payroll', '/admin/support', '/admin/users/onboarding'],
   [UserRole.LOAN_OFFICER]: ['/', '/pipeline', '/tasks', '/resources', '/lenders', '/leads', '/payroll', '/admin/support'],
   [UserRole.LOA]: ['/', '/pipeline', '/tasks', '/resources', '/lenders', '/leads', '/admin/support'],

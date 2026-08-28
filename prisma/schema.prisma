@@ -1080,6 +1080,18 @@ model OnboardingESignEvent {
   @@index([envelopeId])
 }
 
+model OnboardingFileDeletionJob {
+  id           String   @id @default(uuid())
+  caseId       String
+  storagePaths String[]
+  attempts     Int      @default(0)
+  lastError    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
 model PasswordResetToken {
   id        String    @id @default(uuid())
   token     String    @unique

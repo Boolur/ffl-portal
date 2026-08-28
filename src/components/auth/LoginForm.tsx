@@ -3,9 +3,8 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
-import { getSession, signIn } from 'next-auth/react';
+import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { UserRole } from '@prisma/client';
 
 export function LoginForm() {
   const router = useRouter();
@@ -34,13 +33,9 @@ export function LoginForm() {
         return;
       }
       if (result?.ok) {
-        const session = await getSession();
-        const roles = session?.user?.roles || [];
-        const destination =
-          session?.user?.role === UserRole.ONBOARDING || roles.includes(UserRole.ONBOARDING)
-            ? '/onboarding'
-            : result.url || '/';
-        router.replace(destination);
+        // Use a full navigation so the authenticated cookie is guaranteed to
+        // reach the server before role-based routing runs.
+        window.location.assign(result.url || '/');
         return;
       }
 

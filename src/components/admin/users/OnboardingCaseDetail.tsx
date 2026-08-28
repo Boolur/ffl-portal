@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  AlertTriangle,
   CheckCircle2,
   Clock3,
   Download,
@@ -10,8 +11,10 @@ import {
   FileText,
   Loader2,
   Save,
+  Trash2,
   Upload,
   UserRound,
+  X,
 } from 'lucide-react';
 import {
   OnboardingDocumentStatus,
@@ -24,6 +27,7 @@ import {
 import {
   completeOnboardingCase,
   createOnboardingDocumentUploadUrl,
+  deleteOnboardingCase,
   finalizeOnboardingDocument,
   getOnboardingDocumentDownloadUrl,
   requestOnboardingSignature,
@@ -174,6 +178,8 @@ export function OnboardingCaseDetail({
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState('');
   const [note, setNote] = useState('');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [profile, setProfile] = useState({
     ownerId: onboardingCase.ownerId || '',
     targetRoles: onboardingCase.targetRoles,
@@ -275,6 +281,25 @@ export function OnboardingCaseDetail({
     const result = await resendOnboardingInvite(onboardingCase.id);
     setNotice(result.success ? 'A refreshed onboarding invitation was queued.' : result.error || 'Unable to resend invitation.');
     if (result.success) router.refresh();
+  };
+  const deleteCase = async () => {
+    setDeleting(true);
+    setNotice('');
+    try {
+      const result = await deleteOnboardingCase(onboardingCase.id);
+      if (!result.success) {
+        setNotice(result.error || 'Unable to delete onboarding.');
+        setDeleteDialogOpen(false);
+        return;
+      }
+      router.push('/admin/users/onboarding');
+      router.refresh();
+    } catch {
+      setNotice('Unable to delete onboarding. Please try again.');
+      setDeleteDialogOpen(false);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const nextActions: Array<{ label: string; status: OnboardingStatus; tone: string }> = [];
@@ -448,6 +473,60 @@ export function OnboardingCaseDetail({
           {onboardingCase.events.map((event) => <div key={event.id} className="flex gap-3 text-sm"><div className="mt-1.5 h-2 w-2 rounded-full bg-blue-500" /><div><p className="font-medium text-slate-700">{pretty(event.action)}</p><p className="text-xs text-slate-500">{new Date(event.createdAt).toLocaleString()}</p></div></div>)}
         </div>
       </section>
+
+      {onboardingCase.permissions.canApprove &&
+        onboardingCase.status !== OnboardingStatus.COMPLETED && (
+          <section className="rounded-2xl border border-red-200 bg-red-50/70 p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="font-semibold text-red-950">Delete this onboarding</h2>
+                <p className="mt-1 max-w-2xl text-sm text-red-800">
+                  Permanently remove the onboarding record, invitation, uploaded files, and temporary account. You can then start a new onboarding using the same email.
+                </p>
+              </div>
+              <button type="button" onClick={() => setDeleteDialogOpen(true)} className="app-btn-danger shrink-0">
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                Delete onboarding
+              </button>
+            </div>
+          </section>
+        )}
+
+      {deleteDialogOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-onboarding-title"
+            aria-describedby="delete-onboarding-description"
+            className="w-full max-w-lg rounded-2xl border border-red-200 bg-white p-6 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700">
+                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <button type="button" onClick={() => setDeleteDialogOpen(false)} disabled={deleting} className="app-icon-btn" aria-label="Close delete confirmation">
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+            <h2 id="delete-onboarding-title" className="mt-5 text-xl font-bold text-slate-950">
+              Delete {onboardingCase.candidateName}&apos;s onboarding?
+            </h2>
+            <p id="delete-onboarding-description" className="mt-2 text-sm leading-6 text-slate-600">
+              This cannot be undone. Their invitation will stop working, their temporary login will be removed, and all onboarding documents and progress will be permanently deleted.
+            </p>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setDeleteDialogOpen(false)} disabled={deleting} className="app-btn-secondary">
+                Keep onboarding
+              </button>
+              <button type="button" onClick={deleteCase} disabled={deleting} className="app-btn-danger">
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
+                {deleting ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
