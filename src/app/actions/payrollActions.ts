@@ -633,6 +633,15 @@ function nextPaycheckWindow(now = new Date()): PayrollNextPaycheckSummary {
   };
 }
 
+function rowsInPayPeriod(rows: PayrollRequestRow[], window: Pick<PayrollNextPaycheckSummary, 'periodStart' | 'periodEnd'>) {
+  const start = new Date(window.periodStart).getTime();
+  const end = new Date(window.periodEnd).getTime();
+  return rows.filter((row) => {
+    const submittedAt = new Date(row.submittedAt).getTime();
+    return submittedAt >= start && submittedAt < end;
+  });
+}
+
 function payrollPacificDateParts(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Los_Angeles',
@@ -1901,7 +1910,7 @@ export async function getMyPayrollPortalData() {
     hydratePipelineFundedDates(requests.map(serializeRequest)),
     getPayrollSubmissionWindowState(actor.userId),
   ]);
-  const summary = summarizeRequests(rows);
+  const summary = summarizeRequests(rowsInPayPeriod(rows, window));
   const salaryAmount = salaryPerPaycheckAmount(decimalToNumber(plan?.salaryPerPaycheck), plan?.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY);
   const commissionAmount = money(nextSplits.reduce((sum, split) => sum + decimalToNumber(split.amount), 0));
   return {
@@ -2528,7 +2537,7 @@ export async function getPayrollAdminDashboardData() {
     getPayrollTeamCompletionStats(),
   ]);
   return {
-    summary: summarizeRequests(rows),
+    summary: summarizeRequests(rowsInPayPeriod(rows, nextPaycheckWindow())),
     pendingRequests: rows.filter((row) => row.status === PayrollCompRequestStatus.PENDING_REVIEW).slice(0, 8),
     recentRequests: rows.slice(0, 8),
     submissionWindow: submissionWindows.reportingWindow,
