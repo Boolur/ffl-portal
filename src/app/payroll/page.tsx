@@ -39,8 +39,10 @@ export default async function PayrollPage() {
       <PayrollPortal
         rows={data.rows}
         summary={data.summary}
+        nextPaycheck={data.nextPaycheck}
         userClassification={data.userClassification}
         brokerRetailRouting={data.brokerRetailRouting}
+        submissionWindow={data.submissionWindow}
       />
     </DashboardShell>
   );

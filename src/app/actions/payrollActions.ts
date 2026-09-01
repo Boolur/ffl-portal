@@ -321,6 +321,42 @@ export type PayrollNextPaycheckSummary = {
   totalAmount: number;
 };
 
+export type PayrollSubmissionWindowRange = {
+  start: string;
+  end: string;
+  displayEnd: string;
+  label: string;
+};
+
+export type PayrollSubmissionWindowState = {
+  isOpen: boolean;
+  isComplete: boolean;
+  isLocked: boolean;
+  completedAt: string | null;
+  activeWindow: PayrollSubmissionWindowRange | null;
+  reportingWindow: PayrollSubmissionWindowRange;
+  nextWindow: PayrollSubmissionWindowRange;
+};
+
+export type PayrollTeamCompletionMember = {
+  userId: string;
+  name: string;
+  email: string;
+  complete: boolean;
+  completedAt: string | null;
+  requestCount: number;
+};
+
+export type PayrollTeamCompletionStats = {
+  teamId: string;
+  teamName: string;
+  colors: string[];
+  totalMembers: number;
+  completedCount: number;
+  incompleteCount: number;
+  members: PayrollTeamCompletionMember[];
+};
+
 type SessionActor = {
   userId: string;
   name: string;
@@ -594,6 +630,104 @@ function nextPaycheckWindow(now = new Date()): PayrollNextPaycheckSummary {
     salaryAmount: 0,
     commissionAmount: 0,
     totalAmount: 0,
+  };
+}
+
+function payrollPacificDateParts(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(now);
+  const part = (type: string) => Number(parts.find((entry) => entry.type === type)?.value);
+  return {
+    year: part('year'),
+    month: part('month'),
+    day: part('day'),
+  };
+}
+
+function utcDateOnly(year: number, month: number, day: number) {
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function payrollSubmissionRange(year: number, month: number, startDay: number, exclusiveEndDay: number): PayrollSubmissionWindowRange {
+  const start = utcDateOnly(year, month, startDay);
+  const end = utcDateOnly(year, month, exclusiveEndDay);
+  const displayEnd = new Date(end);
+  displayEnd.setUTCDate(displayEnd.getUTCDate() - 1);
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    displayEnd: displayEnd.toISOString(),
+    label: `${formatter.format(start)}-${formatter.format(displayEnd)}`,
+  };
+}
+
+function resolvePayrollSubmissionWindows(now = new Date()) {
+  const { year, month, day } = payrollPacificDateParts(now);
+  const firstWindow = payrollSubmissionRange(year, month, 1, 7);
+  const secondWindow = payrollSubmissionRange(year, month, 16, 23);
+  if (day >= 1 && day <= 6) {
+    return {
+      isOpen: true,
+      activeWindow: firstWindow,
+      reportingWindow: firstWindow,
+      nextWindow: secondWindow,
+    };
+  }
+  if (day >= 7 && day <= 15) {
+    return {
+      isOpen: false,
+      activeWindow: null,
+      reportingWindow: firstWindow,
+      nextWindow: secondWindow,
+    };
+  }
+  if (day >= 16 && day <= 22) {
+    return {
+      isOpen: true,
+      activeWindow: secondWindow,
+      reportingWindow: secondWindow,
+      nextWindow: payrollSubmissionRange(year, month + 1, 1, 7),
+    };
+  }
+  return {
+    isOpen: false,
+    activeWindow: null,
+    reportingWindow: secondWindow,
+    nextWindow: payrollSubmissionRange(year, month + 1, 1, 7),
+  };
+}
+
+async function getPayrollSubmissionWindowState(userId: string, now = new Date()): Promise<PayrollSubmissionWindowState> {
+  const windows = resolvePayrollSubmissionWindows(now);
+  const completion = windows.activeWindow
+    ? await prisma.payrollSubmissionCompletion.findUnique({
+        where: {
+          userId_windowStart_windowEnd: {
+            userId,
+            windowStart: new Date(windows.activeWindow.start),
+            windowEnd: new Date(windows.activeWindow.end),
+          },
+        },
+        select: { completedAt: true, reopenedAt: true },
+      })
+    : null;
+  const isComplete = Boolean(completion?.completedAt && !completion.reopenedAt);
+  return {
+    isOpen: windows.isOpen,
+    isComplete,
+    isLocked: windows.isOpen && isComplete,
+    completedAt: isComplete ? completion?.completedAt.toISOString() ?? null : null,
+    activeWindow: windows.activeWindow,
+    reportingWindow: windows.reportingWindow,
+    nextWindow: windows.nextWindow,
   };
 }
 
@@ -1592,6 +1726,13 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
 
 export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   const actor = await assertPayrollPortalUser();
+  const submissionWindow = await getPayrollSubmissionWindowState(actor.userId);
+  if (!submissionWindow.isOpen || !submissionWindow.activeWindow) {
+    throw new Error(`Payroll submissions are currently closed. The next submission window is ${submissionWindow.nextWindow.label}.`);
+  }
+  if (submissionWindow.isLocked) {
+    throw new Error(`Payroll requests are marked finished for ${submissionWindow.activeWindow.label}. Ask a payroll admin to reopen this window before submitting another request.`);
+  }
   const loanNumber = cleanText(input.loanNumber, 'Loan number');
   const existingRequest = await prisma.payrollCompRequest.findFirst({
     where: {
@@ -1697,6 +1838,36 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   revalidatePayroll();
 }
 
+export async function markMyPayrollRequestsFinished() {
+  const actor = await assertPayrollPortalUser();
+  const submissionWindow = resolvePayrollSubmissionWindows();
+  if (!submissionWindow.isOpen || !submissionWindow.activeWindow) {
+    throw new Error(`Payroll submissions are currently closed. The next submission window is ${submissionWindow.nextWindow.label}.`);
+  }
+  const windowStart = new Date(submissionWindow.activeWindow.start);
+  const windowEnd = new Date(submissionWindow.activeWindow.end);
+  await prisma.payrollSubmissionCompletion.upsert({
+    where: {
+      userId_windowStart_windowEnd: {
+        userId: actor.userId,
+        windowStart,
+        windowEnd,
+      },
+    },
+    create: {
+      userId: actor.userId,
+      windowStart,
+      windowEnd,
+    },
+    update: {
+      completedAt: new Date(),
+      reopenedAt: null,
+      reopenedById: null,
+    },
+  });
+  revalidatePayroll();
+}
+
 export async function getMyPayrollPortalData() {
   const actor = await assertPayrollPortalUser();
   const window = nextPaycheckWindow();
@@ -1726,7 +1897,10 @@ export async function getMyPayrollPortalData() {
     }),
     getBrokerRetailRoutingSettings(),
   ]);
-  const rows = await hydratePipelineFundedDates(requests.map(serializeRequest));
+  const [rows, submissionWindow] = await Promise.all([
+    hydratePipelineFundedDates(requests.map(serializeRequest)),
+    getPayrollSubmissionWindowState(actor.userId),
+  ]);
   const summary = summarizeRequests(rows);
   const salaryAmount = salaryPerPaycheckAmount(decimalToNumber(plan?.salaryPerPaycheck), plan?.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY);
   const commissionAmount = money(nextSplits.reduce((sum, split) => sum + decimalToNumber(split.amount), 0));
@@ -1735,6 +1909,7 @@ export async function getMyPayrollPortalData() {
     summary,
     userClassification: plan?.userClassification ?? PayrollUserClassification.BROKER,
     brokerRetailRouting,
+    submissionWindow,
     nextPaycheck: {
       ...window,
       salaryAmount,
@@ -2147,6 +2322,34 @@ export async function deletePayrollRequest(requestId: string) {
   revalidatePayroll();
 }
 
+export async function reopenPayrollSubmissionCompletion(userId: string, windowStart: string, windowEnd: string) {
+  const actor = await assertPayrollAdmin();
+  const start = new Date(windowStart);
+  const end = new Date(windowEnd);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error('Payroll submission window is invalid.');
+  }
+  const completion = await prisma.payrollSubmissionCompletion.findUnique({
+    where: {
+      userId_windowStart_windowEnd: {
+        userId,
+        windowStart: start,
+        windowEnd: end,
+      },
+    },
+    select: { id: true },
+  });
+  if (!completion) throw new Error('This payroll window has not been marked complete.');
+  await prisma.payrollSubmissionCompletion.update({
+    where: { id: completion.id },
+    data: {
+      reopenedAt: new Date(),
+      reopenedById: actor.userId,
+    },
+  });
+  revalidatePayroll();
+}
+
 export async function markPayrollRequestPaid(requestId: string, adminNotes?: string) {
   const actor = await assertPayrollAdmin();
   const request = await prisma.payrollCompRequest.findUnique({
@@ -2225,13 +2428,111 @@ function summarizeRequests(rows: PayrollRequestRow[]) {
   return empty;
 }
 
+async function getPayrollTeamCompletionStats(now = new Date()): Promise<PayrollTeamCompletionStats[]> {
+  const { reportingWindow } = resolvePayrollSubmissionWindows(now);
+  const windowStart = new Date(reportingWindow.start);
+  const windowEnd = new Date(reportingWindow.end);
+  const payrollUserFilter: Prisma.UserWhereInput = {
+    active: true,
+    OR: [
+      { role: { in: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
+      { roles: { hasSome: [UserRole.LOAN_OFFICER, UserRole.MANAGER] } },
+    ],
+  };
+  const teams = await prisma.leadUserTeam.findMany({
+    where: { active: true },
+    orderBy: { name: 'asc' },
+    select: {
+      id: true,
+      name: true,
+      color: true,
+      colors: true,
+      members: {
+        where: { user: payrollUserFilter },
+        select: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  const userIds = Array.from(new Set(teams.flatMap((team) => team.members.map((member) => member.user.id))));
+  const [completions, requests] = await Promise.all([
+    userIds.length
+      ? prisma.payrollSubmissionCompletion.findMany({
+          where: {
+            userId: { in: userIds },
+            windowStart,
+            windowEnd,
+            reopenedAt: null,
+          },
+          select: { userId: true, completedAt: true },
+        })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.payrollCompRequest.findMany({
+          where: {
+            loanOfficerId: { in: userIds },
+            submittedAt: { gte: windowStart, lt: windowEnd },
+          },
+          select: { loanOfficerId: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const completedAtByUserId = new Map(completions.map((completion) => [
+    completion.userId,
+    completion.completedAt.toISOString(),
+  ]));
+  const requestCountByUserId = requests.reduce((map, request) => {
+    map.set(request.loanOfficerId, (map.get(request.loanOfficerId) ?? 0) + 1);
+    return map;
+  }, new Map<string, number>());
+
+  return teams.map((team) => {
+    const members = team.members
+      .map((member) => {
+        const completedAt = completedAtByUserId.get(member.user.id) ?? null;
+        return {
+          userId: member.user.id,
+          name: member.user.name,
+          email: member.user.email,
+          complete: Boolean(completedAt),
+          completedAt,
+          requestCount: requestCountByUserId.get(member.user.id) ?? 0,
+        };
+      })
+      .sort((left, right) => Number(left.complete) - Number(right.complete) || left.name.localeCompare(right.name));
+    const completedCount = members.filter((member) => member.complete).length;
+    return {
+      teamId: team.id,
+      teamName: team.name,
+      colors: team.colors.length > 0 ? team.colors : [team.color],
+      totalMembers: members.length,
+      completedCount,
+      incompleteCount: members.length - completedCount,
+      members,
+    };
+  });
+}
+
 export async function getPayrollAdminDashboardData() {
   await assertPayrollAdmin();
-  const rows = await getPayrollRequests({});
+  const submissionWindows = resolvePayrollSubmissionWindows();
+  const [rows, teamStats] = await Promise.all([
+    getPayrollRequests({}),
+    getPayrollTeamCompletionStats(),
+  ]);
   return {
     summary: summarizeRequests(rows),
     pendingRequests: rows.filter((row) => row.status === PayrollCompRequestStatus.PENDING_REVIEW).slice(0, 8),
     recentRequests: rows.slice(0, 8),
+    submissionWindow: submissionWindows.reportingWindow,
+    teamStats,
   };
 }
 

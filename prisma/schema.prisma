@@ -372,17 +372,19 @@ model User {
   websiteLoanOfficerProfile     WebsiteLoanOfficerProfile?
 
   // Payroll / compensation relations
-  payrollCompPlans           PayrollCompPlan[]          @relation("PayrollCompPlanLoanOfficer")
-  payrollSplitRecipients     PayrollCompSplit[]         @relation("PayrollCompSplitRecipient")
-  payrollRequests            PayrollCompRequest[]       @relation("PayrollCompRequestLoanOfficer")
-  payrollReviewedRequests    PayrollCompRequest[]       @relation("PayrollCompRequestReviewedBy")
-  payrollPaidRequests        PayrollCompRequest[]       @relation("PayrollCompRequestPaidBy")
-  payrollEditedRequests      PayrollCompRequest[]       @relation("PayrollCompRequestEditedBy")
-  payrollRequestSplits       PayrollCompRequestSplit[]  @relation("PayrollCompRequestSplitRecipient")
-  payrollUserSettings        PayrollUserSetting?
-  processingPipelineAsSenior ProcessingPipelineLoan[]   @relation("ProcessingPipelineSenior")
-  processingPipelineAsJunior ProcessingPipelineLoan[]   @relation("ProcessingPipelineJunior")
-  processingPipelineLayouts  ProcessingPipelineLayout[]
+  payrollCompPlans             PayrollCompPlan[]             @relation("PayrollCompPlanLoanOfficer")
+  payrollSplitRecipients       PayrollCompSplit[]            @relation("PayrollCompSplitRecipient")
+  payrollRequests              PayrollCompRequest[]          @relation("PayrollCompRequestLoanOfficer")
+  payrollReviewedRequests      PayrollCompRequest[]          @relation("PayrollCompRequestReviewedBy")
+  payrollPaidRequests          PayrollCompRequest[]          @relation("PayrollCompRequestPaidBy")
+  payrollEditedRequests        PayrollCompRequest[]          @relation("PayrollCompRequestEditedBy")
+  payrollRequestSplits         PayrollCompRequestSplit[]     @relation("PayrollCompRequestSplitRecipient")
+  payrollSubmissionCompletions PayrollSubmissionCompletion[] @relation("PayrollSubmissionCompletionUser")
+  payrollReopenedCompletions   PayrollSubmissionCompletion[] @relation("PayrollSubmissionCompletionReopenedBy")
+  payrollUserSettings          PayrollUserSetting?
+  processingPipelineAsSenior   ProcessingPipelineLoan[]      @relation("ProcessingPipelineSenior")
+  processingPipelineAsJunior   ProcessingPipelineLoan[]      @relation("ProcessingPipelineJunior")
+  processingPipelineLayouts    ProcessingPipelineLayout[]
 }
 
 model WebsiteLoanOfficerProfile {
@@ -1615,6 +1617,24 @@ model PayrollCompRequest {
   @@index([paidAt])
   @@index([loanNumber])
   @@index([loanId])
+}
+
+model PayrollSubmissionCompletion {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation("PayrollSubmissionCompletionUser", fields: [userId], references: [id], onDelete: Cascade)
+  windowStart  DateTime
+  windowEnd    DateTime
+  completedAt  DateTime  @default(now())
+  reopenedAt   DateTime?
+  reopenedById String?
+  reopenedBy   User?     @relation("PayrollSubmissionCompletionReopenedBy", fields: [reopenedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, windowStart, windowEnd])
+  @@index([windowStart, windowEnd])
+  @@index([reopenedById])
 }
 
 model PayrollSetting {

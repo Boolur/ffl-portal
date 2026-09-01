@@ -6,10 +6,12 @@ import { Banknote, Building2, Bug, Calculator, CheckCircle2, Clock, Droplets, Do
 import { PayrollCompPlanType, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
 import {
   getPayrollRequestPreview,
+  markMyPayrollRequestsFinished,
   submitPayrollCompRequest,
   type PayrollCalculationSnapshot,
   type PayrollMismoDetails,
   type PayrollRequestRow,
+  type PayrollSubmissionWindowState,
 } from '@/app/actions/payrollActions';
 import {
   formatCurrency,
@@ -46,6 +48,7 @@ type Props = {
     leadSources: PayrollLeadSource[];
     leadProvidedBy: PayrollLeadProvidedBy[];
   };
+  submissionWindow: PayrollSubmissionWindowState;
 };
 
 type FormState = {
@@ -435,6 +438,59 @@ function parsePayrollMismoXml(xmlText: string, sourceFilename?: string): Payroll
   };
 }
 
+function PayrollCompletionCard({
+  state,
+  pending,
+  onFinish,
+}: {
+  state: PayrollSubmissionWindowState;
+  pending: boolean;
+  onFinish: () => void;
+}) {
+  const currentWindow = state.activeWindow ?? state.reportingWindow;
+  const title = state.isLocked
+    ? 'Requests Finished'
+    : state.isOpen
+      ? 'Payroll Window Open'
+      : 'Payroll Window Closed';
+  const helper = state.isLocked
+    ? `Completed ${state.completedAt ? formatDate(state.completedAt) : currentWindow.label}`
+    : state.isOpen
+      ? `Open ${currentWindow.label}`
+      : `Next window ${state.nextWindow.label}`;
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${
+      state.isLocked
+        ? 'border-emerald-100 bg-emerald-50/80'
+        : state.isOpen
+          ? 'border-blue-100 bg-blue-50/80'
+          : 'border-amber-100 bg-amber-50/80'
+    }`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Payroll Requests</p>
+          <p className="mt-1 text-sm font-bold text-slate-950">{title}</p>
+          <p className="mt-0.5 text-xs font-medium text-slate-600">{helper}</p>
+        </div>
+        {state.isLocked ? (
+          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+        ) : (
+          <Clock className={`h-5 w-5 ${state.isOpen ? 'text-blue-600' : 'text-amber-600'}`} />
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onFinish}
+        disabled={!state.isOpen || state.isLocked || pending}
+        className="mt-3 inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:bg-slate-300"
+      >
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+        Payroll Requests Finished
+      </button>
+    </div>
+  );
+}
+
 function Kpi({
   title,
   value,
@@ -513,6 +569,7 @@ export function PayrollPortal({
   nextPaycheck,
   userClassification = PayrollUserClassification.BROKER,
   brokerRetailRouting = { leadSources: [], leadProvidedBy: [] },
+  submissionWindow,
 }: Props) {
   const searchParams = useSearchParams();
   const focusedRequestId = searchParams.get('requestId');
@@ -547,6 +604,7 @@ export function PayrollPortal({
     reimbursementTarget: PayrollReimbursementTarget;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submissionWindowState, setSubmissionWindowState] = useState(submissionWindow);
   const [isPending, startTransition] = useTransition();
   const selectedLeadRoutesRetail = userClassification === PayrollUserClassification.BROKER && (
     brokerRetailRouting.leadSources.includes(form.leadSource) ||
@@ -560,6 +618,11 @@ export function PayrollPortal({
     const base = form.loanChannel === PayrollLoanChannel.BROKER ? form.brokerComp : form.sectionAComp;
     return Number(base) > 0;
   }, [form.brokerComp, form.loanChannel, form.sectionAComp]);
+  const submitLockedReason = !submissionWindowState.isOpen
+    ? `Payroll submissions are closed. Next window: ${submissionWindowState.nextWindow.label}.`
+    : submissionWindowState.isLocked
+      ? `Payroll requests are marked finished for ${submissionWindowState.activeWindow?.label ?? 'this window'}.`
+      : null;
   const figureNftyRequired = useMemo(() => isFigureNftyLender(form.lender), [form.lender]);
   const lenderStats = useMemo(() => {
     const counts = new Map<string, number>();
@@ -703,6 +766,10 @@ export function PayrollPortal({
   };
 
   const submit = () => {
+    if (submitLockedReason) {
+      setError(submitLockedReason);
+      return;
+    }
     setAttemptedSubmit(true);
     if (missingFields.length > 0) {
       setTouchedFields(new Set(REQUIRED_FIELDS.map((field) => field.key)));
@@ -730,6 +797,28 @@ export function PayrollPortal({
       }
     });
   };
+  const finishPayrollRequests = () => {
+    if (!submissionWindowState.isOpen || !submissionWindowState.activeWindow) return;
+    const confirmed = window.confirm(`Mark payroll requests finished for ${submissionWindowState.activeWindow.label}? This will lock new submissions until payroll reopens the window.`);
+    if (!confirmed) return;
+    startTransition(async () => {
+      try {
+        setError(null);
+        await markMyPayrollRequestsFinished();
+        setSubmissionWindowState((current) => ({
+          ...current,
+          isComplete: true,
+          isLocked: true,
+          completedAt: new Date().toISOString(),
+        }));
+      } catch (err) {
+        const message = err instanceof Error && err.message
+          ? err.message
+          : 'Unable to mark payroll requests finished. Please try again.';
+        setError(message);
+      }
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -738,12 +827,15 @@ export function PayrollPortal({
         <Kpi title="Pending" value={String(summary.pendingCount)} subtitle={formatCurrency(summary.pendingRevenue)} Icon={Clock} />
         <Kpi title="Approved" value={String(summary.approvedCount)} subtitle={formatCurrency(summary.approvedRevenue)} Icon={CheckCircle2} />
         <Kpi title="Paid" value={String(summary.paidCount)} subtitle={formatCurrency(summary.paidRevenue)} Icon={Banknote} />
-        <Kpi
-          title="Next Paycheck"
-          value={formatCurrency(nextPaycheck?.totalAmount ?? 0)}
-          subtitle={nextPaycheck ? `${formatDate(nextPaycheck.paycheckDate)} · salary ${formatCurrency(nextPaycheck.salaryAmount)} + commission ${formatCurrency(nextPaycheck.commissionAmount)}` : 'Next 1st/16th payroll'}
-          Icon={DollarSign}
-        />
+        <div className="space-y-2">
+          <PayrollCompletionCard state={submissionWindowState} pending={isPending} onFinish={finishPayrollRequests} />
+          <Kpi
+            title="Next Paycheck"
+            value={formatCurrency(nextPaycheck?.totalAmount ?? 0)}
+            subtitle={nextPaycheck ? `${formatDate(nextPaycheck.paycheckDate)} · salary ${formatCurrency(nextPaycheck.salaryAmount)} + commission ${formatCurrency(nextPaycheck.commissionAmount)}` : 'Next 1st/16th payroll'}
+            Icon={DollarSign}
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -753,17 +845,27 @@ export function PayrollPortal({
         </div>
         <button
           type="button"
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 disabled:cursor-not-allowed disabled:bg-slate-300"
+          disabled={Boolean(submitLockedReason)}
           onClick={() => {
+            if (submitLockedReason) {
+              setError(submitLockedReason);
+              return;
+            }
             setForm(initialFormForUser);
             setReimbursementTargetTouched(false);
             setPreview(null);
             setModalOpen(true);
           }}
         >
-          <Plus className="h-4 w-4" /> Submit Compensation Request
+          <Plus className="h-4 w-4" /> {submitLockedReason ? 'Submissions Locked' : 'Submit Compensation Request'}
         </button>
       </div>
+      {submitLockedReason && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          {submitLockedReason}
+        </p>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

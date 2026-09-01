@@ -1,6 +1,13 @@
+'use client';
+
 import Link from 'next/link';
-import { Banknote, CheckCircle2, Clock, Database, DollarSign, Users } from 'lucide-react';
-import type { getPayrollAdminDashboardData } from '@/app/actions/payrollActions';
+import React, { useState, useTransition } from 'react';
+import { Banknote, CheckCircle2, ChevronDown, Clock, Database, DollarSign, Loader2, RefreshCw, Users, XCircle } from 'lucide-react';
+import {
+  reopenPayrollSubmissionCompletion,
+  type getPayrollAdminDashboardData,
+  type PayrollTeamCompletionStats,
+} from '@/app/actions/payrollActions';
 import { formatCurrency } from './payrollFormat';
 import { PayrollRequestTable } from './PayrollRequestTable';
 
@@ -74,17 +81,130 @@ function MiniStatsPanel({
   );
 }
 
-export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests }: Props) {
+function TeamStatsPanel({
+  teams,
+  expandedTeamIds,
+  reportingWindowLabel,
+  pending,
+  reopeningUserId,
+  onToggleTeam,
+  onReopenMember,
+}: {
+  teams: PayrollTeamCompletionStats[];
+  expandedTeamIds: Set<string>;
+  reportingWindowLabel: string;
+  pending: boolean;
+  reopeningUserId: string | null;
+  onToggleTeam: (teamId: string) => void;
+  onReopenMember: (teamId: string, userId: string) => void;
+}) {
+  const maxMembers = Math.max(...teams.map((team) => team.totalMembers), 1);
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <h2 className="font-bold text-slate-900">Team Stats</h2>
+        <p className="text-sm text-slate-500">Payroll completion for {reportingWindowLabel}</p>
+      </div>
+      {teams.length === 0 ? (
+        <p className="px-5 py-8 text-center text-sm text-slate-500">No active teams found.</p>
+      ) : (
+        <div className="space-y-3 p-5">
+          {teams.map((team) => {
+            const expanded = expandedTeamIds.has(team.teamId);
+            const completionPercent = team.totalMembers > 0
+              ? (team.completedCount / team.totalMembers) * 100
+              : 0;
+            const widthPercent = Math.max((team.totalMembers / maxMembers) * 100, 8);
+            return (
+              <div key={team.teamId} className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                <button
+                  type="button"
+                  onClick={() => onToggleTeam(team.teamId)}
+                  className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                  aria-expanded={expanded}
+                >
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="flex min-w-0 items-center gap-2 font-semibold text-slate-800">
+                      <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition ${expanded ? 'rotate-180' : ''}`} />
+                      <span className="truncate">{team.teamName}</span>
+                    </span>
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                      team.incompleteCount === 0 && team.totalMembers > 0
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-rose-50 text-rose-700'
+                    }`}>
+                      {team.completedCount}/{team.totalMembers}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
+                    <div className="h-full rounded-full bg-slate-200" style={{ width: `${widthPercent}%` }}>
+                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${completionPercent}%` }} />
+                    </div>
+                  </div>
+                </button>
+                {expanded && (
+                  <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+                    {team.members.length === 0 ? (
+                      <p className="text-xs font-medium text-slate-500">No payroll-eligible members in this team.</p>
+                    ) : (
+                      team.members.map((member) => (
+                        <div key={member.userId} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-sm">
+                          <div className="flex min-w-0 items-center gap-2">
+                            {member.complete ? (
+                              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                            ) : (
+                              <XCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                            )}
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-slate-900">{member.name}</p>
+                              <p className="truncate text-xs text-slate-500">
+                                {member.requestCount} requests{member.completedAt ? ` · completed ${formatPayrollTeamDate(member.completedAt)}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                          {member.complete && (
+                            <button
+                              type="button"
+                              disabled={pending && reopeningUserId === member.userId}
+                              onClick={() => onReopenMember(team.teamId, member.userId)}
+                              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:opacity-60"
+                            >
+                              {pending && reopeningUserId === member.userId ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-3.5 w-3.5" />
+                              )}
+                              Reopen
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatPayrollTeamDate(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(value));
+}
+
+export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests, submissionWindow, teamStats }: Props) {
   const reviewRows = pendingRequests.length > 0 ? pendingRequests : recentRequests;
-  const lenderStats = Array.from(
-    reviewRows.reduce((map, row) => {
-      const lender = row.lender.trim() || 'Unknown Lender';
-      map.set(lender, (map.get(lender) ?? 0) + 1);
-      return map;
-    }, new Map<string, number>())
-  )
-    .map(([label, count]) => ({ label, count }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const [expandedTeamIds, setExpandedTeamIds] = useState<Set<string>>(new Set());
+  const [teams, setTeams] = useState(teamStats);
+  const [reopeningUserId, setReopeningUserId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
   const loanTypeStats = Array.from(
     reviewRows.reduce((map, row) => {
       const loanType = row.loanType.trim() || 'Unknown Loan Type';
@@ -94,6 +214,38 @@ export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests
   )
     .map(([label, count]) => ({ label, count }))
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const toggleTeam = (teamId: string) => {
+    setExpandedTeamIds((current) => {
+      const next = new Set(current);
+      if (next.has(teamId)) next.delete(teamId);
+      else next.add(teamId);
+      return next;
+    });
+  };
+  const reopenMember = (teamId: string, userId: string) => {
+    setReopeningUserId(userId);
+    startTransition(async () => {
+      try {
+        await reopenPayrollSubmissionCompletion(userId, submissionWindow.start, submissionWindow.end);
+        setTeams((current) => current.map((team) => {
+          if (team.teamId !== teamId) return team;
+          const members = team.members.map((member) => (
+            member.userId === userId
+              ? { ...member, complete: false, completedAt: null }
+              : member
+          ));
+          return {
+            ...team,
+            members,
+            completedCount: members.filter((member) => member.complete).length,
+            incompleteCount: members.filter((member) => !member.complete).length,
+          };
+        }));
+      } finally {
+        setReopeningUserId(null);
+      }
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -143,7 +295,15 @@ export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests
           <PayrollRequestTable rows={reviewRows} compact embedded />
         </div>
         <div className="grid gap-5">
-          <MiniStatsPanel title="Lender Stats" subtitle="Pending/recent loans by lender" rows={lenderStats} />
+          <TeamStatsPanel
+            teams={teams}
+            expandedTeamIds={expandedTeamIds}
+            reportingWindowLabel={submissionWindow.label}
+            pending={isPending}
+            reopeningUserId={reopeningUserId}
+            onToggleTeam={toggleTeam}
+            onReopenMember={reopenMember}
+          />
           <MiniStatsPanel title="Loan Type Stats" subtitle="Pending/recent loans by loan type" rows={loanTypeStats} />
         </div>
       </section>
