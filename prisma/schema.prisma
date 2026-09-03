@@ -342,6 +342,7 @@ model User {
   uploadedClientDocuments           ClientDocument[]               @relation("ClientDocumentsUploadedBy")
   clientsOwned                      Client[]                       @relation("ClientOwner")
   auditLogs                         AuditLog[]
+  loginAudits                       LoginAudit[]
   pendingStpDispositionsActioned    PendingStpDisposition[]        @relation("PendingStpDispositionActionedBy")
   pendingStpDispositionsLoanOfficer PendingStpDisposition[]        @relation("PendingStpDispositionLoanOfficer")
   pipelineStages                    PipelineStage[]
@@ -864,6 +865,22 @@ model AuditLog {
   action    String // e.g. "STAGE_CHANGED", "TASK_COMPLETED"
   details   String? // JSON or text
   createdAt DateTime @default(now())
+}
+
+model LoginAudit {
+  id        String   @id @default(uuid())
+  email     String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  outcome   String
+  reason    String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([email, createdAt])
+  @@index([userId, createdAt])
 }
 
 model PendingStpDisposition {

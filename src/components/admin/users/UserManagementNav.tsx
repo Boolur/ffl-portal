@@ -9,14 +9,23 @@ const items = [
   { href: '/admin/users/onboarding', label: 'Onboarding' },
   { href: '/admin/users?view=invites', label: 'Pending Invites' },
   { href: '/admin/users/website-profiles', label: 'Website Profiles' },
+  { href: '/admin/users/sign-in-activity', label: 'Sign-in Activity' },
 ];
 
-export function UserManagementNav() {
+export function UserManagementNav({
+  showSignInActivity = false,
+}: {
+  showSignInActivity?: boolean;
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   return (
     <nav aria-label="User Management sections" className="mb-6 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-      {items.filter((item) => item.label !== 'Onboarding' || isOnboardingEnabled()).map((item) => {
+      {items.filter((item) => {
+        if (item.label === 'Onboarding') return isOnboardingEnabled();
+        if (item.label === 'Sign-in Activity') return showSignInActivity;
+        return true;
+      }).map((item) => {
         const active =
           item.href === '/admin/users'
             ? pathname === '/admin/users' && searchParams.get('view') !== 'invites'

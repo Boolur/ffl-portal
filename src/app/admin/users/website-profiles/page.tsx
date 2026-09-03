@@ -6,6 +6,8 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { WebsiteLoanOfficerProfiles } from '@/components/admin/WebsiteLoanOfficerProfiles';
 import { listWebsiteLoanOfficerProfiles } from '@/app/actions/websiteLoanOfficerProfileActions';
 import { UserManagementNav } from '@/components/admin/users/UserManagementNav';
+import { UserRole } from '@prisma/client';
+import { highestAdminTier } from '@/lib/adminTiers';
 
 export default async function WebsiteLoanOfficerProfilesPage() {
   const session = await getServerSession(authOptions);
@@ -28,7 +30,14 @@ export default async function WebsiteLoanOfficerProfilesPage() {
           Complete and publish the profiles shown on the BISU Home Loans website.
         </p>
       </div>
-      <UserManagementNav />
+      <UserManagementNav
+        showSignInActivity={
+          highestAdminTier(
+            (session?.user?.roles as UserRole[] | undefined) ??
+              (session?.user?.role ? [session.user.role as UserRole] : []),
+          ) === 3
+        }
+      />
       <WebsiteLoanOfficerProfiles
         profiles={profiles.map((profile) => ({
           ...profile,

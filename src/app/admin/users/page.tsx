@@ -11,6 +11,7 @@ import {
 import { listOnboardingCases } from '@/app/actions/onboardingActions';
 import { UserManagementNav } from '@/components/admin/users/UserManagementNav';
 import { OnboardingStatus } from '@prisma/client';
+import { highestAdminTier } from '@/lib/adminTiers';
 
 export default async function UserManagementPage({
   searchParams,
@@ -39,7 +40,7 @@ export default async function UserManagementPage({
           Create accounts, assign roles, and manage access.
         </p>
       </div>
-      <UserManagementNav />
+      <UserManagementNav showSignInActivity={highestAdminTier(ctx.actorRoles) === 3} />
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <div className="app-surface-card p-5">
           <p className="text-sm text-slate-500">Active people</p>

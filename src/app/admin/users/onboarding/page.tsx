@@ -9,6 +9,8 @@ import {
 import { OnboardingManagement } from '@/components/admin/users/OnboardingManagement';
 import { UserManagementNav } from '@/components/admin/users/UserManagementNav';
 import { isOnboardingEnabled } from '@/lib/onboardingFeature';
+import { UserRole } from '@prisma/client';
+import { highestAdminTier } from '@/lib/adminTiers';
 
 export default async function OnboardingManagementPage() {
   if (!isOnboardingEnabled()) redirect('/admin/users');
@@ -33,7 +35,14 @@ export default async function OnboardingManagementPage() {
           Invite new hires, coordinate internal setup, and approve portal access.
         </p>
       </div>
-      <UserManagementNav />
+      <UserManagementNav
+        showSignInActivity={
+          highestAdminTier(
+            (session.user.roles as UserRole[] | undefined) ??
+              (session.user.role ? [session.user.role as UserRole] : []),
+          ) === 3
+        }
+      />
       <OnboardingManagement
         cases={cases.map((item) => ({
           ...item,

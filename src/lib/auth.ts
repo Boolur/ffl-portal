@@ -3,6 +3,11 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import { prisma } from '@/lib/prisma';
 import { compare } from 'bcryptjs';
 import { UserRole } from '@prisma/client';
+import {
+  recordLoginAttempt,
+  type LoginFailureReason,
+} from '@/lib/loginAudit';
+import { getRequestClientMeta } from '@/lib/requestContext';
 
 const ALL_ROLES = Object.values(UserRole) as string[];
 
@@ -45,36 +50,53 @@ export const authOptions: NextAuthOptions = {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         const email = credentials?.email?.toLowerCase().trim();
         const password = credentials?.password;
+        const clientMeta = getRequestClientMeta(request.headers);
+        const auditFailure = async (
+          reason: LoginFailureReason,
+          userId?: string,
+        ) => {
+          await recordLoginAttempt({
+            email: email ?? '',
+            userId,
+            outcome: 'FAILURE',
+            reason,
+            ...clientMeta,
+          });
+          return null;
+        };
 
-        if (!email || !password) return null;
+        if (!email || !password) return auditFailure('MISSING_CREDENTIALS');
 
         const user = await prisma.user.findUnique({
           where: { email },
         });
 
         if (!user) {
-          console.warn('[auth] user not found', { email });
-          return null;
+          return auditFailure('USER_NOT_FOUND');
         }
 
         if (!user.active) {
-          console.warn('[auth] user inactive', { email });
-          return null;
+          return auditFailure('ACCOUNT_INACTIVE', user.id);
         }
 
         if (!user.passwordHash) {
-          console.warn('[auth] missing password hash', { email });
-          return null;
+          return auditFailure('PASSWORD_NOT_CONFIGURED', user.id);
         }
 
         const isValid = await compare(password, user.passwordHash);
         if (!isValid) {
-          console.warn('[auth] password mismatch', { email });
-          return null;
+          return auditFailure('INVALID_PASSWORD', user.id);
         }
+
+        await recordLoginAttempt({
+          email,
+          userId: user.id,
+          outcome: 'SUCCESS',
+          ...clientMeta,
+        });
 
         return {
           id: user.id,
