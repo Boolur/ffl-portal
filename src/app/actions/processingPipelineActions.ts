@@ -27,6 +27,7 @@ import {
   isProcessingPipelineFieldLocked,
   parseOptionalBoolean,
   parseOptionalMoney,
+  resolvePayoffExpirationAt,
 } from '@/lib/processingPipeline';
 import {
   PROCESSING_METHOD_SELF_PROCESSED,
@@ -155,6 +156,7 @@ function serializeRow(row: {
   titleStatus: ProcessingItemStatus;
   payoffStatus: ProcessingItemStatus;
   payoffOrderedAt: Date | null;
+  payoffExpiresAt: Date | null;
   hoiStatus: ProcessingItemStatus;
   hoiOrderedAt: Date | null;
   dateAssigned: Date;
@@ -214,6 +216,7 @@ function serializeRow(row: {
     appraisalOrderedAt: row.appraisalOrderedAt?.toISOString() || null,
     appraisalBackAt: row.appraisalBackAt?.toISOString() || null,
     payoffOrderedAt: row.payoffOrderedAt?.toISOString() || null,
+    payoffExpiresAt: row.payoffExpiresAt?.toISOString() || null,
     hoiOrderedAt: row.hoiOrderedAt?.toISOString() || null,
     cdWarningStartsAt: row.cdWarningStartsAt?.toISOString() || null,
     rateLockExpiresAt: row.rateLockExpiresAt?.toISOString() || null,
@@ -856,6 +859,7 @@ const EDITABLE_FIELDS = [
   'pipelineStatus',
   'titleStatus',
   'payoffStatus',
+  'payoffExpiresAt',
   'hoiStatus',
   'appraisalNeeded',
   'appraisalNotes',
@@ -910,7 +914,8 @@ function normalizeCellValue(field: EditableField, value: unknown) {
   if (
     field === 'appraisalOrderedAt' ||
     field === 'appraisalBackAt' ||
-    field === 'estimatedSigningAt'
+    field === 'estimatedSigningAt' ||
+    field === 'payoffExpiresAt'
   ) {
     if (!value) return null;
     const parsed = new Date(String(value));
@@ -938,6 +943,7 @@ export async function updateProcessingPipelineCell(input: {
   field: EditableField;
   value: unknown;
   estimatedSigningAt?: string | null;
+  payoffExpiresAt?: string | null;
   version: number;
 }) {
   const actor = await getActor();
@@ -966,12 +972,13 @@ export async function updateProcessingPipelineCell(input: {
         (
           input.field === 'titleStatus' ||
           input.field === 'payoffStatus' ||
+          input.field === 'payoffExpiresAt' ||
           input.field === 'hoiStatus' ||
           input.field === 'appraisalNeeded' ||
           input.field === 'cdSent'
         ) &&
         isProcessingPipelineFieldLocked(
-          input.field,
+          input.field === 'payoffExpiresAt' ? 'payoffStatus' : input.field,
           current.lender,
           current.processingMethod,
         )
@@ -1022,6 +1029,7 @@ export async function updateProcessingPipelineCell(input: {
       }
       let approvedWithConditionsAt = current.approvedWithConditionsAt;
       let payoffOrderedAt = current.payoffOrderedAt;
+      let payoffExpiresAt = current.payoffExpiresAt;
       let hoiOrderedAt = current.hoiOrderedAt;
       let lockedDefaultsPatch: Record<string, unknown> = {};
       const data: Prisma.ProcessingPipelineLoanUpdateManyMutationInput = {
@@ -1044,12 +1052,28 @@ export async function updateProcessingPipelineCell(input: {
         }
       }
       if (input.field === 'payoffStatus') {
+        const nextPayoffStatus = nextValue as ProcessingItemStatus;
+        payoffExpiresAt = resolvePayoffExpirationAt(
+          nextPayoffStatus,
+          input.payoffExpiresAt,
+        );
         payoffOrderedAt = getItemOrderedAt(
-          nextValue as ProcessingItemStatus,
+          nextPayoffStatus,
           current.payoffOrderedAt,
           now,
         );
         data.payoffOrderedAt = payoffOrderedAt;
+        data.payoffExpiresAt = payoffExpiresAt;
+      } else if (input.field === 'payoffExpiresAt') {
+        if (current.payoffStatus !== ProcessingItemStatus.RECEIVED) {
+          throw new Error(
+            'Payoff Expiration can only be set when Payoff is Received.',
+          );
+        }
+        payoffExpiresAt = resolvePayoffExpirationAt(
+          current.payoffStatus,
+          nextValue,
+        );
       }
       if (input.field === 'hoiStatus') {
         hoiOrderedAt = getItemOrderedAt(
@@ -1067,13 +1091,16 @@ export async function updateProcessingPipelineCell(input: {
         if (lockedDefaults) {
           Object.assign(data, lockedDefaults.values, {
             payoffOrderedAt: null,
+            payoffExpiresAt: null,
             hoiOrderedAt: null,
           });
           payoffOrderedAt = null;
+          payoffExpiresAt = null;
           hoiOrderedAt = null;
           lockedDefaultsPatch = {
             ...lockedDefaults.values,
             payoffOrderedAt: null,
+            payoffExpiresAt: null,
             hoiOrderedAt: null,
           };
           if (lockedDefaults.kind === 'SPECIAL_LENDER') {
@@ -1119,6 +1146,11 @@ export async function updateProcessingPipelineCell(input: {
               nextValue === ProcessingPipelineStatus.DOCS_OUT
                 ? estimatedSigningAt?.toISOString() || null
                 : undefined,
+            payoffExpiresAt:
+              input.field === 'payoffStatus' ||
+              input.field === 'payoffExpiresAt'
+                ? payoffExpiresAt?.toISOString() || null
+                : undefined,
             lockedDefaultsApplied:
               input.field === 'lender' && Object.keys(lockedDefaultsPatch).length > 0
                 ? lockedDefaultsPatch
@@ -1142,6 +1174,7 @@ export async function updateProcessingPipelineCell(input: {
         patch: {
           approvedWithConditionsAt: approvedWithConditionsAt?.toISOString() || null,
           payoffOrderedAt: payoffOrderedAt?.toISOString() || null,
+          payoffExpiresAt: payoffExpiresAt?.toISOString() || null,
           hoiOrderedAt: hoiOrderedAt?.toISOString() || null,
           estimatedSigningAt: estimatedSigningAt?.toISOString() || null,
           ...lockedDefaultsPatch,
@@ -1856,6 +1889,7 @@ export type ProcessingBorrowerDetailsInput = {
   estimatedSigningAt: string;
   titleStatus: ProcessingItemStatus;
   payoffStatus: ProcessingItemStatus;
+  payoffExpiresAt: string;
   hoiStatus: ProcessingItemStatus;
   missingItemsCurrentStatus: string;
   extraNotes: string;
@@ -1948,11 +1982,13 @@ export async function updateProcessingBorrowerDetails(
   }
   const dateAssigned = borrowerDetailDate(input.dateAssigned);
   const estimatedSigningAt = borrowerDetailDate(input.estimatedSigningAt);
+  const payoffExpiresAt = borrowerDetailDate(input.payoffExpiresAt);
   const rateLockExpiresAt = borrowerDetailDate(input.rateLockExpiresAt);
   const fundedAt = borrowerDetailDate(input.fundedAt);
   if (
     !dateAssigned ||
     estimatedSigningAt === undefined ||
+    payoffExpiresAt === undefined ||
     rateLockExpiresAt === undefined ||
     fundedAt === undefined
   ) {
@@ -2087,6 +2123,17 @@ export async function updateProcessingBorrowerDetails(
         nextLender,
         current.processingMethod,
       );
+      if (
+        !lockedPayoff &&
+        input.payoffStatus === ProcessingItemStatus.RECEIVED &&
+        !payoffExpiresAt
+      ) {
+        return {
+          kind: 'validation' as const,
+          error:
+            'Payoff Expiration is required when Payoff is Received.',
+        };
+      }
       const lockedHoi = isProcessingPipelineFieldLocked(
         'hoiStatus',
         nextLender,
@@ -2143,6 +2190,11 @@ export async function updateProcessingBorrowerDetails(
               current.payoffOrderedAt,
               now,
             ),
+        payoffExpiresAt: lockedPayoff
+          ? null
+          : input.payoffStatus === ProcessingItemStatus.RECEIVED
+            ? payoffExpiresAt
+            : null,
         hoiStatus: lockedHoi ? current.hoiStatus : input.hoiStatus,
         hoiOrderedAt: lockedHoi
           ? current.hoiOrderedAt
@@ -2200,6 +2252,7 @@ export async function updateProcessingBorrowerDetails(
           lockedDefaults.values.appraisalNeeded ?? submissionPatch.appraisalNeeded;
         Object.assign(pipelineData, lockedDefaults.values, {
           payoffOrderedAt: null,
+          payoffExpiresAt: null,
           hoiOrderedAt: null,
         });
         if (lockedDefaults.kind === 'SPECIAL_LENDER') {
@@ -2255,6 +2308,7 @@ export async function updateProcessingBorrowerDetails(
               'estimatedSigningAt',
               'titleStatus',
               'payoffStatus',
+              'payoffExpiresAt',
               'hoiStatus',
               'missingItemsCurrentStatus',
               'extraNotes',
@@ -2482,6 +2536,7 @@ export async function getProcessingBorrowerDetails(id: string) {
         estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
         titleStatus: row.titleStatus,
         payoffStatus: row.payoffStatus,
+        payoffExpiresAt: row.payoffExpiresAt?.toISOString() || null,
         hoiStatus: row.hoiStatus,
         missingItemsCurrentStatus: row.missingItemsCurrentStatus,
         extraNotes: row.extraNotes,

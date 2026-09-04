@@ -159,6 +159,7 @@ function specialLenderDefaults(lender, processingMethod, confirmedAt) {
       titleStatus: 'RECEIVED',
       payoffStatus: 'RECEIVED',
       payoffOrderedAt: null,
+      payoffExpiresAt: null,
       hoiStatus: 'RECEIVED',
       hoiOrderedAt: null,
       appraisalNeeded: false,
@@ -176,6 +177,7 @@ function specialLenderDefaults(lender, processingMethod, confirmedAt) {
       titleStatus: 'NOT_APPLICABLE',
       payoffStatus: 'NOT_APPLICABLE',
       payoffOrderedAt: null,
+      payoffExpiresAt: null,
       hoiStatus: 'NOT_APPLICABLE',
       hoiOrderedAt: null,
     };

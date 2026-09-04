@@ -70,6 +70,61 @@ describe('processing pipeline saved layouts', () => {
     ).toHaveLength(1);
   });
 
+  it('keeps Payoff and Payoff Expiration equally visible and adjacent', () => {
+    const config = buildDefaultProcessingLayoutConfig(UserRole.PROCESSOR_SR);
+    const columns = config.buckets.PIPELINE.columns;
+    const expirationIndex = columns.findIndex(
+      (column) => column.id === 'payoffExpiresAt',
+    );
+    const [expiration] = columns.splice(expirationIndex, 1);
+    expiration.visible = false;
+    columns.unshift(expiration);
+
+    const result = normalizeProcessingLayoutConfig(
+      config,
+      UserRole.PROCESSOR_SR,
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const normalized = result.config.buckets.PIPELINE.columns;
+    const payoffIndex = normalized.findIndex(
+      (column) => column.id === 'payoffStatus',
+    );
+    expect(normalized[payoffIndex]).toMatchObject({ visible: true });
+    expect(normalized[payoffIndex + 1]).toMatchObject({
+      id: 'payoffExpiresAt',
+      visible: true,
+    });
+  });
+
+  it('adds expiration beside Payoff in legacy saved layouts', () => {
+    const config = buildDefaultProcessingLayoutConfig(UserRole.PROCESSOR_SR);
+    for (const bucket of ['PIPELINE', 'RESTRUCTURE', 'RATE_LOCK_REQUESTS'] as const) {
+      config.buckets[bucket].columns = config.buckets[bucket].columns.filter(
+        (column) => column.id !== 'payoffExpiresAt',
+      );
+    }
+
+    const result = normalizeProcessingLayoutConfig(
+      config,
+      UserRole.PROCESSOR_SR,
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    for (const bucket of ['PIPELINE', 'RESTRUCTURE', 'RATE_LOCK_REQUESTS'] as const) {
+      const normalized = result.config.buckets[bucket].columns;
+      const payoffIndex = normalized.findIndex(
+        (column) => column.id === 'payoffStatus',
+      );
+      expect(normalized[payoffIndex + 1]).toMatchObject({
+        id: 'payoffExpiresAt',
+        visible: true,
+      });
+    }
+  });
+
   it('removes processor-restricted financial and lead columns', () => {
     const ids = processingLayoutBucketColumns(
       'PIPELINE',

@@ -240,6 +240,21 @@ export function isOrderedItemOverdue(
   return now.getTime() - ordered.getTime() >= 2 * DAY_MS;
 }
 
+export type PayoffExpirationWarning = 'none' | 'warning' | 'danger';
+
+export function getPayoffExpirationWarning(
+  status: ProcessingItemStatus,
+  expiresAt: Date | string | null,
+  now = new Date(),
+): PayoffExpirationWarning {
+  const expiration = validDate(expiresAt);
+  if (status !== ProcessingItemStatus.RECEIVED || !expiration) return 'none';
+  const remaining = expiration.getTime() - now.getTime();
+  if (remaining <= 3 * DAY_MS) return 'danger';
+  if (remaining <= 7 * DAY_MS) return 'warning';
+  return 'none';
+}
+
 export function isAppraisalBackOverdue(
   appraisalOrderedAt: Date | string | null,
   appraisalBackAt: Date | string | null,
@@ -264,6 +279,30 @@ export function getItemOrderedAt(
   now = new Date(),
 ) {
   return status === ProcessingItemStatus.ORDERED ? currentValue ?? now : null;
+}
+
+export function resolvePayoffExpirationAt(
+  status: ProcessingItemStatus,
+  value: unknown,
+  locked = false,
+) {
+  if (locked || status !== ProcessingItemStatus.RECEIVED) return null;
+  if (value instanceof Date) {
+    if (!Number.isNaN(value.getTime())) return value;
+    throw new Error('A valid Payoff Expiration date is required when Payoff is Received.');
+  }
+  const input = String(value ?? '');
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(input)
+    ? new Date(`${input}T00:00:00.000Z`)
+    : null;
+  if (
+    !parsed ||
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== input
+  ) {
+    throw new Error('A valid Payoff Expiration date is required when Payoff is Received.');
+  }
+  return parsed;
 }
 
 export function getApprovedWithConditionsAt(

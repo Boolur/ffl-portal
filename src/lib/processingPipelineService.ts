@@ -112,6 +112,7 @@ export async function upsertProcessingPipelineForCompletedTask(
     ? {
         ...lockedDefaults.values,
         payoffOrderedAt: null,
+        payoffExpiresAt: null,
         hoiOrderedAt: null,
         ...(lockedDefaults.kind === 'SPECIAL_LENDER'
           ? {

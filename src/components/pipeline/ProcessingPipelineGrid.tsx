@@ -65,6 +65,7 @@ import {
   PROCESSING_PIPELINE_SHEETS,
   PROCESSING_PIPELINE_STATUS_OPTIONS,
   getProcessingPipelineLockedDefaults,
+  getPayoffExpirationWarning,
   isAppraisalBackOverdue,
   isCdSentOverdue,
   isConditionItemOverdue,
@@ -125,6 +126,7 @@ type EditableField =
   | 'pipelineStatus'
   | 'titleStatus'
   | 'payoffStatus'
+  | 'payoffExpiresAt'
   | 'hoiStatus'
   | 'appraisalNeeded'
   | 'appraisalNotes'
@@ -248,6 +250,7 @@ const DATE_COLUMN_IDS = new Set<ColumnId>([
   'estimatedSigningAt',
   'appraisalOrderedAt',
   'appraisalBackAt',
+  'payoffExpiresAt',
   'fundedAt',
   'firstPaymentAt',
   'sixthPaymentAt',
@@ -287,6 +290,7 @@ function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | numb
   if (id === 'payoffStatus') {
     return PROCESSING_ITEM_STATUS_OPTIONS.find((option) => option.value === row.payoffStatus)?.label || row.payoffStatus;
   }
+  if (id === 'payoffExpiresAt') return row.payoffExpiresAt;
   if (id === 'hoiStatus') {
     return PROCESSING_ITEM_STATUS_OPTIONS.find((option) => option.value === row.hoiStatus)?.label || row.hoiStatus;
   }
@@ -681,6 +685,9 @@ export function ProcessingPipelineGrid({
   const [restructureNotesDraft, setRestructureNotesDraft] = useState('');
   const [rateLockDialogRow, setRateLockDialogRow] = useState<ProcessingPipelineRow | null>(null);
   const [rateLockExpiryDraft, setRateLockExpiryDraft] = useState('');
+  const [payoffExpirationDialogRow, setPayoffExpirationDialogRow] =
+    useState<ProcessingPipelineRow | null>(null);
+  const [payoffExpirationDraft, setPayoffExpirationDraft] = useState('');
   const [portalReady, setPortalReady] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const [historyEntries, setHistoryEntries] = useState<Array<{
@@ -699,6 +706,8 @@ export function ProcessingPipelineGrid({
     row: ProcessingPipelineRow,
     field: EditableField | 'rateLock',
   ) => {
+    const resolvedField =
+      field === 'payoffExpiresAt' ? 'payoffStatus' : field;
     const lockableFields: readonly LockedProcessingPipelineField[] = [
       'titleStatus',
       'payoffStatus',
@@ -707,10 +716,14 @@ export function ProcessingPipelineGrid({
       'cdSent',
       'rateLock',
     ];
-    if (!lockableFields.includes(field as LockedProcessingPipelineField)) return false;
+    if (
+      !lockableFields.includes(resolvedField as LockedProcessingPipelineField)
+    ) return false;
     return Boolean(
       getProcessingPipelineLockedDefaults(row.lender, row.processingMethod)
-        ?.lockedFields.includes(field as LockedProcessingPipelineField),
+        ?.lockedFields.includes(
+          resolvedField as LockedProcessingPipelineField,
+        ),
     );
   };
   const isProcessor =
@@ -759,6 +772,21 @@ export function ProcessingPipelineGrid({
     const interval = window.setInterval(() => setClockNow(new Date()), 60_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!payoffExpirationDialogRow) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (
+        event.key === 'Escape' &&
+        !savingRows.has(payoffExpirationDialogRow.id)
+      ) {
+        setPayoffExpirationDialogRow(null);
+        setPayoffExpirationDraft('');
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [payoffExpirationDialogRow, savingRows]);
 
   useEffect(
     () => () => {
@@ -1210,7 +1238,10 @@ export function ProcessingPipelineGrid({
     row: ProcessingPipelineRow,
     field: EditableField,
     value: unknown,
-    options?: { estimatedSigningAt?: string | null },
+    options?: {
+      estimatedSigningAt?: string | null;
+      payoffExpiresAt?: string | null;
+    },
   ) => {
     if (!canEditRow(row) || isLockedField(row, field)) return;
     const clientValue =
@@ -1227,6 +1258,15 @@ export function ProcessingPipelineGrid({
       ...(options?.estimatedSigningAt
         ? { estimatedSigningAt: new Date(options.estimatedSigningAt).toISOString() }
         : {}),
+      ...(field === 'payoffStatus'
+        ? value === ProcessingItemStatus.RECEIVED && options?.payoffExpiresAt
+          ? {
+              payoffExpiresAt: new Date(
+                `${options.payoffExpiresAt}T00:00:00.000Z`,
+              ).toISOString(),
+            }
+          : { payoffExpiresAt: null }
+        : {}),
     };
 
     patchRow(row.id, optimisticPatch);
@@ -1237,6 +1277,7 @@ export function ProcessingPipelineGrid({
       field,
       value,
       estimatedSigningAt: options?.estimatedSigningAt,
+      payoffExpiresAt: options?.payoffExpiresAt,
       version: row.version,
     });
     setSavingRows((current) => {
@@ -1517,6 +1558,16 @@ export function ProcessingPipelineGrid({
       aria-label={field}
       value={value === null ? '' : String(value)}
       onChange={(event) => {
+        if (
+          field === 'payoffStatus' &&
+          event.target.value === ProcessingItemStatus.RECEIVED
+        ) {
+          setPayoffExpirationDialogRow(row);
+          setPayoffExpirationDraft(
+            dateInputValue(row.payoffExpiresAt),
+          );
+          return;
+        }
         if (
           field === 'pipelineStatus' &&
           event.target.value === ProcessingPipelineStatus.DOCS_OUT
@@ -2061,6 +2112,46 @@ export function ProcessingPipelineGrid({
             )}
           </td>
         );
+      case 'payoffExpiresAt': {
+        const warning = getPayoffExpirationWarning(
+          row.payoffStatus,
+          row.payoffExpiresAt,
+          clockNow,
+        );
+        const warningTone =
+          warning === 'danger'
+            ? 'border-red-300 bg-red-100 text-red-800 motion-safe:animate-pulse'
+            : warning === 'warning'
+              ? 'border-amber-300 bg-amber-100 text-amber-900 motion-safe:animate-pulse'
+              : '';
+        return (
+          <td
+            key={id}
+            className={`border-b border-r border-slate-200 ${cellPadding}`}
+          >
+            {row.payoffStatus !== ProcessingItemStatus.RECEIVED ||
+            isLockedField(row, 'payoffExpiresAt') ? (
+              <span
+                className="text-slate-400"
+                title={
+                  isLockedField(row, 'payoffExpiresAt')
+                    ? 'Not required for this locked payoff status'
+                    : undefined
+                }
+              >
+                —
+              </span>
+            ) : (
+              dateCell(
+                row,
+                'payoffExpiresAt',
+                row.payoffExpiresAt,
+                warningTone,
+              )
+            )}
+          </td>
+        );
+      }
       case 'hoiStatus':
         return (
           <td
@@ -3015,6 +3106,94 @@ export function ProcessingPipelineGrid({
           }
         </div>
       </div>
+
+      {portalReady && payoffExpirationDialogRow && createPortal(
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="payoff-expiration-title"
+          onClick={() => {
+            if (!savingRows.has(payoffExpirationDialogRow.id)) {
+              setPayoffExpirationDialogRow(null);
+              setPayoffExpirationDraft('');
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
+              Payoff Received
+            </p>
+            <h2
+              id="payoff-expiration-title"
+              className="mt-1 text-xl font-black text-slate-950"
+            >
+              Select the payoff expiration
+            </h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              {payoffExpirationDialogRow.loan.borrowerName} · Arive #
+              {payoffExpirationDialogRow.loan.loanNumber}
+            </p>
+            <label className="mt-5 block">
+              <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">
+                Payoff expiration date
+              </span>
+              <input
+                type="date"
+                autoFocus
+                min={todayInputValue()}
+                value={payoffExpirationDraft}
+                onChange={(event) =>
+                  setPayoffExpirationDraft(event.target.value)
+                }
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+            <p className="mt-2 text-xs font-medium text-slate-500">
+              The date will pulse orange seven days before expiration and red
+              three days before expiration.
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPayoffExpirationDialogRow(null);
+                  setPayoffExpirationDraft('');
+                }}
+                className="app-btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !payoffExpirationDraft ||
+                  savingRows.has(payoffExpirationDialogRow.id)
+                }
+                onClick={() => {
+                  const row = payoffExpirationDialogRow;
+                  const expiresAt = payoffExpirationDraft;
+                  setPayoffExpirationDialogRow(null);
+                  setPayoffExpirationDraft('');
+                  void saveCell(
+                    row,
+                    'payoffStatus',
+                    ProcessingItemStatus.RECEIVED,
+                    { payoffExpiresAt: expiresAt },
+                  );
+                }}
+                className="app-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Save Payoff
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {portalReady && rateLockDialogRow && createPortal(
         <div

@@ -28,9 +28,10 @@ export const PROCESSING_PIPELINE_COLUMN_IDS = [
   'missingItemsCurrentStatus',
   'restructureNotes',
   'titleStatus',
-  'payoffStatus',
   'hoiStatus',
   'appraisalNeeded',
+  'payoffStatus',
+  'payoffExpiresAt',
   'daysInStatus',
   'appraisalNotes',
   'appraisalOrderedAt',
@@ -74,9 +75,15 @@ export const PROCESSING_PIPELINE_COLUMNS: ProcessingPipelineColumnDefinition[] =
   { id: 'missingItemsCurrentStatus', label: 'Pending Items', width: 220 },
   { id: 'restructureNotes', label: 'Restructure Notes', width: 280 },
   { id: 'titleStatus', label: 'Title', width: 124 },
-  { id: 'payoffStatus', label: 'Payoff', width: 124 },
   { id: 'hoiStatus', label: 'HOI', width: 124 },
   { id: 'appraisalNeeded', label: 'Appraisal?', width: 118 },
+  { id: 'payoffStatus', label: 'Payoff', width: 124 },
+  {
+    id: 'payoffExpiresAt',
+    label: 'Payoff Expiration',
+    width: 146,
+    optional: true,
+  },
   { id: 'daysInStatus', label: 'Days', width: 68 },
   { id: 'appraisalNotes', label: 'Appraisal Notes', width: 220, optional: true },
   { id: 'appraisalOrderedAt', label: 'Appraisal Ordered', width: 146, optional: true },
@@ -152,9 +159,10 @@ const PIPELINE_DEFAULT_FOCUS = new Set<ProcessingPipelineColumnId>([
   'missingItemsCurrentStatus',
   'restructureNotes',
   'titleStatus',
-  'payoffStatus',
   'hoiStatus',
   'appraisalNeeded',
+  'payoffStatus',
+  'payoffExpiresAt',
   'daysInStatus',
   'actions',
 ]);
@@ -217,6 +225,7 @@ export function buildDefaultProcessingLayoutConfig(
   if (LEADERSHIP_ROLES.has(role)) {
     leadershipFocus.delete('titleStatus');
     leadershipFocus.delete('payoffStatus');
+    leadershipFocus.delete('payoffExpiresAt');
     leadershipFocus.delete('hoiStatus');
     leadershipFocus.add('appraisalNotes');
     leadershipFocus.add('projectedRevenue');
@@ -336,6 +345,25 @@ export function normalizeProcessingLayoutConfig(
     );
     if (!nameColumns.some((column) => column.visible) && nameColumns[0]) {
       nameColumns[0].visible = true;
+    }
+    if (bucket !== 'FUNDING') {
+      const payoffIndex = columns.findIndex(
+        (column) => column.id === 'payoffStatus',
+      );
+      const expirationIndex = columns.findIndex(
+        (column) => column.id === 'payoffExpiresAt',
+      );
+      if (payoffIndex >= 0 && expirationIndex >= 0) {
+        const pairVisible =
+          columns[payoffIndex].visible || columns[expirationIndex].visible;
+        columns[payoffIndex].visible = pairVisible;
+        const [expiration] = columns.splice(expirationIndex, 1);
+        const updatedPayoffIndex = columns.findIndex(
+          (column) => column.id === 'payoffStatus',
+        );
+        expiration.visible = pairVisible;
+        columns.splice(updatedPayoffIndex + 1, 0, expiration);
+      }
     }
     buckets[bucket] = { columns };
   }

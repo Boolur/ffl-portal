@@ -76,6 +76,33 @@ type DraftLayout = {
   config: ProcessingPipelineLayoutConfig;
 };
 
+const PAYOFF_PAIR_IDS = ['payoffStatus', 'payoffExpiresAt'] as const;
+
+function keepPayoffPairTogether(
+  columns: ProcessingLayoutColumn[],
+  bucket: ProcessingLayoutBucket,
+) {
+  if (bucket === 'FUNDING') return columns;
+  const payoff = columns.find((column) => column.id === 'payoffStatus');
+  const expiration = columns.find(
+    (column) => column.id === 'payoffExpiresAt',
+  );
+  if (!payoff || !expiration) return columns;
+  const visible = payoff.visible || expiration.visible;
+  const withoutExpiration = columns.filter(
+    (column) => column.id !== 'payoffExpiresAt',
+  );
+  const payoffIndex = withoutExpiration.findIndex(
+    (column) => column.id === 'payoffStatus',
+  );
+  return [
+    ...withoutExpiration.slice(0, payoffIndex),
+    { ...payoff, visible },
+    { ...expiration, visible },
+    ...withoutExpiration.slice(payoffIndex + 1),
+  ];
+}
+
 function cloneConfig(config: ProcessingPipelineLayoutConfig) {
   return JSON.parse(JSON.stringify(config)) as ProcessingPipelineLayoutConfig;
 }
@@ -98,6 +125,7 @@ function SortableColumnRow({
   column,
   label,
   mandatory,
+  linked,
   requirementLabel,
   onVisibilityChange,
   onWidthChange,
@@ -108,6 +136,7 @@ function SortableColumnRow({
   column: ProcessingLayoutColumn;
   label: string;
   mandatory: boolean;
+  linked?: boolean;
   requirementLabel?: string;
   onVisibilityChange: (visible: boolean) => void;
   onWidthChange: (width: number) => void;
@@ -150,7 +179,7 @@ function SortableColumnRow({
         <input
           type="checkbox"
           checked={column.visible}
-          disabled={mandatory}
+          disabled={mandatory || linked}
           onChange={(event) => onVisibilityChange(event.target.checked)}
           className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-300 disabled:cursor-not-allowed"
           aria-label={`Show ${label}`}
@@ -159,10 +188,10 @@ function SortableColumnRow({
       <div className="min-w-0">
         <p className="truncate text-sm font-bold text-slate-900">{label}</p>
         <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-slate-500">
-          {mandatory ? (
+          {mandatory || linked ? (
             <>
               <LockKeyhole className="h-3 w-3 text-blue-500" />
-              {requirementLabel || 'Always visible'}
+              {linked ? 'Linked to Payoff' : requirementLabel || 'Always visible'}
             </>
           ) : column.visible ? (
             'Visible in condensed view'
@@ -307,7 +336,9 @@ export function ProcessingPipelineLayoutManager({
               ...current.config,
               buckets: {
                 ...current.config.buckets,
-                [selectedBucket]: { columns: next },
+                [selectedBucket]: {
+                  columns: keepPayoffPairTogether(next, selectedBucket),
+                },
               },
             },
           }
@@ -319,6 +350,22 @@ export function ProcessingPipelineLayoutManager({
     id: ProcessingLayoutColumn['id'],
     patch: Partial<ProcessingLayoutColumn>,
   ) => {
+    if (
+      selectedBucket !== 'FUNDING' &&
+      PAYOFF_PAIR_IDS.includes(id as (typeof PAYOFF_PAIR_IDS)[number]) &&
+      typeof patch.visible === 'boolean'
+    ) {
+      updateColumns(
+        columns.map((column) =>
+          PAYOFF_PAIR_IDS.includes(
+            column.id as (typeof PAYOFF_PAIR_IDS)[number],
+          )
+            ? { ...column, visible: patch.visible as boolean }
+            : column,
+        ),
+      );
+      return;
+    }
     updateColumns(
       columns.map((column) =>
         column.id === id ? { ...column, ...patch } : column,
@@ -327,6 +374,36 @@ export function ProcessingPipelineLayoutManager({
   };
 
   const moveColumn = (index: number, direction: -1 | 1) => {
+    const movingId = columns[index]?.id;
+    if (
+      selectedBucket !== 'FUNDING' &&
+      PAYOFF_PAIR_IDS.includes(
+        movingId as (typeof PAYOFF_PAIR_IDS)[number],
+      )
+    ) {
+      const payoffIndex = columns.findIndex(
+        (column) => column.id === 'payoffStatus',
+      );
+      const pair = PAYOFF_PAIR_IDS.map((id) =>
+        columns.find((column) => column.id === id),
+      ).filter((column): column is ProcessingLayoutColumn => Boolean(column));
+      const remaining = columns.filter(
+        (column) =>
+          !PAYOFF_PAIR_IDS.includes(
+            column.id as (typeof PAYOFF_PAIR_IDS)[number],
+          ),
+      );
+      const target = Math.max(
+        0,
+        Math.min(remaining.length, payoffIndex + direction),
+      );
+      updateColumns([
+        ...remaining.slice(0, target),
+        ...pair,
+        ...remaining.slice(target),
+      ]);
+      return;
+    }
     const target = index + direction;
     if (target < 0 || target >= columns.length) return;
     updateColumns(arrayMove(columns, index, target));
@@ -337,6 +414,37 @@ export function ProcessingPipelineLayoutManager({
     const oldIndex = columns.findIndex((column) => column.id === active.id);
     const newIndex = columns.findIndex((column) => column.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
+    if (
+      selectedBucket !== 'FUNDING' &&
+      PAYOFF_PAIR_IDS.includes(
+        active.id as (typeof PAYOFF_PAIR_IDS)[number],
+      )
+    ) {
+      if (
+        PAYOFF_PAIR_IDS.includes(
+          over.id as (typeof PAYOFF_PAIR_IDS)[number],
+        )
+      ) return;
+      const pair = PAYOFF_PAIR_IDS.map((id) =>
+        columns.find((column) => column.id === id),
+      ).filter((column): column is ProcessingLayoutColumn => Boolean(column));
+      const remaining = columns.filter(
+        (column) =>
+          !PAYOFF_PAIR_IDS.includes(
+            column.id as (typeof PAYOFF_PAIR_IDS)[number],
+          ),
+      );
+      const overIndex = remaining.findIndex(
+        (column) => column.id === over.id,
+      );
+      const target = oldIndex < newIndex ? overIndex + 1 : overIndex;
+      updateColumns([
+        ...remaining.slice(0, target),
+        ...pair,
+        ...remaining.slice(target),
+      ]);
+      return;
+    }
     updateColumns(arrayMove(columns, oldIndex, newIndex));
   };
 
@@ -693,6 +801,7 @@ export function ProcessingPipelineLayoutManager({
                               mandatory.has(column.id) ||
                               isOnlyVisibleBorrowerName
                             }
+                            linked={column.id === 'payoffExpiresAt'}
                             requirementLabel={
                               isOnlyVisibleBorrowerName
                                 ? 'At least one borrower name is required'

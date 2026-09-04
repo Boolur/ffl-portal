@@ -38,6 +38,7 @@ import { getTaskAttachmentDownloadUrl } from '@/app/actions/attachmentActions';
 import {
   PROCESSING_ITEM_STATUS_OPTIONS,
   PROCESSING_PIPELINE_STATUS_OPTIONS,
+  getProcessingPipelineLockedDefaults,
 } from '@/lib/processingPipeline';
 
 type DetailResult = Extract<
@@ -241,6 +242,7 @@ function buildEditDraft(details: DetailResult): ProcessingBorrowerDetailsInput {
     estimatedSigningAt: dateInputValue(details.processing.estimatedSigningAt),
     titleStatus: details.processing.titleStatus,
     payoffStatus: details.processing.payoffStatus,
+    payoffExpiresAt: dateInputValue(details.processing.payoffExpiresAt),
     hoiStatus: details.processing.hoiStatus,
     missingItemsCurrentStatus:
       details.processing.missingItemsCurrentStatus || '',
@@ -261,6 +263,7 @@ function EditField({
   required = false,
   multiline = false,
   placeholder,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -269,6 +272,7 @@ function EditField({
   required?: boolean;
   multiline?: boolean;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   const classes =
     'mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100';
@@ -285,6 +289,7 @@ function EditField({
           className={`${classes} min-h-24 resize-y`}
           placeholder={placeholder}
           required={required}
+          disabled={disabled}
         />
       ) : (
         <input
@@ -294,6 +299,7 @@ function EditField({
           className={classes}
           placeholder={placeholder}
           required={required}
+          disabled={disabled}
           min={type === 'number' ? 0 : undefined}
           step={type === 'number' ? 'any' : undefined}
         />
@@ -307,11 +313,13 @@ function EditSelect({
   value,
   options,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: string;
   options: ReadonlyArray<{ value: string; label: string }>;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className="block min-w-0">
@@ -321,7 +329,8 @@ function EditSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+        disabled={disabled}
+        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -509,6 +518,10 @@ export function ProcessingBorrowerWorkspace({
               <DetailField label="Days in status" value={details.processing.daysInStatus} />
               <DetailField label="Title" value={itemStatusLabel(details.processing.titleStatus)} />
               <DetailField label="Payoff" value={itemStatusLabel(details.processing.payoffStatus)} />
+              <DetailField
+                label="Payoff expiration"
+                value={formatDate(details.processing.payoffExpiresAt)}
+              />
               <DetailField label="HOI" value={itemStatusLabel(details.processing.hoiStatus)} />
               <DetailField label="CD sent" value={details.processing.cdSent ? 'Yes' : 'No'} />
             </DetailGrid>
@@ -696,6 +709,12 @@ export function ProcessingBorrowerWorkspace({
                 : option.value !== 'FUNDED' &&
                   !restructureStatusValues.has(option.value),
         );
+        const payoffLocked = Boolean(
+          getProcessingPipelineLockedDefaults(
+            draft.lender,
+            details.ownership.processingMethod,
+          )?.lockedFields.includes('payoffStatus'),
+        );
         return (
           <div className="space-y-4">
             <DetailCard title="Milestones" description="Workflow changes are validated and audited when saved." icon={Building2}>
@@ -748,8 +767,35 @@ export function ProcessingBorrowerWorkspace({
                   label="Payoff"
                   value={draft.payoffStatus}
                   options={PROCESSING_ITEM_STATUS_OPTIONS}
-                  onChange={(value) => patchDraft('payoffStatus', value as ProcessingBorrowerDetailsInput['payoffStatus'])}
+                  disabled={payoffLocked}
+                  onChange={(value) => {
+                    const payoffStatus =
+                      value as ProcessingBorrowerDetailsInput['payoffStatus'];
+                    setDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            payoffStatus,
+                            payoffExpiresAt:
+                              payoffStatus === 'RECEIVED'
+                                ? current.payoffExpiresAt
+                                : '',
+                          }
+                        : current,
+                    );
+                  }}
                 />
+                {draft.payoffStatus === 'RECEIVED' && !payoffLocked && (
+                  <EditField
+                    label="Payoff expiration"
+                    type="date"
+                    value={draft.payoffExpiresAt}
+                    onChange={(value) =>
+                      patchDraft('payoffExpiresAt', value)
+                    }
+                    required
+                  />
+                )}
                 <EditSelect
                   label="HOI"
                   value={draft.hoiStatus}
@@ -800,6 +846,10 @@ export function ProcessingBorrowerWorkspace({
               <DetailField label="Estimated signing" value={formatDate(details.processing.estimatedSigningAt)} />
               <DetailField label="Title" value={itemStatusLabel(details.processing.titleStatus)} />
               <DetailField label="Payoff" value={itemStatusLabel(details.processing.payoffStatus)} />
+              <DetailField
+                label="Payoff expiration"
+                value={formatDate(details.processing.payoffExpiresAt)}
+              />
               <DetailField label="HOI" value={itemStatusLabel(details.processing.hoiStatus)} />
               <DetailField label="Rate lock" value={details.processing.rateLock ? 'Yes' : 'No'} />
               <DetailField label="Lock expiration" value={formatDate(details.processing.rateLockExpiresAt)} />

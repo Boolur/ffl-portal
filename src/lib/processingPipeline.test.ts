@@ -12,6 +12,7 @@ import {
   getCdWarningStartsAt,
   getItemOrderedAt,
   getMortgageFirstPaymentDate,
+  getPayoffExpirationWarning,
   getProcessingPipelineAccess,
   getProcessingPipelineLeadSource,
   getProcessingPipelineLockedDefaults,
@@ -25,6 +26,7 @@ import {
   normalizeProcessingLender,
   parseOptionalBoolean,
   parseOptionalMoney,
+  resolvePayoffExpirationAt,
 } from './processingPipeline';
 import { canAccessPipelinePortal } from './pipelinePilot';
 
@@ -224,6 +226,72 @@ describe('processing pipeline values', () => {
       ProcessingItemStatus.RECEIVED,
       now,
     )).toBe(false);
+  });
+
+  it('escalates payoff expiration warnings at seven and three days', () => {
+    const now = new Date('2026-09-01T00:00:00.000Z');
+    expect(
+      getPayoffExpirationWarning(
+        ProcessingItemStatus.RECEIVED,
+        '2026-09-08T00:00:00.000Z',
+        now,
+      ),
+    ).toBe('warning');
+    expect(
+      getPayoffExpirationWarning(
+        ProcessingItemStatus.RECEIVED,
+        '2026-09-04T00:00:00.000Z',
+        now,
+      ),
+    ).toBe('danger');
+    expect(
+      getPayoffExpirationWarning(
+        ProcessingItemStatus.RECEIVED,
+        '2026-08-31T00:00:00.000Z',
+        now,
+      ),
+    ).toBe('danger');
+    expect(
+      getPayoffExpirationWarning(
+        ProcessingItemStatus.RECEIVED,
+        '2026-09-08T00:00:00.001Z',
+        now,
+      ),
+    ).toBe('none');
+    expect(
+      getPayoffExpirationWarning(
+        ProcessingItemStatus.ORDERED,
+        '2026-09-02T00:00:00.000Z',
+        now,
+      ),
+    ).toBe('none');
+  });
+
+  it('requires payoff expiration for Received and clears it otherwise', () => {
+    expect(() =>
+      resolvePayoffExpirationAt(ProcessingItemStatus.RECEIVED, ''),
+    ).toThrow(/required/i);
+    expect(() =>
+      resolvePayoffExpirationAt(
+        ProcessingItemStatus.RECEIVED,
+        '2026-02-30',
+      ),
+    ).toThrow(/required/i);
+    expect(
+      resolvePayoffExpirationAt(
+        ProcessingItemStatus.RECEIVED,
+        '2026-09-30',
+      )?.toISOString(),
+    ).toBe('2026-09-30T00:00:00.000Z');
+    expect(
+      resolvePayoffExpirationAt(
+        ProcessingItemStatus.ORDERED,
+        '2026-09-30',
+      ),
+    ).toBeNull();
+    expect(
+      resolvePayoffExpirationAt(ProcessingItemStatus.RECEIVED, '', true),
+    ).toBeNull();
   });
 
   it('warns seven days after appraisal order until a back date exists', () => {
