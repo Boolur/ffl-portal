@@ -1294,6 +1294,21 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       })
     : [];
   const actionedPendingStpTaskIds = new Set(actionedPendingStpRows.map((row) => row.plusOneTaskId));
+  const plusOneLoanIdSet = new Set(pendingCandidateTaskRows.map((task) => task.loan.id));
+  const plusOneLoanNumberSet = new Set(
+    pendingCandidateTaskRows
+      .flatMap((task) => [
+        normalizeAriveNumber(task.loan.loanNumber),
+        normalizeAriveNumber(loanNumberFromJson(task.submissionData)),
+      ])
+      .filter(Boolean)
+  );
+  const implicitPlusOneTaskRows = taskRows.filter((task) => (
+    (task.kind === TaskKind.SUBMIT_PROCESSING || task.kind === TaskKind.SUBMIT_QC) &&
+    !plusOneLoanIdSet.has(task.loan.id) &&
+    !plusOneLoanNumberSet.has(normalizeAriveNumber(task.loan.loanNumber)) &&
+    !plusOneLoanNumberSet.has(normalizeAriveNumber(loanNumberFromJson(task.submissionData)))
+  ));
   const pendingStpTaskRows = pendingCandidateTaskRows.filter((task) => {
     const normalizedLoanNumber = normalizeAriveNumber(loanNumberFromJson(task.submissionData) || task.loan.loanNumber);
     return (
@@ -1304,8 +1319,12 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
   });
 
   const pendingStp = pendingStpTaskRows.length;
-  const totals = { plusOne, disclosures, pendingStp, processing, fundings };
+  const totals = { plusOne: plusOne + implicitPlusOneTaskRows.length, disclosures, pendingStp, processing, fundings };
   const boardMetrics = createBoardMetrics(taskRows, fundingRows, pendingStpTaskRows);
+  for (const task of implicitPlusOneTaskRows) {
+    boardMetrics.plusOne.volumeTotal += money(task.loan.amount) || 0;
+    boardMetrics.plusOne.revenueTotal += projectedRevenueFromJson(task.submissionData) || 0;
+  }
   const trend = buildTrendBuckets(trendStart, trendEnd, trendGranularity);
   for (const task of trendTaskRows) {
     const milestone = taskKindToMilestone(task.kind);
@@ -1347,6 +1366,12 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         if (row) row.fundings += 1;
       }
     }
+    for (const task of implicitPlusOneTaskRows) {
+      for (const officerId of uniqueLoanOfficerIds(task.loan)) {
+        const row = teamMap.get(officerId);
+        if (row) row.plusOne += 1;
+      }
+    }
     for (const task of pendingStpTaskRows) {
       for (const officerId of uniqueLoanOfficerIds(task.loan)) {
         const row = teamMap.get(officerId);
@@ -1356,7 +1381,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
   } else {
     const row = teamMap.get(actor.userId);
     if (row) {
-      row.plusOne = plusOne;
+      row.plusOne = totals.plusOne;
       row.disclosures = disclosures;
       row.pendingStp = pendingStp;
       row.processing = processing;
@@ -1561,6 +1586,35 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
       },
     ];
   });
+  const implicitPlusOneRows: PipelineMilestoneRow[] = implicitPlusOneTaskRows.map((task) => ({
+    id: task.id,
+    loanId: task.loan.id,
+    milestone: 'plusOne',
+    milestoneLabel: MILESTONE_LABELS.plusOne,
+    borrowerName: task.loan.borrowerName,
+    loanNumber: task.loan.loanNumber,
+    loanOfficerName: task.loan.loanOfficer.name,
+    sharedLoanOfficerNames: sharedLoanOfficerNames(task.loan),
+    amount: money(task.loan.amount),
+    revenue: projectedRevenueFromJson(task.submissionData),
+    leadSource: leadSourceFromJson(task.submissionData),
+    lender: lenderFromJson(task.submissionData),
+    status: task.status,
+    occurredAt: task.createdAt.toISOString(),
+    updateSignal: taskUpdateSignal(task),
+    availableSubmissions: availableSubmissions(task.loan.id, 'plusOne'),
+    fileDetails: {
+      loan: loanFileDetails(task.loan, task.submissionData),
+      task: {
+        title: task.title,
+        queueStage: taskQueueStage(task),
+        submittedFields: submittedFieldsFromJson(task.submissionData),
+        notes: parseTaskNotesFromJson(task.submissionData),
+        checklistItems: checklistItemsFromJson(task.submissionData),
+      },
+      payroll: null,
+    },
+  }));
   const pendingStpRows: PipelineMilestoneRow[] = pendingStpTaskRows.map((task) => ({
     id: task.id,
     loanId: task.loan.id,
@@ -1634,13 +1688,15 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     },
   }));
   const bucketRows = {
-    plusOne: allTaskRows.filter((row) => row.milestone === 'plusOne').slice(0, 100),
+    plusOne: [...allTaskRows.filter((row) => row.milestone === 'plusOne'), ...implicitPlusOneRows]
+      .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+      .slice(0, 100),
     disclosures: allTaskRows.filter((row) => row.milestone === 'disclosures').slice(0, 100),
     pendingStp: pendingStpRows,
     processing: allTaskRows.filter((row) => row.milestone === 'processing').slice(0, 100),
     fundings: allFundingRows.slice(0, 100),
   };
-  const allPipelineRows = [...allTaskRows, ...pendingStpRows, ...allFundingRows];
+  const allPipelineRows = [...allTaskRows, ...implicitPlusOneRows, ...pendingStpRows, ...allFundingRows];
 
   return {
     filters: {

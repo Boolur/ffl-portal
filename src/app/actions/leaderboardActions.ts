@@ -894,6 +894,15 @@ export async function getLeaderboardReport(
       })
     : [];
   const actionedPendingStpTaskIds = new Set(actionedPendingStpRows.map((row) => row.plusOneTaskId));
+  const plusOneLoanIdSet = new Set(pendingCandidateTaskRows.map((task) => task.loan.id));
+  const plusOneLoanNumberSet = new Set(
+    pendingCandidateTaskRows
+      .flatMap((task) => [
+        normalizeAriveNumber(task.loan.loanNumber),
+        normalizeAriveNumber(loanNumberFromJson(task.submissionData)),
+      ])
+      .filter(Boolean)
+  );
 
   const rowMap = new Map<string, LeaderboardOfficerRow>();
   for (const officer of loanOfficers) {
@@ -952,6 +961,43 @@ export async function getLeaderboardReport(
       program: task.loan.program,
       propertyAddress: task.loan.propertyAddress,
     });
+
+    const processingCountsAsPlusOne =
+      milestone === 'processing' &&
+      !plusOneLoanIdSet.has(task.loan.id) &&
+      !plusOneLoanNumberSet.has(normalizeAriveNumber(task.loan.loanNumber)) &&
+      !plusOneLoanNumberSet.has(normalizeAriveNumber(loanNumberFromJson(task.submissionData)));
+    if (processingCountsAsPlusOne) {
+      addMetric(row, 'plusOne', amount, revenue);
+      addMetric(lenderRow, 'plusOne', amount, revenue);
+      addMetric(leadSourceRow, 'plusOne', amount, revenue);
+      detailRows.push({
+        id: task.id,
+        loanId: task.loan.id,
+        creditedLoanOfficerId,
+        primaryLoanOfficerId: task.loan.loanOfficerId,
+        secondaryLoanOfficerId: task.loan.secondaryLoanOfficerId || null,
+        lenderKey: lenderRow.lenderKey,
+        lenderName: lenderRow.lenderName,
+        leadSourceKey: leadSourceRow.leadSourceKey,
+        leadSourceName: leadSourceRow.leadSourceName,
+        milestone: 'plusOne',
+        milestoneLabel: MILESTONE_LABELS.plusOne,
+        borrowerName: task.loan.borrowerName,
+        loanNumber: task.loan.loanNumber,
+        amount,
+        revenue,
+        leadSource: leadSourceRow.leadSourceName,
+        leadVendor,
+        lender: lenderRow.lenderName,
+        status: task.status,
+        occurredAt: task.createdAt.toISOString(),
+        primaryLoanOfficerName: task.loan.loanOfficer.name,
+        secondaryLoanOfficerName: task.loan.secondaryLoanOfficer?.name || null,
+        program: task.loan.program,
+        propertyAddress: task.loan.propertyAddress,
+      });
+    }
   }
 
   for (const task of pendingCandidateTaskRows) {
@@ -1801,7 +1847,8 @@ export async function updateLeaderboardLoanDetails(
       if (!task) throw new Error('Leaderboard task not found.');
       const milestone = taskKindToMilestone(task.kind);
       const isPreProcessingPlusOneEdit = input.milestone === 'disclosures' && milestone === 'plusOne';
-      if (milestone !== input.milestone && !isPreProcessingPlusOneEdit) {
+      const isProcessingBackedPlusOneEdit = input.milestone === 'plusOne' && milestone === 'processing';
+      if (milestone !== input.milestone && !isPreProcessingPlusOneEdit && !isProcessingBackedPlusOneEdit) {
         throw new Error('The selected task no longer matches this leaderboard row.');
       }
 
