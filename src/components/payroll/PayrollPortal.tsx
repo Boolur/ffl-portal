@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState, useTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Banknote, Building2, Bug, Calculator, CheckCircle2, Clock, Droplets, DollarSign, Edit3, FileCheck2, FilePlus2, Landmark, Loader2, Megaphone, Percent, Plus, ReceiptText, RefreshCw, Send, ShieldCheck, Upload, WalletCards, Waves, X } from 'lucide-react';
-import { PayrollCompPlanType, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
+import { PayrollCompPlanType, PayrollCompRequestStatus, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
 import {
   getPayrollRequestPreview,
   markMyPayrollRequestsFinished,
@@ -49,6 +49,18 @@ type Props = {
     leadProvidedBy: PayrollLeadProvidedBy[];
   };
   submissionWindow: PayrollSubmissionWindowState;
+};
+
+type KpiBreakdown = {
+  title: string;
+  value: string;
+  subtitle: string;
+  rows: Array<{
+    label: string;
+    detail: string;
+    value: string;
+  }>;
+  emptyText: string;
 };
 
 type FormState = {
@@ -491,19 +503,31 @@ function PayrollCompletionCard({
   );
 }
 
+function formatPeriodRange(start: string, end: string) {
+  const displayEnd = new Date(end);
+  displayEnd.setDate(displayEnd.getDate() - 1);
+  return `${formatDate(start)} - ${formatDate(displayEnd.toISOString())}`;
+}
+
 function Kpi({
   title,
   value,
   subtitle,
   Icon,
+  onClick,
 }: {
   title: string;
   value: string;
   subtitle: string;
   Icon: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-emerald-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+    >
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{title}</p>
@@ -512,7 +536,7 @@ function Kpi({
         </div>
         <Icon className="h-5 w-5 text-emerald-600" />
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -604,6 +628,7 @@ export function PayrollPortal({
     reimbursementTarget: PayrollReimbursementTarget;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [kpiBreakdown, setKpiBreakdown] = useState<KpiBreakdown | null>(null);
   const [submissionWindowState, setSubmissionWindowState] = useState(submissionWindow);
   const [isPending, startTransition] = useTransition();
   const selectedLeadRoutesRetail = userClassification === PayrollUserClassification.BROKER && (
@@ -623,6 +648,18 @@ export function PayrollPortal({
     : submissionWindowState.isLocked
       ? `Payroll requests are marked finished for ${submissionWindowState.activeWindow?.label ?? 'this window'}.`
       : null;
+  const currentPayPeriodLabel = nextPaycheck
+    ? formatPeriodRange(nextPaycheck.periodStart, nextPaycheck.periodEnd)
+    : 'Current pay period';
+  const periodRows = useMemo(() => {
+    if (!nextPaycheck) return rows;
+    const start = new Date(nextPaycheck.periodStart).getTime();
+    const end = new Date(nextPaycheck.periodEnd).getTime();
+    return rows.filter((row) => {
+      const submittedAt = new Date(row.submittedAt).getTime();
+      return submittedAt >= start && submittedAt < end;
+    });
+  }, [nextPaycheck, rows]);
   const figureNftyRequired = useMemo(() => isFigureNftyLender(form.lender), [form.lender]);
   const lenderStats = useMemo(() => {
     const counts = new Map<string, number>();
@@ -702,6 +739,45 @@ export function PayrollPortal({
   const shouldHighlight = (key: RequiredFieldKey) => {
     if (!missingFields.some((field) => field.key === key)) return false;
     return attemptedSubmit || touchedFields.has(key);
+  };
+  const requestBreakdownRows = (requestRows: PayrollRequestRow[]) => requestRows.map((row) => ({
+    label: `${row.loanNumber} · ${row.borrowerName}`,
+    detail: `${row.lender} · ${payrollStatusLabel(row.status)} · submitted ${formatDate(row.submittedAt)}`,
+    value: formatCurrency(row.expectedRevenue),
+  }));
+  const openRequestBreakdown = (
+    title: string,
+    value: string,
+    requestRows: PayrollRequestRow[],
+    emptyText: string,
+  ) => {
+    setKpiBreakdown({
+      title,
+      value,
+      subtitle: currentPayPeriodLabel,
+      rows: requestBreakdownRows(requestRows),
+      emptyText,
+    });
+  };
+  const openPaycheckBreakdown = () => {
+    setKpiBreakdown({
+      title: 'Next Paycheck',
+      value: formatCurrency(nextPaycheck?.totalAmount ?? 0),
+      subtitle: nextPaycheck ? `Paycheck ${formatDate(nextPaycheck.paycheckDate)} · ${currentPayPeriodLabel}` : 'Next 1st/16th payroll',
+      rows: [
+        {
+          label: 'Salary',
+          detail: currentPayPeriodLabel,
+          value: formatCurrency(nextPaycheck?.salaryAmount ?? 0),
+        },
+        {
+          label: 'Commission',
+          detail: 'Approved and paid request splits in this pay period',
+          value: formatCurrency(nextPaycheck?.commissionAmount ?? 0),
+        },
+      ],
+      emptyText: 'No paycheck details available yet.',
+    });
   };
 
   const handleMismoFile = async (file: File | null) => {
@@ -823,17 +899,57 @@ export function PayrollPortal({
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Kpi title="Submitted" value={formatCurrency(summary.submittedRevenue)} subtitle={`${summary.totalRequests} requests`} Icon={ReceiptText} />
-        <Kpi title="Pending" value={String(summary.pendingCount)} subtitle={formatCurrency(summary.pendingRevenue)} Icon={Clock} />
-        <Kpi title="Approved" value={String(summary.approvedCount)} subtitle={formatCurrency(summary.approvedRevenue)} Icon={CheckCircle2} />
-        <Kpi title="Paid" value={String(summary.paidCount)} subtitle={formatCurrency(summary.paidRevenue)} Icon={Banknote} />
+        <Kpi
+          title="Submitted"
+          value={formatCurrency(summary.submittedRevenue)}
+          subtitle={`${summary.totalRequests} requests`}
+          Icon={ReceiptText}
+          onClick={() => openRequestBreakdown('Submitted Revenue', formatCurrency(summary.submittedRevenue), periodRows, 'No submitted requests in this pay period.')}
+        />
+        <Kpi
+          title="Pending"
+          value={String(summary.pendingCount)}
+          subtitle={formatCurrency(summary.pendingRevenue)}
+          Icon={Clock}
+          onClick={() => openRequestBreakdown(
+            'Pending Requests',
+            formatCurrency(summary.pendingRevenue),
+            periodRows.filter((row) => row.status === PayrollCompRequestStatus.PENDING_REVIEW),
+            'No pending requests in this pay period.'
+          )}
+        />
+        <Kpi
+          title="Approved"
+          value={String(summary.approvedCount)}
+          subtitle={formatCurrency(summary.approvedRevenue)}
+          Icon={CheckCircle2}
+          onClick={() => openRequestBreakdown(
+            'Approved Requests',
+            formatCurrency(summary.approvedRevenue),
+            periodRows.filter((row) => row.status === PayrollCompRequestStatus.APPROVED),
+            'No approved requests in this pay period.'
+          )}
+        />
+        <Kpi
+          title="Paid"
+          value={String(summary.paidCount)}
+          subtitle={formatCurrency(summary.paidRevenue)}
+          Icon={Banknote}
+          onClick={() => openRequestBreakdown(
+            'Paid Requests',
+            formatCurrency(summary.paidRevenue),
+            periodRows.filter((row) => row.status === PayrollCompRequestStatus.PAID),
+            'No paid requests in this pay period.'
+          )}
+        />
         <div className="space-y-2">
           <PayrollCompletionCard state={submissionWindowState} pending={isPending} onFinish={finishPayrollRequests} />
           <Kpi
             title="Next Paycheck"
             value={formatCurrency(nextPaycheck?.totalAmount ?? 0)}
-            subtitle={nextPaycheck ? `${formatDate(nextPaycheck.paycheckDate)} · salary ${formatCurrency(nextPaycheck.salaryAmount)} + commission ${formatCurrency(nextPaycheck.commissionAmount)}` : 'Next 1st/16th payroll'}
+            subtitle={nextPaycheck ? formatDate(nextPaycheck.paycheckDate) : 'Next 1st/16th payroll'}
             Icon={DollarSign}
+            onClick={openPaycheckBreakdown}
           />
         </div>
       </div>
@@ -945,6 +1061,46 @@ export function PayrollPortal({
           />
         </div>
       </div>
+
+      {kpiBreakdown && (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Payroll Breakdown</p>
+                <h2 className="mt-1 text-lg font-bold text-slate-900">{kpiBreakdown.title}</h2>
+                <p className="mt-1 text-sm text-slate-500">{kpiBreakdown.subtitle}</p>
+              </div>
+              <button type="button" className="app-icon-btn" aria-label="Close breakdown" onClick={() => setKpiBreakdown(null)}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-6 py-5">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Total</p>
+                <p className="mt-1 text-2xl font-bold text-slate-950">{kpiBreakdown.value}</p>
+              </div>
+              <div className="mt-4 max-h-80 space-y-2 overflow-y-auto pr-1">
+                {kpiBreakdown.rows.length === 0 ? (
+                  <p className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-5 text-center text-sm font-medium text-slate-500">
+                    {kpiBreakdown.emptyText}
+                  </p>
+                ) : (
+                  kpiBreakdown.rows.map((row, index) => (
+                    <div key={`${row.label}-${row.value}-${index}`} className="flex items-start justify-between gap-4 rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-900">{row.label}</p>
+                        <p className="mt-0.5 text-xs font-medium text-slate-500">{row.detail}</p>
+                      </div>
+                      <p className="shrink-0 text-sm font-bold text-slate-950">{row.value}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
