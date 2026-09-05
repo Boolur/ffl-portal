@@ -15,7 +15,22 @@ export type LoginAuditListItem = {
   reason: string | null;
   ipAddress: string | null;
   userAgent: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
   createdAt: string;
+};
+
+export type LoginLocationGroup = {
+  key: string;
+  email: string;
+  userName: string | null;
+  ipAddress: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  loginCount: number;
+  lastLoginAt: string;
 };
 
 async function assertSecurityAuditAdmin(): Promise<void> {
@@ -83,6 +98,9 @@ export async function listLoginAuditEvents(params?: {
         reason: true,
         ipAddress: true,
         userAgent: true,
+        city: true,
+        region: true,
+        country: true,
         createdAt: true,
         user: { select: { name: true } },
       },
@@ -99,10 +117,92 @@ export async function listLoginAuditEvents(params?: {
       reason: row.reason,
       ipAddress: row.ipAddress,
       userAgent: row.userAgent,
+      city: row.city,
+      region: row.region,
+      country: row.country,
       createdAt: row.createdAt.toISOString(),
     })),
     total,
     page,
     pageSize,
   };
+}
+
+export async function listLoginLocationGroups(params?: {
+  query?: string;
+  days?: number | null;
+}): Promise<LoginLocationGroup[]> {
+  await assertSecurityAuditAdmin();
+
+  const query = params?.query?.trim().slice(0, 320) ?? '';
+  const days =
+    params?.days === null
+      ? null
+      : Math.min(Math.max(params?.days ?? 30, 1), 365);
+  const createdAt = days
+    ? { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) }
+    : undefined;
+  const where: Prisma.LoginAuditWhereInput = {
+    outcome: 'SUCCESS',
+    ...(createdAt ? { createdAt } : {}),
+    ...(query
+      ? {
+          OR: [
+            { email: { contains: query, mode: 'insensitive' } },
+            { ipAddress: { contains: query, mode: 'insensitive' } },
+            { city: { contains: query, mode: 'insensitive' } },
+            { region: { contains: query, mode: 'insensitive' } },
+            { country: { contains: query, mode: 'insensitive' } },
+            { user: { name: { contains: query, mode: 'insensitive' } } },
+          ],
+        }
+      : {}),
+  };
+
+  const groups = await prisma.loginAudit.groupBy({
+    by: ['userId', 'email', 'ipAddress', 'city', 'region', 'country'],
+    where,
+    _count: { _all: true },
+    _max: { createdAt: true },
+    orderBy: { _max: { createdAt: 'desc' } },
+    take: 500,
+  });
+  const userIds = Array.from(
+    new Set(
+      groups
+        .map((group) => group.userId)
+        .filter((userId): userId is string => Boolean(userId)),
+    ),
+  );
+  const users =
+    userIds.length > 0
+      ? await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+  const namesById = new Map(users.map((user) => [user.id, user.name]));
+
+  return groups.flatMap((group) => {
+    if (!group._max.createdAt) return [];
+    return [
+      {
+        key: [
+          group.userId ?? group.email,
+          group.ipAddress ?? 'unknown',
+          group.city ?? '',
+          group.region ?? '',
+          group.country ?? '',
+        ].join('|'),
+        email: group.email,
+        userName: group.userId ? namesById.get(group.userId) ?? null : null,
+        ipAddress: group.ipAddress,
+        city: group.city,
+        region: group.region,
+        country: group.country,
+        loginCount: group._count._all,
+        lastLoginAt: group._max.createdAt.toISOString(),
+      },
+    ];
+  });
 }

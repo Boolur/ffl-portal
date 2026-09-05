@@ -877,10 +877,14 @@ model LoginAudit {
   reason    String?
   ipAddress String?
   userAgent String?
+  city      String?
+  region    String?
+  country   String?
   createdAt DateTime @default(now())
 
   @@index([createdAt])
   @@index([email, createdAt])
+  @@index([ipAddress, createdAt])
   @@index([userId, createdAt])
 }
 

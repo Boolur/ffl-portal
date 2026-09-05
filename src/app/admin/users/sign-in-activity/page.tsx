@@ -9,15 +9,19 @@ import { UserManagementNav } from '@/components/admin/users/UserManagementNav';
 import { FormatDate } from '@/components/ui/FormatDate';
 import {
   listLoginAuditEvents,
+  listLoginLocationGroups,
   type LoginAuditListItem,
+  type LoginLocationGroup,
 } from '@/app/actions/loginAuditActions';
 import type { LoginAuditOutcome } from '@/lib/loginAudit';
+import { formatLoginLocation, isHqIp } from '@/lib/loginLocation';
 
 type SearchParams = {
   query?: string;
   outcome?: string;
   days?: string;
   page?: string;
+  view?: string;
 };
 
 const FAILURE_LABELS: Record<string, string> = {
@@ -58,13 +62,14 @@ function describeUserAgent(userAgent: string | null): string {
 }
 
 function pageHref(
-  params: { query: string; outcome: string; days: string },
+  params: { query: string; outcome: string; days: string; view: string },
   page: number,
 ): string {
   const search = new URLSearchParams();
   if (params.query) search.set('query', params.query);
   if (params.outcome !== 'ALL') search.set('outcome', params.outcome);
   if (params.days !== '30') search.set('days', params.days);
+  if (params.view === 'SOURCES') search.set('view', params.view);
   if (page > 1) search.set('page', String(page));
   const suffix = search.toString();
   return `/admin/users/sign-in-activity${suffix ? `?${suffix}` : ''}`;
@@ -94,15 +99,28 @@ export default async function SignInActivityPage({
     ? rawParams.days!
     : '30';
   const days = daysValue === 'ALL' ? null : Number(daysValue);
+  const view = rawParams.view === 'SOURCES' ? 'SOURCES' : 'EVENTS';
   const page = Math.max(Number.parseInt(rawParams.page ?? '1', 10) || 1, 1);
-  const result = await listLoginAuditEvents({
-    query,
-    outcome,
-    days,
-    page,
-  });
-  const pageCount = Math.max(Math.ceil(result.total / result.pageSize), 1);
-  const hrefParams = { query, outcome, days: daysValue };
+  const result =
+    view === 'EVENTS'
+      ? await listLoginAuditEvents({
+          query,
+          outcome,
+          days,
+          page,
+        })
+      : null;
+  const locationGroups =
+    view === 'SOURCES'
+      ? await listLoginLocationGroups({
+          query,
+          days,
+        })
+      : null;
+  const pageCount = result
+    ? Math.max(Math.ceil(result.total / result.pageSize), 1)
+    : 1;
+  const hrefParams = { query, outcome, days: daysValue, view };
 
   return (
     <DashboardShell
@@ -120,11 +138,45 @@ export default async function SignInActivityPage({
       </div>
       <UserManagementNav showSignInActivity />
 
+      <div
+        className="mb-4 inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
+        aria-label="Sign-in activity views"
+      >
+        <Link
+          href={pageHref({ ...hrefParams, view: 'EVENTS' }, 1)}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+            view === 'EVENTS'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          Activity log
+        </Link>
+        <Link
+          href={pageHref(
+            { ...hrefParams, view: 'SOURCES', outcome: 'ALL' },
+            1,
+          )}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+            view === 'SOURCES'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          People &amp; locations
+        </Link>
+      </div>
+
       <div className="app-surface-card overflow-hidden">
         <form
           method="get"
-          className="grid gap-3 border-b border-slate-200 p-4 md:grid-cols-[minmax(220px,1fr)_180px_160px_auto]"
+          className={`grid gap-3 border-b border-slate-200 p-4 ${
+            view === 'EVENTS'
+              ? 'md:grid-cols-[minmax(220px,1fr)_180px_160px_auto]'
+              : 'md:grid-cols-[minmax(220px,1fr)_160px_auto]'
+          }`}
         >
+          {view === 'SOURCES' && <input type="hidden" name="view" value="SOURCES" />}
           <div>
             <label htmlFor="activity-query" className="sr-only">
               Search sign-in activity
@@ -134,24 +186,26 @@ export default async function SignInActivityPage({
               name="query"
               defaultValue={query}
               className="app-input w-full"
-              placeholder="Search name, email, or IP"
+              placeholder="Search name, email, IP, or location"
             />
           </div>
-          <div>
-            <label htmlFor="activity-outcome" className="sr-only">
-              Sign-in result
-            </label>
-            <select
-              id="activity-outcome"
-              name="outcome"
-              defaultValue={outcome}
-              className="app-input w-full"
-            >
-              <option value="ALL">All results</option>
-              <option value="SUCCESS">Successful</option>
-              <option value="FAILURE">Failed</option>
-            </select>
-          </div>
+          {view === 'EVENTS' && (
+            <div>
+              <label htmlFor="activity-outcome" className="sr-only">
+                Sign-in result
+              </label>
+              <select
+                id="activity-outcome"
+                name="outcome"
+                defaultValue={outcome}
+                className="app-input w-full"
+              >
+                <option value="ALL">All results</option>
+                <option value="SUCCESS">Successful</option>
+                <option value="FAILURE">Failed</option>
+              </select>
+            </div>
+          )}
           <div>
             <label htmlFor="activity-days" className="sr-only">
               Time range
@@ -174,7 +228,11 @@ export default async function SignInActivityPage({
               Apply
             </button>
             <Link
-              href="/admin/users/sign-in-activity"
+              href={
+                view === 'SOURCES'
+                  ? '/admin/users/sign-in-activity?view=SOURCES'
+                  : '/admin/users/sign-in-activity'
+              }
               className="app-btn-secondary"
             >
               Reset
@@ -182,73 +240,106 @@ export default async function SignInActivityPage({
           </div>
         </form>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3 text-sm text-slate-600">
-          <span>
-            {result.total.toLocaleString()} recorded{' '}
-            {result.total === 1 ? 'attempt' : 'attempts'}
-          </span>
-          <span>
-            Page {Math.min(result.page, pageCount)} of {pageCount}
-          </span>
-        </div>
+        {result && (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3 text-sm text-slate-600">
+              <span>
+                {result.total.toLocaleString()} recorded{' '}
+                {result.total === 1 ? 'attempt' : 'attempts'}
+              </span>
+              <span>
+                Page {Math.min(result.page, pageCount)} of {pageCount}
+              </span>
+            </div>
 
-        {result.items.length === 0 ? (
-          <div className="px-6 py-12 text-center text-sm text-slate-500">
-            No sign-in activity matches these filters. Activity begins after
-            this feature is deployed.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="px-5 py-3 text-left">Result</th>
-                  <th className="px-5 py-3 text-left">Account</th>
-                  <th className="px-5 py-3 text-left">IP address</th>
-                  <th className="px-5 py-3 text-left">Device</th>
-                  <th className="px-5 py-3 text-right">Time</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {result.items.map((event) => (
-                  <ActivityRow key={event.id} event={event} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+            {result.items.length === 0 ? (
+              <EmptyState />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="px-5 py-3 text-left">Result</th>
+                      <th className="px-5 py-3 text-left">Account</th>
+                      <th className="px-5 py-3 text-left">IP address</th>
+                      <th className="px-5 py-3 text-left">Location</th>
+                      <th className="px-5 py-3 text-left">Device</th>
+                      <th className="px-5 py-3 text-right">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {result.items.map((event) => (
+                      <ActivityRow key={event.id} event={event} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {pageCount > 1 && (
+              <nav
+                aria-label="Sign-in activity pages"
+                className="flex items-center justify-between border-t border-slate-200 px-5 py-4"
+              >
+                {result.page > 1 ? (
+                  <Link
+                    href={pageHref(hrefParams, result.page - 1)}
+                    className="app-btn-secondary"
+                  >
+                    Previous
+                  </Link>
+                ) : (
+                  <span />
+                )}
+                {result.page < pageCount && (
+                  <Link
+                    href={pageHref(hrefParams, result.page + 1)}
+                    className="app-btn-secondary"
+                  >
+                    Next
+                  </Link>
+                )}
+              </nav>
+            )}
+          </>
         )}
 
-        {pageCount > 1 && (
-          <nav
-            aria-label="Sign-in activity pages"
-            className="flex items-center justify-between border-t border-slate-200 px-5 py-4"
-          >
-            {result.page > 1 ? (
-              <Link
-                href={pageHref(hrefParams, result.page - 1)}
-                className="app-btn-secondary"
-              >
-                Previous
-              </Link>
+        {locationGroups && (
+          <>
+            <div className="border-b border-slate-100 px-5 py-3 text-sm text-slate-600">
+              {locationGroups.length.toLocaleString()} person/IP{' '}
+              {locationGroups.length === 1 ? 'combination' : 'combinations'}
+            </div>
+            {locationGroups.length === 0 ? (
+              <EmptyState />
             ) : (
-              <span />
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="px-5 py-3 text-left">Account</th>
+                      <th className="px-5 py-3 text-left">IP address</th>
+                      <th className="px-5 py-3 text-left">Location</th>
+                      <th className="px-5 py-3 text-right">Logins</th>
+                      <th className="px-5 py-3 text-right">Last sign-in</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {locationGroups.map((group) => (
+                      <LocationGroupRow key={group.key} group={group} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
-            {result.page < pageCount && (
-              <Link
-                href={pageHref(hrefParams, result.page + 1)}
-                className="app-btn-secondary"
-              >
-                Next
-              </Link>
-            )}
-          </nav>
+          </>
         )}
       </div>
 
       <p className="mt-4 text-xs text-slate-500">
         IP addresses identify network connections, not a person&apos;s precise
-        physical location. Device labels are inferred from the browser&apos;s
-        user-agent information.
+        physical location. City and region are approximate network locations
+        supplied by Vercel and may reflect a VPN, mobile carrier, or ISP.
       </p>
     </DashboardShell>
   );
@@ -283,6 +374,14 @@ function ActivityRow({ event }: { event: LoginAuditListItem }) {
       <td className="whitespace-nowrap px-5 py-3 align-top font-mono text-xs text-slate-700">
         {event.ipAddress ?? 'Unavailable'}
       </td>
+      <td className="whitespace-nowrap px-5 py-3 align-top text-xs">
+        <LocationLabel
+          ipAddress={event.ipAddress}
+          city={event.city}
+          region={event.region}
+          country={event.country}
+        />
+      </td>
       <td
         className="max-w-[260px] px-5 py-3 align-top text-xs text-slate-700"
         title={event.userAgent ?? undefined}
@@ -296,5 +395,68 @@ function ActivityRow({ event }: { event: LoginAuditListItem }) {
         <FormatDate date={event.createdAt} mode="datetime" />
       </td>
     </tr>
+  );
+}
+
+function LocationGroupRow({ group }: { group: LoginLocationGroup }) {
+  return (
+    <tr className="hover:bg-slate-50/70">
+      <td className="px-5 py-3 align-top">
+        {group.userName && (
+          <div className="font-medium text-slate-900">{group.userName}</div>
+        )}
+        <div className="text-xs text-slate-600">{group.email}</div>
+      </td>
+      <td className="whitespace-nowrap px-5 py-3 align-top font-mono text-xs text-slate-700">
+        {group.ipAddress ?? 'Unavailable'}
+      </td>
+      <td className="whitespace-nowrap px-5 py-3 align-top text-xs">
+        <LocationLabel
+          ipAddress={group.ipAddress}
+          city={group.city}
+          region={group.region}
+          country={group.country}
+        />
+      </td>
+      <td className="px-5 py-3 text-right align-top font-semibold text-slate-700">
+        {group.loginCount.toLocaleString()}
+      </td>
+      <td className="whitespace-nowrap px-5 py-3 text-right align-top text-xs text-slate-500">
+        <FormatDate date={group.lastLoginAt} mode="datetime" />
+      </td>
+    </tr>
+  );
+}
+
+function LocationLabel({
+  ipAddress,
+  city,
+  region,
+  country,
+}: {
+  ipAddress: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+}) {
+  const hq = isHqIp(ipAddress);
+  return (
+    <span
+      className={
+        hq
+          ? 'inline-flex rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 font-semibold text-blue-700'
+          : 'text-slate-700'
+      }
+    >
+      {formatLoginLocation({ ipAddress, city, region, country })}
+    </span>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="px-6 py-12 text-center text-sm text-slate-500">
+      No sign-in activity matches these filters.
+    </div>
   );
 }

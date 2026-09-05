@@ -15,6 +15,9 @@ export async function recordLoginAttempt(input: {
   reason?: LoginFailureReason;
   ipAddress?: string | null;
   userAgent?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
 }): Promise<void> {
   try {
     await prisma.loginAudit.create({
@@ -25,6 +28,9 @@ export async function recordLoginAttempt(input: {
         reason: input.reason ?? null,
         ipAddress: input.ipAddress?.slice(0, 64) ?? null,
         userAgent: input.userAgent?.slice(0, 512) ?? null,
+        city: input.city?.slice(0, 120) ?? null,
+        region: input.region?.slice(0, 120) ?? null,
+        country: input.country?.slice(0, 2).toUpperCase() ?? null,
       },
     });
   } catch (error) {

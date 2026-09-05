@@ -12,6 +12,9 @@ describe('getRequestClientMeta', () => {
     ).toEqual({
       ipAddress: '203.0.113.10',
       userAgent: 'Example Browser',
+      city: null,
+      region: null,
+      country: null,
     });
   });
 
@@ -27,6 +30,9 @@ describe('getRequestClientMeta', () => {
     expect(getRequestClientMeta({})).toEqual({
       ipAddress: null,
       userAgent: null,
+      city: null,
+      region: null,
+      country: null,
     });
   });
 
@@ -36,5 +42,19 @@ describe('getRequestClientMeta', () => {
     });
 
     expect(result.userAgent).toHaveLength(512);
+  });
+
+  it('captures and decodes Vercel location headers', () => {
+    const result = getRequestClientMeta({
+      'x-vercel-ip-city': 'San%20Francisco',
+      'x-vercel-ip-country-region': 'CA',
+      'x-vercel-ip-country': 'us',
+    });
+
+    expect(result).toMatchObject({
+      city: 'San Francisco',
+      region: 'CA',
+      country: 'US',
+    });
   });
 });
