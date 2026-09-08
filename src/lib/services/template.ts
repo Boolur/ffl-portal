@@ -16,7 +16,7 @@
  */
 
 import type { Lead, User, LeadCampaign, LeadVendor } from '@prisma/client';
-import { coalesceMilitaryFlag } from '@/lib/militaryFlag';
+import { coalesceMilitaryFlag } from '../militaryFlag';
 
 // ---------------------------------------------------------------------------
 // Context shapes
@@ -252,6 +252,22 @@ const DATE_TOKENS: ReadonlyArray<{ path: string; desc: string }> = [
 const LEAD_COMPUTED_TOKENS: ReadonlyArray<{ key: string; desc: string }> = [
   { key: 'fullName', desc: 'Borrower full name ("First Last")' },
   {
+    key: 'mailingOrPropertyAddress',
+    desc: 'Mailing street, falling back to subject property street',
+  },
+  {
+    key: 'mailingOrPropertyCity',
+    desc: 'Mailing city, falling back to subject property city',
+  },
+  {
+    key: 'mailingOrPropertyState',
+    desc: 'Mailing state, falling back to subject property state',
+  },
+  {
+    key: 'mailingOrPropertyZip',
+    desc: 'Mailing ZIP, falling back to subject property ZIP',
+  },
+  {
     key: 'veteranBool',
     desc:
       'Veteran as a JSON literal (true/false/null) — use UNQUOTED in a JSON body, e.g. "veteran": {{lead.veteranBool}}',
@@ -381,6 +397,18 @@ function readFromLead(path: string[], lead: TemplateLead): unknown {
   const [key] = path;
   if (key === 'fullName') {
     return [lead.firstName, lead.lastName].filter(Boolean).join(' ');
+  }
+  if (key === 'mailingOrPropertyAddress') {
+    return lead.mailingAddress ?? lead.propertyAddress;
+  }
+  if (key === 'mailingOrPropertyCity') {
+    return lead.mailingCity ?? lead.propertyCity;
+  }
+  if (key === 'mailingOrPropertyState') {
+    return lead.mailingState ?? lead.propertyState;
+  }
+  if (key === 'mailingOrPropertyZip') {
+    return lead.mailingZip ?? lead.propertyZip;
   }
   if (key === 'ageDays') {
     const ms = Date.now() - lead.receivedAt.getTime();
