@@ -942,16 +942,13 @@ export function PayrollPortal({
             'No paid requests in this pay period.'
           )}
         />
-        <div className="space-y-2">
-          <PayrollCompletionCard state={submissionWindowState} pending={isPending} onFinish={finishPayrollRequests} />
-          <Kpi
-            title="Next Paycheck"
-            value={formatCurrency(nextPaycheck?.totalAmount ?? 0)}
-            subtitle={nextPaycheck ? formatDate(nextPaycheck.paycheckDate) : 'Next 1st/16th payroll'}
-            Icon={DollarSign}
-            onClick={openPaycheckBreakdown}
-          />
-        </div>
+        <Kpi
+          title="Next Paycheck"
+          value={formatCurrency(nextPaycheck?.totalAmount ?? 0)}
+          subtitle={nextPaycheck ? formatDate(nextPaycheck.paycheckDate) : 'Next 1st/16th payroll'}
+          Icon={DollarSign}
+          onClick={openPaycheckBreakdown}
+        />
       </div>
 
       <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -959,23 +956,26 @@ export function PayrollPortal({
           <h2 className="text-lg font-bold text-slate-900">Submit a Funded Loan</h2>
           <p className="text-sm text-emerald-800/80">Send accounting the loan details and expected revenue for payroll review.</p>
         </div>
-        <button
-          type="button"
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 disabled:cursor-not-allowed disabled:bg-slate-300"
-          disabled={Boolean(submitLockedReason)}
-          onClick={() => {
-            if (submitLockedReason) {
-              setError(submitLockedReason);
-              return;
-            }
-            setForm(initialFormForUser);
-            setReimbursementTargetTouched(false);
-            setPreview(null);
-            setModalOpen(true);
-          }}
-        >
-          <Plus className="h-4 w-4" /> {submitLockedReason ? 'Submissions Locked' : 'Submit Compensation Request'}
-        </button>
+        <div className="w-full space-y-2 sm:w-72">
+          <PayrollCompletionCard state={submissionWindowState} pending={isPending} onFinish={finishPayrollRequests} />
+          <button
+            type="button"
+            className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 disabled:cursor-not-allowed disabled:bg-slate-300"
+            disabled={Boolean(submitLockedReason)}
+            onClick={() => {
+              if (submitLockedReason) {
+                setError(submitLockedReason);
+                return;
+              }
+              setForm(initialFormForUser);
+              setReimbursementTargetTouched(false);
+              setPreview(null);
+              setModalOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4" /> {submitLockedReason ? 'Submissions Locked' : 'Submit Compensation Request'}
+          </button>
+        </div>
       </div>
       {submitLockedReason && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">

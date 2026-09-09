@@ -34,6 +34,8 @@ const PAYROLL_ADMIN_PATHS = [
   '/admin/payroll/settings',
 ];
 const PAYROLL_PORTAL_PATH = '/payroll';
+// Temporary demo override requested 2026-09-09. Set back to false to reinstate payroll submission windows.
+const PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED = true;
 
 export type PayrollCompSplitInput = {
   recipientUserId?: string | null;
@@ -682,6 +684,16 @@ function resolvePayrollSubmissionWindows(now = new Date()) {
   const { year, month, day } = payrollPacificDateParts(now);
   const firstWindow = payrollSubmissionRange(year, month, 1, 7);
   const secondWindow = payrollSubmissionRange(year, month, 16, 23);
+  const withDemoUnlock = <T extends {
+    isOpen: boolean;
+    activeWindow: PayrollSubmissionWindowRange | null;
+    reportingWindow: PayrollSubmissionWindowRange;
+    nextWindow: PayrollSubmissionWindowRange;
+  }>(state: T): T => (
+    PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED && !state.isOpen
+      ? { ...state, isOpen: true, activeWindow: state.reportingWindow }
+      : state
+  );
   if (day >= 1 && day <= 6) {
     return {
       isOpen: true,
@@ -691,12 +703,12 @@ function resolvePayrollSubmissionWindows(now = new Date()) {
     };
   }
   if (day >= 7 && day <= 15) {
-    return {
+    return withDemoUnlock({
       isOpen: false,
       activeWindow: null,
       reportingWindow: firstWindow,
       nextWindow: secondWindow,
-    };
+    });
   }
   if (day >= 16 && day <= 22) {
     return {
@@ -706,12 +718,12 @@ function resolvePayrollSubmissionWindows(now = new Date()) {
       nextWindow: payrollSubmissionRange(year, month + 1, 1, 7),
     };
   }
-  return {
+  return withDemoUnlock({
     isOpen: false,
     activeWindow: null,
     reportingWindow: secondWindow,
     nextWindow: payrollSubmissionRange(year, month + 1, 1, 7),
-  };
+  });
 }
 
 async function getPayrollSubmissionWindowState(userId: string, now = new Date()): Promise<PayrollSubmissionWindowState> {
