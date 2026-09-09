@@ -379,6 +379,7 @@ model User {
   payrollReviewedRequests      PayrollCompRequest[]          @relation("PayrollCompRequestReviewedBy")
   payrollPaidRequests          PayrollCompRequest[]          @relation("PayrollCompRequestPaidBy")
   payrollEditedRequests        PayrollCompRequest[]          @relation("PayrollCompRequestEditedBy")
+  payrollArchivedRequests      PayrollCompRequest[]          @relation("PayrollCompRequestArchivedBy")
   payrollRequestSplits         PayrollCompRequestSplit[]     @relation("PayrollCompRequestSplitRecipient")
   payrollSubmissionCompletions PayrollSubmissionCompletion[] @relation("PayrollSubmissionCompletionUser")
   payrollReopenedCompletions   PayrollSubmissionCompletion[] @relation("PayrollSubmissionCompletionReopenedBy")
@@ -1629,6 +1630,9 @@ model PayrollCompRequest {
   paidAt       DateTime?
   paidById     String?
   paidBy       User?     @relation("PayrollCompRequestPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  archivedAt   DateTime?
+  archivedById String?
+  archivedBy   User?     @relation("PayrollCompRequestArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -1637,6 +1641,8 @@ model PayrollCompRequest {
   @@index([loanOfficerId, submittedAt])
   @@index([status, submittedAt])
   @@index([paidAt])
+  @@index([archivedAt])
+  @@index([archivedById])
   @@index([loanNumber])
   @@index([loanId])
 }

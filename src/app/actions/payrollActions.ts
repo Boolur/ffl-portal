@@ -1530,6 +1530,7 @@ async function recalculatePendingPayrollRequestsForUsers(loanOfficerIds: string[
       where: {
         loanOfficerId: { in: uniqueLoanOfficerIds },
         status: PayrollCompRequestStatus.PENDING_REVIEW,
+        archivedAt: null,
       },
       select: {
         id: true,
@@ -1748,6 +1749,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
       loanOfficerId: actor.userId,
       loanNumber: { equals: loanNumber, mode: 'insensitive' },
       status: { not: PayrollCompRequestStatus.REJECTED },
+      archivedAt: null,
     },
     select: { id: true, status: true },
   });
@@ -1933,6 +1935,7 @@ export async function getPayrollRequests(filters: PayrollRequestFilters = {}) {
   const { start, end } = datesFromFilters(filters);
   const search = filters.search?.trim();
   const where: Prisma.PayrollCompRequestWhereInput = {
+    archivedAt: null,
     ...(filters.status && filters.status !== 'ALL' ? { status: filters.status } : {}),
     ...(filters.loanOfficerId ? { loanOfficerId: filters.loanOfficerId } : {}),
     ...(start || end
