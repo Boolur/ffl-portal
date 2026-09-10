@@ -118,6 +118,9 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
         create,
         update,
       },
+      notificationOutbox: {
+        upsert: vi.fn().mockResolvedValue({ id: 'outbox-1' }),
+      },
       auditLog: { create: auditCreate },
     });
 
@@ -221,6 +224,9 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
       processingPipelineLoan: {
         findUnique: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: 'pipeline-1' }),
+      },
+      notificationOutbox: {
+        upsert: vi.fn().mockResolvedValue({ id: 'outbox-1' }),
       },
       auditLog: { create: auditCreate },
     });

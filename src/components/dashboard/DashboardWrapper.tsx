@@ -172,6 +172,10 @@ function DashboardContent({
       title: 'Sr Processor Dashboard',
       subtitle: 'Monitor your assigned pipeline, restructures, and fundings.',
     },
+    [UserRole.PROCESSING_MANAGER]: {
+      title: 'Processing Management',
+      subtitle: 'Oversee every Jr and Sr Processor file from submission through funding or adverse action.',
+    },
   };
 
   const currentRoleContent = roleContent[activeRole] || {
@@ -221,7 +225,10 @@ function DashboardContent({
         <QcOverview tasks={roleTasks} currentUserId={user.id} personalStarted />
       )}
 
-      {activeRole === UserRole.PROCESSOR_SR && <ProcessorPipelineOverview />}
+      {(activeRole === UserRole.PROCESSOR_SR ||
+        activeRole === UserRole.PROCESSING_MANAGER) && (
+        <ProcessorPipelineOverview />
+      )}
 
       {activeRole === UserRole.DISCLOSURE_SPECIALIST && (
         <DisclosureOverview tasks={roleTasks} />

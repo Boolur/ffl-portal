@@ -30,7 +30,10 @@ export function PipelineWorkspace({
   initialLayouts,
   submissionConfig,
 }: Props) {
-  const isProcessingRole = role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSOR_SR;
+  const isProcessingRole =
+    role === UserRole.PROCESSOR_JR ||
+    role === UserRole.PROCESSOR_SR ||
+    role === UserRole.PROCESSING_MANAGER;
   const [view, setView] = useState<'pre-processing' | 'processing'>(
     isProcessingRole || !initialReport ? 'processing' : 'pre-processing',
   );

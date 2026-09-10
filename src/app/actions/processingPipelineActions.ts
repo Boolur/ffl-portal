@@ -41,6 +41,7 @@ import {
   splitBorrowerName,
 } from '@/lib/processingBorrowerDetails';
 import { syncLeadStatusForLoan } from '@/lib/leadPipelineSync';
+import { notifyProcessingManagers } from '@/lib/processingManagerNotifications';
 
 type Actor = {
   id: string;
@@ -48,6 +49,12 @@ type Actor = {
   name: string;
   processingAssignmentGroups: string[];
 };
+
+function isProcessingLeadership(role: UserRole) {
+  return role === UserRole.MANAGER ||
+    role === UserRole.PROCESSING_MANAGER ||
+    isAdmin(role);
+}
 
 async function getActor(): Promise<Actor | null> {
   const session = await getServerSession(authOptions);
@@ -491,8 +498,7 @@ export async function getProcessingPipeline(input?: {
   const allSheets = input?.allSheets === true && Boolean(input?.search?.trim());
   if (
     rateLockRequestsOnly &&
-    actor.role !== UserRole.MANAGER &&
-    !isAdmin(actor.role)
+    !isProcessingLeadership(actor.role)
   ) {
     return { success: false as const, error: 'Rate Lock Requests are limited to Managers and Admins.' };
   }
@@ -558,7 +564,7 @@ export async function getProcessingPipeline(input?: {
     ];
   }
 
-  const [rows, total, teams, juniorProcessors] = await prisma.$transaction([
+  const [rows, total, teams, juniorProcessors, seniorProcessors] = await prisma.$transaction([
     prisma.processingPipelineLoan.findMany({
       where,
       include: {
@@ -611,6 +617,17 @@ export async function getProcessingPipeline(input?: {
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
     }),
+    prisma.user.findMany({
+      where: {
+        active: true,
+        OR: [
+          { role: UserRole.PROCESSOR_SR },
+          { roles: { has: UserRole.PROCESSOR_SR } },
+        ],
+      },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    }),
   ]);
 
   return {
@@ -631,8 +648,12 @@ export async function getProcessingPipeline(input?: {
       memberIds: team.members.map((member) => member.userId),
     })),
     juniorProcessorOptions:
-      actor.role === UserRole.MANAGER || isAdmin(actor.role)
+      isProcessingLeadership(actor.role)
         ? juniorProcessors
+        : [],
+    seniorProcessorOptions:
+      isProcessingLeadership(actor.role)
+        ? seniorProcessors
         : [],
     canEdit: access.canEdit || actor.role === UserRole.LOAN_OFFICER,
     role: actor.role,
@@ -669,8 +690,7 @@ export async function getProcessingPipelineFilterOptions(
   if (!access.canView) return { success: false as const, error: 'Not authorized.' };
   if (
     rateLockRequestsOnly &&
-    actor.role !== UserRole.MANAGER &&
-    !isAdmin(actor.role)
+    !isProcessingLeadership(actor.role)
   ) {
     return { success: false as const, error: 'Rate Lock Requests are limited to Managers and Admins.' };
   }
@@ -747,7 +767,7 @@ export async function reassignProcessingPipelineJuniorProcessor(input: {
 }) {
   const actor = await getActor();
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
-  if (actor.role !== UserRole.MANAGER && !isAdmin(actor.role)) {
+  if (!isProcessingLeadership(actor.role)) {
     return {
       success: false as const,
       error: 'Only Managers and Admins can reassign Jr Processors.',
@@ -770,7 +790,10 @@ export async function reassignProcessingPipelineJuniorProcessor(input: {
     if (!current) {
       return { kind: 'error' as const, error: 'Pipeline row not found.' };
     }
-    if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+    if (
+      current.sheet === ProcessingPipelineSheet.FUNDING &&
+      actor.role !== UserRole.PROCESSING_MANAGER
+    ) {
       return { kind: 'error' as const, error: 'Funded loans are read-only.' };
     }
     if (current.version !== input.version) {
@@ -848,10 +871,142 @@ export async function reassignProcessingPipelineJuniorProcessor(input: {
       error: 'This row changed in another session. Refreshing the latest values.',
     };
   }
+  await notifyProcessingManagers({
+    processingPipelineLoanId: input.id,
+    event: 'REASSIGNED',
+    eventLabel: 'Jr Processor assignment changed',
+    actorName: actor.name,
+    summary: result.juniorProcessor
+      ? `The file was assigned to ${result.juniorProcessor.name}.`
+      : 'The Jr Processor assignment was cleared.',
+  });
   return {
     success: true as const,
     version: result.version,
     patch: { juniorProcessor: result.juniorProcessor },
+  };
+}
+
+export async function reassignProcessingPipelineSeniorProcessor(input: {
+  id: string;
+  version: number;
+  seniorProcessorId: string | null;
+}) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  if (!isProcessingLeadership(actor.role)) {
+    return {
+      success: false as const,
+      error: 'Only processing leadership can reassign Sr Processors.',
+    };
+  }
+
+  const seniorProcessorId = input.seniorProcessorId?.trim() || null;
+  const result = await prisma.$transaction(async (tx) => {
+    const current = await tx.processingPipelineLoan.findFirst({
+      where: { AND: [{ id: input.id }, scopeWhere(actor)] },
+      select: {
+        id: true,
+        loanId: true,
+        sheet: true,
+        version: true,
+        seniorProcessorId: true,
+        seniorProcessor: { select: { id: true, name: true } },
+      },
+    });
+    if (!current) return { kind: 'error' as const, error: 'Pipeline row not found.' };
+    if (
+      current.sheet === ProcessingPipelineSheet.FUNDING &&
+      actor.role !== UserRole.PROCESSING_MANAGER
+    ) {
+      return { kind: 'error' as const, error: 'Funded loans are read-only.' };
+    }
+    if (current.version !== input.version) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+
+    const nextSeniorProcessor = seniorProcessorId
+      ? await tx.user.findFirst({
+          where: {
+            id: seniorProcessorId,
+            active: true,
+            OR: [
+              { role: UserRole.PROCESSOR_SR },
+              { roles: { has: UserRole.PROCESSOR_SR } },
+            ],
+          },
+          select: { id: true, name: true },
+        })
+      : null;
+    if (seniorProcessorId && !nextSeniorProcessor) {
+      return { kind: 'error' as const, error: 'Select an active Sr Processor.' };
+    }
+    if (current.seniorProcessorId === seniorProcessorId) {
+      return {
+        kind: 'ok' as const,
+        version: current.version,
+        seniorProcessor: current.seniorProcessor,
+        changed: false,
+      };
+    }
+
+    const updated = await tx.processingPipelineLoan.updateMany({
+      where: { id: current.id, version: input.version },
+      data: {
+        seniorProcessorId,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) {
+      return { kind: 'conflict' as const, version: current.version };
+    }
+    await tx.auditLog.create({
+      data: {
+        loanId: current.loanId,
+        userId: actor.id,
+        action: 'PROCESSING_PIPELINE_SR_PROCESSOR_REASSIGNED',
+        details: JSON.stringify({
+          processingPipelineLoanId: current.id,
+          previousSeniorProcessorId: current.seniorProcessor?.id || null,
+          previousSeniorProcessorName: current.seniorProcessor?.name || null,
+          newSeniorProcessorId: nextSeniorProcessor?.id || null,
+          newSeniorProcessorName: nextSeniorProcessor?.name || null,
+          actorName: actor.name,
+        }),
+      },
+    });
+    return {
+      kind: 'ok' as const,
+      version: input.version + 1,
+      seniorProcessor: nextSeniorProcessor,
+      changed: true,
+    };
+  });
+
+  if (result.kind === 'error') return { success: false as const, error: result.error };
+  if (result.kind === 'conflict') {
+    return {
+      success: false as const,
+      conflict: true as const,
+      version: result.version,
+      error: 'This row changed in another session. Refreshing the latest values.',
+    };
+  }
+  if (result.changed) {
+    await notifyProcessingManagers({
+      processingPipelineLoanId: input.id,
+      event: 'REASSIGNED',
+      eventLabel: 'Sr Processor assignment changed',
+      actorName: actor.name,
+      summary: result.seniorProcessor
+        ? `The file was assigned to ${result.seniorProcessor.name}.`
+        : 'The Sr Processor assignment was cleared.',
+    });
+  }
+  return {
+    success: true as const,
+    version: result.version,
+    patch: { seniorProcessor: result.seniorProcessor },
   };
 }
 
@@ -962,7 +1117,10 @@ export async function updateProcessingPipelineCell(input: {
         where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
       });
       if (!current) throw new Error('Pipeline row not found.');
-      if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+      if (
+        current.sheet === ProcessingPipelineSheet.FUNDING &&
+        actor.role !== UserRole.PROCESSING_MANAGER
+      ) {
         throw new Error('Funded loans are read-only.');
       }
       if (current.version !== input.version) {
@@ -1190,6 +1348,16 @@ export async function updateProcessingPipelineCell(input: {
         error: 'This row changed in another session. Refreshing the latest values.',
       };
     }
+    if (input.field === 'pipelineStatus') {
+      const statusLabel = String(input.value).replace(/_/g, ' ');
+      await notifyProcessingManagers({
+        processingPipelineLoanId: input.id,
+        event: 'STATUS_CHANGED',
+        eventLabel: 'Processing status changed',
+        actorName: actor.name,
+        summary: `The processing status changed to ${statusLabel}.`,
+      });
+    }
     return { success: true as const, version: result.version, patch: result.patch };
   } catch (error) {
     return {
@@ -1321,6 +1489,7 @@ export async function updateProcessingPipelineRateLock(input: {
       return {
         conflict: false as const,
         version: input.version + 1,
+        fulfilledRequest: Boolean(input.rateLock && current.rateLockRequestedAt),
         patch: {
           rateLock: input.rateLock,
           rateLockExpiresAt: expiresAt?.toISOString() || null,
@@ -1344,6 +1513,17 @@ export async function updateProcessingPipelineRateLock(input: {
         error: 'This row changed in another session. Refreshing the latest values.',
       };
     }
+    await notifyProcessingManagers({
+      processingPipelineLoanId: input.id,
+      event: 'RATE_LOCK_UPDATED',
+      eventLabel: result.fulfilledRequest
+        ? 'Rate lock request fulfilled'
+        : 'Rate lock updated',
+      actorName: actor.name,
+      summary: input.rateLock
+        ? `The rate lock was confirmed through ${expiresAt?.toLocaleDateString('en-US') || 'the selected expiration date'}.`
+        : 'The rate lock was removed.',
+    });
     return {
       success: true as const,
       version: result.version,
@@ -1438,6 +1618,13 @@ export async function requestProcessingRateLock(input: {
       error: 'This row changed in another session. Refreshing the latest values.',
     };
   }
+  await notifyProcessingManagers({
+    processingPipelineLoanId: input.id,
+    event: 'RATE_LOCK_REQUESTED',
+    eventLabel: 'Rate lock requested',
+    actorName: actor.name,
+    summary: 'A processing team member requested a rate lock for this file.',
+  });
   return {
     success: true as const,
     version: result.version,
@@ -1454,7 +1641,7 @@ export async function dismissProcessingRateLockRequest(input: {
 }) {
   const actor = await getActor();
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
-  if (actor.role !== UserRole.MANAGER && !isAdmin(actor.role)) {
+  if (!isProcessingLeadership(actor.role)) {
     return { success: false as const, error: 'Only Managers and Admins can dismiss Rate Lock Requests.' };
   }
 
@@ -1465,7 +1652,10 @@ export async function dismissProcessingRateLockRequest(input: {
     if (!current || !current.rateLockRequestedAt) {
       return { kind: 'error' as const, error: 'Active Rate Lock Request not found.' };
     }
-    if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+    if (
+      current.sheet === ProcessingPipelineSheet.FUNDING &&
+      actor.role !== UserRole.PROCESSING_MANAGER
+    ) {
       return { kind: 'error' as const, error: 'Funded loans are read-only.' };
     }
     if (current.version !== input.version) {
@@ -1519,8 +1709,7 @@ export async function declineProcessingPipelineLoan(input: {
   const canDecline =
     actor.role === UserRole.PROCESSOR_JR ||
     actor.role === UserRole.PROCESSOR_SR ||
-    actor.role === UserRole.MANAGER ||
-    isAdmin(actor.role);
+    isProcessingLeadership(actor.role);
   if (!canDecline) {
     return { success: false as const, error: 'Only Processors, Managers, and Admins can decline loans.' };
   }
@@ -1578,6 +1767,13 @@ export async function declineProcessingPipelineLoan(input: {
       error: 'This row changed in another session. Refreshing the latest values.',
     };
   }
+  await notifyProcessingManagers({
+    processingPipelineLoanId: input.id,
+    event: 'ADVERSED',
+    eventLabel: 'Loan moved to adverse',
+    actorName: actor.name,
+    summary: 'The adverse-pending processing file was declined and archived.',
+  });
   return { success: true as const };
 }
 
@@ -1688,6 +1884,22 @@ export async function updateProcessingRestructureWorkflow(input: {
       error: 'This row changed in another session. Refreshing the latest values.',
     };
   }
+  await notifyProcessingManagers({
+    processingPipelineLoanId: input.id,
+    event:
+      input.action === 'REQUEST_ADVERSE'
+        ? 'ADVERSE_REQUESTED'
+        : 'RESTRUCTURED',
+    eventLabel:
+      input.action === 'REQUEST_ADVERSE'
+        ? 'Adverse action requested'
+        : 'Restructure sent to underwriting',
+    actorName: actor.name,
+    summary:
+      input.action === 'REQUEST_ADVERSE'
+        ? 'A processing team member requested adverse action on this file.'
+        : 'The restructured file was sent to underwriting for approval.',
+  });
   return {
     success: true as const,
     version: result.version,
@@ -1729,7 +1941,10 @@ export async function moveProcessingPipelineLoan(input: {
       where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
     });
     if (!current) return { kind: 'error' as const, error: 'Pipeline row not found.' };
-    if (current.sheet === ProcessingPipelineSheet.FUNDING) {
+    if (
+      current.sheet === ProcessingPipelineSheet.FUNDING &&
+      actor.role !== UserRole.PROCESSING_MANAGER
+    ) {
       return { kind: 'error' as const, error: 'Funded loans are read-only.' };
     }
     if (current.version !== input.version) {
@@ -1749,7 +1964,7 @@ export async function moveProcessingPipelineLoan(input: {
     const movingToRestructure = input.sheet === ProcessingPipelineSheet.RESTRUCTURE;
     const movingToFunding = input.sheet === ProcessingPipelineSheet.FUNDING;
     const returningToPipeline =
-      current.sheet === ProcessingPipelineSheet.RESTRUCTURE &&
+      current.sheet !== ProcessingPipelineSheet.PIPELINE &&
       input.sheet === ProcessingPipelineSheet.PIPELINE;
     const nextRestructureNotes = movingToRestructure
       ? appendRestructureNote(
@@ -1789,6 +2004,12 @@ export async function moveProcessingPipelineLoan(input: {
               firstPaymentAt: getMortgageFirstPaymentDate(fundedAt),
               sixthPaymentAt: addMonthsClamped(fundedAt, 6),
             }
+          : current.sheet === ProcessingPipelineSheet.FUNDING
+            ? {
+                fundedAt: null,
+                firstPaymentAt: null,
+                sixthPaymentAt: null,
+              }
           : {}),
       },
     });
@@ -1838,6 +2059,28 @@ export async function moveProcessingPipelineLoan(input: {
       error: 'This row changed in another session. Refreshing the latest values.',
     };
   }
+  await notifyProcessingManagers({
+    processingPipelineLoanId: input.id,
+    event:
+      input.sheet === ProcessingPipelineSheet.FUNDING
+        ? 'FUNDED'
+        : input.sheet === ProcessingPipelineSheet.RESTRUCTURE
+          ? 'RESTRUCTURED'
+          : 'STATUS_CHANGED',
+    eventLabel:
+      input.sheet === ProcessingPipelineSheet.FUNDING
+        ? 'Loan funded'
+        : input.sheet === ProcessingPipelineSheet.RESTRUCTURE
+          ? 'Loan moved to restructures'
+          : 'Loan returned to processing',
+    actorName: actor.name,
+    summary:
+      input.sheet === ProcessingPipelineSheet.FUNDING
+        ? 'The file was moved to Fundings and its funded date was recorded.'
+        : input.sheet === ProcessingPipelineSheet.RESTRUCTURE
+          ? 'The file was moved to the Restructures section.'
+          : 'The file was returned to the active Processing pipeline.',
+  });
   return {
     success: true as const,
     version: result.version,
@@ -1904,8 +2147,7 @@ function canEditProcessingBorrowerWorkspace(role: UserRole) {
   return (
     role === UserRole.PROCESSOR_JR ||
     role === UserRole.PROCESSOR_SR ||
-    role === UserRole.MANAGER ||
-    isAdmin(role)
+    isProcessingLeadership(role)
   );
 }
 
@@ -2043,7 +2285,10 @@ export async function updateProcessingBorrowerDetails(
       if (!current) return { kind: 'missing' as const };
       if (
         !canEditProcessingBorrowerWorkspace(actor.role) ||
-        current.sheet === ProcessingPipelineSheet.FUNDING
+        (
+          current.sheet === ProcessingPipelineSheet.FUNDING &&
+          actor.role !== UserRole.PROCESSING_MANAGER
+        )
       ) {
         return { kind: 'forbidden' as const };
       }
@@ -2330,7 +2575,7 @@ export async function updateProcessingBorrowerDetails(
         actorId: actor.id,
         source: 'processing-borrower-details-updated',
       });
-      return { kind: 'ok' as const };
+      return { kind: 'ok' as const, workflowChanged: statusChanged };
     });
 
     if (result.kind === 'missing') {
@@ -2351,6 +2596,23 @@ export async function updateProcessingBorrowerDetails(
         conflict: true as const,
         error: 'This file changed while you were editing it. Reload and try again.',
       };
+    }
+    if (result.workflowChanged) {
+      await notifyProcessingManagers({
+        processingPipelineLoanId: input.id,
+        event:
+          input.sheet === ProcessingPipelineSheet.FUNDING
+            ? 'FUNDED'
+            : input.sheet === ProcessingPipelineSheet.RESTRUCTURE
+              ? 'RESTRUCTURED'
+              : 'STATUS_CHANGED',
+        eventLabel:
+          input.sheet === ProcessingPipelineSheet.FUNDING
+            ? 'Loan funded'
+            : 'Processing workflow updated',
+        actorName: actor.name,
+        summary: `The file moved to ${input.sheet.replace(/_/g, ' ')} with status ${input.pipelineStatus.replace(/_/g, ' ')}.`,
+      });
     }
     return { success: true as const };
   } catch (error) {
@@ -2444,7 +2706,10 @@ export async function getProcessingBorrowerDetails(id: string) {
       id: row.id,
       version: row.version,
       canEdit:
-        row.sheet !== ProcessingPipelineSheet.FUNDING &&
+        (
+          row.sheet !== ProcessingPipelineSheet.FUNDING ||
+          actor.role === UserRole.PROCESSING_MANAGER
+        ) &&
         canEditProcessingBorrowerWorkspace(actor.role),
       borrower: {
         name: row.loan.borrowerName,

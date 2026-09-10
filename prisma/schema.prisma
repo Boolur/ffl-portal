@@ -29,6 +29,7 @@ enum UserRole {
   QC
   PROCESSOR_JR
   PROCESSOR_SR
+  PROCESSING_MANAGER
 }
 
 enum LoanStage {
@@ -109,6 +110,7 @@ enum NotificationOutboxEventType {
   TASK_WORKFLOW
   VA_FANOUT
   PLUS_ONE_SUBMITTED
+  PROCESSING_LIFECYCLE
   SUPPORT_CHAT
   ONBOARDING
 }

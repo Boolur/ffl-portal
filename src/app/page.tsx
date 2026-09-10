@@ -32,6 +32,10 @@ async function getLoans(role?: string | null, userId?: string | null) {
 async function getDashboardTasks(role: UserRole, userId?: string) {
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
 
+  if (role === UserRole.PROCESSING_MANAGER) {
+    return [];
+  }
+
   if (!isLoanOfficer) {
     return withPerfMetric(
       'query.dashboard.getAllTasks.entry',

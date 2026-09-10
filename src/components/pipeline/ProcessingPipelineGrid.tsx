@@ -48,6 +48,7 @@ import {
   moveProcessingPipelineLoan,
   requestProcessingRateLock,
   reassignProcessingPipelineJuniorProcessor,
+  reassignProcessingPipelineSeniorProcessor,
   updateProcessingPipelineCell,
   updateProcessingPipelineRateLock,
   updateProcessingRestructureWorkflow,
@@ -678,6 +679,8 @@ export function ProcessingPipelineGrid({
   const [actionsMenuRow, setActionsMenuRow] = useState<ProcessingPipelineRow | null>(null);
   const [juniorProcessorEditorRowId, setJuniorProcessorEditorRowId] =
     useState<string | null>(null);
+  const [seniorProcessorEditorRowId, setSeniorProcessorEditorRowId] =
+    useState<string | null>(null);
   const [restructureDialog, setRestructureDialog] = useState<{
     row: ProcessingPipelineRow;
     action: RestructureDialogAction;
@@ -728,7 +731,11 @@ export function ProcessingPipelineGrid({
   };
   const isProcessor =
     role === UserRole.PROCESSOR_SR || role === UserRole.PROCESSOR_JR;
-  const isManagerOrAdmin = role === UserRole.MANAGER || isAdmin(role);
+  const isManagerOrAdmin =
+    role === UserRole.MANAGER ||
+    role === UserRole.PROCESSING_MANAGER ||
+    isAdmin(role);
+  const canCorrectFunded = role === UserRole.PROCESSING_MANAGER;
   const isRateLockRequestsView = sheet === RATE_LOCK_REQUESTS_VIEW;
   const pipelineViews: Array<{ value: PipelineView; label: string }> = [
     { value: ProcessingPipelineSheet.PIPELINE, label: 'Pipeline' },
@@ -741,7 +748,10 @@ export function ProcessingPipelineGrid({
   const activeViewLabel =
     pipelineViews.find((option) => option.value === sheet)?.label || 'Pipeline';
   const canFilterByTeam =
-    isProcessor || role === UserRole.MANAGER || isAdmin(role);
+    isProcessor ||
+    role === UserRole.MANAGER ||
+    role === UserRole.PROCESSING_MANAGER ||
+    isAdmin(role);
   const statusOptions =
     sheet === ProcessingPipelineSheet.RESTRUCTURE
       ? RESTRUCTURE_STATUS_OPTIONS
@@ -1301,7 +1311,10 @@ export function ProcessingPipelineGrid({
     row: ProcessingPipelineRow,
     juniorProcessorId: string | null,
   ) => {
-    if (!isManagerOrAdmin || row.sheet === ProcessingPipelineSheet.FUNDING) {
+    if (
+      !isManagerOrAdmin ||
+      (row.sheet === ProcessingPipelineSheet.FUNDING && !canCorrectFunded)
+    ) {
       return;
     }
     setSavingRows((current) => new Set(current).add(row.id));
@@ -1329,6 +1342,45 @@ export function ProcessingPipelineGrid({
     setMessage(
       `${row.loan.borrowerName} reassigned to ${
         result.patch.juniorProcessor?.name || 'Unassigned'
+      }.`,
+    );
+  };
+
+  const reassignSeniorProcessor = async (
+    row: ProcessingPipelineRow,
+    seniorProcessorId: string | null,
+  ) => {
+    if (
+      !isManagerOrAdmin ||
+      (row.sheet === ProcessingPipelineSheet.FUNDING && !canCorrectFunded)
+    ) {
+      return;
+    }
+    setSavingRows((current) => new Set(current).add(row.id));
+    setMessage('');
+    const result = await reassignProcessingPipelineSeniorProcessor({
+      id: row.id,
+      version: row.version,
+      seniorProcessorId,
+    });
+    setSavingRows((current) => {
+      const next = new Set(current);
+      next.delete(row.id);
+      return next;
+    });
+    if (!result.success) {
+      setMessage(result.error);
+      if ('conflict' in result) loadRows();
+      return;
+    }
+    setSeniorProcessorEditorRowId(null);
+    patchRow(row.id, {
+      ...result.patch,
+      version: result.version,
+    });
+    setMessage(
+      `${row.loan.borrowerName} reassigned to ${
+        result.patch.seniorProcessor?.name || 'Unassigned'
       }.`,
     );
   };
@@ -1977,7 +2029,8 @@ export function ProcessingPipelineGrid({
           >
             {juniorProcessorEditorRowId === row.id &&
             isManagerOrAdmin &&
-            row.sheet !== ProcessingPipelineSheet.FUNDING ? (
+            (row.sheet !== ProcessingPipelineSheet.FUNDING ||
+              canCorrectFunded) ? (
               <select
                 autoFocus
                 value={row.juniorProcessor?.id || ''}
@@ -2005,7 +2058,8 @@ export function ProcessingPipelineGrid({
                   {row.juniorProcessor?.name || '—'}
                 </span>
                 {isManagerOrAdmin &&
-                  row.sheet !== ProcessingPipelineSheet.FUNDING && (
+                  (row.sheet !== ProcessingPipelineSheet.FUNDING ||
+                    canCorrectFunded) && (
                     <button
                       type="button"
                       onClick={() => setJuniorProcessorEditorRowId(row.id)}
@@ -2029,10 +2083,58 @@ export function ProcessingPipelineGrid({
         return (
           <td
             key={id}
-            className={`truncate border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`}
-            title={processorLabel(row)}
+            className={`border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`}
           >
-            {processorLabel(row)}
+            {seniorProcessorEditorRowId === row.id &&
+            isManagerOrAdmin &&
+            (row.sheet !== ProcessingPipelineSheet.FUNDING ||
+              canCorrectFunded) ? (
+              <select
+                autoFocus
+                value={row.seniorProcessor?.id || ''}
+                onBlur={() => setSeniorProcessorEditorRowId(null)}
+                onChange={(event) =>
+                  void reassignSeniorProcessor(row, event.target.value || null)
+                }
+                disabled={savingRows.has(row.id)}
+                aria-label={`Reassign Sr Processor for ${row.loan.borrowerName}`}
+                className="app-input h-8 w-full min-w-0 rounded-lg px-2 py-1 text-xs font-semibold"
+              >
+                <option value="">Unassigned</option>
+                {initialData.seniorProcessorOptions.map((processor) => (
+                  <option key={processor.id} value={processor.id}>
+                    {processor.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="min-w-0 flex-1 truncate"
+                  title={processorLabel(row)}
+                >
+                  {processorLabel(row)}
+                </span>
+                {isManagerOrAdmin &&
+                  (row.sheet !== ProcessingPipelineSheet.FUNDING ||
+                    canCorrectFunded) && (
+                    <button
+                      type="button"
+                      onClick={() => setSeniorProcessorEditorRowId(row.id)}
+                      disabled={savingRows.has(row.id)}
+                      aria-label={`Edit Sr Processor for ${row.loan.borrowerName}`}
+                      title="Reassign Sr Processor"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {savingRows.has(row.id) ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Pencil className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  )}
+              </div>
+            )}
           </td>
         );
       case 'pipelineStatus':

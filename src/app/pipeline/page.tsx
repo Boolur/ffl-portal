@@ -24,7 +24,9 @@ export default async function Pipeline() {
 
   const role = (session.user.activeRole || session.user.role) as UserRole;
   const isProcessingRole =
-    role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSOR_SR;
+    role === UserRole.PROCESSOR_JR ||
+    role === UserRole.PROCESSOR_SR ||
+    role === UserRole.PROCESSING_MANAGER;
   const canUseSubmissionShortcuts =
     role === UserRole.LOAN_OFFICER ||
     role === UserRole.LOA ||

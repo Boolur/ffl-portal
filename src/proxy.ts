@@ -53,6 +53,7 @@ const roleAllowedPaths: Record<UserRole, string[]> = {
   [UserRole.QC]: [],
   [UserRole.PROCESSOR_JR]: ['/', '/tasks', '/pipeline', '/resources', '/lenders', '/admin/support'],
   [UserRole.PROCESSOR_SR]: ['/', '/pipeline', '/payroll', '/leaderboard', '/resources', '/lenders', '/admin/support'],
+  [UserRole.PROCESSING_MANAGER]: ['/', '/pipeline', '/resources', '/lenders', '/admin/support'],
 };
 
 function normalizeRole(role?: string | null): UserRole | null {

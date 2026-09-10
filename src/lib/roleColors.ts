@@ -28,6 +28,9 @@ export function getRoleBubbleClass(role: UserRole | null) {
   if (role === UserRole.PROCESSOR_JR) {
     return 'border-cyan-200 bg-cyan-50 text-cyan-700';
   }
+  if (role === UserRole.PROCESSING_MANAGER) {
+    return 'border-red-700 bg-red-700 text-white';
+  }
   if (role === UserRole.MANAGER) {
     return 'border-slate-900 bg-slate-900 text-white';
   }

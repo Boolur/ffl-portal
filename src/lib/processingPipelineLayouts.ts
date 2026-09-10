@@ -171,6 +171,7 @@ const LEADERSHIP_ROLES = new Set<UserRole>([
   UserRole.LOAN_OFFICER,
   UserRole.LOA,
   UserRole.MANAGER,
+  UserRole.PROCESSING_MANAGER,
   UserRole.ADMIN_I,
   UserRole.ADMIN_II,
   UserRole.ADMIN_III,

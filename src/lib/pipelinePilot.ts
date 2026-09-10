@@ -18,6 +18,7 @@ export function canAccessPipelinePortal(user: PipelineAccessUser) {
   return role === UserRole.LOAN_OFFICER ||
     role === UserRole.LOA ||
     role === UserRole.MANAGER ||
+    role === UserRole.PROCESSING_MANAGER ||
     role === UserRole.PROCESSOR_JR ||
     role === UserRole.PROCESSOR_SR ||
     isAdmin(role);

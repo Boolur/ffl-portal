@@ -66,6 +66,7 @@ describe('processing pipeline access', () => {
 
   it.each([
     UserRole.MANAGER,
+    UserRole.PROCESSING_MANAGER,
     UserRole.ADMIN,
     UserRole.ADMIN_I,
     UserRole.ADMIN_II,

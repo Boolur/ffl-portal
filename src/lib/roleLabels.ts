@@ -5,6 +5,7 @@ const ROLE_LABEL_OVERRIDES: Partial<Record<UserRole, string>> = {
   [UserRole.VA_APPRAISAL]: 'Appraisal Specialist',
   [UserRole.PROCESSOR_JR]: 'Jr Processor',
   [UserRole.PROCESSOR_SR]: 'Sr Processor',
+  [UserRole.PROCESSING_MANAGER]: 'Processing Manager',
   [UserRole.QC]: 'QC (Legacy)',
   [UserRole.VA]: 'VA (Legacy)',
   [UserRole.VA_TITLE]: 'VA Title (Legacy)',

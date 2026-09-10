@@ -141,7 +141,11 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   const activeRoleArr: UserRole[] = activeRole ? [activeRole] : [];
   const navItems = [
     {
-      name: activeRole === UserRole.PROCESSOR_SR ? 'Dashboard' : 'Overview',
+      name:
+        activeRole === UserRole.PROCESSOR_SR ||
+        activeRole === UserRole.PROCESSING_MANAGER
+          ? 'Dashboard'
+          : 'Overview',
       icon: LayoutGrid,
       href: '/',
       roles: ['all'] as const,
@@ -169,6 +173,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
         UserRole.MANAGER,
         UserRole.PROCESSOR_JR,
         UserRole.PROCESSOR_SR,
+        UserRole.PROCESSING_MANAGER,
       ] as UserRole[],
       visible: () => isAdmin(activeRole),
     },

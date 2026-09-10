@@ -1,4 +1,9 @@
-import { LeadStatus, Prisma, UserRole } from '@prisma/client';
+import {
+  LeadStatus,
+  NotificationOutboxEventType,
+  Prisma,
+  UserRole,
+} from '@prisma/client';
 import {
   getProcessingPipelineLockedDefaults,
   getProcessingPipelineLeadSource,
@@ -180,6 +185,28 @@ export async function upsertProcessingPipelineForCompletedTask(
         seniorProcessorId: senior.seniorProcessorId,
         assignmentResolution: senior.resolution,
       }),
+    },
+  });
+
+  await tx.notificationOutbox.upsert({
+    where: {
+      idempotencyKey: `processing-submitted:${row.id}:${task.id}`,
+    },
+    update: {},
+    create: {
+      eventType: NotificationOutboxEventType.PROCESSING_LIFECYCLE,
+      idempotencyKey: `processing-submitted:${row.id}:${task.id}`,
+      payload: {
+        processingPipelineLoanId: row.id,
+        event: 'SUBMITTED',
+        eventLabel: existing
+          ? 'Processing submission refreshed'
+          : 'Submitted to Processing',
+        actorName: 'Processing team member',
+        summary: existing
+          ? 'The processing file was refreshed from its completed submission.'
+          : 'A new file entered the processing pipeline.',
+      },
     },
   });
 

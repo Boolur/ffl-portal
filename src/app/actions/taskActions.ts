@@ -60,6 +60,10 @@ import {
   validateProcessingBorrowerContact,
 } from '@/lib/processingBorrowerDetails';
 import { buildPipelineSubmissionPrefill } from '@/lib/pipelineSubmissionShortcuts';
+import {
+  notifyProcessingManagers,
+  type ProcessingLifecycleEvent,
+} from '@/lib/processingManagerNotifications';
 
 function revalidatePath(path: string) {
   // Task clients patch or reload only the affected bucket. Invalidating the
@@ -720,6 +724,14 @@ type VaFanoutNotificationPayload = {
 type PlusOneSubmittedNotificationPayload = {
   taskId: string;
   changedBy?: string | null;
+};
+
+type ProcessingLifecycleNotificationPayload = {
+  processingPipelineLoanId: string;
+  event: ProcessingLifecycleEvent;
+  eventLabel: string;
+  actorName: string;
+  summary: string;
 };
 
 function getExponentialBackoffMs(attempt: number) {
@@ -1688,7 +1700,16 @@ async function sendTaskWorkflowNotificationsByTaskId(input: {
       prisma.user.findMany({
         where: {
           active: true,
-          OR: [{ role: UserRole.MANAGER }, { roles: { has: UserRole.MANAGER } }],
+          OR: [
+            { role: UserRole.MANAGER },
+            { roles: { has: UserRole.MANAGER } },
+            ...(deskType === 'JR'
+              ? [
+                  { role: UserRole.PROCESSING_MANAGER },
+                  { roles: { has: UserRole.PROCESSING_MANAGER } },
+                ]
+              : []),
+          ],
         },
         select: { email: true },
       }),
@@ -2063,6 +2084,46 @@ function parsePlusOneSubmittedPayload(
   return { taskId, changedBy };
 }
 
+function parseProcessingLifecyclePayload(
+  payload: Prisma.JsonValue
+): ProcessingLifecycleNotificationPayload | null {
+  if (!isRecord(payload)) return null;
+  const processingPipelineLoanId = String(
+    payload.processingPipelineLoanId ?? ''
+  ).trim();
+  const event = String(payload.event ?? '').trim() as ProcessingLifecycleEvent;
+  const eventLabel = String(payload.eventLabel ?? '').trim();
+  const actorName = String(payload.actorName ?? '').trim();
+  const summary = String(payload.summary ?? '').trim();
+  const validEvents: ProcessingLifecycleEvent[] = [
+    'SUBMITTED',
+    'STATUS_CHANGED',
+    'REASSIGNED',
+    'RESTRUCTURED',
+    'ADVERSE_REQUESTED',
+    'ADVERSED',
+    'FUNDED',
+    'RATE_LOCK_REQUESTED',
+    'RATE_LOCK_UPDATED',
+  ];
+  if (
+    !processingPipelineLoanId ||
+    !validEvents.includes(event) ||
+    !eventLabel ||
+    !actorName ||
+    !summary
+  ) {
+    return null;
+  }
+  return {
+    processingPipelineLoanId,
+    event,
+    eventLabel,
+    actorName,
+    summary,
+  };
+}
+
 function parseOnboardingNotificationPayload(payload: Prisma.JsonValue) {
   if (!isRecord(payload)) return null;
   const to = String(payload.to ?? '').trim();
@@ -2101,6 +2162,12 @@ async function processNotificationOutboxJob(job: {
       throw new Error('Invalid PLUS_ONE_SUBMITTED payload.');
     }
     delivered = await sendPlusOneSubmittedNotifications(parsed);
+  } else if (job.eventType === NotificationOutboxEventType.PROCESSING_LIFECYCLE) {
+    const parsed = parseProcessingLifecyclePayload(job.payload);
+    if (!parsed) {
+      throw new Error('Invalid PROCESSING_LIFECYCLE payload.');
+    }
+    delivered = await notifyProcessingManagers(parsed);
   } else if (job.eventType === NotificationOutboxEventType.ONBOARDING) {
     const parsed = parseOnboardingNotificationPayload(job.payload);
     if (!parsed) {
