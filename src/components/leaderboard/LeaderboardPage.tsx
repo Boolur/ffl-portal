@@ -21,10 +21,12 @@ import {
 } from 'lucide-react';
 import {
   actionPendingStpLoan,
+  getLeaderboardClientMilestoneReport,
   getLeaderboardDeadDealReport,
   getLeaderboardFallOutReport,
   getLeaderboardReport,
   getLeaderboardWaterfallReport,
+  type LeaderboardClientMilestoneReport,
   updateLeaderboardLoanDetails,
   type LeaderboardDeadDealReport,
   type LeaderboardDetailRow,
@@ -467,6 +469,111 @@ function exportLoanOfficerLeaderboard(report: LeaderboardReport) {
   downloadBlob(
     new Blob([workbookHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
     `loan-officer-leaderboard-${start}-to-${end}.xls`
+  );
+}
+
+function exportClientMilestoneReport(report: LeaderboardClientMilestoneReport) {
+  const start = dateInputValue(report.filters.startDate);
+  const end = dateInputValue(report.filters.endDate);
+  const generatedAt = formatDateTime(report.generatedAt);
+  const isProcessing = report.milestone === 'processing';
+  const tone = isProcessing
+    ? {
+        title: '#581c87',
+        subtitleBg: '#f3e8ff',
+        subtitleText: '#6b21a8',
+        columnBg: '#faf5ff',
+        columnText: '#7e22ce',
+        summaryBg: '#f3e8ff',
+      }
+    : {
+        title: '#047857',
+        subtitleBg: '#d1fae5',
+        subtitleText: '#065f46',
+        columnBg: '#ecfdf5',
+        columnText: '#047857',
+        summaryBg: '#d1fae5',
+      };
+  const rows = report.rows.map((row, index) => `
+    <tr class="${index % 2 === 0 ? 'row-white' : 'row-muted'}">
+      ${excelNumberCell(index + 1)}
+      <td class="date">${excelEscape(formatDateTime(row.submittedAt))}</td>
+      <td class="name">${excelEscape(row.loanOfficerName)}</td>
+      <td>${excelEscape(row.primaryLoanOfficerName)}</td>
+      <td>${excelEscape(row.secondaryLoanOfficerName || '')}</td>
+      <td class="name">${excelEscape(row.borrowerName)}</td>
+      <td class="mono">${excelEscape(row.ariveNumber)}</td>
+      ${excelMoneyCell(row.loanAmount)}
+      ${excelMoneyCell(row.projectedRevenue)}
+      <td>${excelEscape(row.lender)}</td>
+      <td>${excelEscape(row.leadSource)}</td>
+      <td>${excelEscape(row.leadVendor || '')}</td>
+      <td>${excelEscape(formatStatus(row.status))}</td>
+      <td>${excelEscape(row.program || '')}</td>
+      <td>${excelEscape(row.propertyAddress || '')}</td>
+      <td>${excelEscape(row.milestoneLabel)}</td>
+    </tr>
+  `).join('');
+  const totals = report.rows.reduce(
+    (sum, row) => {
+      sum.volume += row.loanAmount;
+      sum.revenue += row.projectedRevenue;
+      return sum;
+    },
+    { volume: 0, revenue: 0 }
+  );
+
+  const workbookHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; }
+    .title { background: ${tone.title}; color: #ffffff; font-size: 18pt; font-weight: 800; text-align: left; }
+    .subtitle { background: ${tone.subtitleBg}; color: ${tone.subtitleText}; font-weight: 700; text-align: left; }
+    .summary { background: ${tone.summaryBg}; color: #0f172a; font-weight: 900; }
+    .column { background: ${tone.columnBg}; color: ${tone.columnText}; font-weight: 800; text-align: center; }
+    .name { color: #0f172a; font-weight: 800; min-width: 170px; }
+    .date { color: #334155; font-weight: 700; min-width: 140px; }
+    .mono { font-family: Consolas, monospace; font-weight: 800; }
+    .money { mso-number-format:"$#,##0"; text-align: right; font-weight: 700; }
+    .number { mso-number-format:"0"; text-align: center; font-weight: 800; }
+    .row-white { background: #ffffff; }
+    .row-muted { background: #f8fafc; }
+  </style>
+</head>
+<body>
+  <table>
+    <tr><th class="title" colspan="16">Federal First Lending - ${excelEscape(report.milestoneLabel)} Client Report</th></tr>
+    <tr><td class="subtitle" colspan="16">Exports every client submitted to ${excelEscape(report.milestoneLabel)} during the selected leaderboard date range.</td></tr>
+    <tr><td class="summary" colspan="16">Range: ${excelEscape(formatDate(report.filters.startDate))} - ${excelEscape(formatDate(report.filters.endDate))} &nbsp; | &nbsp; Generated: ${excelEscape(generatedAt)} &nbsp; | &nbsp; Clients: ${report.rows.length} &nbsp; | &nbsp; Volume: ${excelEscape(formatCurrency(totals.volume))} &nbsp; | &nbsp; Revenue: ${excelEscape(formatCurrency(totals.revenue))}</td></tr>
+    <tr>
+      <th class="column">#</th>
+      <th class="column">Submitted At</th>
+      <th class="column">Loan Officer</th>
+      <th class="column">Primary LO</th>
+      <th class="column">Secondary LO</th>
+      <th class="column">Borrower</th>
+      <th class="column">Arive Number</th>
+      <th class="column">Loan Amount</th>
+      <th class="column">Projected Revenue</th>
+      <th class="column">Lender</th>
+      <th class="column">Lead Source</th>
+      <th class="column">Lead Vendor</th>
+      <th class="column">Status</th>
+      <th class="column">Program</th>
+      <th class="column">Property Address</th>
+      <th class="column">Report Row Type</th>
+    </tr>
+    ${rows || `<tr><td colspan="16" class="summary">No ${excelEscape(report.milestoneLabel)} clients found for this date range.</td></tr>`}
+  </table>
+</body>
+</html>`;
+
+  downloadBlob(
+    new Blob([workbookHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
+    `${report.milestone === 'plusOne' ? 'plus-one' : 'submitted-to-processing'}-client-report-${start}-to-${end}.xls`
   );
 }
 
@@ -2021,6 +2128,8 @@ function LeaderboardReportsModal({
   loanOfficerIds: string[] | null;
   onClose: () => void;
 }) {
+  const [isExportingPlusOneClients, startPlusOneClientExport] = useTransition();
+  const [isExportingProcessingClients, startProcessingClientExport] = useTransition();
   const [isExportingFallOut, startFallOutExport] = useTransition();
   const [isExportingWaterfall, startWaterfallExport] = useTransition();
   const [isExportingDeadDeals, startDeadDealExport] = useTransition();
@@ -2035,6 +2144,30 @@ function LeaderboardReportsModal({
       : report;
     exportLoanOfficerLeaderboard(filteredReport);
     onClose();
+  }
+
+  function handleClientMilestoneExport(milestone: 'plusOne' | 'processing') {
+    setError(null);
+    const startExport = milestone === 'plusOne' ? startPlusOneClientExport : startProcessingClientExport;
+    startExport(async () => {
+      try {
+        const clientReport = await getLeaderboardClientMilestoneReport(milestone, {
+          preset: report.filters.preset,
+          startDate: dateInputValue(report.filters.startDate),
+          endDate: dateInputValue(report.filters.endDate),
+          loanOfficerIds: loanOfficerIds || undefined,
+        });
+        exportClientMilestoneReport(clientReport);
+        onClose();
+      } catch (err) {
+        console.error(err);
+        setError(
+          milestone === 'plusOne'
+            ? 'Unable to export the +1 Client Report. Please try again.'
+            : 'Unable to export the Submitted to Processing Client Report. Please try again.'
+        );
+      }
+    });
   }
 
   function handlePreStpExport() {
@@ -2157,6 +2290,58 @@ function LeaderboardReportsModal({
               <span className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-blue-700">
                 <Download className="h-3.5 w-3.5" />
                 Export Excel sheet
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleClientMilestoneExport('plusOne')}
+            disabled={isExportingPlusOneClients}
+            className="group flex w-full items-start gap-4 rounded-2xl border border-emerald-100 bg-white p-4 text-left shadow-sm shadow-slate-200/60 transition hover:border-emerald-200 hover:bg-emerald-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 transition group-hover:bg-emerald-600 group-hover:text-white">
+              {isExportingPlusOneClients ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-5 w-5" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold text-slate-950">
+                +1 Client Report
+              </span>
+              <span className="mt-1 block text-sm font-medium text-slate-500">
+                Exports every client credited to +1s during the selected leaderboard date range, including STP-first files that auto-count as +1s.
+              </span>
+              <span className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                <Download className="h-3.5 w-3.5" />
+                {isExportingPlusOneClients ? 'Building report...' : 'Export Excel sheet'}
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleClientMilestoneExport('processing')}
+            disabled={isExportingProcessingClients}
+            className="group flex w-full items-start gap-4 rounded-2xl border border-purple-100 bg-white p-4 text-left shadow-sm shadow-slate-200/60 transition hover:border-purple-200 hover:bg-purple-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-200 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-purple-100 text-purple-700 ring-1 ring-purple-200 transition group-hover:bg-purple-600 group-hover:text-white">
+              {isExportingProcessingClients ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-5 w-5" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-extrabold text-slate-950">
+                Submitted to Processing Client Report
+              </span>
+              <span className="mt-1 block text-sm font-medium text-slate-500">
+                Exports every client submitted to Processing/QC during the selected leaderboard date range.
+              </span>
+              <span className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-purple-700">
+                <Download className="h-3.5 w-3.5" />
+                {isExportingProcessingClients ? 'Building report...' : 'Export Excel sheet'}
               </span>
             </span>
           </button>

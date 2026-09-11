@@ -227,6 +227,41 @@ export type LeaderboardDeadDealReport = {
   rows: LeaderboardDeadDealRow[];
 };
 
+export type LeaderboardClientMilestoneReportKind = 'plusOne' | 'processing';
+
+export type LeaderboardClientMilestoneRow = {
+  taskId: string;
+  loanId: string;
+  milestone: LeaderboardClientMilestoneReportKind;
+  milestoneLabel: string;
+  submittedAt: string;
+  loanOfficerName: string;
+  primaryLoanOfficerName: string;
+  secondaryLoanOfficerName: string | null;
+  borrowerName: string;
+  ariveNumber: string;
+  loanAmount: number;
+  projectedRevenue: number;
+  lender: string;
+  leadSource: string;
+  leadVendor: string | null;
+  status: string;
+  program: string | null;
+  propertyAddress: string | null;
+};
+
+export type LeaderboardClientMilestoneReport = {
+  filters: {
+    preset: LeaderboardRangePreset;
+    startDate: string;
+    endDate: string;
+  };
+  generatedAt: string;
+  milestone: LeaderboardClientMilestoneReportKind;
+  milestoneLabel: string;
+  rows: LeaderboardClientMilestoneRow[];
+};
+
 export type PendingStpActionInput = {
   plusOneTaskId: string;
   disposition:
@@ -1149,6 +1184,132 @@ export async function getLeaderboardReport(
       processing: metricTotals(rows, 'processing'),
       fundings: metricTotals(rows, 'fundings'),
     },
+  };
+}
+
+export async function getLeaderboardClientMilestoneReport(
+  milestone: LeaderboardClientMilestoneReportKind,
+  filters: LeaderboardReportFilters = {}
+): Promise<LeaderboardClientMilestoneReport> {
+  noStore();
+  const { session, canExportReports } = await getLeaderboardSessionUser();
+  if (!session?.user?.id || !canExportReports) {
+    throw new Error('Unauthorized');
+  }
+  if (milestone !== 'plusOne' && milestone !== 'processing') {
+    throw new Error('Unsupported report type.');
+  }
+
+  const { preset, start, end } = resolveDateRange(filters);
+  const loanOfficerFilter = normalizedLoanOfficerFilter(filters);
+  const milestoneLabel = milestone === 'plusOne' ? '+1s' : 'Submitted to Processing/QC';
+  const baseTaskWhere = {
+    createdAt: { gte: start, lte: end },
+    kind: milestone === 'plusOne' ? TaskKind.SUBMIT_PLUS_ONE : { in: PROCESSING_KINDS },
+  };
+  const taskSelect = {
+    id: true,
+    kind: true,
+    status: true,
+    createdAt: true,
+    submissionData: true,
+    loan: {
+      select: {
+        id: true,
+        loanNumber: true,
+        borrowerName: true,
+        amount: true,
+        program: true,
+        propertyAddress: true,
+        loanOfficerId: true,
+        secondaryLoanOfficerId: true,
+        loanOfficer: { select: { name: true } },
+        secondaryLoanOfficer: { select: { name: true } },
+      },
+    },
+  } satisfies Prisma.TaskSelect;
+
+  const [taskRows, allPlusOneRows, processingRowsWithoutPlusOne] = await Promise.all([
+    prisma.task.findMany({
+      where: baseTaskWhere,
+      select: taskSelect,
+      orderBy: { createdAt: 'desc' },
+    }),
+    milestone === 'plusOne'
+      ? prisma.task.findMany({
+          where: { kind: TaskKind.SUBMIT_PLUS_ONE },
+          select: {
+            id: true,
+            submissionData: true,
+            loan: { select: { id: true, loanNumber: true } },
+          },
+        })
+      : Promise.resolve([]),
+    milestone === 'plusOne'
+      ? prisma.task.findMany({
+          where: {
+            kind: { in: PROCESSING_KINDS },
+            createdAt: { gte: start, lte: end },
+          },
+          select: taskSelect,
+          orderBy: { createdAt: 'desc' },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const plusOneLoanIdSet = new Set(allPlusOneRows.map((task) => task.loan.id));
+  const plusOneLoanNumberSet = new Set(
+    allPlusOneRows
+      .flatMap((task) => [
+        normalizeAriveNumber(task.loan.loanNumber),
+        normalizeAriveNumber(loanNumberFromJson(task.submissionData)),
+      ])
+      .filter(Boolean)
+  );
+  const implicitPlusOneRows = processingRowsWithoutPlusOne.filter((task) => (
+    !plusOneLoanIdSet.has(task.loan.id) &&
+    !plusOneLoanNumberSet.has(normalizeAriveNumber(task.loan.loanNumber)) &&
+    !plusOneLoanNumberSet.has(normalizeAriveNumber(loanNumberFromJson(task.submissionData)))
+  ));
+  const exportRows = [...taskRows, ...implicitPlusOneRows]
+    .filter((task) => {
+      const creditedLoanOfficerId = creditLoanOfficerId(task.loan);
+      return !loanOfficerFilter || loanOfficerFilter.has(creditedLoanOfficerId);
+    })
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  return {
+    filters: {
+      preset,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+    },
+    generatedAt: new Date().toISOString(),
+    milestone,
+    milestoneLabel,
+    rows: exportRows.map((task) => ({
+      taskId: task.id,
+      loanId: task.loan.id,
+      milestone,
+      milestoneLabel:
+        milestone === 'plusOne' && task.kind !== TaskKind.SUBMIT_PLUS_ONE
+          ? '+1s (Auto from Processing/QC)'
+          : milestoneLabel,
+      submittedAt: task.createdAt.toISOString(),
+      loanOfficerName: task.loan.secondaryLoanOfficer?.name || task.loan.loanOfficer.name,
+      primaryLoanOfficerName: task.loan.loanOfficer.name,
+      secondaryLoanOfficerName: task.loan.secondaryLoanOfficer?.name || null,
+      borrowerName: task.loan.borrowerName,
+      ariveNumber: loanNumberFromJson(task.submissionData) || task.loan.loanNumber,
+      loanAmount: money(task.loan.amount) || 0,
+      projectedRevenue: projectedRevenueFromJson(task.submissionData) || 0,
+      lender: lenderDisplayName(lenderFromJson(task.submissionData)),
+      leadSource: leadSourceDisplayName(leadSourceFromJson(task.submissionData)),
+      leadVendor: leadVendorFromJson(task.submissionData),
+      status: task.status,
+      program: task.loan.program,
+      propertyAddress: task.loan.propertyAddress,
+    })),
   };
 }
 
