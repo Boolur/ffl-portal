@@ -35,7 +35,7 @@ const PAYROLL_ADMIN_PATHS = [
 ];
 const PAYROLL_PORTAL_PATH = '/payroll';
 // Temporary demo override requested 2026-09-09. Set back to false to reinstate payroll submission windows.
-const PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED = true;
+const PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED = false;
 
 export type PayrollCompSplitInput = {
   recipientUserId?: string | null;
