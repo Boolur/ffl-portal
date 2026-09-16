@@ -1265,6 +1265,18 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
   };
 }
 
+function serializeRequestForLoanOfficer(
+  request: Prisma.PayrollCompRequestGetPayload<{ include: typeof requestInclude }>,
+): PayrollRequestRow {
+  const row = serializeRequest(request);
+  return {
+    ...row,
+    splits: row.splits.filter(
+      (split) => split.roleLabel === 'Loan Officer' || split.roleLabel === 'Post-Split Add-Backs',
+    ),
+  };
+}
+
 async function hydratePipelineFundedDates(rows: PayrollRequestRow[]) {
   const missingLoanNumbers = Array.from(new Set(rows
     .filter((row) => !row.fundedAt)
@@ -1866,7 +1878,9 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
       ok: true as const,
       preview: {
         calculation,
-        splits: snapshots.map((split) => ({
+        splits: snapshots
+          .filter((split) => split.roleLabel === 'Loan Officer' || split.roleLabel === 'Post-Split Add-Backs')
+          .map((split) => ({
           recipientName: split.recipientName,
           recipientEmail: split.recipientEmail,
           roleLabel: split.roleLabel,
@@ -2067,7 +2081,7 @@ export async function getMyPayrollPortalData() {
     getBrokerRetailRoutingSettings(),
   ]);
   const [rows, submissionWindow] = await Promise.all([
-    hydratePipelineFundedDates(requests.map(serializeRequest)),
+    hydratePipelineFundedDates(requests.map(serializeRequestForLoanOfficer)),
     getPayrollSubmissionWindowState(actor.userId),
   ]);
   const summary = summarizeRequests(rowsInPayPeriod(rows, window));

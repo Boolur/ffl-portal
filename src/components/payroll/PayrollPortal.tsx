@@ -16,7 +16,6 @@ import {
 import {
   formatCurrency,
   formatDate,
-  formatPercent,
   payrollStatusClasses,
   payrollStatusLabel,
 } from '@/components/admin/payroll/payrollFormat';
@@ -1572,11 +1571,6 @@ export function PayrollPortal({
                     ) : (() => {
                       const loanOfficerSplit = preview.splits.find((split) => split.roleLabel === 'Loan Officer');
                       const postSplitAddBack = preview.splits.find((split) => split.roleLabel === 'Post-Split Add-Backs');
-                      const managerReimbursements = preview.splits.filter((split) => split.roleLabel === 'Manager Reimbursement');
-                      const managerReimbursementAmount = managerReimbursements.reduce((sum, split) => sum + split.amount, 0);
-                      const hiddenSplits = preview.splits.filter((split) => split.roleLabel !== 'Loan Officer' && split.roleLabel !== 'Post-Split Add-Backs' && split.roleLabel !== 'Manager Reimbursement');
-                      const hiddenSplitAmount = hiddenSplits.reduce((sum, split) => sum + split.amount, 0);
-                      const hiddenSplitPercent = hiddenSplits.reduce((sum, split) => sum + (split.payType !== PayrollSplitPayType.FLAT ? split.splitPercent : 0), 0);
                       const loanOfficerFinalComp = (loanOfficerSplit?.amount ?? 0) + (postSplitAddBack?.amount ?? 0);
                       const baseLines = preview.calculation.lines.filter((line) => line.stage === 'BASE');
                       const preSplitLines = preview.calculation.lines.filter((line) => line.stage === 'PRE_SPLIT' || line.stage === 'MISSING_FEE');
@@ -1600,7 +1594,7 @@ export function PayrollPortal({
                         </div>
                       </div>
 
-                      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
                         <WorksheetColumn title="Compensation Before Split">
                           {baseLines.map((line) => (
                             <WorksheetLine key={line.key} label={line.label} value={line.calculatedAmount} tone="base" />
@@ -1621,25 +1615,6 @@ export function PayrollPortal({
                           <WorksheetTotal label="Pre-Split Deductions" value={preview.calculation.preSplitDeductionTotal} tone="deduction" />
                         </WorksheetColumn>
 
-                        <WorksheetColumn title="Split Allocation">
-                          {loanOfficerSplit && (
-                            <WorksheetLine label={`Loan Officer · ${formatPercent(loanOfficerSplit.splitPercent)}`} value={loanOfficerSplit.amount} tone="base" />
-                          )}
-                          {hiddenSplits.length === 0 ? (
-                            <p className="text-xs text-slate-500">No other split recipients.</p>
-                          ) : (
-                            hiddenSplits.map((split) => (
-                              <WorksheetLine
-                                key={`${split.roleLabel}-${split.recipientName}-${split.sortOrder}`}
-                                label={`${split.roleLabel} · ${split.payType !== PayrollSplitPayType.FLAT ? formatPercent(split.splitPercent) : 'Flat fee'}`}
-                                value={split.amount}
-                                tone="deduction"
-                              />
-                            ))
-                          )}
-                          <WorksheetTotal label="All Non-LO Splits" value={hiddenSplitAmount} tone="deduction" />
-                        </WorksheetColumn>
-
                         <WorksheetColumn title="Post-Split Add-Backs">
                           {postSplitLines.length === 0 ? (
                             <p className="text-xs text-slate-500">No post-split add-backs entered.</p>
@@ -1648,51 +1623,13 @@ export function PayrollPortal({
                               <WorksheetLine key={line.key} label={line.label} value={line.calculatedAmount} tone="add" />
                             ))
                           )}
-                          {managerReimbursementAmount > 0 ? (
-                            <WorksheetTotal label="Routed to Manager" value={managerReimbursementAmount} tone="deduction" />
-                          ) : (
-                            <WorksheetTotal label="Back to LO" value={postSplitAddBack?.amount ?? 0} tone="add" />
+                          {postSplitAddBack && (
+                            <WorksheetTotal label="Added to Your Compensation" value={postSplitAddBack.amount} tone="add" />
                           )}
                         </WorksheetColumn>
                       </div>
                     </div>
                     <div className="divide-y divide-slate-200 rounded-xl bg-white px-4">
-                      {loanOfficerSplit && (
-                      <div className="flex items-center justify-between gap-4 py-3">
-                        <div>
-                          <p className="font-semibold text-slate-900">{loanOfficerSplit.recipientName}</p>
-                          <p className="text-xs text-slate-500">Loan Officer · {formatPercent(loanOfficerSplit.splitPercent)}</p>
-                        </div>
-                        <p className="font-bold text-slate-900">{formatCurrency(loanOfficerSplit.amount)}</p>
-                      </div>
-                      )}
-                      {hiddenSplitAmount > 0 && (
-                      <div className="flex items-center justify-between gap-4 py-3">
-                        <div>
-                          <p className="font-semibold text-slate-900">Splits</p>
-                          <p className="text-xs text-slate-500">{formatPercent(hiddenSplitPercent)} total split allocation</p>
-                        </div>
-                        <p className="font-bold text-slate-900">{formatCurrency(hiddenSplitAmount)}</p>
-                      </div>
-                      )}
-                      {postSplitAddBack && (
-                      <div className="flex items-center justify-between gap-4 py-3">
-                        <div>
-                          <p className="font-semibold text-slate-900">Post-Split Add-Backs Back to LO</p>
-                          <p className="text-xs font-semibold text-emerald-700">Paid only to the loan officer</p>
-                        </div>
-                        <p className="font-bold text-emerald-700">+ {formatCurrency(postSplitAddBack.amount)}</p>
-                      </div>
-                      )}
-                      {managerReimbursementAmount > 0 && (
-                      <div className="flex items-center justify-between gap-4 py-3">
-                        <div>
-                          <p className="font-semibold text-slate-900">Post-Split Add-Backs to Manager</p>
-                          <p className="text-xs font-semibold text-amber-700">Split equally across manager recipients</p>
-                        </div>
-                        <p className="font-bold text-amber-700">+ {formatCurrency(managerReimbursementAmount)}</p>
-                      </div>
-                      )}
                       <div className="flex items-center justify-between gap-4 py-4">
                         <div className="flex items-center gap-3">
                           <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
@@ -1700,9 +1637,7 @@ export function PayrollPortal({
                           </span>
                           <div>
                             <p className="text-base font-bold text-slate-950">Final Comp</p>
-                            <p className="text-xs font-semibold text-emerald-700">
-                              {managerReimbursementAmount > 0 ? 'Loan officer split only; add-backs routed to Manager' : 'Loan officer split plus post-split add-backs'}
-                            </p>
+                            <p className="text-xs font-semibold text-emerald-700">Your final amount after the configured split</p>
                           </div>
                         </div>
                         <p className="text-lg font-extrabold text-emerald-700">{formatCurrency(loanOfficerFinalComp)}</p>
