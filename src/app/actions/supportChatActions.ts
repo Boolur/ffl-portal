@@ -391,6 +391,10 @@ function serializeConversation(conversation: {
   };
 }
 
+function shouldCountUnreadForBadge(status: SupportConversationStatus) {
+  return status !== SupportConversationStatus.RESOLVED && status !== SupportConversationStatus.ARCHIVED;
+}
+
 async function countUnread(conversationId: string, userId: string) {
   const readState = await prisma.supportConversationReadState.findUnique({
     where: { conversationId_userId: { conversationId, userId } },
@@ -422,17 +426,19 @@ async function getSupportInboxUnreadCountForActor(actor: SessionActor) {
 
   const conversations = await prisma.supportConversation.findMany({
     where: {
-      status: { not: SupportConversationStatus.ARCHIVED },
+      status: { notIn: [SupportConversationStatus.ARCHIVED, SupportConversationStatus.RESOLVED] },
       ...(!scope.elevated
         ? { OR: [{ assignedUserId: actor.userId }, { desk: { in: scope.assignedDesks } }] }
         : {}),
     },
-    select: { id: true },
+    select: { id: true, status: true },
     take: 200,
   });
 
   const unreadCounts = await Promise.all(
-    conversations.map((conversation) => countUnread(conversation.id, actor.userId))
+    conversations.map((conversation) =>
+      shouldCountUnreadForBadge(conversation.status) ? countUnread(conversation.id, actor.userId) : 0
+    )
   );
   return unreadCounts.reduce((sum, count) => sum + count, 0);
 }
@@ -481,7 +487,9 @@ export async function getSupportChatBootstrap() {
   ]);
 
   const unreadCounts = await Promise.all(
-    conversations.map((conversation) => countUnread(conversation.id, actor.userId))
+    conversations.map((conversation) =>
+      shouldCountUnreadForBadge(conversation.status) ? countUnread(conversation.id, actor.userId) : 0
+    )
   );
   const loanIds = loans.map((loan) => loan.id);
   const loanNumbers = loans.map((loan) => loan.loanNumber).filter(Boolean);
@@ -877,7 +885,9 @@ export async function getSupportInbox(input?: {
     take: 100,
   });
   const unreadCounts = await Promise.all(
-    conversations.map((conversation) => countUnread(conversation.id, actor.userId))
+    conversations.map((conversation) =>
+      shouldCountUnreadForBadge(conversation.status) ? countUnread(conversation.id, actor.userId) : 0
+    )
   );
   const staffUsers = await prisma.user.findMany({
     where: {
