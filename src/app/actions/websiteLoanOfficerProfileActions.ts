@@ -7,6 +7,7 @@ import { authOptions } from '@/lib/auth';
 import { canAccessUserManagement, canManageUser } from '@/lib/adminTiers';
 import { prisma } from '@/lib/prisma';
 import { normalizeWebsiteProfileSlug } from '@/lib/websiteLoanOfficerProfiles';
+import { buildDefaultWebsiteProfileBio } from '@/lib/websiteProfileDefaults';
 import {
   isValidExternalHttpUrl,
   isValidWebsitePhotoUrl,
@@ -108,7 +109,6 @@ export async function updateWebsiteLoanOfficerProfile(
 
   const slug = normalizeWebsiteProfileSlug(input.slug);
   const title = input.title.trim();
-  const bio = input.bio.trim();
   const photoUrl = cleanOptional(input.photoUrl);
   const bookingUrl = cleanOptional(input.bookingUrl);
   if (!slug || !title) {
@@ -125,6 +125,13 @@ export async function updateWebsiteLoanOfficerProfile(
   }
 
   try {
+    const owner = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true },
+    });
+    if (!owner) return { success: false as const, error: 'Profile owner not found.' };
+    const bio = input.bio.trim() || buildDefaultWebsiteProfileBio(owner.name, title);
+
     await prisma.websiteLoanOfficerProfile.upsert({
       where: { userId },
       update: {
@@ -208,7 +215,6 @@ export async function setWebsiteLoanOfficerProfilePublished(
       !profile.slug.trim() && 'slug',
       !profile.title.trim() && 'title',
       !profile.phone?.trim() && 'phone',
-      !profile.bio.trim() && 'bio',
       profile.licensedStates.length === 0 && 'licensed states',
     ].filter(Boolean);
     if (missing.length > 0) {
@@ -221,7 +227,17 @@ export async function setWebsiteLoanOfficerProfilePublished(
 
   await prisma.websiteLoanOfficerProfile.update({
     where: { userId },
-    data: { publishedAt: published ? new Date() : null },
+    data: {
+      publishedAt: published ? new Date() : null,
+      ...(published && !record.websiteLoanOfficerProfile.bio.trim()
+        ? {
+            bio: buildDefaultWebsiteProfileBio(
+              record.name,
+              record.websiteLoanOfficerProfile.title,
+            ),
+          }
+        : {}),
+    },
   });
   revalidateProfileRoutes();
   return { success: true as const };

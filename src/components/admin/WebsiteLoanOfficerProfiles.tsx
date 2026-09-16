@@ -305,7 +305,7 @@ export function WebsiteLoanOfficerProfiles({ profiles }: { profiles: ProfileRow[
               />
             </Field>
             <div className="md:col-span-2">
-              <Field label="Biography" required>
+              <Field label="Biography" hint="Optional; a standard biography is generated if blank">
                 <textarea
                   rows={6}
                   value={draft.bio}
