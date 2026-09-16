@@ -545,6 +545,7 @@ model ProcessingPipelineLoan {
   appraisalNeeded           Boolean?
   appraisalNotes            String?
   appraisalOrderedAt        DateTime?
+  appraisalScheduledAt      DateTime?
   appraisalBackAt           DateTime?
   cdSent                    Boolean                  @default(false)
   cdWarningStartsAt         DateTime?

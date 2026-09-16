@@ -35,6 +35,7 @@ export const PROCESSING_PIPELINE_COLUMN_IDS = [
   'daysInStatus',
   'appraisalNotes',
   'appraisalOrderedAt',
+  'appraisalScheduledAt',
   'appraisalBackAt',
   'cdSent',
   'estimatedSigningAt',
@@ -87,6 +88,12 @@ export const PROCESSING_PIPELINE_COLUMNS: ProcessingPipelineColumnDefinition[] =
   { id: 'daysInStatus', label: 'Days', width: 68 },
   { id: 'appraisalNotes', label: 'Appraisal Notes', width: 220, optional: true },
   { id: 'appraisalOrderedAt', label: 'Appraisal Ordered', width: 146, optional: true },
+  {
+    id: 'appraisalScheduledAt',
+    label: 'Appraisal Scheduled Date',
+    width: 168,
+    optional: true,
+  },
   { id: 'appraisalBackAt', label: 'Appraisal Back', width: 140, optional: true },
   { id: 'cdSent', label: 'CD Sent?', width: 112, optional: true },
   { id: 'estimatedSigningAt', label: 'Est. Signing', width: 132, optional: true },
@@ -324,7 +331,7 @@ export function normalizeProcessingLayoutConfig(
     }
     for (const definition of definitions) {
       if (!seen.has(definition.id)) {
-        columns.push({
+        const addedColumn = {
           id: definition.id,
           visible:
             legacyBorrowerNameVisible &&
@@ -332,7 +339,19 @@ export function normalizeProcessingLayoutConfig(
               definition.id as (typeof PROCESSING_BORROWER_NAME_COLUMN_IDS)[number],
             ),
           width: definition.width,
-        });
+        };
+        if (definition.id === 'appraisalScheduledAt') {
+          const orderedIndex = columns.findIndex(
+            (column) => column.id === 'appraisalOrderedAt',
+          );
+          columns.splice(
+            orderedIndex >= 0 ? orderedIndex + 1 : columns.length,
+            0,
+            addedColumn,
+          );
+        } else {
+          columns.push(addedColumn);
+        }
       }
     }
     const mandatory = new Set(mandatoryColumnsForBucket(bucket, role));

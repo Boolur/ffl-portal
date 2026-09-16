@@ -132,6 +132,7 @@ type EditableField =
   | 'appraisalNeeded'
   | 'appraisalNotes'
   | 'appraisalOrderedAt'
+  | 'appraisalScheduledAt'
   | 'appraisalBackAt'
   | 'estimatedSigningAt'
   | 'cdSent'
@@ -250,6 +251,7 @@ const DATE_COLUMN_IDS = new Set<ColumnId>([
   'dateAssigned',
   'estimatedSigningAt',
   'appraisalOrderedAt',
+  'appraisalScheduledAt',
   'appraisalBackAt',
   'payoffExpiresAt',
   'fundedAt',
@@ -298,6 +300,7 @@ function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | numb
   if (id === 'appraisalNeeded') return row.appraisalNeeded === null ? 'Not set' : row.appraisalNeeded ? 'Yes' : 'No';
   if (id === 'appraisalNotes') return row.appraisalNotes;
   if (id === 'appraisalOrderedAt') return row.appraisalOrderedAt;
+  if (id === 'appraisalScheduledAt') return row.appraisalScheduledAt;
   if (id === 'appraisalBackAt') return row.appraisalBackAt;
   if (id === 'cdSent') return row.cdSent ? 'Yes' : 'No';
   if (id === 'missingItemsCurrentStatus') return row.missingItemsCurrentStatus;
@@ -2287,6 +2290,12 @@ export function ProcessingPipelineGrid({
         return (
           <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
             {dateCell(row, 'appraisalOrderedAt', row.appraisalOrderedAt)}
+          </td>
+        );
+      case 'appraisalScheduledAt':
+        return (
+          <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
+            {dateCell(row, 'appraisalScheduledAt', row.appraisalScheduledAt)}
           </td>
         );
       case 'appraisalBackAt':

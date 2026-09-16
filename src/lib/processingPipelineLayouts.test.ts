@@ -125,6 +125,33 @@ describe('processing pipeline saved layouts', () => {
     }
   });
 
+  it('adds Appraisal Scheduled after Ordered without changing legacy visibility', () => {
+    const config = buildDefaultProcessingLayoutConfig(UserRole.PROCESSOR_SR);
+    for (const bucket of ['PIPELINE', 'RESTRUCTURE', 'RATE_LOCK_REQUESTS'] as const) {
+      config.buckets[bucket].columns = config.buckets[bucket].columns.filter(
+        (column) => column.id !== 'appraisalScheduledAt',
+      );
+    }
+
+    const result = normalizeProcessingLayoutConfig(
+      config,
+      UserRole.PROCESSOR_SR,
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    for (const bucket of ['PIPELINE', 'RESTRUCTURE', 'RATE_LOCK_REQUESTS'] as const) {
+      const normalized = result.config.buckets[bucket].columns;
+      const orderedIndex = normalized.findIndex(
+        (column) => column.id === 'appraisalOrderedAt',
+      );
+      expect(normalized[orderedIndex + 1]).toMatchObject({
+        id: 'appraisalScheduledAt',
+        visible: false,
+      });
+    }
+  });
+
   it('removes processor-restricted financial and lead columns', () => {
     const ids = processingLayoutBucketColumns(
       'PIPELINE',

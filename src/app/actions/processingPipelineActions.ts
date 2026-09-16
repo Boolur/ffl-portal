@@ -170,6 +170,7 @@ function serializeRow(row: {
   appraisalNeeded: boolean | null;
   appraisalNotes: string | null;
   appraisalOrderedAt: Date | null;
+  appraisalScheduledAt: Date | null;
   appraisalBackAt: Date | null;
   cdSent: boolean;
   cdWarningStartsAt: Date | null;
@@ -221,6 +222,7 @@ function serializeRow(row: {
     statusChangedAt: row.statusChangedAt.toISOString(),
     estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
     appraisalOrderedAt: row.appraisalOrderedAt?.toISOString() || null,
+    appraisalScheduledAt: row.appraisalScheduledAt?.toISOString() || null,
     appraisalBackAt: row.appraisalBackAt?.toISOString() || null,
     payoffOrderedAt: row.payoffOrderedAt?.toISOString() || null,
     payoffExpiresAt: row.payoffExpiresAt?.toISOString() || null,
@@ -1019,6 +1021,7 @@ const EDITABLE_FIELDS = [
   'appraisalNeeded',
   'appraisalNotes',
   'appraisalOrderedAt',
+  'appraisalScheduledAt',
   'appraisalBackAt',
   'estimatedSigningAt',
   'cdSent',
@@ -1068,6 +1071,7 @@ function normalizeCellValue(field: EditableField, value: unknown) {
   }
   if (
     field === 'appraisalOrderedAt' ||
+    field === 'appraisalScheduledAt' ||
     field === 'appraisalBackAt' ||
     field === 'estimatedSigningAt' ||
     field === 'payoffExpiresAt'
@@ -2124,6 +2128,7 @@ export type ProcessingBorrowerDetailsInput = {
   appraisalNeeded: boolean | null;
   appraisalWaiver: string;
   appraisalOrderedAt: string;
+  appraisalScheduledAt: string;
   appraisalBackAt: string;
   appraisalNotes: string;
   sheet: ProcessingPipelineSheet;
@@ -2209,8 +2214,13 @@ export async function updateProcessingBorrowerDetails(
     return { success: false as const, error: 'Projected revenue must be a valid positive amount.' };
   }
   const appraisalOrderedAt = borrowerDetailDate(input.appraisalOrderedAt);
+  const appraisalScheduledAt = borrowerDetailDate(input.appraisalScheduledAt);
   const appraisalBackAt = borrowerDetailDate(input.appraisalBackAt);
-  if (appraisalOrderedAt === undefined || appraisalBackAt === undefined) {
+  if (
+    appraisalOrderedAt === undefined ||
+    appraisalScheduledAt === undefined ||
+    appraisalBackAt === undefined
+  ) {
     return { success: false as const, error: 'Enter valid appraisal dates.' };
   }
   if (
@@ -2469,6 +2479,7 @@ export async function updateProcessingBorrowerDetails(
           : input.appraisalNeeded,
         appraisalNotes: submissionPatch.appraisalNotes || null,
         appraisalOrderedAt,
+        appraisalScheduledAt,
         appraisalBackAt,
         ...(nextRateLock
           ? {
@@ -2563,6 +2574,7 @@ export async function updateProcessingBorrowerDetails(
               'cdSent',
               'fundedAt',
               'appraisalOrderedAt',
+              'appraisalScheduledAt',
               'appraisalBackAt',
             ],
           }),
@@ -2816,6 +2828,7 @@ export async function getProcessingBorrowerDetails(id: string) {
         notes: row.appraisalNotes,
         waiver: readSubmissionString(submission, 'appraisalWaiver'),
         orderedAt: row.appraisalOrderedAt?.toISOString() || null,
+        scheduledAt: row.appraisalScheduledAt?.toISOString() || null,
         backAt: row.appraisalBackAt?.toISOString() || null,
       },
       sourceTask: {

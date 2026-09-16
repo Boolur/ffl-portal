@@ -234,6 +234,7 @@ function buildEditDraft(details: DetailResult): ProcessingBorrowerDetailsInput {
     appraisalNeeded: details.appraisal.needed,
     appraisalWaiver: details.appraisal.waiver || '',
     appraisalOrderedAt: dateInputValue(details.appraisal.orderedAt),
+    appraisalScheduledAt: dateInputValue(details.appraisal.scheduledAt),
     appraisalBackAt: dateInputValue(details.appraisal.backAt),
     appraisalNotes: details.appraisal.notes || '',
     sheet: details.processing.sheet,
@@ -887,6 +888,7 @@ export function ProcessingBorrowerWorkspace({
                 </label>
                 <EditField label="Waiver" value={draft.appraisalWaiver} onChange={(value) => patchDraft('appraisalWaiver', value)} />
                 <EditField label="Ordered" type="date" value={draft.appraisalOrderedAt} onChange={(value) => patchDraft('appraisalOrderedAt', value)} />
+                <EditField label="Scheduled" type="date" value={draft.appraisalScheduledAt} onChange={(value) => patchDraft('appraisalScheduledAt', value)} />
                 <EditField label="Received" type="date" value={draft.appraisalBackAt} onChange={(value) => patchDraft('appraisalBackAt', value)} />
                 <EditField label="Notes" value={draft.appraisalNotes} onChange={(value) => patchDraft('appraisalNotes', value)} multiline />
               </DetailGrid>
@@ -907,6 +909,7 @@ export function ProcessingBorrowerWorkspace({
               <DetailField label="Appraisal needed" value={details.appraisal.needed === null ? 'Not set' : details.appraisal.needed ? 'Yes' : 'No'} />
               <DetailField label="Waiver" value={details.appraisal.waiver} />
               <DetailField label="Ordered" value={formatDate(details.appraisal.orderedAt)} />
+              <DetailField label="Scheduled" value={formatDate(details.appraisal.scheduledAt)} />
               <DetailField label="Received" value={formatDate(details.appraisal.backAt)} />
               <DetailField label="Notes" value={details.appraisal.notes} />
             </DetailGrid>
