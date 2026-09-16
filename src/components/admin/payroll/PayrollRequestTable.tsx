@@ -13,6 +13,10 @@ import {
   type PayrollRequestRow,
 } from '@/app/actions/payrollActions';
 import {
+  getMissingManagerWorksheetFields,
+  type ManagerWorksheetField,
+} from '@/lib/payrollRetailSimplification';
+import {
   formatCurrency,
   formatDate,
   formatPercent,
@@ -131,6 +135,10 @@ function numberOrNull(value: string) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function inputValue(value: number | null) {
+  return value === null ? '' : String(value);
+}
+
 function columnRawValue(row: PayrollRequestRow, id: PayrollColumnId): string | number | null {
   if (id === 'loan') return `${row.loanNumber} ${row.borrowerName}`;
   if (id === 'loanOfficer') return row.loanOfficerName;
@@ -225,11 +233,25 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
     rejectionReason: '',
   });
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [editAttempted, setEditAttempted] = useState(false);
   const [isPending, startTransition] = useTransition();
   const currentRequest = useMemo(
     () => rows.find((row) => row.id === selectedRequest?.id) ?? selectedRequest,
     [rows, selectedRequest]
   );
+  const managerCalculationMissing = useMemo(() => {
+    if (!currentRequest?.managerCalculationRequired || currentRequest.managerCalculationCompletedAt) {
+      return [];
+    }
+    return getMissingManagerWorksheetFields(editForm);
+  }, [currentRequest, editForm]);
+  const managerCalculationMissingKeys = useMemo(
+    () => new Set(managerCalculationMissing.map((field) => field.key)),
+    [managerCalculationMissing],
+  );
+  const calculationFieldError = (key: ManagerWorksheetField) =>
+    editAttempted && managerCalculationMissingKeys.has(key);
   const visibleColumns = useMemo(
     () => PAYROLL_COLUMNS.filter((column) => !compact || column.compact),
     [compact],
@@ -305,29 +327,31 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
       appliedPlanType: currentRequest.appliedPlanType,
       reimbursementTarget: currentRequest.reimbursementTarget,
       expectedRevenue: String(currentRequest.expectedRevenue),
-      brokerComp: currentRequest.brokerComp ? String(currentRequest.brokerComp) : '',
-      sectionAComp: currentRequest.sectionAComp ? String(currentRequest.sectionAComp) : '',
-      yspAmount: currentRequest.yspAmount ? String(currentRequest.yspAmount) : '',
-      toleranceCure: currentRequest.toleranceCure ? String(currentRequest.toleranceCure) : '',
-      oneDayInterest: currentRequest.oneDayInterest ? String(currentRequest.oneDayInterest) : '',
-      wireFee: currentRequest.wireFee ? String(currentRequest.wireFee) : '',
-      underwritingFee: currentRequest.underwritingFee ? String(currentRequest.underwritingFee) : '',
-      lenderCredit: currentRequest.lenderCredit ? String(currentRequest.lenderCredit) : '',
-      originationFee: currentRequest.originationFee ? String(currentRequest.originationFee) : '',
-      processingFee: currentRequest.processingFee ? String(currentRequest.processingFee) : '',
-      appraisalAddBack: currentRequest.appraisalAddBack ? String(currentRequest.appraisalAddBack) : '',
-      creditAddBack: currentRequest.creditAddBack ? String(currentRequest.creditAddBack) : '',
-      voeAddBack: currentRequest.voeAddBack ? String(currentRequest.voeAddBack) : '',
-      termiteAddBack: currentRequest.termiteAddBack ? String(currentRequest.termiteAddBack) : '',
-      appraisalReinspectionAddBack: currentRequest.appraisalReinspectionAddBack ? String(currentRequest.appraisalReinspectionAddBack) : '',
-      waterTestAddBack: currentRequest.waterTestAddBack ? String(currentRequest.waterTestAddBack) : '',
-      loanAmountPriorToFees: currentRequest.loanAmountPriorToFees ? String(currentRequest.loanAmountPriorToFees) : '',
+      brokerComp: inputValue(currentRequest.brokerComp),
+      sectionAComp: inputValue(currentRequest.sectionAComp),
+      yspAmount: inputValue(currentRequest.yspAmount),
+      toleranceCure: inputValue(currentRequest.toleranceCure),
+      oneDayInterest: inputValue(currentRequest.oneDayInterest),
+      wireFee: inputValue(currentRequest.wireFee),
+      underwritingFee: inputValue(currentRequest.underwritingFee),
+      lenderCredit: inputValue(currentRequest.lenderCredit),
+      originationFee: inputValue(currentRequest.originationFee),
+      processingFee: inputValue(currentRequest.processingFee),
+      appraisalAddBack: inputValue(currentRequest.appraisalAddBack),
+      creditAddBack: inputValue(currentRequest.creditAddBack),
+      voeAddBack: inputValue(currentRequest.voeAddBack),
+      termiteAddBack: inputValue(currentRequest.termiteAddBack),
+      appraisalReinspectionAddBack: inputValue(currentRequest.appraisalReinspectionAddBack),
+      waterTestAddBack: inputValue(currentRequest.waterTestAddBack),
+      loanAmountPriorToFees: inputValue(currentRequest.loanAmountPriorToFees),
       recessionDate: currentRequest.recessionDate ? currentRequest.recessionDate.slice(0, 10) : '',
       figureNftyAttachmentName: currentRequest.figureNftyAttachmentName ?? '',
       submitterNotes: currentRequest.submitterNotes ?? '',
       adminNotes: currentRequest.adminNotes ?? '',
       rejectionReason: currentRequest.rejectionReason ?? '',
     });
+    setActionError(null);
+    setEditAttempted(false);
   }, [currentRequest]);
   useEffect(() => {
     window.localStorage.setItem(widthStorageKey, JSON.stringify(columnWidths));
@@ -382,7 +406,10 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
     setBusyId(id);
     startTransition(async () => {
       try {
+        setActionError(null);
         await action();
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : 'Unable to update this payroll request.');
       } finally {
         setBusyId(null);
       }
@@ -404,8 +431,13 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
   };
   const saveEdits = () => {
     if (!currentRequest) return;
-    runAction(currentRequest.id, () =>
-      editPayrollRequest({
+    setEditAttempted(true);
+    if (managerCalculationMissing.length > 0) {
+      setActionError(`Complete the required compensation fields. Enter 0 when an amount does not apply. Missing: ${managerCalculationMissing.map((field) => field.label).join(', ')}.`);
+      return;
+    }
+    runAction(currentRequest.id, async () => {
+      await editPayrollRequest({
         requestId: currentRequest.id,
         loanNumber: editForm.loanNumber,
         borrowerName: editForm.borrowerName,
@@ -439,9 +471,9 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
         figureNftyAttachmentName: editForm.figureNftyAttachmentName || null,
         submitterNotes: editForm.submitterNotes,
         adminNotes: editForm.adminNotes,
-      })
-    );
-    setEditMode(false);
+      });
+      setEditMode(false);
+    });
   };
 
   if (rows.length === 0) {
@@ -537,6 +569,15 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                         Edited
                       </span>
                     )}
+                    {currentRequest.managerCalculationRequired && (
+                      <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-bold ${
+                        currentRequest.managerCalculationCompletedAt
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : 'border-amber-200 bg-amber-50 text-amber-700'
+                      }`}>
+                        {currentRequest.managerCalculationCompletedAt ? 'Calculation Complete' : 'Calculation Required'}
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 text-sm text-slate-500">{currentRequest.loanOfficerName} · submitted {formatDate(currentRequest.submittedAt)}</p>
                 </div>
@@ -555,6 +596,38 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
             </div>
 
             <div className="space-y-5 p-6">
+              {currentRequest.managerCalculationRequired && (
+                <div className={`rounded-2xl border p-4 ${
+                  currentRequest.managerCalculationCompletedAt
+                    ? 'border-emerald-200 bg-emerald-50'
+                    : 'border-amber-200 bg-amber-50'
+                }`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">
+                        {currentRequest.managerCalculationCompletedAt
+                          ? 'Retail compensation calculation completed'
+                          : 'Retail estimate awaiting compensation calculation'}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        The loan officer estimated {formatCurrency(currentRequest.estimatedCompAmount ?? currentRequest.expectedRevenue)}.
+                        {!currentRequest.managerCalculationCompletedAt && ' Complete and save the detailed worksheet before approval.'}
+                      </p>
+                    </div>
+                    {currentRequest.managerCalculationCompletedAt && (
+                      <p className="text-xs font-semibold text-emerald-700">
+                        {formatDate(currentRequest.managerCalculationCompletedAt)}
+                        {currentRequest.managerCalculationCompletedByName ? ` · ${currentRequest.managerCalculationCompletedByName}` : ''}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {actionError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                  {actionError}
+                </div>
+              )}
               {editMode ? (
                 <div className="grid gap-4 md:grid-cols-2">
                   <AdminInput label="Arive Loan Number" value={editForm.loanNumber} onChange={(value) => setEditForm((current) => ({ ...current, loanNumber: value }))} />
@@ -573,35 +646,35 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                       {editForm.loanChannel === PayrollLoanChannel.BROKER ? (
                         <AdminInput label="Broker Comp" value={editForm.brokerComp} onChange={(value) => setEditForm((current) => ({ ...current, brokerComp: value }))} inputMode="decimal" />
                       ) : (
-                        <AdminInput label="Section A" value={editForm.sectionAComp} onChange={(value) => setEditForm((current) => ({ ...current, sectionAComp: value }))} inputMode="decimal" />
+                        <AdminInput label="Section A" value={editForm.sectionAComp} onChange={(value) => setEditForm((current) => ({ ...current, sectionAComp: value }))} inputMode="decimal" error={calculationFieldError('sectionAComp')} />
                       )}
-                      <AdminInput label="YSP (+ deducts / - adds)" value={editForm.yspAmount} onChange={(value) => setEditForm((current) => ({ ...current, yspAmount: value }))} inputMode="decimal" />
-                      <AdminInput label="Tolerance Cure" value={editForm.toleranceCure} onChange={(value) => setEditForm((current) => ({ ...current, toleranceCure: value }))} inputMode="decimal" />
-                      <AdminInput label="1 Day Interest" value={editForm.oneDayInterest} onChange={(value) => setEditForm((current) => ({ ...current, oneDayInterest: value }))} inputMode="decimal" />
-                      <AdminInput label="Wire Fee" value={editForm.wireFee} onChange={(value) => setEditForm((current) => ({ ...current, wireFee: value }))} inputMode="decimal" />
-                      <AdminInput label="Underwriting Fee" value={editForm.underwritingFee} onChange={(value) => setEditForm((current) => ({ ...current, underwritingFee: value }))} inputMode="decimal" />
-                      <AdminInput label="Lender Credit" value={editForm.lenderCredit} onChange={(value) => setEditForm((current) => ({ ...current, lenderCredit: value }))} inputMode="decimal" />
-                      <AdminInput label="Origination Fee" value={editForm.originationFee} onChange={(value) => setEditForm((current) => ({ ...current, originationFee: value }))} inputMode="decimal" />
-                      <AdminInput label="Processing Fee" value={editForm.processingFee} onChange={(value) => setEditForm((current) => ({ ...current, processingFee: value }))} inputMode="decimal" />
+                      <AdminInput label="YSP (+ deducts / - adds)" value={editForm.yspAmount} onChange={(value) => setEditForm((current) => ({ ...current, yspAmount: value }))} inputMode="decimal" error={calculationFieldError('yspAmount')} />
+                      <AdminInput label="Tolerance Cure" value={editForm.toleranceCure} onChange={(value) => setEditForm((current) => ({ ...current, toleranceCure: value }))} inputMode="decimal" error={calculationFieldError('toleranceCure')} />
+                      <AdminInput label="1 Day Interest" value={editForm.oneDayInterest} onChange={(value) => setEditForm((current) => ({ ...current, oneDayInterest: value }))} inputMode="decimal" error={calculationFieldError('oneDayInterest')} />
+                      <AdminInput label="Wire Fee" value={editForm.wireFee} onChange={(value) => setEditForm((current) => ({ ...current, wireFee: value }))} inputMode="decimal" error={calculationFieldError('wireFee')} />
+                      <AdminInput label="Underwriting Fee" value={editForm.underwritingFee} onChange={(value) => setEditForm((current) => ({ ...current, underwritingFee: value }))} inputMode="decimal" error={calculationFieldError('underwritingFee')} />
+                      <AdminInput label="Lender Credit" value={editForm.lenderCredit} onChange={(value) => setEditForm((current) => ({ ...current, lenderCredit: value }))} inputMode="decimal" error={calculationFieldError('lenderCredit')} />
+                      <AdminInput label="Origination Fee" value={editForm.originationFee} onChange={(value) => setEditForm((current) => ({ ...current, originationFee: value }))} inputMode="decimal" error={calculationFieldError('originationFee')} />
+                      <AdminInput label="Processing Fee" value={editForm.processingFee} onChange={(value) => setEditForm((current) => ({ ...current, processingFee: value }))} inputMode="decimal" error={calculationFieldError('processingFee')} />
                     </div>
                   </div>
                   <div className="md:col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
                     <p className="text-sm font-bold text-slate-900">Post-Split Add-Backs</p>
                     <div className="mt-3 grid gap-4 md:grid-cols-3">
-                      <AdminInput label="Appraisal" value={editForm.appraisalAddBack} onChange={(value) => setEditForm((current) => ({ ...current, appraisalAddBack: value }))} inputMode="decimal" />
-                      <AdminInput label="Credit" value={editForm.creditAddBack} onChange={(value) => setEditForm((current) => ({ ...current, creditAddBack: value }))} inputMode="decimal" />
-                      <AdminInput label="VOE" value={editForm.voeAddBack} onChange={(value) => setEditForm((current) => ({ ...current, voeAddBack: value }))} inputMode="decimal" />
-                      <AdminInput label="Termite" value={editForm.termiteAddBack} onChange={(value) => setEditForm((current) => ({ ...current, termiteAddBack: value }))} inputMode="decimal" />
-                      <AdminInput label="Appraisal Reinspection" value={editForm.appraisalReinspectionAddBack} onChange={(value) => setEditForm((current) => ({ ...current, appraisalReinspectionAddBack: value }))} inputMode="decimal" />
-                      <AdminInput label="Water Test" value={editForm.waterTestAddBack} onChange={(value) => setEditForm((current) => ({ ...current, waterTestAddBack: value }))} inputMode="decimal" />
+                      <AdminInput label="Appraisal" value={editForm.appraisalAddBack} onChange={(value) => setEditForm((current) => ({ ...current, appraisalAddBack: value }))} inputMode="decimal" error={calculationFieldError('appraisalAddBack')} />
+                      <AdminInput label="Credit" value={editForm.creditAddBack} onChange={(value) => setEditForm((current) => ({ ...current, creditAddBack: value }))} inputMode="decimal" error={calculationFieldError('creditAddBack')} />
+                      <AdminInput label="VOE" value={editForm.voeAddBack} onChange={(value) => setEditForm((current) => ({ ...current, voeAddBack: value }))} inputMode="decimal" error={calculationFieldError('voeAddBack')} />
+                      <AdminInput label="Termite" value={editForm.termiteAddBack} onChange={(value) => setEditForm((current) => ({ ...current, termiteAddBack: value }))} inputMode="decimal" error={calculationFieldError('termiteAddBack')} />
+                      <AdminInput label="Appraisal Reinspection" value={editForm.appraisalReinspectionAddBack} onChange={(value) => setEditForm((current) => ({ ...current, appraisalReinspectionAddBack: value }))} inputMode="decimal" error={calculationFieldError('appraisalReinspectionAddBack')} />
+                      <AdminInput label="Water Test" value={editForm.waterTestAddBack} onChange={(value) => setEditForm((current) => ({ ...current, waterTestAddBack: value }))} inputMode="decimal" error={calculationFieldError('waterTestAddBack')} />
                     </div>
                   </div>
                   <div className="md:col-span-2 rounded-2xl border border-amber-100 bg-amber-50/60 p-4">
                     <p className="text-sm font-bold text-slate-900">Figure/NFTY Context</p>
                     <div className="mt-3 grid gap-4 md:grid-cols-3">
-                      <AdminInput label="Loan Amount Prior to Fees" value={editForm.loanAmountPriorToFees} onChange={(value) => setEditForm((current) => ({ ...current, loanAmountPriorToFees: value }))} inputMode="decimal" />
-                      <AdminInput label="Recession Date" value={editForm.recessionDate} onChange={(value) => setEditForm((current) => ({ ...current, recessionDate: value }))} type="date" />
-                      <AdminInput label="Attachment Name" value={editForm.figureNftyAttachmentName} onChange={(value) => setEditForm((current) => ({ ...current, figureNftyAttachmentName: value }))} />
+                      <AdminInput label="Loan Amount Prior to Fees" value={editForm.loanAmountPriorToFees} onChange={(value) => setEditForm((current) => ({ ...current, loanAmountPriorToFees: value }))} inputMode="decimal" error={calculationFieldError('loanAmountPriorToFees')} />
+                      <AdminInput label="Recession Date" value={editForm.recessionDate} onChange={(value) => setEditForm((current) => ({ ...current, recessionDate: value }))} type="date" error={calculationFieldError('recessionDate')} />
+                      <AdminInput label="Attachment Name" value={editForm.figureNftyAttachmentName} onChange={(value) => setEditForm((current) => ({ ...current, figureNftyAttachmentName: value }))} error={calculationFieldError('figureNftyAttachmentName')} />
                     </div>
                   </div>
                   <AdminInput label="Admin Notes" value={editForm.adminNotes} onChange={(value) => setEditForm((current) => ({ ...current, adminNotes: value }))} />
@@ -679,8 +752,19 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                   ) : (
                     <>
                       {currentRequest.status !== PayrollCompRequestStatus.PAID && (
-                        <button type="button" className="app-btn-secondary" onClick={() => setEditMode(true)}>
-                          <Edit3 className="h-4 w-4" /> Edit Request
+                        <button
+                          type="button"
+                          className="app-btn-secondary"
+                          onClick={() => {
+                            setActionError(null);
+                            setEditAttempted(false);
+                            setEditMode(true);
+                          }}
+                        >
+                          <Edit3 className="h-4 w-4" />
+                          {currentRequest.managerCalculationRequired && !currentRequest.managerCalculationCompletedAt
+                            ? 'Complete Calculation'
+                            : 'Edit Request'}
                         </button>
                       )}
                       {currentRequest.status !== PayrollCompRequestStatus.PAID && (
@@ -694,7 +778,13 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                         </button>
                       )}
                       {currentRequest.status === PayrollCompRequestStatus.PENDING_REVIEW || currentRequest.status === PayrollCompRequestStatus.REJECTED ? (
-                        <button type="button" className="app-btn-primary" disabled={isPending} onClick={() => runAction(currentRequest.id, () => approvePayrollRequest(currentRequest.id, editForm.adminNotes))}>
+                        <button
+                          type="button"
+                          className="app-btn-primary"
+                          disabled={isPending || (currentRequest.managerCalculationRequired && !currentRequest.managerCalculationCompletedAt)}
+                          title={currentRequest.managerCalculationRequired && !currentRequest.managerCalculationCompletedAt ? 'Complete and save the compensation calculation before approval.' : undefined}
+                          onClick={() => runAction(currentRequest.id, () => approvePayrollRequest(currentRequest.id, editForm.adminNotes))}
+                        >
                           {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                           Approve
                         </button>
@@ -1179,22 +1269,29 @@ function AdminInput({
   onChange,
   inputMode,
   type = 'text',
+  error = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   type?: React.HTMLInputTypeAttribute;
+  error?: boolean;
 }) {
   return (
     <label className="block">
-      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
+      <span className={`text-[11px] font-bold uppercase tracking-wider ${error ? 'text-rose-600' : 'text-slate-500'}`}>{label}</span>
       <input
         value={value}
         type={type}
         onChange={(event) => onChange(event.target.value)}
         inputMode={inputMode}
-        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+        aria-invalid={error}
+        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 ${
+          error
+            ? 'border-rose-300 bg-rose-50 focus:border-rose-500 focus:ring-rose-500/20'
+            : 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20'
+        }`}
       />
     </label>
   );

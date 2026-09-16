@@ -24,6 +24,10 @@ import { authOptions } from '@/lib/auth';
 import { canAccessPayroll } from '@/lib/adminTiers';
 import { PAYROLL_COMPANY_DEFAULT_FEE_LENDER } from '@/lib/payrollFeeRules';
 import { canAccessPayrollPortal } from '@/lib/payrollPilot';
+import {
+  assertRetailPayrollApprovalReady,
+  isSimplifiedRetailPayrollSubmission,
+} from '@/lib/payrollRetailSimplification';
 import { prisma } from '@/lib/prisma';
 
 const PAYROLL_ADMIN_PATHS = [
@@ -98,6 +102,7 @@ export type PayrollCompRequestInput = {
   leadSource: PayrollLeadSource;
   leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue?: number;
+  estimatedCompAmount?: number | null;
   brokerComp?: number | null;
   sectionAComp?: number | null;
   yspAmount?: number | null;
@@ -205,6 +210,10 @@ export type PayrollRequestRow = {
   appliedPlanType: PayrollCompPlanType;
   reimbursementTarget: PayrollReimbursementTarget;
   expectedRevenue: number;
+  estimatedCompAmount: number | null;
+  managerCalculationRequired: boolean;
+  managerCalculationCompletedAt: string | null;
+  managerCalculationCompletedByName: string | null;
   brokerComp: number | null;
   sectionAComp: number | null;
   yspAmount: number | null;
@@ -369,6 +378,7 @@ type SessionActor = {
 
 const requestInclude = {
   loanOfficer: { select: { id: true, name: true, email: true } },
+  managerCalculationCompletedBy: { select: { name: true } },
   loan: {
     select: {
       processingPipeline: {
@@ -536,6 +546,10 @@ async function syncApprovedPayrollRevenue(
 function decimalToNumber(value: Prisma.Decimal | number | string | null | undefined) {
   if (value === null || value === undefined) return 0;
   return Number(value);
+}
+
+function nullableDecimalToNumber(value: Prisma.Decimal | number | string | null | undefined) {
+  return value === null || value === undefined ? null : Number(value);
 }
 
 function money(value: number) {
@@ -908,6 +922,60 @@ function defaultFeeCureLine(
   return null;
 }
 
+async function isRetailNonDelegatedSubmission(
+  loanOfficerId: string,
+  input: Pick<PayrollCompRequestInput, 'loanChannel'>,
+) {
+  if (input.loanChannel !== PayrollLoanChannel.NON_DELEGATED) return false;
+  const plan = await prisma.payrollCompPlan.findFirst({
+    where: { loanOfficerId, active: true },
+    orderBy: { effectiveStart: 'desc' },
+    select: { userClassification: true },
+  });
+  return isSimplifiedRetailPayrollSubmission(plan?.userClassification, input.loanChannel);
+}
+
+function calculateRetailEstimate(input: PayrollCompRequestInput): PayrollCalculationSnapshot {
+  const estimatedCompAmount = ensureMoney(
+    input.estimatedCompAmount ?? Number.NaN,
+    'Estimated Total Compensation',
+  );
+  return {
+    grossCompAmount: estimatedCompAmount,
+    preSplitAddBackTotal: 0,
+    preSplitDeductionTotal: 0,
+    splitBasisAmount: estimatedCompAmount,
+    postSplitAddBackTotal: 0,
+    netCompAmount: estimatedCompAmount,
+    lines: [{
+      key: 'estimatedCompAmount',
+      label: 'Estimated Total Compensation',
+      enteredAmount: estimatedCompAmount,
+      calculatedAmount: estimatedCompAmount,
+      stage: 'BASE',
+      treatment: 'BASE',
+      required: true,
+      note: 'Estimate submitted by the loan officer; final compensation requires payroll review.',
+    }],
+    warnings: ['Final compensation is pending payroll review and calculation.'],
+    requirements: {
+      figureNftyRequired: false,
+      requiresLoanAmountPriorToFees: false,
+      requiresFundedDetailsAttachment: false,
+      requiresRecessionDate: false,
+      recessionBlocksSubmission: false,
+      recessionEligibleDate: null,
+    },
+  };
+}
+
+function validatePayrollRequestBasics(input: PayrollCompRequestInput) {
+  cleanText(input.loanNumber, 'Arive Loan Number');
+  cleanText(input.borrowerName, "Borrower's Name");
+  cleanText(input.loanType, 'Loan Type');
+  cleanText(input.lender, 'Lender');
+}
+
 function calculatePayrollCompensation(
   input: PayrollCompRequestInput,
   rules: {
@@ -1091,6 +1159,24 @@ function calculatePayrollCompensation(
   };
 }
 
+function assertPayrollCalculationRequirements(
+  calculation: PayrollCalculationSnapshot,
+  input: PayrollCompRequestInput,
+) {
+  if (calculation.requirements.recessionBlocksSubmission) {
+    throw new Error('This Figure/NFTY file cannot be submitted until the recession period falls into the eligible pay period.');
+  }
+  if (calculation.requirements.requiresLoanAmountPriorToFees && !input.loanAmountPriorToFees) {
+    throw new Error('Loan amount prior to fees is required for this lender.');
+  }
+  if (calculation.requirements.requiresFundedDetailsAttachment && !input.figureNftyAttachmentName && !input.figureNftyAttachmentUrl) {
+    throw new Error('Funded/details screenshot is required for this lender.');
+  }
+  if (calculation.requirements.requiresRecessionDate && !input.recessionDate) {
+    throw new Error('Recession date is required for this lender.');
+  }
+}
+
 function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include: typeof requestInclude }>): PayrollRequestRow {
   const calculationSnapshot = (request.calculationSnapshot as PayrollCalculationSnapshot | null) ?? null;
   const splitBasisAmount = decimalToNumber(request.splitBasisAmount) || decimalToNumber(request.expectedRevenue);
@@ -1112,23 +1198,27 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     appliedPlanType: request.appliedPlanType,
     reimbursementTarget: request.reimbursementTarget,
     expectedRevenue: decimalToNumber(request.expectedRevenue),
-    brokerComp: decimalToNumber(request.brokerComp) || null,
-    sectionAComp: decimalToNumber(request.sectionAComp) || null,
-    yspAmount: decimalToNumber(request.yspAmount) || null,
-    toleranceCure: decimalToNumber(request.toleranceCure) || null,
-    oneDayInterest: decimalToNumber(request.oneDayInterest) || null,
-    wireFee: decimalToNumber(request.wireFee) || null,
-    underwritingFee: decimalToNumber(request.underwritingFee) || null,
-    lenderCredit: decimalToNumber(request.lenderCredit) || null,
-    originationFee: decimalToNumber(request.originationFee) || null,
-    processingFee: decimalToNumber(request.processingFee) || null,
-    appraisalAddBack: decimalToNumber(request.appraisalAddBack) || null,
-    creditAddBack: decimalToNumber(request.creditAddBack) || null,
-    voeAddBack: decimalToNumber(request.voeAddBack) || null,
-    termiteAddBack: decimalToNumber(request.termiteAddBack) || null,
-    appraisalReinspectionAddBack: decimalToNumber(request.appraisalReinspectionAddBack) || null,
-    waterTestAddBack: decimalToNumber(request.waterTestAddBack) || null,
-    loanAmountPriorToFees: decimalToNumber(request.loanAmountPriorToFees) || null,
+    estimatedCompAmount: request.estimatedCompAmount === null ? null : decimalToNumber(request.estimatedCompAmount),
+    managerCalculationRequired: request.managerCalculationRequired,
+    managerCalculationCompletedAt: request.managerCalculationCompletedAt?.toISOString() ?? null,
+    managerCalculationCompletedByName: request.managerCalculationCompletedBy?.name ?? null,
+    brokerComp: nullableDecimalToNumber(request.brokerComp),
+    sectionAComp: nullableDecimalToNumber(request.sectionAComp),
+    yspAmount: nullableDecimalToNumber(request.yspAmount),
+    toleranceCure: nullableDecimalToNumber(request.toleranceCure),
+    oneDayInterest: nullableDecimalToNumber(request.oneDayInterest),
+    wireFee: nullableDecimalToNumber(request.wireFee),
+    underwritingFee: nullableDecimalToNumber(request.underwritingFee),
+    lenderCredit: nullableDecimalToNumber(request.lenderCredit),
+    originationFee: nullableDecimalToNumber(request.originationFee),
+    processingFee: nullableDecimalToNumber(request.processingFee),
+    appraisalAddBack: nullableDecimalToNumber(request.appraisalAddBack),
+    creditAddBack: nullableDecimalToNumber(request.creditAddBack),
+    voeAddBack: nullableDecimalToNumber(request.voeAddBack),
+    termiteAddBack: nullableDecimalToNumber(request.termiteAddBack),
+    appraisalReinspectionAddBack: nullableDecimalToNumber(request.appraisalReinspectionAddBack),
+    waterTestAddBack: nullableDecimalToNumber(request.waterTestAddBack),
+    loanAmountPriorToFees: nullableDecimalToNumber(request.loanAmountPriorToFees),
     recessionDate: request.recessionDate?.toISOString() ?? null,
     figureNftyAttachmentName: request.figureNftyAttachmentName,
     figureNftyAttachmentUrl: request.figureNftyAttachmentUrl,
@@ -1707,18 +1797,24 @@ export async function savePayrollTeamCompPlanSettings(input: PayrollTeamCompPlan
 export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
   try {
     const actor = await assertPayrollPortalUser();
-    const [rules, brokerRetailRouting] = await Promise.all([
+    validatePayrollRequestBasics(input);
+    const [rules, brokerRetailRouting, estimateOnly] = await Promise.all([
       getPayrollRulesForRequest(input),
       getBrokerRetailRoutingSettings(),
+      isRetailNonDelegatedSubmission(actor.userId, input),
     ]);
-    const calculation = calculatePayrollCompensation(input, rules);
+    const calculation = estimateOnly
+      ? calculateRetailEstimate(input)
+      : calculatePayrollCompensation(input, rules);
     const splitSnapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
       leadSource: input.leadSource,
       leadProvidedBy: input.leadProvidedBy,
       brokerRetailRouting,
     });
     const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, input.reimbursementTarget);
-    const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
+    const snapshots = estimateOnly
+      ? splitSnapshots
+      : withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
     return {
       ok: true as const,
       preview: {
@@ -1736,6 +1832,7 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
         hasManagerReimbursementRecipients: splitSnapshots.some((split) => split.roleLabel.trim().toLowerCase() === 'manager'),
         appliedPlanType: splitSnapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER,
         reimbursementTarget,
+        estimateOnly,
       },
     };
   } catch (err) {
@@ -1748,6 +1845,7 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
 
 export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   const actor = await assertPayrollPortalUser();
+  validatePayrollRequestBasics(input);
   const submissionWindow = await getPayrollSubmissionWindowState(actor.userId);
   if (!submissionWindow.isOpen || !submissionWindow.activeWindow) {
     throw new Error(`Payroll submissions are currently closed. The next submission window is ${submissionWindow.nextWindow.label}.`);
@@ -1768,30 +1866,24 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   if (existingRequest) {
     throw new Error('A compensation request for this Arive loan number already exists. Delete or reject the existing request before submitting another one.');
   }
-  const [rules, brokerRetailRouting] = await Promise.all([
+  const [rules, brokerRetailRouting, estimateOnly] = await Promise.all([
     getPayrollRulesForRequest(input),
     getBrokerRetailRoutingSettings(),
+    isRetailNonDelegatedSubmission(actor.userId, input),
   ]);
-  const calculation = calculatePayrollCompensation(input, rules);
-  if (calculation.requirements.recessionBlocksSubmission) {
-    throw new Error('This Figure/NFTY file cannot be submitted until the recession period falls into the eligible pay period.');
-  }
-  if (calculation.requirements.requiresLoanAmountPriorToFees && !input.loanAmountPriorToFees) {
-    throw new Error('Loan amount prior to fees is required for this lender.');
-  }
-  if (calculation.requirements.requiresFundedDetailsAttachment && !input.figureNftyAttachmentName && !input.figureNftyAttachmentUrl) {
-    throw new Error('Funded/details screenshot is required for this lender.');
-  }
-  if (calculation.requirements.requiresRecessionDate && !input.recessionDate) {
-    throw new Error('Recession date is required for this lender.');
-  }
+  const calculation = estimateOnly
+    ? calculateRetailEstimate(input)
+    : calculatePayrollCompensation(input, rules);
+  if (!estimateOnly) assertPayrollCalculationRequirements(calculation, input);
   const splitSnapshots = await buildSplitSnapshots(actor.userId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
     brokerRetailRouting,
   });
   const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, input.reimbursementTarget);
-  const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
+  const snapshots = estimateOnly
+    ? splitSnapshots
+    : withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
   const appliedPlanType = snapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
   const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
   const loanId = await resolvePayrollLoanId(prisma, loanNumber);
@@ -1812,26 +1904,28 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
       appliedPlanType,
       reimbursementTarget,
       expectedRevenue: calculation.splitBasisAmount,
-      brokerComp: ensureOptionalMoney(input.brokerComp, 'Broker comp'),
-      sectionAComp: ensureOptionalMoney(input.sectionAComp, 'Section A'),
-      yspAmount: ensureSignedMoney(input.yspAmount, 'YSP'),
-      toleranceCure: ensureOptionalMoney(input.toleranceCure, 'Tolerance cure'),
-      oneDayInterest: ensureOptionalMoney(input.oneDayInterest, '1 day of interest'),
-      wireFee: ensureOptionalMoney(input.wireFee, 'Wire fee'),
-      underwritingFee: ensureOptionalMoney(input.underwritingFee, 'Underwriting fee'),
-      lenderCredit: ensureOptionalMoney(input.lenderCredit, 'Lender credit'),
-      originationFee: ensureOptionalMoney(input.originationFee, 'Origination fee'),
-      processingFee: ensureOptionalMoney(input.processingFee, 'Processing fee'),
-      appraisalAddBack: ensureOptionalMoney(input.appraisalAddBack, 'Appraisal add-back'),
-      creditAddBack: ensureOptionalMoney(input.creditAddBack, 'Credit add-back'),
-      voeAddBack: ensureOptionalMoney(input.voeAddBack, 'VOE add-back'),
-      termiteAddBack: ensureOptionalMoney(input.termiteAddBack, 'Termite add-back'),
-      appraisalReinspectionAddBack: ensureOptionalMoney(input.appraisalReinspectionAddBack, 'Appraisal reinspection add-back'),
-      waterTestAddBack: ensureOptionalMoney(input.waterTestAddBack, 'Water test add-back'),
-      loanAmountPriorToFees: ensureOptionalMoney(input.loanAmountPriorToFees, 'Loan amount prior to fees'),
-      recessionDate,
-      figureNftyAttachmentName: input.figureNftyAttachmentName?.trim() || null,
-      figureNftyAttachmentUrl: input.figureNftyAttachmentUrl?.trim() || null,
+      estimatedCompAmount: estimateOnly ? calculation.grossCompAmount : null,
+      managerCalculationRequired: estimateOnly,
+      brokerComp: estimateOnly ? null : ensureOptionalMoney(input.brokerComp, 'Broker comp'),
+      sectionAComp: estimateOnly ? null : ensureOptionalMoney(input.sectionAComp, 'Section A'),
+      yspAmount: estimateOnly ? null : ensureSignedMoney(input.yspAmount, 'YSP'),
+      toleranceCure: estimateOnly ? null : ensureOptionalMoney(input.toleranceCure, 'Tolerance cure'),
+      oneDayInterest: estimateOnly ? null : ensureOptionalMoney(input.oneDayInterest, '1 day of interest'),
+      wireFee: estimateOnly ? null : ensureOptionalMoney(input.wireFee, 'Wire fee'),
+      underwritingFee: estimateOnly ? null : ensureOptionalMoney(input.underwritingFee, 'Underwriting fee'),
+      lenderCredit: estimateOnly ? null : ensureOptionalMoney(input.lenderCredit, 'Lender credit'),
+      originationFee: estimateOnly ? null : ensureOptionalMoney(input.originationFee, 'Origination fee'),
+      processingFee: estimateOnly ? null : ensureOptionalMoney(input.processingFee, 'Processing fee'),
+      appraisalAddBack: estimateOnly ? null : ensureOptionalMoney(input.appraisalAddBack, 'Appraisal add-back'),
+      creditAddBack: estimateOnly ? null : ensureOptionalMoney(input.creditAddBack, 'Credit add-back'),
+      voeAddBack: estimateOnly ? null : ensureOptionalMoney(input.voeAddBack, 'VOE add-back'),
+      termiteAddBack: estimateOnly ? null : ensureOptionalMoney(input.termiteAddBack, 'Termite add-back'),
+      appraisalReinspectionAddBack: estimateOnly ? null : ensureOptionalMoney(input.appraisalReinspectionAddBack, 'Appraisal reinspection add-back'),
+      waterTestAddBack: estimateOnly ? null : ensureOptionalMoney(input.waterTestAddBack, 'Water test add-back'),
+      loanAmountPriorToFees: estimateOnly ? null : ensureOptionalMoney(input.loanAmountPriorToFees, 'Loan amount prior to fees'),
+      recessionDate: estimateOnly ? null : recessionDate,
+      figureNftyAttachmentName: estimateOnly ? null : input.figureNftyAttachmentName?.trim() || null,
+      figureNftyAttachmentUrl: estimateOnly ? null : input.figureNftyAttachmentUrl?.trim() || null,
       grossCompAmount: calculation.grossCompAmount,
       preSplitAddBackTotal: calculation.preSplitAddBackTotal,
       preSplitDeductionTotal: calculation.preSplitDeductionTotal,
@@ -2186,7 +2280,12 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
   const actor = await assertPayrollAdmin();
   const request = await prisma.payrollCompRequest.findUnique({
     where: { id: input.requestId },
-    select: { id: true, loanOfficerId: true, status: true },
+    select: {
+      id: true,
+      loanOfficerId: true,
+      status: true,
+      managerCalculationRequired: true,
+    },
   });
   if (!request) throw new Error('Payroll request was not found.');
   if (request.status === PayrollCompRequestStatus.PAID) {
@@ -2198,6 +2297,7 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
     getBrokerRetailRoutingSettings(),
   ]);
   const calculation = calculatePayrollCompensation(input, rules);
+  assertPayrollCalculationRequirements(calculation, input);
   const splitSnapshots = await buildSplitSnapshots(request.loanOfficerId, calculation.splitBasisAmount, {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
@@ -2251,6 +2351,8 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         postSplitAddBackTotal: calculation.postSplitAddBackTotal,
         netCompAmount: calculation.netCompAmount,
         calculationSnapshot: calculation as unknown as Prisma.InputJsonValue,
+        managerCalculationCompletedAt: request.managerCalculationRequired ? new Date() : undefined,
+        managerCalculationCompletedById: request.managerCalculationRequired ? actor.userId : undefined,
         mismoDetails: normalizeMismoDetails(input.mismoDetails) ?? Prisma.JsonNull,
         submitterNotes: input.submitterNotes?.trim() || null,
         adminNotes: input.adminNotes?.trim() || null,
@@ -2286,7 +2388,11 @@ export async function approvePayrollRequest(requestId: string, adminNotes?: stri
   const actor = await assertPayrollAdmin();
   const request = await prisma.payrollCompRequest.findUnique({
     where: { id: requestId },
-    select: { status: true },
+    select: {
+      status: true,
+      managerCalculationRequired: true,
+      managerCalculationCompletedAt: true,
+    },
   });
   if (!request) throw new Error('Payroll request was not found.');
   if (
@@ -2295,6 +2401,7 @@ export async function approvePayrollRequest(requestId: string, adminNotes?: stri
   ) {
     throw new Error('Only pending or rejected requests can be approved.');
   }
+  assertRetailPayrollApprovalReady(request);
   if (recalculate) await replaceRequestSplits(requestId);
   await prisma.$transaction(async (tx) => {
     await tx.payrollCompRequest.update({

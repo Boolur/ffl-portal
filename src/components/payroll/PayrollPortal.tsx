@@ -73,6 +73,7 @@ type FormState = {
   leadSource: PayrollLeadSource;
   leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue: string;
+  estimatedCompAmount: string;
   brokerComp: string;
   brokerPaidBy: 'BORROWER_PAID' | 'LENDER_PAID';
   sectionAComp: string;
@@ -109,6 +110,7 @@ const initialForm: FormState = {
   leadSource: PayrollLeadSource.LEAD_BUY,
   leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
   expectedRevenue: '',
+  estimatedCompAmount: '',
   brokerComp: '',
   brokerPaidBy: 'BORROWER_PAID',
   sectionAComp: '',
@@ -142,6 +144,7 @@ const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
   { key: 'processingType', label: 'Processing Type' },
   { key: 'leadSource', label: 'Lead Source' },
   { key: 'leadProvidedBy', label: 'Lead Provided By' },
+  { key: 'estimatedCompAmount', label: 'Estimated Total Compensation' },
   { key: 'brokerComp', label: 'Broker Comp' },
   { key: 'sectionAComp', label: 'Section A' },
   { key: 'yspAmount', label: 'YSP' },
@@ -200,6 +203,7 @@ const BROKER_PAID_BY_OPTIONS = [
   { value: 'LENDER_PAID', label: 'Lender Paid' },
 ] as const;
 const MONEY_FIELDS = [
+  'estimatedCompAmount',
   'brokerComp',
   'sectionAComp',
   'yspAmount',
@@ -284,7 +288,8 @@ function buildCompInput(form: FormState, reimbursementTarget?: PayrollReimbursem
     ...form,
     ...amounts,
     ...deductionAmounts,
-    expectedRevenue: amounts.brokerComp ?? amounts.sectionAComp ?? 0,
+    expectedRevenue: amounts.estimatedCompAmount ?? amounts.brokerComp ?? amounts.sectionAComp ?? 0,
+    estimatedCompAmount: amounts.estimatedCompAmount,
     recessionDate: form.recessionDate || null,
     figureNftyAttachmentName: form.figureNftyAttachmentName || null,
     figureNftyAttachmentUrl: form.figureNftyAttachmentName || null,
@@ -509,6 +514,13 @@ function formatPeriodRange(start: string, end: string) {
   return `${formatDate(start)} - ${formatDate(displayEnd.toISOString())}`;
 }
 
+function requestLoanOfficerRevenue(row: PayrollRequestRow) {
+  if (!row.managerCalculationRequired) return row.expectedRevenue;
+  return row.splits
+    .filter((split) => split.roleLabel === 'Loan Officer' || split.roleLabel === 'Post-Split Add-Backs')
+    .reduce((sum, split) => sum + split.amount, 0);
+}
+
 function Kpi({
   title,
   value,
@@ -626,6 +638,7 @@ export function PayrollPortal({
     hasManagerReimbursementRecipients: boolean;
     appliedPlanType: PayrollCompPlanType;
     reimbursementTarget: PayrollReimbursementTarget;
+    estimateOnly: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [kpiBreakdown, setKpiBreakdown] = useState<KpiBreakdown | null>(null);
@@ -637,12 +650,15 @@ export function PayrollPortal({
   );
   const isRetailReimbursementContext = preview?.appliedPlanType === PayrollCompPlanType.RETAIL ||
     (!preview && (userClassification === PayrollUserClassification.RETAIL || selectedLeadRoutesRetail));
+  const isRetailNonDelegated = userClassification === PayrollUserClassification.RETAIL &&
+    form.loanChannel === PayrollLoanChannel.NON_DELEGATED;
   const positiveYspInput = isPositiveYspInput(form.yspAmount);
 
   const canPreview = useMemo(() => {
+    if (isRetailNonDelegated) return Number(form.estimatedCompAmount) > 0;
     const base = form.loanChannel === PayrollLoanChannel.BROKER ? form.brokerComp : form.sectionAComp;
     return Number(base) > 0;
-  }, [form.brokerComp, form.loanChannel, form.sectionAComp]);
+  }, [form.brokerComp, form.estimatedCompAmount, form.loanChannel, form.sectionAComp, isRetailNonDelegated]);
   const submitLockedReason = !submissionWindowState.isOpen
     ? `Payroll submissions are closed. Next window: ${submissionWindowState.nextWindow.label}.`
     : submissionWindowState.isLocked
@@ -696,6 +712,10 @@ export function PayrollPortal({
   const missingFields = useMemo(() => {
     return REQUIRED_FIELDS.filter(({ key }) => {
       const value = form[key];
+      if (key === 'estimatedCompAmount') {
+        return isRetailNonDelegated && (!Number.isFinite(Number(value)) || Number(value) <= 0);
+      }
+      if (isRetailNonDelegated && MONEY_FIELDS.includes(key as MoneyField)) return false;
       if (key === 'brokerComp') {
         return form.loanChannel === PayrollLoanChannel.BROKER && (!Number.isFinite(Number(value)) || Number(value) <= 0);
       }
@@ -711,7 +731,7 @@ export function PayrollPortal({
       }
       return !String(value).trim();
     });
-  }, [figureNftyRequired, form]);
+  }, [figureNftyRequired, form, isRetailNonDelegated]);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => {
@@ -743,7 +763,7 @@ export function PayrollPortal({
   const requestBreakdownRows = (requestRows: PayrollRequestRow[]) => requestRows.map((row) => ({
     label: `${row.loanNumber} · ${row.borrowerName}`,
     detail: `${row.lender} · ${payrollStatusLabel(row.status)} · submitted ${formatDate(row.submittedAt)}`,
-    value: formatCurrency(row.expectedRevenue),
+    value: formatCurrency(requestLoanOfficerRevenue(row)),
   }));
   const openRequestBreakdown = (
     title: string,
@@ -1034,7 +1054,16 @@ export function PayrollPortal({
                         <p className="text-xs text-slate-500">{row.borrowerName}</p>
                       </td>
                       <td className="px-5 py-4 text-slate-700">{row.lender}</td>
-                      <td className="px-5 py-4 text-right font-semibold text-slate-900">{formatCurrency(row.expectedRevenue)}</td>
+                      <td className="px-5 py-4 text-right">
+                        <p className="font-semibold text-slate-900">{formatCurrency(requestLoanOfficerRevenue(row))}</p>
+                        {row.managerCalculationRequired && (
+                          <p className={`text-[11px] font-semibold ${
+                            row.managerCalculationCompletedAt ? 'text-emerald-700' : 'text-amber-700'
+                          }`}>
+                            {row.managerCalculationCompletedAt ? 'Final compensation confirmed' : 'Estimated · manager review pending'}
+                          </p>
+                        )}
+                      </td>
                       <td className="px-5 py-4">
                         <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${payrollStatusClasses(row.status)}`}>
                           {payrollStatusLabel(row.status)}
@@ -1285,6 +1314,31 @@ export function PayrollPortal({
                 </label>
               </div>
 
+              {isRetailNonDelegated ? (
+                <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/70 to-white p-4 shadow-sm">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                      <Calculator className="h-4 w-4 text-emerald-700" />
+                      Estimated Compensation
+                    </p>
+                    <p className="text-sm text-slate-500">Enter your best estimate. Payroll will complete the final compensation worksheet during review.</p>
+                  </div>
+                  <div className="mt-4">
+                    <Input
+                      label="Estimated Total Compensation"
+                      Icon={DollarSign}
+                      value={form.estimatedCompAmount}
+                      onChange={(value) => update('estimatedCompAmount', value)}
+                      onBlur={() => markTouched('estimatedCompAmount')}
+                      error={shouldHighlight('estimatedCompAmount')}
+                      placeholder="0"
+                      inputMode="decimal"
+                      currencyPrefix="$"
+                      green
+                    />
+                  </div>
+                </div>
+              ) : (
               <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/70 to-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -1349,6 +1403,7 @@ export function PayrollPortal({
                   )}
                 </div>
               </div>
+              )}
 
               <div className="grid gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/90 to-blue-50/70 p-4 md:grid-cols-2">
                 <LeadSelect
@@ -1373,6 +1428,7 @@ export function PayrollPortal({
                 />
               </div>
 
+              {!isRetailNonDelegated && (
               <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white p-4">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -1418,8 +1474,9 @@ export function PayrollPortal({
                   <Input label="Water Test" Icon={Droplets} value={form.waterTestAddBack} onChange={(value) => update('waterTestAddBack', value)} error={shouldHighlight('waterTestAddBack')} onBlur={() => markTouched('waterTestAddBack')} placeholder="0" inputMode="decimal" currencyPrefix="$" green />
                 </div>
               </div>
+              )}
 
-              {figureNftyRequired && (
+              {figureNftyRequired && !isRetailNonDelegated && (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                   <p className="text-sm font-bold text-amber-900">Figure/NFTY Required Details</p>
                   <p className="text-sm text-amber-800">These fields are required before this lender can be submitted.</p>
@@ -1450,7 +1507,22 @@ export function PayrollPortal({
                 </div>
                 {preview && (
                   <div className="mt-4 space-y-4">
-                    {(() => {
+                    {preview.estimateOnly ? (
+                      <>
+                        <div className="rounded-xl border border-emerald-200 bg-white p-5 shadow-sm">
+                          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Estimated Revenue After Splits</p>
+                          <p className="mt-2 text-3xl font-extrabold text-slate-950">
+                            {formatCurrency(preview.splits.find((split) => split.roleLabel === 'Loan Officer')?.amount ?? 0)}
+                          </p>
+                          <p className="mt-2 text-sm text-slate-500">
+                            Based on your current configured Retail split and the estimated compensation entered above.
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800">
+                          Once your Manager has reviewed this request, you will see your final compensation amount confirmed.
+                        </div>
+                      </>
+                    ) : (() => {
                       const loanOfficerSplit = preview.splits.find((split) => split.roleLabel === 'Loan Officer');
                       const postSplitAddBack = preview.splits.find((split) => split.roleLabel === 'Post-Split Add-Backs');
                       const managerReimbursements = preview.splits.filter((split) => split.roleLabel === 'Manager Reimbursement');
