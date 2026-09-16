@@ -1,13 +1,17 @@
 import {
   PayrollLoanChannel,
+  PayrollLeadSource,
   PayrollProcessingType,
+  PayrollSplitPayType,
   PayrollUserClassification,
 } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
 import {
   assertRetailPayrollApprovalReady,
+  digitalMailerSplitPercent,
   getMissingManagerWorksheetFields,
   isSimplifiedRetailPayrollSubmission,
+  rebalanceLoanOfficerSplitPercentages,
   type ManagerWorksheetInput,
 } from './payrollRetailSimplification';
 
@@ -53,6 +57,35 @@ describe('Retail payroll simplification eligibility', () => {
       PayrollUserClassification.BROKER,
       PayrollLoanChannel.NON_DELEGATED,
     )).toBe(false);
+  });
+
+  it('defaults only simplified Retail Digital Mailer requests to a 50% LO split', () => {
+    expect(digitalMailerSplitPercent(true, PayrollLeadSource.DIGITAL_MAILER)).toBe(50);
+    expect(digitalMailerSplitPercent(false, PayrollLeadSource.DIGITAL_MAILER)).toBeNull();
+    expect(digitalMailerSplitPercent(true, PayrollLeadSource.MAILER)).toBeNull();
+  });
+});
+
+describe('request-specific payroll split override', () => {
+  it('rebalances configured recipients to the percentage remaining after the LO override', () => {
+    const result = rebalanceLoanOfficerSplitPercentages([
+      { payType: PayrollSplitPayType.PERCENT, splitPercent: 95.5, role: 'Loan Officer' },
+      { payType: PayrollSplitPayType.PERCENT, splitPercent: 3, role: 'Manager' },
+      { payType: PayrollSplitPayType.PERCENT, splitPercent: 1.5, role: 'Branch' },
+    ], 50);
+
+    expect(result.splits.map((split) => split.splitPercent)).toEqual([50, 33.3333, 16.6667]);
+    expect(result.needsCompanySplit).toBe(false);
+  });
+
+  it('requests a company split when no configured recipient can receive the remainder', () => {
+    const result = rebalanceLoanOfficerSplitPercentages([
+      { payType: PayrollSplitPayType.PERCENT, splitPercent: 100 },
+    ], 50);
+
+    expect(result.splits[0].splitPercent).toBe(50);
+    expect(result.needsCompanySplit).toBe(true);
+    expect(result.remainingPercent).toBe(50);
   });
 });
 

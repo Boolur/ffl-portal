@@ -71,6 +71,7 @@ type FormState = {
   loanChannel: PayrollLoanChannel;
   processingType: PayrollProcessingType;
   leadSource: PayrollLeadSource;
+  mailerCampaign: string;
   leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue: string;
   estimatedCompAmount: string;
@@ -108,6 +109,7 @@ const initialForm: FormState = {
   loanChannel: PayrollLoanChannel.BROKER,
   processingType: PayrollProcessingType.CONTRACT,
   leadSource: PayrollLeadSource.LEAD_BUY,
+  mailerCampaign: '',
   leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
   expectedRevenue: '',
   estimatedCompAmount: '',
@@ -143,6 +145,7 @@ const REQUIRED_FIELDS: Array<{ key: RequiredFieldKey; label: string }> = [
   { key: 'loanChannel', label: 'Broker or Non-Delegated' },
   { key: 'processingType', label: 'Processing Type' },
   { key: 'leadSource', label: 'Lead Source' },
+  { key: 'mailerCampaign', label: 'Mailer Campaign' },
   { key: 'leadProvidedBy', label: 'Lead Provided By' },
   { key: 'estimatedCompAmount', label: 'Estimated Total Compensation' },
   { key: 'brokerComp', label: 'Broker Comp' },
@@ -176,6 +179,7 @@ const LOAN_TYPE_OPTION_SET = new Set(LOAN_TYPE_OPTIONS.map((option) => option.to
 const LEAD_SOURCE_OPTIONS = [
   PayrollLeadSource.LEAD_BUY,
   PayrollLeadSource.MAILER,
+  PayrollLeadSource.DIGITAL_MAILER,
   PayrollLeadSource.WARM_TRANSFER,
   PayrollLeadSource.REFERRAL,
   PayrollLeadSource.RETURN_CLIENT,
@@ -188,6 +192,7 @@ const LEAD_PROVIDED_BY_OPTIONS = [
 const LEAD_SOURCE_LABELS: Record<PayrollLeadSource, string> = {
   LEAD_BUY: 'Lead Buy',
   MAILER: 'Mailer',
+  DIGITAL_MAILER: 'Digital Mailer',
   WARM_TRANSFER: 'Warm Transfer',
   REFERRAL: 'Referral',
   RETURN_CLIENT: 'Return Client',
@@ -516,6 +521,13 @@ function formatPeriodRange(start: string, end: string) {
 
 function requestLoanOfficerRevenue(row: PayrollRequestRow) {
   if (!row.managerCalculationRequired) return row.expectedRevenue;
+  const finalCompAvailable = Boolean(row.managerCalculationCompletedAt) && (
+    row.status === PayrollCompRequestStatus.APPROVED ||
+    row.status === PayrollCompRequestStatus.PAID
+  );
+  if (!finalCompAvailable) {
+    return row.estimatedCompAmount ?? row.expectedRevenue;
+  }
   return row.splits
     .filter((split) => split.roleLabel === 'Loan Officer' || split.roleLabel === 'Post-Split Add-Backs')
     .reduce((sum, split) => sum + split.amount, 0);
@@ -715,6 +727,9 @@ export function PayrollPortal({
       if (key === 'estimatedCompAmount') {
         return isRetailNonDelegated && (!Number.isFinite(Number(value)) || Number(value) <= 0);
       }
+      if (key === 'mailerCampaign') {
+        return form.leadSource === PayrollLeadSource.MAILER && !String(value).trim();
+      }
       if (isRetailNonDelegated && MONEY_FIELDS.includes(key as MoneyField)) return false;
       if (key === 'brokerComp') {
         return form.loanChannel === PayrollLoanChannel.BROKER && (!Number.isFinite(Number(value)) || Number(value) <= 0);
@@ -736,6 +751,17 @@ export function PayrollPortal({
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => {
       const next = { ...current, [key]: value };
+      if (
+        key === 'loanChannel' &&
+        value === PayrollLoanChannel.BROKER &&
+        next.leadSource === PayrollLeadSource.DIGITAL_MAILER
+      ) {
+        next.leadSource = PayrollLeadSource.LEAD_BUY;
+        next.mailerCampaign = '';
+      }
+      if (key === 'leadSource' && value !== PayrollLeadSource.MAILER) {
+        next.mailerCampaign = '';
+      }
       if (!reimbursementTargetTouched && (key === 'leadSource' || key === 'leadProvidedBy')) {
         const nextLeadRoutesRetail = userClassification === PayrollUserClassification.RETAIL || (
           userClassification === PayrollUserClassification.BROKER &&
@@ -1058,9 +1084,15 @@ export function PayrollPortal({
                         <p className="font-semibold text-slate-900">{formatCurrency(requestLoanOfficerRevenue(row))}</p>
                         {row.managerCalculationRequired && (
                           <p className={`text-[11px] font-semibold ${
-                            row.managerCalculationCompletedAt ? 'text-emerald-700' : 'text-amber-700'
+                            row.managerCalculationCompletedAt &&
+                            (row.status === PayrollCompRequestStatus.APPROVED || row.status === PayrollCompRequestStatus.PAID)
+                              ? 'text-emerald-700'
+                              : 'text-amber-700'
                           }`}>
-                            {row.managerCalculationCompletedAt ? 'Final compensation confirmed' : 'Estimated · manager review pending'}
+                            {row.managerCalculationCompletedAt &&
+                            (row.status === PayrollCompRequestStatus.APPROVED || row.status === PayrollCompRequestStatus.PAID)
+                              ? 'Final compensation confirmed'
+                              : 'Estimated pre-split revenue · approval pending'}
                           </p>
                         )}
                       </td>
@@ -1406,16 +1438,31 @@ export function PayrollPortal({
               )}
 
               <div className="grid gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/90 to-blue-50/70 p-4 md:grid-cols-2">
-                <LeadSelect
-                  label="Lead Source"
-                  Icon={Megaphone}
-                  value={form.leadSource}
-                  options={LEAD_SOURCE_OPTIONS}
-                  labels={LEAD_SOURCE_LABELS}
-                  error={shouldHighlight('leadSource')}
-                  onBlur={() => markTouched('leadSource')}
-                  onChange={(value) => update('leadSource', value as PayrollLeadSource)}
-                />
+                <div className="space-y-3">
+                  <LeadSelect
+                    label="Lead Source"
+                    Icon={Megaphone}
+                    value={form.leadSource}
+                    options={isRetailNonDelegated
+                      ? LEAD_SOURCE_OPTIONS
+                      : LEAD_SOURCE_OPTIONS.filter((source) => source !== PayrollLeadSource.DIGITAL_MAILER)}
+                    labels={LEAD_SOURCE_LABELS}
+                    error={shouldHighlight('leadSource')}
+                    onBlur={() => markTouched('leadSource')}
+                    onChange={(value) => update('leadSource', value as PayrollLeadSource)}
+                  />
+                  {form.leadSource === PayrollLeadSource.MAILER && (
+                    <Input
+                      label="Mailer Campaign"
+                      Icon={Megaphone}
+                      value={form.mailerCampaign}
+                      onChange={(value) => update('mailerCampaign', value)}
+                      onBlur={() => markTouched('mailerCampaign')}
+                      error={shouldHighlight('mailerCampaign')}
+                      placeholder="Enter the mailer campaign"
+                    />
+                  )}
+                </div>
                 <LeadSelect
                   label="Lead Provided By"
                   Icon={Building2}
@@ -1510,16 +1557,16 @@ export function PayrollPortal({
                     {preview.estimateOnly ? (
                       <>
                         <div className="rounded-xl border border-emerald-200 bg-white p-5 shadow-sm">
-                          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Estimated Revenue After Splits</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Estimated Pre-Split Revenue</p>
                           <p className="mt-2 text-3xl font-extrabold text-slate-950">
-                            {formatCurrency(preview.splits.find((split) => split.roleLabel === 'Loan Officer')?.amount ?? 0)}
+                            {formatCurrency(preview.calculation.splitBasisAmount)}
                           </p>
                           <p className="mt-2 text-sm text-slate-500">
-                            Based on your current configured Retail split and the estimated compensation entered above.
+                            Based on the estimated compensation entered above.
                           </p>
                         </div>
                         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800">
-                          Once your Manager has reviewed this request, you will see your final compensation amount confirmed.
+                          Once Approved, your final compensation will be available in the payroll dashboard.
                         </div>
                       </>
                     ) : (() => {

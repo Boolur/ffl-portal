@@ -1,6 +1,8 @@
 import {
   PayrollLoanChannel,
+  PayrollLeadSource,
   PayrollProcessingType,
+  PayrollSplitPayType,
   PayrollUserClassification,
 } from '@prisma/client';
 
@@ -10,6 +12,54 @@ export function isSimplifiedRetailPayrollSubmission(
 ) {
   return classification === PayrollUserClassification.RETAIL &&
     loanChannel === PayrollLoanChannel.NON_DELEGATED;
+}
+
+export function digitalMailerSplitPercent(
+  simplifiedRetailSubmission: boolean,
+  leadSource: PayrollLeadSource,
+) {
+  return simplifiedRetailSubmission && leadSource === PayrollLeadSource.DIGITAL_MAILER
+    ? 50
+    : null;
+}
+
+function usesPercent(payType: PayrollSplitPayType) {
+  return payType === PayrollSplitPayType.PERCENT || payType === PayrollSplitPayType.BOTH;
+}
+
+function roundedPercent(value: number) {
+  return Math.round(value * 10000) / 10000;
+}
+
+export function rebalanceLoanOfficerSplitPercentages<
+  T extends { payType: PayrollSplitPayType; splitPercent: number },
+>(splits: T[], loanOfficerPercent: number) {
+  const remainingPercent = roundedPercent(100 - loanOfficerPercent);
+  const otherPercentTotal = splits.reduce(
+    (sum, split, index) =>
+      sum + (index > 0 && usesPercent(split.payType) ? split.splitPercent : 0),
+    0,
+  );
+  const lastOtherPercentIndex = splits.reduce(
+    (lastIndex, split, index) =>
+      index > 0 && usesPercent(split.payType) && split.splitPercent > 0 ? index : lastIndex,
+    -1,
+  );
+  let assignedOtherPercent = 0;
+  const rebalanced = splits.map((split, index) => {
+    if (index === 0) return { ...split, splitPercent: loanOfficerPercent };
+    if (!usesPercent(split.payType) || otherPercentTotal <= 0) return split;
+    const splitPercent = index === lastOtherPercentIndex
+      ? roundedPercent(remainingPercent - assignedOtherPercent)
+      : roundedPercent((remainingPercent * split.splitPercent) / otherPercentTotal);
+    assignedOtherPercent = roundedPercent(assignedOtherPercent + splitPercent);
+    return { ...split, splitPercent };
+  });
+  return {
+    splits: rebalanced,
+    needsCompanySplit: remainingPercent > 0 && lastOtherPercentIndex === -1,
+    remainingPercent,
+  };
 }
 
 export type ManagerWorksheetField =

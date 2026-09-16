@@ -26,7 +26,9 @@ import { PAYROLL_COMPANY_DEFAULT_FEE_LENDER } from '@/lib/payrollFeeRules';
 import { canAccessPayrollPortal } from '@/lib/payrollPilot';
 import {
   assertRetailPayrollApprovalReady,
+  digitalMailerSplitPercent,
   isSimplifiedRetailPayrollSubmission,
+  rebalanceLoanOfficerSplitPercentages,
 } from '@/lib/payrollRetailSimplification';
 import { prisma } from '@/lib/prisma';
 
@@ -100,6 +102,7 @@ export type PayrollCompRequestInput = {
   loanChannel: PayrollLoanChannel;
   processingType: PayrollProcessingType;
   leadSource: PayrollLeadSource;
+  mailerCampaign?: string | null;
   leadProvidedBy: PayrollLeadProvidedBy;
   expectedRevenue?: number;
   estimatedCompAmount?: number | null;
@@ -131,6 +134,7 @@ export type PayrollCompRequestInput = {
 export type PayrollAdminEditRequestInput = PayrollCompRequestInput & {
   requestId: string;
   appliedPlanType: PayrollCompPlanType;
+  loanOfficerSplitPercentOverride?: number | null;
   adminNotes?: string;
 };
 
@@ -206,6 +210,7 @@ export type PayrollRequestRow = {
   processingType: PayrollProcessingType;
   leadSource: PayrollLeadSource;
   leadSourceDetail: string | null;
+  mailerCampaign: string | null;
   leadProvidedBy: PayrollLeadProvidedBy;
   appliedPlanType: PayrollCompPlanType;
   reimbursementTarget: PayrollReimbursementTarget;
@@ -214,6 +219,7 @@ export type PayrollRequestRow = {
   managerCalculationRequired: boolean;
   managerCalculationCompletedAt: string | null;
   managerCalculationCompletedByName: string | null;
+  loanOfficerSplitPercentOverride: number | null;
   brokerComp: number | null;
   sectionAComp: number | null;
   yspAmount: number | null;
@@ -974,6 +980,9 @@ function validatePayrollRequestBasics(input: PayrollCompRequestInput) {
   cleanText(input.borrowerName, "Borrower's Name");
   cleanText(input.loanType, 'Loan Type');
   cleanText(input.lender, 'Lender');
+  if (input.leadSource === PayrollLeadSource.MAILER) {
+    cleanText(input.mailerCampaign ?? '', 'Mailer Campaign');
+  }
 }
 
 function calculatePayrollCompensation(
@@ -1194,6 +1203,7 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     processingType: request.processingType,
     leadSource: request.leadSource,
     leadSourceDetail: request.leadSourceDetail,
+    mailerCampaign: request.mailerCampaign,
     leadProvidedBy: request.leadProvidedBy,
     appliedPlanType: request.appliedPlanType,
     reimbursementTarget: request.reimbursementTarget,
@@ -1202,6 +1212,7 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     managerCalculationRequired: request.managerCalculationRequired,
     managerCalculationCompletedAt: request.managerCalculationCompletedAt?.toISOString() ?? null,
     managerCalculationCompletedByName: request.managerCalculationCompletedBy?.name ?? null,
+    loanOfficerSplitPercentOverride: nullableDecimalToNumber(request.loanOfficerSplitPercentOverride),
     brokerComp: nullableDecimalToNumber(request.brokerComp),
     sectionAComp: nullableDecimalToNumber(request.sectionAComp),
     yspAmount: nullableDecimalToNumber(request.yspAmount),
@@ -1293,6 +1304,7 @@ async function buildSplitSnapshots(
       leadSources: PayrollLeadSource[];
       leadProvidedBy: PayrollLeadProvidedBy[];
     };
+    loanOfficerSplitPercentOverride?: number | null;
   }
 ) {
   const [loanOfficer, plans] = await Promise.all([
@@ -1334,7 +1346,17 @@ async function buildSplitSnapshots(
       : brokerPlan ?? requestedPlan ?? plans[0] ?? null;
   const effectivePlanType = selectedPlanType;
 
-  const rawSplits = selectedPlan
+  let rawSplits: Array<{
+    planId: string | null;
+    recipientUserId: string | null;
+    recipientName: string;
+    recipientEmail: string | null;
+    roleLabel: string;
+    payType: PayrollSplitPayType;
+    splitPercent: number;
+    flatAmount: number | null;
+    sortOrder: number;
+  }> = selectedPlan
     ? [
         {
           planId: selectedPlan.id,
@@ -1372,6 +1394,28 @@ async function buildSplitSnapshots(
           sortOrder: 0,
         },
       ];
+
+  if (context?.loanOfficerSplitPercentOverride !== null && context?.loanOfficerSplitPercentOverride !== undefined) {
+    const loanOfficerPercent = ensurePercent(
+      context.loanOfficerSplitPercentOverride,
+      'Loan officer split override',
+    );
+    const rebalanced = rebalanceLoanOfficerSplitPercentages(rawSplits, loanOfficerPercent);
+    rawSplits = rebalanced.splits;
+    if (rebalanced.needsCompanySplit) {
+      rawSplits.push({
+        planId: selectedPlan?.id ?? null,
+        recipientUserId: null,
+        recipientName: 'Company',
+        recipientEmail: null,
+        roleLabel: 'Company Split',
+        payType: PayrollSplitPayType.PERCENT,
+        splitPercent: rebalanced.remainingPercent,
+        flatAmount: null,
+        sortOrder: rawSplits.length,
+      });
+    }
+  }
 
   const totalPercent = percent(rawSplits.reduce((sum, split) => sum + (requiresPercent(split.payType) ? split.splitPercent : 0), 0));
   if (Math.abs(totalPercent - 100) > 0.0001) {
@@ -1641,6 +1685,7 @@ async function recalculatePendingPayrollRequestsForUsers(loanOfficerIds: string[
         splitBasisAmount: true,
         leadSource: true,
         leadProvidedBy: true,
+        loanOfficerSplitPercentOverride: true,
         calculationSnapshot: true,
       },
     }),
@@ -1652,6 +1697,7 @@ async function recalculatePendingPayrollRequestsForUsers(loanOfficerIds: string[
       leadSource: request.leadSource,
       leadProvidedBy: request.leadProvidedBy,
       brokerRetailRouting,
+      loanOfficerSplitPercentOverride: nullableDecimalToNumber(request.loanOfficerSplitPercentOverride),
     });
     const calculation = (request.calculationSnapshot as PayrollCalculationSnapshot | null) ?? null;
     const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, undefined);
@@ -1810,6 +1856,7 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
       leadSource: input.leadSource,
       leadProvidedBy: input.leadProvidedBy,
       brokerRetailRouting,
+      loanOfficerSplitPercentOverride: digitalMailerSplitPercent(estimateOnly, input.leadSource),
     });
     const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, input.reimbursementTarget);
     const snapshots = estimateOnly
@@ -1879,6 +1926,7 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
     leadSource: input.leadSource,
     leadProvidedBy: input.leadProvidedBy,
     brokerRetailRouting,
+    loanOfficerSplitPercentOverride: digitalMailerSplitPercent(estimateOnly, input.leadSource),
   });
   const reimbursementTarget = resolvePortalReimbursementTarget(splitSnapshots, input.reimbursementTarget);
   const snapshots = estimateOnly
@@ -1900,12 +1948,16 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
       processingType: input.processingType,
       leadSource: input.leadSource,
       leadSourceDetail: input.leadSource,
+      mailerCampaign: input.leadSource === PayrollLeadSource.MAILER
+        ? cleanText(input.mailerCampaign ?? '', 'Mailer Campaign')
+        : null,
       leadProvidedBy: input.leadProvidedBy,
       appliedPlanType,
       reimbursementTarget,
       expectedRevenue: calculation.splitBasisAmount,
       estimatedCompAmount: estimateOnly ? calculation.grossCompAmount : null,
       managerCalculationRequired: estimateOnly,
+      loanOfficerSplitPercentOverride: digitalMailerSplitPercent(estimateOnly, input.leadSource),
       brokerComp: estimateOnly ? null : ensureOptionalMoney(input.brokerComp, 'Broker comp'),
       sectionAComp: estimateOnly ? null : ensureOptionalMoney(input.sectionAComp, 'Section A'),
       yspAmount: estimateOnly ? null : ensureSignedMoney(input.yspAmount, 'YSP'),
@@ -2243,6 +2295,7 @@ async function replaceRequestSplits(requestId: string) {
       leadProvidedBy: true,
       appliedPlanType: true,
       reimbursementTarget: true,
+      loanOfficerSplitPercentOverride: true,
       calculationSnapshot: true,
     },
   });
@@ -2253,6 +2306,7 @@ async function replaceRequestSplits(requestId: string) {
     leadProvidedBy: request.leadProvidedBy,
     appliedPlanType: request.appliedPlanType,
     brokerRetailRouting,
+    loanOfficerSplitPercentOverride: nullableDecimalToNumber(request.loanOfficerSplitPercentOverride),
   });
   const calculation = (request.calculationSnapshot as PayrollCalculationSnapshot | null) ?? null;
   const snapshots = calculation ? withPostSplitAddBacks(splitSnapshots, calculation, request.reimbursementTarget) : splitSnapshots;
@@ -2303,6 +2357,7 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
     leadProvidedBy: input.leadProvidedBy,
     appliedPlanType: input.appliedPlanType,
     brokerRetailRouting,
+    loanOfficerSplitPercentOverride: input.loanOfficerSplitPercentOverride,
   });
   const reimbursementTarget = input.reimbursementTarget ?? PayrollReimbursementTarget.SELF;
   const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
@@ -2320,10 +2375,17 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         processingType: input.processingType,
         leadSource: input.leadSource,
         leadSourceDetail: input.leadSource,
+        mailerCampaign: input.leadSource === PayrollLeadSource.MAILER
+          ? cleanText(input.mailerCampaign ?? '', 'Mailer Campaign')
+          : null,
         leadProvidedBy: input.leadProvidedBy,
         appliedPlanType: input.appliedPlanType,
         reimbursementTarget,
         expectedRevenue: calculation.splitBasisAmount,
+        loanOfficerSplitPercentOverride: input.loanOfficerSplitPercentOverride === null ||
+          input.loanOfficerSplitPercentOverride === undefined
+          ? null
+          : ensurePercent(input.loanOfficerSplitPercentOverride, 'Loan officer split override'),
         brokerComp: ensureOptionalMoney(input.brokerComp, 'Broker comp'),
         sectionAComp: ensureOptionalMoney(input.sectionAComp, 'Section A'),
         yspAmount: ensureSignedMoney(input.yspAmount, 'YSP'),

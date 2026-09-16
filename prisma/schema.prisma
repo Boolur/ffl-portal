@@ -247,6 +247,7 @@ enum PayrollCompPlanType {
 enum PayrollLeadSource {
   LEAD_BUY
   MAILER
+  DIGITAL_MAILER
   WARM_TRANSFER
   REFERRAL
   RETURN_CLIENT
@@ -1582,6 +1583,7 @@ model PayrollCompRequest {
   loanChannel                     PayrollLoanChannel
   processingType                  PayrollProcessingType
   leadSource                      PayrollLeadSource          @default(OTHER)
+  mailerCampaign                  String?
   leadProvidedBy                  PayrollLeadProvidedBy      @default(SELF_SOURCED)
   appliedPlanType                 PayrollCompPlanType        @default(BROKER)
   reimbursementTarget             PayrollReimbursementTarget @default(SELF)
@@ -1591,6 +1593,7 @@ model PayrollCompRequest {
   managerCalculationCompletedAt   DateTime?
   managerCalculationCompletedById String?
   managerCalculationCompletedBy   User?                      @relation("PayrollCompRequestCalculatedBy", fields: [managerCalculationCompletedById], references: [id], onDelete: SetNull)
+  loanOfficerSplitPercentOverride Decimal?                   @db.Decimal(7, 4)
   brokerComp                      Decimal?                   @db.Decimal(12, 2)
   sectionAComp                    Decimal?                   @db.Decimal(12, 2)
   yspAmount                       Decimal?                   @db.Decimal(12, 2)

@@ -90,6 +90,7 @@ export function payrollLeadSourceLabel(source: PayrollLeadSource) {
   const labels: Record<PayrollLeadSource, string> = {
     LEAD_BUY: 'Lead Buy',
     MAILER: 'Mailer',
+    DIGITAL_MAILER: 'Digital Mailer',
     WARM_TRANSFER: 'Warm Transfer',
     REFERRAL: 'Referral',
     RETURN_CLIENT: 'Return Client',

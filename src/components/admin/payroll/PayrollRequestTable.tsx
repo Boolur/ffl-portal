@@ -42,8 +42,10 @@ type AdminEditForm = {
   loanChannel: PayrollLoanChannel;
   processingType: PayrollProcessingType;
   leadSource: PayrollLeadSource;
+  mailerCampaign: string;
   leadProvidedBy: PayrollLeadProvidedBy;
   appliedPlanType: PayrollCompPlanType;
+  loanOfficerSplitPercentOverride: string;
   reimbursementTarget: PayrollReimbursementTarget;
   expectedRevenue: string;
   brokerComp: string;
@@ -82,6 +84,7 @@ const LOAN_TYPE_OPTIONS = [
 const LEAD_SOURCE_OPTIONS = [
   PayrollLeadSource.LEAD_BUY,
   PayrollLeadSource.MAILER,
+  PayrollLeadSource.DIGITAL_MAILER,
   PayrollLeadSource.WARM_TRANSFER,
   PayrollLeadSource.REFERRAL,
   PayrollLeadSource.RETURN_CLIENT,
@@ -205,8 +208,10 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
     loanChannel: PayrollLoanChannel.BROKER,
     processingType: PayrollProcessingType.IN_HOUSE,
     leadSource: PayrollLeadSource.OTHER,
+    mailerCampaign: '',
     leadProvidedBy: PayrollLeadProvidedBy.SELF_SOURCED,
     appliedPlanType: PayrollCompPlanType.BROKER,
+    loanOfficerSplitPercentOverride: '',
     reimbursementTarget: PayrollReimbursementTarget.SELF,
     expectedRevenue: '',
     brokerComp: '',
@@ -323,8 +328,10 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
       loanChannel: currentRequest.loanChannel,
       processingType: currentRequest.processingType,
       leadSource: currentRequest.leadSource,
+      mailerCampaign: currentRequest.mailerCampaign ?? '',
       leadProvidedBy: currentRequest.leadProvidedBy,
       appliedPlanType: currentRequest.appliedPlanType,
+      loanOfficerSplitPercentOverride: inputValue(currentRequest.loanOfficerSplitPercentOverride),
       reimbursementTarget: currentRequest.reimbursementTarget,
       expectedRevenue: String(currentRequest.expectedRevenue),
       brokerComp: inputValue(currentRequest.brokerComp),
@@ -446,8 +453,10 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
         loanChannel: editForm.loanChannel,
         processingType: editForm.processingType,
         leadSource: editForm.leadSource,
+        mailerCampaign: editForm.mailerCampaign || null,
         leadProvidedBy: editForm.leadProvidedBy,
         appliedPlanType: editForm.appliedPlanType,
+        loanOfficerSplitPercentOverride: numberOrNull(editForm.loanOfficerSplitPercentOverride),
         reimbursementTarget: editForm.reimbursementTarget,
         expectedRevenue: Number(editForm.expectedRevenue),
         brokerComp: numberOrNull(editForm.brokerComp),
@@ -636,9 +645,13 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                   <AdminInput label="Lender" value={editForm.lender} onChange={(value) => setEditForm((current) => ({ ...current, lender: value }))} />
                   <AdminSelect label="Broker or Non-Delegated" value={editForm.loanChannel} onChange={(value) => setEditForm((current) => ({ ...current, loanChannel: value as PayrollLoanChannel }))} options={[PayrollLoanChannel.BROKER, PayrollLoanChannel.NON_DELEGATED]} labels={{ BROKER: 'Broker', NON_DELEGATED: 'Non-Delegated' }} />
                   <AdminSelect label="Processing Type" value={editForm.processingType} onChange={(value) => setEditForm((current) => ({ ...current, processingType: value as PayrollProcessingType }))} options={[PayrollProcessingType.IN_HOUSE, PayrollProcessingType.CONTRACT, PayrollProcessingType.LENDER, PayrollProcessingType.OTHER]} labels={{ IN_HOUSE: 'In-House', CONTRACT: 'Contract', LENDER: 'Lender', OTHER: 'Other' }} />
-                  <AdminSelect label="Lead Source" value={editForm.leadSource} onChange={(value) => setEditForm((current) => ({ ...current, leadSource: value as PayrollLeadSource }))} options={LEAD_SOURCE_OPTIONS} labels={{ LEAD_BUY: 'Lead Buy', MAILER: 'Mailer', WARM_TRANSFER: 'Warm Transfer', REFERRAL: 'Referral', RETURN_CLIENT: 'Return Client', OTHER: 'Other' }} />
+                  <AdminSelect label="Lead Source" value={editForm.leadSource} onChange={(value) => setEditForm((current) => ({ ...current, leadSource: value as PayrollLeadSource, mailerCampaign: value === PayrollLeadSource.MAILER ? current.mailerCampaign : '' }))} options={LEAD_SOURCE_OPTIONS} labels={{ LEAD_BUY: 'Lead Buy', MAILER: 'Mailer', DIGITAL_MAILER: 'Digital Mailer', WARM_TRANSFER: 'Warm Transfer', REFERRAL: 'Referral', RETURN_CLIENT: 'Return Client', OTHER: 'Other' }} />
+                  {editForm.leadSource === PayrollLeadSource.MAILER && (
+                    <AdminInput label="Mailer Campaign" value={editForm.mailerCampaign} onChange={(value) => setEditForm((current) => ({ ...current, mailerCampaign: value }))} />
+                  )}
                   <AdminSelect label="Lead Provided By" value={editForm.leadProvidedBy} onChange={(value) => setEditForm((current) => ({ ...current, leadProvidedBy: value as PayrollLeadProvidedBy }))} options={LEAD_PROVIDED_BY_OPTIONS} labels={{ SELF_SOURCED: 'Self Sourced', COMPANY_PROVIDED: 'Company Provided', BRANCH_PROVIDED: 'Branch Provided' }} />
                   <AdminSelect label="Applied Split Type" value={editForm.appliedPlanType} onChange={(value) => setEditForm((current) => ({ ...current, appliedPlanType: value as PayrollCompPlanType }))} options={[PayrollCompPlanType.BROKER, PayrollCompPlanType.RETAIL]} labels={{ BROKER: 'Broker Split', RETAIL: 'Retail Split' }} />
+                  <AdminInput label="Loan Officer Split Override %" value={editForm.loanOfficerSplitPercentOverride} onChange={(value) => setEditForm((current) => ({ ...current, loanOfficerSplitPercentOverride: value }))} inputMode="decimal" />
                   <AdminSelect label="Reimbursement To" value={editForm.reimbursementTarget} onChange={(value) => setEditForm((current) => ({ ...current, reimbursementTarget: value as PayrollReimbursementTarget }))} options={[PayrollReimbursementTarget.SELF, PayrollReimbursementTarget.MANAGER]} labels={{ SELF: 'Self Reimbursed', MANAGER: 'Manager' }} />
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                     <p className="text-sm font-bold text-slate-900">Pre-Split Calculation</p>
@@ -694,8 +707,15 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                       <Detail label="Channel" value={loanChannelLabel(currentRequest.loanChannel)} />
                       <Detail label="Processing" value={processingTypeLabel(currentRequest.processingType)} />
                       <Detail label="Lead Source" value={payrollLeadSourceLabel(currentRequest.leadSource)} />
+                      {currentRequest.mailerCampaign && <Detail label="Mailer Campaign" value={currentRequest.mailerCampaign} />}
                       <Detail label="Provided By" value={payrollLeadProvidedByLabel(currentRequest.leadProvidedBy)} />
                       <Detail label="Split Type" value={payrollPlanTypeLabel(currentRequest.appliedPlanType)} />
+                      <Detail
+                        label="LO Split Override"
+                        value={currentRequest.loanOfficerSplitPercentOverride === null
+                          ? 'Configured plan'
+                          : formatPercent(currentRequest.loanOfficerSplitPercentOverride)}
+                      />
                       <Detail label="Reimbursement To" value={currentRequest.reimbursementTarget === PayrollReimbursementTarget.MANAGER ? 'Manager' : 'Self Reimbursed'} />
                       <Detail label="Split Basis" value={formatCurrency(currentRequest.splitBasisAmount ?? currentRequest.expectedRevenue)} />
                       <Detail label="Final Comp" value={formatCurrency(currentRequest.netCompAmount ?? currentRequest.expectedRevenue)} />
