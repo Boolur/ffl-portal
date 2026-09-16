@@ -163,7 +163,7 @@ export function WebsiteLoanOfficerProfiles({ profiles }: { profiles: ProfileRow[
       </aside>
 
       {selected && draft && (
-        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="self-start rounded-xl border border-slate-200 bg-white p-6 shadow-sm xl:sticky xl:top-4 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto xl:overscroll-contain">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">{selected.name}</h2>
