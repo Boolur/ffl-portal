@@ -10,7 +10,6 @@ import { normalizeWebsiteProfileSlug } from '@/lib/websiteLoanOfficerProfiles';
 import {
   isValidExternalHttpUrl,
   isValidWebsitePhotoUrl,
-  requiresNmlsForWebsiteTitle,
 } from '@/lib/websiteProfileValidation';
 
 export type WebsiteLoanOfficerProfileInput = {
@@ -202,14 +201,12 @@ export async function setWebsiteLoanOfficerProfilePublished(
 
   if (published) {
     const profile = record.websiteLoanOfficerProfile;
-    const requiresNmls = requiresNmlsForWebsiteTitle(profile.title);
     const missing = [
       !record.active && 'active portal account',
       !record.name.trim() && 'name',
       !record.email.trim() && 'email',
       !profile.slug.trim() && 'slug',
       !profile.title.trim() && 'title',
-      requiresNmls && !profile.nmls?.trim() && 'NMLS',
       !profile.phone?.trim() && 'phone',
       !profile.bio.trim() && 'bio',
       profile.licensedStates.length === 0 && 'licensed states',
