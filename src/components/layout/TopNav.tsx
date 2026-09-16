@@ -87,13 +87,11 @@ export function TopNav({
   user,
   availableRoles,
   onRoleChange,
-  sidebarCollapsed,
   onToggleSidebar,
 }: {
   user: { name: string; role: UserRole };
   availableRoles: UserRole[];
   onRoleChange: (role: UserRole) => Promise<void>;
-  sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }) {
   const router = useRouter();
@@ -224,9 +222,7 @@ export function TopNav({
 
   return (
     <header
-      className={`h-16 border-b border-border app-glass flex items-center justify-between px-4 sm:px-6 fixed top-0 right-0 z-[100] transition-all duration-300 left-0 ${
-        sidebarCollapsed ? 'md:left-20' : 'md:left-64'
-      }`}
+      className="relative z-[100] flex h-16 shrink-0 items-center justify-between border-b border-border app-glass px-4 sm:px-6"
     >
       <div className="flex items-center flex-1 min-w-0">
         <button

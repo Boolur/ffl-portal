@@ -137,74 +137,75 @@ function DashboardContent({ children, user }: DashboardShellProps) {
   }, []);
 
   return (
-    <div className="min-h-screen app-shell-bg">
+    <div className="h-[100dvh] overflow-hidden app-shell-bg">
       <Sidebar
         collapsed={sidebarCollapsed}
         mobileOpen={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}
       />
-      <TopNav
-        user={displayUser}
-        availableRoles={availableRoles}
-        onRoleChange={handleRoleChange}
-        sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebar={handleToggleSidebar}
-      />
-      <main
-        className={`pt-16 min-h-screen transition-all duration-300 ml-0 ${
+      <div
+        className={`flex h-full min-h-0 flex-col transition-all duration-300 ml-0 ${
           sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'
         }`}
       >
-        <div className="relative w-full p-3 sm:p-4 md:p-6">
-          {routeOverlay && (
-            <div className="pointer-events-none absolute inset-0 z-30 flex items-start justify-center rounded-2xl bg-slate-100/20 pt-[14vh] backdrop-blur-[2px]">
-              <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 px-6 py-6 shadow-2xl">
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.14),transparent_46%),radial-gradient(circle_at_top_right,rgba(147,51,234,0.14),transparent_46%)]" />
-                <div className="relative flex flex-col items-center justify-center gap-4 text-center">
-                  <div className="relative h-20 w-20">
-                    <div className="app-sync-spinner-main absolute inset-0 rounded-full" />
-                    <div className="app-sync-spinner-accent absolute inset-[6px] rounded-full opacity-75" />
-                    <div className="absolute inset-[12px] rounded-full border border-slate-200/80 bg-white/95" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="h-3 w-3 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_18px_rgba(34,197,94,0.65)]" />
+        <TopNav
+          user={displayUser}
+          availableRoles={availableRoles}
+          onRoleChange={handleRoleChange}
+          onToggleSidebar={handleToggleSidebar}
+        />
+        <main id="app-main-scroll" className="min-h-0 flex-1 overflow-y-auto">
+          <div className="relative min-h-full w-full p-3 sm:p-4 md:p-6">
+            {routeOverlay && (
+              <div className="pointer-events-none absolute inset-0 z-30 flex items-start justify-center rounded-2xl bg-slate-100/20 pt-[14vh] backdrop-blur-[2px]">
+                <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 px-6 py-6 shadow-2xl">
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.14),transparent_46%),radial-gradient(circle_at_top_right,rgba(147,51,234,0.14),transparent_46%)]" />
+                  <div className="relative flex flex-col items-center justify-center gap-4 text-center">
+                    <div className="relative h-20 w-20">
+                      <div className="app-sync-spinner-main absolute inset-0 rounded-full" />
+                      <div className="app-sync-spinner-accent absolute inset-[6px] rounded-full opacity-75" />
+                      <div className="absolute inset-[12px] rounded-full border border-slate-200/80 bg-white/95" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="h-3 w-3 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_18px_rgba(34,197,94,0.65)]" />
+                      </div>
                     </div>
-                  </div>
-                  <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
-                    {routeOverlay.mode === 'tasks-sync' ? 'Syncing Tasks' : 'Loading'}
-                  </h2>
-                  <p className="max-w-xl text-sm font-medium text-slate-600">
-                    {routeOverlay.mode === 'tasks-sync'
-                      ? 'Refreshing borrower queues, ownership updates, and latest task activity...'
-                      : 'Loading the selected workspace...'}
-                  </p>
-                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                    <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700">
-                      Disclosure
-                    </span>
-                    <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700">
-                      QC
-                    </span>
-                    <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700">
-                      VA
-                    </span>
-                    <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-bold text-cyan-700">
-                      JR Processor
-                    </span>
-                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
-                      Completed
-                    </span>
-                  </div>
-                  <div className="relative mt-1 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-slate-200/70">
-                    <div className="absolute inset-0 bg-gradient-to-r from-blue-500 via-violet-500 via-rose-500 via-cyan-500 to-emerald-500 opacity-75" />
-                    <div className="app-sync-progress-shimmer absolute inset-y-0 w-1/3 bg-white/70 blur-[1px]" />
+                    <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
+                      {routeOverlay.mode === 'tasks-sync' ? 'Syncing Tasks' : 'Loading'}
+                    </h2>
+                    <p className="max-w-xl text-sm font-medium text-slate-600">
+                      {routeOverlay.mode === 'tasks-sync'
+                        ? 'Refreshing borrower queues, ownership updates, and latest task activity...'
+                        : 'Loading the selected workspace...'}
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                      <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700">
+                        Disclosure
+                      </span>
+                      <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700">
+                        QC
+                      </span>
+                      <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700">
+                        VA
+                      </span>
+                      <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-bold text-cyan-700">
+                        JR Processor
+                      </span>
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                        Completed
+                      </span>
+                    </div>
+                    <div className="relative mt-1 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-slate-200/70">
+                      <div className="absolute inset-0 bg-gradient-to-r from-blue-500 via-violet-500 via-rose-500 via-cyan-500 to-emerald-500 opacity-75" />
+                      <div className="app-sync-progress-shimmer absolute inset-y-0 w-1/3 bg-white/70 blur-[1px]" />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-          {children}
-        </div>
-      </main>
+            )}
+            {children}
+          </div>
+        </main>
+      </div>
       <SupportChatWidget activeRole={activeRole} />
     </div>
   );

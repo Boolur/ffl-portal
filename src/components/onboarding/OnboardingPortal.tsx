@@ -113,7 +113,7 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
     setCurrentStep(step);
     setStepRenderKey((key) => key + 1);
     if (!preserveMessage) setMessage(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    document.getElementById('app-main-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const saveProfile = (event: FormEvent<HTMLFormElement>) => {
@@ -143,7 +143,7 @@ export function OnboardingPortal({ onboardingCase }: { onboardingCase: Candidate
       });
       if (result.success) {
         router.refresh();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        document.getElementById('app-main-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
       }
     });
   };
