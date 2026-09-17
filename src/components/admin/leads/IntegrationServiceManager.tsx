@@ -618,6 +618,7 @@ function ServiceBuilderModal({
           next.bodyTemplate = [
             '{',
             '  "lead_id": "{{lead.id}}",',
+            '  "user_id": "{{user.email}}",',
             '  "lead_source": "{{campaign.name}}",',
             '  "application_date": "{{now.date}}",',
             '  "1_Status": "{{lead.status}}",',

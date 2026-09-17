@@ -1,12 +1,12 @@
-import { prisma } from '@/lib/prisma';
+import { prisma } from './prisma';
 import {
   coalesceMilitaryFlag,
   normalizeMilitaryFlagToBool,
-} from '@/lib/militaryFlag';
+} from './militaryFlag';
 import {
   withConcurrencyLimit,
   ConcurrencyKeys,
-} from '@/lib/concurrencyLimit';
+} from './concurrencyLimit';
 
 /**
  * Cap on simultaneous in-flight `forwardLeadToBonzo` calls.
@@ -438,6 +438,8 @@ type LeadLike = {
  * Source-of-truth mapping (Lead field -> Bonzo key):
  *
  *   id                  -> lead_id
+ *   assignedUser.email  -> user_id (explicitly reassigns merged duplicates
+ *                          to the newest LO)
  *   firstName/lastName  -> first_name / last_name
  *   email               -> email
  *   phone               -> phone (falls back to homePhone, then workPhone — see
@@ -502,8 +504,10 @@ type LeadLike = {
  * sourceUrl. If you need any of these in Bonzo later, promote them to
  * `field_1`..`field_5` (Bonzo's custom text slots) here.
  *
- * user_id is intentionally omitted: each LO uses their own Bonzo webhook
- * URL, which identifies the destination sub-user on Bonzo's side.
+ * `user_id` is required when Bonzo's Merge Duplicates setting is enabled
+ * for Admin/SuperUser webhooks. Using the newly assigned LO's Bonzo login
+ * email makes a matching contact move to that LO instead of remaining with
+ * the LO who owned the earlier lead.
  */
 function buildBonzoPayload(lead: LeadLike) {
   const applicationDate = toYmd(lead.receivedAt);
@@ -561,6 +565,7 @@ function buildBonzoPayload(lead: LeadLike) {
   return {
     // Identity
     lead_id: lead.id,
+    user_id: lead.assignedUser?.email ?? null,
     lead_source: lead.campaign?.name ?? lead.vendor.name,
     application_date: applicationDate,
     '1_Status': lead.status,
