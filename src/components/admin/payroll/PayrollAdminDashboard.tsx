@@ -199,7 +199,7 @@ function formatPayrollTeamDate(value: string) {
   }).format(new Date(value));
 }
 
-export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests, submissionWindow, teamStats }: Props) {
+export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests, submissionWindow, completionWindow, teamStats }: Props) {
   const reviewRows = pendingRequests.length > 0 ? pendingRequests : recentRequests;
   const [expandedTeamIds, setExpandedTeamIds] = useState<Set<string>>(new Set());
   const [teams, setTeams] = useState(teamStats);
@@ -226,7 +226,7 @@ export function PayrollAdminDashboard({ summary, pendingRequests, recentRequests
     setReopeningUserId(userId);
     startTransition(async () => {
       try {
-        await reopenPayrollSubmissionCompletion(userId, submissionWindow.start, submissionWindow.end);
+        await reopenPayrollSubmissionCompletion(userId, completionWindow.start, completionWindow.end);
         setTeams((current) => current.map((team) => {
           if (team.teamId !== teamId) return team;
           const members = team.members.map((member) => (

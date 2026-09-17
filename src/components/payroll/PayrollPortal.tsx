@@ -468,16 +468,16 @@ function PayrollCompletionCard({
   pending: boolean;
   onFinish: () => void;
 }) {
-  const currentWindow = state.activeWindow ?? state.reportingWindow;
+  const payPeriod = state.reportingWindow;
   const title = state.isLocked
     ? 'Requests Finished'
     : state.isOpen
       ? 'Payroll Window Open'
       : 'Payroll Window Closed';
   const helper = state.isLocked
-    ? `Completed ${state.completedAt ? formatDate(state.completedAt) : currentWindow.label}`
+    ? `Pay period ${payPeriod.label} · Completed ${state.completedAt ? formatDate(state.completedAt) : ''}`
     : state.isOpen
-      ? `Open ${currentWindow.label}`
+      ? `Pay period ${payPeriod.label}`
       : `Next window ${state.nextWindow.label}`;
   return (
     <div className={`rounded-2xl border p-4 shadow-sm ${
@@ -673,7 +673,7 @@ export function PayrollPortal({
   const submitLockedReason = !submissionWindowState.isOpen
     ? `Payroll submissions are closed. Next window: ${submissionWindowState.nextWindow.label}.`
     : submissionWindowState.isLocked
-      ? `Payroll requests are marked finished for ${submissionWindowState.activeWindow?.label ?? 'this window'}.`
+      ? `Payroll requests are marked finished for ${submissionWindowState.reportingWindow.label}.`
       : null;
   const currentPayPeriodLabel = nextPaycheck
     ? formatPeriodRange(nextPaycheck.periodStart, nextPaycheck.periodEnd)
@@ -920,7 +920,7 @@ export function PayrollPortal({
   };
   const finishPayrollRequests = () => {
     if (!submissionWindowState.isOpen || !submissionWindowState.activeWindow) return;
-    const confirmed = window.confirm(`Mark payroll requests finished for ${submissionWindowState.activeWindow.label}? This will lock new submissions until payroll reopens the window.`);
+    const confirmed = window.confirm(`Mark payroll requests finished for pay period ${submissionWindowState.reportingWindow.label}? This will lock new submissions until payroll reopens the window.`);
     if (!confirmed) return;
     startTransition(async () => {
       try {

@@ -684,8 +684,13 @@ function utcDateOnly(year: number, month: number, day: number) {
 }
 
 function payrollSubmissionRange(year: number, month: number, startDay: number, exclusiveEndDay: number): PayrollSubmissionWindowRange {
-  const start = utcDateOnly(year, month, startDay);
-  const end = utcDateOnly(year, month, exclusiveEndDay);
+  return payrollDateRange(
+    utcDateOnly(year, month, startDay),
+    utcDateOnly(year, month, exclusiveEndDay),
+  );
+}
+
+function payrollDateRange(start: Date, end: Date): PayrollSubmissionWindowRange {
   const displayEnd = new Date(end);
   displayEnd.setUTCDate(displayEnd.getUTCDate() - 1);
   const formatter = new Intl.DateTimeFormat('en-US', {
@@ -704,21 +709,28 @@ function resolvePayrollSubmissionWindows(now = new Date()) {
   const { year, month, day } = payrollPacificDateParts(now);
   const firstWindow = payrollSubmissionRange(year, month, 1, 7);
   const secondWindow = payrollSubmissionRange(year, month, 16, 23);
+  const firstPayPeriod = payrollDateRange(
+    utcDateOnly(year, month - 1, 16),
+    utcDateOnly(year, month, 1),
+  );
+  const secondPayPeriod = payrollSubmissionRange(year, month, 1, 17);
   const withDemoUnlock = <T extends {
     isOpen: boolean;
     activeWindow: PayrollSubmissionWindowRange | null;
+    completionWindow: PayrollSubmissionWindowRange;
     reportingWindow: PayrollSubmissionWindowRange;
     nextWindow: PayrollSubmissionWindowRange;
   }>(state: T): T => (
     PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED && !state.isOpen
-      ? { ...state, isOpen: true, activeWindow: state.reportingWindow }
+      ? { ...state, isOpen: true, activeWindow: state.completionWindow }
       : state
   );
   if (day >= 1 && day <= 6) {
     return {
       isOpen: true,
       activeWindow: firstWindow,
-      reportingWindow: firstWindow,
+      completionWindow: firstWindow,
+      reportingWindow: firstPayPeriod,
       nextWindow: secondWindow,
     };
   }
@@ -726,7 +738,8 @@ function resolvePayrollSubmissionWindows(now = new Date()) {
     return withDemoUnlock({
       isOpen: false,
       activeWindow: null,
-      reportingWindow: firstWindow,
+      completionWindow: firstWindow,
+      reportingWindow: firstPayPeriod,
       nextWindow: secondWindow,
     });
   }
@@ -734,14 +747,16 @@ function resolvePayrollSubmissionWindows(now = new Date()) {
     return {
       isOpen: true,
       activeWindow: secondWindow,
-      reportingWindow: secondWindow,
+      completionWindow: secondWindow,
+      reportingWindow: secondPayPeriod,
       nextWindow: payrollSubmissionRange(year, month + 1, 1, 7),
     };
   }
   return withDemoUnlock({
     isOpen: false,
     activeWindow: null,
-    reportingWindow: secondWindow,
+    completionWindow: secondWindow,
+    reportingWindow: secondPayPeriod,
     nextWindow: payrollSubmissionRange(year, month + 1, 1, 7),
   });
 }
@@ -2636,9 +2651,9 @@ function summarizeRequests(rows: PayrollRequestRow[]) {
 }
 
 async function getPayrollTeamCompletionStats(now = new Date()): Promise<PayrollTeamCompletionStats[]> {
-  const { reportingWindow } = resolvePayrollSubmissionWindows(now);
-  const windowStart = new Date(reportingWindow.start);
-  const windowEnd = new Date(reportingWindow.end);
+  const { completionWindow } = resolvePayrollSubmissionWindows(now);
+  const windowStart = new Date(completionWindow.start);
+  const windowEnd = new Date(completionWindow.end);
   const payrollUserFilter: Prisma.UserWhereInput = {
     active: true,
     OR: [
@@ -2739,6 +2754,7 @@ export async function getPayrollAdminDashboardData() {
     pendingRequests: rows.filter((row) => row.status === PayrollCompRequestStatus.PENDING_REVIEW).slice(0, 8),
     recentRequests: rows.slice(0, 8),
     submissionWindow: submissionWindows.reportingWindow,
+    completionWindow: submissionWindows.completionWindow,
     teamStats,
   };
 }
