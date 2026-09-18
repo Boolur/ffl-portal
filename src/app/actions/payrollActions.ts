@@ -29,6 +29,7 @@ import {
   digitalMailerSplitPercent,
   isSimplifiedRetailPayrollSubmission,
   rebalanceLoanOfficerSplitPercentages,
+  shouldHideRetailPayrollSplitBreakdown,
 } from '@/lib/payrollRetailSimplification';
 import { prisma } from '@/lib/prisma';
 
@@ -943,17 +944,13 @@ function defaultFeeCureLine(
   return null;
 }
 
-async function isRetailNonDelegatedSubmission(
-  loanOfficerId: string,
-  input: Pick<PayrollCompRequestInput, 'loanChannel'>,
-) {
-  if (input.loanChannel !== PayrollLoanChannel.NON_DELEGATED) return false;
+async function getPayrollUserClassification(loanOfficerId: string) {
   const plan = await prisma.payrollCompPlan.findFirst({
     where: { loanOfficerId, active: true },
     orderBy: { effectiveStart: 'desc' },
     select: { userClassification: true },
   });
-  return isSimplifiedRetailPayrollSubmission(plan?.userClassification, input.loanChannel);
+  return plan?.userClassification ?? PayrollUserClassification.BROKER;
 }
 
 function calculateRetailEstimate(input: PayrollCompRequestInput): PayrollCalculationSnapshot {
@@ -1871,11 +1868,12 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
   try {
     const actor = await assertPayrollPortalUser();
     validatePayrollRequestBasics(input);
-    const [rules, brokerRetailRouting, estimateOnly] = await Promise.all([
+    const [rules, brokerRetailRouting, userClassification] = await Promise.all([
       getPayrollRulesForRequest(input),
       getBrokerRetailRoutingSettings(),
-      isRetailNonDelegatedSubmission(actor.userId, input),
+      getPayrollUserClassification(actor.userId),
     ]);
+    const estimateOnly = isSimplifiedRetailPayrollSubmission(userClassification, input.loanChannel);
     const calculation = estimateOnly
       ? calculateRetailEstimate(input)
       : calculatePayrollCompensation(input, rules);
@@ -1908,7 +1906,7 @@ export async function getPayrollRequestPreview(input: PayrollCompRequestInput) {
         hasManagerReimbursementRecipients: splitSnapshots.some((split) => split.roleLabel.trim().toLowerCase() === 'manager'),
         appliedPlanType: splitSnapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER,
         reimbursementTarget,
-        estimateOnly,
+        hideSplitBreakdown: shouldHideRetailPayrollSplitBreakdown(userClassification),
       },
     };
   } catch (err) {
@@ -1942,11 +1940,12 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   if (existingRequest) {
     throw new Error('A compensation request for this Arive loan number already exists. Delete or reject the existing request before submitting another one.');
   }
-  const [rules, brokerRetailRouting, estimateOnly] = await Promise.all([
+  const [rules, brokerRetailRouting, userClassification] = await Promise.all([
     getPayrollRulesForRequest(input),
     getBrokerRetailRoutingSettings(),
-    isRetailNonDelegatedSubmission(actor.userId, input),
+    getPayrollUserClassification(actor.userId),
   ]);
+  const estimateOnly = isSimplifiedRetailPayrollSubmission(userClassification, input.loanChannel);
   const calculation = estimateOnly
     ? calculateRetailEstimate(input)
     : calculatePayrollCompensation(input, rules);

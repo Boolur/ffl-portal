@@ -649,7 +649,7 @@ export function PayrollPortal({
     hasManagerReimbursementRecipients: boolean;
     appliedPlanType: PayrollCompPlanType;
     reimbursementTarget: PayrollReimbursementTarget;
-    estimateOnly: boolean;
+    hideSplitBreakdown: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [kpiBreakdown, setKpiBreakdown] = useState<KpiBreakdown | null>(null);
@@ -1553,7 +1553,7 @@ export function PayrollPortal({
                 </div>
                 {preview && (
                   <div className="mt-4 space-y-4">
-                    {preview.estimateOnly ? (
+                    {preview.hideSplitBreakdown ? (
                       <>
                         <div className="rounded-xl border border-emerald-200 bg-white p-5 shadow-sm">
                           <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Estimated Pre-Split Revenue</p>

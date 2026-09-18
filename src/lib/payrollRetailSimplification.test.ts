@@ -12,6 +12,7 @@ import {
   getMissingManagerWorksheetFields,
   isSimplifiedRetailPayrollSubmission,
   rebalanceLoanOfficerSplitPercentages,
+  shouldHideRetailPayrollSplitBreakdown,
   type ManagerWorksheetInput,
 } from './payrollRetailSimplification';
 
@@ -63,6 +64,11 @@ describe('Retail payroll simplification eligibility', () => {
     expect(digitalMailerSplitPercent(true, PayrollLeadSource.DIGITAL_MAILER)).toBe(50);
     expect(digitalMailerSplitPercent(false, PayrollLeadSource.DIGITAL_MAILER)).toBeNull();
     expect(digitalMailerSplitPercent(true, PayrollLeadSource.MAILER)).toBeNull();
+  });
+
+  it('hides detailed previews for every Retail channel but not Broker-classified users', () => {
+    expect(shouldHideRetailPayrollSplitBreakdown(PayrollUserClassification.RETAIL)).toBe(true);
+    expect(shouldHideRetailPayrollSplitBreakdown(PayrollUserClassification.BROKER)).toBe(false);
   });
 });
 

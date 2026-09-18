@@ -14,6 +14,12 @@ export function isSimplifiedRetailPayrollSubmission(
     loanChannel === PayrollLoanChannel.NON_DELEGATED;
 }
 
+export function shouldHideRetailPayrollSplitBreakdown(
+  classification: PayrollUserClassification | null | undefined,
+) {
+  return classification === PayrollUserClassification.RETAIL;
+}
+
 export function digitalMailerSplitPercent(
   simplifiedRetailSubmission: boolean,
   leadSource: PayrollLeadSource,
