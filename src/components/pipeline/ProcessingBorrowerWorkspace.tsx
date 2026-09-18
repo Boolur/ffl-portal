@@ -729,15 +729,24 @@ export function ProcessingBorrowerWorkspace({
                     { value: 'FUNDING', label: 'Fundings' },
                   ]}
                   onChange={(value) => {
+                    const sheet =
+                      value as ProcessingBorrowerDetailsInput['sheet'];
+                    const pipelineStatus =
+                      sheet === 'FUNDING'
+                        ? 'FUNDED'
+                        : sheet === 'RESTRUCTURE'
+                          ? 'SUSPENDED_RESTRUCTURE'
+                          : 'RE_SUB';
+                    if (
+                      details.requiresStatusConfirmation &&
+                      !window.confirm(
+                        `Are you sure you want to move this to ${statusLabel(pipelineStatus)}?`,
+                      )
+                    ) {
+                      return;
+                    }
                     setDraft((current) => {
                       if (!current) return current;
-                      const sheet = value as ProcessingBorrowerDetailsInput['sheet'];
-                      const pipelineStatus =
-                        sheet === 'FUNDING'
-                          ? 'FUNDED'
-                          : sheet === 'RESTRUCTURE'
-                            ? 'SUSPENDED_RESTRUCTURE'
-                            : 'RE_SUB';
                       return { ...current, sheet, pipelineStatus };
                     });
                   }}
@@ -746,12 +755,20 @@ export function ProcessingBorrowerWorkspace({
                   label="Pipeline status"
                   value={draft.pipelineStatus}
                   options={statusOptions}
-                  onChange={(value) =>
+                  onChange={(value) => {
+                    if (
+                      details.requiresStatusConfirmation &&
+                      !window.confirm(
+                        `Are you sure you want to move this to ${statusLabel(value)}?`,
+                      )
+                    ) {
+                      return;
+                    }
                     patchDraft(
                       'pipelineStatus',
                       value as ProcessingBorrowerDetailsInput['pipelineStatus'],
-                    )
-                  }
+                    );
+                  }}
                 />
                 <EditField label="Assigned" type="date" value={draft.dateAssigned} onChange={(value) => patchDraft('dateAssigned', value)} required />
                 <EditField label="Estimated signing" type="date" value={draft.estimatedSigningAt} onChange={(value) => patchDraft('estimatedSigningAt', value)} />

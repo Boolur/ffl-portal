@@ -872,6 +872,8 @@ model AuditLog {
   action    String // e.g. "STAGE_CHANGED", "TASK_COMPLETED"
   details   String? // JSON or text
   createdAt DateTime @default(now())
+
+  @@index([loanId, createdAt(sort: Desc)])
 }
 
 model LoginAudit {

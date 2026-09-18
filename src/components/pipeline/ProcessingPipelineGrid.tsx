@@ -17,6 +17,7 @@ import {
   Archive,
   ChevronDown,
   Clock3,
+  FileBarChart,
   Filter,
   History,
   LayoutTemplate,
@@ -83,6 +84,7 @@ import { isAdmin } from '@/lib/adminTiers';
 import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
 import { ProcessingBorrowerWorkspace } from './ProcessingBorrowerWorkspace';
 import { ProcessingPipelineLayoutManager } from './ProcessingPipelineLayoutManager';
+import { ProcessingPipelineReportsModal } from './ProcessingPipelineReportsModal';
 import {
   buildDefaultProcessingLayoutConfig,
   processingLayoutBucketColumns,
@@ -654,6 +656,7 @@ export function ProcessingPipelineGrid({
   const [layouts, setLayouts] =
     useState<ProcessingPipelineSavedLayout[]>(initialLayouts);
   const [layoutManagerOpen, setLayoutManagerOpen] = useState(false);
+  const [reportsOpen, setReportsOpen] = useState(false);
   const [activatingLayoutId, setActivatingLayoutId] = useState<string | null>(
     null,
   );
@@ -734,6 +737,16 @@ export function ProcessingPipelineGrid({
   };
   const isProcessor =
     role === UserRole.PROCESSOR_SR || role === UserRole.PROCESSOR_JR;
+  const confirmProcessorStatusChange = (
+    nextStatus: ProcessingPipelineStatus,
+  ) => {
+    if (!isProcessor) return true;
+    const label =
+      PROCESSING_PIPELINE_STATUS_OPTIONS.find(
+        (option) => option.value === nextStatus,
+      )?.label || nextStatus;
+    return window.confirm(`Are you sure you want to move this to ${label}?`);
+  };
   const isManagerOrAdmin =
     role === UserRole.MANAGER ||
     role === UserRole.PROCESSING_MANAGER ||
@@ -755,6 +768,18 @@ export function ProcessingPipelineGrid({
     role === UserRole.MANAGER ||
     role === UserRole.PROCESSING_MANAGER ||
     isAdmin(role);
+  const canGenerateReports = isProcessor || isManagerOrAdmin;
+  const selectedReportTeams = initialData.teams.filter((team) =>
+    selectedTeamIds.includes(team.id),
+  );
+  const selectedReportTeamMemberIds = Array.from(
+    new Set(selectedReportTeams.flatMap((team) => team.memberIds)),
+  );
+  const reportTeamLoanOfficerIds =
+    selectedReportTeams.length > 0 && selectedReportTeamMemberIds.length === 0
+      ? ['__NO_TEAM_MEMBERS__']
+      : selectedReportTeamMemberIds;
+  const selectedReportTeamNames = selectedReportTeams.map((team) => team.name);
   const statusOptions =
     sheet === ProcessingPipelineSheet.RESTRUCTURE
       ? RESTRUCTURE_STATUS_OPTIONS
@@ -1502,6 +1527,13 @@ export function ProcessingPipelineGrid({
     notes?: string,
   ) => {
     if (destination === row.sheet || !canEditRow(row)) return false;
+    const destinationStatus =
+      destination === ProcessingPipelineSheet.FUNDING
+        ? ProcessingPipelineStatus.FUNDED
+        : destination === ProcessingPipelineSheet.RESTRUCTURE
+          ? ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE
+          : ProcessingPipelineStatus.RE_SUB;
+    if (!confirmProcessorStatusChange(destinationStatus)) return false;
     let fundedAt: string | null = null;
     if (destination === ProcessingPipelineSheet.FUNDING) {
       fundedAt = window.prompt('Funded / signing date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
@@ -1557,6 +1589,11 @@ export function ProcessingPipelineGrid({
       setRestructureNotesDraft('');
       return;
     }
+    const nextStatus =
+      action === 'REQUEST_ADVERSE'
+        ? ProcessingPipelineStatus.ADVERSE_PENDING
+        : ProcessingPipelineStatus.PENDING_APPROVAL;
+    if (!confirmProcessorStatusChange(nextStatus)) return;
 
     setSavingRows((current) => new Set(current).add(row.id));
     const result = await updateProcessingRestructureWorkflow({
@@ -1621,6 +1658,15 @@ export function ProcessingPipelineGrid({
           setPayoffExpirationDraft(
             dateInputValue(row.payoffExpiresAt),
           );
+          return;
+        }
+        if (
+          field === 'pipelineStatus' &&
+          event.target.value !== ProcessingPipelineStatus.FUNDED &&
+          !confirmProcessorStatusChange(
+            event.target.value as ProcessingPipelineStatus,
+          )
+        ) {
           return;
         }
         if (
@@ -2729,6 +2775,16 @@ export function ProcessingPipelineGrid({
                 {layout.name}
               </button>
             ))}
+            {canGenerateReports && (
+              <button
+                type="button"
+                onClick={() => setReportsOpen(true)}
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              >
+                <FileBarChart className="h-4 w-4 text-blue-600" />
+                Reporting
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setLayoutManagerOpen(true)}
@@ -3688,6 +3744,13 @@ export function ProcessingPipelineGrid({
           layouts={layouts}
           onClose={() => setLayoutManagerOpen(false)}
           onLayoutsChange={setLayouts}
+        />
+      )}
+      {reportsOpen && (
+        <ProcessingPipelineReportsModal
+          teamLoanOfficerIds={reportTeamLoanOfficerIds}
+          selectedTeamNames={selectedReportTeamNames}
+          onClose={() => setReportsOpen(false)}
         />
       )}
     </section>

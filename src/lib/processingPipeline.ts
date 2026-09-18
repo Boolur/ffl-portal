@@ -1,4 +1,5 @@
 import {
+  Prisma,
   ProcessingItemStatus,
   ProcessingPipelineSheet,
   ProcessingPipelineStatus,
@@ -41,6 +42,58 @@ export type ProcessingPipelineAccess = {
   canEdit: boolean;
   scope: 'NONE' | 'OWN_LOANS' | 'ASSIGNED' | 'COMPANY';
 };
+
+export type ProcessingPipelineScopeActor = {
+  id: string;
+  role: UserRole;
+  processingAssignmentGroups: string[];
+};
+
+export function buildProcessingPipelineScopeWhere(
+  actor: ProcessingPipelineScopeActor,
+): Prisma.ProcessingPipelineLoanWhereInput {
+  const access = getProcessingPipelineAccess(actor.role);
+  if (access.scope === 'COMPANY') return { archivedAt: null };
+  if (access.scope === 'ASSIGNED') {
+    if (actor.role === UserRole.PROCESSOR_JR) {
+      return {
+        archivedAt: null,
+        OR: [
+          { juniorProcessorId: actor.id },
+          ...(actor.processingAssignmentGroups.length > 0
+            ? [
+                {
+                  juniorProcessorId: null,
+                  assignmentGroup: {
+                    in: actor.processingAssignmentGroups,
+                  },
+                },
+              ]
+            : []),
+        ],
+      };
+    }
+    return { seniorProcessorId: actor.id, archivedAt: null };
+  }
+  if (access.scope === 'OWN_LOANS') {
+    return {
+      archivedAt: null,
+      loan: {
+        OR: [
+          { secondaryLoanOfficerId: actor.id },
+          {
+            AND: [
+              { secondaryLoanOfficerId: null },
+              { loanOfficerId: actor.id },
+            ],
+          },
+          { visibilitySubmitterUserId: actor.id },
+        ],
+      },
+    };
+  }
+  return { id: '__NO_ACCESS__' };
+}
 
 export function getProcessingPipelineAccess(role?: UserRole | null): ProcessingPipelineAccess {
   if (!role) return { canView: false, canEdit: false, scope: 'NONE' };

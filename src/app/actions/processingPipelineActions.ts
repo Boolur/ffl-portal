@@ -16,6 +16,7 @@ import { isAdmin } from '@/lib/adminTiers';
 import { prisma } from '@/lib/prisma';
 import {
   addMonthsClamped,
+  buildProcessingPipelineScopeWhere,
   calculateDaysInStatus,
   canEditProcessingPipelineMethod,
   getApprovedWithConditionsAt,
@@ -75,47 +76,7 @@ async function getActor(): Promise<Actor | null> {
 }
 
 function scopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInput {
-  const access = getProcessingPipelineAccess(actor.role);
-  if (access.scope === 'COMPANY') return { archivedAt: null };
-  if (access.scope === 'ASSIGNED') {
-    if (actor.role === UserRole.PROCESSOR_JR) {
-      return {
-        archivedAt: null,
-        OR: [
-          { juniorProcessorId: actor.id },
-          ...(actor.processingAssignmentGroups.length > 0
-            ? [
-                {
-                  juniorProcessorId: null,
-                  assignmentGroup: {
-                    in: actor.processingAssignmentGroups,
-                  },
-                },
-              ]
-            : []),
-        ],
-      };
-    }
-    return { seniorProcessorId: actor.id, archivedAt: null };
-  }
-  if (access.scope === 'OWN_LOANS') {
-    return {
-      archivedAt: null,
-      loan: {
-        OR: [
-          { secondaryLoanOfficerId: actor.id },
-          {
-            AND: [
-              { secondaryLoanOfficerId: null },
-              { loanOfficerId: actor.id },
-            ],
-          },
-          { visibilitySubmitterUserId: actor.id },
-        ],
-      },
-    };
-  }
-  return { id: '__NO_ACCESS__' };
+  return buildProcessingPipelineScopeWhere(actor);
 }
 
 function effectiveLoanOfficerWhere(userIds: string[]): Prisma.LoanWhereInput {
@@ -2723,6 +2684,9 @@ export async function getProcessingBorrowerDetails(id: string) {
           actor.role === UserRole.PROCESSING_MANAGER
         ) &&
         canEditProcessingBorrowerWorkspace(actor.role),
+      requiresStatusConfirmation:
+        actor.role === UserRole.PROCESSOR_JR ||
+        actor.role === UserRole.PROCESSOR_SR,
       borrower: {
         name: row.loan.borrowerName,
         firstName:
