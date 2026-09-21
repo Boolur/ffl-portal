@@ -3727,9 +3727,13 @@ export function TaskList({
           isVaTaskKind(task.kind) &&
           task.status === TaskStatus.PENDING &&
           task.workflowState === TaskWorkflowState.NONE;
+        const canManagerBypassDisclosureProof =
+          (isManagerRole || isAdmin(currentRole as UserRole)) &&
+          isDisclosureSubmissionTask(task);
         const requiresProofForCompletion =
           (isVaTaskKind(task.kind) && !isVaSkipProofSelected) ||
-          isDisclosureSubmissionTask(task);
+          (isDisclosureSubmissionTask(task) &&
+            !canManagerBypassDisclosureProof);
         const isVaLoResponseRouteTask =
           task.kind === TaskKind.VA_APPRAISAL || task.kind === TaskKind.VA_PAYOFF;
         const isVaWaitingOnLoState =

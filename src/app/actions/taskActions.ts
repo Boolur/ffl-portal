@@ -2515,6 +2515,8 @@ export async function updateTaskStatus(
         role === UserRole.VA_PAYOFF ||
         role === UserRole.MANAGER ||
         isAdmin(role));
+    const canManagerBypassDisclosureProof =
+      canManageAll && existing.kind === TaskKind.SUBMIT_DISCLOSURES;
 
     // Loan Officers should not use generic status transitions for submission tasks.
     // Their workflow is controlled through disclosure/QC response actions instead.
@@ -2535,7 +2537,11 @@ export async function updateTaskStatus(
       const proofCount = await prisma.taskAttachment.count({
         where: { taskId, purpose: 'PROOF' },
       });
-      if (proofCount < 1 && !canSkipProofForNotNeeded) {
+      if (
+        proofCount < 1 &&
+        !canSkipProofForNotNeeded &&
+        !canManagerBypassDisclosureProof
+      ) {
         return {
           success: false,
           error: 'Upload proof (PDF/Image) before completing this task.',
