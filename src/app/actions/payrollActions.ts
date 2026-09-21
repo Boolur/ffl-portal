@@ -714,7 +714,7 @@ function resolvePayrollSubmissionWindows(now = new Date()) {
     utcDateOnly(year, month - 1, 16),
     utcDateOnly(year, month, 1),
   );
-  const secondPayPeriod = payrollSubmissionRange(year, month, 1, 17);
+  const secondPayPeriod = payrollSubmissionRange(year, month, 1, 16);
   const withDemoUnlock = <T extends {
     isOpen: boolean;
     activeWindow: PayrollSubmissionWindowRange | null;
