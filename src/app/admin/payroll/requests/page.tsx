@@ -4,11 +4,15 @@ import { getServerSession } from 'next-auth';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { PayrollRequestsPage } from '@/components/admin/payroll/PayrollRequestsPage';
 import { getPayrollRequests } from '@/app/actions/payrollActions';
+import { getLeadUserTeams } from '@/app/actions/leadActions';
 import { authOptions } from '@/lib/auth';
 
 export default async function PayrollRequestsRoute() {
   const session = await getServerSession(authOptions);
-  const rows = await getPayrollRequests();
+  const [rows, teams] = await Promise.all([
+    getPayrollRequests(),
+    getLeadUserTeams(),
+  ]);
   const user = {
     name: session?.user?.name || 'Admin',
     role: session?.user?.activeRole || session?.user?.role || 'ADMIN',
@@ -30,7 +34,19 @@ export default async function PayrollRequestsRoute() {
           </div>
         </div>
       </div>
-      <PayrollRequestsPage rows={rows} />
+      <PayrollRequestsPage
+        rows={rows}
+        teams={teams
+          .filter((team) => team.active)
+          .map((team) => ({
+            id: team.id,
+            name: team.name,
+            color: team.color,
+            colors: team.colors,
+            memberCount: team.memberCount,
+            memberIds: team.memberIds,
+          }))}
+      />
     </DashboardShell>
   );
 }
