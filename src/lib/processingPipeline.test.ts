@@ -6,6 +6,7 @@ import {
 } from '@prisma/client';
 import {
   addMonthsClamped,
+  buildProcessingPipelineScopeWhere,
   calculateDaysInStatus,
   canEditProcessingPipelineMethod,
   getApprovedWithConditionsAt,
@@ -62,6 +63,22 @@ describe('processing pipeline access', () => {
       canEdit: true,
       scope: 'ASSIGNED',
     });
+  });
+
+  it('shows Jr Processors every loan routed to their selected Sr Processor groups', () => {
+    const scope = buildProcessingPipelineScopeWhere({
+      id: 'jr-processor',
+      role: UserRole.PROCESSOR_JR,
+      processingAssignmentGroups: ['JACK_FALK'],
+    });
+    const serialized = JSON.stringify(scope);
+
+    expect(serialized).toContain('"juniorProcessorId":"jr-processor"');
+    expect(serialized).toContain('"assignmentGroup":{"in":["JACK_FALK"]}');
+    expect(serialized).toContain(
+      '"processingAssignmentGroups":{"hasSome":["JACK_FALK"]}',
+    );
+    expect(serialized).not.toContain('"juniorProcessorId":null');
   });
 
   it.each([

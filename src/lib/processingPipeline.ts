@@ -63,9 +63,17 @@ export function buildProcessingPipelineScopeWhere(
           ...(actor.processingAssignmentGroups.length > 0
             ? [
                 {
-                  juniorProcessorId: null,
                   assignmentGroup: {
                     in: actor.processingAssignmentGroups,
+                  },
+                },
+                {
+                  seniorProcessor: {
+                    is: {
+                      processingAssignmentGroups: {
+                        hasSome: actor.processingAssignmentGroups,
+                      },
+                    },
                   },
                 },
               ]

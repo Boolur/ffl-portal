@@ -35,6 +35,32 @@ const report: ProcessingPipelineReport = {
   ],
 };
 
+const fundingReport: ProcessingPipelineReport = {
+  type: 'FUNDING',
+  generatedAt: '2026-09-18T19:00:00.000Z',
+  fundedFrom: '2026-08-01',
+  fundedTo: '2026-08-31',
+  rows: [
+    {
+      pipelineLoanId: 'pipeline-funded-1',
+      assignmentDate: '2026-07-15T12:00:00.000Z',
+      loanNumber: '87654321',
+      loanOfficer: 'Loan Officer',
+      borrowerName: 'Funded Borrower',
+      leadSource: 'Referral',
+      state: 'FL',
+      loanType: 'Conventional',
+      lender: 'Example Lender',
+      juniorProcessor: 'Jr Processor',
+      seniorProcessor: 'Sr Processor',
+      fundedAt: '2026-08-15T12:00:00.000Z',
+      finalRevenue: 7250.5,
+      firstPaymentAt: '2026-10-01T12:00:00.000Z',
+      sixthPaymentAt: '2027-02-15T12:00:00.000Z',
+    },
+  ],
+};
+
 describe('processing report workbook export', () => {
   it('escapes XML and preserves the report column order', () => {
     const workbook = buildProcessingReportWorkbook(report, {
@@ -64,5 +90,22 @@ describe('processing report workbook export', () => {
     expect(processingReportFilename(report)).toBe(
       'processing-last-touch-2026-09-18.xls',
     );
+  });
+
+  it('exports the funding date range and funding column order', () => {
+    const workbook = buildProcessingReportWorkbook(fundingReport);
+    expect(workbook.filename).toBe('processing-funding-2026-09-18.xls');
+    expect(workbook.content).toContain(
+      'Funded loans from 2026-08-01 through 2026-08-31.',
+    );
+    expect(workbook.content).toContain('Funded date range 2026-08-01 through 2026-08-31');
+    expect(workbook.content.indexOf('Assigned')).toBeLessThan(
+      workbook.content.indexOf('Arive #'),
+    );
+    expect(workbook.content.indexOf('Funded Date')).toBeLessThan(
+      workbook.content.indexOf('Final Revenue'),
+    );
+    expect(workbook.content).toContain('ss:StyleID="DataEvenCurrency"');
+    expect(workbook.content).toContain('ss:StyleID="DataEvenDateOnly"');
   });
 });

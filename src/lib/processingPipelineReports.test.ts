@@ -5,6 +5,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import {
+  buildProcessingFundingReportWhere,
   buildProcessingReportWhere,
   canGenerateProcessingReports,
   formatProcessingAuditActivity,
@@ -12,6 +13,7 @@ import {
   latestServiceActivity,
   PROCESSING_REPORT_STATUSES,
   remainingProcessingServices,
+  validateProcessingReportDateRange,
   validateProcessingReportStatuses,
 } from './processingPipelineReports';
 
@@ -59,6 +61,10 @@ describe('processing report permissions and scope', () => {
     const serialized = JSON.stringify(where);
     expect(serialized).toContain('"juniorProcessorId":"jr-1"');
     expect(serialized).toContain('"assignmentGroup":{"in":["Jack Team"]}');
+    expect(serialized).toContain(
+      '"seniorProcessor":{"is":{"processingAssignmentGroups":{"hasSome":["Jack Team"]}}}',
+    );
+    expect(serialized).not.toContain('"juniorProcessorId":null');
   });
 
   it('includes only active sheets and treats rate lock as a row flag', () => {
@@ -67,6 +73,22 @@ describe('processing report permissions and scope', () => {
     expect(serialized).toContain('"RESTRUCTURE"');
     expect(serialized).not.toContain('"FUNDING"');
     expect(serialized).not.toContain('rateLockRequestedAt');
+  });
+
+  it('scopes funding reports to funded loans in an inclusive date range', () => {
+    const serialized = JSON.stringify(
+      buildProcessingFundingReportWhere(
+        manager,
+        ['lo-1'],
+        new Date('2026-08-01T00:00:00.000Z'),
+        new Date('2026-08-31T23:59:59.999Z'),
+      ),
+    );
+    expect(serialized).toContain('"sheet":"FUNDING"');
+    expect(serialized).toContain('"pipelineStatus":"FUNDED"');
+    expect(serialized).toContain('"fundedAt"');
+    expect(serialized).toContain('"secondaryLoanOfficerId":{"in":["lo-1"]}');
+    expect(serialized).not.toContain('"RESTRUCTURE"');
   });
 });
 
@@ -90,6 +112,28 @@ describe('processing report calculations', () => {
     expect(PROCESSING_REPORT_STATUSES).not.toContain(
       ProcessingPipelineStatus.FUNDED,
     );
+  });
+
+  it('validates funding report date ranges', () => {
+    const valid = validateProcessingReportDateRange(
+      '2026-08-01',
+      '2026-08-31',
+    );
+    expect(valid).toMatchObject({
+      success: true,
+      fundedFrom: '2026-08-01',
+      fundedTo: '2026-08-31',
+    });
+    if (valid.success) {
+      expect(valid.from.toISOString()).toBe('2026-08-01T00:00:00.000Z');
+      expect(valid.to.toISOString()).toBe('2026-08-31T23:59:59.999Z');
+    }
+    expect(
+      validateProcessingReportDateRange('2026-09-01', '2026-08-31').success,
+    ).toBe(false);
+    expect(
+      validateProcessingReportDateRange('2026-02-30', '2026-03-01').success,
+    ).toBe(false);
   });
 
   it('uses the newest audit for last touch and formats its detail', () => {

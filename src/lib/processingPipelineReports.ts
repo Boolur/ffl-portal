@@ -37,7 +37,8 @@ export const PROCESSING_REPORT_STATUSES = [
 export type ProcessingReportType =
   | 'LAST_TOUCH'
   | 'PIPELINE_STATUS'
-  | 'SERVICES';
+  | 'SERVICES'
+  | 'FUNDING';
 
 export type ProcessingReportAudit = {
   action: string;
@@ -283,11 +284,76 @@ export function validateProcessingReportStatuses(values: unknown) {
   return { success: true as const, statuses };
 }
 
+export function validateProcessingReportDateRange(
+  fundedFrom: unknown,
+  fundedTo: unknown,
+) {
+  const fromValue = String(fundedFrom ?? '').trim();
+  const toValue = String(fundedTo ?? '').trim();
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(fromValue) || !datePattern.test(toValue)) {
+    return {
+      success: false as const,
+      error: 'Choose both a valid start date and end date.',
+    };
+  }
+  const from = new Date(`${fromValue}T00:00:00.000Z`);
+  const to = new Date(`${toValue}T23:59:59.999Z`);
+  if (
+    Number.isNaN(from.getTime()) ||
+    Number.isNaN(to.getTime()) ||
+    from.toISOString().slice(0, 10) !== fromValue ||
+    to.toISOString().slice(0, 10) !== toValue
+  ) {
+    return {
+      success: false as const,
+      error: 'Choose both a valid start date and end date.',
+    };
+  }
+  if (from.getTime() > to.getTime()) {
+    return {
+      success: false as const,
+      error: 'The funding start date must be on or before the end date.',
+    };
+  }
+  return {
+    success: true as const,
+    from,
+    to,
+    fundedFrom: fromValue,
+    fundedTo: toValue,
+  };
+}
+
+function processingTeamScopeWhere(
+  teamLoanOfficerIds: string[],
+): Prisma.ProcessingPipelineLoanWhereInput | null {
+  if (teamLoanOfficerIds.length === 0) return null;
+  return {
+    loan: {
+      OR: [
+        {
+          secondaryLoanOfficerId: {
+            in: teamLoanOfficerIds,
+          },
+        },
+        {
+          AND: [
+            { secondaryLoanOfficerId: null },
+            { loanOfficerId: { in: teamLoanOfficerIds } },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 export function buildProcessingReportWhere(
   actor: ProcessingPipelineScopeActor,
   teamLoanOfficerIds: string[] = [],
   statuses: ProcessingPipelineStatus[] = [],
 ): Prisma.ProcessingPipelineLoanWhereInput {
+  const teamScope = processingTeamScopeWhere(teamLoanOfficerIds);
   return {
     AND: [
       buildProcessingPipelineScopeWhere(actor),
@@ -299,30 +365,34 @@ export function buildProcessingReportWhere(
           ],
         },
       },
-      ...(teamLoanOfficerIds.length
-        ? [
-            {
-              loan: {
-                OR: [
-                  {
-                    secondaryLoanOfficerId: {
-                      in: teamLoanOfficerIds,
-                    },
-                  },
-                  {
-                    AND: [
-                      { secondaryLoanOfficerId: null },
-                      { loanOfficerId: { in: teamLoanOfficerIds } },
-                    ],
-                  },
-                ],
-              },
-            },
-          ]
-        : []),
+      ...(teamScope ? [teamScope] : []),
       ...(statuses.length
         ? [{ pipelineStatus: { in: statuses } }]
         : []),
+    ],
+  };
+}
+
+export function buildProcessingFundingReportWhere(
+  actor: ProcessingPipelineScopeActor,
+  teamLoanOfficerIds: string[],
+  fundedFrom: Date,
+  fundedTo: Date,
+): Prisma.ProcessingPipelineLoanWhereInput {
+  const teamScope = processingTeamScopeWhere(teamLoanOfficerIds);
+  return {
+    AND: [
+      buildProcessingPipelineScopeWhere(actor),
+      ...(teamScope ? [teamScope] : []),
+      {
+        sheet: ProcessingPipelineSheet.FUNDING,
+        pipelineStatus: ProcessingPipelineStatus.FUNDED,
+        fundedAt: {
+          not: null,
+          gte: fundedFrom,
+          lte: fundedTo,
+        },
+      },
     ],
   };
 }

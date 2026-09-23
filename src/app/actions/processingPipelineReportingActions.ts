@@ -18,6 +18,7 @@ import {
   isOrderedItemOverdue,
 } from '@/lib/processingPipeline';
 import {
+  buildProcessingFundingReportWhere,
   buildProcessingReportWhere,
   canGenerateProcessingReports,
   latestProcessingActivity,
@@ -25,6 +26,7 @@ import {
   remainingProcessingServices,
   type ProcessingReportAudit,
   type ProcessingReportType,
+  validateProcessingReportDateRange,
   validateProcessingReportStatuses,
 } from '@/lib/processingPipelineReports';
 
@@ -55,6 +57,24 @@ export type ProcessingLastTouchRow = ProcessingReportCommonRow & {
 };
 
 export type ProcessingStatusReportRow = ProcessingReportCommonRow;
+
+export type ProcessingFundingReportRow = {
+  pipelineLoanId: string;
+  assignmentDate: string;
+  loanNumber: string;
+  loanOfficer: string;
+  borrowerName: string;
+  leadSource: string;
+  state: string;
+  loanType: string;
+  lender: string;
+  juniorProcessor: string;
+  seniorProcessor: string;
+  fundedAt: string;
+  finalRevenue: number | null;
+  firstPaymentAt: string | null;
+  sixthPaymentAt: string | null;
+};
 
 export type ProcessingServicesReportRow = ProcessingReportCommonRow & {
   titleStatus: string;
@@ -102,6 +122,13 @@ export type ProcessingPipelineReport =
       type: 'SERVICES';
       generatedAt: string;
       rows: ProcessingServicesReportRow[];
+    }
+  | {
+      type: 'FUNDING';
+      generatedAt: string;
+      fundedFrom: string;
+      fundedTo: string;
+      rows: ProcessingFundingReportRow[];
     };
 
 type ReportActor = {
@@ -177,6 +204,11 @@ const reportRowSelect = {
   propertyState: true,
   lender: true,
   loanType: true,
+  leadSource: true,
+  fundedAt: true,
+  finalRevenue: true,
+  firstPaymentAt: true,
+  sixthPaymentAt: true,
   createdAt: true,
   updatedAt: true,
   loan: {
@@ -199,36 +231,97 @@ export async function getProcessingPipelineReport(input: {
   type: ProcessingReportType;
   statuses?: ProcessingPipelineStatus[];
   teamLoanOfficerIds?: string[];
+  fundedFrom?: string;
+  fundedTo?: string;
 }) {
   noStore();
   const actor = await getReportActor();
   if (!actor) {
     return { success: false as const, error: 'Not authorized to generate processing reports.' };
   }
-  if (!['LAST_TOUCH', 'PIPELINE_STATUS', 'SERVICES'].includes(input.type)) {
+  if (!['LAST_TOUCH', 'PIPELINE_STATUS', 'SERVICES', 'FUNDING'].includes(input.type)) {
     return { success: false as const, error: 'Invalid processing report type.' };
   }
 
   let selectedStatuses: ProcessingPipelineStatus[] | undefined;
+  let fundingRange:
+    | Extract<
+        ReturnType<typeof validateProcessingReportDateRange>,
+        { success: true }
+      >
+    | undefined;
   if (input.type === 'PIPELINE_STATUS') {
     const validation = validateProcessingReportStatuses(input.statuses);
     if (!validation.success) return validation;
     selectedStatuses = validation.statuses;
   }
+  if (input.type === 'FUNDING') {
+    const validation = validateProcessingReportDateRange(
+      input.fundedFrom,
+      input.fundedTo,
+    );
+    if (!validation.success) return validation;
+    fundingRange = validation;
+  }
   const teamLoanOfficerIds = Array.from(
     new Set((input.teamLoanOfficerIds || []).map(String).filter(Boolean)),
   ).slice(0, 500);
-  const where = buildProcessingReportWhere(
-    actor,
-    teamLoanOfficerIds,
-    selectedStatuses,
-  );
+  const where =
+    input.type === 'FUNDING' && fundingRange
+      ? buildProcessingFundingReportWhere(
+          actor,
+          teamLoanOfficerIds,
+          fundingRange.from,
+          fundingRange.to,
+        )
+      : buildProcessingReportWhere(
+          actor,
+          teamLoanOfficerIds,
+          selectedStatuses,
+        );
 
   const rows = await prisma.processingPipelineLoan.findMany({
     where,
     select: reportRowSelect,
-    orderBy: [{ dateAssigned: 'asc' }, { loan: { borrowerName: 'asc' } }],
+    orderBy:
+      input.type === 'FUNDING'
+        ? [{ fundedAt: 'desc' }, { loan: { borrowerName: 'asc' } }]
+        : [{ dateAssigned: 'asc' }, { loan: { borrowerName: 'asc' } }],
   });
+  const generatedAt = new Date();
+  if (input.type === 'FUNDING' && fundingRange) {
+    const report: ProcessingPipelineReport = {
+      type: 'FUNDING',
+      generatedAt: generatedAt.toISOString(),
+      fundedFrom: fundingRange.fundedFrom,
+      fundedTo: fundingRange.fundedTo,
+      rows: rows.flatMap((row) =>
+        row.fundedAt
+          ? [{
+              pipelineLoanId: row.id,
+              assignmentDate: row.dateAssigned.toISOString(),
+              loanNumber: row.loan.loanNumber,
+              loanOfficer:
+                row.loan.secondaryLoanOfficer?.name ||
+                row.loan.loanOfficer.name,
+              borrowerName: row.loan.borrowerName,
+              leadSource: row.leadSource || '',
+              state: row.propertyState || '',
+              loanType: row.loanType || '',
+              lender: row.lender || '',
+              juniorProcessor: row.juniorProcessor?.name || 'Unassigned',
+              seniorProcessor: row.seniorProcessor?.name || 'Unassigned',
+              fundedAt: row.fundedAt.toISOString(),
+              finalRevenue:
+                row.finalRevenue === null ? null : Number(row.finalRevenue),
+              firstPaymentAt: iso(row.firstPaymentAt),
+              sixthPaymentAt: iso(row.sixthPaymentAt),
+            }]
+          : [],
+      ),
+    };
+    return { success: true as const, report };
+  }
   const pipelineIdByLoanId = new Map(
     rows.map((row) => [row.loanId, row.id]),
   );
@@ -263,7 +356,6 @@ export async function getProcessingPipelineReport(input: {
     auditsByPipelineId.set(pipelineId, list);
   }
 
-  const generatedAt = new Date();
   if (input.type === 'LAST_TOUCH') {
     const report: ProcessingPipelineReport = {
       type: 'LAST_TOUCH',

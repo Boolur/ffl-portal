@@ -8,6 +8,7 @@ import {
 } from 'react';
 import {
   CheckSquare2,
+  CalendarDays,
   Clock3,
   Download,
   FileSpreadsheet,
@@ -53,14 +54,16 @@ function ReportCard({
   icon: Icon,
   loading,
   expanded,
+  expandedLabel,
   onClick,
 }: {
   title: string;
   description: string;
-  tone: 'blue' | 'purple' | 'emerald';
+  tone: 'blue' | 'purple' | 'emerald' | 'amber';
   icon: typeof Clock3;
   loading: boolean;
   expanded?: boolean;
+  expandedLabel?: string;
   onClick: () => void;
 }) {
   const tones = {
@@ -82,6 +85,13 @@ function ReportCard({
       icon:
         'bg-emerald-100 text-emerald-700 ring-emerald-200 group-hover:bg-emerald-600',
       action: 'text-emerald-700',
+    },
+    amber: {
+      border:
+        'border-amber-100 hover:border-amber-200 hover:bg-amber-50/70',
+      icon:
+        'bg-amber-100 text-amber-700 ring-amber-200 group-hover:bg-amber-600',
+      action: 'text-amber-700',
     },
   }[tone];
   return (
@@ -115,7 +125,7 @@ function ReportCard({
           {loading
             ? 'Building report...'
             : expanded
-              ? 'Choose statuses below'
+              ? expandedLabel || 'Choose options below'
               : 'Export Excel sheet'}
         </span>
       </span>
@@ -132,6 +142,15 @@ export function ProcessingPipelineReportsModal({
     ProcessingPipelineStatus[]
   >([...PROCESSING_REPORT_STATUSES]);
   const [statusSelectorOpen, setStatusSelectorOpen] = useState(false);
+  const [fundingSelectorOpen, setFundingSelectorOpen] = useState(false);
+  const [fundedFrom, setFundedFrom] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+  const [fundedTo, setFundedTo] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  });
   const [exportingType, setExportingType] =
     useState<ProcessingReportType | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -171,11 +190,19 @@ export function ProcessingPipelineReportsModal({
   const scopeLabel =
     selectedTeamNames.length > 0
       ? `Selected Teams: ${selectedTeamNames.join(', ')}`
-      : 'All role-authorized active loans';
+      : 'All role-authorized loans';
 
   function exportReport(type: ProcessingReportType) {
     if (type === 'PIPELINE_STATUS' && selectedStatuses.length === 0) {
       setError('Select at least one pipeline status.');
+      return;
+    }
+    if (type === 'FUNDING' && (!fundedFrom || !fundedTo)) {
+      setError('Choose both a funding start date and end date.');
+      return;
+    }
+    if (type === 'FUNDING' && fundedFrom > fundedTo) {
+      setError('The funding start date must be on or before the end date.');
       return;
     }
     setError(null);
@@ -186,6 +213,8 @@ export function ProcessingPipelineReportsModal({
           type,
           statuses:
             type === 'PIPELINE_STATUS' ? selectedStatuses : undefined,
+          fundedFrom: type === 'FUNDING' ? fundedFrom : undefined,
+          fundedTo: type === 'FUNDING' ? fundedTo : undefined,
           teamLoanOfficerIds:
             selectedTeamNames.length > 0 ? teamLoanOfficerIds : undefined,
         });
@@ -239,7 +268,7 @@ export function ProcessingPipelineReportsModal({
               Export operational reports
             </h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              Active Pipeline and Restructure loans only. Fundings are excluded.
+              Export active operational reports or funded loans for a selected date range.
             </p>
             <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
@@ -364,6 +393,66 @@ export function ProcessingPipelineReportsModal({
             loading={isPending && exportingType === 'SERVICES'}
             onClick={() => exportReport('SERVICES')}
           />
+          <ReportCard
+            title="Funding Report"
+            description="Exports every funded loan within a selected funded-date range, including processors, revenue, and payment dates."
+            tone="amber"
+            icon={CalendarDays}
+            loading={isPending && exportingType === 'FUNDING'}
+            expanded={fundingSelectorOpen}
+            expandedLabel="Choose a funded-date range below"
+            onClick={() => setFundingSelectorOpen((open) => !open)}
+          />
+          {fundingSelectorOpen && (
+            <section
+              aria-label="Funding report date range"
+              className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm"
+            >
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+                  Funded-date range
+                </p>
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  Loans funded on either boundary date are included.
+                </p>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-bold text-slate-600">
+                  Start date
+                  <input
+                    type="date"
+                    value={fundedFrom}
+                    max={fundedTo || undefined}
+                    onChange={(event) => setFundedFrom(event.target.value)}
+                    className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+                  />
+                </label>
+                <label className="text-xs font-bold text-slate-600">
+                  End date
+                  <input
+                    type="date"
+                    value={fundedTo}
+                    min={fundedFrom || undefined}
+                    onChange={(event) => setFundedTo(event.target.value)}
+                    className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                disabled={isPending || !fundedFrom || !fundedTo}
+                onClick={() => exportReport('FUNDING')}
+                className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 text-sm font-extrabold text-white shadow-sm transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {isPending && exportingType === 'FUNDING' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="h-4 w-4" />
+                )}
+                Export funded loans
+              </button>
+            </section>
+          )}
         </div>
       </div>
     </div>

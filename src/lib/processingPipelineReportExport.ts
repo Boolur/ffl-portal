@@ -1,4 +1,5 @@
 import type {
+  ProcessingFundingReportRow,
   ProcessingLastTouchRow,
   ProcessingPipelineReport,
   ProcessingServicesReportRow,
@@ -6,9 +7,11 @@ import type {
 } from '@/app/actions/processingPipelineReportingActions';
 
 type ReportRow =
+  | ProcessingFundingReportRow
   | ProcessingLastTouchRow
   | ProcessingStatusReportRow
   | ProcessingServicesReportRow;
+type ActiveReportRow = Exclude<ReportRow, ProcessingFundingReportRow>;
 
 type ReportCellValue = string | number | boolean | null | undefined;
 
@@ -16,7 +19,7 @@ type ReportColumn<Row extends ReportRow> = {
   label: string;
   width: number;
   value: (row: Row) => ReportCellValue;
-  type?: 'String' | 'Number' | 'DateTime';
+  type?: 'String' | 'Number' | 'Date' | 'DateTime' | 'Currency';
   style?: (row: Row) => string | undefined;
 };
 
@@ -41,82 +44,82 @@ const COMMON_COLUMNS = {
   bucket: {
     label: 'Bucket',
     width: 105,
-    value: (row: ReportRow) => row.bucket,
+    value: (row: ActiveReportRow) => row.bucket,
   },
   rateLock: {
     label: 'Rate Lock Requested',
     width: 105,
-    value: (row: ReportRow) => row.rateLockRequested ? 'Yes' : 'No',
+    value: (row: ActiveReportRow) => row.rateLockRequested ? 'Yes' : 'No',
   },
   assignment: {
     label: 'Assignment Date',
     width: 95,
-    value: (row: ReportRow) => row.assignmentDate,
+    value: (row: ActiveReportRow) => row.assignmentDate,
     type: 'DateTime' as const,
   },
   loanNumber: {
     label: 'Arive #',
     width: 90,
-    value: (row: ReportRow) => row.loanNumber,
+    value: (row: ActiveReportRow) => row.loanNumber,
   },
   borrower: {
     label: 'Borrower',
     width: 145,
-    value: (row: ReportRow) => row.borrowerName,
+    value: (row: ActiveReportRow) => row.borrowerName,
   },
   loanOfficer: {
     label: 'Loan Officer',
     width: 125,
-    value: (row: ReportRow) => row.loanOfficer,
+    value: (row: ActiveReportRow) => row.loanOfficer,
   },
   junior: {
     label: 'Jr Processor',
     width: 115,
-    value: (row: ReportRow) => row.juniorProcessor,
+    value: (row: ActiveReportRow) => row.juniorProcessor,
   },
   senior: {
     label: 'Sr Processor',
     width: 115,
-    value: (row: ReportRow) => row.seniorProcessor,
+    value: (row: ActiveReportRow) => row.seniorProcessor,
   },
   state: {
     label: 'State',
     width: 55,
-    value: (row: ReportRow) => row.state,
+    value: (row: ActiveReportRow) => row.state,
   },
   lender: {
     label: 'Lender',
     width: 110,
-    value: (row: ReportRow) => row.lender,
+    value: (row: ActiveReportRow) => row.lender,
   },
   loanType: {
     label: 'Loan Type',
     width: 95,
-    value: (row: ReportRow) => row.loanType,
+    value: (row: ActiveReportRow) => row.loanType,
   },
   status: {
     label: 'Pipeline Status',
     width: 145,
-    value: (row: ReportRow) =>
+    value: (row: ActiveReportRow) =>
       STATUS_LABELS[row.pipelineStatus] || row.pipelineStatus,
-    style: (row: ReportRow) => statusStyle(row.pipelineStatus),
+    style: (row: ActiveReportRow) => statusStyle(row.pipelineStatus),
   },
   statusChanged: {
     label: 'Status Changed',
     width: 110,
-    value: (row: ReportRow) => row.statusChangedAt,
+    value: (row: ActiveReportRow) => row.statusChangedAt,
     type: 'DateTime' as const,
   },
   days: {
     label: 'Days in Status',
     width: 82,
-    value: (row: ReportRow) => row.daysInStatus,
+    value: (row: ActiveReportRow) => row.daysInStatus,
     type: 'Number' as const,
   },
   pending: {
     label: 'Pending Items',
     width: 210,
-    value: (row: ReportRow) => row.pendingItems,
+    value: (row: ActiveReportRow) => row.pendingItems,
   },
 };
 
@@ -315,6 +318,86 @@ function servicesColumns(): ReportColumn<ProcessingServicesReportRow>[] {
   ];
 }
 
+function fundingColumns(): ReportColumn<ProcessingFundingReportRow>[] {
+  return [
+    {
+      label: 'Assigned',
+      width: 95,
+      value: (row) => row.assignmentDate,
+      type: 'Date',
+    },
+    {
+      label: 'Arive #',
+      width: 90,
+      value: (row) => row.loanNumber,
+    },
+    {
+      label: 'Loan Officer',
+      width: 125,
+      value: (row) => row.loanOfficer,
+    },
+    {
+      label: 'Borrower',
+      width: 145,
+      value: (row) => row.borrowerName,
+    },
+    {
+      label: 'Lead Source',
+      width: 115,
+      value: (row) => row.leadSource,
+    },
+    {
+      label: 'State',
+      width: 55,
+      value: (row) => row.state,
+    },
+    {
+      label: 'Loan Type',
+      width: 95,
+      value: (row) => row.loanType,
+    },
+    {
+      label: 'Lender',
+      width: 110,
+      value: (row) => row.lender,
+    },
+    {
+      label: 'Junior',
+      width: 115,
+      value: (row) => row.juniorProcessor,
+    },
+    {
+      label: 'Senior',
+      width: 115,
+      value: (row) => row.seniorProcessor,
+    },
+    {
+      label: 'Funded Date',
+      width: 95,
+      value: (row) => row.fundedAt,
+      type: 'Date',
+    },
+    {
+      label: 'Final Revenue',
+      width: 95,
+      value: (row) => row.finalRevenue,
+      type: 'Currency',
+    },
+    {
+      label: 'First Payment',
+      width: 95,
+      value: (row) => row.firstPaymentAt,
+      type: 'Date',
+    },
+    {
+      label: '6th Payment',
+      width: 95,
+      value: (row) => row.sixthPaymentAt,
+      type: 'Date',
+    },
+  ];
+}
+
 function reportMetadata(report: ProcessingPipelineReport) {
   if (report.type === 'LAST_TOUCH') {
     return {
@@ -336,6 +419,14 @@ function reportMetadata(report: ProcessingPipelineReport) {
       columns: statusColumns(),
     };
   }
+  if (report.type === 'FUNDING') {
+    return {
+      title: 'Processing Pipeline — Funding Report',
+      subtitle: `Funded loans from ${report.fundedFrom} through ${report.fundedTo}.`,
+      file: 'processing-funding',
+      columns: fundingColumns(),
+    };
+  }
   return {
     title: 'Processing Pipeline — Services Report',
     subtitle:
@@ -351,11 +442,24 @@ function cellXml<Row extends ReportRow>(
   rowIndex: number,
 ) {
   const value = column.value(row);
-  const type = column.type || (typeof value === 'number' ? 'Number' : 'String');
+  const configuredType =
+    column.type || (typeof value === 'number' ? 'Number' : 'String');
+  const type =
+    configuredType === 'Date' || configuredType === 'DateTime'
+      ? 'DateTime'
+      : configuredType === 'Currency'
+        ? 'Number'
+        : configuredType;
   const defaultStyle = rowIndex % 2 === 0 ? 'DataEven' : 'DataOdd';
-  const style = column.style?.(row) || (
-    type === 'DateTime' ? `${defaultStyle}Date` : defaultStyle
-  );
+  const style =
+    column.style?.(row) ||
+    (configuredType === 'Date'
+      ? `${defaultStyle}DateOnly`
+      : configuredType === 'DateTime'
+        ? `${defaultStyle}Date`
+        : configuredType === 'Currency'
+          ? `${defaultStyle}Currency`
+          : defaultStyle);
   if (value === null || value === undefined || value === '') {
     return `<Cell ss:StyleID="${style}"><Data ss:Type="String"></Data></Cell>`;
   }
@@ -380,10 +484,14 @@ export function buildProcessingReportWorkbook(
 ) {
   const metadata = reportMetadata(report);
   const columns = metadata.columns as ReportColumn<ReportRow>[];
-  const scopeLabel = options.scopeLabel || 'All role-authorized active loans';
+  const scopeLabel = options.scopeLabel || 'All role-authorized loans';
   const lastColumn = columns.length;
   const lastRow = report.rows.length + 5;
   const generated = new Date(report.generatedAt).toISOString();
+  const reportScopeNote =
+    report.type === 'FUNDING'
+      ? `Funded date range ${report.fundedFrom} through ${report.fundedTo}`
+      : 'Fundings excluded';
   const xml = `<?xml version="1.0"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -400,6 +508,10 @@ export function buildProcessingReportWorkbook(
   <Style ss:ID="DataOdd"><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Alignment ss:Vertical="Top" ss:WrapText="1"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
   <Style ss:ID="DataEvenDate" ss:Parent="DataEven"><NumberFormat ss:Format="mmm d, yyyy h:mm AM/PM"/></Style>
   <Style ss:ID="DataOddDate" ss:Parent="DataOdd"><NumberFormat ss:Format="mmm d, yyyy h:mm AM/PM"/></Style>
+  <Style ss:ID="DataEvenDateOnly" ss:Parent="DataEven"><NumberFormat ss:Format="mmm d, yyyy"/></Style>
+  <Style ss:ID="DataOddDateOnly" ss:Parent="DataOdd"><NumberFormat ss:Format="mmm d, yyyy"/></Style>
+  <Style ss:ID="DataEvenCurrency" ss:Parent="DataEven"><NumberFormat ss:Format="Currency"/></Style>
+  <Style ss:ID="DataOddCurrency" ss:Parent="DataOdd"><NumberFormat ss:Format="Currency"/></Style>
   <Style ss:ID="StatusRed" ss:Parent="DataEven"><Font ss:Bold="1" ss:Color="#991B1B"/><Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/></Style>
   <Style ss:ID="StatusOrange" ss:Parent="DataEven"><Font ss:Bold="1" ss:Color="#9A3412"/><Interior ss:Color="#FFEDD5" ss:Pattern="Solid"/></Style>
   <Style ss:ID="StatusGreen" ss:Parent="DataEven"><Font ss:Bold="1" ss:Color="#166534"/><Interior ss:Color="#DCFCE7" ss:Pattern="Solid"/></Style>
@@ -411,7 +523,7 @@ export function buildProcessingReportWorkbook(
    ${columns.map((column) => `<Column ss:AutoFitWidth="0" ss:Width="${column.width}"/>`).join('')}
    <Row ss:Height="28"><Cell ss:StyleID="Title" ss:MergeAcross="${lastColumn - 1}"><Data ss:Type="String">${xmlEscape(metadata.title)}</Data></Cell></Row>
    <Row ss:Height="22"><Cell ss:StyleID="Subtitle" ss:MergeAcross="${lastColumn - 1}"><Data ss:Type="String">${xmlEscape(metadata.subtitle)}</Data></Cell></Row>
-   <Row ss:Height="20"><Cell ss:StyleID="Generated" ss:MergeAcross="${lastColumn - 1}"><Data ss:Type="String">${xmlEscape(`Generated ${generated} • Scope: ${scopeLabel} • ${report.rows.length} loan${report.rows.length === 1 ? '' : 's'} • Fundings excluded`)}</Data></Cell></Row>
+   <Row ss:Height="20"><Cell ss:StyleID="Generated" ss:MergeAcross="${lastColumn - 1}"><Data ss:Type="String">${xmlEscape(`Generated ${generated} • Scope: ${scopeLabel} • ${report.rows.length} loan${report.rows.length === 1 ? '' : 's'} • ${reportScopeNote}`)}</Data></Cell></Row>
    <Row ss:Height="8">${columns.map(() => '<Cell/>').join('')}</Row>
    <Row ss:Height="32">${columns.map((column) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${xmlEscape(column.label)}</Data></Cell>`).join('')}</Row>
    ${report.rows.map((row, index) => `<Row>${columns.map((column) => cellXml(column, row as ReportRow, index)).join('')}</Row>`).join('')}
