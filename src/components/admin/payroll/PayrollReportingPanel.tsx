@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { Banknote, CalendarDays, DollarSign, Landmark, PieChart, ReceiptText, Users } from 'lucide-react';
+import { Banknote, CalendarDays, DollarSign, PieChart, ReceiptText, Users } from 'lucide-react';
 import type { getPayrollReport } from '@/app/actions/payrollActions';
+import { PayrollExportReportModal } from './PayrollExportReportModal';
 import { formatCurrency, loanChannelLabel } from './payrollFormat';
 
 type Report = Awaited<ReturnType<typeof getPayrollReport>>;
@@ -168,29 +169,35 @@ export function PayrollReportingPanel({
               Filter the reporting view by date range, then review where funded-loan revenue is coming from across lenders, loan types, and broker/correspondent channels.
             </p>
           </div>
-          <form className="grid gap-3 rounded-2xl bg-white/10 p-4 ring-1 ring-white/15 sm:grid-cols-[1fr_1fr_auto]">
-            <label className="block">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Start</span>
-              <input
-                type="date"
-                name="startDate"
-                defaultValue={filters.startDate}
-                className="mt-1 w-full rounded-lg border border-white/20 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-300/30"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">End</span>
-              <input
-                type="date"
-                name="endDate"
-                defaultValue={filters.endDate}
-                className="mt-1 w-full rounded-lg border border-white/20 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-300/30"
-              />
-            </label>
-            <button type="submit" className="self-end rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-emerald-950 transition hover:bg-emerald-300">
-              Apply Filter
-            </button>
-          </form>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
+            <PayrollExportReportModal
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+            />
+            <form className="grid gap-3 rounded-2xl bg-white/10 p-4 ring-1 ring-white/15 sm:grid-cols-[1fr_1fr_auto]">
+              <label className="block">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Start</span>
+                <input
+                  type="date"
+                  name="startDate"
+                  defaultValue={filters.startDate}
+                  className="mt-1 w-full rounded-lg border border-white/20 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-300/30"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">End</span>
+                <input
+                  type="date"
+                  name="endDate"
+                  defaultValue={filters.endDate}
+                  className="mt-1 w-full rounded-lg border border-white/20 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-300/30"
+                />
+              </label>
+              <button type="submit" className="self-end rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-emerald-950 transition hover:bg-emerald-300">
+                Apply Filter
+              </button>
+            </form>
+          </div>
         </div>
       </section>
 

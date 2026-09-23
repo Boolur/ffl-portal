@@ -2875,6 +2875,32 @@ export async function getPayrollReport(filters: PayrollReportFilters = {}) {
   };
 }
 
+export async function getPayrollExportReport(filters: {
+  startDate: string;
+  endDate: string;
+}) {
+  await assertPayrollAdmin();
+  const { start, end } = datesFromFilters(filters);
+  const requests = await prisma.payrollCompRequest.findMany({
+    where: {
+      archivedAt: null,
+      submittedAt: {
+        ...(start ? { gte: start } : {}),
+        ...(end ? { lte: end } : {}),
+      },
+    },
+    orderBy: { submittedAt: 'desc' },
+    include: requestInclude,
+  });
+  const rows = await hydratePipelineFundedDates(requests.map(serializeRequest));
+  return {
+    rows,
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 export async function getPayrollFilterOptions() {
   await assertPayrollAdmin();
   const loanOfficers = await prisma.user.findMany({
