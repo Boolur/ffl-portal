@@ -87,9 +87,9 @@ export function PayrollExportReportModal({ startDate, endDate }: Props) {
           setError(null);
           setOpen(true);
         }}
-        className="inline-flex self-stretch items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white ring-1 ring-white/10 transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 sm:self-auto"
+        className="app-btn-secondary shadow-sm"
       >
-        <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+        <FileSpreadsheet className="h-4 w-4 text-emerald-600" aria-hidden="true" />
         Reports
       </button>
 
