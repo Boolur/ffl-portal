@@ -1099,8 +1099,11 @@ export function ProcessingPipelineGrid({
     count: visibleRows.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => 52,
+    measureElement: (element) =>
+      Math.ceil(element.getBoundingClientRect().height),
     getItemKey: (index) => visibleRows[index]?.id ?? index,
     overscan: 8,
+    useAnimationFrameWithResizeObserver: true,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
   const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
@@ -3030,7 +3033,7 @@ export function ProcessingPipelineGrid({
           )}
           <div
             ref={scrollContainerRef}
-            className="relative max-h-[66vh] min-h-72 overflow-auto"
+            className="relative max-h-[66vh] min-h-72 overflow-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable]"
             aria-busy={isPending}
           >
             <ColumnMenuContext.Provider value={columnMenuContextValue}>

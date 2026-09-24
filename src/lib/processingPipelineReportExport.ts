@@ -187,23 +187,125 @@ function lastTouchColumns(): ReportColumn<ProcessingLastTouchRow>[] {
   ];
 }
 
-function statusColumns(): ReportColumn<ProcessingStatusReportRow>[] {
+function statusColumns(
+  includesRestrictedColumns: boolean,
+): ReportColumn<ProcessingStatusReportRow>[] {
+  const dateColumn = (
+    label: string,
+    key: keyof ProcessingStatusReportRow,
+  ): ReportColumn<ProcessingStatusReportRow> => ({
+    label,
+    width: 110,
+    value: (row) => row[key] as ReportCellValue,
+    type: 'Date',
+  });
+  const itemStatusColumn = (
+    label: string,
+    key: 'titleStatus' | 'hoiStatus' | 'payoffStatus',
+  ): ReportColumn<ProcessingStatusReportRow> => ({
+    label,
+    width: 95,
+    value: (row) => STATUS_LABELS[row[key]] || row[key],
+  });
   return [
-    COMMON_COLUMNS.assignment,
+    {
+      label: 'Assignment Date',
+      width: 95,
+      value: (row) => row.assignmentDate,
+      type: 'Date',
+    },
     COMMON_COLUMNS.loanNumber,
-    COMMON_COLUMNS.borrower,
     COMMON_COLUMNS.loanOfficer,
-    COMMON_COLUMNS.bucket,
-    COMMON_COLUMNS.status,
-    COMMON_COLUMNS.statusChanged,
-    COMMON_COLUMNS.days,
-    COMMON_COLUMNS.junior,
-    COMMON_COLUMNS.senior,
+    {
+      label: 'First Name',
+      width: 120,
+      value: (row) => row.borrowerFirstName,
+    },
+    {
+      label: 'Last Name',
+      width: 120,
+      value: (row) => row.borrowerLastName,
+    },
     COMMON_COLUMNS.state,
     COMMON_COLUMNS.lender,
+    ...(includesRestrictedColumns
+      ? [
+          {
+            label: 'Lead Source',
+            width: 115,
+            value: (row: ProcessingStatusReportRow) => row.leadSource,
+          },
+          {
+            label: 'Loan Amount',
+            width: 105,
+            value: (row: ProcessingStatusReportRow) => row.loanAmount,
+            type: 'Currency' as const,
+          },
+        ]
+      : []),
     COMMON_COLUMNS.loanType,
+    COMMON_COLUMNS.junior,
+    COMMON_COLUMNS.senior,
+    COMMON_COLUMNS.status,
     COMMON_COLUMNS.pending,
+    {
+      label: 'Restructure Notes',
+      width: 220,
+      value: (row) => row.restructureNotes,
+    },
+    itemStatusColumn('Title', 'titleStatus'),
+    itemStatusColumn('HOI', 'hoiStatus'),
+    {
+      label: 'Appraisal?',
+      width: 85,
+      value: (row) => row.appraisalNeeded,
+    },
+    itemStatusColumn('Payoff', 'payoffStatus'),
+    dateColumn('Payoff Expiration', 'payoffExpiresAt'),
+    COMMON_COLUMNS.days,
+    {
+      label: 'Appraisal Notes',
+      width: 210,
+      value: (row) => row.appraisalNotes,
+    },
+    dateColumn('Appraisal Ordered', 'appraisalOrderedAt'),
+    dateColumn('Appraisal Scheduled Date', 'appraisalScheduledAt'),
+    dateColumn('Appraisal Back', 'appraisalBackAt'),
+    {
+      label: 'CD Sent?',
+      width: 75,
+      value: (row) => row.cdSent,
+    },
+    dateColumn('Est. Signing', 'estimatedSigningAt'),
+    {
+      label: 'Extra Notes',
+      width: 210,
+      value: (row) => row.extraNotes,
+    },
+    {
+      label: 'Rate Lock',
+      width: 80,
+      value: (row) => row.rateLock,
+    },
+    ...(includesRestrictedColumns
+      ? [
+          {
+            label: 'Projected Revenue',
+            width: 115,
+            value: (row: ProcessingStatusReportRow) => row.projectedRevenue,
+            type: 'Currency' as const,
+          },
+        ]
+      : []),
+    {
+      label: 'Final Revenue',
+      width: 105,
+      value: (row) => row.finalRevenue,
+      type: 'Currency',
+    },
+    COMMON_COLUMNS.bucket,
     COMMON_COLUMNS.rateLock,
+    COMMON_COLUMNS.statusChanged,
   ];
 }
 
@@ -416,7 +518,7 @@ function reportMetadata(report: ProcessingPipelineReport) {
       title: 'Processing Pipeline — Pipeline Status Report',
       subtitle: `Active loans matching: ${statuses}`,
       file: 'processing-pipeline-status',
-      columns: statusColumns(),
+      columns: statusColumns(report.includesRestrictedColumns),
     };
   }
   if (report.type === 'FUNDING') {

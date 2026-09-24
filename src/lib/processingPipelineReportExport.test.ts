@@ -61,6 +61,53 @@ const fundingReport: ProcessingPipelineReport = {
   ],
 };
 
+const pipelineStatusReport: ProcessingPipelineReport = {
+  type: 'PIPELINE_STATUS',
+  generatedAt: '2026-09-23T18:00:00.000Z',
+  selectedStatuses: [ProcessingPipelineStatus.DOCS_OUT],
+  includesRestrictedColumns: true,
+  rows: [
+    {
+      pipelineLoanId: 'pipeline-status-1',
+      bucket: 'Pipeline',
+      rateLockRequested: true,
+      assignmentDate: '2026-09-01T12:00:00.000Z',
+      loanNumber: '11223344',
+      borrowerName: 'Full Column Borrower',
+      borrowerFirstName: 'Full Column',
+      borrowerLastName: 'Borrower',
+      loanOfficer: 'Loan Officer',
+      juniorProcessor: 'Jr Processor',
+      seniorProcessor: 'Sr Processor',
+      state: 'FL',
+      lender: 'Example Lender',
+      leadSource: 'Referral',
+      loanAmount: 425000,
+      loanType: 'Conventional',
+      pipelineStatus: ProcessingPipelineStatus.DOCS_OUT,
+      statusChangedAt: '2026-09-20T12:00:00.000Z',
+      daysInStatus: 3,
+      pendingItems: 'Final docs',
+      restructureNotes: 'Prior restructure note',
+      titleStatus: 'RECEIVED',
+      hoiStatus: 'ORDERED',
+      appraisalNeeded: 'Yes',
+      payoffStatus: 'RECEIVED',
+      payoffExpiresAt: '2026-10-01T12:00:00.000Z',
+      appraisalNotes: 'Rush appraisal',
+      appraisalOrderedAt: '2026-09-02T12:00:00.000Z',
+      appraisalScheduledAt: '2026-09-05T12:00:00.000Z',
+      appraisalBackAt: '2026-09-08T12:00:00.000Z',
+      cdSent: 'Yes',
+      estimatedSigningAt: '2026-09-25T12:00:00.000Z',
+      extraNotes: 'Ready for signing',
+      rateLock: 'Yes',
+      projectedRevenue: 8000,
+      finalRevenue: 7750,
+    },
+  ],
+};
+
 describe('processing report workbook export', () => {
   it('escapes XML and preserves the report column order', () => {
     const workbook = buildProcessingReportWorkbook(report, {
@@ -107,5 +154,76 @@ describe('processing report workbook export', () => {
     );
     expect(workbook.content).toContain('ss:StyleID="DataEvenCurrency"');
     expect(workbook.content).toContain('ss:StyleID="DataEvenDateOnly"');
+  });
+
+  it('exports every pipeline data column in the status report', () => {
+    const workbook = buildProcessingReportWorkbook(pipelineStatusReport);
+    const orderedHeaders = [
+      'Assignment Date',
+      'Arive #',
+      'Loan Officer',
+      'First Name',
+      'Last Name',
+      'State',
+      'Lender',
+      'Lead Source',
+      'Loan Amount',
+      'Loan Type',
+      'Jr Processor',
+      'Sr Processor',
+      'Pipeline Status',
+      'Pending Items',
+      'Restructure Notes',
+      'Title',
+      'HOI',
+      'Appraisal?',
+      'Payoff',
+      'Payoff Expiration',
+      'Days in Status',
+      'Appraisal Notes',
+      'Appraisal Ordered',
+      'Appraisal Scheduled Date',
+      'Appraisal Back',
+      'CD Sent?',
+      'Est. Signing',
+      'Extra Notes',
+      'Rate Lock',
+      'Projected Revenue',
+      'Final Revenue',
+    ];
+    let previousIndex = -1;
+    for (const header of orderedHeaders) {
+      const index = workbook.content.indexOf(
+        `<Data ss:Type="String">${header}</Data>`,
+      );
+      expect(index).toBeGreaterThan(previousIndex);
+      previousIndex = index;
+    }
+  });
+
+  it('keeps processor-restricted financial columns out of status exports', () => {
+    const restrictedReport: ProcessingPipelineReport = {
+      ...pipelineStatusReport,
+      includesRestrictedColumns: false,
+      rows: pipelineStatusReport.rows.map((row) => ({
+        ...row,
+        leadSource: null,
+        loanAmount: null,
+        projectedRevenue: null,
+      })),
+    };
+    const workbook = buildProcessingReportWorkbook(restrictedReport);
+    expect(workbook.content).not.toContain(
+      '<Data ss:Type="String">Lead Source</Data>',
+    );
+    expect(workbook.content).not.toContain(
+      '<Data ss:Type="String">Loan Amount</Data>',
+    );
+    expect(workbook.content).not.toContain(
+      '<Data ss:Type="String">Projected Revenue</Data>',
+    );
+    expect(workbook.content).toContain(
+      '<Data ss:Type="String">Final Revenue</Data>',
+    );
   });
 });

@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { splitBorrowerName } from '@/lib/processingBorrowerDetails';
 import {
   calculateDaysInStatus,
   getPayoffExpirationWarning,
@@ -56,7 +57,28 @@ export type ProcessingLastTouchRow = ProcessingReportCommonRow & {
   lastTouchedAge: string;
 };
 
-export type ProcessingStatusReportRow = ProcessingReportCommonRow;
+export type ProcessingStatusReportRow = ProcessingReportCommonRow & {
+  borrowerFirstName: string;
+  borrowerLastName: string;
+  leadSource: string | null;
+  loanAmount: number | null;
+  restructureNotes: string;
+  titleStatus: string;
+  hoiStatus: string;
+  appraisalNeeded: string;
+  payoffStatus: string;
+  payoffExpiresAt: string | null;
+  appraisalNotes: string;
+  appraisalOrderedAt: string | null;
+  appraisalScheduledAt: string | null;
+  appraisalBackAt: string | null;
+  cdSent: string;
+  estimatedSigningAt: string | null;
+  extraNotes: string;
+  rateLock: string;
+  projectedRevenue: number | null;
+  finalRevenue: number | null;
+};
 
 export type ProcessingFundingReportRow = {
   pipelineLoanId: string;
@@ -116,6 +138,7 @@ export type ProcessingPipelineReport =
       type: 'PIPELINE_STATUS';
       generatedAt: string;
       selectedStatuses: ProcessingPipelineStatus[];
+      includesRestrictedColumns: boolean;
       rows: ProcessingStatusReportRow[];
     }
   | {
@@ -187,6 +210,7 @@ const reportRowSelect = {
   sheet: true,
   pipelineStatus: true,
   statusChangedAt: true,
+  estimatedSigningAt: true,
   dateAssigned: true,
   titleStatus: true,
   payoffStatus: true,
@@ -195,18 +219,24 @@ const reportRowSelect = {
   hoiStatus: true,
   hoiOrderedAt: true,
   appraisalNeeded: true,
+  appraisalNotes: true,
   appraisalOrderedAt: true,
   appraisalScheduledAt: true,
   appraisalBackAt: true,
   approvedWithConditionsAt: true,
   rateLockRequestedAt: true,
+  cdSent: true,
   missingItemsCurrentStatus: true,
+  extraNotes: true,
+  restructureNotes: true,
+  rateLock: true,
   propertyState: true,
   lender: true,
   loanType: true,
   leadSource: true,
   fundedAt: true,
   finalRevenue: true,
+  projectedRevenue: true,
   firstPaymentAt: true,
   sixthPaymentAt: true,
   createdAt: true,
@@ -215,6 +245,9 @@ const reportRowSelect = {
     select: {
       loanNumber: true,
       borrowerName: true,
+      borrowerFirstName: true,
+      borrowerLastName: true,
+      amount: true,
       loanOfficer: { select: { name: true } },
       secondaryLoanOfficer: { select: { name: true } },
     },
@@ -388,12 +421,57 @@ export async function getProcessingPipelineReport(input: {
   }
 
   if (input.type === 'PIPELINE_STATUS') {
+    const includesRestrictedColumns =
+      actor.role !== UserRole.PROCESSOR_JR &&
+      actor.role !== UserRole.PROCESSOR_SR;
     const report: ProcessingPipelineReport = {
       type: 'PIPELINE_STATUS',
       generatedAt: generatedAt.toISOString(),
       selectedStatuses: selectedStatuses || [],
+      includesRestrictedColumns,
       rows: rows
-        .map(commonRow)
+        .map((row) => {
+          const splitName = splitBorrowerName(row.loan.borrowerName);
+          return {
+            ...commonRow(row),
+            borrowerFirstName:
+              row.loan.borrowerFirstName || splitName.firstName,
+            borrowerLastName:
+              row.loan.borrowerLastName || splitName.lastName,
+            leadSource: includesRestrictedColumns
+              ? row.leadSource || ''
+              : null,
+            loanAmount: includesRestrictedColumns
+              ? Number(row.loan.amount)
+              : null,
+            restructureNotes: row.restructureNotes || '',
+            titleStatus: row.titleStatus,
+            hoiStatus: row.hoiStatus,
+            appraisalNeeded:
+              row.appraisalNeeded === null
+                ? 'Not set'
+                : row.appraisalNeeded
+                  ? 'Yes'
+                  : 'No',
+            payoffStatus: row.payoffStatus,
+            payoffExpiresAt: iso(row.payoffExpiresAt),
+            appraisalNotes: row.appraisalNotes || '',
+            appraisalOrderedAt: iso(row.appraisalOrderedAt),
+            appraisalScheduledAt: iso(row.appraisalScheduledAt),
+            appraisalBackAt: iso(row.appraisalBackAt),
+            cdSent: row.cdSent ? 'Yes' : 'No',
+            estimatedSigningAt: iso(row.estimatedSigningAt),
+            extraNotes: row.extraNotes || '',
+            rateLock: row.rateLock ? 'Yes' : 'No',
+            projectedRevenue: includesRestrictedColumns
+              ? row.projectedRevenue === null
+                ? null
+                : Number(row.projectedRevenue)
+              : null,
+            finalRevenue:
+              row.finalRevenue === null ? null : Number(row.finalRevenue),
+          };
+        })
         .sort(
           (left, right) =>
             left.pipelineStatus.localeCompare(right.pipelineStatus) ||
