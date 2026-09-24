@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { UserRole } from '@prisma/client';
+import { ProcessingPipelineStatus, UserRole } from '@prisma/client';
 import {
   buildDefaultProcessingLayoutConfig,
   mandatoryColumnsForBucket,
@@ -12,6 +12,8 @@ describe('processing pipeline saved layouts', () => {
   it('builds independent defaults for every bucket', () => {
     const config = buildDefaultProcessingLayoutConfig(UserRole.MANAGER);
 
+    expect(config.scope).toBe('GLOBAL');
+    expect(config.buckets.PIPELINE.filters).toEqual({});
     expect(config.buckets.PIPELINE.columns).not.toBe(
       config.buckets.RESTRUCTURE.columns,
     );
@@ -202,5 +204,58 @@ describe('processing pipeline saved layouts', () => {
       nameKey: 'my daily view',
     });
     expect(normalizeProcessingLayoutName('')).toMatchObject({ success: false });
+  });
+
+  it('keeps assigned scope and saved filters only for Jr Processor layouts', () => {
+    const config = buildDefaultProcessingLayoutConfig(UserRole.PROCESSOR_JR);
+    config.scope = 'ASSIGNED';
+    config.buckets.PIPELINE.filters = {
+      loanOfficerIds: ['lo-1'],
+      seniorProcessorIds: ['processor-1', 'processor-1'],
+      pipelineStatuses: [ProcessingPipelineStatus.CTC],
+    };
+
+    const juniorResult = normalizeProcessingLayoutConfig(
+      config,
+      UserRole.PROCESSOR_JR,
+    );
+    expect(juniorResult.success).toBe(true);
+    if (!juniorResult.success) return;
+    expect(juniorResult.config.scope).toBe('ASSIGNED');
+    expect(juniorResult.config.buckets.PIPELINE.filters).toEqual({
+      loanOfficerIds: ['lo-1'],
+      seniorProcessorIds: ['processor-1'],
+      pipelineStatuses: [ProcessingPipelineStatus.CTC],
+    });
+
+    const managerResult = normalizeProcessingLayoutConfig(
+      config,
+      UserRole.MANAGER,
+    );
+    expect(managerResult.success).toBe(true);
+    if (!managerResult.success) return;
+    expect(managerResult.config.scope).toBe('GLOBAL');
+  });
+
+  it('upgrades legacy layouts with global scope and empty saved filters', () => {
+    const config = buildDefaultProcessingLayoutConfig(UserRole.PROCESSOR_JR);
+    const legacy = structuredClone(config) as unknown as {
+      version: 1;
+      buckets: Record<string, { columns: unknown[]; filters?: unknown }>;
+      scope?: unknown;
+    };
+    delete legacy.scope;
+    for (const bucket of Object.values(legacy.buckets)) {
+      delete bucket.filters;
+    }
+
+    const result = normalizeProcessingLayoutConfig(
+      legacy,
+      UserRole.PROCESSOR_JR,
+    );
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.config.scope).toBe('GLOBAL');
+    expect(result.config.buckets.PIPELINE.filters).toEqual({});
   });
 });

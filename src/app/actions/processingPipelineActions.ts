@@ -17,6 +17,7 @@ import { prisma } from '@/lib/prisma';
 import {
   addMonthsClamped,
   buildProcessingPipelineScopeWhere,
+  buildProcessingPipelineViewScopeWhere,
   calculateDaysInStatus,
   canEditProcessingPipelineMethod,
   getApprovedWithConditionsAt,
@@ -30,6 +31,7 @@ import {
   parseOptionalMoney,
   resolvePayoffExpirationAt,
 } from '@/lib/processingPipeline';
+import type { ProcessingLayoutScope } from '@/lib/processingPipelineLayouts';
 import {
   PROCESSING_METHOD_SELF_PROCESSED,
   PROCESSING_METHOD_THIRD_PARTY,
@@ -75,8 +77,13 @@ async function getActor(): Promise<Actor | null> {
   };
 }
 
-function scopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInput {
-  return buildProcessingPipelineScopeWhere(actor);
+function scopeWhere(
+  actor: Actor,
+  viewScope?: ProcessingLayoutScope,
+): Prisma.ProcessingPipelineLoanWhereInput {
+  return viewScope
+    ? buildProcessingPipelineViewScopeWhere(actor, viewScope)
+    : buildProcessingPipelineScopeWhere(actor);
 }
 
 function effectiveLoanOfficerWhere(userIds: string[]): Prisma.LoanWhereInput {
@@ -451,6 +458,7 @@ export async function getProcessingPipeline(input?: {
   sortBy?: 'pipelineStatus' | 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber';
   sortDirection?: 'asc' | 'desc';
   filters?: ProcessingPipelineFilters;
+  viewScope?: ProcessingLayoutScope;
 }) {
   noStore();
   const actor = await getActor();
@@ -469,7 +477,7 @@ export async function getProcessingPipeline(input?: {
   const search = input?.search?.trim();
   const where: Prisma.ProcessingPipelineLoanWhereInput = {
     AND: [
-      scopeWhere(actor),
+      scopeWhere(actor, input?.viewScope),
       allSheets
         ? {}
         : rateLockRequestsOnly
@@ -645,6 +653,7 @@ export async function getProcessingPipelineSheetCounts() {
 export async function getProcessingPipelineFilterOptions(
   sheet: ProcessingPipelineSheet,
   rateLockRequestsOnly = false,
+  viewScope?: ProcessingLayoutScope,
 ) {
   noStore();
   const actor = await getActor();
@@ -661,7 +670,7 @@ export async function getProcessingPipelineFilterOptions(
   const rows = await prisma.processingPipelineLoan.findMany({
     where: {
       AND: [
-        scopeWhere(actor),
+        scopeWhere(actor, viewScope),
         rateLockRequestsOnly
           ? { rateLockRequestedAt: { not: null } }
           : { sheet },

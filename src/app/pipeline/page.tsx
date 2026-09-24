@@ -32,14 +32,19 @@ export default async function Pipeline() {
     role === UserRole.LOA ||
     role === UserRole.MANAGER ||
     isAdmin(role);
-  const [initialProcessing, initialReport, initialLayouts, submissionConfig] = await Promise.all([
+  const initialLayouts = await getProcessingPipelineLayouts();
+  const activeLayout = initialLayouts.success
+    ? initialLayouts.layouts.find((layout) => layout.isActive)
+    : undefined;
+  const [initialProcessing, initialReport, submissionConfig] = await Promise.all([
     getProcessingPipeline({
       sheet: ProcessingPipelineSheet.PIPELINE,
       sortBy: 'pipelineStatus',
       sortDirection: 'asc',
+      filters: activeLayout?.config.buckets.PIPELINE.filters,
+      viewScope: activeLayout?.config.scope,
     }),
     isProcessingRole ? Promise.resolve(null) : getPipelineReport(),
-    getProcessingPipelineLayouts(),
     canUseSubmissionShortcuts
       ? Promise.all([
           prisma.user.findUnique({

@@ -639,7 +639,7 @@ export function ProcessingPipelineGrid({
   );
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const filterOptionsBySheet = useRef(
-    new Map<PipelineView, PipelineFilterOptions>()
+    new Map<string, PipelineFilterOptions>()
   );
   const [sheet, setSheet] = useState<PipelineView>(ProcessingPipelineSheet.PIPELINE);
   const [rows, setRows] = useState(initialData.rows);
@@ -648,13 +648,20 @@ export function ProcessingPipelineGrid({
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [fundingRangePreset, setFundingRangePreset] =
     useState<FundingRangePreset>('currentMonth');
-  const [appliedFilters, setAppliedFilters] = useState<ProcessingPipelineFilters>({});
-  const [draftFilters, setDraftFilters] = useState<ProcessingPipelineFilters>({});
+  const initialActiveLayout =
+    initialLayouts.find((layout) => layout.isActive) || null;
+  const initialSavedFilters =
+    initialActiveLayout?.config.buckets.PIPELINE.filters || {};
+  const [appliedFilters, setAppliedFilters] =
+    useState<ProcessingPipelineFilters>(initialSavedFilters);
+  const [draftFilters, setDraftFilters] =
+    useState<ProcessingPipelineFilters>(initialSavedFilters);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [filterOptions, setFilterOptions] = useState<PipelineFilterOptions>(EMPTY_FILTER_OPTIONS);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [layouts, setLayouts] =
     useState<ProcessingPipelineSavedLayout[]>(initialLayouts);
+  const activeLayout = layouts.find((layout) => layout.isActive) || null;
   const [layoutManagerOpen, setLayoutManagerOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [activatingLayoutId, setActivatingLayoutId] = useState<string | null>(
@@ -841,6 +848,7 @@ export function ProcessingPipelineGrid({
     nextSortBy = sortBy,
     nextSortDirection = sortDirection,
     nextFilters = appliedFilters,
+    nextViewScope = activeLayout?.config.scope || 'GLOBAL',
   ) => {
     startTransition(async () => {
       const isGlobalSearch = Boolean(nextSearch.trim());
@@ -856,6 +864,7 @@ export function ProcessingPipelineGrid({
         sortBy: nextSortBy,
         sortDirection: nextSortDirection,
         filters: isGlobalSearch ? {} : nextFilters,
+        viewScope: nextViewScope,
       });
       if (!result.success) {
         setMessage(result.error);
@@ -880,7 +889,8 @@ export function ProcessingPipelineGrid({
 
   useEffect(() => {
     if (!filtersExpanded) return;
-    const cachedOptions = filterOptionsBySheet.current.get(sheet);
+    const filterOptionsKey = `${sheet}:${activeLayout?.config.scope || 'GLOBAL'}`;
+    const cachedOptions = filterOptionsBySheet.current.get(filterOptionsKey);
     if (cachedOptions) {
       setFilterOptions(cachedOptions);
       return;
@@ -889,15 +899,16 @@ export function ProcessingPipelineGrid({
     getProcessingPipelineFilterOptions(
       isRateLockRequestsView ? ProcessingPipelineSheet.PIPELINE : sheet,
       isRateLockRequestsView,
+      activeLayout?.config.scope || 'GLOBAL',
     ).then((result) => {
       if (cancelled || !result.success) return;
-      filterOptionsBySheet.current.set(sheet, result.options);
+      filterOptionsBySheet.current.set(filterOptionsKey, result.options);
       setFilterOptions(result.options);
     });
     return () => {
       cancelled = true;
     };
-  }, [filtersExpanded, isRateLockRequestsView, sheet]);
+  }, [activeLayout?.config.scope, filtersExpanded, isRateLockRequestsView, sheet]);
 
   useEffect(() => {
     if (!columnMenu) return;
@@ -1035,6 +1046,8 @@ export function ProcessingPipelineGrid({
 
   const selectSavedLayout = async (id: string) => {
     if (id === activeLayout?.id || activatingLayoutId) return;
+    const targetLayout = layouts.find((layout) => layout.id === id);
+    if (!targetLayout) return;
     const previous = layouts;
     setActivatingLayoutId(id);
     setLayouts((current) =>
@@ -1048,7 +1061,55 @@ export function ProcessingPipelineGrid({
       return;
     }
     setLayouts(result.layouts);
+    const nextFilters =
+      targetLayout.config.buckets[layoutBucket].filters || {};
+    setSelectedTeamIds([]);
+    setColumnFilters({});
+    setColumnSort(null);
+    setColumnMenu(null);
+    setAppliedFilters(nextFilters);
+    setDraftFilters(nextFilters);
+    loadRows(
+      sheet,
+      search,
+      sortBy,
+      sortDirection,
+      nextFilters,
+      targetLayout.config.scope,
+    );
     setMessage('');
+  };
+
+  const handleLayoutsChange = (
+    nextLayouts: ProcessingPipelineSavedLayout[],
+  ) => {
+    const nextActive =
+      nextLayouts.find((layout) => layout.isActive) || null;
+    const activeSettingsChanged =
+      nextActive &&
+      (
+        nextActive.id !== activeLayout?.id ||
+        nextActive.config.scope !== activeLayout?.config.scope ||
+        JSON.stringify(nextActive.config.buckets[layoutBucket].filters) !==
+          JSON.stringify(activeLayout?.config.buckets[layoutBucket].filters || {})
+      );
+    setLayouts(nextLayouts);
+    if (!activeSettingsChanged || !nextActive) return;
+    const nextFilters = nextActive.config.buckets[layoutBucket].filters || {};
+    setSelectedTeamIds([]);
+    setColumnFilters({});
+    setColumnSort(null);
+    setColumnMenu(null);
+    setAppliedFilters(nextFilters);
+    setDraftFilters(nextFilters);
+    loadRows(
+      sheet,
+      search,
+      sortBy,
+      sortDirection,
+      nextFilters,
+      nextActive.config.scope,
+    );
   };
 
   const layoutBucket: ProcessingLayoutBucket =
@@ -1059,7 +1120,6 @@ export function ProcessingPipelineGrid({
         : isRateLockRequestsView
           ? 'RATE_LOCK_REQUESTS'
           : 'PIPELINE';
-  const activeLayout = layouts.find((layout) => layout.isActive) || null;
   const activeLayoutConfig =
     activeLayout?.config || buildDefaultProcessingLayoutConfig(role);
   const canonicalColumns = processingLayoutBucketColumns(layoutBucket, role);
@@ -2564,8 +2624,20 @@ export function ProcessingPipelineGrid({
                 role="tab"
                 aria-selected={sheet === option.value}
                 onClick={() => {
-                  const nextFilters =
+                  const nextLayoutBucket: ProcessingLayoutBucket =
                     option.value === ProcessingPipelineSheet.FUNDING
+                      ? 'FUNDING'
+                      : option.value === ProcessingPipelineSheet.RESTRUCTURE
+                        ? 'RESTRUCTURE'
+                        : option.value === RATE_LOCK_REQUESTS_VIEW
+                          ? 'RATE_LOCK_REQUESTS'
+                          : 'PIPELINE';
+                  const savedFilters =
+                    activeLayout?.config.buckets[nextLayoutBucket].filters || {};
+                  const nextFilters =
+                    Object.keys(savedFilters).length > 0
+                      ? savedFilters
+                      : option.value === ProcessingPipelineSheet.FUNDING
                       ? fundingMonthFilters(0)
                       : {};
                   setSheet(option.value);
@@ -2585,6 +2657,7 @@ export function ProcessingPipelineGrid({
                     sortBy,
                     sortDirection,
                     nextFilters,
+                    activeLayout?.config.scope || 'GLOBAL',
                   );
                 }}
                 className={`rounded-lg px-4 py-2 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
@@ -2776,6 +2849,11 @@ export function ProcessingPipelineGrid({
                   <Check className="h-3.5 w-3.5" />
                 ) : null}
                 {layout.name}
+                {role === UserRole.PROCESSOR_JR && (
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-slate-500">
+                    {layout.config.scope === 'ASSIGNED' ? 'Assigned' : 'Global'}
+                  </span>
+                )}
               </button>
             ))}
             {canGenerateReports && (
@@ -3746,7 +3824,7 @@ export function ProcessingPipelineGrid({
           role={role}
           layouts={layouts}
           onClose={() => setLayoutManagerOpen(false)}
-          onLayoutsChange={setLayouts}
+          onLayoutsChange={handleLayoutsChange}
         />
       )}
       {reportsOpen && (

@@ -10,6 +10,7 @@ import {
   PROCESSING_METHOD_SELF_PROCESSED,
   PROCESSING_METHOD_THIRD_PARTY,
 } from './processingRouting';
+import type { ProcessingLayoutScope } from './processingPipelineLayouts';
 
 export const PROCESSING_PIPELINE_STATUS_OPTIONS = [
   { value: ProcessingPipelineStatus.SUBBED_TO_UW, label: 'Subbed to UW' },
@@ -101,6 +102,22 @@ export function buildProcessingPipelineScopeWhere(
     };
   }
   return { id: '__NO_ACCESS__' };
+}
+
+export function buildProcessingPipelineViewScopeWhere(
+  actor: ProcessingPipelineScopeActor,
+  viewScope?: ProcessingLayoutScope,
+): Prisma.ProcessingPipelineLoanWhereInput {
+  if (
+    actor.role === UserRole.PROCESSOR_JR &&
+    viewScope === 'ASSIGNED'
+  ) {
+    return {
+      archivedAt: null,
+      juniorProcessorId: actor.id,
+    };
+  }
+  return buildProcessingPipelineScopeWhere(actor);
 }
 
 export function getProcessingPipelineAccess(role?: UserRole | null): ProcessingPipelineAccess {

@@ -17,13 +17,14 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { UserRole } from '@prisma/client';
+import { ProcessingPipelineSheet, ProcessingPipelineStatus, UserRole } from '@prisma/client';
 import {
   ArrowDown,
   ArrowUp,
   Check,
   Copy,
   GripVertical,
+  Globe2,
   LayoutTemplate,
   Loader2,
   LockKeyhole,
@@ -31,6 +32,7 @@ import {
   RotateCcw,
   Save,
   Trash2,
+  UserRound,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -44,6 +46,8 @@ import {
   updateProcessingPipelineLayout,
   type ProcessingPipelineSavedLayout,
 } from '@/app/actions/processingPipelineLayoutActions';
+import { getProcessingPipelineFilterOptions } from '@/app/actions/processingPipelineActions';
+import { PROCESSING_PIPELINE_STATUS_OPTIONS } from '@/lib/processingPipeline';
 import {
   buildDefaultProcessingLayoutConfig,
   mandatoryColumnsForBucket,
@@ -52,6 +56,7 @@ import {
   PROCESSING_LAYOUT_BUCKETS,
   type ProcessingLayoutBucket,
   type ProcessingLayoutColumn,
+  type ProcessingLayoutFilters,
   type ProcessingPipelineLayoutConfig,
 } from '@/lib/processingPipelineLayouts';
 
@@ -76,7 +81,67 @@ type DraftLayout = {
   config: ProcessingPipelineLayoutConfig;
 };
 
+type FilterOption = { value: string; label: string };
+
+type LayoutFilterOptions = {
+  loanOfficers: FilterOption[];
+  juniorProcessors: FilterOption[];
+  seniorProcessors: FilterOption[];
+};
+
+const EMPTY_FILTER_OPTIONS: LayoutFilterOptions = {
+  loanOfficers: [],
+  juniorProcessors: [],
+  seniorProcessors: [],
+};
+
 const PAYOFF_PAIR_IDS = ['payoffStatus', 'payoffExpiresAt'] as const;
+
+function SavedFilterPicker({
+  label,
+  options,
+  values,
+  onChange,
+}: {
+  label: string;
+  options: FilterOption[];
+  values: string[];
+  onChange: (values: string[]) => void;
+}) {
+  return (
+    <fieldset className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
+      <legend className="px-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+        {label}
+      </legend>
+      <div className="mt-1 max-h-32 space-y-1 overflow-y-auto pr-1">
+        {options.length === 0 ? (
+          <p className="py-2 text-xs font-medium text-slate-400">No available values</p>
+        ) : (
+          options.map((option) => (
+            <label
+              key={option.value}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <input
+                type="checkbox"
+                checked={values.includes(option.value)}
+                onChange={(event) =>
+                  onChange(
+                    event.target.checked
+                      ? [...values, option.value]
+                      : values.filter((value) => value !== option.value),
+                  )
+                }
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
+              />
+              <span className="truncate">{option.label}</span>
+            </label>
+          ))
+        )}
+      </div>
+    </fieldset>
+  );
+}
 
 function keepPayoffPairTogether(
   columns: ProcessingLayoutColumn[],
@@ -252,6 +317,8 @@ export function ProcessingPipelineLayoutManager({
   );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [filterOptions, setFilterOptions] =
+    useState<LayoutFilterOptions>(EMPTY_FILTER_OPTIONS);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -297,6 +364,36 @@ export function ProcessingPipelineLayoutManager({
     };
   }, [onClose, open]);
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const sheet =
+      selectedBucket === 'FUNDING'
+        ? ProcessingPipelineSheet.FUNDING
+        : selectedBucket === 'RESTRUCTURE'
+          ? ProcessingPipelineSheet.RESTRUCTURE
+          : ProcessingPipelineSheet.PIPELINE;
+    getProcessingPipelineFilterOptions(
+      sheet,
+      selectedBucket === 'RATE_LOCK_REQUESTS',
+      draft.config.scope,
+    ).then((result) => {
+      if (cancelled) return;
+      if (!result.success) {
+        setFilterOptions(EMPTY_FILTER_OPTIONS);
+        return;
+      }
+      setFilterOptions({
+        loanOfficers: result.options.loanOfficers,
+        juniorProcessors: result.options.juniorProcessors,
+        seniorProcessors: result.options.seniorProcessors,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.config.scope, open, selectedBucket]);
+
   const definitions = useMemo(
     () => processingLayoutBucketColumns(selectedBucket, role),
     [role, selectedBucket],
@@ -310,6 +407,7 @@ export function ProcessingPipelineLayoutManager({
     [role, selectedBucket],
   );
   const columns = draft?.config.buckets[selectedBucket].columns || [];
+  const savedFilters = draft.config.buckets[selectedBucket].filters;
   const visibleBorrowerNameCount = columns.filter(
     (column) =>
       column.visible &&
@@ -344,6 +442,25 @@ export function ProcessingPipelineLayoutManager({
           }
         : current,
     );
+  };
+
+  const updateFilters = (patch: Partial<ProcessingLayoutFilters>) => {
+    setDraft((current) => ({
+      ...current,
+      config: {
+        ...current.config,
+        buckets: {
+          ...current.config.buckets,
+          [selectedBucket]: {
+            ...current.config.buckets[selectedBucket],
+            filters: {
+              ...current.config.buckets[selectedBucket].filters,
+              ...patch,
+            },
+          },
+        },
+      },
+    }));
   };
 
   const patchColumn = (
@@ -642,7 +759,14 @@ export function ProcessingPipelineLayoutManager({
                       : 'border-transparent text-slate-600 hover:border-slate-200 hover:bg-white'
                   }`}
                 >
-                  <span className="min-w-0 truncate text-sm font-bold">{layout.name}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold">{layout.name}</span>
+                    {role === UserRole.PROCESSOR_JR && (
+                      <span className="mt-0.5 block text-[9px] font-black uppercase tracking-wide text-slate-400">
+                        {layout.config.scope === 'ASSIGNED' ? 'Assigned loans' : 'Global routing'}
+                      </span>
+                    )}
+                  </span>
                   {layout.isActive && (
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-700">
                       <Check className="h-3 w-3" />
@@ -729,6 +853,65 @@ export function ProcessingPipelineLayoutManager({
                   )}
                 </div>
               </div>
+              {role === UserRole.PROCESSOR_JR && (
+                <fieldset className="mt-4">
+                  <legend className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+                    Step 1 · Choose loan scope
+                  </legend>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {[
+                      {
+                        value: 'ASSIGNED' as const,
+                        label: 'Assigned',
+                        helper: 'Only loans directly assigned to you.',
+                        icon: UserRound,
+                      },
+                      {
+                        value: 'GLOBAL' as const,
+                        label: 'Global View',
+                        helper: 'All loans for processors enabled in Jr Processing Routing.',
+                        icon: Globe2,
+                      },
+                    ].map((option) => {
+                      const Icon = option.icon;
+                      const selected = draft.config.scope === option.value;
+                      return (
+                        <label
+                          key={option.value}
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition ${
+                            selected
+                              ? 'border-blue-300 bg-blue-50 text-blue-900 ring-2 ring-blue-100'
+                              : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="processing-layout-scope"
+                            value={option.value}
+                            checked={selected}
+                            onChange={() =>
+                              setDraft((current) => ({
+                                ...current,
+                                config: { ...current.config, scope: option.value },
+                              }))
+                            }
+                            className="sr-only"
+                          />
+                          <span className="rounded-lg bg-white p-2 text-blue-600 shadow-sm ring-1 ring-slate-200">
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          <span>
+                            <span className="block text-sm font-black">{option.label}</span>
+                            <span className="mt-0.5 block text-xs font-medium text-slate-500">
+                              {option.helper}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              )}
               <div
                 className="mt-4 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1"
                 role="tablist"
@@ -754,6 +937,78 @@ export function ProcessingPipelineLayoutManager({
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/40 px-5 py-5 sm:px-6">
+              <section className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-950">
+                      {role === UserRole.PROCESSOR_JR ? 'Step 2 · Saved filters' : 'Saved filters'}
+                    </h3>
+                    <p className="mt-1 text-xs font-medium text-slate-500">
+                      Optional filters apply automatically when this layout is selected on the {BUCKET_LABELS[selectedBucket]} tab.
+                    </p>
+                  </div>
+                  {(savedFilters.loanOfficerIds?.length ||
+                    savedFilters.juniorProcessorIds?.length ||
+                    savedFilters.seniorProcessorIds?.length ||
+                    savedFilters.pipelineStatuses?.length) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateFilters({
+                          loanOfficerIds: undefined,
+                          juniorProcessorIds: undefined,
+                          seniorProcessorIds: undefined,
+                          pipelineStatuses: undefined,
+                        })
+                      }
+                      className="app-btn-secondary !h-8 !rounded-lg !px-2.5 !text-xs"
+                    >
+                      Clear saved filters
+                    </button>
+                  )}
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <SavedFilterPicker
+                    label="Loan Officers"
+                    options={filterOptions.loanOfficers}
+                    values={savedFilters.loanOfficerIds || []}
+                    onChange={(values) =>
+                      updateFilters({ loanOfficerIds: values.length ? values : undefined })
+                    }
+                  />
+                  <SavedFilterPicker
+                    label="Jr Processors"
+                    options={filterOptions.juniorProcessors}
+                    values={savedFilters.juniorProcessorIds || []}
+                    onChange={(values) =>
+                      updateFilters({ juniorProcessorIds: values.length ? values : undefined })
+                    }
+                  />
+                  <SavedFilterPicker
+                    label="Processors"
+                    options={filterOptions.seniorProcessors}
+                    values={savedFilters.seniorProcessorIds || []}
+                    onChange={(values) =>
+                      updateFilters({ seniorProcessorIds: values.length ? values : undefined })
+                    }
+                  />
+                  <SavedFilterPicker
+                    label="Pipeline Status"
+                    options={PROCESSING_PIPELINE_STATUS_OPTIONS.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                    }))}
+                    values={savedFilters.pipelineStatuses || []}
+                    onChange={(values) =>
+                      updateFilters({
+                        pipelineStatuses: values.length
+                          ? (values as ProcessingPipelineStatus[])
+                          : undefined,
+                      })
+                    }
+                  />
+                </div>
+              </section>
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-sm font-black text-slate-950">

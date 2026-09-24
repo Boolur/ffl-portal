@@ -7,6 +7,7 @@ import {
 import {
   addMonthsClamped,
   buildProcessingPipelineScopeWhere,
+  buildProcessingPipelineViewScopeWhere,
   calculateDaysInStatus,
   canEditProcessingPipelineMethod,
   getApprovedWithConditionsAt,
@@ -79,6 +80,24 @@ describe('processing pipeline access', () => {
       '"processingAssignmentGroups":{"hasSome":["JACK_FALK"]}',
     );
     expect(serialized).not.toContain('"juniorProcessorId":null');
+  });
+
+  it('narrows a Jr Processor assigned view without changing their global routing scope', () => {
+    const actor = {
+      id: 'jr-processor',
+      role: UserRole.PROCESSOR_JR,
+      processingAssignmentGroups: ['JACK_FALK'],
+    };
+    const assigned = buildProcessingPipelineViewScopeWhere(actor, 'ASSIGNED');
+    const global = buildProcessingPipelineViewScopeWhere(actor, 'GLOBAL');
+
+    expect(assigned).toEqual({
+      archivedAt: null,
+      juniorProcessorId: 'jr-processor',
+    });
+    expect(JSON.stringify(global)).toContain(
+      '"assignmentGroup":{"in":["JACK_FALK"]}',
+    );
   });
 
   it.each([

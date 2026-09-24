@@ -1,4 +1,4 @@
-import { UserRole } from '@prisma/client';
+import { ProcessingPipelineStatus, UserRole } from '@prisma/client';
 
 export const PROCESSING_LAYOUT_BUCKETS = [
   'PIPELINE',
@@ -141,12 +141,25 @@ export type ProcessingLayoutColumn = {
   width: number;
 };
 
+export const PROCESSING_LAYOUT_SCOPES = ['GLOBAL', 'ASSIGNED'] as const;
+
+export type ProcessingLayoutScope = (typeof PROCESSING_LAYOUT_SCOPES)[number];
+
+export type ProcessingLayoutFilters = {
+  loanOfficerIds?: string[];
+  juniorProcessorIds?: string[];
+  seniorProcessorIds?: string[];
+  pipelineStatuses?: ProcessingPipelineStatus[];
+};
+
 export type ProcessingLayoutBucketConfig = {
   columns: ProcessingLayoutColumn[];
+  filters: ProcessingLayoutFilters;
 };
 
 export type ProcessingPipelineLayoutConfig = {
   version: 1;
+  scope: ProcessingLayoutScope;
   buckets: Record<ProcessingLayoutBucket, ProcessingLayoutBucketConfig>;
 };
 
@@ -241,12 +254,14 @@ export function buildDefaultProcessingLayoutConfig(
 
   return {
     version: 1,
+    scope: 'GLOBAL',
     buckets: Object.fromEntries(
       PROCESSING_LAYOUT_BUCKETS.map((bucket) => {
         const columns = processingLayoutBucketColumns(bucket, role);
         return [
           bucket,
           {
+            filters: {},
             columns: columns.map((column) => ({
               id: column.id,
               visible:
@@ -271,7 +286,8 @@ export function normalizeProcessingLayoutConfig(
   }
   const raw = value as {
     version?: unknown;
-    buckets?: Record<string, { columns?: unknown }>;
+    scope?: unknown;
+    buckets?: Record<string, { columns?: unknown; filters?: unknown }>;
   };
   if (raw.version !== 1 || !raw.buckets || typeof raw.buckets !== 'object') {
     return { success: false, error: 'Layout configuration version is invalid.' };
@@ -281,6 +297,10 @@ export function normalizeProcessingLayoutConfig(
     ProcessingLayoutBucket,
     ProcessingLayoutBucketConfig
   >;
+  const scope: ProcessingLayoutScope =
+    role === UserRole.PROCESSOR_JR && raw.scope === 'ASSIGNED'
+      ? 'ASSIGNED'
+      : 'GLOBAL';
   for (const bucket of PROCESSING_LAYOUT_BUCKETS) {
     const rawColumns = raw.buckets[bucket]?.columns;
     if (!Array.isArray(rawColumns)) {
@@ -385,10 +405,68 @@ export function normalizeProcessingLayoutConfig(
         columns.splice(updatedPayoffIndex + 1, 0, expiration);
       }
     }
-    buckets[bucket] = { columns };
+    const rawFilters = raw.buckets[bucket]?.filters;
+    if (
+      rawFilters !== undefined &&
+      (!rawFilters || typeof rawFilters !== 'object' || Array.isArray(rawFilters))
+    ) {
+      return { success: false, error: `${bucket} filters are invalid.` };
+    }
+    const filterSource = (rawFilters || {}) as Record<string, unknown>;
+    const normalizeIds = (
+      key: 'loanOfficerIds' | 'juniorProcessorIds' | 'seniorProcessorIds',
+    ) => {
+      const value = filterSource[key];
+      if (value === undefined) return undefined;
+      if (
+        !Array.isArray(value) ||
+        value.length > 100 ||
+        value.some(
+          (item) =>
+            typeof item !== 'string' ||
+            item.length < 1 ||
+            item.length > 100,
+        )
+      ) {
+        return null;
+      }
+      return [...new Set(value)];
+    };
+    const loanOfficerIds = normalizeIds('loanOfficerIds');
+    const juniorProcessorIds = normalizeIds('juniorProcessorIds');
+    const seniorProcessorIds = normalizeIds('seniorProcessorIds');
+    if (
+      loanOfficerIds === null ||
+      juniorProcessorIds === null ||
+      seniorProcessorIds === null
+    ) {
+      return { success: false, error: `${bucket} contains invalid saved filters.` };
+    }
+    const rawStatuses = filterSource.pipelineStatuses;
+    const statusValues = new Set<string>(Object.values(ProcessingPipelineStatus));
+    if (
+      rawStatuses !== undefined &&
+      (!Array.isArray(rawStatuses) ||
+        rawStatuses.length > statusValues.size ||
+        rawStatuses.some(
+          (status) => typeof status !== 'string' || !statusValues.has(status),
+        ))
+    ) {
+      return { success: false, error: `${bucket} contains invalid status filters.` };
+    }
+    const filters: ProcessingLayoutFilters = {};
+    if (loanOfficerIds?.length) filters.loanOfficerIds = loanOfficerIds;
+    if (juniorProcessorIds?.length) filters.juniorProcessorIds = juniorProcessorIds;
+    if (seniorProcessorIds?.length) filters.seniorProcessorIds = seniorProcessorIds;
+    if (Array.isArray(rawStatuses) && rawStatuses.length) {
+      filters.pipelineStatuses = [
+        ...new Set(rawStatuses as ProcessingPipelineStatus[]),
+      ];
+    }
+    buckets[bucket] = { columns, filters };
   }
 
-  return { success: true, config: { version: 1, buckets } };
+  return { success: true, config: { version: 1, scope, buckets } };
 }
 
 export function normalizeProcessingLayoutName(value: unknown) {
