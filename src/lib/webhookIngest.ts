@@ -15,6 +15,7 @@ import {
 import { normalizeMilitaryFlag } from '@/lib/militaryFlag';
 import { runLeadAssignmentEffects } from '@/lib/leadAssignmentEffects';
 import { buildWebLeadMetadata, resolveWebLeadTarget } from '@/lib/webLeadRouting';
+import { notifyAdminsOfWebsiteLead } from '@/lib/websiteLeadNotifications';
 
 function scheduleWebhookSideEffect(label: string, fn: () => Promise<void>) {
   after(async () => {
@@ -490,6 +491,10 @@ export async function ingestVendorLeadWebhook(
       lastName: lead.lastName,
       assignmentLabel: 'BISU Website',
     });
+  } else if (isBisuWebLead) {
+    scheduleWebhookSideEffect('BISU Website admin notification', () =>
+      notifyAdminsOfWebsiteLead(lead.id)
+    );
   } else if (!isBisuWebLead) {
     scheduleWebhookSideEffect('lead-webhook distribution', () =>
       distributeLead(lead.id)
