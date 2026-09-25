@@ -57,6 +57,7 @@ import {
   type ProcessingLayoutBucket,
   type ProcessingLayoutColumn,
   type ProcessingLayoutFilters,
+  type ProcessingLayoutScope,
   type ProcessingPipelineLayoutConfig,
 } from '@/lib/processingPipelineLayouts';
 
@@ -319,9 +320,14 @@ export function ProcessingPipelineLayoutManager({
   const [message, setMessage] = useState('');
   const [filterOptions, setFilterOptions] =
     useState<LayoutFilterOptions>(EMPTY_FILTER_OPTIONS);
+  const [scopePromptOpen, setScopePromptOpen] = useState(false);
+  const [newLayoutScope, setNewLayoutScope] =
+    useState<ProcessingLayoutScope | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const scopePromptRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const scopePromptOpenRef = useRef(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -335,12 +341,21 @@ export function ProcessingPipelineLayoutManager({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
+        if (scopePromptOpenRef.current) {
+          scopePromptOpenRef.current = false;
+          setScopePromptOpen(false);
+          setNewLayoutScope(null);
+          return;
+        }
         onClose();
         return;
       }
-      if (event.key !== 'Tab' || !panelRef.current) return;
+      const focusRoot = scopePromptOpenRef.current
+        ? scopePromptRef.current
+        : panelRef.current;
+      if (event.key !== 'Tab' || !focusRoot) return;
       const focusable = Array.from(
-        panelRef.current.querySelectorAll<HTMLElement>(
+        focusRoot.querySelectorAll<HTMLElement>(
           'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ),
       );
@@ -600,15 +615,30 @@ export function ProcessingPipelineLayoutManager({
     setMessage('Layout saved.');
   };
 
-  const createDraft = () => {
+  const startDraft = (scope: ProcessingLayoutScope = 'GLOBAL') => {
+    const config = buildDefaultProcessingLayoutConfig(role);
+    config.scope = scope;
     setDraft({
       id: null,
       name: 'New Layout',
-      config: buildDefaultProcessingLayoutConfig(role),
+      config,
     });
     setSelectedBucket('PIPELINE');
     setMessage('');
+    scopePromptOpenRef.current = false;
+    setScopePromptOpen(false);
+    setNewLayoutScope(null);
     window.setTimeout(() => nameInputRef.current?.select(), 0);
+  };
+
+  const createDraft = () => {
+    if (role === UserRole.PROCESSOR_JR) {
+      setNewLayoutScope(null);
+      scopePromptOpenRef.current = true;
+      setScopePromptOpen(true);
+      return;
+    }
+    startDraft();
   };
 
   const duplicateDraft = async () => {
@@ -856,7 +886,7 @@ export function ProcessingPipelineLayoutManager({
               {role === UserRole.PROCESSOR_JR && (
                 <fieldset className="mt-4">
                   <legend className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
-                    Step 1 · Choose loan scope
+                    Layout scope
                   </legend>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     {[
@@ -941,7 +971,9 @@ export function ProcessingPipelineLayoutManager({
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="text-sm font-black text-slate-950">
-                      {role === UserRole.PROCESSOR_JR ? 'Step 2 · Saved filters' : 'Saved filters'}
+                      {role === UserRole.PROCESSOR_JR && !draft.id
+                        ? 'Step 2 · Saved filters'
+                        : 'Saved filters'}
                     </h3>
                     <p className="mt-1 text-xs font-medium text-slate-500">
                       Optional filters apply automatically when this layout is selected on the {BUCKET_LABELS[selectedBucket]} tab.
@@ -1126,6 +1158,111 @@ export function ProcessingPipelineLayoutManager({
           </main>
         </div>
       </div>
+      {scopePromptOpen && (
+        <div
+          className="fixed inset-0 z-[260] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-layout-scope-title"
+          onMouseDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            scopePromptOpenRef.current = false;
+            setScopePromptOpen(false);
+            setNewLayoutScope(null);
+          }}
+        >
+          <div
+            ref={scopePromptRef}
+            className="w-full max-w-xl overflow-hidden rounded-[24px] border border-white/60 bg-white shadow-2xl shadow-slate-950/30"
+          >
+            <header className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50/60 px-6 py-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-blue-700">
+                New layout · Step 1
+              </p>
+              <h3
+                id="new-layout-scope-title"
+                className="mt-1 text-xl font-black tracking-tight text-slate-950"
+              >
+                Which loans should this layout show?
+              </h3>
+              <p className="mt-1 text-sm font-medium text-slate-500">
+                Choose a scope first. You can add filters and customize columns next.
+              </p>
+            </header>
+            <div className="grid gap-3 p-6 sm:grid-cols-2">
+              {[
+                {
+                  value: 'ASSIGNED' as const,
+                  label: 'Assigned',
+                  helper: 'Only loans directly assigned to you.',
+                  icon: UserRound,
+                },
+                {
+                  value: 'GLOBAL' as const,
+                  label: 'Global View',
+                  helper: 'All loans for processors enabled in Jr Processing Routing.',
+                  icon: Globe2,
+                },
+              ].map((option, index) => {
+                const Icon = option.icon;
+                const selected = newLayoutScope === option.value;
+                return (
+                  <label
+                    key={option.value}
+                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-blue-300 ${
+                      selected
+                        ? 'border-blue-300 bg-blue-50 text-blue-900 ring-2 ring-blue-100'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50/40'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="new-processing-layout-scope"
+                      value={option.value}
+                      checked={selected}
+                      onChange={() => setNewLayoutScope(option.value)}
+                      autoFocus={index === 0}
+                      className="sr-only"
+                    />
+                    <span className="rounded-xl bg-white p-2.5 text-blue-600 shadow-sm ring-1 ring-slate-200">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <span>
+                      <span className="block text-sm font-black">{option.label}</span>
+                      <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">
+                        {option.helper}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <footer className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  scopePromptOpenRef.current = false;
+                  setScopePromptOpen(false);
+                  setNewLayoutScope(null);
+                }}
+                className="app-btn-secondary !h-10 !rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!newLayoutScope}
+                onClick={() => {
+                  if (newLayoutScope) startDraft(newLayoutScope);
+                }}
+                className="app-btn-primary !h-10 !rounded-xl"
+              >
+                Continue
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>,
     document.body,
   );
