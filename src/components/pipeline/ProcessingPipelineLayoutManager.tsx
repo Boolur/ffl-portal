@@ -323,6 +323,7 @@ export function ProcessingPipelineLayoutManager({
   const [scopePromptOpen, setScopePromptOpen] = useState(false);
   const [newLayoutScope, setNewLayoutScope] =
     useState<ProcessingLayoutScope | null>(null);
+  const [newLayoutName, setNewLayoutName] = useState('');
   const nameInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const scopePromptRef = useRef<HTMLDivElement>(null);
@@ -345,6 +346,7 @@ export function ProcessingPipelineLayoutManager({
           scopePromptOpenRef.current = false;
           setScopePromptOpen(false);
           setNewLayoutScope(null);
+          setNewLayoutName('');
           return;
         }
         onClose();
@@ -615,12 +617,15 @@ export function ProcessingPipelineLayoutManager({
     setMessage('Layout saved.');
   };
 
-  const startDraft = (scope: ProcessingLayoutScope = 'GLOBAL') => {
+  const startDraft = (
+    scope: ProcessingLayoutScope = 'GLOBAL',
+    name = 'New Layout',
+  ) => {
     const config = buildDefaultProcessingLayoutConfig(role);
     config.scope = scope;
     setDraft({
       id: null,
-      name: 'New Layout',
+      name,
       config,
     });
     setSelectedBucket('PIPELINE');
@@ -628,12 +633,14 @@ export function ProcessingPipelineLayoutManager({
     scopePromptOpenRef.current = false;
     setScopePromptOpen(false);
     setNewLayoutScope(null);
+    setNewLayoutName('');
     window.setTimeout(() => nameInputRef.current?.select(), 0);
   };
 
   const createDraft = () => {
     if (role === UserRole.PROCESSOR_JR) {
       setNewLayoutScope(null);
+      setNewLayoutName('');
       scopePromptOpenRef.current = true;
       setScopePromptOpen(true);
       return;
@@ -1169,6 +1176,7 @@ export function ProcessingPipelineLayoutManager({
             scopePromptOpenRef.current = false;
             setScopePromptOpen(false);
             setNewLayoutScope(null);
+            setNewLayoutName('');
           }}
         >
           <div
@@ -1186,56 +1194,75 @@ export function ProcessingPipelineLayoutManager({
                 Which loans should this layout show?
               </h3>
               <p className="mt-1 text-sm font-medium text-slate-500">
-                Choose a scope first. You can add filters and customize columns next.
+                Name the layout and choose which authorized loans it should show.
               </p>
             </header>
-            <div className="grid gap-3 p-6 sm:grid-cols-2">
-              {[
-                {
-                  value: 'ASSIGNED' as const,
-                  label: 'Assigned',
-                  helper: 'Only loans directly assigned to you.',
-                  icon: UserRound,
-                },
-                {
-                  value: 'GLOBAL' as const,
-                  label: 'Global View',
-                  helper: 'All loans for processors enabled in Jr Processing Routing.',
-                  icon: Globe2,
-                },
-              ].map((option, index) => {
-                const Icon = option.icon;
-                const selected = newLayoutScope === option.value;
-                return (
-                  <label
-                    key={option.value}
-                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-blue-300 ${
-                      selected
-                        ? 'border-blue-300 bg-blue-50 text-blue-900 ring-2 ring-blue-100'
-                        : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50/40'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="new-processing-layout-scope"
-                      value={option.value}
-                      checked={selected}
-                      onChange={() => setNewLayoutScope(option.value)}
-                      autoFocus={index === 0}
-                      className="sr-only"
-                    />
-                    <span className="rounded-xl bg-white p-2.5 text-blue-600 shadow-sm ring-1 ring-slate-200">
-                      <Icon className="h-5 w-5" />
-                    </span>
-                    <span>
-                      <span className="block text-sm font-black">{option.label}</span>
-                      <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">
-                        {option.helper}
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
+            <div className="space-y-5 p-6">
+              <label className="block">
+                <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+                  Layout name
+                </span>
+                <input
+                  value={newLayoutName}
+                  maxLength={32}
+                  onChange={(event) => setNewLayoutName(event.target.value)}
+                  autoFocus
+                  placeholder="Example: My Assigned Pipeline"
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                />
+              </label>
+              <fieldset>
+                <legend className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+                  Layout scope
+                </legend>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  {[
+                    {
+                      value: 'ASSIGNED' as const,
+                      label: 'Assigned',
+                      helper: 'Only loans directly assigned to you.',
+                      icon: UserRound,
+                    },
+                    {
+                      value: 'GLOBAL' as const,
+                      label: 'Global View',
+                      helper: 'All loans for processors enabled in Jr Processing Routing.',
+                      icon: Globe2,
+                    },
+                  ].map((option) => {
+                    const Icon = option.icon;
+                    const selected = newLayoutScope === option.value;
+                    return (
+                      <label
+                        key={option.value}
+                        className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-blue-300 ${
+                          selected
+                            ? 'border-blue-300 bg-blue-50 text-blue-900 ring-2 ring-blue-100'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50/40'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="new-processing-layout-scope"
+                          value={option.value}
+                          checked={selected}
+                          onChange={() => setNewLayoutScope(option.value)}
+                          className="sr-only"
+                        />
+                        <span className="rounded-xl bg-white p-2.5 text-blue-600 shadow-sm ring-1 ring-slate-200">
+                          <Icon className="h-5 w-5" />
+                        </span>
+                        <span>
+                          <span className="block text-sm font-black">{option.label}</span>
+                          <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">
+                            {option.helper}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
             </div>
             <footer className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
               <button
@@ -1244,6 +1271,7 @@ export function ProcessingPipelineLayoutManager({
                   scopePromptOpenRef.current = false;
                   setScopePromptOpen(false);
                   setNewLayoutScope(null);
+                  setNewLayoutName('');
                 }}
                 className="app-btn-secondary !h-10 !rounded-xl"
               >
@@ -1251,13 +1279,15 @@ export function ProcessingPipelineLayoutManager({
               </button>
               <button
                 type="button"
-                disabled={!newLayoutScope}
+                disabled={!newLayoutScope || !newLayoutName.trim()}
                 onClick={() => {
-                  if (newLayoutScope) startDraft(newLayoutScope);
+                  if (newLayoutScope && newLayoutName.trim()) {
+                    startDraft(newLayoutScope, newLayoutName.trim());
+                  }
                 }}
                 className="app-btn-primary !h-10 !rounded-xl"
               >
-                Continue
+                Create layout
               </button>
             </footer>
           </div>

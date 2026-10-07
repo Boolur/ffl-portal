@@ -6,6 +6,7 @@ import {
   normalizeProcessingLayoutConfig,
   normalizeProcessingLayoutName,
   processingLayoutBucketColumns,
+  PROCESSING_LAYOUT_BUCKETS,
 } from './processingPipelineLayouts';
 
 describe('processing pipeline saved layouts', () => {
@@ -151,6 +152,30 @@ describe('processing pipeline saved layouts', () => {
         id: 'appraisalScheduledAt',
         visible: false,
       });
+    }
+  });
+
+  it('adds Loan Program as a visible column to legacy saved layouts', () => {
+    const config = buildDefaultProcessingLayoutConfig(UserRole.PROCESSOR_JR);
+    for (const bucket of PROCESSING_LAYOUT_BUCKETS) {
+      config.buckets[bucket].columns = config.buckets[bucket].columns.filter(
+        (column) => column.id !== 'loanProgram',
+      );
+    }
+
+    const result = normalizeProcessingLayoutConfig(
+      config,
+      UserRole.PROCESSOR_JR,
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    for (const bucket of PROCESSING_LAYOUT_BUCKETS) {
+      expect(
+        result.config.buckets[bucket].columns.find(
+          (column) => column.id === 'loanProgram',
+        ),
+      ).toMatchObject({ visible: true });
     }
   });
 

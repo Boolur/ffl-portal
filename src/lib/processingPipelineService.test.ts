@@ -88,6 +88,7 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
             appraisalNeeded: 'No',
             appraisalNotes: 'Existing appraisal remains valid.',
             loanType: 'Conventional',
+            loanProgram: 'Cash out',
             propertyState: 'CA',
             investor: 'UWM',
             projectedRevenue: '$4,500',
@@ -96,6 +97,10 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
         }),
       },
       loan: {
+        update: vi.fn().mockResolvedValue({
+          id: 'loan-1',
+          program: 'Cash out',
+        }),
         findUnique: vi.fn().mockResolvedValue({
           id: 'loan-1',
           loanNumber: '17112767',
@@ -156,6 +161,10 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
       data: Record<string, unknown>;
     };
     expect(updateInput.data).not.toHaveProperty('finalRevenue');
+    expect(tx.loan.update).toHaveBeenCalledWith({
+      where: { id: 'loan-1' },
+      data: { program: 'Cash out' },
+    });
     expect(auditCreate).toHaveBeenCalledTimes(2);
     expect(auditCreate.mock.calls[0][0].data.action).toBe('PROCESSING_PIPELINE_CREATED');
     expect(auditCreate.mock.calls[1][0].data.action).toBe('PROCESSING_PIPELINE_REFRESHED');
@@ -164,6 +173,7 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
   it('syncs a matched lead to submitted processing when the row is created', async () => {
     const auditCreate = vi.fn().mockResolvedValue({ id: 'audit-1' });
     const leadUpdate = vi.fn().mockResolvedValue({ id: 'lead-1' });
+    const pipelineCreate = vi.fn().mockResolvedValue({ id: 'pipeline-1' });
     const tx = asTx({
       task: {
         findUnique: vi.fn().mockResolvedValue({
@@ -176,7 +186,7 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
             borrowerLastName: 'Borrower',
             borrowerEmail: 'jane@example.com',
           },
-          loan: { id: 'loan-1', program: null },
+          loan: { id: 'loan-1', program: 'Purchase' },
         }),
       },
       loan: {
@@ -223,7 +233,7 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
       },
       processingPipelineLoan: {
         findUnique: vi.fn().mockResolvedValue(null),
-        create: vi.fn().mockResolvedValue({ id: 'pipeline-1' }),
+        create: pipelineCreate,
       },
       notificationOutbox: {
         upsert: vi.fn().mockResolvedValue({ id: 'outbox-1' }),
@@ -241,6 +251,11 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
       where: { id: 'lead-1' },
       data: { status: LeadStatus.SUBMITTED_PROCESSING },
     });
+    expect(pipelineCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ loanType: null }),
+      }),
+    );
     expect(auditCreate).toHaveBeenLastCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         action: 'LEAD_PIPELINE_STATUS_SYNCED',

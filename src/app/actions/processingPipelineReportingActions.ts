@@ -44,6 +44,7 @@ export type ProcessingReportCommonRow = {
   state: string;
   lender: string;
   loanType: string;
+  loanProgram: string;
   pipelineStatus: ProcessingPipelineStatus;
   statusChangedAt: string;
   daysInStatus: number;
@@ -89,6 +90,7 @@ export type ProcessingFundingReportRow = {
   leadSource: string;
   state: string;
   loanType: string;
+  loanProgram: string;
   lender: string;
   juniorProcessor: string;
   seniorProcessor: string;
@@ -197,6 +199,7 @@ function commonRow(row: ReportQueryRow): ProcessingReportCommonRow {
     state: row.propertyState || '',
     lender: row.lender || '',
     loanType: row.loanType || '',
+    loanProgram: row.loan.program || '',
     pipelineStatus: row.pipelineStatus,
     statusChangedAt: row.statusChangedAt.toISOString(),
     daysInStatus: calculateDaysInStatus(row.statusChangedAt),
@@ -248,6 +251,7 @@ const reportRowSelect = {
       borrowerFirstName: true,
       borrowerLastName: true,
       amount: true,
+      program: true,
       loanOfficer: { select: { name: true } },
       secondaryLoanOfficer: { select: { name: true } },
     },
@@ -341,6 +345,7 @@ export async function getProcessingPipelineReport(input: {
               leadSource: row.leadSource || '',
               state: row.propertyState || '',
               loanType: row.loanType || '',
+              loanProgram: row.loan.program || '',
               lender: row.lender || '',
               juniorProcessor: row.juniorProcessor?.name || 'Unassigned',
               seniorProcessor: row.seniorProcessor?.name || 'Unassigned',

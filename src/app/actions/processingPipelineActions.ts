@@ -173,6 +173,7 @@ function serializeRow(row: {
     borrowerFirstName: string | null;
     borrowerLastName: string | null;
     amount: Prisma.Decimal;
+    program: string | null;
     loanOfficer: { id: string; name: string };
     secondaryLoanOfficer: { id: string; name: string } | null;
     payrollCompRequests: Array<{
@@ -235,6 +236,7 @@ export type ProcessingPipelineFilters = {
   loanAmountMin?: number;
   loanAmountMax?: number;
   loanTypes?: string[];
+  loanPrograms?: string[];
   states?: string[];
   lenders?: string[];
   leadSources?: string[];
@@ -339,6 +341,9 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
     });
   }
   if (filters.loanTypes?.length) clauses.push({ loanType: { in: filters.loanTypes } });
+  if (filters.loanPrograms?.length) {
+    clauses.push({ loan: { program: { in: filters.loanPrograms } } });
+  }
   if (filters.states?.length) clauses.push({ propertyState: { in: filters.states } });
   if (filters.lenders?.length) clauses.push({ lender: { in: filters.lenders } });
   if (filters.leadSources?.length) {
@@ -547,6 +552,7 @@ export async function getProcessingPipeline(input?: {
             borrowerFirstName: true,
             borrowerLastName: true,
             amount: true,
+            program: true,
             loanOfficer: { select: { id: true, name: true } },
             secondaryLoanOfficer: { select: { id: true, name: true } },
             payrollCompRequests: {
@@ -685,6 +691,7 @@ export async function getProcessingPipelineFilterOptions(
         select: {
           loanNumber: true,
           borrowerName: true,
+          program: true,
           loanOfficer: { select: { id: true, name: true } },
           secondaryLoanOfficer: { select: { id: true, name: true } },
         },
@@ -717,6 +724,7 @@ export async function getProcessingPipelineFilterOptions(
       loanNumbers: uniqueTextOptions(rows.map((row) => row.loan.loanNumber)),
       borrowerNames: uniqueTextOptions(rows.map((row) => row.loan.borrowerName)),
       loanTypes: uniqueTextOptions(rows.map((row) => row.loanType)),
+      loanPrograms: uniqueTextOptions(rows.map((row) => row.loan.program)),
       states: uniqueTextOptions(rows.map((row) => row.propertyState)),
       lenders: uniqueTextOptions(rows.map((row) => row.lender)),
       leadSources: uniqueTextOptions(rows.map((row) => row.leadSource)),

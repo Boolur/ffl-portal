@@ -22,6 +22,7 @@ export const PROCESSING_PIPELINE_COLUMN_IDS = [
   'leadSource',
   'loanAmount',
   'loanType',
+  'loanProgram',
   'juniorProcessor',
   'seniorProcessor',
   'pipelineStatus',
@@ -70,6 +71,7 @@ export const PROCESSING_PIPELINE_COLUMNS: ProcessingPipelineColumnDefinition[] =
   { id: 'leadSource', label: 'Lead Source', width: 140, optional: true },
   { id: 'loanAmount', label: 'Loan Amount', width: 126 },
   { id: 'loanType', label: 'Loan Type', width: 108 },
+  { id: 'loanProgram', label: 'Loan Program', width: 126 },
   { id: 'juniorProcessor', label: 'Jr Processor', width: 118 },
   { id: 'seniorProcessor', label: 'Processor', width: 118 },
   { id: 'pipelineStatus', label: 'Pipeline Status', width: 164 },
@@ -113,6 +115,7 @@ export const PROCESSING_FUNDING_COLUMNS: ProcessingPipelineColumnDefinition[] = 
   { id: 'leadSource', label: 'Lead Source', width: 140 },
   { id: 'propertyState', label: 'State', width: 76 },
   { id: 'loanType', label: 'Loan Type', width: 112 },
+  { id: 'loanProgram', label: 'Loan Program', width: 126 },
   { id: 'lender', label: 'Lender', width: 140 },
   { id: 'juniorProcessor', label: 'Junior', width: 130 },
   { id: 'seniorProcessor', label: 'Senior', width: 130 },
@@ -173,6 +176,7 @@ const PIPELINE_DEFAULT_FOCUS = new Set<ProcessingPipelineColumnId>([
   'lender',
   'loanAmount',
   'loanType',
+  'loanProgram',
   'juniorProcessor',
   'seniorProcessor',
   'pipelineStatus',
@@ -357,7 +361,8 @@ export function normalizeProcessingLayoutConfig(
             legacyBorrowerNameVisible &&
             PROCESSING_BORROWER_NAME_COLUMN_IDS.includes(
               definition.id as (typeof PROCESSING_BORROWER_NAME_COLUMN_IDS)[number],
-            ),
+            ) ||
+            definition.id === 'loanProgram',
           width: definition.width,
         };
         if (definition.id === 'appraisalScheduledAt') {

@@ -118,6 +118,7 @@ const EMPTY_FILTER_OPTIONS: PipelineFilterOptions = {
   loanNumbers: [],
   borrowerNames: [],
   loanTypes: [],
+  loanPrograms: [],
   states: [],
   lenders: [],
   leadSources: [],
@@ -278,6 +279,7 @@ function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | numb
   if (id === 'propertyState') return row.propertyState;
   if (id === 'loanAmount') return row.loan.amount;
   if (id === 'loanType') return row.loanType;
+  if (id === 'loanProgram') return row.loan.program;
   if (id === 'lender') return row.lender;
   if (id === 'leadSource') return row.leadSource;
   if (id === 'juniorProcessor') return row.juniorProcessor?.name || 'Unassigned';
@@ -2133,6 +2135,16 @@ export function ProcessingPipelineGrid({
             {row.loanType || '—'}
           </td>
         );
+      case 'loanProgram':
+        return (
+          <td
+            key={id}
+            className={`truncate border-b border-r border-slate-200 ${cellPadding}`}
+            title={row.loan.program || undefined}
+          >
+            {row.loan.program || '—'}
+          </td>
+        );
       case 'juniorProcessor':
         return (
           <td
@@ -2919,6 +2931,7 @@ export function ProcessingPipelineGrid({
                   <FilterInput label="Loan Amount Min" type="number" value={draftFilters.loanAmountMin} onChange={(value) => setDraftFilter('loanAmountMin', value === '' ? undefined : Number(value))} placeholder="0" />
                   <FilterInput label="Loan Amount Max" type="number" value={draftFilters.loanAmountMax} onChange={(value) => setDraftFilter('loanAmountMax', value === '' ? undefined : Number(value))} placeholder="1000000" />
                   <MultiSelectFilter label="Loan Types" values={draftFilters.loanTypes || []} options={filterOptions.loanTypes} onChange={(values) => setDraftFilter('loanTypes', values)} />
+                  <MultiSelectFilter label="Loan Programs" values={draftFilters.loanPrograms || []} options={filterOptions.loanPrograms} onChange={(values) => setDraftFilter('loanPrograms', values)} />
                   <MultiSelectFilter label="Lenders" values={draftFilters.lenders || []} options={filterOptions.lenders} onChange={(values) => setDraftFilter('lenders', values)} />
                   {!isProcessor && (
                     <MultiSelectFilter label="Lead Sources" values={draftFilters.leadSources || []} options={filterOptions.leadSources} onChange={(values) => setDraftFilter('leadSources', values)} />

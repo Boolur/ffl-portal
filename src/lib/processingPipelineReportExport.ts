@@ -97,6 +97,11 @@ const COMMON_COLUMNS = {
     width: 95,
     value: (row: ActiveReportRow) => row.loanType,
   },
+  loanProgram: {
+    label: 'Loan Program',
+    width: 105,
+    value: (row: ActiveReportRow) => row.loanProgram,
+  },
   status: {
     label: 'Pipeline Status',
     width: 145,
@@ -161,6 +166,7 @@ function lastTouchColumns(): ReportColumn<ProcessingLastTouchRow>[] {
     COMMON_COLUMNS.state,
     COMMON_COLUMNS.lender,
     COMMON_COLUMNS.loanType,
+    COMMON_COLUMNS.loanProgram,
     COMMON_COLUMNS.status,
     COMMON_COLUMNS.pending,
     {
@@ -244,6 +250,7 @@ function statusColumns(
         ]
       : []),
     COMMON_COLUMNS.loanType,
+    COMMON_COLUMNS.loanProgram,
     COMMON_COLUMNS.junior,
     COMMON_COLUMNS.senior,
     COMMON_COLUMNS.status,
@@ -368,6 +375,7 @@ function servicesColumns(): ReportColumn<ProcessingServicesReportRow>[] {
     COMMON_COLUMNS.state,
     COMMON_COLUMNS.lender,
     COMMON_COLUMNS.loanType,
+    COMMON_COLUMNS.loanProgram,
     serviceStatus('Title Status', 'titleStatus'),
     ...activityColumns(
       'Title',
@@ -457,6 +465,11 @@ function fundingColumns(): ReportColumn<ProcessingFundingReportRow>[] {
       label: 'Loan Type',
       width: 95,
       value: (row) => row.loanType,
+    },
+    {
+      label: 'Loan Program',
+      width: 105,
+      value: (row) => row.loanProgram,
     },
     {
       label: 'Lender',
