@@ -41,8 +41,8 @@ const PAYROLL_ADMIN_PATHS = [
   '/admin/payroll/settings',
 ];
 const PAYROLL_PORTAL_PATH = '/payroll';
-// Temporary demo override requested 2026-09-09. Set back to false to reinstate payroll submission windows.
-const PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED = false;
+// Temporary management override requested 2026-10-07. Set back to false to reinstate payroll submission windows and completion locks.
+const PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED = true;
 
 export type PayrollCompSplitInput = {
   recipientUserId?: string | null;
@@ -776,7 +776,8 @@ async function getPayrollSubmissionWindowState(userId: string, now = new Date())
         select: { completedAt: true, reopenedAt: true },
       })
     : null;
-  const isComplete = Boolean(completion?.completedAt && !completion.reopenedAt);
+  const isComplete = Boolean(completion?.completedAt && !completion.reopenedAt)
+    && !PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED;
   return {
     isOpen: windows.isOpen,
     isComplete,
