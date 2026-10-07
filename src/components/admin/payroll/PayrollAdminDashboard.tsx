@@ -159,11 +159,16 @@ function TeamStatsPanel({
                             <div className="min-w-0">
                               <p className="truncate font-semibold text-slate-900">{member.name}</p>
                               <p className="truncate text-xs text-slate-500">
-                                {member.requestCount} requests{member.completedAt ? ` · completed ${formatPayrollTeamDate(member.completedAt)}` : ''}
+                                {member.requestCount} requests
+                                {member.autoCompleted
+                                  ? ` · auto-completed ${member.completedAt ? formatPayrollTeamDate(member.completedAt) : ''}`
+                                  : member.completedAt
+                                    ? ` · completed ${formatPayrollTeamDate(member.completedAt)}`
+                                    : ''}
                               </p>
                             </div>
                           </div>
-                          {member.complete && (
+                          {member.complete && !member.autoCompleted && (
                             <button
                               type="button"
                               disabled={pending && reopeningUserId === member.userId}

@@ -41,8 +41,8 @@ const PAYROLL_ADMIN_PATHS = [
   '/admin/payroll/settings',
 ];
 const PAYROLL_PORTAL_PATH = '/payroll';
-// Temporary management override requested 2026-10-07. Set back to false to reinstate payroll submission windows and completion locks.
-const PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED = true;
+// Keep false to enforce the standard payroll submission windows.
+const PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED = false;
 
 export type PayrollCompSplitInput = {
   recipientUserId?: string | null;
@@ -361,6 +361,7 @@ export type PayrollTeamCompletionMember = {
   name: string;
   email: string;
   complete: boolean;
+  autoCompleted: boolean;
   completedAt: string | null;
   requestCount: number;
 };
@@ -776,8 +777,7 @@ async function getPayrollSubmissionWindowState(userId: string, now = new Date())
         select: { completedAt: true, reopenedAt: true },
       })
     : null;
-  const isComplete = Boolean(completion?.completedAt && !completion.reopenedAt)
-    && !PAYROLL_DEMO_SUBMISSION_WINDOW_UNLOCKED;
+  const isComplete = Boolean(completion?.completedAt && !completion.reopenedAt);
   return {
     isOpen: windows.isOpen,
     isComplete,
@@ -2651,9 +2651,10 @@ function summarizeRequests(rows: PayrollRequestRow[]) {
 }
 
 async function getPayrollTeamCompletionStats(now = new Date()): Promise<PayrollTeamCompletionStats[]> {
-  const { completionWindow } = resolvePayrollSubmissionWindows(now);
+  const { completionWindow, isOpen } = resolvePayrollSubmissionWindows(now);
   const windowStart = new Date(completionWindow.start);
   const windowEnd = new Date(completionWindow.end);
+  const autoCompletedAt = isOpen ? null : windowEnd.toISOString();
   const payrollUserFilter: Prisma.UserWhereInput = {
     active: true,
     OR: [
@@ -2718,12 +2719,15 @@ async function getPayrollTeamCompletionStats(now = new Date()): Promise<PayrollT
   return teams.map((team) => {
     const members = team.members
       .map((member) => {
-        const completedAt = completedAtByUserId.get(member.user.id) ?? null;
+        const manuallyCompletedAt = completedAtByUserId.get(member.user.id) ?? null;
+        const autoCompleted = !isOpen;
+        const completedAt = manuallyCompletedAt ?? autoCompletedAt;
         return {
           userId: member.user.id,
           name: member.user.name,
           email: member.user.email,
           complete: Boolean(completedAt),
+          autoCompleted,
           completedAt,
           requestCount: requestCountByUserId.get(member.user.id) ?? 0,
         };
