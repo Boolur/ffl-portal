@@ -11,7 +11,7 @@ import {
   sendAssignedWebsiteLeadEmail,
 } from '@/lib/websiteLeadNotifications';
 
-function schedule(label: string, fn: () => Promise<void>) {
+function schedule(label: string, fn: () => Promise<unknown>) {
   after(async () => {
     try {
       await fn();
