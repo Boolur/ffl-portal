@@ -17,7 +17,7 @@ import { runLeadAssignmentEffects } from '@/lib/leadAssignmentEffects';
 import { buildWebLeadMetadata, resolveWebLeadTarget } from '@/lib/webLeadRouting';
 import { notifyAdminsOfWebsiteLead } from '@/lib/websiteLeadNotifications';
 
-function scheduleWebhookSideEffect(label: string, fn: () => Promise<void>) {
+function scheduleWebhookSideEffect(label: string, fn: () => Promise<unknown>) {
   after(async () => {
     try {
       await fn();
