@@ -37,6 +37,7 @@ type Props = {
 type AdminEditForm = {
   loanNumber: string;
   borrowerName: string;
+  fundedAt: string;
   loanType: string;
   lender: string;
   loanChannel: PayrollLoanChannel;
@@ -203,6 +204,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
   const [editForm, setEditForm] = useState<AdminEditForm>({
     loanNumber: '',
     borrowerName: '',
+    fundedAt: '',
     loanType: '',
     lender: '',
     loanChannel: PayrollLoanChannel.BROKER,
@@ -323,6 +325,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
     setEditForm({
       loanNumber: currentRequest.loanNumber,
       borrowerName: currentRequest.borrowerName,
+      fundedAt: currentRequest.fundedAt ? currentRequest.fundedAt.slice(0, 10) : '',
       loanType: currentRequest.loanType,
       lender: currentRequest.lender,
       loanChannel: currentRequest.loanChannel,
@@ -448,6 +451,7 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
         requestId: currentRequest.id,
         loanNumber: editForm.loanNumber,
         borrowerName: editForm.borrowerName,
+        fundedAt: editForm.fundedAt || null,
         loanType: editForm.loanType,
         lender: editForm.lender,
         loanChannel: editForm.loanChannel,
@@ -595,12 +599,46 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
               </button>
               </div>
               <div className="mt-5 grid gap-3 md:grid-cols-4">
-                <ReviewMetric label="Loan" value={currentRequest.loanNumber} />
-                <ReviewMetric label="Borrower" value={currentRequest.borrowerName} />
-                <ReviewMetric label="Funded Date" value={formatDate(currentRequest.fundedAt)} />
-                <ReviewMetric label="Split Basis" value={formatCurrency(currentRequest.splitBasisAmount ?? currentRequest.expectedRevenue)} />
-                <ReviewMetric label="Final Comp" value={formatCurrency(currentRequest.netCompAmount ?? currentRequest.expectedRevenue)} />
-                <ReviewMetric label="Split Type" value={payrollPlanTypeLabel(currentRequest.appliedPlanType)} />
+                {editMode ? (
+                  <>
+                    <EditableReviewMetric
+                      label="Loan"
+                      value={editForm.loanNumber}
+                      onChange={(value) => setEditForm((current) => ({ ...current, loanNumber: value }))}
+                    />
+                    <EditableReviewMetric
+                      label="Borrower"
+                      value={editForm.borrowerName}
+                      onChange={(value) => setEditForm((current) => ({ ...current, borrowerName: value }))}
+                    />
+                    <EditableReviewMetric
+                      label="Funded Date"
+                      value={editForm.fundedAt}
+                      type="date"
+                      onChange={(value) => setEditForm((current) => ({ ...current, fundedAt: value }))}
+                    />
+                    <ReviewMetric label="Split Basis · calculated" value={formatCurrency(currentRequest.splitBasisAmount ?? currentRequest.expectedRevenue)} />
+                    <ReviewMetric label="Final Comp · calculated" value={formatCurrency(currentRequest.netCompAmount ?? currentRequest.expectedRevenue)} />
+                    <EditableReviewSelect
+                      label="Split Type"
+                      value={editForm.appliedPlanType}
+                      onChange={(value) => setEditForm((current) => ({ ...current, appliedPlanType: value as PayrollCompPlanType }))}
+                      options={[
+                        { value: PayrollCompPlanType.BROKER, label: 'Broker Split' },
+                        { value: PayrollCompPlanType.RETAIL, label: 'Retail Split' },
+                      ]}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <ReviewMetric label="Loan" value={currentRequest.loanNumber} />
+                    <ReviewMetric label="Borrower" value={currentRequest.borrowerName} />
+                    <ReviewMetric label="Funded Date" value={formatDate(currentRequest.fundedAt)} />
+                    <ReviewMetric label="Split Basis" value={formatCurrency(currentRequest.splitBasisAmount ?? currentRequest.expectedRevenue)} />
+                    <ReviewMetric label="Final Comp" value={formatCurrency(currentRequest.netCompAmount ?? currentRequest.expectedRevenue)} />
+                    <ReviewMetric label="Split Type" value={payrollPlanTypeLabel(currentRequest.appliedPlanType)} />
+                  </>
+                )}
               </div>
             </div>
 
@@ -639,8 +677,6 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
               )}
               {editMode ? (
                 <div className="grid gap-4 md:grid-cols-2">
-                  <AdminInput label="Arive Loan Number" value={editForm.loanNumber} onChange={(value) => setEditForm((current) => ({ ...current, loanNumber: value }))} />
-                  <AdminInput label="Borrower's Name" value={editForm.borrowerName} onChange={(value) => setEditForm((current) => ({ ...current, borrowerName: value }))} />
                   <AdminSelect label="Loan Type" value={editForm.loanType} onChange={(value) => setEditForm((current) => ({ ...current, loanType: value }))} options={LOAN_TYPE_OPTIONS} />
                   <AdminInput label="Lender" value={editForm.lender} onChange={(value) => setEditForm((current) => ({ ...current, lender: value }))} />
                   <AdminSelect label="Broker or Non-Delegated" value={editForm.loanChannel} onChange={(value) => setEditForm((current) => ({ ...current, loanChannel: value as PayrollLoanChannel }))} options={[PayrollLoanChannel.BROKER, PayrollLoanChannel.NON_DELEGATED]} labels={{ BROKER: 'Broker', NON_DELEGATED: 'Non-Delegated' }} />
@@ -650,7 +686,6 @@ export function PayrollRequestTable({ rows, compact = false, embedded = false }:
                     <AdminInput label="Mailer Campaign" value={editForm.mailerCampaign} onChange={(value) => setEditForm((current) => ({ ...current, mailerCampaign: value }))} />
                   )}
                   <AdminSelect label="Lead Provided By" value={editForm.leadProvidedBy} onChange={(value) => setEditForm((current) => ({ ...current, leadProvidedBy: value as PayrollLeadProvidedBy }))} options={LEAD_PROVIDED_BY_OPTIONS} labels={{ SELF_SOURCED: 'Self Sourced', COMPANY_PROVIDED: 'Company Provided', BRANCH_PROVIDED: 'Branch Provided' }} />
-                  <AdminSelect label="Applied Split Type" value={editForm.appliedPlanType} onChange={(value) => setEditForm((current) => ({ ...current, appliedPlanType: value as PayrollCompPlanType }))} options={[PayrollCompPlanType.BROKER, PayrollCompPlanType.RETAIL]} labels={{ BROKER: 'Broker Split', RETAIL: 'Retail Split' }} />
                   <AdminInput label="Loan Officer Split Override %" value={editForm.loanOfficerSplitPercentOverride} onChange={(value) => setEditForm((current) => ({ ...current, loanOfficerSplitPercentOverride: value }))} inputMode="decimal" />
                   <AdminSelect label="Reimbursement To" value={editForm.reimbursementTarget} onChange={(value) => setEditForm((current) => ({ ...current, reimbursementTarget: value as PayrollReimbursementTarget }))} options={[PayrollReimbursementTarget.SELF, PayrollReimbursementTarget.MANAGER]} labels={{ SELF: 'Self Reimbursed', MANAGER: 'Manager' }} />
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
@@ -1153,6 +1188,57 @@ function ReviewMetric({ label, value }: { label: string; value: string }) {
       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
       <p className="mt-1 truncate text-base font-bold text-slate-950">{value}</p>
     </div>
+  );
+}
+
+function EditableReviewMetric({
+  label,
+  value,
+  onChange,
+  type = 'text',
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: React.HTMLInputTypeAttribute;
+}) {
+  return (
+    <label className="rounded-2xl border border-blue-200 bg-white px-4 py-3 shadow-sm ring-1 ring-blue-100">
+      <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1 block w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm font-bold text-slate-950 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20"
+      />
+    </label>
+  );
+}
+
+function EditableReviewSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="rounded-2xl border border-blue-200 bg-white px-4 py-3 shadow-sm ring-1 ring-blue-100">
+      <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1 block w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm font-bold text-slate-950 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
   );
 }
 

@@ -2,9 +2,11 @@
 
 import React, { useEffect, useMemo, useState, useTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Banknote, Building2, Bug, Calculator, CheckCircle2, Clock, Droplets, DollarSign, Edit3, FileCheck2, FilePlus2, Landmark, Loader2, Megaphone, Percent, Plus, ReceiptText, RefreshCw, Send, ShieldCheck, Upload, WalletCards, Waves, X } from 'lucide-react';
+import { Banknote, Building2, Bug, Calculator, CheckCircle2, Clock, Droplets, DollarSign, Edit3, FileCheck2, FilePlus2, Landmark, Loader2, Megaphone, Percent, Plus, ReceiptText, RefreshCw, Save, Send, ShieldCheck, Trash2, Upload, WalletCards, Waves, X } from 'lucide-react';
 import { PayrollCompPlanType, PayrollCompRequestStatus, PayrollLeadProvidedBy, PayrollLeadSource, PayrollLoanChannel, PayrollProcessingType, PayrollReimbursementTarget, PayrollSplitPayType, PayrollUserClassification } from '@prisma/client';
 import {
+  deleteMyPendingPayrollCompRequest,
+  editMyPayrollCompRequest,
   getPayrollRequestPreview,
   markMyPayrollRequestsFinished,
   submitPayrollCompRequest,
@@ -298,6 +300,60 @@ function buildCompInput(form: FormState, reimbursementTarget?: PayrollReimbursem
     figureNftyAttachmentName: form.figureNftyAttachmentName || null,
     figureNftyAttachmentUrl: form.figureNftyAttachmentName || null,
     reimbursementTarget,
+  };
+}
+
+function requestAmountInput(value: number | null) {
+  return value === null ? '' : String(value);
+}
+
+function requestYspInput(value: number | null) {
+  if (value === null) return '';
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function formFromRequest(
+  row: PayrollRequestRow,
+  defaultReimbursementTarget: PayrollReimbursementTarget,
+): FormState {
+  return {
+    loanNumber: row.loanNumber,
+    borrowerName: row.borrowerName,
+    loanType: row.loanType,
+    lender: row.lender,
+    loanChannel: row.loanChannel,
+    processingType: row.processingType,
+    leadSource: row.leadSource,
+    mailerCampaign: row.mailerCampaign ?? '',
+    leadProvidedBy: row.leadProvidedBy,
+    expectedRevenue: String(row.expectedRevenue),
+    estimatedCompAmount: requestAmountInput(row.estimatedCompAmount),
+    brokerComp: requestAmountInput(row.brokerComp),
+    brokerPaidBy: 'BORROWER_PAID',
+    sectionAComp: requestAmountInput(row.sectionAComp),
+    yspAmount: requestYspInput(row.yspAmount),
+    toleranceCure: requestAmountInput(row.toleranceCure),
+    oneDayInterest: requestAmountInput(row.oneDayInterest),
+    wireFee: requestAmountInput(row.wireFee),
+    underwritingFee: requestAmountInput(row.underwritingFee),
+    lenderCredit: requestAmountInput(row.lenderCredit),
+    originationFee: requestAmountInput(row.originationFee),
+    processingFee: requestAmountInput(row.processingFee),
+    appraisalAddBack: requestAmountInput(row.appraisalAddBack),
+    creditAddBack: requestAmountInput(row.creditAddBack),
+    voeAddBack: requestAmountInput(row.voeAddBack),
+    termiteAddBack: requestAmountInput(row.termiteAddBack),
+    appraisalReinspectionAddBack: requestAmountInput(
+      row.appraisalReinspectionAddBack,
+    ),
+    waterTestAddBack: requestAmountInput(row.waterTestAddBack),
+    loanAmountPriorToFees: requestAmountInput(row.loanAmountPriorToFees),
+    recessionDate: row.recessionDate?.slice(0, 10) ?? '',
+    figureNftyAttachmentName: row.figureNftyAttachmentName ?? '',
+    submitterNotes: row.submitterNotes ?? '',
+    reimbursementTarget:
+      row.reimbursementTarget ?? defaultReimbursementTarget,
+    mismoDetails: row.mismoDetails,
   };
 }
 
@@ -625,6 +681,7 @@ export function PayrollPortal({
     : PayrollReimbursementTarget.SELF;
   const initialFormForUser = { ...initialForm, reimbursementTarget: defaultReimbursementTarget };
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(initialFormForUser);
   const [dragActive, setDragActive] = useState(false);
   const [mismoFileName, setMismoFileName] = useState('');
@@ -824,6 +881,18 @@ export function PayrollPortal({
       emptyText: 'No paycheck details available yet.',
     });
   };
+  const editPendingRequest = (row: PayrollRequestRow) => {
+    if (row.status !== PayrollCompRequestStatus.PENDING_REVIEW) return;
+    setEditingRequestId(row.id);
+    setForm(formFromRequest(row, defaultReimbursementTarget));
+    setReimbursementTargetTouched(true);
+    setTouchedFields(new Set());
+    setAttemptedSubmit(false);
+    setPreview(null);
+    setError(null);
+    setMismoFileName('');
+    setModalOpen(true);
+  };
 
   const handleMismoFile = async (file: File | null) => {
     if (!file) return;
@@ -887,7 +956,7 @@ export function PayrollPortal({
   };
 
   const submit = () => {
-    if (submitLockedReason) {
+    if (!editingRequestId && submitLockedReason) {
       setError(submitLockedReason);
       return;
     }
@@ -900,11 +969,17 @@ export function PayrollPortal({
     startTransition(async () => {
       try {
         setError(null);
-        await submitPayrollCompRequest(buildCompInput(
+        const input = buildCompInput(
           form,
-          reimbursementTargetTouched ? form.reimbursementTarget : undefined
-        ));
+          reimbursementTargetTouched ? form.reimbursementTarget : undefined,
+        );
+        if (editingRequestId) {
+          await editMyPayrollCompRequest(editingRequestId, input);
+        } else {
+          await submitPayrollCompRequest(input);
+        }
         setForm(initialFormForUser);
+        setEditingRequestId(null);
         setReimbursementTargetTouched(false);
         setTouchedFields(new Set());
         setAttemptedSubmit(false);
@@ -914,6 +989,29 @@ export function PayrollPortal({
         const message = err instanceof Error && err.message && !err.message.includes('digest')
           ? err.message
           : 'Unable to submit payroll request. Please confirm every required field is filled out and try again.';
+        setError(message);
+      }
+    });
+  };
+  const deleteEditingRequest = () => {
+    if (!editingRequestId) return;
+    const request = rows.find((row) => row.id === editingRequestId);
+    const confirmed = window.confirm(
+      `Delete payroll request ${request?.loanNumber ?? ''}${request?.borrowerName ? ` for ${request.borrowerName}` : ''}? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    startTransition(async () => {
+      try {
+        setError(null);
+        await deleteMyPendingPayrollCompRequest(editingRequestId);
+        setModalOpen(false);
+        setEditingRequestId(null);
+        setForm(initialFormForUser);
+        setPreview(null);
+      } catch (err) {
+        const message = err instanceof Error && err.message
+          ? err.message
+          : 'Unable to delete this payroll request.';
         setError(message);
       }
     });
@@ -1016,6 +1114,7 @@ export function PayrollPortal({
               setError(submitLockedReason);
               return;
             }
+            setEditingRequestId(null);
             setForm(initialFormForUser);
             setReimbursementTargetTouched(false);
             setPreview(null);
@@ -1053,6 +1152,7 @@ export function PayrollPortal({
                     <th className="px-5 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">Revenue</th>
                     <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Status</th>
                     <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Submitted</th>
+                    <th className="px-5 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1101,6 +1201,20 @@ export function PayrollPortal({
                         </span>
                       </td>
                       <td className="px-5 py-4 text-slate-600">{formatDate(row.submittedAt)}</td>
+                      <td className="px-5 py-4 text-right">
+                        {row.status === PayrollCompRequestStatus.PENDING_REVIEW ? (
+                          <button
+                            type="button"
+                            onClick={() => editPendingRequest(row)}
+                            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                            Edit
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1170,10 +1284,24 @@ export function PayrollPortal({
           <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-xl">
             <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Submit Compensation Request</h2>
-                <p className="text-sm text-slate-500">Enter the funded loan details for payroll review.</p>
+                <h2 className="text-lg font-bold text-slate-900">
+                  {editingRequestId ? 'Edit Compensation Request' : 'Submit Compensation Request'}
+                </h2>
+                <p className="text-sm text-slate-500">
+                  {editingRequestId
+                    ? 'Correct this request before payroll reviews it.'
+                    : 'Enter the funded loan details for payroll review.'}
+                </p>
               </div>
-              <button type="button" className="app-icon-btn" aria-label="Close modal" onClick={() => setModalOpen(false)}>
+              <button
+                type="button"
+                className="app-icon-btn"
+                aria-label="Close modal"
+                onClick={() => {
+                  setModalOpen(false);
+                  setEditingRequestId(null);
+                }}
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -1650,17 +1778,41 @@ export function PayrollPortal({
                 )}
               </div>
 
-              <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
-                <button type="button" className="app-btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
-                <button
-                  type="button"
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={isPending}
-                  onClick={submit}
-                >
-                  {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  Submit Request
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
+                <div>
+                  {editingRequestId ? (
+                    <button
+                      type="button"
+                      onClick={deleteEditingRequest}
+                      disabled={isPending}
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete Request
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    className="app-btn-secondary"
+                    onClick={() => {
+                      setModalOpen(false);
+                      setEditingRequestId(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isPending}
+                    onClick={submit}
+                  >
+                    {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : editingRequestId ? <Save className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                    {editingRequestId ? 'Save Changes' : 'Submit Request'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

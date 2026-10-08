@@ -135,6 +135,7 @@ export type PayrollCompRequestInput = {
 export type PayrollAdminEditRequestInput = PayrollCompRequestInput & {
   requestId: string;
   appliedPlanType: PayrollCompPlanType;
+  fundedAt?: string | null;
   loanOfficerSplitPercentOverride?: number | null;
   adminNotes?: string;
 };
@@ -251,6 +252,7 @@ export type PayrollRequestRow = {
   status: PayrollCompRequestStatus;
   submittedAt: string;
   fundedAt: string | null;
+  fundedAtIsAdminOverride: boolean;
   reviewedAt: string | null;
   paidAt: string | null;
   editedAt: string | null;
@@ -625,6 +627,16 @@ function ensureRequiredSignedMoney(value: number | null | undefined, label: stri
 function parseOptionalDate(value?: string | null, label = 'Date') {
   if (!value) return null;
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error(`${label} is invalid.`);
+  return date;
+}
+
+function parseOptionalDateOnly(value?: string | null, label = 'Date') {
+  if (!value) return null;
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T12:00:00.000Z`
+    : value;
+  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) throw new Error(`${label} is invalid.`);
   return date;
 }
@@ -1199,10 +1211,27 @@ function assertPayrollCalculationRequirements(
   }
 }
 
+function adminFundedDateOverride(metadata: Prisma.JsonValue | null) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return { present: false, value: null as string | null };
+  }
+  if (!Object.prototype.hasOwnProperty.call(metadata, 'adminFundedAtOverride')) {
+    return { present: false, value: null as string | null };
+  }
+  const value = metadata.adminFundedAtOverride;
+  return {
+    present: true,
+    value: typeof value === 'string' && !Number.isNaN(new Date(value).getTime())
+      ? new Date(value).toISOString()
+      : null,
+  };
+}
+
 function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include: typeof requestInclude }>): PayrollRequestRow {
   const calculationSnapshot = (request.calculationSnapshot as PayrollCalculationSnapshot | null) ?? null;
   const splitBasisAmount = decimalToNumber(request.splitBasisAmount) || decimalToNumber(request.expectedRevenue);
   const netCompAmount = decimalToNumber(request.netCompAmount) || splitBasisAmount;
+  const fundedDateOverride = adminFundedDateOverride(request.fundedImportMetadata);
   return {
     id: request.id,
     loanOfficerId: request.loanOfficerId,
@@ -1255,7 +1284,10 @@ function serializeRequest(request: Prisma.PayrollCompRequestGetPayload<{ include
     calculationSnapshot,
     status: request.status,
     submittedAt: request.submittedAt.toISOString(),
-    fundedAt: request.loan?.processingPipeline?.fundedAt?.toISOString() ?? null,
+    fundedAt: fundedDateOverride.present
+      ? fundedDateOverride.value
+      : request.loan?.processingPipeline?.fundedAt?.toISOString() ?? null,
+    fundedAtIsAdminOverride: fundedDateOverride.present,
     reviewedAt: request.reviewedAt?.toISOString() ?? null,
     paidAt: request.paidAt?.toISOString() ?? null,
     editedAt: request.editedAt?.toISOString() ?? null,
@@ -1292,7 +1324,7 @@ function serializeRequestForLoanOfficer(
 
 async function hydratePipelineFundedDates(rows: PayrollRequestRow[]) {
   const missingLoanNumbers = Array.from(new Set(rows
-    .filter((row) => !row.fundedAt)
+    .filter((row) => !row.fundedAt && !row.fundedAtIsAdminOverride)
     .map((row) => row.loanNumber.trim())
     .filter(Boolean)));
   if (missingLoanNumbers.length === 0) return rows;
@@ -1312,7 +1344,7 @@ async function hydratePipelineFundedDates(rows: PayrollRequestRow[]) {
   );
 
   return rows.map((row) => (
-    row.fundedAt
+    row.fundedAt || row.fundedAtIsAdminOverride
       ? row
       : { ...row, fundedAt: fundedDateByLoanNumber.get(row.loanNumber.trim().toLowerCase()) ?? null }
   ));
@@ -2036,6 +2068,224 @@ export async function submitPayrollCompRequest(input: PayrollCompRequestInput) {
   revalidatePayroll();
 }
 
+export async function editMyPayrollCompRequest(
+  requestId: string,
+  input: PayrollCompRequestInput,
+) {
+  const actor = await assertPayrollPortalUser();
+  validatePayrollRequestBasics(input);
+  const request = await prisma.payrollCompRequest.findFirst({
+    where: {
+      id: requestId,
+      loanOfficerId: actor.userId,
+      archivedAt: null,
+    },
+    select: { id: true, status: true },
+  });
+  if (!request) throw new Error('Payroll request was not found.');
+  if (request.status !== PayrollCompRequestStatus.PENDING_REVIEW) {
+    throw new Error('Only requests that are still pending review can be edited.');
+  }
+
+  const loanNumber = cleanText(input.loanNumber, 'Loan number');
+  const duplicate = await prisma.payrollCompRequest.findFirst({
+    where: {
+      id: { not: requestId },
+      loanOfficerId: actor.userId,
+      loanNumber: { equals: loanNumber, mode: 'insensitive' },
+      status: { not: PayrollCompRequestStatus.REJECTED },
+      archivedAt: null,
+    },
+    select: { id: true },
+  });
+  if (duplicate) {
+    throw new Error('Another compensation request already uses this Arive loan number.');
+  }
+
+  const [rules, brokerRetailRouting, userClassification] = await Promise.all([
+    getPayrollRulesForRequest(input),
+    getBrokerRetailRoutingSettings(),
+    getPayrollUserClassification(actor.userId),
+  ]);
+  const estimateOnly = isSimplifiedRetailPayrollSubmission(
+    userClassification,
+    input.loanChannel,
+  );
+  const calculation = estimateOnly
+    ? calculateRetailEstimate(input)
+    : calculatePayrollCompensation(input, rules);
+  if (!estimateOnly) assertPayrollCalculationRequirements(calculation, input);
+  const splitSnapshots = await buildSplitSnapshots(
+    actor.userId,
+    calculation.splitBasisAmount,
+    {
+      leadSource: input.leadSource,
+      leadProvidedBy: input.leadProvidedBy,
+      brokerRetailRouting,
+      loanOfficerSplitPercentOverride: digitalMailerSplitPercent(
+        estimateOnly,
+        input.leadSource,
+      ),
+    },
+  );
+  const reimbursementTarget = resolvePortalReimbursementTarget(
+    splitSnapshots,
+    input.reimbursementTarget,
+  );
+  const snapshots = estimateOnly
+    ? splitSnapshots
+    : withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
+  const appliedPlanType =
+    snapshots[0]?.appliedPlanType ?? PayrollCompPlanType.BROKER;
+  const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
+  const loanId = await resolvePayrollLoanId(prisma, loanNumber);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.payrollCompRequest.update({
+      where: { id: requestId },
+      data: {
+        loanId,
+        loanNumber,
+        borrowerName: cleanText(input.borrowerName, "Borrower's name"),
+        loanType: cleanText(input.loanType, 'Loan type'),
+        lender: cleanText(input.lender, 'Lender'),
+        loanChannel: input.loanChannel,
+        processingType: input.processingType,
+        leadSource: input.leadSource,
+        leadSourceDetail: input.leadSource,
+        mailerCampaign:
+          input.leadSource === PayrollLeadSource.MAILER
+            ? cleanText(input.mailerCampaign ?? '', 'Mailer Campaign')
+            : null,
+        leadProvidedBy: input.leadProvidedBy,
+        appliedPlanType,
+        reimbursementTarget,
+        expectedRevenue: calculation.splitBasisAmount,
+        estimatedCompAmount: estimateOnly ? calculation.grossCompAmount : null,
+        managerCalculationRequired: estimateOnly,
+        managerCalculationCompletedAt: null,
+        managerCalculationCompletedById: null,
+        loanOfficerSplitPercentOverride: digitalMailerSplitPercent(
+          estimateOnly,
+          input.leadSource,
+        ),
+        brokerComp: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.brokerComp, 'Broker comp'),
+        sectionAComp: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.sectionAComp, 'Section A'),
+        yspAmount: estimateOnly
+          ? null
+          : ensureSignedMoney(input.yspAmount, 'YSP'),
+        toleranceCure: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.toleranceCure, 'Tolerance cure'),
+        oneDayInterest: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.oneDayInterest, '1 day of interest'),
+        wireFee: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.wireFee, 'Wire fee'),
+        underwritingFee: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.underwritingFee, 'Underwriting fee'),
+        lenderCredit: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.lenderCredit, 'Lender credit'),
+        originationFee: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.originationFee, 'Origination fee'),
+        processingFee: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.processingFee, 'Processing fee'),
+        appraisalAddBack: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.appraisalAddBack, 'Appraisal add-back'),
+        creditAddBack: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.creditAddBack, 'Credit add-back'),
+        voeAddBack: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.voeAddBack, 'VOE add-back'),
+        termiteAddBack: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.termiteAddBack, 'Termite add-back'),
+        appraisalReinspectionAddBack: estimateOnly
+          ? null
+          : ensureOptionalMoney(
+              input.appraisalReinspectionAddBack,
+              'Appraisal reinspection add-back',
+            ),
+        waterTestAddBack: estimateOnly
+          ? null
+          : ensureOptionalMoney(input.waterTestAddBack, 'Water test add-back'),
+        loanAmountPriorToFees: estimateOnly
+          ? null
+          : ensureOptionalMoney(
+              input.loanAmountPriorToFees,
+              'Loan amount prior to fees',
+            ),
+        recessionDate: estimateOnly ? null : recessionDate,
+        figureNftyAttachmentName: estimateOnly
+          ? null
+          : input.figureNftyAttachmentName?.trim() || null,
+        figureNftyAttachmentUrl: estimateOnly
+          ? null
+          : input.figureNftyAttachmentUrl?.trim() || null,
+        grossCompAmount: calculation.grossCompAmount,
+        preSplitAddBackTotal: calculation.preSplitAddBackTotal,
+        preSplitDeductionTotal: calculation.preSplitDeductionTotal,
+        splitBasisAmount: calculation.splitBasisAmount,
+        postSplitAddBackTotal: calculation.postSplitAddBackTotal,
+        netCompAmount: calculation.netCompAmount,
+        calculationSnapshot: calculation as unknown as Prisma.InputJsonValue,
+        mismoDetails:
+          normalizeMismoDetails(input.mismoDetails) ?? Prisma.JsonNull,
+        submitterNotes: input.submitterNotes?.trim() || null,
+        editedAt: new Date(),
+        editedById: actor.userId,
+      },
+    });
+    await tx.payrollCompRequestSplit.deleteMany({ where: { requestId } });
+    await tx.payrollCompRequestSplit.createMany({
+      data: snapshots.map((split) => ({
+        requestId,
+        planId: split.planId,
+        recipientUserId: split.recipientUserId,
+        recipientName: split.recipientName,
+        recipientEmail: split.recipientEmail,
+        roleLabel: split.roleLabel,
+        payType: split.payType,
+        splitPercent: split.splitPercent,
+        flatAmount: split.flatAmount,
+        amount: split.amount,
+        sortOrder: split.sortOrder,
+      })),
+    });
+  });
+
+  revalidatePayroll();
+}
+
+export async function deleteMyPendingPayrollCompRequest(requestId: string) {
+  const actor = await assertPayrollPortalUser();
+  const request = await prisma.payrollCompRequest.findFirst({
+    where: {
+      id: requestId,
+      loanOfficerId: actor.userId,
+      archivedAt: null,
+    },
+    select: { id: true, status: true },
+  });
+  if (!request) throw new Error('Payroll request was not found.');
+  if (request.status !== PayrollCompRequestStatus.PENDING_REVIEW) {
+    throw new Error('Only requests that are still pending review can be deleted.');
+  }
+  await prisma.payrollCompRequest.delete({ where: { id: requestId } });
+  revalidatePayroll();
+}
+
 export async function markMyPayrollRequestsFinished() {
   const actor = await assertPayrollPortalUser();
   const submissionWindow = resolvePayrollSubmissionWindows();
@@ -2368,6 +2618,7 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
       loanOfficerId: true,
       status: true,
       managerCalculationRequired: true,
+      fundedImportMetadata: true,
     },
   });
   if (!request) throw new Error('Payroll request was not found.');
@@ -2391,6 +2642,16 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
   const reimbursementTarget = input.reimbursementTarget ?? PayrollReimbursementTarget.SELF;
   const snapshots = withPostSplitAddBacks(splitSnapshots, calculation, reimbursementTarget);
   const recessionDate = parseOptionalDate(input.recessionDate, 'Recession date');
+  const fundedAt = parseOptionalDateOnly(input.fundedAt, 'Funded date');
+  const existingFundedMetadata = request.fundedImportMetadata
+    && typeof request.fundedImportMetadata === 'object'
+    && !Array.isArray(request.fundedImportMetadata)
+    ? request.fundedImportMetadata
+    : {};
+  const fundedImportMetadata = {
+    ...existingFundedMetadata,
+    adminFundedAtOverride: fundedAt?.toISOString() ?? null,
+  } as Prisma.InputJsonValue;
 
   await prisma.$transaction(async (tx) => {
     await tx.payrollCompRequest.update({
@@ -2442,6 +2703,7 @@ export async function editPayrollRequest(input: PayrollAdminEditRequestInput) {
         postSplitAddBackTotal: calculation.postSplitAddBackTotal,
         netCompAmount: calculation.netCompAmount,
         calculationSnapshot: calculation as unknown as Prisma.InputJsonValue,
+        fundedImportMetadata,
         managerCalculationCompletedAt: request.managerCalculationRequired ? new Date() : undefined,
         managerCalculationCompletedById: request.managerCalculationRequired ? actor.userId : undefined,
         mismoDetails: normalizeMismoDetails(input.mismoDetails) ?? Prisma.JsonNull,
