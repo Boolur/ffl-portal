@@ -452,6 +452,7 @@ export function ProcessingPipelineLayoutManager({
               buckets: {
                 ...current.config.buckets,
                 [selectedBucket]: {
+                ...current.config.buckets[selectedBucket],
                   columns: keepPayoffPairTogether(next, selectedBucket),
                 },
               },
