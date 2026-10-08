@@ -222,7 +222,7 @@ export function TopNav({
 
   return (
     <header
-      className="relative z-[100] flex h-16 shrink-0 items-center justify-between border-b border-border app-glass px-4 sm:px-6"
+      className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-border app-glass px-4 sm:px-6"
     >
       <div className="flex items-center flex-1 min-w-0">
         <button
