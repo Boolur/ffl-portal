@@ -240,7 +240,7 @@ export async function sendAssignedWebsiteLeadEmail(leadId: string) {
     subject: email.subject,
     html: email.html,
     text: email.text,
-    senderCategory: 'noreply',
+    senderCategory: 'leads',
     label: 'bisu-website-lead-lo',
   });
   return { sent: 1 };
@@ -273,16 +273,30 @@ export async function notifyAdminsOfWebsiteLead(leadId: string) {
         subject: email.subject,
         html: email.html,
         text: email.text,
-        senderCategory: 'noreply',
+        senderCategory: 'leads',
         label: 'bisu-website-lead-admin',
       })
     )
   );
 
-  return {
-    sent: results.filter((result) => result.status === 'fulfilled').length,
-    failed: results.filter((result) => result.status === 'rejected').length,
-  };
+  const failures = results.filter((result) => result.status === 'rejected');
+  if (failures.length > 0) {
+    console.warn(
+      `[bisu-website-leads] ${failures.length} of ${admins.length} admin email deliveries failed for lead ${leadId}:`,
+      failures.map((result) =>
+        result.reason instanceof Error ? result.reason.message : String(result.reason)
+      )
+    );
+  }
+
+  const sent = results.length - failures.length;
+  if (sent === 0) {
+    throw new Error(
+      `BISU Website admin email failed for all ${admins.length} admin recipient(s).`
+    );
+  }
+
+  return { sent, failed: failures.length };
 }
 
 export async function sendHistoricalWebsiteLeadNotifications(input: {
