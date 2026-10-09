@@ -360,6 +360,24 @@ export async function notifyAdminsOfWebsiteLead(leadId: string) {
     })),
   });
 
+  return sendWebsiteLeadAdminEmailsOnly(leadId, { lead, admins });
+}
+
+export async function sendWebsiteLeadAdminEmailsOnly(
+  leadId: string,
+  preloaded?: {
+    lead: WebsiteLeadForEmail;
+    admins: Awaited<ReturnType<typeof getWebsiteLeadAdminRecipients>>;
+  }
+) {
+  const [lead, admins] = preloaded
+    ? [preloaded.lead, preloaded.admins]
+    : await Promise.all([
+        loadWebsiteLeadForEmail(leadId),
+        getWebsiteLeadAdminRecipients(),
+      ]);
+  if (!lead || admins.length === 0) return { sent: 0, failed: 0 };
+
   const brandLogo = await getInlineWebsiteLeadLogoAttachment();
   const email = buildWebsiteLeadEmail({
     lead,
