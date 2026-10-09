@@ -17,7 +17,7 @@ function isAuthorized(request: Request): boolean {
   return allowedSecrets.includes(bearer) || allowedSecrets.includes(headerSecret);
 }
 
-async function parseLeadIds(request: Request) {
+async function parseLeadIds(request: Request): Promise<string[]> {
   const url = new URL(request.url);
   const fromQuery = url.searchParams
     .getAll('leadId')
