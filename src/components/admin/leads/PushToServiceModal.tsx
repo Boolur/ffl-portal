@@ -59,6 +59,7 @@ const REASON_LABELS: Record<string, string> = {
   excluded_by_scope: 'Excluded by this service\u2019s user/campaign scope',
   oauth_failed: 'OAuth token exchange failed',
   http_error: 'Integration returned an error',
+  invalid_payload: 'Lead details or integration settings need attention',
   success_string_not_found: 'Response was missing the configured success string',
   capture_field_error: 'Capture fields could not be read from the response',
   exception: 'Network or server error',

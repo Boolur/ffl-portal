@@ -27,6 +27,7 @@ import type {
 export const INTEGRATION_SERVICE_PRESETS = [
   'custom',
   'bonzo',
+  'shape',
   'five9',
   'webhook',
   'zapier',
@@ -42,6 +43,7 @@ export type IntegrationServicePreset =
  */
 export const INTEGRATION_SERVICE_TYPES = [
   'bonzo',
+  'shape',
   'custom',
   'five9',
   'webhook',

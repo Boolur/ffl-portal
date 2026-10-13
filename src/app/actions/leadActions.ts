@@ -3073,6 +3073,7 @@ export async function bulkCreateLeadsBatch(
     assignment?: {
       nameToUserId: Record<string, string | null>;
       fireBonzo?: boolean;
+      fireShape?: boolean;
       fireBrokerLaunchEmail?: boolean;
     };
   }
@@ -3081,6 +3082,7 @@ export async function bulkCreateLeadsBatch(
   const now = new Date();
   const assignmentMap = options?.assignment?.nameToUserId;
   const fireBonzo = options?.assignment?.fireBonzo === true;
+  const fireShape = options?.assignment?.fireShape === true;
   const fireBrokerLaunchEmail =
     options?.assignment?.fireBrokerLaunchEmail === true;
 
@@ -3127,7 +3129,7 @@ export async function bulkCreateLeadsBatch(
     data: resolved.map((r) => r.data),
   });
 
-  if (fireBonzo || fireBrokerLaunchEmail) {
+  if (fireBonzo || fireShape || fireBrokerLaunchEmail) {
     // Can't get the newly-created ids back from createMany, so look them up
     // by rawPayload match via the assigned users + receivedAt window. For
     // simplicity and correctness we just fetch all leads created in this
@@ -3154,6 +3156,11 @@ export async function bulkCreateLeadsBatch(
       : [];
     for (const l of fresh) {
       if (l.assignedUserId) {
+        if (fireShape) {
+          scheduleLeadSideEffect('Shape forward after CSV import assignment', () =>
+            runServiceTriggers(l.id, IntegrationServiceTrigger.ON_ASSIGN, { includeSlugs: ['shape'] })
+          );
+        }
         if (fireBonzo) {
           scheduleLeadSideEffect('Bonzo forward after CSV import assignment', () =>
             forwardLeadToBonzo(l.id, l.assignedUserId!)

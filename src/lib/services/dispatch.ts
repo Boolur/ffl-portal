@@ -25,6 +25,7 @@ import { prisma } from '@/lib/prisma';
 import { sendEmail } from '@/lib/email';
 import { filterEmailRecipientsByPreference } from '@/lib/emailPreferences';
 import { buildBonzoPayload } from '@/lib/bonzoForward';
+import { buildShapePayload, validateShapeDestination } from '@/lib/integrationServices/shape';
 import { sendBrokerLaunchEmail } from '@/lib/brokerLaunchEmail';
 import {
   withConcurrencyLimit,
@@ -113,7 +114,8 @@ export type FailReason =
   | 'exception'
   | 'success_string_not_found'
   | 'oauth_failed'
-  | 'capture_field_error';
+  | 'capture_field_error'
+  | 'invalid_payload';
 
 export type DispatchOptions = {
   /**
@@ -417,6 +419,51 @@ export async function dispatchServiceToLead(
       ? null
       : renderString(service.bodyTemplate, ctx);
 
+  if (service.type === 'shape') {
+    try {
+      validateShapeDestination(renderedUrl, service.method);
+      if (service.requiresOAuth) throw new Error('Shape uses a system API key, not OAuth.');
+      const apiKey = process.env.SHAPE_API_KEY?.trim();
+      if (!apiKey) throw new Error('Set SHAPE_API_KEY on the portal server before sending to Shape.');
+      const assignmentField = credentials.shapeAssignmentField?.trim() || 'depursLi';
+      const payload = buildShapePayload(lead, credentials.shapeUserId ?? '', assignmentField);
+      // Render string values individually so quotes/newlines in borrower data
+      // remain valid JSON. Required routing fields always use portal assignment.
+      const renderValue = (value: unknown): unknown => {
+        if (typeof value === 'string') return renderString(value, ctx);
+        if (Array.isArray(value)) return value.map(renderValue);
+        if (value && typeof value === 'object') return Object.fromEntries(
+          Object.entries(value).map(([key, item]) => [key, renderValue(item)])
+        );
+        return value;
+      };
+      const custom = service.bodyTemplate.trim() ? JSON.parse(service.bodyTemplate) : {};
+      if (!custom || typeof custom !== 'object' || Array.isArray(custom)) {
+        throw new Error('Shape body must be a JSON object.');
+      }
+      // Department assignments must come only from verified user credentials.
+      for (const key of Object.keys(custom)) if (/^depurs/i.test(key)) delete custom[key];
+      renderedBody = JSON.stringify({
+        ...payload, ...(renderValue(custom) as Record<string, unknown>),
+        firstname: payload.firstname, lastname: payload.lastname, email: payload.email,
+        [assignmentField]: credentials.shapeUserId.trim(), recordtype: 3, mktentryid: lead.id,
+      });
+      // Never allow a template to override the server-owned company key.
+      for (const key of Object.keys(renderedHeaders)) {
+        if (['authorization', 'content-type'].includes(key.toLowerCase())) delete renderedHeaders[key];
+      }
+      renderedHeaders.Authorization = apiKey;
+      renderedHeaders['Content-Type'] = 'application/json';
+    } catch (err) {
+      const outcome: DispatchOutcome = {
+        ok: false, reason: 'invalid_payload',
+        info: err instanceof Error ? err.message : 'Invalid Shape configuration.',
+      };
+      if (auditEnabled) await recordDispatch(service, leadId, trigger, outcome, null, null, opts);
+      return outcome;
+    }
+  }
+
   // Bonzo safety net: the "Bonzo" preset has always shipped with an empty
   // bodyTemplate by default, which meant services created before the full
   // merge-field template landed (or where the admin simply never pasted a
@@ -517,11 +564,15 @@ export async function dispatchServiceToLead(
       service.method,
       renderedUrl,
       renderedHeaders,
-      renderedBody
+      renderedBody,
+      service.type === 'shape'
     );
     status = res.status;
     statusText = res.statusText;
     responseBody = res.body;
+    if (service.type === 'shape' && process.env.SHAPE_API_KEY?.trim()) {
+      responseBody = responseBody.split(process.env.SHAPE_API_KEY.trim()).join('[REDACTED]');
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const outcome: DispatchOutcome = {
@@ -553,6 +604,19 @@ export async function dispatchServiceToLead(
 
   // 9. Success / success-string check.
   const httpOk = status >= 200 && status < 300;
+  if (httpOk && service.type === 'shape') {
+    let recordId: unknown;
+    try { recordId = JSON.parse(responseBody)?.recordId; } catch { /* Not an API receipt. */ }
+    if (!/^[1-9]\d*$/.test(String(recordId ?? ''))) {
+      const outcome: DispatchOutcome = {
+        ok: false, reason: 'success_string_not_found', status,
+        info: 'Shape did not return a recordId. Check the response before retrying to avoid a duplicate.',
+      };
+      if (auditEnabled) await recordDispatch(service, leadId, trigger, outcome, requestSnapshot, responseSnapshot, opts);
+      await maybeNotifyFailure(service, lead, outcome);
+      return outcome;
+    }
+  }
   if (!httpOk) {
     const outcome: DispatchOutcome = {
       ok: false,
@@ -1104,7 +1168,8 @@ async function sendHttp(
   method: IntegrationServiceMethod,
   url: string,
   headers: Record<string, string>,
-  body: string | null
+  body: string | null,
+  preventRedirects = false
 ): Promise<SendResult> {
   const verb = HTTP_VERB_BY_METHOD[method];
   const finalHeaders: Record<string, string> = { ...headers };
@@ -1143,6 +1208,7 @@ async function sendHttp(
       headers: finalHeaders,
       body: verb === 'GET' ? undefined : wireBody,
       signal: controller.signal,
+      redirect: preventRedirects ? 'error' : 'follow',
     });
     const text = await res.text().catch(() => '');
     return { status: res.status, statusText: res.statusText, body: text };

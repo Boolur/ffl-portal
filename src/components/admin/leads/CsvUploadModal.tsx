@@ -111,6 +111,7 @@ export function CsvUploadModal({
   // email parsed by the LOs' quoting tools). The two are wired
   // separately server-side -- see `bulkCreateLeadsBatch`.
   const [fireBonzo, setFireBonzo] = useState(false);
+  const [fireShape, setFireShape] = useState(false);
   const [fireBrokerLaunchEmail, setFireBrokerLaunchEmail] = useState(false);
 
   const mappingLookup = useMemo(() => {
@@ -368,6 +369,7 @@ export function CsvUploadModal({
         ? {
             nameToUserId: nameDecisions,
             fireBonzo,
+            fireShape,
             fireBrokerLaunchEmail,
           }
         : undefined;
@@ -752,6 +754,16 @@ export function CsvUploadModal({
                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Outbound notifications
                 </div>
+                <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm text-slate-700 cursor-pointer">
+                  <input type="checkbox" className="mt-0.5 accent-indigo-600"
+                    checked={fireShape} onChange={(e) => setFireShape(e.target.checked)} />
+                  <span className="flex-1">
+                    <span className="font-semibold">Forward imported leads to Shape</span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      Off by default. Requires an enabled Shape service and each assigned officer’s Shape user ID. Only select for leads that need to be added to Shape.
+                    </span>
+                  </span>
+                </label>
                 <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm text-slate-700 cursor-pointer">
                   <input
                     type="checkbox"

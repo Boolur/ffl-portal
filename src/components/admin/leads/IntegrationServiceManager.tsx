@@ -42,6 +42,7 @@ import type {
   IntegrationServiceTrigger,
 } from '@prisma/client';
 import { LEAD_STATUS_OPTIONS } from '@/lib/leadStatuses';
+import { SHAPE_ENDPOINT, SHAPE_CREDENTIAL_FIELDS } from '@/lib/integrationServices/shape';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -687,6 +688,27 @@ function ServiceBuilderModal({
             },
           ];
         }
+      } else if (preset === 'shape') {
+        next.active = false;
+        next.name = 'Shape';
+        next.slug = 'shape';
+        next.description = 'Send assigned leads to Shape. Set SHAPE_API_KEY on the server and each LO’s Shape user ID in Lead Users. Leave the body blank to use the verified Shape field mapping.';
+        next.method = 'POST_JSON';
+        next.statusTrigger = 'ON_ASSIGN';
+        next.requiresAssignedUser = true;
+        next.requiresBrandNew = false;
+        next.requiresNotBrandNew = false;
+        next.requiresOAuth = false;
+        next.userScope = 'ANY';
+        next.campaignScope = 'ANY';
+        next.excludeSelected = false;
+        next.captureFields = [{ path: 'recordId', target: 'shapeRecordId' }];
+        next.successString = '';
+        next.allowManualSend = true;
+        next.urlTemplate = SHAPE_ENDPOINT;
+        next.headersTemplate = '';
+        next.bodyTemplate = '';
+        next.credentialFields = SHAPE_CREDENTIAL_FIELDS.map((field) => ({ ...field }));
       } else if (preset === 'five9') {
         next.name = prev.name || 'New Lead Push - Five9';
         next.slug = prev.slug || 'new-lead-push-five9';
@@ -1232,7 +1254,9 @@ function UrlPayloadSection({
               onChange={(e) => update('bodyTemplate', e.target.value)}
               placeholder={bodyPlaceholderFor(state.method)}
             />
-            <HelpText>{bodyHelpFor(state.method)}</HelpText>
+            <HelpText>{state.preset === 'shape'
+              ? 'Leave blank to send the verified Shape mapping. Optional JSON fields are merged into it; borrower identity, record type, entry ID and assigned officer always come from the portal. The company API key is configured on the server.'
+              : bodyHelpFor(state.method)}</HelpText>
           </div>
         )}
       </div>
