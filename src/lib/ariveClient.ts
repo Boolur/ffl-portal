@@ -15,18 +15,18 @@ async function credentials(): Promise<AriveCredentials> {
   try { return JSON.parse(decryptAriveCredentials(row.encryptedCredentials, process.env.NEXTAUTH_SECRET || '')); }
   catch { throw new AriveError('Arive credentials could not be decrypted. Ask an Admin III to reconnect.'); }
 }
-async function responseJson(response: Response) {
-  if (!response.ok) throw new AriveError(`Arive returned HTTP ${response.status}. ${response.status === 401 || response.status === 403 ? 'Check company API credentials and access.' : response.status === 429 ? 'Rate limit reached; try again later.' : 'Please retry or contact your administrator.'}`);
+async function responseJson(response: Response, operation = 'API request') {
+  if (!response.ok) throw new AriveError(`Arive ${operation} returned HTTP ${response.status}. ${response.status === 401 || response.status === 403 ? 'Check company API credentials and access.' : response.status === 429 ? 'Rate limit reached; try again later.' : 'Please retry or contact your administrator.'}`);
   try { return await response.json(); } catch { throw new AriveError('Arive returned an unexpected response.'); }
 }
 export async function ariveSession(provided?: AriveCredentials) {
   const c = provided || await credentials();
   let auth;
-  try { auth = await responseJson(await fetch(`${BASE}/auth/access-token`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey }, body: JSON.stringify(c), cache: 'no-store', signal: AbortSignal.timeout(20000), redirect: 'error' })); }
+  try { auth = await responseJson(await fetch(`${BASE}/auth/access-token`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey }, body: JSON.stringify(c), cache: 'no-store', signal: AbortSignal.timeout(20000), redirect: 'error' }), 'authentication'); }
   catch (e) { if (e instanceof AriveError) throw e; throw new AriveError('Unable to connect to Arive.'); }
   if (typeof auth.AccessToken !== 'string' || !auth.AccessToken) throw new AriveError('Arive did not issue an access token.');
   return async (path: string, body?: object) => {
-    try { return await responseJson(await fetch(`${BASE}${path}`, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey, Authorization: `Bearer ${auth.AccessToken}` }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store', signal: AbortSignal.timeout(25000), redirect: 'error' })); }
+    try { return await responseJson(await fetch(`${BASE}${path}`, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey, Authorization: `Bearer ${auth.AccessToken}` }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store', signal: AbortSignal.timeout(25000), redirect: 'error' }), path === '/loans/document-classifications' ? 'company document access check' : 'API request'); }
     catch (e) { if (e instanceof AriveError) throw e; throw new AriveError('Arive request did not finish. Check the transfer status before retrying.'); }
   };
 }

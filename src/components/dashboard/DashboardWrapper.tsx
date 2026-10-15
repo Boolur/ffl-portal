@@ -8,6 +8,7 @@ import { QcOverview } from '@/components/dashboard/QcOverview';
 import { ProcessorPipelineOverview } from '@/components/dashboard/ProcessorPipelineOverview';
 import { useImpersonation } from '@/lib/impersonation';
 import { isAdmin } from '@/lib/adminTiers';
+import { SUBMISSION_PILOT_LO_ID } from '@/lib/submissionPilot';
 import {
   DisclosureDecisionReason,
   Prisma,
@@ -199,6 +200,7 @@ function DashboardContent({
           lenderOptions={lenderOptions}
           disclosureEnabled={user.loDisclosureSubmissionEnabled ?? true}
           qcEnabled={user.loQcSubmissionEnabled ?? true}
+          submissionPilotEnabled={activeRole === UserRole.LOAN_OFFICER && user.id === SUBMISSION_PILOT_LO_ID}
         />
       )}
 

@@ -6,6 +6,14 @@ import { ariveSession, ariveClassifications, validAriveUploadUrl } from './arive
 const creds = { clientId: 'client', secret: 'test-secret', apiKey: 'test-api' };
 afterEach(() => vi.unstubAllGlobals());
 describe('Arive HTTP contract', () => {
+  it('distinguishes rejected credentials from missing company document access', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response('private', { status: 403 }))
+      .mockResolvedValueOnce(Response.json({ AccessToken: 'token' }))
+      .mockResolvedValueOnce(new Response('private', { status: 403 }));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(ariveClassifications(creds)).rejects.toThrow('authentication returned HTTP 403');
+    await expect(ariveClassifications(creds)).rejects.toThrow('company document access check returned HTTP 403');
+  });
   it('uses the documented auth casing and company headers', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ AccessToken: 'token', ExpiresIn: 300, TokenType: 'Bearer' })).mockResolvedValueOnce(Response.json({ classifications: [{ name: 'Income', subName: 'Paystub' }] }));
     vi.stubGlobal('fetch', fetcher);

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FileCheck2, Upload, ArrowLeft, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { createSubmissionPilot, getSubmissionPilot, changeSubmissionPilot, preparePilotUpload, finishPilotUpload, downloadPilotFile } from '@/app/actions/submissionPilotActions';
-import { pilotApprovalError, pilotSubmissionError } from '@/lib/submissionPilot';
+import { PILOT_DOCUMENT_TYPES, pilotApprovalError, pilotSubmissionError } from '@/lib/submissionPilot';
 import { getProcessingAssignmentLabel, getProcessingMethodLabel } from '@/lib/processingRouting';
 import { ArivePilotConnection, ArivePackagePanel } from './ArivePilotPanel';
 
@@ -53,11 +53,18 @@ export function SubmissionPilot({ initialData, initialTask }: { initialData: Dat
     <header className="app-page-header">
       <Link href="/pipeline" className="app-btn-secondary mb-4"><ArrowLeft size={16} /> Pipeline</Link>
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div><p className="text-sm font-semibold text-primary">Matt Mahjoub · Live submission pilot</p><h1 className="app-page-title">{data.owner ? 'Submit documents for processing' : 'Review processing submissions'}</h1>
+        <div><p className="text-sm font-semibold text-primary">Matt Mahjoub · Live submission pilot</p><h1 className="app-page-title">{data.owner ? 'Submit to Processing' : 'Review processing submissions'}</h1>
           <p className="app-page-subtitle">{data.owner ? 'Upload each item, send it for review, and resolve corrections in one place.' : 'Check every document and explanation. Return specific corrections or approve the package.'}</p></div>
         <button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void run(reload)}><RefreshCw size={16} /> Refresh</button>
       </div>
     </header>
+    <ol aria-label="Submission steps" className="grid gap-3 md:grid-cols-3">
+      {[
+        ['Build your package', 'Choose your loan and upload documents into each required category.'],
+        ['Jr Processor review', 'Each document is checked. Specific corrections come back here.'],
+        ['Approved for Arive', 'Approved files are ready to send to the linked Arive loan.'],
+      ].map(([title, description], index) => <li key={title} className="app-surface-card flex gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary font-bold text-primary" aria-hidden="true">{index + 1}</span><div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-sm text-muted-foreground">{description}</p></div></li>)}
+    </ol>
     <ArivePilotConnection configured={data.ariveConfigured} canConfigure={data.canConfigureArive} owner={data.owner} onChanged={reload} onOpen={id => { setSelected(id); router.replace(`/pipeline/submission-pilot?task=${id}`); }} />
     <div role="status" aria-live="polite" className={message ? 'rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800' : 'text-sm text-muted-foreground'}>{message || (busy ? 'Saving…' : '')}</div>
     <div className="grid items-start gap-6 lg:grid-cols-[300px_1fr]">
@@ -74,10 +81,11 @@ export function SubmissionPilot({ initialData, initialTask }: { initialData: Dat
       {current && p ? <main className="space-y-5" aria-busy={busy}>
         <section className="app-surface-card space-y-3"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-bold">{current.borrower}</h2><span className="app-count-badge">{labels[p.state]}</span></div>
           <p className="text-sm text-muted-foreground">Arive #{current.loanNumber} · {p.items.filter(i => i.review === 'APPROVED').length} of {p.items.length} categories approved</p>
+          <div className="space-y-2"><div className="flex justify-between text-sm"><span>Required documents prepared</span><span>{p.items.filter(i => i.required && (i.files.length > 0 || i.waiver.trim()) && !i.pending).length} / {p.items.filter(i => i.required).length}</span></div><progress className="h-2 w-full accent-primary" aria-label="Required documents prepared" max={p.items.filter(i => i.required).length} value={p.items.filter(i => i.required && (i.files.length > 0 || i.waiver.trim()) && !i.pending).length} /></div>
           {!data.owner && p.state === 'REVIEW' && !p.reviewerId && <button type="button" className="app-btn-primary" disabled={busy} onClick={() => void run(() => change({ action: 'CLAIM' }))}>Claim review</button>}
           {!data.owner && p.reviewerId && p.reviewerId !== data.userId && <p className="text-sm text-muted-foreground">Assigned to another Jr Processor. Read-only view.</p>}
         </section>
-        {[true, false].map(required => <section key={String(required)} className="space-y-3"><h3 className="font-bold">{required ? 'Required document checklist' : 'Additional documents'}</h3><p className="text-sm text-muted-foreground">{required ? 'Upload all applicable documents, or explain why an item is not applicable. The Jr Processor reviews each explanation.' : 'Supporting documents are reviewed separately. The Arive “unused” destination still needs to be verified.'}</p>
+        {[true, false].map(required => <section key={String(required)} className="space-y-3"><h3 className="font-bold">{required ? 'Required document checklist' : 'Additional documents'}</h3><p className="text-sm text-muted-foreground">{required ? 'Upload all applicable documents, or explain why an item is not applicable. The Jr Processor reviews each explanation.' : 'Add supporting documents such as letters of explanation. Your Jr Processor reviews these with the rest of your package.'}</p>
           {p.items.filter(i => i.required === required).map(item => <article key={item.id} className={`app-surface-card space-y-3 ${item.review === 'CHANGES' ? 'border-red-300' : ''}`}>
             <div className="flex flex-wrap justify-between gap-2"><h4 className="font-semibold">{item.label}</h4><span className="app-count-badge">{item.review === 'APPROVED' ? 'Approved' : item.review === 'CHANGES' ? 'Correction needed' : item.files.length || item.waiver ? 'Awaiting review' : 'Missing'}</span></div>
             {item.feedback && <p className="rounded-lg bg-secondary p-3 text-sm"><strong>Jr feedback:</strong> {item.feedback}</p>}
@@ -97,7 +105,12 @@ export function SubmissionPilot({ initialData, initialTask }: { initialData: Dat
           <details><summary className="text-sm font-semibold">Submission history ({p.history.length})</summary><ol className="mt-3 space-y-2 text-sm">{[...p.history].reverse().map((h, index) => <li key={index}><span className="font-medium">{h.actor}</span> · {h.message}<span className="block text-xs text-muted-foreground">{new Date(h.at).toLocaleString()}</span></li>)}</ol></details>
         </section>
         <ArivePackagePanel key={current.id} taskId={current.id} pkg={p} configured={data.ariveConfigured} parentBusy={busy} onChanged={reload} />
-      </main> : <div className="app-surface-card text-muted-foreground">Choose a submission to see its documents and review history.</div>}
+      </main> : data.owner ? <section className="app-surface-card space-y-6">
+        <div><span className="app-count-badge">Your submission checklist</span><h2 className="mt-3 text-2xl font-bold">A complete file starts here</h2><p className="mt-2 text-sm text-muted-foreground">Choose an existing loan on the left, or open your Arive loan above. You can save your progress and return before submitting.</p></div>
+        <div className="grid gap-3 sm:grid-cols-2">{PILOT_DOCUMENT_TYPES.map(([id, label]) => <div key={id} className="flex items-start gap-3 rounded-xl border border-border p-4"><FileCheck2 size={20} className="shrink-0 text-primary" /><div><h3 className="text-sm font-semibold">{label}</h3><p className="mt-1 text-xs text-muted-foreground">Document or explanation required</p></div></div>)}</div>
+        <div className="rounded-xl bg-secondary p-4 text-sm"><h3 className="font-semibold">Before you can submit</h3><p className="mt-1 text-muted-foreground">Complete every required category and upload at least one document. If an item does not apply, explain why. Your Jr Processor must approve each document and explanation.</p></div>
+        <p className="text-xs text-muted-foreground">PDF, JPG, or PNG · Up to 20 MB per file · Additional documents welcome</p>
+      </section> : <div className="app-surface-card text-muted-foreground">Choose a submission to see its documents and review history.</div>}
     </div>
   </div>;
 }
