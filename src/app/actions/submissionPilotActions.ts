@@ -20,7 +20,7 @@ async function actor() {
   if (!user?.active) throw new Error('Account unavailable.');
   const role = (session.user.activeRole || session.user.role) as UserRole;
   if (role !== user.role && !user.roles.includes(role)) throw new Error('Role not available.');
-  const reviewer = role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSING_MANAGER || isAdmin(role);
+  const reviewer = role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSING_MANAGER || role === UserRole.MANAGER || isAdmin(role);
   const owner = user.id === SUBMISSION_PILOT_LO_ID && role === UserRole.LOAN_OFFICER;
   if (!owner && !reviewer) throw new Error('This pilot is limited to Matt Mahjoub and the processing review team.');
   return { ...user, role, owner, reviewer };
@@ -33,18 +33,18 @@ async function taskAccess(id: string, a: Actor, db: Prisma.TransactionClient = p
   const task = await db.task.findUnique({ where: { id }, include: { loan: { select: { loanOfficerId: true, borrowerName: true, loanNumber: true } } } });
   const p = readPilotPackage(task?.submissionData);
   if (!task || task.kind !== null || task.title !== 'Processing submission pilot — documents' || !p || task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID) throw new Error('Pilot package not found.');
-  const request = await db.task.findFirst({ where: { loanId: task.loanId, kind: 'SUBMIT_PROCESSING', submissionData: { path: ['processingDocumentTaskId'], equals: id } }, select: { id: true, status: true, assignedUserId: true } });
+  const request = await db.task.findFirst({ where: { loanId: task.loanId, kind: 'SUBMIT_PROCESSING', submissionData: { path: ['processingDocumentTaskId'], equals: id } }, select: { id: true, status: true, workflowState: true, assignedUserId: true } });
   // The existing request's Start/reassign controls own the review assignment.
-  if (request && request.status !== 'COMPLETED') p.reviewerId = request.status === 'PENDING' ? null : request.assignedUserId;
+  if (request && request.status !== 'COMPLETED') p.reviewerId = !((request.status === 'IN_PROGRESS' && (!request.workflowState || request.workflowState === 'NONE')) || (request.status === 'PENDING' && request.workflowState === 'READY_TO_COMPLETE')) ? null : request.assignedUserId;
   if (!a.owner && p.state === 'DRAFT') throw new Error('The LO has not submitted this package yet.');
-  if (!a.owner && p.reviewerId && p.reviewerId !== a.id && !isAdmin(a.role) && a.role !== UserRole.PROCESSING_MANAGER) throw new Error('This review belongs to another processor.');
+  if (!a.owner && p.reviewerId && p.reviewerId !== a.id && !isAdmin(a.role) && a.role !== UserRole.PROCESSING_MANAGER && a.role !== UserRole.MANAGER) throw new Error('This review belongs to another processor.');
   return { task, p, request };
 }
 async function mutate(id: string, revision: number, a: Actor, edit: (p: PilotPackage) => string) {
   await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${id}`}))`;
     const { task, p, request } = await taskAccess(id, a, tx);
-    if (a.reviewer && request && request.status !== 'COMPLETED' && (request.status === 'PENDING' || request.assignedUserId !== a.id)) throw new Error('Start the Processing request before reviewing its documents. Only its assigned reviewer can make changes.');
+    if (a.reviewer && request && request.status !== 'COMPLETED' && (!((request.status === 'IN_PROGRESS' && (!request.workflowState || request.workflowState === 'NONE')) || (request.status === 'PENDING' && request.workflowState === 'READY_TO_COMPLETE')) || request.assignedUserId !== a.id)) throw new Error('Start the Processing request before reviewing its documents. Only its assigned reviewer can make changes.');
     if (p.revision !== revision) throw new Error('This package changed. Refresh and try again.');
     const previousState = p.state;
     const message = edit(p);
@@ -79,7 +79,7 @@ export async function getSubmissionPilot(requestTaskId?: string) {
     if (requestTaskId) {
       const request = await prisma.task.findUnique({ where: { id: requestTaskId }, select: { kind: true, loanId: true, submissionData: true } });
       const documentId = (request?.submissionData as { processingDocumentTaskId?: string } | null)?.processingDocumentTaskId;
-      if (request?.kind !== 'SUBMIT_PROCESSING' || !documentId) throw new Error('Submission documents not found.');
+      if (!request || !['SUBMIT_PROCESSING', 'LO_NEEDS_INFO'].includes(request.kind || '') || !documentId) throw new Error('Submission documents not found.');
       const { task, p } = await taskAccess(documentId, a);
       if (task.loanId !== request.loanId) throw new Error('Submission documents do not match this loan.');
       return { owner: a.owner, canConfigureArive: false, ariveConfigured: await ariveConfigured(), userId: a.id, loans: [], packages: [{ id: task.id, loanId: task.loanId, borrower: task.loan.borrowerName, loanNumber: task.loan.loanNumber, package: p }] };
@@ -105,7 +105,7 @@ export async function createSubmissionPilot(loanId: string) {
     });
   });
 }
-export async function changeSubmissionPilot(input: { taskId: string; revision: number; action: 'WAIVER' | 'ADD' | 'REMOVE' | 'SUBMIT' | 'CLAIM' | 'REVIEW' | 'RETURN' | 'APPROVE' | 'CANCEL_UPLOAD'; itemId?: string; fileId?: string; text?: string; approved?: boolean }) {
+export async function changeSubmissionPilot(input: { taskId: string; revision: number; action: 'WAIVER' | 'ADD' | 'REQUEST_DOCUMENT' | 'REMOVE' | 'SUBMIT' | 'CLAIM' | 'REVIEW' | 'RETURN' | 'APPROVE' | 'CANCEL_UPLOAD'; itemId?: string; fileId?: string; text?: string; approved?: boolean }) {
   return result(async () => {
     const a = await actor();
     await mutate(input.taskId, input.revision, a, p => {
@@ -116,6 +116,11 @@ export async function changeSubmissionPilot(input: { taskId: string; revision: n
         if (!a.owner || !['DRAFT', 'CHANGES'].includes(p.state)) throw new Error('Only the LO can edit a draft or returned package.');
       }
       switch (input.action) {
+        case 'REQUEST_DOCUMENT':
+          checkReviewer(a, p);
+          if (p.state !== 'REVIEW' || !text || text.length > 150 || p.items.length >= 30) throw new Error('Enter a document request under 150 characters (maximum 30 categories).');
+          p.items.push({ id: randomUUID(), label: text, required: false, files: [], waiver: '', review: 'CHANGES', feedback: `Please upload: ${text}` });
+          return `Requested additional document: ${text}`;
         case 'ADD':
           if (!text || p.items.length >= 30) throw new Error('Enter a document label (maximum 30 categories).');
           p.items.push({ id: randomUUID(), label: text, required: false, files: [], waiver: '', review: 'PENDING', feedback: '' });
@@ -142,7 +147,7 @@ export async function changeSubmissionPilot(input: { taskId: string; revision: n
           p.reviewerId = a.id; return 'Claimed document review';
         case 'REVIEW':
           checkReviewer(a, p);
-          if (p.state !== 'REVIEW' || !item || (!item.files.length && !item.waiver.trim())) throw new Error('This item is not ready for review.');
+          if (p.state !== 'REVIEW' || !item || (input.approved && !item.files.length && !item.waiver.trim())) throw new Error('This item is not ready for review.');
           if (!input.approved && !text) throw new Error('Explain the correction the LO needs to make.');
           item.review = input.approved ? 'APPROVED' : 'CHANGES'; item.feedback = text;
           return `${input.approved ? 'Approved' : 'Requested correction for'} ${item.label}`;

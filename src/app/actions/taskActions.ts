@@ -1,5 +1,6 @@
 'use server';
-import { readPilotPackage, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { readPilotPackage, processingDocumentTaskId, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { pilotReviewChecklist, pilotDecisionError } from '@/lib/pilotReviewChecklist';
 import { verifyProcessingSubmissionDocuments } from '@/lib/processingSubmissionDocuments';
 
 import { prisma } from '@/lib/prisma';
@@ -5717,7 +5718,16 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     const processingSubmissionTask = isProcessingSubmissionTask(task);
     const normalizedReason = input.reason;
     const normalizedMessage = input.message?.trim() || '';
-    const parsedQcChecklist = qcSubmissionTask ? parseQcChecklistInput(input.qcChecklist) : null;
+    const pilotId = processingSubmissionTask ? processingDocumentTaskId(task.submissionData) : null;
+    const pilotTask = pilotId ? await prisma.task.findUnique({ where: { id: pilotId } }) : null;
+    const pilot = readPilotPackage(pilotTask?.submissionData);
+    if (pilotId) {
+      if (!pilot || pilotTask?.loanId !== task.loanId || task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID) return { success: false, error: 'Submission documents unavailable.' };
+      if (!((task.status === TaskStatus.IN_PROGRESS && task.workflowState === TaskWorkflowState.NONE) || (task.status === TaskStatus.PENDING && task.workflowState === TaskWorkflowState.READY_TO_COMPLETE)) || task.assignedUserId !== userId) return { success: false, error: 'Start this request first. Only its assigned reviewer can submit a decision.' };
+      const error = pilotDecisionError(pilot, normalizedReason);
+      if (error) return { success: false, error };
+    }
+    const parsedQcChecklist = qcSubmissionTask ? parseQcChecklistInput(pilot ? pilotReviewChecklist(pilot) : input.qcChecklist) : null;
     const hasRedXChecklistItems = Boolean(
       parsedQcChecklist?.items.some(
         (item) => item.noteOption === 'MISSING_FROM_FILE' || item.status === 'RED_X'
@@ -5738,7 +5748,8 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     if (qcSubmissionTask) {
       const isAllowedQcAction =
         normalizedReason === DisclosureDecisionReason.APPROVE_INITIAL_DISCLOSURES ||
-        normalizedReason === DisclosureDecisionReason.MISSING_ITEMS;
+        normalizedReason === DisclosureDecisionReason.MISSING_ITEMS ||
+        (Boolean(pilot) && normalizedReason === DisclosureDecisionReason.OTHER);
       if (!isAllowedQcAction) {
         return {
           success: false,
@@ -5816,6 +5827,24 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     const actorName = session?.user?.name || 'Unknown';
     const processingCompletedAt = new Date();
     await prisma.$transaction(async (tx) => {
+      if (pilot && pilotTask) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${pilotTask.id}`}))`;
+        await tx.$queryRaw`SELECT id FROM "Task" WHERE id = ${taskId} FOR UPDATE`;
+        const currentRequest = await tx.task.findUnique({ where: { id: taskId } });
+        if (!currentRequest || currentRequest.updatedAt.getTime() !== task.updatedAt.getTime()) throw new Error('The request changed. Refresh before submitting.');
+        pilot.state = isQcCompleteAction ? 'APPROVED' : 'CHANGES';
+        pilot.reviewerId = userId;
+        pilot.revision++;
+        pilot.history.push({ at: processingCompletedAt.toISOString(), actor: actorName, message: `${isQcCompleteAction ? 'Approved processing submission' : normalizedReason === DisclosureDecisionReason.OTHER ? 'Rejected submission — returned to LO' : 'Requested documents from LO'}: ${effectiveMessage}` });
+        const saved = await tx.task.updateMany({ where: { id: pilotTask.id, updatedAt: pilotTask.updatedAt }, data: {
+          submissionData: { ...(pilotTask.submissionData as Prisma.JsonObject), submissionPilot: pilot as unknown as Prisma.InputJsonValue },
+          status: isQcCompleteAction ? TaskStatus.COMPLETED : TaskStatus.PENDING,
+          assignedRole: UserRole.LOAN_OFFICER, assignedUserId: task.loan.loanOfficerId,
+          completedAt: isQcCompleteAction ? processingCompletedAt : null,
+        } });
+        if (saved.count !== 1) throw new Error('Document review changed. Refresh before submitting.');
+        await tx.auditLog.create({ data: { loanId: task.loanId, userId, action: 'SUBMISSION_PILOT_UPDATED', details: JSON.stringify({ taskId: pilotTask.id, requestTaskId: taskId, decision: normalizedReason, revision: pilot.revision }) } });
+      }
       const noteEntry = effectiveMessage
         ? {
         author: session?.user?.name || 'Unknown',

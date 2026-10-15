@@ -4755,7 +4755,7 @@ export function TaskList({
                     </div>
                   )}
 
-                  {shouldShowLoanOfficerProcessingChecklist && (
+                  {shouldShowLoanOfficerProcessingChecklist && !processingDocumentTaskId(task.submissionData) && (
                     <ReadOnlyProcessingChecklist rows={qcChecklistRows} />
                   )}
 
@@ -4837,7 +4837,7 @@ export function TaskList({
                     )}
                   </div>
 
-                  {processingDocumentTaskId(task.submissionData) ? <section className="mt-6 border-t border-border pt-5"><TaskSubmissionDocuments key={`${task.id}:${task.status}:${task.assignedUser?.id}`} taskId={task.id} /></section> : readPilotPackage(task.submissionData) && (
+                  {processingDocumentTaskId(task.submissionData) ? <section className="mt-6 border-t border-border pt-5"><TaskSubmissionDocuments key={`${task.id}:${task.status}:${task.assignedUser?.id}`} taskId={task.id} startControl={canManageQcDesk && task.status === 'PENDING' && task.workflowState === TaskWorkflowState.NONE ? <div className="rounded-xl border border-violet-200 bg-violet-50 p-4"><p className="text-sm font-semibold">{deskStartOverlayMessage}</p><button type="button" className="app-btn-primary mt-3" disabled={(hasAssignedSpecialist && !isAssignedToCurrentUser) || isDeskTaskActionStarting} onClick={() => void handleStartDeskTask(task)}>{isDeskTaskActionStarting ? 'Starting…' : hasAssignedSpecialist && !isAssignedToCurrentUser ? `Assigned to ${assignedSpecialistName}` : 'Start Processing Request'}</button></div> : undefined} /></section> : readPilotPackage(task.submissionData) && (
                     <div className="app-surface-card mt-4"><p className="mb-3 text-sm">Review the documents submitted with this request, approve each category, or return corrections to the Loan Officer.</p><Link href={`/pipeline/submission-pilot?task=${encodeURIComponent(processingDocumentTaskId(task.submissionData) || task.id)}`} className="app-btn-primary">Open submission documents</Link></div>
                   )}
                   {visibleTimelineItems.length > 0 && (
@@ -6277,7 +6277,7 @@ export function TaskList({
                     </div>
                   )}
 
-                  {canManageQcDesk && isQcSubmissionTask(task) && task.status !== 'COMPLETED' && (
+                  {canManageQcDesk && isQcSubmissionTask(task) && !processingDocumentTaskId(task.submissionData) && task.status !== 'COMPLETED' && (
                     <div className="relative mt-8">
                       <div className="rounded-2xl border border-violet-100 bg-violet-50/50 p-6 shadow-sm space-y-4">
                       <div className="mb-2 flex items-start justify-between gap-3">
@@ -6735,7 +6735,7 @@ export function TaskList({
                           : 'Complete'}
                       </button>
                     )}
-                    {!isLoanOfficerAssistantRole && shouldRouteFromFooter && (
+                    {!isLoanOfficerAssistantRole && shouldRouteFromFooter && !processingDocumentTaskId(task.submissionData) && (
                       (() => {
                         const isQcRouteTask = isQcSubmissionTask(task);
                         const isVaRouteTask =

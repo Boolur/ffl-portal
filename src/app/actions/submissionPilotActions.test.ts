@@ -33,6 +33,30 @@ beforeEach(() => {
   mocks.db.user.findMany.mockResolvedValue([]);
 });
 describe('pilot server authorization and concurrency', () => {
+  it('lets the assigned reviewer request an additional document', async () => {
+    asUser('jr', 'PROCESSOR_JR'); const p = packageTask();
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'IN_PROGRESS', workflowState: 'NONE', assignedUserId: 'jr' });
+    expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REQUEST_DOCUMENT', text: 'Updated bank statement' })).success).toBe(true);
+    expect(p.items.at(-1)).toMatchObject({ label: 'Updated bank statement', review: 'CHANGES', files: [] });
+  });
+  it('blocks document changes while the request is waiting on the LO', async () => {
+    asUser('jr', 'PROCESSOR_JR'); packageTask();
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'BLOCKED', workflowState: 'WAITING_ON_LO', assignedUserId: 'jr' });
+    expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REQUEST_DOCUMENT', text: 'Bank statement' })).success).toBe(false);
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
+  it('lets the original reviewer review a returned LO response without claiming again', async () => {
+    asUser('jr', 'PROCESSOR_JR'); const p = packageTask(); p.items[0].waiver = 'Not applicable';
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'PENDING', workflowState: 'READY_TO_COMPLETE', assignedUserId: 'jr' });
+    expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REVIEW', itemId: 'mortgage', approved: true })).success).toBe(true);
+  });
+  it('accepts the active Jr role on an account whose primary role is Admin', async () => {
+    asUser('jr', 'ADMIN_III'); const p = packageTask(); p.items[0].waiver = 'Not applicable';
+    mocks.session.mockResolvedValue({ user: { id: 'jr', role: 'ADMIN_III', activeRole: 'PROCESSOR_JR' } });
+    mocks.db.user.findUnique.mockResolvedValue({ id: 'jr', name: 'Admin reviewer', active: true, role: 'ADMIN_III', roles: ['PROCESSOR_JR'] });
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'IN_PROGRESS', workflowState: 'NONE', assignedUserId: 'jr' });
+    expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REVIEW', itemId: 'mortgage', approved: true })).success).toBe(true);
+  });
   it('opens linked documents without starting or changing either task', async () => {
     asUser('jr', 'PROCESSOR_JR'); packageTask();
     mocks.db.task.findUnique.mockResolvedValueOnce({ kind: 'SUBMIT_PROCESSING', loanId: 'loan', submissionData: { processingDocumentTaskId: 'task' } });

@@ -48,7 +48,7 @@ export function pilotSubmissionError(p: PilotPackage): string | null {
 }
 export function pilotApprovalError(p: PilotPackage): string | null {
   if (p.state !== 'REVIEW') return 'Submit the package for review first.';
-  if (p.items.some(i => (i.required || i.files.length || i.waiver) && i.review !== 'APPROVED')) return 'Approve every document category and not-applicable explanation first.';
+  if (p.items.some(i => (i.required || i.files.length || i.waiver || i.review === 'CHANGES') && i.review !== 'APPROVED')) return 'Approve every document category and not-applicable explanation first.';
   return null;
 }
 export function validatePilotFile(name: string, size: number, type: string) {

@@ -20,7 +20,9 @@ Saved packages persist after submission (and drafts created on the separate pilo
 
 ## Jr Processor flow
 
-Jr Processors receive the normal Processing request notification. Uploaded documents and review controls appear inside the existing request popup. Opening it does not start the task: the normal Start action assigns the reviewer and enables document review. Reassigning the request also changes its document reviewer. Supporting document records are excluded from task queues and counts, preventing a second Started card. Standalone pilot-page packages retain their separate claim workflow. Processing managers and admins may inspect assigned reviews but cannot edit them without ownership.
+Jr Processors receive the normal Processing request notification. The pilot's document cards replace the old Processing Action Checklist inside the existing request popup. Each card contains its files, feedback, and approve/request controls. Red means attention needed, green means approved, and grey means N/A (with an explicit verification label). Opening it does not start the task: Start assigns the reviewer and enables review, including for Admins. Reassigning the request also changes its document reviewer. Supporting document records are excluded from task queues and counts. Standalone pilot-page packages retain their separate claim workflow.
+
+The unified final decision approves and completes Processing, requests missing/additional documents, or rejects the submission back to the LO with required notes. Rejection preserves the loan and files. The server derives the historical Processing checklist from saved document reviews and updates the package and request together in a transaction. Existing LO task routing and notifications are retained. Review is locked while waiting for the LO and resumes for the assigned reviewer after the LO response. Other users' legacy submission checklist remains unchanged.
 
 Hover over or focus a filename to prepare dragging to a folder or supported upload area. Drag-out uses Chrome's DownloadURL format for desktop downloads and a File payload for compatible websites. Destination behavior varies; Download remains available. Prepared files stay in memory for one minute. Native desktop and third-party drop behavior requires manual browser acceptance testing.
 
@@ -38,7 +40,7 @@ Refresh notes imports the complete paginated loan-note list, up to a 5,000-note 
 
 ## Storage and task behavior
 
-Packages use dedicated generic Task records with server-controlled submission data. Popup submissions store the package ID on the normal Processing request so the existing desk workflow and document review remain linked. Document approval controls Arive transfer eligibility; it does not automatically complete the normal Processing request. Existing processing-method behavior, including self-processed completion, is retained.
+Packages use dedicated generic Task records with server-controlled submission data. Popup submissions store the package ID on the normal Processing request. The integrated final approval completes both the package and normal Processing request; standalone package approval only controls Arive transfer eligibility. Existing processing-method behavior, including self-processed completion, is retained.
 
 Private storage uses the existing task-attachments bucket. Signed uploads are authorized per package; finalization verifies stored size and MIME metadata. Downloads require current account and package authorization and use five-minute signed links. Pilot files are not ordinary TaskAttachment records, so legacy attachment removal does not remove approved package files. Upload cancellation can leave an unreferenced object; automatic storage cleanup is not implemented in this version.
 

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { getSubmissionPilot } from '@/app/actions/submissionPilotActions';
 import { SubmissionPilot } from './SubmissionPilot';
 
-export function TaskSubmissionDocuments({ taskId }: { taskId: string }) {
+export function TaskSubmissionDocuments({ taskId, startControl }: { taskId: string; startControl?: React.ReactNode }) {
   const [result, setResult] = useState<Awaited<ReturnType<typeof getSubmissionPilot>> | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -13,5 +13,5 @@ export function TaskSubmissionDocuments({ taskId }: { taskId: string }) {
   }, [taskId, attempt]);
   if (!result) return <p role="status" className="p-4 text-sm text-muted-foreground">Loading submission documents…</p>;
   if (!result.success) return <div role="alert" className="app-surface-card"><p>{result.error}</p><button type="button" className="app-btn-secondary mt-2" onClick={() => { setResult(null); setAttempt(a => a + 1); }}>Retry</button></div>;
-  return <SubmissionPilot initialData={result.data} initialTask={result.data.packages[0]?.id} requestTaskId={taskId} />;
+  return <SubmissionPilot initialData={result.data} initialTask={result.data.packages[0]?.id} requestTaskId={taskId} startControl={startControl} />;
 }
