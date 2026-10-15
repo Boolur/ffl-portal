@@ -3,7 +3,7 @@ import { initialPilotPackage, SUBMISSION_PILOT_LO_ID } from '../../lib/submissio
 
 const mocks = vi.hoisted(() => {
   const db = { user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
-  return { db, session: vi.fn(), download: vi.fn() };
+  return { db, session: vi.fn(), download: vi.fn(), info: vi.fn() };
 });
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
@@ -12,9 +12,9 @@ vi.mock('@/lib/prisma', () => ({ prisma: mocks.db }));
 vi.mock('@/lib/adminTiers', () => ({ isAdmin: (role: string) => role === 'ADMIN_III', isAdminIII: (role: string) => role === 'ADMIN_III' }));
 vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn(() => 'encrypted') }));
 vi.mock('@/lib/ariveClient', () => ({ ariveConfigured: vi.fn(), ariveClassifications: vi.fn(), ariveSession: vi.fn(), findAriveLoan: vi.fn(), readAriveNotes: vi.fn(), validAriveUploadUrl: vi.fn(), AriveError: class extends Error {} }));
-vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download }) } }), getTaskAttachmentsBucket: () => 'test' }));
+vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download, info: mocks.info }) } }), getTaskAttachmentsBucket: () => 'test' }));
 vi.mock('@/lib/submissionPilot', async () => import('../../lib/submissionPilot'));
-import { changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes } from './submissionPilotActions';
+import { changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
 import { ariveClassifications, ariveSession, validAriveUploadUrl, readAriveNotes } from '@/lib/ariveClient';
 
 function asUser(id: string, role: string) {
@@ -33,6 +33,28 @@ beforeEach(() => {
   mocks.db.user.findMany.mockResolvedValue([]);
 });
 describe('pilot server authorization and concurrency', () => {
+  it.each([
+    { size: 123, contentType: 'application/pdf' },
+    { metadata: { size: 123, mimetype: 'application/pdf' } },
+  ])('finalizes an existing pending upload with current or older storage metadata', async data => {
+    asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER');
+    const p = packageTask(); p.state = 'DRAFT';
+    p.items[0].pending = { name: 'test.pdf', path: 'submission-pilot/task/test.pdf', size: 123, type: 'application/pdf' };
+    mocks.info.mockResolvedValue({ data, error: null });
+    expect((await finishPilotUpload('task', 'mortgage')).success).toBe(true);
+    expect(p.items[0].pending).toBeUndefined();
+    expect(p.items[0].files[0].path).toBe('submission-pilot/task/test.pdf');
+  });
+  it('retains a pending upload when storage verification fails', async () => {
+    asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER');
+    const p = packageTask(); p.state = 'DRAFT';
+    p.items[0].pending = { name: 'test.pdf', path: 'submission-pilot/task/test.pdf', size: 123, type: 'application/pdf' };
+    mocks.info.mockResolvedValue({ data: null, error: { status: 503 } });
+    const result = await finishPilotUpload('task', 'mortgage');
+    expect(result.success).toBe(false);
+    expect(p.items[0].pending).toBeDefined();
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
   it('rejects an unrelated LO', async () => {
     asUser('other', 'LOAN_OFFICER'); packageTask();
     const r = await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'CLAIM' });

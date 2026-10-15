@@ -1,6 +1,7 @@
 'use server';
 
 import { randomUUID } from 'crypto';
+import { assertStoredUpload } from '../../lib/storedUploadVerification';
 import { getServerSession } from 'next-auth';
 import { Prisma, UserRole } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
@@ -181,7 +182,7 @@ export async function finishPilotUpload(taskId: string, itemId: string) {
     const pending = p.items.find(i => i.id === itemId)?.pending;
     if (!pending) throw new Error('No pending upload.');
     const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).info(pending.path);
-    if (error || !data || Number(data.metadata?.size) !== pending.size || data.metadata?.mimetype !== pending.type) throw new Error('Uploaded file could not be verified. Cancel and retry.');
+    assertStoredUpload({ data, error }, pending);
     await mutate(taskId, p.revision, a, latest => {
       if (!['DRAFT', 'CHANGES'].includes(latest.state)) throw new Error('Package is locked for review.');
       const i = latest.items.find(i => i.id === itemId)!;

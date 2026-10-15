@@ -10,7 +10,7 @@ function fixture() {
   items[0].files.push({ id: 'untrusted', name: 'mortgage.pdf', path: 'processing-submission/matt/11111111-1111-4111-8111-111111111111.pdf', size: 123, type: 'application/pdf', uploadedAt: '' });
   return items;
 }
-beforeEach(() => { info.mockReset(); info.mockResolvedValue({ data: { metadata: { size: 123, mimetype: 'application/pdf' } } }); });
+beforeEach(() => { info.mockReset(); info.mockResolvedValue({ data: { size: 123, contentType: 'application/pdf' }, error: null }); });
 describe('Processing popup documents', () => {
   it('requires the complete checklist and at least one real upload', async () => {
     await expect(verifyProcessingSubmissionDocuments(undefined, 'matt')).rejects.toThrow('document upload step');
@@ -36,6 +36,6 @@ describe('Processing popup documents', () => {
   });
   it('rejects missing or incomplete uploads before a request can be created', async () => {
     info.mockResolvedValue({ data: { metadata: { size: 12, mimetype: 'application/pdf' } } });
-    await expect(verifyProcessingSubmissionDocuments(fixture(), 'matt')).rejects.toThrow('could not be verified');
+    await expect(verifyProcessingSubmissionDocuments(fixture(), 'matt')).rejects.toThrow('size or type does not match');
   });
 });

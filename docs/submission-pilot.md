@@ -40,6 +40,8 @@ Packages use dedicated generic Task records with server-controlled submission da
 
 Private storage uses the existing task-attachments bucket. Signed uploads are authorized per package; finalization verifies stored size and MIME metadata. Downloads require current account and package authorization and use five-minute signed links. Pilot files are not ordinary TaskAttachment records, so legacy attachment removal does not remove approved package files. Upload cancellation can leave an unreferenced object; automatic storage cleanup is not implemented in this version.
 
+Upload verification reads the storage SDK's current top-level `size` and `contentType`, falling back to legacy `metadata.size` and `metadata.mimetype` only when the current fields are absent. Both popup submission and pilot-page finalization use the same check. Missing files, size/type mismatches, incomplete metadata, and storage failures produce distinct errors; temporary verification failures do not discard pending uploads. On October 15, 2026, an opt-in integration test uploaded a synthetic PDF through a signed URL, passed it through the actual final submission validator, and removed the test object without creating a loan or task. Run that check with `RUN_STORAGE_UPLOAD_SMOKE=1` and `src/lib/processingSubmissionDocuments.integration.test.ts`; it reads local storage configuration and is skipped by default.
+
 Package changes use revision checks, a per-task transaction lock, an additional task updatedAt check, and an audit entry. Generic task completion and note updates cannot bypass the pilot workflow. Removing an approved package through existing admin task deletion remains an administrative action; file cleanup is separate.
 
 ## Validation and launch

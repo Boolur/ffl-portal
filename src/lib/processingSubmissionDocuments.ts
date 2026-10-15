@@ -1,4 +1,5 @@
 import 'server-only';
+import { assertStoredUpload } from './storedUploadVerification';
 import { randomUUID } from 'crypto';
 import { getSupabaseAdmin, getTaskAttachmentsBucket } from '@/lib/supabaseAdmin';
 import { initialPilotPackage, pilotSubmissionError, validatePilotFile, type PilotPackage } from './submissionPilot';
@@ -27,7 +28,7 @@ export async function verifyProcessingSubmissionDocuments(input: unknown, userId
       if (!file.path.startsWith(prefix) || !/^[0-9a-f-]{36}\.(pdf|jpg|jpeg|png)$/.test(file.path.slice(prefix.length)) || paths.has(file.path)) throw new Error('This upload does not belong to your submission.');
       paths.add(file.path);
       const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).info(file.path);
-      if (error || !data || Number(data.metadata?.size) !== file.size || data.metadata?.mimetype !== file.type) throw new Error(`Upload could not be verified: ${file.name}. Please upload it again.`);
+      assertStoredUpload({ data, error }, file);
       item.files.push({ id: randomUUID(), path: file.path, name: file.name, size: file.size, type: file.type, uploadedAt: new Date().toISOString() });
     }
     if (item.files.length) item.waiver = '';
