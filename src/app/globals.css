@@ -158,6 +158,35 @@ textarea:disabled,
   outline-offset: 2px;
 }
 
+.app-btn-success {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--color-emerald-700);
+  color: white;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+.app-btn-success:hover:not(:disabled) {
+  background: var(--color-emerald-800);
+}
+
+.app-btn-success:focus-visible {
+  outline: 2px solid var(--color-emerald-500);
+  outline-offset: 2px;
+}
+
+.app-btn-success:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .app-btn-secondary {
   display: inline-flex;
   height: 2.25rem;
