@@ -214,15 +214,20 @@ export async function finishPilotUpload(taskId: string, itemId: string) {
     });
   });
 }
-export async function downloadPilotFile(taskId: string, fileId: string, disposition: 'attachment' | 'inline' = 'attachment') {
+export async function getPilotFileAccess(taskId: string, fileId: string, disposition: 'attachment' | 'inline' = 'inline') {
   return result(async () => {
     const a = await actor(); const { p } = await taskAccess(taskId, a);
     const file = p.items.flatMap(i => i.files).find(f => f.id === fileId);
     if (!file) throw new Error('Document not found.');
     const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).createSignedUrl(file.path, 300, disposition === 'inline' ? undefined : { download: file.name });
     if (error || !data) throw new Error('Unable to open document.');
-    return data.signedUrl;
+    return { url: data.signedUrl, name: file.name, type: file.type, size: file.size };
   });
+}
+
+export async function downloadPilotFile(taskId: string, fileId: string, disposition: 'attachment' | 'inline' = 'attachment') {
+  const access = await getPilotFileAccess(taskId, fileId, disposition);
+  return access.success ? { success: true as const, data: access.data.url } : access;
 }
 
 export async function configurePilotArive(input: { clientId: string; secret: string; apiKey: string }) {

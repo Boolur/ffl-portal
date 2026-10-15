@@ -22,6 +22,7 @@ function fixture(locked = false) {
   const task = { id: 'test', title: 'Submit for Processing', status: 'IN_PROGRESS', assignedUser: { id: 'jr', name: 'Jordan Reviewer' }, loan: { borrowerName: 'Taylor Example', loanNumber: 'TEST-001', loanOfficer: { name: 'Example Loan Officer' } } } as Task;
   const p = initialPilotPackage(); p.state = 'REVIEW'; p.reviewerId = 'jr';
   p.items.forEach((item, index) => { item.files = [{ id: `file-${index}`, name: index === 1 ? 'Homeowners insurance renewal and coverage declaration 2026.pdf' : `${item.label.split(' / ')[0]}.pdf`, path: 'synthetic', type: 'application/pdf', size: 141000, uploadedAt: '' }]; });
+  p.items[0].files.push({ ...p.items[0].files[0], id: 'second-statement', name: 'Second mortgage statement.pdf' });
   p.items[0].review = 'APPROVED';
   p.items[1].review = 'CHANGES'; p.items[1].feedback = 'Please provide the current renewal showing the updated property coverage.';
   p.items[4].files = []; p.items[4].waiver = 'Not a VA loan'; p.items[4].review = 'APPROVED';
@@ -51,6 +52,9 @@ describe('submission borrower workspace', () => {
     expect(html.indexOf('>File at a glance</h3>')).toBeLessThan(html.indexOf('>Contact</h3>'));
     expect(html).not.toContain('Processing snapshot');
     expect(html).toContain('Approval saved');
+    expect(html).toContain('2 attachments');
+    expect(html).toContain('Second mortgage statement.pdf');
+    expect(html.match(/data-file-tile=/g)).toHaveLength(6);
     expect(html).toContain('Document request saved');
     expect(html).toContain('N/A · verified');
     if (process.env.RENDER_SUBMISSION_WORKSPACE === '1') {
