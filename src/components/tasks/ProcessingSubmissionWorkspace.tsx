@@ -17,8 +17,8 @@ const tabs = [
   { id: 'activity', label: 'Activity & routing', icon: Activity },
 ] as const;
 
-export function SubmissionWorkspaceContent({ task, rows, method, assignment, review, conversation, conversationCount = 0, children }: {
-  task: Task; rows: Row[]; method: string; assignment: string; review: React.ReactNode; conversation: React.ReactNode; conversationCount?: number; children: React.ReactNode;
+export function SubmissionWorkspaceContent({ task, rows, method, assignment, review, startGate, conversation, conversationCount = 0, children }: {
+  task: Task; rows: Row[]; method: string; assignment: string; review: React.ReactNode; startGate?: React.ReactNode; conversation: React.ReactNode; conversationCount?: number; children: React.ReactNode;
 }) {
   const [tab, setTab] = useState<Tab>('submission');
   const value = (...keys: string[]) => keys.map(key => rows.find(row => row.key === key)?.value).find(Boolean);
@@ -30,7 +30,8 @@ export function SubmissionWorkspaceContent({ task, rows, method, assignment, rev
   const borrowerKeys = /borrower|employment|employer|income|credit|citizen|veteran/i;
   const propertyKeys = /property|homeValue|occupancy|yearBuilt|yearA[cq]|titleWill/i;
   const filtered = rows.filter(row => tab === 'borrower' ? borrowerKeys.test(row.key) : tab === 'property' ? propertyKeys.test(row.key) : !borrowerKeys.test(row.key) && !propertyKeys.test(row.key));
-  return <>
+  return <div className="relative flex min-h-0 flex-1 flex-col">
+    <div inert={!!startGate} aria-hidden={startGate ? true : undefined} className={`flex min-h-0 flex-1 flex-col ${startGate ? 'select-none grayscale opacity-45' : ''}`}>
     <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 sm:px-5" aria-label="Submission workspace sections">
       {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-pressed={tab === id} onClick={() => setTab(id)} className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${tab === id ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}><Icon size={14} aria-hidden="true" />{label}{id === 'conversation' && conversationCount > 0 && <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700">{conversationCount}</span>}</button>)}
     </nav>
@@ -46,10 +47,12 @@ export function SubmissionWorkspaceContent({ task, rows, method, assignment, rev
         </div>
       </div>
       {tab !== 'submission' && tab !== 'activity' && tab !== 'conversation' && <DetailCard title={tabs.find(item => item.id === tab)!.label} description="Information captured with this submission." icon={FileText}><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filtered.map(row => <DetailField key={row.key} label={row.label} value={row.value} />)}</div>{!filtered.length && <p className="text-sm text-slate-500">No details were provided for this section.</p>}</DetailCard>}
-      <div hidden={tab !== 'conversation'} className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><p className="mb-5 text-sm text-slate-500">The task’s conversation history, including document requests and Loan Officer responses. Use Submission Details for document decisions and Activity &amp; routing for task responses.</p>{conversation}</div>
+      <div hidden={tab !== 'conversation'} className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><p className="mb-5 text-sm text-slate-500">The taskâ€™s conversation history, including document requests and Loan Officer responses. Use Submission Details for document decisions and Activity &amp; routing for task responses.</p>{conversation}</div>
       <div hidden={tab !== 'activity'}>{children}</div>
     </div>
-  </>;
+    </div>
+    {startGate && <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-200/60 p-5 backdrop-blur-[2px]">{startGate}</div>}
+  </div>;
 }
 
 export function ProcessingSubmissionWorkspace({ task, onClose, children, ...content }: Parameters<typeof SubmissionWorkspaceContent>[0] & { onClose: () => void }) {
@@ -66,7 +69,7 @@ export function ProcessingSubmissionWorkspace({ task, onClose, children, ...cont
     const handle = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); onClose(); }
       if (event.key !== 'Tab') return;
-      const focusable = Array.from(panel.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]') || []).filter(element => element.getClientRects().length > 0 && !element.closest('fieldset[disabled]'));
+      const focusable = Array.from(panel.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]') || []).filter(element => element.getClientRects().length > 0 && !element.closest('fieldset[disabled], [inert]'));
       const first = focusable[0]; const last = focusable.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -82,7 +85,7 @@ export function ProcessingSubmissionWorkspace({ task, onClose, children, ...cont
   </div>, document.body);
 }
 
-export function TaskModalShell({ pilot, task, rows, method, assignment, review, conversation, conversationCount, onClose, children }: Parameters<typeof ProcessingSubmissionWorkspace>[0] & { pilot: boolean }) {
-  if (pilot) return <ProcessingSubmissionWorkspace task={task} rows={rows} method={method} assignment={assignment} review={review} conversation={conversation} conversationCount={conversationCount} onClose={onClose}>{children}</ProcessingSubmissionWorkspace>;
+export function TaskModalShell({ pilot, task, rows, method, assignment, review, startGate, conversation, conversationCount, onClose, children }: Parameters<typeof ProcessingSubmissionWorkspace>[0] & { pilot: boolean }) {
+  if (pilot) return <ProcessingSubmissionWorkspace task={task} rows={rows} method={method} assignment={assignment} review={review} startGate={startGate} conversation={conversation} conversationCount={conversationCount} onClose={onClose}>{children}</ProcessingSubmissionWorkspace>;
   return <div data-live-refresh-pause="true" className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4" onClick={onClose}><div className="w-full max-w-5xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-[24px] border border-slate-200/60 bg-slate-50 p-6 sm:p-10 shadow-2xl" style={{ scrollbarGutter: 'stable' }} onClick={event => event.stopPropagation()}>{children}</div></div>;
 }

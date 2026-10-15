@@ -4535,7 +4535,15 @@ export function TaskList({
                       )}
                     </div>
                   );
-        const submissionReview = processingDocumentTaskId(task.submissionData) ? (<TaskSubmissionDocuments key={pilotCacheKey(task)} taskId={task.id} cacheKey={pilotCacheKey(task)} startControl={canManageQcDesk && task.status === 'PENDING' && task.workflowState === TaskWorkflowState.NONE ? <div className="rounded-xl border border-violet-200 bg-violet-50 p-4"><p className="text-sm font-semibold">{deskStartOverlayMessage}</p><button type="button" className="app-btn-primary mt-3" disabled={(hasAssignedSpecialist && !isAssignedToCurrentUser) || isDeskTaskActionStarting} onClick={() => void handleStartDeskTask(task)}>{isDeskTaskActionStarting ? 'Starting…' : hasAssignedSpecialist && !isAssignedToCurrentUser ? `Assigned to ${assignedSpecialistName}` : 'Start Processing Request'}</button></div> : undefined} />) : null;
+        const submissionStartGate = canManageQcDesk && task.status === 'PENDING' && task.workflowState === TaskWorkflowState.NONE ? (
+          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-xl">
+            <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-700"><FileText size={24} aria-hidden="true" /></span>
+            <h3 className="text-lg font-bold text-slate-950">{hasAssignedSpecialist && !isAssignedToCurrentUser ? 'Assigned to another reviewer' : 'Ready to begin?'}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">{hasAssignedSpecialist && !isAssignedToCurrentUser ? `This request is assigned to ${assignedSpecialistName}.` : 'Start this processing request to claim it and unlock the documents, conversation, and submission details.'}</p>
+            <button type="button" className="app-btn-primary mt-5 w-full justify-center" disabled={(hasAssignedSpecialist && !isAssignedToCurrentUser) || isDeskTaskActionStarting} onClick={() => void handleStartDeskTask(task)}>{isDeskTaskActionStarting ? 'Starting…' : hasAssignedSpecialist && !isAssignedToCurrentUser ? `Assigned to ${assignedSpecialistName}` : 'Start Processing Request'}</button>
+          </div>
+        ) : undefined;
+        const submissionReview = processingDocumentTaskId(task.submissionData) ? <TaskSubmissionDocuments key={pilotCacheKey(task)} taskId={task.id} cacheKey={pilotCacheKey(task)} /> : null;
         return (
           <React.Fragment key={task.id}>
             <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:shadow-md hover:border-blue-300 hover:ring-1 hover:ring-blue-100">
@@ -4773,7 +4781,7 @@ export function TaskList({
             </div>
 
             {isFocused && (
-              <TaskModalShell pilot={!!processingDocumentTaskId(task.submissionData)} task={task} rows={visibleSubmissionDataRows} method={processingRoutingSummary?.methodLabel || 'Not provided'} assignment={processingRoutingSummary?.assignmentLabel || 'Not provided'} review={submissionReview} conversation={taskConversation} conversationCount={visibleTimelineItems.length} onClose={() => { setFocusedTaskId(null); setAttachmentOpenError(null); }}>
+              <TaskModalShell pilot={!!processingDocumentTaskId(task.submissionData)} task={task} rows={visibleSubmissionDataRows} method={processingRoutingSummary?.methodLabel || 'Not provided'} assignment={processingRoutingSummary?.assignmentLabel || 'Not provided'} review={submissionReview} startGate={submissionStartGate} conversation={taskConversation} conversationCount={visibleTimelineItems.length} onClose={() => { setFocusedTaskId(null); setAttachmentOpenError(null); }}>
                   <div className={processingDocumentTaskId(task.submissionData) ? 'hidden' : 'flex items-start justify-between gap-6 border-b border-slate-200/60 pb-8'}>
                     <div className="flex items-center gap-5">
                       <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-xl font-bold text-white shadow-lg shadow-blue-600/20 ring-4 ring-white">

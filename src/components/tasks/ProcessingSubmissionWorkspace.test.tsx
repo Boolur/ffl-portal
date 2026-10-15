@@ -18,7 +18,7 @@ import { SubmissionWorkspaceContent } from './ProcessingSubmissionWorkspace';
 import { SubmissionPilot } from '../pipeline/SubmissionPilot';
 import { WorkspacePanel } from '../pipeline/BorrowerWorkspaceLayout';
 
-function fixture() {
+function fixture(locked = false) {
   const task = { id: 'test', title: 'Submit for Processing', status: 'IN_PROGRESS', assignedUser: { id: 'jr', name: 'Jordan Reviewer' }, loan: { borrowerName: 'Taylor Example', loanNumber: 'TEST-001', loanOfficer: { name: 'Example Loan Officer' } } } as Task;
   const p = initialPilotPackage(); p.state = 'REVIEW'; p.reviewerId = 'jr';
   p.items.forEach((item, index) => { item.files = [{ id: `file-${index}`, name: index === 1 ? 'Homeowners insurance renewal and coverage declaration 2026.pdf' : `${item.label.split(' / ')[0]}.pdf`, path: 'synthetic', type: 'application/pdf', size: 141000, uploadedAt: '' }]; });
@@ -26,10 +26,18 @@ function fixture() {
   p.items[1].review = 'CHANGES'; p.items[1].feedback = 'Please provide the current renewal showing the updated property coverage.';
   p.items[4].files = []; p.items[4].waiver = 'Not a VA loan'; p.items[4].review = 'APPROVED';
   const rows = Object.entries({ borrowerPhone: '555-0100', borrowerEmail: 'taylor@example.test', loanAmount: '325000', lender: 'Example lender', loanType: 'Conventional', loanProgram: 'Purchase', propertyAddress: '100 Example Street, Sample City, CA' }).map(([key, value]) => ({ key, label: key, value }));
-  return renderToStaticMarkup(<WorkspacePanel><header className="border-b border-slate-200 bg-white px-6 py-4"><h1 className="text-2xl font-black text-slate-950">Taylor Example</h1><p className="text-sm text-slate-500">Processing submission · In review</p></header><SubmissionWorkspaceContent task={task} rows={rows} method="In house" assignment="Example processing team" conversation={<p>Earlier LO response and reviewer notes</p>} conversationCount={2} review={<SubmissionPilot requestTaskId="test" initialData={{ owner: false, canConfigureArive: false, ariveConfigured: false, userId: 'jr', loans: [], packages: [{ id: 'documents', loanId: 'loan', borrower: 'Taylor Example', loanNumber: 'TEST-001', package: p }] }} />}><p>Existing routing and activity</p></SubmissionWorkspaceContent></WorkspacePanel>);
+  return renderToStaticMarkup(<WorkspacePanel><header className="border-b border-slate-200 bg-white px-6 py-4"><h1 className="text-2xl font-black text-slate-950">Taylor Example</h1><p className="text-sm text-slate-500">Processing submission · In review</p></header><SubmissionWorkspaceContent task={task} rows={rows} method="In house" assignment="Example processing team" startGate={locked ? <button type="button">Start Processing Request</button> : undefined} conversation={<p>Earlier LO response and reviewer notes</p>} conversationCount={2} review={<SubmissionPilot requestTaskId="test" initialData={{ owner: false, canConfigureArive: false, ariveConfigured: false, userId: 'jr', loans: [], packages: [{ id: 'documents', loanId: 'loan', borrower: 'Taylor Example', loanNumber: 'TEST-001', package: p }] }} />}><p>Existing routing and activity</p></SubmissionWorkspaceContent></WorkspacePanel>);
 }
 
 describe('submission borrower workspace', () => {
+  it('makes tabs and review controls inert until Start, with the start button outside the locked region', () => {
+    const html = fixture(true);
+    expect(html).toContain('inert=""');
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('Start Processing Request');
+    expect(html.indexOf('Start Processing Request')).toBeGreaterThan(html.indexOf('Existing routing and activity'));
+    expect(fixture()).not.toContain('inert=""');
+  });
   it('places documents first and orders the right sidebar as Contact, File at a glance, Ownership', () => {
     const html = fixture();
     expect(html).toContain('Submission Details');
