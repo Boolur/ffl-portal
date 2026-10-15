@@ -1,12 +1,18 @@
-import type { getSubmissionPilot } from '@/app/actions/submissionPilotActions';
+import { getSubmissionPilot } from '@/app/actions/submissionPilotActions';
 
 type Result = Awaited<ReturnType<typeof getSubmissionPilot>>;
 const pending = new Map<string, { taskId: string; expires: number; promise: Promise<Result>; result?: Result }>();
 
 export async function fetchPilotReview(taskId: string): Promise<Result> {
-  const response = await fetch(`/api/processing-submission/${encodeURIComponent(taskId)}`, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
-  if (!response.ok && response.status !== 403) throw new Error('Unable to load submission documents. Please retry.');
-  return response.json();
+  try {
+    const response = await fetch(`/api/processing-submission/${encodeURIComponent(taskId)}`, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+    if (response.redirected || !response.headers.get('content-type')?.includes('application/json')) throw new Error('Unexpected document response.');
+    if (!response.ok && response.status !== 403) throw new Error('Unable to load submission documents. Please retry.');
+    return await response.json();
+  } catch {
+    // Preserve the original authorized read when the preload transport fails.
+    return getSubmissionPilot(taskId);
+  }
 }
 
 export function invalidatePilotReview(taskId: string) {
