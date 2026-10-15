@@ -38,6 +38,7 @@ export function readPilotPackage(value: unknown): PilotPackage | null {
   return p?.version === 1 && Array.isArray(p.items) ? p : null;
 }
 export function pilotSubmissionError(p: PilotPackage): string | null {
+  if (p.items.some(i => !i.required && i.files.length && !i.label.trim())) return 'Add a label for every additional document.';
   if (!['DRAFT', 'CHANGES'].includes(p.state)) return 'This package is not open for submission.';
   if (p.items.some(i => i.pending)) return 'Finish or cancel pending uploads first.';
   if (p.items.some(i => i.required && !i.files.length && !i.waiver.trim())) return 'Upload each required item or explain why it is not applicable.';
