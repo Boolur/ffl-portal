@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => {
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+vi.mock('@/lib/taskLifecycleTimeline', async () => import('../../lib/taskLifecycleTimeline'));
+vi.mock('@/lib/roleLabels', async () => import('../../lib/roleLabels'));
 vi.mock('@/lib/prisma', () => ({ prisma: mocks.db }));
 vi.mock('@/lib/adminTiers', () => ({ isAdmin: (role: string) => role === 'ADMIN_III', isAdminIII: (role: string) => role === 'ADMIN_III' }));
 vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn(() => 'encrypted') }));
@@ -33,6 +35,37 @@ beforeEach(() => {
   mocks.db.user.findMany.mockResolvedValue([]);
 });
 describe('pilot server authorization and concurrency', () => {
+  it.each(['CHANGES', 'REVIEW'] as const)('returns %s corrections to Processing and closes the LO task atomically', async state => {
+    asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER'); const p = packageTask(); p.state = state;
+    p.items.forEach(item => { item.waiver = 'Not applicable'; });
+    p.items[0].files = [{ id: 'file', name: 'test.pdf', path: 'test.pdf', type: 'application/pdf', size: 12, uploadedAt: '' }];
+    mocks.db.task.findFirst.mockResolvedValueOnce({ id: 'request', status: 'BLOCKED', workflowState: 'WAITING_ON_LO', assignedUserId: 'jr' }).mockResolvedValueOnce({ id: 'lo-response' });
+    const documentTask = await mocks.db.task.findUnique();
+    mocks.db.task.findUnique.mockResolvedValueOnce(documentTask).mockResolvedValueOnce({ id: 'request', status: 'BLOCKED', workflowState: 'WAITING_ON_LO', assignedUserId: 'jr', updatedAt: new Date(), submissionData: { processingDocumentTaskId: 'task' } });
+    const result = await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'SUBMIT' });
+    expect(result.success).toBe(true);
+    expect(mocks.db.task.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'request', workflowState: 'WAITING_ON_LO' }), data: expect.objectContaining({ status: 'PENDING', workflowState: 'READY_TO_COMPLETE' }) }));
+    expect(mocks.db.task.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'lo-response' }), data: expect.objectContaining({ status: 'COMPLETED' }) }));
+    expect(p.reviewerId).toBe('jr');
+    expect(p.state).toBe('REVIEW');
+  });
+  it('rejects repeat submission after the task has returned to Processing', async () => {
+    asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER'); packageTask();
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'PENDING', workflowState: 'READY_TO_COMPLETE', assignedUserId: 'jr' });
+    expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'SUBMIT' })).success).toBe(false);
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
+  it('does not submit documents when the linked LO response task is missing', async () => {
+    asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER'); const p = packageTask(); p.state = 'CHANGES';
+    p.items.forEach(item => { item.waiver = 'Not applicable'; });
+    p.items[0].files = [{ id: 'file', name: 'test.pdf', path: 'test.pdf', type: 'application/pdf', size: 12, uploadedAt: '' }];
+    const documentTask = await mocks.db.task.findUnique();
+    mocks.db.task.findUnique.mockResolvedValueOnce(documentTask).mockResolvedValueOnce({ id: 'request', workflowState: 'WAITING_ON_LO' });
+    mocks.db.task.findFirst.mockResolvedValueOnce({ id: 'request', status: 'BLOCKED', workflowState: 'WAITING_ON_LO', assignedUserId: 'jr' }).mockResolvedValueOnce(null);
+    expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'SUBMIT' })).success).toBe(false);
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
+
   it.each(['inline', 'attachment'] as const)('authorizes a %s file link with the correct display behavior', async disposition => {
     asUser('jr', 'PROCESSOR_JR'); const p = packageTask();
     p.items[0].files = [{ id: 'file', name: 'statement.pdf', path: 'private/test.pdf', type: 'application/pdf', size: 12, uploadedAt: '' }];

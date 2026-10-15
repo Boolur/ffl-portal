@@ -2,7 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileCheck2, ArrowLeft, RefreshCw, House, ShieldCheck, ReceiptText, IdCard, BadgeCheck, FileSignature, FolderPlus, Check, CircleAlert, Minus, LockKeyhole, Send, XCircle } from 'lucide-react';
+import { Loader2, FileCheck2, ArrowLeft, RefreshCw, House, ShieldCheck, ReceiptText, IdCard, BadgeCheck, FileSignature, FolderPlus, Check, CircleAlert, Minus, LockKeyhole, Send, XCircle } from 'lucide-react';
 import { requestInfoFromLoanOfficer } from '@/app/actions/taskActions';
 import { fetchPilotReview, invalidatePilotReview } from '@/lib/pilotReviewLoader';
 import { pilotDecisionError } from '@/lib/pilotReviewChecklist';
@@ -24,8 +24,10 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
   const [loanId, setLoanId] = useState('');
   const [busy, setBusy] = useState(false);
   const uploadLock = useRef(false);
+  const actionLock = useRef(false);
   const [uploadProgress, setUploadProgress] = useState<{ itemId: string; text: string } | null>(null);
   const [message, setMessage] = useState('');
+  const [submissionSent, setSubmissionSent] = useState(false);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [extra, setExtra] = useState('');
   const [editingReviews, setEditingReviews] = useState<string[]>([]);
@@ -43,10 +45,12 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
     setData(r.data);
   }
   async function run(work: () => Promise<void>) {
-    setBusy(true); setMessage('');
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setBusy(true); setMessage(''); setSubmissionSent(false);
     try { await work(); await reload(); }
-    catch (e) { setMessage(e instanceof Error ? e.message : 'Please retry.'); try { await reload(); } catch { /* Preserve the actionable original error. */ } }
-    finally { setBusy(false); }
+    catch (e) { setSubmissionSent(false); setMessage(e instanceof Error ? e.message : 'Please retry.'); try { await reload(); } catch { /* Preserve the actionable original error. */ } }
+    finally { actionLock.current = false; setBusy(false); }
   }
   async function change(input: Omit<Parameters<typeof changeSubmissionPilot>[0], 'taskId' | 'revision'>) {
     if (!current || !p) return;
@@ -110,7 +114,7 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
     </>}
     {requestTaskId && <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="rounded-2xl bg-violet-100 p-3 text-violet-700"><FileCheck2 size={24} /></span><div><h3 className="text-lg font-bold">Document review</h3><p className="text-sm text-muted-foreground">One checklist. Every file and decision, together.</p></div></div><button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void run(reload)}><RefreshCw size={14} />Refresh</button></div>}
     {startControl}
-    <div role="status" aria-live="polite" className={message ? 'rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800' : 'text-sm text-muted-foreground'}>{message || (busy ? 'Saving…' : '')}</div>
+    <div role="status" aria-live="polite" className={submissionSent ? 'rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800' : message ? 'rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800' : 'text-sm text-muted-foreground'}>{message || (busy ? 'Saving…' : '')}</div>
     <div className={requestTaskId ? 'space-y-5' : 'grid items-start gap-6 lg:grid-cols-[300px_1fr]'}>
       {!requestTaskId && <aside className="app-surface-card space-y-5">
         {data.owner && <div className="space-y-3"><label className="block text-sm font-semibold" htmlFor="pilot-loan">Existing pipeline loan</label>
@@ -157,7 +161,7 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
           {!required && editable && <div className="app-surface-card space-y-2"><label className="block text-sm">Additional document label<input className="app-input mt-1" maxLength={150} disabled={busy} value={extra} onChange={e => setExtra(e.target.value)} placeholder="Example: Letter of explanation" /></label><button type="button" className="app-btn-secondary" disabled={busy || !extra.trim()} onClick={() => void run(async () => { await change({ action: 'ADD', text: extra }); setExtra(''); })}>Add document category</button></div>}
         </section>)}
         <section className="app-surface-card space-y-3">
-          {editable && <><p className="text-sm text-muted-foreground">{pilotSubmissionError(p) || 'All required categories are ready to send for review.'}</p><button type="button" className="app-btn-primary" disabled={busy || !!pilotSubmissionError(p)} onClick={() => void run(() => change({ action: 'SUBMIT' }))}>{p.state === 'CHANGES' ? 'Resubmit corrections' : 'Submit to Jr Processor'}</button></>}
+          {editable && <><p className="text-sm text-muted-foreground">{pilotSubmissionError(p) || 'All required categories are ready to send for review.'}</p><button type="button" className="app-btn-primary" disabled={busy || !!pilotSubmissionError(p)} aria-busy={busy} onClick={() => void run(async () => { await change({ action: 'SUBMIT' }); setSubmissionSent(true); setMessage('Documents sent to Processing for review.'); router.refresh(); })}>{busy && <Loader2 size={16} className="animate-spin" />}{busy ? 'Sending to Processing…' : p.state === 'CHANGES' ? 'Resubmit corrections' : 'Submit to Jr Processor'}</button></>}
           {reviewing && !requestTaskId && <><p className="text-sm text-muted-foreground">{pilotApprovalError(p) || 'All documents and explanations have been approved.'}</p><div className="flex flex-wrap gap-2"><button type="button" className="app-btn-success" disabled={busy || !!pilotApprovalError(p)} onClick={() => void run(() => change({ action: 'APPROVE' }))}>Approve package</button><button type="button" className="app-btn-danger" disabled={busy || !p.items.some(i => i.review === 'CHANGES')} onClick={() => void run(() => change({ action: 'RETURN' }))}>Return corrections to LO</button></div></>}
           {requestTaskId && !data.owner && <div className="space-y-4">
             <div><h3 className="font-bold">Processing decision</h3><p className="mt-1 text-sm text-muted-foreground">Your document decisions above are the checklist. No duplicate entries.</p></div>

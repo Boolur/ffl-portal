@@ -1,5 +1,6 @@
 'use server';
 
+import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
 import { randomUUID } from 'crypto';
 import { assertStoredUpload } from '../../lib/storedUploadVerification';
 import { getServerSession } from 'next-auth';
@@ -34,6 +35,8 @@ async function taskAccess(id: string, a: Actor, db: Prisma.TransactionClient = p
   const p = readPilotPackage(task?.submissionData);
   if (!task || task.kind !== null || task.title !== 'Processing submission pilot — documents' || !p || task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID) throw new Error('Pilot package not found.');
   const request = linkedRequest ?? await db.task.findFirst({ where: { loanId: task.loanId, kind: 'SUBMIT_PROCESSING', submissionData: { path: ['processingDocumentTaskId'], equals: id } }, select: { id: true, status: true, workflowState: true, assignedUserId: true } });
+  // Older resubmissions updated only the documents. Keep those packages actionable until the task is returned too.
+  if (a.owner && request?.workflowState === 'WAITING_ON_LO' && p.state === 'REVIEW') p.state = 'CHANGES';
   // The existing request's Start/reassign controls own the review assignment.
   if (request && request.status !== 'COMPLETED') p.reviewerId = !((request.status === 'IN_PROGRESS' && (!request.workflowState || request.workflowState === 'NONE')) || (request.status === 'PENDING' && request.workflowState === 'READY_TO_COMPLETE')) ? null : request.assignedUserId;
   if (!a.owner && p.state === 'DRAFT') throw new Error('The LO has not submitted this package yet.');
@@ -48,6 +51,25 @@ async function mutate(id: string, revision: number, a: Actor, edit: (p: PilotPac
     if (p.revision !== revision) throw new Error('This package changed. Refresh and try again.');
     const previousState = p.state;
     const message = edit(p);
+    // Return the real Processing task in the same transaction as its documents.
+    if (a.owner && previousState === 'CHANGES' && p.state === 'REVIEW' && request) {
+      const parent = await tx.task.findUnique({ where: { id: request.id } });
+      if (!parent || parent.workflowState !== 'WAITING_ON_LO') throw new Error('This Processing request is no longer waiting for corrections. Refresh and try again.');
+      const child = await tx.task.findFirst({ where: { parentTaskId: parent.id, kind: 'LO_NEEDS_INFO', status: { not: 'COMPLETED' } } });
+      if (!child) throw new Error('The LO response task was not found. Refresh and try again.');
+      const response = 'Corrected submission documents returned to Processing for review.';
+      const prior = (parent.submissionData || {}) as Prisma.JsonObject;
+      const notes = Array.isArray(prior.notesHistory) ? prior.notesHistory : [];
+      const submissionData = appendLifecycleHistoryEvent({ ...prior, notesHistory: [...notes, { author: a.name, role: a.role, message: response, date: new Date().toISOString() }] }, {
+        actorName: a.name, actorRole: a.role, eventType: 'LO_RESPONDED',
+        fromStatus: parent.status, toStatus: 'PENDING', fromWorkflow: parent.workflowState,
+        toWorkflow: 'READY_TO_COMPLETE', note: response,
+      }) as Prisma.InputJsonObject;
+      const moved = await tx.task.updateMany({ where: { id: parent.id, updatedAt: parent.updatedAt, workflowState: 'WAITING_ON_LO' }, data: { status: 'PENDING', workflowState: 'READY_TO_COMPLETE', submissionData } });
+      const closed = await tx.task.updateMany({ where: { id: child.id, status: { not: 'COMPLETED' } }, data: { status: 'COMPLETED', completedAt: new Date(), submissionData } });
+      if (moved.count !== 1 || closed.count !== 1) throw new Error('This response changed. Refresh and try again.');
+      p.reviewerId = parent.assignedUserId;
+    }
     p.revision++;
     p.history.push({ at: new Date().toISOString(), actor: a.name, message });
     const updated = await tx.task.updateMany({ where: { id, updatedAt: task.updatedAt }, data: {
@@ -63,11 +85,12 @@ async function mutate(id: string, revision: number, a: Actor, edit: (p: PilotPac
       const recipients = p.state === 'REVIEW'
         ? p.reviewerId ? [{ id: p.reviewerId }] : await tx.user.findMany({ where: { active: true, OR: [{ role: 'PROCESSOR_JR' }, { roles: { has: 'PROCESSOR_JR' } }] }, select: { id: true } })
         : [{ id: SUBMISSION_PILOT_LO_ID }];
-      await tx.notification.createMany({ data: recipients.map(u => ({ userId: u.id, taskId: id, eventLabel: 'SUBMISSION_PILOT', title: 'Processing submission pilot', message: `${task.loan.borrowerName}: ${message}`, href: `/pipeline/submission-pilot?task=${id}` })) });
+      await tx.notification.createMany({ data: recipients.map(u => ({ userId: u.id, taskId: request?.id || id, eventLabel: 'SUBMISSION_PILOT', title: 'Processing submission pilot', message: `${task.loan.borrowerName}: ${message}`, href: request ? '/tasks' : `/pipeline/submission-pilot?task=${id}` })) });
     }
   });
   revalidatePath('/pipeline/submission-pilot');
   revalidatePath('/tasks');
+  revalidatePath('/');
 }
 async function result<T>(work: () => Promise<T>) {
   try { return { success: true as const, data: await work() }; }
