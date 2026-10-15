@@ -16,13 +16,20 @@ async function credentials(): Promise<AriveCredentials> {
   catch { throw new AriveError('Arive credentials could not be decrypted. Ask an Admin III to reconnect.'); }
 }
 async function responseJson(response: Response, operation = 'API request') {
-  if (!response.ok) throw new AriveError(`Arive ${operation} returned HTTP ${response.status}. ${response.status === 401 || response.status === 403 ? 'Check the credentials and Arive-provisioned permission for this operation.' : response.status === 429 ? 'Rate limit reached; try again later.' : 'Please retry or contact your administrator.'}`);
+  if (!response.ok) {
+    // Return only allowlisted gateway diagnostics, never arbitrary upstream bodies or credentials.
+    const knownTypes = new Set(['ForbiddenException', 'MissingAuthenticationTokenException', 'InvalidSignatureException', 'AccessDeniedException', 'UnauthorizedException', 'NotAuthorizedException', 'WAFForbiddenException']);
+    const type = response.headers.get('x-amzn-errortype')?.split(':')[0];
+    const requestId = response.headers.get('x-amzn-requestid');
+    const diagnostics = [type && knownTypes.has(type) ? `Gateway code: ${type}.` : '', requestId && /^[a-zA-Z0-9-]{8,100}$/.test(requestId) ? `Request ID: ${requestId}.` : ''].filter(Boolean).join(' ');
+    throw new AriveError(`Arive ${operation} returned HTTP ${response.status}. ${response.status === 401 || response.status === 403 ? 'Check the credentials and Arive-provisioned permission for this operation.' : response.status === 429 ? 'Rate limit reached; try again later.' : 'Please retry or contact your administrator.'}${diagnostics ? ` ${diagnostics}` : ''}`);
+  }
   try { return await response.json(); } catch { throw new AriveError('Arive returned an unexpected response.'); }
 }
 export async function ariveSession(provided?: AriveCredentials) {
   const c = provided || await credentials();
   let auth;
-  try { auth = await responseJson(await fetch(`${BASE}/auth/access-token`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey }, body: JSON.stringify(c), cache: 'no-store', signal: AbortSignal.timeout(20000), redirect: 'error' }), 'authentication'); }
+  try { auth = await responseJson(await fetch(`${BASE}/auth/access-token`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey }, body: JSON.stringify(c), cache: 'no-store', signal: AbortSignal.timeout(20000), redirect: 'error' }), 'authentication'); }
   catch (e) { if (e instanceof AriveError) throw e; throw new AriveError('Unable to connect to Arive.'); }
   if (typeof auth.AccessToken !== 'string' || !auth.AccessToken) throw new AriveError('Arive did not issue an access token.');
   return async (path: string, body?: object) => {

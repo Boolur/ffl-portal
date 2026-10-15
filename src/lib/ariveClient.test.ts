@@ -6,6 +6,14 @@ import { ariveSession, ariveClassifications, validAriveUploadUrl } from './arive
 const creds = { clientId: 'client', secret: 'test-secret', apiKey: 'test-api' };
 afterEach(() => vi.unstubAllGlobals());
 describe('Arive HTTP contract', () => {
+  it('includes only recognized gateway diagnostics for support', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('secret upstream body', { status: 403, headers: { 'x-amzn-errortype': 'ForbiddenException', 'x-amzn-requestid': '12345678-abcd-4321-abcd-123456789012' } })));
+    await expect(ariveSession(creds)).rejects.toThrow('Gateway code: ForbiddenException. Request ID: 12345678-abcd-4321-abcd-123456789012.');
+  });
+  it('omits unrecognized diagnostic header values', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('test-secret', { status: 403, headers: { 'x-amzn-errortype': 'test-secret', 'x-amzn-requestid': 'sensitive=value' } })));
+    await expect(ariveSession(creds)).rejects.toThrow(/^Arive authentication returned HTTP 403\. Check the credentials and Arive-provisioned permission for this operation\.$/);
+  });
   it('distinguishes rejected credentials from missing company document access', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(new Response('private', { status: 403 }))
       .mockResolvedValueOnce(Response.json({ AccessToken: 'token' }))
