@@ -57,3 +57,12 @@ The configured storage bucket was confirmed available and private on October 15,
 Automated tests additionally cover credential encryption, authentication headers, safe upload destinations, private attachment payloads, prevention of duplicate sends, ambiguous transfer responses, and preservation of notes after read failures. Credentials and live Arive response behavior still require the acceptance exercise above; mocked tests do not establish account provisioning.
 
 The task list preloads pilot checklist metadata through an authenticated, private/no-store GET route rather than the server-action queue. Background file preparation also uses authenticated GET reads, keeping it out of the mutation queue. Brief in-memory preloads are scoped to user, active role, and task version and invalidated on review reloads. The popup renders its review heading, Start control, and placeholder cards immediately if metadata is not ready. Read permissions and fresh server-side mutation checks remain enforced.
+
+
+## Submission task workspace
+
+Linked pilot Processing requests open in the shared Borrower Workspace panel. Submission Details places document review on the left and Contact, File at a glance, and Ownership on the right. The summary uses the submitted task fields; it does not invent missing pipeline data. Borrower, Property, and Loan tabs expose the captured submission details. Other tasks retain their existing modal.
+
+Conversation retains the existing authorized task timeline, including authors, timestamps, checklist notes, LO responses, and attachments, with an update-count badge and empty state. Existing waiting-note permissions and save actions are preserved. Task response and routing controls remain in Activity & routing; document decisions remain in Submission Details. Switching tabs keeps review drafts mounted. The pilot document audit remains available in its existing document workflow.
+
+Start is still required before review. Document cards share header, attachment, and decision rows; correction feedback appears below the attachment so icons and saved-decision footers align. File tiles retain click-to-open and drag behavior. The panel supports Escape, focus containment, and focus restoration. Synthetic desktop and narrow-screen render checks cover mixed approved/correction states and long filenames; component tests cover sidebar order and retained conversation content.

@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { readPilotPackage, processingDocumentTaskId } from '@/lib/submissionPilot';
 import { preloadPilotReview } from '@/lib/pilotReviewLoader';
+import { TaskModalShell } from './ProcessingSubmissionWorkspace';
 import { TaskSubmissionDocuments } from '@/components/pipeline/TaskSubmissionDocuments';
 import {
   Calendar,
@@ -4347,6 +4348,194 @@ export function TaskList({
           ? 'VA queue timer (from request creation)'
           : 'Disclosure SLA timer (resets when task updates)';
 
+        const taskConversation = (
+                    <div className="space-y-4">
+                      <div className="mb-5 flex items-center justify-between">
+                        <h4 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
+                            <MessageSquare className="h-4 w-4" />
+                          </div>
+                          Notes & Attachments
+                        </h4>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
+                          {visibleTimelineItems.length} update{visibleTimelineItems.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      {visibleTimelineItems.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 p-6 text-sm text-slate-500">No conversation yet. Requests, responses, notes, and attachments will appear here as this task progresses.</p>}
+                      <div className="space-y-3">
+                        {visibleTimelineItems.map((item) => {
+                          const purposeMeta =
+                            item.type === 'attachment' && item.attachmentPurpose
+                              ? getAttachmentPurposeMeta(item.attachmentPurpose)
+                              : null;
+                          return (
+                            <div
+                              key={item.id}
+                              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                            >
+                              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                                <span className="font-bold text-slate-800">
+                                  {item.actorName}
+                                </span>
+                                {item.actorRole && (
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold uppercase tracking-wide ${getRoleBubbleClass(item.actorRole)}`}
+                                  >
+                                    {getRoleDisplayLabel(item.actorRole)}
+                                  </span>
+                                )}
+                                <span className="text-slate-400">•</span>
+                                <span className="font-medium text-slate-500">
+                                  {formatPacificTimestamp(item.createdAt)}
+                                </span>
+                              </div>
+                              {item.type === 'note' ? (
+                                item.noteEntryType === 'qcChecklist' &&
+                                Array.isArray(item.checklist) &&
+                                item.checklist.length > 0 ? (
+                                  <div className="space-y-3">
+                                    {item.message && (
+                                      <p className="text-sm font-semibold leading-relaxed text-slate-700">
+                                        {item.message}
+                                      </p>
+                                    )}
+                                    <div className="space-y-2">
+                                      {item.checklist.map((row) => {
+                                        const statusMeta = getQcChecklistStatusPresentation(row.status);
+                                        const StatusIcon = getQcChecklistStatusIcon(row.status);
+                                        return (
+                                          <div
+                                            key={`${item.id}-${row.id}`}
+                                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                                          >
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <span
+                                                className={`inline-flex h-7 w-7 items-center justify-center rounded-full border ${statusMeta.className}`}
+                                                aria-label={statusMeta.label}
+                                                title={statusMeta.label}
+                                              >
+                                                <StatusIcon className="h-3.5 w-3.5" />
+                                              </span>
+                                              <span className="text-xs font-semibold text-slate-800">
+                                                {row.label}
+                                              </span>
+                                            </div>
+                                            <div className="mt-1.5 text-xs font-medium text-slate-600">
+                                              <span className="font-semibold text-slate-700">
+                                                Note:
+                                              </span>{' '}
+                                              {getChecklistNoteOptionLabel(row.noteOption)}
+                                              {row.noteText ? ` - ${row.noteText}` : ''}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : item.noteEntryType === 'jrChecklist' &&
+                                  Array.isArray(item.jrChecklist) &&
+                                  item.jrChecklist.length > 0 ? (
+                                  <div className="space-y-3">
+                                    {item.message && (
+                                      <p className="text-sm font-semibold leading-relaxed text-slate-700">
+                                        {item.message}
+                                      </p>
+                                    )}
+                                    <div className="space-y-2">
+                                      {item.jrChecklist.map((row) => {
+                                        const statusMeta = getJrChecklistStatusPresentation(
+                                          row.status,
+                                          row.id
+                                        );
+                                        const StatusIcon = getJrChecklistStatusIcon(row.status);
+                                        return (
+                                          <div
+                                            key={`${item.id}-${row.id}`}
+                                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                                          >
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="text-xs font-semibold text-slate-800">
+                                                {row.label}
+                                              </span>
+                                              <span
+                                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusMeta.className}`}
+                                              >
+                                                <StatusIcon className="h-3 w-3" />
+                                                {statusMeta.label}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-sm font-medium leading-relaxed text-slate-700">
+                                    {item.message}
+                                  </p>
+                                )
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    item.attachmentId &&
+                                    handleViewAttachment(item.attachmentId)
+                                  }
+                                  className="inline-flex max-w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                                >
+                                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-slate-600 ring-1 ring-slate-200">
+                                    <FileText className="h-4 w-4" />
+                                  </span>
+                                  <span className="max-w-[360px] truncate">
+                                    {item.attachmentFilename}
+                                  </span>
+                                  {purposeMeta && (
+                                    <span
+                                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${purposeMeta.badgeClassName}`}
+                                    >
+                                      {purposeMeta.label}
+                                    </span>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {canAddWaitingNote && (
+                        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+                          <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                            Add Note
+                          </label>
+                          <textarea
+                            value={waitingNoteByTask[task.id] || ''}
+                            onChange={(event) =>
+                              setWaitingNoteByTask((prev) => ({
+                                ...prev,
+                                [task.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Add additional notes or context while waiting on LO..."
+                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm min-h-[80px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                          />
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => void handleAddWaitingNote(task.id)}
+                              disabled={savingNoteId === task.id || !(waitingNoteByTask[task.id] || '').trim()}
+                              className="inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {savingNoteId === task.id && (
+                                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                              )}
+                              {savingNoteId === task.id ? 'Saving...' : 'Save Note'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+        const submissionReview = processingDocumentTaskId(task.submissionData) ? (<TaskSubmissionDocuments key={pilotCacheKey(task)} taskId={task.id} cacheKey={pilotCacheKey(task)} startControl={canManageQcDesk && task.status === 'PENDING' && task.workflowState === TaskWorkflowState.NONE ? <div className="rounded-xl border border-violet-200 bg-violet-50 p-4"><p className="text-sm font-semibold">{deskStartOverlayMessage}</p><button type="button" className="app-btn-primary mt-3" disabled={(hasAssignedSpecialist && !isAssignedToCurrentUser) || isDeskTaskActionStarting} onClick={() => void handleStartDeskTask(task)}>{isDeskTaskActionStarting ? 'Starting…' : hasAssignedSpecialist && !isAssignedToCurrentUser ? `Assigned to ${assignedSpecialistName}` : 'Start Processing Request'}</button></div> : undefined} />) : null;
         return (
           <React.Fragment key={task.id}>
             <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm transition-all hover:shadow-md hover:border-blue-300 hover:ring-1 hover:ring-blue-100">
@@ -4584,20 +4773,8 @@ export function TaskList({
             </div>
 
             {isFocused && (
-              <div
-                data-live-refresh-pause="true"
-                className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4"
-                onClick={() => {
-                  setFocusedTaskId(null);
-                  setAttachmentOpenError(null);
-                }}
-              >
-                <div
-                  className="w-full max-w-5xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-[24px] border border-slate-200/60 bg-slate-50 p-6 sm:p-10 shadow-2xl"
-                  style={{ scrollbarGutter: 'stable' }}
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex items-start justify-between gap-6 border-b border-slate-200/60 pb-8">
+              <TaskModalShell pilot={!!processingDocumentTaskId(task.submissionData)} task={task} rows={visibleSubmissionDataRows} method={processingRoutingSummary?.methodLabel || 'Not provided'} assignment={processingRoutingSummary?.assignmentLabel || 'Not provided'} review={submissionReview} conversation={taskConversation} conversationCount={visibleTimelineItems.length} onClose={() => { setFocusedTaskId(null); setAttachmentOpenError(null); }}>
+                  <div className={processingDocumentTaskId(task.submissionData) ? 'hidden' : 'flex items-start justify-between gap-6 border-b border-slate-200/60 pb-8'}>
                     <div className="flex items-center gap-5">
                       <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-xl font-bold text-white shadow-lg shadow-blue-600/20 ring-4 ring-white">
                         {getInitials(task.loan.borrowerName)}
@@ -4847,195 +5024,10 @@ export function TaskList({
                     )}
                   </div>
 
-                  {processingDocumentTaskId(task.submissionData) ? <section className="mt-6 border-t border-border pt-5"><TaskSubmissionDocuments key={pilotCacheKey(task)} taskId={task.id} cacheKey={pilotCacheKey(task)} startControl={canManageQcDesk && task.status === 'PENDING' && task.workflowState === TaskWorkflowState.NONE ? <div className="rounded-xl border border-violet-200 bg-violet-50 p-4"><p className="text-sm font-semibold">{deskStartOverlayMessage}</p><button type="button" className="app-btn-primary mt-3" disabled={(hasAssignedSpecialist && !isAssignedToCurrentUser) || isDeskTaskActionStarting} onClick={() => void handleStartDeskTask(task)}>{isDeskTaskActionStarting ? 'Starting…' : hasAssignedSpecialist && !isAssignedToCurrentUser ? `Assigned to ${assignedSpecialistName}` : 'Start Processing Request'}</button></div> : undefined} /></section> : readPilotPackage(task.submissionData) && (
+                  {!processingDocumentTaskId(task.submissionData) && readPilotPackage(task.submissionData) && (
                     <div className="app-surface-card mt-4"><p className="mb-3 text-sm">Review the documents submitted with this request, approve each category, or return corrections to the Loan Officer.</p><Link href={`/pipeline/submission-pilot?task=${encodeURIComponent(processingDocumentTaskId(task.submissionData) || task.id)}`} className="app-btn-primary">Open submission documents</Link></div>
                   )}
-                  {visibleTimelineItems.length > 0 && (
-                    <div className="mt-8">
-                      <div className="mb-5 flex items-center justify-between">
-                        <h4 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
-                            <MessageSquare className="h-4 w-4" />
-                          </div>
-                          Notes & Attachments
-                        </h4>
-                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
-                          {visibleTimelineItems.length} update{visibleTimelineItems.length === 1 ? '' : 's'}
-                        </span>
-                      </div>
-                      <div className="space-y-3">
-                        {visibleTimelineItems.map((item) => {
-                          const purposeMeta =
-                            item.type === 'attachment' && item.attachmentPurpose
-                              ? getAttachmentPurposeMeta(item.attachmentPurpose)
-                              : null;
-                          return (
-                            <div
-                              key={item.id}
-                              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-                            >
-                              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                                <span className="font-bold text-slate-800">
-                                  {item.actorName}
-                                </span>
-                                {item.actorRole && (
-                                  <span
-                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold uppercase tracking-wide ${getRoleBubbleClass(item.actorRole)}`}
-                                  >
-                                    {getRoleDisplayLabel(item.actorRole)}
-                                  </span>
-                                )}
-                                <span className="text-slate-400">•</span>
-                                <span className="font-medium text-slate-500">
-                                  {formatPacificTimestamp(item.createdAt)}
-                                </span>
-                              </div>
-                              {item.type === 'note' ? (
-                                item.noteEntryType === 'qcChecklist' &&
-                                Array.isArray(item.checklist) &&
-                                item.checklist.length > 0 ? (
-                                  <div className="space-y-3">
-                                    {item.message && (
-                                      <p className="text-sm font-semibold leading-relaxed text-slate-700">
-                                        {item.message}
-                                      </p>
-                                    )}
-                                    <div className="space-y-2">
-                                      {item.checklist.map((row) => {
-                                        const statusMeta = getQcChecklistStatusPresentation(row.status);
-                                        const StatusIcon = getQcChecklistStatusIcon(row.status);
-                                        return (
-                                          <div
-                                            key={`${item.id}-${row.id}`}
-                                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-                                          >
-                                            <div className="flex flex-wrap items-center gap-2">
-                                              <span
-                                                className={`inline-flex h-7 w-7 items-center justify-center rounded-full border ${statusMeta.className}`}
-                                                aria-label={statusMeta.label}
-                                                title={statusMeta.label}
-                                              >
-                                                <StatusIcon className="h-3.5 w-3.5" />
-                                              </span>
-                                              <span className="text-xs font-semibold text-slate-800">
-                                                {row.label}
-                                              </span>
-                                            </div>
-                                            <div className="mt-1.5 text-xs font-medium text-slate-600">
-                                              <span className="font-semibold text-slate-700">
-                                                Note:
-                                              </span>{' '}
-                                              {getChecklistNoteOptionLabel(row.noteOption)}
-                                              {row.noteText ? ` - ${row.noteText}` : ''}
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                ) : item.noteEntryType === 'jrChecklist' &&
-                                  Array.isArray(item.jrChecklist) &&
-                                  item.jrChecklist.length > 0 ? (
-                                  <div className="space-y-3">
-                                    {item.message && (
-                                      <p className="text-sm font-semibold leading-relaxed text-slate-700">
-                                        {item.message}
-                                      </p>
-                                    )}
-                                    <div className="space-y-2">
-                                      {item.jrChecklist.map((row) => {
-                                        const statusMeta = getJrChecklistStatusPresentation(
-                                          row.status,
-                                          row.id
-                                        );
-                                        const StatusIcon = getJrChecklistStatusIcon(row.status);
-                                        return (
-                                          <div
-                                            key={`${item.id}-${row.id}`}
-                                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-                                          >
-                                            <div className="flex items-center justify-between gap-2">
-                                              <span className="text-xs font-semibold text-slate-800">
-                                                {row.label}
-                                              </span>
-                                              <span
-                                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusMeta.className}`}
-                                              >
-                                                <StatusIcon className="h-3 w-3" />
-                                                {statusMeta.label}
-                                              </span>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <p className="text-sm font-medium leading-relaxed text-slate-700">
-                                    {item.message}
-                                  </p>
-                                )
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    item.attachmentId &&
-                                    handleViewAttachment(item.attachmentId)
-                                  }
-                                  className="inline-flex max-w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                                >
-                                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-slate-600 ring-1 ring-slate-200">
-                                    <FileText className="h-4 w-4" />
-                                  </span>
-                                  <span className="max-w-[360px] truncate">
-                                    {item.attachmentFilename}
-                                  </span>
-                                  {purposeMeta && (
-                                    <span
-                                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${purposeMeta.badgeClassName}`}
-                                    >
-                                      {purposeMeta.label}
-                                    </span>
-                                  )}
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {canAddWaitingNote && (
-                        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                          <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
-                            Add Note
-                          </label>
-                          <textarea
-                            value={waitingNoteByTask[task.id] || ''}
-                            onChange={(event) =>
-                              setWaitingNoteByTask((prev) => ({
-                                ...prev,
-                                [task.id]: event.target.value,
-                              }))
-                            }
-                            placeholder="Add additional notes or context while waiting on LO..."
-                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm min-h-[80px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                          />
-                          <div className="flex justify-end">
-                            <button
-                              type="button"
-                              onClick={() => void handleAddWaitingNote(task.id)}
-                              disabled={savingNoteId === task.id || !(waitingNoteByTask[task.id] || '').trim()}
-                              className="inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {savingNoteId === task.id && (
-                                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                              )}
-                              {savingNoteId === task.id ? 'Saving...' : 'Save Note'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {!processingDocumentTaskId(task.submissionData) && visibleTimelineItems.length > 0 && taskConversation}
 
                   {shouldShowProofUploader && (
                     <div className="relative mt-6">
@@ -6947,8 +6939,7 @@ export function TaskList({
                       Close
                     </button>
                   </div>
-                </div>
-              </div>
+              </TaskModalShell>
             )}
           </React.Fragment>
         );

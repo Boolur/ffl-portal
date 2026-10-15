@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, FileText, FileImage } from 'lucide-react';
 import type { downloadPilotFile } from '@/app/actions/submissionPilotActions';
 import type { PilotFile } from '@/lib/submissionPilot';
@@ -54,7 +54,7 @@ export function PilotDocumentFile({ taskId, file }: { taskId: string; file: Pilo
   }, [ready, prepare]);
   return <div className="flex w-full min-w-0 flex-col items-center gap-3 text-center">
     <div className="flex w-full flex-col items-center gap-3">
-      <a href={`/api/processing-submission/${encodeURIComponent(taskId)}/files/${encodeURIComponent(file.id)}`} target="_blank" rel="noopener noreferrer" title={`Open ${file.name} · drag to copy`} className="group flex aspect-square w-40 max-w-full cursor-grab flex-col items-center justify-center gap-2 rounded-xl border-2 border-violet-200 bg-white p-3 text-center shadow-sm transition hover:border-violet-400 hover:bg-violet-50 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 active:cursor-grabbing" onMouseEnter={() => void prepare()} onFocus={() => void prepare()} draggable={!!ready} onDragStart={e => {
+      <a data-file-tile="true" href={`/api/processing-submission/${encodeURIComponent(taskId)}/files/${encodeURIComponent(file.id)}`} target="_blank" rel="noopener noreferrer" title={`Open ${file.name} · drag to copy`} className="group grid aspect-square w-40 max-w-full cursor-grab grid-rows-[56px_32px] content-center justify-items-center gap-3 rounded-xl border-2 border-violet-200 bg-white p-3 text-center shadow-sm transition hover:border-violet-400 hover:bg-violet-50 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 active:cursor-grabbing" onMouseEnter={() => void prepare()} onFocus={() => void prepare()} draggable={!!ready} onDragStart={e => {
         if (!ready || ready.expires <= Date.now()) { e.preventDefault(); void prepare(); return; }
         e.dataTransfer.effectAllowed = 'copy';
         e.dataTransfer.clearData(); // Drag the attachment, not the preview link.
@@ -62,7 +62,7 @@ export function PilotDocumentFile({ taskId, file }: { taskId: string; file: Pilo
         try { e.dataTransfer.items.add(ready.file); } catch { /* DownloadURL remains available for desktop drops. */ }
       }} aria-label={`Open ${file.name} in a new tab, or drag to copy`}>
         <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><FileIcon size={32} strokeWidth={1.6} aria-hidden="true" />{loading && <Loader2 size={12} className="absolute -right-1 -top-1 animate-spin" aria-label="Preparing attachment" />}<span className="absolute -bottom-1 rounded border border-violet-200 bg-white px-1.5 text-[10px] font-bold tracking-wide">{fileLabel}</span></span>
-        <span className="line-clamp-2 w-full break-words text-xs font-semibold leading-4 text-slate-800">{file.name}</span>
+        <span className="line-clamp-2 h-8 w-full break-words text-xs font-semibold leading-4 text-slate-800">{file.name}</span>
       </a>
       <span className="text-xs text-muted-foreground">{file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB`}</span>
     </div>
