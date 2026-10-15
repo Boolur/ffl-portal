@@ -173,10 +173,10 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
             </fieldset>
             {decisionSent && <p role="status" className="text-sm font-semibold text-emerald-700">Decision saved and sent to the Loan Officer.</p>}
           </div>}
-          {p.state === 'APPROVED' && <p className="text-sm font-semibold">Package approved. Check each file’s transfer status in Arive documents and notes below.</p>}
+          {!requestTaskId && p.state === 'APPROVED' && <p className="text-sm font-semibold">Package approved. Check each file’s transfer status in Arive documents and notes below.</p>}
           <details><summary className="text-sm font-semibold">Submission history ({p.history.length})</summary><ol className="mt-3 space-y-2 text-sm">{[...p.history].reverse().map((h, index) => <li key={index}><span className="font-medium">{h.actor}</span> · {h.message}<span className="block text-xs text-muted-foreground">{new Date(h.at).toLocaleString()}</span></li>)}</ol></details>
         </section>
-        <ArivePackagePanel key={current.id} taskId={current.id} pkg={p} configured={data.ariveConfigured} parentBusy={busy} onChanged={reload} />
+        {!requestTaskId && <ArivePackagePanel key={current.id} taskId={current.id} pkg={p} configured={data.ariveConfigured} parentBusy={busy} onChanged={reload} />}
       </main> : data.owner ? <section className="app-surface-card space-y-6">
         <div><span className="app-count-badge">Your submission checklist</span><h2 className="mt-3 text-2xl font-bold">A complete file starts here</h2><p className="mt-2 text-sm text-muted-foreground">Choose an existing loan on the left, or open your Arive loan above. You can save your progress and return before submitting.</p></div>
         <div className="grid gap-3 sm:grid-cols-2">{PILOT_DOCUMENT_TYPES.map(([id, label]) => <div key={id} className="flex items-start gap-3 rounded-xl border border-border p-4"><FileCheck2 size={20} className="shrink-0 text-primary" /><div><h3 className="text-sm font-semibold">{label}</h3><p className="mt-1 text-xs text-muted-foreground">Document or explanation required</p></div></div>)}</div>
