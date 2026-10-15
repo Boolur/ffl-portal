@@ -18,6 +18,9 @@ export type PilotPackage = {
   version: 1; revision: number; state: 'DRAFT' | 'REVIEW' | 'CHANGES' | 'APPROVED';
   reviewerId: string | null; items: PilotItem[];
   retiredFiles?: PilotFile[];
+  ariveLink?: { id: string; loanNumber: string };
+  ariveNotes?: { syncedAt: string; notes: { id: string; text: string; author: string; createdAt: string; updatedAt: string; replies: { id: string; text: string; author: string; createdAt: string; updatedAt: string }[] }[] };
+  ariveTransfers?: Record<string, { state: 'SENDING' | 'SENT' | 'FAILED' | 'UNKNOWN'; attemptId: string; at: string; documentId?: number; error?: string }>;
   history: { at: string; actor: string; message: string }[];
 };
 export function initialPilotPackage(): PilotPackage {
@@ -43,6 +46,7 @@ export function pilotApprovalError(p: PilotPackage): string | null {
   return null;
 }
 export function validatePilotFile(name: string, size: number, type: string) {
+  if (name.length > 200) throw new Error('Use a filename no longer than 200 characters.');
   const types: Record<string, string> = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' };
   if (!types[name.split('.').pop()?.toLowerCase() || ''] || types[name.split('.').pop()!.toLowerCase()] !== type) throw new Error('Use PDF, JPG, or PNG files.');
   if (!Number.isInteger(size) || size <= 0 || size > 20 * 1024 * 1024) throw new Error('Files must be nonempty and no larger than 20 MB.');

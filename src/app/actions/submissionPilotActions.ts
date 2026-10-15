@@ -6,14 +6,16 @@ import { Prisma, UserRole } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { isAdmin } from '@/lib/adminTiers';
+import { isAdmin, isAdminIII } from '@/lib/adminTiers';
+import { encryptAriveCredentials } from '@/lib/ariveCrypto';
+import { ariveConfigured, ariveClassifications, ariveSession, findAriveLoan, readAriveNotes, validAriveUploadUrl, AriveError } from '@/lib/ariveClient';
 import { getSupabaseAdmin, getTaskAttachmentsBucket } from '@/lib/supabaseAdmin';
 import { initialPilotPackage, readPilotPackage, pilotApprovalError, pilotSubmissionError, validatePilotFile, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
 
 async function actor() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) throw new Error('Sign in to use the pilot.');
-  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, name: true, active: true, role: true, roles: true } });
+  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, name: true, email: true, active: true, role: true, roles: true } });
   if (!user?.active) throw new Error('Account unavailable.');
   const role = (session.user.activeRole || session.user.role) as UserRole;
   if (role !== user.role && !user.roles.includes(role)) throw new Error('Role not available.');
@@ -72,7 +74,7 @@ export async function getSubmissionPilot() {
     const tasks = await prisma.task.findMany({ where: { kind: null, title: 'Processing submission pilot — documents', loan: { loanOfficerId: SUBMISSION_PILOT_LO_ID }, submissionData: { path: ['submissionPilot', 'version'], equals: 1 } }, include: { loan: { select: { borrowerName: true, loanNumber: true } } }, orderBy: { updatedAt: 'desc' } });
     const visible = tasks.filter(t => { const p = readPilotPackage(t.submissionData)!; return a.owner || (p.state !== 'DRAFT' && (!p.reviewerId || p.reviewerId === a.id || isAdmin(a.role) || a.role === 'PROCESSING_MANAGER')); });
     const loans = a.owner ? await prisma.loan.findMany({ where: { loanOfficerId: a.id, processingPipeline: { is: { archivedAt: null, sheet: { in: ['PIPELINE', 'RESTRUCTURE'] } } } }, select: { id: true, borrowerName: true, loanNumber: true, processingPipeline: { select: { processingMethod: true, assignmentGroup: true } } }, orderBy: { borrowerName: 'asc' } }) : [];
-    return { owner: a.owner, userId: a.id, loans, packages: visible.map(t => ({ id: t.id, loanId: t.loanId, borrower: t.loan.borrowerName, loanNumber: t.loan.loanNumber, package: readPilotPackage(t.submissionData)! })) };
+    return { owner: a.owner, canConfigureArive: isAdminIII(a.role), ariveConfigured: await ariveConfigured(), userId: a.id, loans, packages: visible.map(t => ({ id: t.id, loanId: t.loanId, borrower: t.loan.borrowerName, loanNumber: t.loan.loanNumber, package: readPilotPackage(t.submissionData)! })) };
   });
 }
 export async function createSubmissionPilot(loanId: string) {
@@ -137,7 +139,7 @@ export async function changeSubmissionPilot(input: { taskId: string; revision: n
           p.state = 'CHANGES'; return 'Returned package to LO for corrections';
         case 'APPROVE': {
           checkReviewer(a, p); const error = pilotApprovalError(p); if (error) throw new Error(error);
-          p.state = 'APPROVED'; return 'Approved package — Arive transfer is not yet connected';
+          p.state = 'APPROVED'; return 'Approved package — documents are ready for transfer to Arive';
         }
         default: throw new Error('Unknown action.');
       }
@@ -186,5 +188,120 @@ export async function downloadPilotFile(taskId: string, fileId: string) {
     const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).createSignedUrl(file.path, 300, { download: file.name });
     if (error || !data) throw new Error('Unable to open document.');
     return data.signedUrl;
+  });
+}
+
+export async function configurePilotArive(input: { clientId: string; secret: string; apiKey: string }) {
+  return result(async () => {
+    const a = await actor();
+    if (!isAdminIII(a.role)) throw new Error('Only an Admin III can configure company API access.');
+    const c = { clientId: input.clientId.trim(), secret: input.secret.trim(), apiKey: input.apiKey.trim() };
+    if (Object.values(c).some(v => !v || v.length > 4096)) throw new Error('Enter all three company API credentials.');
+    const encryptedCredentials = encryptAriveCredentials(JSON.stringify(c), process.env.NEXTAUTH_SECRET || '');
+    await ariveClassifications(c);
+    await prisma.$transaction(async tx => {
+      await tx.ariveIntegrationConfig.upsert({ where: { id: 'company' }, create: { id: 'company', encryptedCredentials, updatedById: a.id }, update: { encryptedCredentials, updatedById: a.id } });
+      await tx.auditLog.create({ data: { userId: a.id, action: 'ARIVE_CONNECTION_CONFIGURED', details: JSON.stringify({ companyDocumentAccessVerified: true }) } });
+    });
+  });
+}
+
+export async function openArivePilotLoan(loanNumber: string) {
+  return result(async () => {
+    const a = await actor();
+    if (!a.owner) throw new Error('Open this loan from Matt’s Loan Officer account.');
+    const number = loanNumber.trim();
+    const remote = await findAriveLoan(number);
+    if (!remote.loanOriginatorEmail || remote.loanOriginatorEmail.toLowerCase().trim() !== a.email.toLowerCase().trim()) throw new Error('The Arive loan must list Matt’s portal email as its Loan Originator before it can be opened in this pilot.');
+    const primary = remote.loanBorrowers?.find(b => b.applicantType === 'Borrower');
+    if (!primary?.firstName || !primary.lastName) throw new Error('The Arive loan needs a named primary borrower first.');
+    return prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pilot-loan:${number}`}))`;
+      let loan = await tx.loan.findUnique({ where: { loanNumber: number } });
+      if (loan && loan.loanOfficerId !== a.id) throw new Error('That loan belongs to another portal Loan Officer.');
+      if (!loan) loan = await tx.loan.create({ data: { loanNumber: number, loanOfficerId: a.id, borrowerName: `${primary.firstName} ${primary.lastName}`, borrowerFirstName: primary.firstName, borrowerLastName: primary.lastName, amount: typeof remote.baseLoanAmount === 'number' && Number.isFinite(remote.baseLoanAmount) ? remote.baseLoanAmount : 0 } });
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot-loan:${loan.id}`}))`;
+      const existing = await tx.task.findFirst({ where: { loanId: loan.id, kind: null, title: 'Processing submission pilot — documents', submissionData: { path: ['submissionPilot', 'version'], equals: 1 } } });
+      if (existing) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${existing.id}`}))`;
+        const fresh = await tx.task.findUniqueOrThrow({ where: { id: existing.id } });
+        const p = readPilotPackage(fresh.submissionData)!;
+        if (p.ariveLink && p.ariveLink.id !== remote.sysGUID) throw new Error('This package is already linked to a different Arive loan.');
+        p.ariveLink = { id: remote.sysGUID, loanNumber: number }; p.revision++;
+        await tx.task.update({ where: { id: fresh.id }, data: { submissionData: { ...(fresh.submissionData as Prisma.JsonObject), submissionPilot: p as unknown as Prisma.InputJsonValue } } });
+        return fresh.id;
+      }
+      const p = initialPilotPackage(); p.ariveLink = { id: remote.sysGUID, loanNumber: number };
+      p.history.push({ at: new Date().toISOString(), actor: a.name, message: `Linked Arive loan ${number}` });
+      const task = await tx.task.create({ data: { loanId: loan.id, title: 'Processing submission pilot — documents', assignedRole: 'LOAN_OFFICER', assignedUserId: a.id, submissionData: { submissionPilot: p as unknown as Prisma.InputJsonValue } } });
+      await tx.auditLog.create({ data: { loanId: loan.id, userId: a.id, action: 'ARIVE_PILOT_LOAN_LINKED', details: JSON.stringify({ loanNumber: number, taskId: task.id }) } });
+      return task.id;
+    });
+  });
+}
+
+// Integration changes merge into the current package under the same lock used by review edits.
+async function integrationUpdate(id: string, a: Actor, edit: (p: PilotPackage) => void) {
+  await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${id}`}))`;
+    const { task, p } = await taskAccess(id, a, tx); edit(p); p.revision++;
+    const updated = await tx.task.updateMany({ where: { id, updatedAt: task.updatedAt }, data: { submissionData: { ...(task.submissionData as Prisma.JsonObject), submissionPilot: p as unknown as Prisma.InputJsonValue } } });
+    if (updated.count !== 1) throw new Error('The package changed. Refresh and retry.');
+  });
+}
+export async function refreshPilotAriveNotes(taskId: string) {
+  return result(async () => {
+    const a = await actor(); const { p } = await taskAccess(taskId, a);
+    if (!p.ariveLink) throw new Error('Open this Arive loan number in the pilot to link it first.');
+    const started = new Date().toISOString();
+    const notes = await readAriveNotes(p.ariveLink.id);
+    await integrationUpdate(taskId, a, latest => {
+      if (!latest.ariveNotes || latest.ariveNotes.syncedAt < started) latest.ariveNotes = { syncedAt: started, notes };
+    });
+  });
+}
+export async function getPilotAriveClassifications() {
+  return result(async () => { await actor(); return ariveClassifications(); });
+}
+export async function sendPilotDocumentToArive(input: { taskId: string; fileId: string; classification: string }) {
+  return result(async () => {
+    const a = await actor(); const { p } = await taskAccess(input.taskId, a);
+    if (!p.ariveLink || p.state !== 'APPROVED') throw new Error('Link the loan and have the Jr Processor approve the package first.');
+    const file = p.items.flatMap(i => i.files).find(f => f.id === input.fileId);
+    if (!file) throw new Error('Document not found.');
+    const classifications = await ariveClassifications();
+    if (input.classification && !classifications.some(c => c.name === input.classification)) throw new Error('Choose a current Arive classification.');
+    const attemptId = randomUUID();
+    await integrationUpdate(input.taskId, a, latest => {
+      const previous = latest.ariveTransfers?.[file.id];
+      if (previous && previous.state !== 'FAILED') throw new Error(previous.state === 'SENT' ? 'This file has already been sent.' : 'This transfer needs verification in Arive before another attempt.');
+      latest.ariveTransfers = { ...latest.ariveTransfers, [file.id]: { state: 'SENDING', attemptId, at: new Date().toISOString() } };
+    });
+    let attaching = false;
+    try {
+      const { data: blob, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).download(file.path);
+      if (error || !blob || blob.size !== file.size) throw new AriveError('Unable to read the saved document.');
+      const api = await ariveSession();
+      const access = await api(`/loans/${encodeURIComponent(p.ariveLink.id)}/file-access?fileName=${encodeURIComponent(file.name)}`);
+      if (typeof access.fileId !== 'string' || typeof access.fileUploadSignedUrl !== 'string') throw new AriveError('Arive did not return valid document upload access.');
+      const destination = validAriveUploadUrl(access.fileUploadSignedUrl);
+      const uploaded = await fetch(destination, { method: 'PUT', body: new Uint8Array(await blob.arrayBuffer()), headers: { 'Content-Type': file.type }, redirect: 'error', signal: AbortSignal.timeout(60000) });
+      if (!uploaded.ok) throw new AriveError('Arive file storage rejected the upload.');
+      attaching = true;
+      // Omission makes the document private. An empty array would expose it to ALL borrowers.
+      const attached = await api(`/loans/${encodeURIComponent(p.ariveLink.id)}/documents`, { fileId: access.fileId, documentName: file.name, ...(input.classification ? { classificationType: input.classification } : {}) });
+      if (typeof attached.id !== 'number') throw new AriveError('Arive attachment confirmation was incomplete.');
+      await integrationUpdate(input.taskId, a, latest => {
+        if (latest.ariveTransfers?.[file.id]?.attemptId !== attemptId) throw new Error('Transfer changed unexpectedly.');
+        latest.ariveTransfers[file.id] = { state: 'SENT', attemptId, at: new Date().toISOString(), documentId: attached.id };
+        latest.history.push({ actor: a.name, at: new Date().toISOString(), message: `Sent ${file.name} to Arive; document ${attached.id}` });
+      });
+    } catch (e) {
+      const message = attaching ? 'Arive may have attached this document. Verify it in Arive before retrying; automatic retry is blocked to prevent duplicates.' : e instanceof AriveError ? e.message : 'Document transfer failed before attachment. You can retry.';
+      await integrationUpdate(input.taskId, a, latest => {
+        if (latest.ariveTransfers?.[file.id]?.attemptId === attemptId && latest.ariveTransfers[file.id].state !== 'SENT') latest.ariveTransfers[file.id] = { state: attaching ? 'UNKNOWN' : 'FAILED', attemptId, at: new Date().toISOString(), error: message };
+      });
+      throw new Error(message);
+    }
   });
 }

@@ -3,16 +3,19 @@ import { initialPilotPackage, SUBMISSION_PILOT_LO_ID } from '../../lib/submissio
 
 const mocks = vi.hoisted(() => {
   const db = { user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
-  return { db, session: vi.fn() };
+  return { db, session: vi.fn(), download: vi.fn() };
 });
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 vi.mock('@/lib/prisma', () => ({ prisma: mocks.db }));
-vi.mock('@/lib/adminTiers', () => ({ isAdmin: (role: string) => role === 'ADMIN_III' }));
-vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: vi.fn(), getTaskAttachmentsBucket: () => 'test' }));
+vi.mock('@/lib/adminTiers', () => ({ isAdmin: (role: string) => role === 'ADMIN_III', isAdminIII: (role: string) => role === 'ADMIN_III' }));
+vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn(() => 'encrypted') }));
+vi.mock('@/lib/ariveClient', () => ({ ariveConfigured: vi.fn(), ariveClassifications: vi.fn(), ariveSession: vi.fn(), findAriveLoan: vi.fn(), readAriveNotes: vi.fn(), validAriveUploadUrl: vi.fn(), AriveError: class extends Error {} }));
+vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download }) } }), getTaskAttachmentsBucket: () => 'test' }));
 vi.mock('@/lib/submissionPilot', async () => import('../../lib/submissionPilot'));
-import { changeSubmissionPilot, downloadPilotFile } from './submissionPilotActions';
+import { changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes } from './submissionPilotActions';
+import { ariveClassifications, ariveSession, validAriveUploadUrl, readAriveNotes } from '@/lib/ariveClient';
 
 function asUser(id: string, role: string) {
   mocks.session.mockResolvedValue({ user: { id, role } });
@@ -88,5 +91,59 @@ describe('pilot server authorization and concurrency', () => {
     expect((await changeSubmissionPilot({ taskId: 'task', revision: 5, action: 'APPROVE' })).success).toBe(true);
     expect(p.state).toBe('APPROVED');
     expect(mocks.db.notification.createMany).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('Arive pilot transfer gates', () => {
+  function ready() {
+    asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER');
+    const p = packageTask(); p.state = 'APPROVED'; p.ariveLink = { id: 'guid', loanNumber: '123' };
+    p.items[0].files = [{ id: 'f', path: 'private/file.pdf', name: 'file.pdf', type: 'application/pdf', size: 4, uploadedAt: new Date().toISOString() }];
+    vi.mocked(ariveClassifications).mockResolvedValue([{ name: 'Income', subName: '' }]);
+    vi.mocked(validAriveUploadUrl).mockReturnValue('https://bucket.s3.amazonaws.com/file');
+    mocks.download.mockResolvedValue({ data: new Blob(['test']), error: null });
+    return p;
+  }
+  it('does not allow an LO to configure company credentials', async () => {
+    asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER');
+    expect((await configurePilotArive({ clientId: 'test', secret: 'test', apiKey: 'test' })).success).toBe(false);
+    expect(ariveClassifications).not.toHaveBeenCalled();
+  });
+  it('requires package approval before sending', async () => {
+    const p = ready(); p.state = 'REVIEW';
+    expect((await sendPilotDocumentToArive({ taskId: 'task', fileId: 'f', classification: '' })).success).toBe(false);
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
+  it('sends private documents and records the returned document id', async () => {
+    const p = ready();
+    const api = vi.fn().mockResolvedValueOnce({ fileId: 'remote', fileUploadSignedUrl: 'https://bucket.s3.amazonaws.com/file' }).mockResolvedValueOnce({ id: 42 });
+    vi.mocked(ariveSession).mockResolvedValue(api);
+    const fetcher = vi.fn().mockResolvedValue(new Response('', { status: 200 })); vi.stubGlobal('fetch', fetcher);
+    try {
+      expect((await sendPilotDocumentToArive({ taskId: 'task', fileId: 'f', classification: 'Income' })).success).toBe(true);
+      expect(api.mock.calls[1][1]).toEqual({ fileId: 'remote', documentName: 'file.pdf', classificationType: 'Income' });
+      expect(fetcher.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/pdf' });
+      expect(p.ariveTransfers?.f.documentId).toBe(42);
+      expect(p.ariveTransfers?.f.state).toBe('SENT');
+      expect((await sendPilotDocumentToArive({ taskId: 'task', fileId: 'f', classification: '' })).success).toBe(false);
+      expect(api).toHaveBeenCalledTimes(2);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('blocks duplicate sends after an uncertain attachment response', async () => {
+    const p = ready();
+    const api = vi.fn().mockResolvedValueOnce({ fileId: 'remote', fileUploadSignedUrl: 'https://bucket.s3.amazonaws.com/file' }).mockRejectedValueOnce(new Error('timeout'));
+    vi.mocked(ariveSession).mockResolvedValue(api); vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })));
+    try {
+      expect((await sendPilotDocumentToArive({ taskId: 'task', fileId: 'f', classification: '' })).success).toBe(false);
+      expect(p.ariveTransfers?.f.state).toBe('UNKNOWN');
+      expect((await sendPilotDocumentToArive({ taskId: 'task', fileId: 'f', classification: '' })).success).toBe(false);
+      expect(api).toHaveBeenCalledTimes(2);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('retains previous notes when Arive cannot be read', async () => {
+    const p = ready(); p.ariveNotes = { syncedAt: '2026-10-15', notes: [] };
+    vi.mocked(readAriveNotes).mockRejectedValue(new Error('unavailable'));
+    expect((await refreshPilotAriveNotes('task')).success).toBe(false);
+    expect(p.ariveNotes.syncedAt).toBe('2026-10-15');
   });
 });

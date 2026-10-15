@@ -11,6 +11,13 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model AriveIntegrationConfig {
+  id                   String   @id
+  encryptedCredentials String
+  updatedById          String
+  updatedAt            DateTime @updatedAt
+}
+
 enum UserRole {
   ADMIN // @deprecated — retained for enum-value stability; existing rows backfilled to ADMIN_III. No new rows should use this.
   ADMIN_I

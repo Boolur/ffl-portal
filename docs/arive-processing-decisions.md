@@ -4,7 +4,7 @@ Updated October 15, 2026 from the team's responses to the leadership worksheet. 
 
 The objective is to reduce duplicate entry while retaining portal assignments, accountability, and financial controls. Two workstreams are now requested: syncing the existing processing pipeline from Arive, and redesigning submission uploads with LO and Jr Processor review before sending documents to Arive. Whether the submission redesign belongs in the initial pilot remains open.
 
-Latest direction: build a live submission workflow for Matt Mahjoub, rather than a simulated preview. The initial implementation is documented in [Processing submission pilot](submission-pilot.md): real stored packages and Jr review for existing loans, with Arive transfer explicitly pending integration. The broader pipeline sync is a separate workstream.
+Latest direction: build a live submission workflow for Matt Mahjoub, rather than a simulated preview. The implementation is documented in [Processing submission pilot](submission-pilot.md): real stored packages and Jr review, with company API setup, approved-document transfers, and imported Arive notes. A new Arive test loan can be opened by its verified loan number. Live API acceptance awaits company credentials. The broader pipeline sync remains a separate workstream.
 
 ## Team responses by original question
 

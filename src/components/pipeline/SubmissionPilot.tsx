@@ -7,9 +7,10 @@ import Link from 'next/link';
 import { createSubmissionPilot, getSubmissionPilot, changeSubmissionPilot, preparePilotUpload, finishPilotUpload, downloadPilotFile } from '@/app/actions/submissionPilotActions';
 import { pilotApprovalError, pilotSubmissionError } from '@/lib/submissionPilot';
 import { getProcessingAssignmentLabel, getProcessingMethodLabel } from '@/lib/processingRouting';
+import { ArivePilotConnection, ArivePackagePanel } from './ArivePilotPanel';
 
 type Data = Extract<Awaited<ReturnType<typeof getSubmissionPilot>>, { success: true }>['data'];
-const labels = { DRAFT: 'Draft — LO uploading', REVIEW: 'Jr review', CHANGES: 'Corrections requested', APPROVED: 'Approved — awaiting Arive connection' };
+const labels = { DRAFT: 'Draft — LO uploading', REVIEW: 'Jr review', CHANGES: 'Corrections requested', APPROVED: 'Approved — ready for Arive' };
 export function SubmissionPilot({ initialData, initialTask }: { initialData: Data; initialTask?: string }) {
   const router = useRouter();
   const [data, setData] = useState(initialData);
@@ -57,7 +58,7 @@ export function SubmissionPilot({ initialData, initialTask }: { initialData: Dat
         <button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void run(reload)}><RefreshCw size={16} /> Refresh</button>
       </div>
     </header>
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Documents and review decisions are saved in BISU. Arive transfer is not connected yet. Approval does not send files to Arive or change loan stages.</div>
+    <ArivePilotConnection configured={data.ariveConfigured} canConfigure={data.canConfigureArive} owner={data.owner} onChanged={reload} onOpen={id => { setSelected(id); router.replace(`/pipeline/submission-pilot?task=${id}`); }} />
     <div role="status" aria-live="polite" className={message ? 'rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800' : 'text-sm text-muted-foreground'}>{message || (busy ? 'Saving…' : '')}</div>
     <div className="grid items-start gap-6 lg:grid-cols-[300px_1fr]">
       <aside className="app-surface-card space-y-5">
@@ -92,9 +93,10 @@ export function SubmissionPilot({ initialData, initialTask }: { initialData: Dat
         <section className="app-surface-card space-y-3">
           {editable && <><p className="text-sm text-muted-foreground">{pilotSubmissionError(p) || 'All required categories are ready to send for review.'}</p><button type="button" className="app-btn-primary" disabled={busy || !!pilotSubmissionError(p)} onClick={() => void run(() => change({ action: 'SUBMIT' }))}>{p.state === 'CHANGES' ? 'Resubmit corrections' : 'Submit to Jr Processor'}</button></>}
           {reviewing && <><p className="text-sm text-muted-foreground">{pilotApprovalError(p) || 'All documents and explanations have been approved.'}</p><div className="flex flex-wrap gap-2"><button type="button" className="app-btn-primary" disabled={busy || !!pilotApprovalError(p)} onClick={() => void run(() => change({ action: 'APPROVE' }))}>Approve package</button><button type="button" className="app-btn-danger" disabled={busy || !p.items.some(i => i.review === 'CHANGES')} onClick={() => void run(() => change({ action: 'RETURN' }))}>Return corrections to LO</button></div></>}
-          {p.state === 'APPROVED' && <p className="text-sm font-semibold">Package approved. No documents have been sent to Arive.</p>}
+          {p.state === 'APPROVED' && <p className="text-sm font-semibold">Package approved. Check each file’s transfer status in Arive documents and notes below.</p>}
           <details><summary className="text-sm font-semibold">Submission history ({p.history.length})</summary><ol className="mt-3 space-y-2 text-sm">{[...p.history].reverse().map((h, index) => <li key={index}><span className="font-medium">{h.actor}</span> · {h.message}<span className="block text-xs text-muted-foreground">{new Date(h.at).toLocaleString()}</span></li>)}</ol></details>
         </section>
+        <ArivePackagePanel key={current.id} taskId={current.id} pkg={p} configured={data.ariveConfigured} parentBusy={busy} onChanged={reload} />
       </main> : <div className="app-surface-card text-muted-foreground">Choose a submission to see its documents and review history.</div>}
     </div>
   </div>;
