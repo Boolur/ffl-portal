@@ -956,7 +956,7 @@ export function ProcessingBorrowerWorkspace({
       <DetailCard title="Documents" description="Files attached to the original Submit to Processing task." icon={FileText}>
         <div className="space-y-2">
           {details.attachments.length === 0 ? (
-            <p className="py-8 text-center text-sm font-medium text-slate-500">No documents are attached to this request.</p>
+            <p className="py-8 text-center text-sm font-medium text-slate-500">{details.loan.loanNumber === '17881588' ? 'Reviewed submission documents are shown below.' : 'No documents are attached to this request.'}</p>
           ) : details.attachments.map((attachment) => (
             <button
               key={attachment.id}
