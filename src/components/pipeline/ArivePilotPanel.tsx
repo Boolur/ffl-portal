@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { configurePilotArive, openArivePilotLoan, refreshPilotAriveNotes, getPilotAriveClassifications, sendPilotDocumentToArive } from '@/app/actions/submissionPilotActions';
+import { checkAriveTestLoanAccess, configurePilotArive, openArivePilotLoan, refreshPilotAriveNotes, getPilotAriveClassifications, sendPilotDocumentToArive } from '@/app/actions/submissionPilotActions';
 import type { PilotPackage } from '@/lib/submissionPilot';
 
 export function ArivePilotConnection({ configured, canConfigure, owner, onChanged, onOpen }: { configured: boolean; canConfigure: boolean; owner: boolean; onChanged: () => Promise<void>; onOpen: (id: string) => void }) {
@@ -9,6 +9,7 @@ export function ArivePilotConnection({ configured, canConfigure, owner, onChange
   const [secret, setSecret] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [number, setNumber] = useState('');
+  const [access, setAccess] = useState<Extract<Awaited<ReturnType<typeof checkAriveTestLoanAccess>>, { success: true }>['data'] | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   async function perform(work: () => Promise<void>) {
@@ -16,19 +17,20 @@ export function ArivePilotConnection({ configured, canConfigure, owner, onChange
     try { await work(); await onChanged(); } catch (e) { setMessage(e instanceof Error ? e.message : 'Unable to connect.'); } finally { setBusy(false); }
   }
   return <section className="app-surface-card space-y-4">
-    <div><h2 className="font-bold">Arive connection</h2><p className="text-sm text-muted-foreground">{configured ? 'Company credentials saved. Open a loan to import its notes and send approved documents.' : 'An Admin III must connect your company API credentials before uploads or note refreshes can run.'}</p></div>
-    {canConfigure && <details><summary className="text-sm font-semibold">{configured ? 'Replace company credentials' : 'Set up company API access'}</summary>
-      <form className="mt-4 grid gap-3 md:grid-cols-3" autoComplete="off" onSubmit={e => { e.preventDefault(); void perform(async () => { try { const r = await configurePilotArive({ clientId, secret, apiKey }); if (!r.success) throw new Error(r.error); setMessage('Connection verified and credentials encrypted.'); } finally { setSecret(''); setApiKey(''); setClientId(''); } }); }}>
+    <div><h2 className="font-bold">Arive connection</h2><p className="text-sm text-muted-foreground">{configured ? 'Arive authentication verified. Access to loans and document operations depends on the permissions provisioned for these credentials.' : 'A portal Admin III must connect the Arive API credentials provisioned for your branch before live API checks can run.'}</p></div>
+    {canConfigure && <details><summary className="text-sm font-semibold">{configured ? 'Replace Arive credentials' : 'Set up branch API access'}</summary>
+      <form className="mt-4 grid gap-3 md:grid-cols-3" autoComplete="off" onSubmit={e => { e.preventDefault(); void perform(async () => { try { const r = await configurePilotArive({ clientId, secret, apiKey }); if (!r.success) throw new Error(r.error); setMessage('Authentication verified and credentials encrypted. Test loan and document permissions separately below.'); } finally { setSecret(''); setApiKey(''); setClientId(''); } }); }}>
         <label className="text-sm">Client ID<input className="app-input mt-1" required maxLength={4096} value={clientId} disabled={busy} onChange={e => setClientId(e.target.value)} /></label>
         <label className="text-sm">Client secret<input className="app-input mt-1" type="password" autoComplete="new-password" required maxLength={4096} value={secret} disabled={busy} onChange={e => setSecret(e.target.value)} /></label>
         <label className="text-sm">API key<input className="app-input mt-1" type="password" autoComplete="new-password" required maxLength={4096} value={apiKey} disabled={busy} onChange={e => setApiKey(e.target.value)} /></label>
-        <p className="text-xs text-muted-foreground md:col-span-3">Use company-level API credentials. Saved secrets are encrypted and are never displayed again.</p><button className="app-btn-primary" disabled={busy} type="submit">{busy ? 'Connecting…' : 'Test and save connection'}</button>
+        <p className="text-xs text-muted-foreground md:col-span-3">Use the API credentials Arive provisioned for your branch. This does not request or expand company-wide access. Saved secrets are encrypted and never displayed again.</p><button className="app-btn-primary" disabled={busy} type="submit">{busy ? 'Connecting…' : 'Test and save connection'}</button>
       </form>
     </details>}
     {owner && configured && <form className="flex flex-wrap items-end gap-3" onSubmit={e => { e.preventDefault(); void perform(async () => { const r = await openArivePilotLoan(number); if (!r.success) throw new Error(r.error); onOpen(r.data); }); }}>
       <label className="text-sm">Arive loan number<input className="app-input mt-1" inputMode="numeric" pattern="[0-9]{1,15}" required value={number} disabled={busy} onChange={e => setNumber(e.target.value.trim())} placeholder="Enter your test loan number" /></label><button type="submit" className="app-btn-primary" disabled={busy}>Open Arive loan</button>
       <p className="w-full text-xs text-muted-foreground">The loan must list Matt’s portal email as its Loan Originator in Arive. New test loans can be opened without moving them into the processing pipeline.</p>
     </form>}
+    {configured && <div className="space-y-3 border-t border-border pt-4"><h3 className="font-semibold">TESTING TESTER · 17881588</h3><p className="text-sm text-muted-foreground">Check access to this test loan only. These checks read information; they do not change stages, upload files, create loans, or expand access. A successful read does not prove write permission.</p><button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void perform(async () => { setAccess(null); const r = await checkAriveTestLoanAccess(); if (!r.success) throw new Error(r.error); setAccess(r.data); })}>{busy ? 'Checking Arive access…' : 'Check test-loan API permissions'}</button>{access && <div className="space-y-2"><p className="text-xs text-muted-foreground">Checked {new Date(access.checkedAt).toLocaleString()}</p>{access.checks.map(check => <div key={check.name} className={`rounded-lg border p-3 text-sm ${check.ok ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}><strong>{check.name}: {check.ok ? 'Read access confirmed' : 'Not confirmed'}</strong><p className="mt-1">{check.detail}</p></div>)}</div>}</div>}
     <p role="status" className="text-sm">{message}</p>
   </section>;
 }

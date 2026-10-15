@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialPilotPackage, SUBMISSION_PILOT_LO_ID } from '../../lib/submissionPilot';
 
 const mocks = vi.hoisted(() => {
-  const db = { user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
+  const db = { ariveIntegrationConfig: { upsert: vi.fn() }, user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
   return { db, session: vi.fn(), download: vi.fn(), info: vi.fn(), signedUrl: vi.fn() };
 });
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
@@ -16,8 +16,8 @@ vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn(() => 'encr
 vi.mock('@/lib/ariveClient', () => ({ ariveConfigured: vi.fn(), ariveClassifications: vi.fn(), ariveSession: vi.fn(), findAriveLoan: vi.fn(), readAriveNotes: vi.fn(), validAriveUploadUrl: vi.fn(), AriveError: class extends Error {} }));
 vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download, info: mocks.info, createSignedUrl: mocks.signedUrl }) } }), getTaskAttachmentsBucket: () => 'test' }));
 vi.mock('@/lib/submissionPilot', async () => import('../../lib/submissionPilot'));
-import { getSubmissionPilot, changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
-import { ariveClassifications, ariveSession, validAriveUploadUrl, readAriveNotes } from '@/lib/ariveClient';
+import { checkAriveTestLoanAccess, getSubmissionPilot, changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
+import { ariveClassifications, ariveSession, validAriveUploadUrl, readAriveNotes, findAriveLoan } from '@/lib/ariveClient';
 
 function asUser(id: string, role: string) {
   mocks.session.mockResolvedValue({ user: { id, role } });
@@ -232,6 +232,39 @@ describe('Arive pilot transfer gates', () => {
     mocks.download.mockResolvedValue({ data: new Blob(['test']), error: null });
     return p;
   }
+  it('checks only the authorized test loan and reports denied APIs separately', async () => {
+    asUser('jr', 'PROCESSOR_JR');
+    vi.mocked(findAriveLoan).mockResolvedValue({ ariveLoanId: 17881588, sysGUID: 'test-guid' });
+    const api = vi.fn(async (path: string) => {
+      if (path.includes('document')) throw new Error('Arive document access returned HTTP 403.');
+      return { count: 1, currentLoanStatus: { status: 'APPLICATION_INTAKE' } };
+    });
+    vi.mocked(ariveSession).mockResolvedValue(api);
+    const r = await checkAriveTestLoanAccess();
+    expect(findAriveLoan).toHaveBeenCalledWith('17881588');
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.checks).toHaveLength(10);
+      expect(r.data.checks.find(c => c.name === 'Loan notes')?.ok).toBe(true);
+      expect(r.data.checks.find(c => c.name === 'Loan documents')?.ok).toBe(false);
+    }
+    for (const call of api.mock.calls) expect(call).toHaveLength(1);
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
+  it('saves authenticated branch credentials without requiring document permissions', async () => {
+    asUser('admin', 'ADMIN_III');
+    vi.mocked(ariveSession).mockResolvedValue(vi.fn());
+    vi.mocked(ariveClassifications).mockRejectedValue(new Error('HTTP 403'));
+    expect((await configurePilotArive({ clientId: 'branch', secret: 'test', apiKey: 'test' })).success).toBe(true);
+    expect(ariveClassifications).not.toHaveBeenCalled();
+    expect(mocks.db.ariveIntegrationConfig.upsert).toHaveBeenCalledOnce();
+  });
+  it('does not save credentials that fail authentication', async () => {
+    asUser('admin', 'ADMIN_III');
+    vi.mocked(ariveSession).mockRejectedValue(new Error('HTTP 403'));
+    expect((await configurePilotArive({ clientId: 'branch', secret: 'test', apiKey: 'test' })).success).toBe(false);
+    expect(mocks.db.ariveIntegrationConfig.upsert).not.toHaveBeenCalled();
+  });
   it('does not allow an LO to configure company credentials', async () => {
     asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER');
     expect((await configurePilotArive({ clientId: 'test', secret: 'test', apiKey: 'test' })).success).toBe(false);

@@ -79,3 +79,12 @@ Review cards use compact horizontal attachment rows with a square file icon, fil
 
 
 Returned-package and additional-request uploads use a dashed, keyboard-accessible drop area with drag highlighting, browsing, file limits, and batch progress. A batch is validated before transfer and uploaded sequentially with a fresh package revision between files. Successfully uploaded files remain if a later upload fails; pending verification/cancel actions remain available. For LO views of document-backed tasks, conversation entries retain their message and attribution but omit repeated legacy checklist rows; other task histories remain unchanged.
+
+
+## Branch-scoped API acceptance (October 15, 2026)
+
+Arive has provisioned API credentials for this branch, not a company-wide integration. Authentication setup now validates the access-token exchange independently of document classifications. The previous setup incorrectly required the document API to succeed before saving any credentials. Credentials remain encrypted in the existing integration configuration record; its legacy internal ID does not confer or expand Arive permissions. Portal Admin III is the portal's setup permission, not a demand for an Arive company administrator account.
+
+The connection panel has a read-only capability check restricted to TESTING TESTER / 17881588. It checks details/status/key dates, trackers, notes, classifications, normal and private document listing, custom fields, fees, existing credit information, and REO separately. Failures do not erase successful checks. Authentication or read success is not evidence of write permission. Status changes, date writes, and actual attachment transfers still require separate live verification. Private documents may require a separately provisioned feature. No wider pipeline import or company-wide access is enabled by this check.
+
+Live inspection before setup: the portal reported credentials not configured, the approved package was unlinked, and Arive showed Application Intake with zero documents. These observations are not evidence that Arive denied branch access. No live API capability has been confirmed until credentials are tested successfully.

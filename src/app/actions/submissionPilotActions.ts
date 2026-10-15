@@ -257,14 +257,14 @@ export async function downloadPilotFile(taskId: string, fileId: string, disposit
 export async function configurePilotArive(input: { clientId: string; secret: string; apiKey: string }) {
   return result(async () => {
     const a = await actor();
-    if (!isAdminIII(a.role)) throw new Error('Only an Admin III can configure company API access.');
+    if (!isAdminIII(a.role)) throw new Error('Only a portal Admin III can configure Arive API access.');
     const c = { clientId: input.clientId.trim(), secret: input.secret.trim(), apiKey: input.apiKey.trim() };
-    if (Object.values(c).some(v => !v || v.length > 4096)) throw new Error('Enter all three company API credentials.');
+    if (Object.values(c).some(v => !v || v.length > 4096)) throw new Error('Enter all three Arive API credentials provisioned for your branch.');
     const encryptedCredentials = encryptAriveCredentials(JSON.stringify(c), process.env.NEXTAUTH_SECRET || '');
-    await ariveClassifications(c);
+    await ariveSession(c);
     await prisma.$transaction(async tx => {
       await tx.ariveIntegrationConfig.upsert({ where: { id: 'company' }, create: { id: 'company', encryptedCredentials, updatedById: a.id }, update: { encryptedCredentials, updatedById: a.id } });
-      await tx.auditLog.create({ data: { userId: a.id, action: 'ARIVE_CONNECTION_CONFIGURED', details: JSON.stringify({ companyDocumentAccessVerified: true }) } });
+      await tx.auditLog.create({ data: { userId: a.id, action: 'ARIVE_CONNECTION_CONFIGURED', details: JSON.stringify({ authenticationVerified: true, documentAccessVerified: false }) } });
     });
   });
 }
@@ -366,5 +366,38 @@ export async function sendPilotDocumentToArive(input: { taskId: string; fileId: 
       });
       throw new Error(message);
     }
+  });
+}
+
+// Acceptance checks are restricted to the user-authorized test file, not the branch/company pipeline.
+export async function checkAriveTestLoanAccess() {
+  return result(async () => {
+    await actor();
+    const remote = await findAriveLoan('17881588');
+    const api = await ariveSession();
+    const id = encodeURIComponent(remote.sysGUID);
+    const checks: { name: string; ok: boolean; detail: string }[] = [];
+    const endpoints = [
+      ['Loan details, status and key dates', `/loans/${id}`],
+      ['Service trackers', `/loans/${id}/trackers`],
+      ['Loan notes', `/loans/${id}/notes?limit=1&offset=0`],
+      ['Document classifications', '/loans/document-classifications'],
+      ['Loan documents', `/loans/${id}/documents?limit=1&offset=0`],
+      ['Private documents (optional feature)', `/loans/${id}/private-documents?limit=1&offset=0`],
+      ['Custom fields', `/loans/${id}/custom-fields`],
+      ['Loan fees', `/loans/${id}/fees`],
+      ['Existing credit information', `/loans/${id}/additionalInfo`],
+      ['Real estate owned', `/loans/${id}/REO?limit=1&offset=0`],
+    ];
+    for (const [name, path] of endpoints) {
+      try {
+        const value = await api(path);
+        const stage = name === 'Loan details, status and key dates' && typeof value.currentLoanStatus?.status === 'string' ? value.currentLoanStatus.status : null;
+        checks.push({ name, ok: true, detail: stage ? `Accessible. Current Arive stage: ${stage}` : `Accessible${typeof value.count === 'number' ? ` · ${value.count} records` : ''}` });
+      } catch (error) {
+        checks.push({ name, ok: false, detail: error instanceof Error ? error.message : 'Access check failed.' });
+      }
+    }
+    return { loanNumber: '17881588', checkedAt: new Date().toISOString(), checks };
   });
 }
