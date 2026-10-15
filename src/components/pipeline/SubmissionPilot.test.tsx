@@ -20,6 +20,17 @@ describe('integrated document checklist', () => {
     p.items[1].files = [{ id: 'file', name: 'insurance.pdf', path: 'test', type: 'application/pdf', size: 12, uploadedAt: '' }];
     return renderToStaticMarkup(<SubmissionPilot requestTaskId="request" initialData={{ owner: false, canConfigureArive: false, ariveConfigured: false, userId: 'jr', loans: [], packages: [{ id: 'documents', loanId: 'loan', borrower: 'Test Borrower', loanNumber: 'TEST', package: p }] }} />);
   }
+  it('gives the LO a multi-file drop area for requested documents', () => {
+    const p = initialPilotPackage(); p.state = 'CHANGES';
+    p.items.push({ id: 'bank', label: 'Bank statement', required: false, files: [], waiver: '', review: 'CHANGES', feedback: 'Please upload the latest statement.' });
+    const html = renderToStaticMarkup(<SubmissionPilot requestTaskId="request" initialData={{ owner: true, canConfigureArive: false, ariveConfigured: false, userId: 'lo', loans: [], packages: [{ id: 'documents', loanId: 'loan', borrower: 'Test Borrower', loanNumber: 'TEST', package: p }] }} />);
+    expect(html).toContain('Upload Bank statement: drag documents here or click to browse');
+    expect(html).toContain('Drag documents here');
+    expect(html).toContain('or click to browse');
+    expect(html).toContain('multiple=""');
+    expect(html).toContain('border-dashed');
+    expect(html).toContain('Please upload the latest statement.');
+  });
   it('renders attached files, N/A verification, and one final decision instead of a second checklist', () => {
     const html = render('jr');
     expect(html).toContain('Attached file');

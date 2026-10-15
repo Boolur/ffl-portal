@@ -4350,6 +4350,7 @@ export function TaskList({
           ? 'VA queue timer (from request creation)'
           : 'Disclosure SLA timer (resets when task updates)';
 
+        const hideLegacyConversationChecklist = isLoanOfficerLikeCurrentRole && !!processingDocumentTaskId(task.submissionData);
         const taskConversation = (
                     <div className="space-y-4">
                       <div className="mb-5 flex items-center justify-between">
@@ -4392,7 +4393,7 @@ export function TaskList({
                                 </span>
                               </div>
                               {item.type === 'note' ? (
-                                item.noteEntryType === 'qcChecklist' &&
+                                !hideLegacyConversationChecklist && item.noteEntryType === 'qcChecklist' &&
                                 Array.isArray(item.checklist) &&
                                 item.checklist.length > 0 ? (
                                   <div className="space-y-3">
@@ -4434,7 +4435,7 @@ export function TaskList({
                                       })}
                                     </div>
                                   </div>
-                                ) : item.noteEntryType === 'jrChecklist' &&
+                                ) : !hideLegacyConversationChecklist && item.noteEntryType === 'jrChecklist' &&
                                   Array.isArray(item.jrChecklist) &&
                                   item.jrChecklist.length > 0 ? (
                                   <div className="space-y-3">
