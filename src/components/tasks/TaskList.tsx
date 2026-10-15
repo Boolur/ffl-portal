@@ -4781,7 +4781,7 @@ export function TaskList({
             </div>
 
             {isFocused && (
-              <TaskModalShell pilot={!!processingDocumentTaskId(task.submissionData)} task={task} rows={visibleSubmissionDataRows} method={processingRoutingSummary?.methodLabel || 'Not provided'} assignment={processingRoutingSummary?.assignmentLabel || 'Not provided'} review={submissionReview} startGate={submissionStartGate} conversation={taskConversation} conversationCount={visibleTimelineItems.length} onClose={() => { setFocusedTaskId(null); setAttachmentOpenError(null); }}>
+              <TaskModalShell pilot={!!processingDocumentTaskId(task.submissionData)} task={task} rows={visibleSubmissionDataRows} method={processingRoutingSummary?.methodLabel || 'Not provided'} assignment={processingRoutingSummary?.assignmentLabel || 'Not provided'} review={submissionReview} startGate={submissionStartGate} conversation={taskConversation} onClose={() => { setFocusedTaskId(null); setAttachmentOpenError(null); }}>
                   <div className={processingDocumentTaskId(task.submissionData) ? 'hidden' : 'flex items-start justify-between gap-6 border-b border-slate-200/60 pb-8'}>
                     <div className="flex items-center gap-5">
                       <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-xl font-bold text-white shadow-lg shadow-blue-600/20 ring-4 ring-white">

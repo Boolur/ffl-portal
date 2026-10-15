@@ -2,23 +2,22 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, FileText, Home, Landmark, MapPin, MessageSquare, Phone, UserRound, Users, X } from 'lucide-react';
+import { Activity, FileText, Home, Landmark, MapPin, Phone, UserRound, Users, X } from 'lucide-react';
 import { DetailCard, DetailField, WorkspacePanel } from '@/components/pipeline/BorrowerWorkspaceLayout';
 import type { Task } from './TaskList';
 
 type Row = { key: string; label: string; value: string };
-type Tab = 'submission' | 'borrower' | 'property' | 'loan' | 'conversation' | 'activity';
+type Tab = 'submission' | 'borrower' | 'property' | 'loan' | 'activity';
 const tabs = [
   { id: 'submission', label: 'Submission Details', icon: Home },
   { id: 'borrower', label: 'Borrower', icon: UserRound },
   { id: 'property', label: 'Property', icon: MapPin },
   { id: 'loan', label: 'Loan', icon: Landmark },
-  { id: 'conversation', label: 'Conversation', icon: MessageSquare },
   { id: 'activity', label: 'Activity & routing', icon: Activity },
 ] as const;
 
-export function SubmissionWorkspaceContent({ task, rows, method, assignment, review, startGate, conversation, conversationCount = 0, children }: {
-  task: Task; rows: Row[]; method: string; assignment: string; review: React.ReactNode; startGate?: React.ReactNode; conversation: React.ReactNode; conversationCount?: number; children: React.ReactNode;
+export function SubmissionWorkspaceContent({ task, rows, method, assignment, review, startGate, conversation, children }: {
+  task: Task; rows: Row[]; method: string; assignment: string; review: React.ReactNode; startGate?: React.ReactNode; conversation: React.ReactNode; children: React.ReactNode;
 }) {
   const [tab, setTab] = useState<Tab>('submission');
   const value = (...keys: string[]) => keys.map(key => rows.find(row => row.key === key)?.value).find(Boolean);
@@ -33,21 +32,24 @@ export function SubmissionWorkspaceContent({ task, rows, method, assignment, rev
   return <div className="relative flex min-h-0 flex-1 flex-col">
     <div inert={!!startGate} aria-hidden={startGate ? true : undefined} className={`flex min-h-0 flex-1 flex-col ${startGate ? 'select-none grayscale opacity-45' : ''}`}>
     <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 sm:px-5" aria-label="Submission workspace sections">
-      {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-pressed={tab === id} onClick={() => setTab(id)} className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${tab === id ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}><Icon size={14} aria-hidden="true" />{label}{id === 'conversation' && conversationCount > 0 && <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700">{conversationCount}</span>}</button>)}
+      {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-pressed={tab === id} onClick={() => setTab(id)} className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${tab === id ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}><Icon size={14} aria-hidden="true" />{label}</button>)}
     </nav>
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-5" style={{ scrollbarGutter: 'stable' }}>
       <div hidden={tab !== 'submission'}>
         <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">{review}</div>
           <aside className="min-w-0 space-y-4" aria-label="Borrower contact and file summary">
-            <DetailCard title="Contact" description="Reach the borrower without leaving the file." icon={Phone}><div className="space-y-2"><DetailField label="Phone" value={phone ? <a className="text-blue-700 hover:underline" href={`tel:${phone}`}>{phone}</a> : null} /><DetailField label="Email" value={email ? <a className="text-blue-700 hover:underline" href={`mailto:${email}`}>{email}</a> : null} /></div></DetailCard>
-            <DetailCard title="File at a glance" description="Details from this processing submission." icon={Home}><div className="space-y-2"><DetailField label="Loan amount" value={amount && Number.isFinite(Number(amount)) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(amount)) : amount} /><DetailField label="Lender" value={value('lender')} /><DetailField label="Loan type" value={value('loanType')} /><DetailField label="Program" value={value('loanProgram', 'loanPurpose')} /><DetailField label="Property" value={address} copyable /><DetailField label="Effective Loan Officer" value={officer} /></div></DetailCard>
             <DetailCard title="Ownership" description="Current request assignment and routing." icon={Users}><div className="space-y-2"><DetailField label="Selected processor / team" value={assignment} /><DetailField label="Junior Processor" value={task.assignedUser?.name || 'Not started'} /><DetailField label="Processing method" value={method} /></div></DetailCard>
+            <DetailCard title="File at a glance" description="Details from this processing submission." icon={Home}><div className="space-y-2"><DetailField label="Loan amount" value={amount && Number.isFinite(Number(amount)) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(amount)) : amount} /><DetailField label="Lender" value={value('lender')} /><DetailField label="Loan type" value={value('loanType')} /><DetailField label="Program" value={value('loanProgram', 'loanPurpose')} /><DetailField label="Property" value={address} copyable /><DetailField label="Effective Loan Officer" value={officer} /></div></DetailCard>
+            <DetailCard title="Contact" description="Reach the borrower without leaving the file." icon={Phone}><div className="space-y-2"><DetailField label="Phone" value={phone ? <a className="text-blue-700 hover:underline" href={`tel:${phone}`}>{phone}</a> : null} /><DetailField label="Email" value={email ? <a className="text-blue-700 hover:underline" href={`mailto:${email}`}>{email}</a> : null} /></div></DetailCard>
           </aside>
         </div>
+        <section aria-label="Conversation" className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <p className="mb-5 text-sm text-slate-500">Document requests, Loan Officer responses, and notes for this task. Task response controls are under Activity &amp; routing.</p>
+          {conversation}
+        </section>
       </div>
-      {tab !== 'submission' && tab !== 'activity' && tab !== 'conversation' && <DetailCard title={tabs.find(item => item.id === tab)!.label} description="Information captured with this submission." icon={FileText}><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filtered.map(row => <DetailField key={row.key} label={row.label} value={row.value} />)}</div>{!filtered.length && <p className="text-sm text-slate-500">No details were provided for this section.</p>}</DetailCard>}
-      <div hidden={tab !== 'conversation'} className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><p className="mb-5 text-sm text-slate-500">The task’s conversation history, including document requests and Loan Officer responses. Use Submission Details for document decisions and Activity &amp; routing for task responses.</p>{conversation}</div>
+      {tab !== 'submission' && tab !== 'activity' && <DetailCard title={tabs.find(item => item.id === tab)!.label} description="Information captured with this submission." icon={FileText}><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filtered.map(row => <DetailField key={row.key} label={row.label} value={row.value} />)}</div>{!filtered.length && <p className="text-sm text-slate-500">No details were provided for this section.</p>}</DetailCard>}
       <div hidden={tab !== 'activity'}>{children}</div>
     </div>
     </div>
@@ -85,7 +87,7 @@ export function ProcessingSubmissionWorkspace({ task, onClose, children, ...cont
   </div>, document.body);
 }
 
-export function TaskModalShell({ pilot, task, rows, method, assignment, review, startGate, conversation, conversationCount, onClose, children }: Parameters<typeof ProcessingSubmissionWorkspace>[0] & { pilot: boolean }) {
-  if (pilot) return <ProcessingSubmissionWorkspace task={task} rows={rows} method={method} assignment={assignment} review={review} startGate={startGate} conversation={conversation} conversationCount={conversationCount} onClose={onClose}>{children}</ProcessingSubmissionWorkspace>;
+export function TaskModalShell({ pilot, task, rows, method, assignment, review, startGate, conversation, onClose, children }: Parameters<typeof ProcessingSubmissionWorkspace>[0] & { pilot: boolean }) {
+  if (pilot) return <ProcessingSubmissionWorkspace task={task} rows={rows} method={method} assignment={assignment} review={review} startGate={startGate} conversation={conversation} onClose={onClose}>{children}</ProcessingSubmissionWorkspace>;
   return <div data-live-refresh-pause="true" className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-4" onClick={onClose}><div className="w-full max-w-5xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-[24px] border border-slate-200/60 bg-slate-50 p-6 sm:p-10 shadow-2xl" style={{ scrollbarGutter: 'stable' }} onClick={event => event.stopPropagation()}>{children}</div></div>;
 }

@@ -26,7 +26,7 @@ function fixture(locked = false) {
   p.items[1].review = 'CHANGES'; p.items[1].feedback = 'Please provide the current renewal showing the updated property coverage.';
   p.items[4].files = []; p.items[4].waiver = 'Not a VA loan'; p.items[4].review = 'APPROVED';
   const rows = Object.entries({ borrowerPhone: '555-0100', borrowerEmail: 'taylor@example.test', loanAmount: '325000', lender: 'Example lender', loanType: 'Conventional', loanProgram: 'Purchase', propertyAddress: '100 Example Street, Sample City, CA' }).map(([key, value]) => ({ key, label: key, value }));
-  return renderToStaticMarkup(<WorkspacePanel><header className="border-b border-slate-200 bg-white px-6 py-4"><h1 className="text-2xl font-black text-slate-950">Taylor Example</h1><p className="text-sm text-slate-500">Processing submission · In review</p></header><SubmissionWorkspaceContent task={task} rows={rows} method="In house" assignment="Example processing team" startGate={locked ? <button type="button">Start Processing Request</button> : undefined} conversation={<p>Earlier LO response and reviewer notes</p>} conversationCount={2} review={<SubmissionPilot requestTaskId="test" initialData={{ owner: false, canConfigureArive: false, ariveConfigured: false, userId: 'jr', loans: [], packages: [{ id: 'documents', loanId: 'loan', borrower: 'Taylor Example', loanNumber: 'TEST-001', package: p }] }} />}><p>Existing routing and activity</p></SubmissionWorkspaceContent></WorkspacePanel>);
+  return renderToStaticMarkup(<WorkspacePanel><header className="border-b border-slate-200 bg-white px-6 py-4"><h1 className="text-2xl font-black text-slate-950">Taylor Example</h1><p className="text-sm text-slate-500">Processing submission · In review</p></header><SubmissionWorkspaceContent task={task} rows={rows} method="In house" assignment="Example processing team" startGate={locked ? <button type="button">Start Processing Request</button> : undefined} conversation={<p>Earlier LO response and reviewer notes</p>} review={<SubmissionPilot requestTaskId="test" initialData={{ owner: false, canConfigureArive: false, ariveConfigured: false, userId: 'jr', loans: [], packages: [{ id: 'documents', loanId: 'loan', borrower: 'Taylor Example', loanNumber: 'TEST-001', package: p }] }} />}><p>Existing routing and activity</p></SubmissionWorkspaceContent></WorkspacePanel>);
 }
 
 describe('submission borrower workspace', () => {
@@ -38,14 +38,17 @@ describe('submission borrower workspace', () => {
     expect(html.indexOf('Start Processing Request')).toBeGreaterThan(html.indexOf('Existing routing and activity'));
     expect(fixture()).not.toContain('inert=""');
   });
-  it('places documents first and orders the right sidebar as Contact, File at a glance, Ownership', () => {
+  it('places documents first and orders the right sidebar as Ownership, File at a glance, Contact', () => {
     const html = fixture();
     expect(html).toContain('Submission Details');
-    expect(html).toContain('Conversation');
+    expect(html).toContain('aria-label="Conversation"');
+    expect(html.slice(html.indexOf('<nav'), html.indexOf('</nav>'))).not.toContain('Conversation');
+    expect(html.indexOf('aria-label="Conversation"')).toBeGreaterThan(html.indexOf('>Contact</h3>'));
+    expect(html).toContain('<section aria-label="Conversation"');
     expect(html).toContain('Earlier LO response and reviewer notes');
-    expect(html.indexOf('data-document-category')).toBeLessThan(html.indexOf('>Contact</h3>'));
-    expect(html.indexOf('>Contact</h3>')).toBeLessThan(html.indexOf('>File at a glance</h3>'));
-    expect(html.indexOf('>File at a glance</h3>')).toBeLessThan(html.indexOf('>Ownership</h3>'));
+    expect(html.indexOf('data-document-category')).toBeLessThan(html.indexOf('>Ownership</h3>'));
+    expect(html.indexOf('>Ownership</h3>')).toBeLessThan(html.indexOf('>File at a glance</h3>'));
+    expect(html.indexOf('>File at a glance</h3>')).toBeLessThan(html.indexOf('>Contact</h3>'));
     expect(html).not.toContain('Processing snapshot');
     expect(html).toContain('Approval saved');
     expect(html).toContain('Document request saved');
