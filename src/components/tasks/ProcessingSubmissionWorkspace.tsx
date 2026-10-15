@@ -2,9 +2,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, FileText, Home, Landmark, MapPin, Phone, UserRound, Users, X } from 'lucide-react';
+import { Activity, Home, Landmark, MapPin, Phone, UserRound, Users, X } from 'lucide-react';
 import { DetailCard, DetailField, WorkspacePanel } from '@/components/pipeline/BorrowerWorkspaceLayout';
 import type { Task } from './TaskList';
+import { SubmissionDetailSections } from './SubmissionDetailSections';
 
 type Row = { key: string; label: string; value: string };
 type Tab = 'submission' | 'borrower' | 'property' | 'loan' | 'activity';
@@ -26,9 +27,6 @@ export function SubmissionWorkspaceContent({ task, rows, method, assignment, rev
   const officer = task.loan.secondaryLoanOfficer?.name || task.loan.loanOfficer?.name || value('loanOfficerName');
   const phone = value('borrowerPhone');
   const email = value('borrowerEmail');
-  const borrowerKeys = /borrower|employment|employer|income|credit|citizen|veteran/i;
-  const propertyKeys = /property|homeValue|occupancy|yearBuilt|yearA[cq]|titleWill/i;
-  const filtered = rows.filter(row => tab === 'borrower' ? borrowerKeys.test(row.key) : tab === 'property' ? propertyKeys.test(row.key) : !borrowerKeys.test(row.key) && !propertyKeys.test(row.key));
   return <div className="relative flex min-h-0 flex-1 flex-col">
     <div inert={!!startGate} aria-hidden={startGate ? true : undefined} className={`flex min-h-0 flex-1 flex-col ${startGate ? 'select-none grayscale opacity-45' : ''}`}>
     <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 sm:px-5" aria-label="Submission workspace sections">
@@ -49,7 +47,7 @@ export function SubmissionWorkspaceContent({ task, rows, method, assignment, rev
           {conversation}
         </section>
       </div>
-      {tab !== 'submission' && tab !== 'activity' && <DetailCard title={tabs.find(item => item.id === tab)!.label} description="Information captured with this submission." icon={FileText}><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filtered.map(row => <DetailField key={row.key} label={row.label} value={row.value} />)}</div>{!filtered.length && <p className="text-sm text-slate-500">No details were provided for this section.</p>}</DetailCard>}
+      {(tab === 'borrower' || tab === 'property' || tab === 'loan') && <SubmissionDetailSections tab={tab} rows={rows} />}
       <div hidden={tab !== 'activity'}>{children}</div>
     </div>
     </div>

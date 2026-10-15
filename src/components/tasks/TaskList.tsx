@@ -885,7 +885,9 @@ function getOrderedSubmissionDetails(
 ): SubmissionDetailRow[] {
   if (!data) return [];
 
-  const primitiveEntries = Object.entries(data).filter(([, value]) => {
+  const primitiveEntries = Object.entries(data).filter(([key, value]) => {
+    // Display named relationships, never the database IDs used to link them.
+    if (key !== 'runId' && /(?:Id|ID)$/.test(key)) return false;
     return (
       value !== null &&
       (typeof value === 'string' ||
@@ -4954,6 +4956,7 @@ export function TaskList({
                     <ReadOnlyProcessingChecklist rows={qcChecklistRows} />
                   )}
 
+                  {!processingDocumentTaskId(task.submissionData) && (
                   <div className="mt-8">
                     <h4 className="mb-5 flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
@@ -5003,6 +5006,7 @@ export function TaskList({
                       </div>
                     )}
                   </div>
+                  )}
 
                   <div className="mt-8 flex flex-wrap items-center gap-3 text-sm">
                     {task.dueDate && (

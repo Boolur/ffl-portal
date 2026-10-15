@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { DetailCard, DetailField, DetailGrid, WorkspacePanel } from './BorrowerWorkspaceLayout';
+import { DetailCard, DetailField, DetailGrid, DetailSection, WorkspacePanel } from './BorrowerWorkspaceLayout';
 import {
   Activity,
   Building2,
@@ -483,6 +483,8 @@ export function ProcessingBorrowerWorkspace({
             icon={Users}
           >
             <div className="space-y-2">
+              <DetailField label="Primary Loan Officer" value={details.ownership.primaryLoanOfficer?.name} />
+              <DetailField label="Secondary Loan Officer" value={details.ownership.secondaryLoanOfficer?.name || 'Not assigned'} />
               <DetailField label="Senior Processor" value={details.ownership.seniorProcessor?.name} />
               <DetailField label="Junior Processor" value={details.ownership.juniorProcessor?.name} />
               <DetailField label="Processing method" value={humanize(details.ownership.processingMethod)} />
@@ -500,7 +502,7 @@ export function ProcessingBorrowerWorkspace({
         return (
           <div className="grid gap-4 xl:grid-cols-2">
             <DetailCard title="Primary borrower" description="At least one primary borrower name is required." icon={UserRound}>
-              <DetailGrid>
+              <DetailGrid columns={2}>
                 <EditField label="First name" value={draft.borrowerFirstName} onChange={(value) => patchDraft('borrowerFirstName', value)} />
                 <EditField label="Last name" value={draft.borrowerLastName} onChange={(value) => patchDraft('borrowerLastName', value)} />
                 <EditField label="Phone" type="tel" value={draft.borrowerPhone} onChange={(value) => patchDraft('borrowerPhone', value)} />
@@ -508,7 +510,7 @@ export function ProcessingBorrowerWorkspace({
               </DetailGrid>
             </DetailCard>
             <DetailCard title="Co-borrower" description="Optional co-borrower identity and contact details." icon={Users}>
-              <DetailGrid>
+              <DetailGrid columns={2}>
                 <EditField label="First name" value={draft.coBorrowerFirstName} onChange={(value) => patchDraft('coBorrowerFirstName', value)} />
                 <EditField label="Last name" value={draft.coBorrowerLastName} onChange={(value) => patchDraft('coBorrowerLastName', value)} />
                 <EditField label="Phone" type="tel" value={draft.coBorrowerPhone} onChange={(value) => patchDraft('coBorrowerPhone', value)} />
@@ -525,15 +527,15 @@ export function ProcessingBorrowerWorkspace({
       return (
         <div className="grid gap-4 xl:grid-cols-2">
           <DetailCard title="Primary borrower" description="Contact details captured at submission." icon={UserRound}>
-            <DetailGrid>
-              <DetailField label="Full name" value={details.borrower.name} copyable />
+            <DetailGrid columns={2}>
+              <div className="sm:col-span-2"><DetailField label="Full name" value={[details.borrower.firstName, details.borrower.lastName].filter(Boolean).join(' ') || details.borrower.name} copyable /></div>
               <DetailField label="Phone" value={details.borrower.phone} copyable />
               <DetailField label="Email" value={details.borrower.email} copyable />
             </DetailGrid>
           </DetailCard>
           <DetailCard title="Co-borrower" description="Shown when included in the MISMO or submission." icon={Users}>
-            <DetailGrid>
-              <DetailField label="Full name" value={coBorrowerName} copyable />
+            <DetailGrid columns={2}>
+              <div className="sm:col-span-2"><DetailField label="Full name" value={coBorrowerName} copyable /></div>
               <DetailField label="Phone" value={details.borrower.coBorrower.phone} copyable />
               <DetailField label="Email" value={details.borrower.coBorrower.email} copyable />
             </DetailGrid>
@@ -545,36 +547,44 @@ export function ProcessingBorrowerWorkspace({
       if (editing && draft) {
         return (
           <DetailCard title="Subject property" description="Update the structured property details used throughout processing." icon={MapPin}>
-            <DetailGrid>
+            <DetailSection title="Property address">
               <EditField label="Street" value={draft.propertyStreet} onChange={(value) => patchDraft('propertyStreet', value)} />
               <EditField label="Unit" value={draft.propertyUnit} onChange={(value) => patchDraft('propertyUnit', value)} />
               <EditField label="City" value={draft.propertyCity} onChange={(value) => patchDraft('propertyCity', value)} />
               <EditField label="State" value={draft.propertyState} onChange={(value) => patchDraft('propertyState', value.toUpperCase())} placeholder="FL" />
               <EditField label="ZIP" value={draft.propertyZip} onChange={(value) => patchDraft('propertyZip', value)} />
+              </DetailSection>
+              <DetailSection title="Occupancy and valuation">
               <EditField label="Occupancy" value={draft.propertyOccupancy} onChange={(value) => patchDraft('propertyOccupancy', value)} />
               <EditField label="Estimated value" type="number" value={draft.estimatedValue} onChange={(value) => patchDraft('estimatedValue', value)} />
               <EditField label="Year built" type="number" value={draft.yearBuilt} onChange={(value) => patchDraft('yearBuilt', value)} />
+              </DetailSection>
+              <DetailSection title="Ownership and vesting">
               <EditField label="Year acquired" type="number" value={draft.yearAcquired} onChange={(value) => patchDraft('yearAcquired', value)} />
               <EditField label="Title held as" value={draft.titleHeldAs} onChange={(value) => patchDraft('titleHeldAs', value)} />
-            </DetailGrid>
+            </DetailSection>
           </DetailCard>
         );
       }
       return (
         <DetailCard title="Subject property" description="Structured MISMO and submission address details." icon={MapPin}>
-          <DetailGrid>
-            <DetailField label="Complete address" value={details.property.address} copyable />
+          <DetailSection title="Property address">
+            <div className="sm:col-span-2 xl:col-span-3"><DetailField label="Complete address" value={details.property.address} copyable /></div>
             <DetailField label="Street" value={details.property.street} />
             <DetailField label="Unit" value={details.property.unit} />
             <DetailField label="City" value={details.property.city} />
             <DetailField label="State" value={details.property.state} />
             <DetailField label="ZIP" value={details.property.zip} />
-            <DetailField label="Occupancy" value={humanize(details.property.occupancy)} />
+            </DetailSection>
+              <DetailSection title="Occupancy and valuation">
+              <DetailField label="Occupancy" value={humanize(details.property.occupancy)} />
             <DetailField label="Estimated value" value={formatMoney(details.property.estimatedValue)} />
             <DetailField label="Year built" value={details.property.yearBuilt} />
-            <DetailField label="Year acquired" value={details.property.yearAcquired} />
+            </DetailSection>
+              <DetailSection title="Ownership and vesting">
+              <DetailField label="Year acquired" value={details.property.yearAcquired} />
             <DetailField label="Title held as" value={details.property.titleHeldAs} />
-          </DetailGrid>
+          </DetailSection>
         </DetailCard>
       );
     }
@@ -582,35 +592,54 @@ export function ProcessingBorrowerWorkspace({
       if (editing && draft) {
         return (
           <DetailCard title="Loan structure" description="Arive # is the permanent file identifier and cannot be changed." icon={Landmark}>
-            <DetailGrid>
+            <DetailSection title="Loan terms">
               <DetailField label="Arive # · locked" value={details.loan.loanNumber} copyable />
               <EditField label="Loan amount" type="number" value={draft.loanAmount} onChange={(value) => patchDraft('loanAmount', value)} required />
               <EditField label="Loan type" value={draft.loanType} onChange={(value) => patchDraft('loanType', value)} />
               <EditField label="Program" value={draft.loanProgram} onChange={(value) => patchDraft('loanProgram', value)} />
+              <EditField label="Purpose" value={draft.loanPurpose} onChange={(value) => patchDraft('loanPurpose', value)} />
+              </DetailSection>
+              <DetailSection title="Lender and origination">
               <EditField label="Lender" value={draft.lender} onChange={(value) => patchDraft('lender', value)} />
               <EditField label="Channel" value={draft.channel} onChange={(value) => patchDraft('channel', value)} />
-              <EditField label="Purpose" value={draft.loanPurpose} onChange={(value) => patchDraft('loanPurpose', value)} />
               <EditField label="Lead source" value={draft.leadSource} onChange={(value) => patchDraft('leadSource', value)} />
+              </DetailSection>
+              <DetailSection title="Proceeds and revenue">
               <EditField label="Cash back" type="number" value={draft.cashBack} onChange={(value) => patchDraft('cashBack', value)} />
               <EditField label="Projected revenue" type="number" value={draft.projectedRevenue} onChange={(value) => patchDraft('projectedRevenue', value)} />
-            </DetailGrid>
+            </DetailSection>
+          <DetailSection title="Loan team">
+              <DetailField label="Primary Loan Officer" value={details.ownership.primaryLoanOfficer?.name} />
+              <DetailField label="Secondary Loan Officer" value={details.ownership.secondaryLoanOfficer?.name || 'Not assigned'} />
+              <DetailField label="Effective Loan Officer" value={details.ownership.loanOfficer?.name} />
+            </DetailSection>
           </DetailCard>
         );
       }
       return (
         <DetailCard title="Loan structure" description="Origination and revenue information." icon={Landmark}>
-          <DetailGrid>
+          <DetailSection title="Loan terms">
             <DetailField label="Arive #" value={details.loan.loanNumber} copyable />
             <DetailField label="Loan amount" value={formatMoney(details.loan.amount)} />
             <DetailField label="Loan type" value={details.loan.loanType} />
-            <DetailField label="Program / purpose" value={details.loan.program || details.loan.purpose} />
-            <DetailField label="Lender" value={details.loan.lender} />
+            <DetailField label="Program" value={details.loan.program} />
+            <DetailField label="Purpose" value={details.loan.purpose} />
+            </DetailSection>
+              <DetailSection title="Lender and origination">
+              <DetailField label="Lender" value={details.loan.lender} />
             <DetailField label="Channel" value={details.loan.channel} />
             <DetailField label="Lead source" value={details.loan.leadSource} />
-            <DetailField label="Cash back" value={formatMoney(details.loan.cashBack)} />
+            </DetailSection>
+              <DetailSection title="Proceeds and revenue">
+              <DetailField label="Cash back" value={formatMoney(details.loan.cashBack)} />
             <DetailField label="Projected revenue" value={formatMoney(details.loan.projectedRevenue)} />
-          </DetailGrid>
-        </DetailCard>
+          </DetailSection>
+        <DetailSection title="Loan team">
+              <DetailField label="Primary Loan Officer" value={details.ownership.primaryLoanOfficer?.name} />
+              <DetailField label="Secondary Loan Officer" value={details.ownership.secondaryLoanOfficer?.name || 'Not assigned'} />
+              <DetailField label="Effective Loan Officer" value={details.ownership.loanOfficer?.name} />
+            </DetailSection>
+          </DetailCard>
       );
     }
     if (activeTab === 'processing') {
@@ -638,7 +667,7 @@ export function ProcessingBorrowerWorkspace({
         return (
           <div className="space-y-4">
             <DetailCard title="Milestones" description="Workflow changes are validated and audited when saved." icon={Building2}>
-              <DetailGrid>
+              <DetailSection title="Status and key dates">
                 <EditSelect
                   label="Sheet"
                   value={draft.sheet}
@@ -694,7 +723,9 @@ export function ProcessingBorrowerWorkspace({
                 {draft.sheet === 'FUNDING' && (
                   <EditField label="Funded date" type="date" value={draft.fundedAt} onChange={(value) => patchDraft('fundedAt', value)} required />
                 )}
-                <EditSelect
+                </DetailSection>
+              <DetailSection title="Third-party services">
+              <EditSelect
                   label="Title"
                   value={draft.titleStatus}
                   options={PROCESSING_ITEM_STATUS_OPTIONS}
@@ -739,7 +770,9 @@ export function ProcessingBorrowerWorkspace({
                   options={PROCESSING_ITEM_STATUS_OPTIONS}
                   onChange={(value) => patchDraft('hoiStatus', value as ProcessingBorrowerDetailsInput['hoiStatus'])}
                 />
-                <EditSelect
+                </DetailSection>
+              <DetailSection title="Rate lock and disclosures">
+              <EditSelect
                   label="Rate lock"
                   value={draft.rateLock ? 'true' : 'false'}
                   options={[
@@ -760,7 +793,7 @@ export function ProcessingBorrowerWorkspace({
                   ]}
                   onChange={(value) => patchDraft('cdSent', value === 'true')}
                 />
-              </DetailGrid>
+              </DetailSection>
             </DetailCard>
             <DetailCard title="Processor notes" description="Open items and workflow context." icon={Clipboard}>
               <div className="grid gap-3 lg:grid-cols-3">
@@ -775,12 +808,15 @@ export function ProcessingBorrowerWorkspace({
       return (
         <div className="space-y-4">
           <DetailCard title="Milestones" description="Current processing status and checklist." icon={Building2}>
-            <DetailGrid>
+            <DetailSection title="Status and key dates">
               <DetailField label="Pipeline status" value={statusLabel(details.processing.pipelineStatus)} />
               <DetailField label="Sheet" value={humanize(details.processing.sheet)} />
               <DetailField label="Days in status" value={details.processing.daysInStatus} />
               <DetailField label="Assigned" value={formatDate(details.processing.dateAssigned)} />
               <DetailField label="Estimated signing" value={formatDate(details.processing.estimatedSigningAt)} />
+              <DetailField label="Funded date" value={formatDate(details.processing.fundedAt)} />
+              </DetailSection>
+              <DetailSection title="Third-party services">
               <DetailField label="Title" value={itemStatusLabel(details.processing.titleStatus)} />
               <DetailField label="Payoff" value={itemStatusLabel(details.processing.payoffStatus)} />
               <DetailField
@@ -788,15 +824,16 @@ export function ProcessingBorrowerWorkspace({
                 value={formatDate(details.processing.payoffExpiresAt)}
               />
               <DetailField label="HOI" value={itemStatusLabel(details.processing.hoiStatus)} />
+              </DetailSection>
+              <DetailSection title="Rate lock and disclosures">
               <DetailField label="Rate lock" value={details.processing.rateLock ? 'Yes' : 'No'} />
               <DetailField label="Lock expiration" value={formatDate(details.processing.rateLockExpiresAt)} />
               <DetailField label="CD sent" value={details.processing.cdSent ? 'Yes' : 'No'} />
-              <DetailField label="Funded date" value={formatDate(details.processing.fundedAt)} />
-            </DetailGrid>
+            </DetailSection>
           </DetailCard>
           <DetailCard title="Processor notes" description="Open items and workflow context." icon={Clipboard}>
             <DetailGrid>
-              <DetailField label="Pending items" value={details.processing.missingItemsCurrentStatus} />
+              <div className="sm:col-span-2 xl:col-span-3 whitespace-pre-wrap"><DetailField label="Pending items" value={details.processing.missingItemsCurrentStatus} /></div>
               <DetailField label="Extra notes" value={details.processing.extraNotes} />
               <DetailField label="Restructure notes" value={details.processing.restructureNotes} />
             </DetailGrid>
@@ -809,7 +846,7 @@ export function ProcessingBorrowerWorkspace({
         return (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.8fr)]">
             <DetailCard title="Appraisal workflow" description="Update appraisal intent, dates, waiver, and notes." icon={ShieldCheck}>
-              <DetailGrid>
+              <DetailSection title="Requirements">
                 <label className="block min-w-0">
                   <span className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Appraisal needed</span>
                   <select
@@ -823,11 +860,15 @@ export function ProcessingBorrowerWorkspace({
                   </select>
                 </label>
                 <EditField label="Waiver" value={draft.appraisalWaiver} onChange={(value) => patchDraft('appraisalWaiver', value)} />
-                <EditField label="Ordered" type="date" value={draft.appraisalOrderedAt} onChange={(value) => patchDraft('appraisalOrderedAt', value)} />
+                </DetailSection>
+              <DetailSection title="Appraisal milestones">
+              <EditField label="Ordered" type="date" value={draft.appraisalOrderedAt} onChange={(value) => patchDraft('appraisalOrderedAt', value)} />
                 <EditField label="Scheduled" type="date" value={draft.appraisalScheduledAt} onChange={(value) => patchDraft('appraisalScheduledAt', value)} />
                 <EditField label="Received" type="date" value={draft.appraisalBackAt} onChange={(value) => patchDraft('appraisalBackAt', value)} />
-                <EditField label="Notes" value={draft.appraisalNotes} onChange={(value) => patchDraft('appraisalNotes', value)} multiline />
-              </DetailGrid>
+                </DetailSection>
+              <DetailSection title="Appraisal notes">
+              <div className="sm:col-span-2 xl:col-span-3"><EditField label="Notes" value={draft.appraisalNotes} onChange={(value) => patchDraft('appraisalNotes', value)} multiline /></div>
+              </DetailSection>
             </DetailCard>
             <DetailCard title="Payment method" description="Card data is intentionally not stored in this portal." icon={DollarSign}>
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -841,14 +882,18 @@ export function ProcessingBorrowerWorkspace({
       return (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.8fr)]">
           <DetailCard title="Appraisal workflow" description="Submission intent and processing dates." icon={ShieldCheck}>
-            <DetailGrid>
+            <DetailSection title="Requirements">
               <DetailField label="Appraisal needed" value={details.appraisal.needed === null ? 'Not set' : details.appraisal.needed ? 'Yes' : 'No'} />
               <DetailField label="Waiver" value={details.appraisal.waiver} />
+              </DetailSection>
+              <DetailSection title="Appraisal milestones">
               <DetailField label="Ordered" value={formatDate(details.appraisal.orderedAt)} />
               <DetailField label="Scheduled" value={formatDate(details.appraisal.scheduledAt)} />
               <DetailField label="Received" value={formatDate(details.appraisal.backAt)} />
-              <DetailField label="Notes" value={details.appraisal.notes} />
-            </DetailGrid>
+              </DetailSection>
+              <DetailSection title="Appraisal notes">
+              <div className="sm:col-span-2 xl:col-span-3 whitespace-pre-wrap"><DetailField label="Notes" value={details.appraisal.notes} /></div>
+            </DetailSection>
           </DetailCard>
           <DetailCard title="Payment method" description="Card data is intentionally not stored in this portal." icon={DollarSign}>
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">

@@ -54,7 +54,7 @@ export function DetailField({
       </p>
       <div className="mt-1 flex min-w-0 items-center gap-2">
         <div className="min-w-0 flex-1 break-words text-sm font-bold text-slate-800">
-          {value || <span className="font-medium text-slate-400">Not provided</span>}
+          {(value !== null && value !== undefined && value !== '' ? value : null) ?? <span className="font-medium text-slate-400">Not provided</span>}
         </div>
         {copyable && textValue && (
           <button
@@ -79,8 +79,15 @@ export function DetailField({
   );
 }
 
-export function DetailGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{children}</div>;
+export function DetailGrid({ children, columns = 3 }: { children: React.ReactNode; columns?: 2 | 3 }) {
+  return <div className={`grid gap-3 sm:grid-cols-2 ${columns === 3 ? 'xl:grid-cols-3' : ''}`}>{children}</div>;
+}
+
+export function DetailSection({ title, children, columns = 3 }: { title: string; children: React.ReactNode; columns?: 2 | 3 }) {
+  return <section className="mt-5 border-t border-slate-100 pt-5 first:mt-0 first:border-t-0 first:pt-0">
+    <h4 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">{title}</h4>
+    <DetailGrid columns={columns}>{children}</DetailGrid>
+  </section>;
 }
 
 export const WorkspacePanel = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(function WorkspacePanel({ className = '', ...props }, ref) {
