@@ -48,7 +48,7 @@ export function DetailField({
       ? String(value)
       : '';
   return (
-    <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+    <div className="h-full min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
       <p className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">
         {label}
       </p>

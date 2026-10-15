@@ -50,14 +50,16 @@ export function formatSubmissionValue(value: string, format?: Field[2]) {
 export function SubmissionDetailSections({ tab, rows }: { tab: keyof typeof submissionSections; rows: SubmissionRow[] }) {
   return <div className="space-y-5">
     <div><h2 className="text-lg font-bold text-slate-950">{tab === 'borrower' ? 'Borrowers and employment' : tab === 'property' ? 'Property and services' : 'Loan and underwriting'}</h2><p className="mt-1 text-sm text-slate-500">Information captured with this submission. Missing information is shown as not provided.</p></div>
-    <div className="grid items-start gap-5 xl:grid-cols-2">
-      {submissionSections[tab].map(section => <DetailCard key={section.title} title={section.title} description={section.description} icon={section.icon}>
+    <div className="grid items-start gap-4 xl:grid-cols-2">
+      {[0, 1].map(column => <div key={column} className="min-w-0 space-y-4">
+      {submissionSections[tab].filter((_, index) => index % 2 === column).map(section => <DetailCard key={section.title} title={section.title} description={section.description} icon={section.icon}>
         {section.empty && !section.fields.some(([keys]) => submissionFieldValue(rows, keys)) ? <p className="rounded-xl border border-dashed border-slate-200 p-5 text-sm leading-relaxed text-slate-500">{section.empty}</p> : <div className="grid gap-3 sm:grid-cols-2">{section.fields.map(([keys, label, format]) => {
           const raw = submissionFieldValue(rows, keys);
           const value = formatSubmissionValue(raw, format);
           return <div key={keys} className={format === 'note' ? 'sm:col-span-2 whitespace-pre-wrap' : 'min-w-0'}><DetailField label={label} value={value && (format === 'phone' || format === 'email') ? <a className="text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-blue-500" href={`${format === 'phone' ? 'tel' : 'mailto'}:${value}`}>{value}</a> : value} /></div>;
         })}</div>}
       </DetailCard>)}
+      </div>)}
     </div>
   </div>;
 }
