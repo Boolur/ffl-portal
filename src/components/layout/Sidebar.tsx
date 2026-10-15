@@ -252,19 +252,19 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       visible: () => canAccessUserManagement(activeRoleArr),
     },
     {
+      name: 'Arive Integration',
+      icon: GitBranch,
+      href: '/admin/arive',
+      roles: [] as UserRole[],
+      visible: () => activeRoleArr.some(isAdminIII),
+    },
+    {
       name: 'Support Inbox',
       icon: MessageCircle,
       href: '/admin/support',
       roles: [] as UserRole[],
       visible: () => canAccessSupportInbox(activeRoleArr) || hasSupportDeskDesignation,
       badgeCount: supportInboxUnreadCount,
-    },
-    {
-      name: 'Arive Integration',
-      icon: GitBranch,
-      href: '/admin/arive',
-      roles: [] as UserRole[],
-      visible: () => activeRoleArr.some(isAdminIII),
     },
     {
       name: 'Email Settings',
@@ -310,7 +310,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     return v ? v() : false;
   };
 
-  const MANAGEMENT_NAMES = ['Onboarding', 'User Management', 'Support Inbox', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'];
+  const MANAGEMENT_NAMES = ['Onboarding', 'User Management', 'Arive Integration', 'Support Inbox', 'Email Settings', 'Lead Mailbox', 'Lender Mgmt'];
   const mainNavItems = navItems.filter(
     (item) =>
       isVisible(item) &&
