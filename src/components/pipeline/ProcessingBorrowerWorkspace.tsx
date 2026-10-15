@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { AriveWorkspacePanel } from './AriveWorkspacePanel';
 import { createPortal } from 'react-dom';
 import { DetailCard, DetailField, DetailGrid, DetailSection, WorkspacePanel } from './BorrowerWorkspaceLayout';
 import {
@@ -1107,6 +1108,7 @@ export function ProcessingBorrowerWorkspace({
                 </div>
               )}
               {renderTab()}
+              {details.loan.loanNumber === '17881588' && activeTab === 'documents' && !editing && <AriveWorkspacePanel requestTaskId={details.sourceTask.id} />}
             </>
           )}
         </main>

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { isAdminIII } from '@/lib/adminTiers';
 import {
   Users,
   CheckSquare,
@@ -257,6 +258,13 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       roles: [] as UserRole[],
       visible: () => canAccessSupportInbox(activeRoleArr) || hasSupportDeskDesignation,
       badgeCount: supportInboxUnreadCount,
+    },
+    {
+      name: 'Arive Integration',
+      icon: GitBranch,
+      href: '/admin/arive',
+      roles: [] as UserRole[],
+      visible: () => activeRoleArr.some(isAdminIII),
     },
     {
       name: 'Email Settings',

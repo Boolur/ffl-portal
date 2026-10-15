@@ -16,7 +16,7 @@ vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn(() => 'encr
 vi.mock('@/lib/ariveClient', () => ({ ariveConfigured: vi.fn(), ariveClassifications: vi.fn(), ariveSession: vi.fn(), findAriveLoan: vi.fn(), readAriveNotes: vi.fn(), validAriveUploadUrl: vi.fn(), AriveError: class extends Error {} }));
 vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download, info: mocks.info, createSignedUrl: mocks.signedUrl }) } }), getTaskAttachmentsBucket: () => 'test' }));
 vi.mock('@/lib/submissionPilot', async () => import('../../lib/submissionPilot'));
-import { checkAriveTestLoanAccess, getSubmissionPilot, changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
+import { getAriveConnectionSettings, linkExistingAriveTestPackage, checkAriveTestLoanAccess, getSubmissionPilot, changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
 import { ariveClassifications, ariveSession, validAriveUploadUrl, readAriveNotes, findAriveLoan } from '@/lib/ariveClient';
 
 function asUser(id: string, role: string) {
@@ -232,6 +232,16 @@ describe('Arive pilot transfer gates', () => {
     mocks.download.mockResolvedValue({ data: new Blob(['test']), error: null });
     return p;
   }
+  it('does not let a Jr configure the branch connection', async () => {
+    asUser('jr', 'PROCESSOR_JR');
+    expect((await getAriveConnectionSettings()).success).toBe(false);
+  });
+  it('does not link another loan through the test-file controls', async () => {
+    asUser('jr', 'PROCESSOR_JR'); packageTask();
+    const task = await mocks.db.task.findUnique(); task.loan.loanNumber = '999';
+    expect((await linkExistingAriveTestPackage('task')).success).toBe(false);
+    expect(findAriveLoan).not.toHaveBeenCalled();
+  });
   it('checks only the authorized test loan and reports denied APIs separately', async () => {
     asUser('jr', 'PROCESSOR_JR');
     vi.mocked(findAriveLoan).mockResolvedValue({ ariveLoanId: 17881588, sysGUID: 'test-guid' });

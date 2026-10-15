@@ -401,3 +401,27 @@ export async function checkAriveTestLoanAccess() {
     return { loanNumber: '17881588', checkedAt: new Date().toISOString(), checks };
   });
 }
+
+export async function getAriveConnectionSettings() {
+  return result(async () => {
+    const a = await actor();
+    if (!isAdminIII(a.role)) throw new Error('Switch to portal Admin III to configure Arive.');
+    return { configured: await ariveConfigured() };
+  });
+}
+
+export async function linkExistingAriveTestPackage(taskId: string) {
+  return result(async () => {
+    const a = await actor();
+    const { task } = await taskAccess(taskId, a);
+    if (task.loan.loanNumber !== '17881588') throw new Error('Live acceptance is limited to TESTING TESTER / 17881588.');
+    const remote = await findAriveLoan(task.loan.loanNumber);
+    const officer = await prisma.user.findUnique({ where: { id: task.loan.loanOfficerId }, select: { email: true } });
+    if (!officer?.email || !remote.loanOriginatorEmail || officer.email.trim().toLowerCase() !== remote.loanOriginatorEmail.trim().toLowerCase()) throw new Error('The loan originator in Arive does not match this portal file. Linking was stopped.');
+    await integrationUpdate(taskId, a, p => {
+      if (p.ariveLink && p.ariveLink.id !== remote.sysGUID) throw new Error('The package is already linked to a different Arive loan.');
+      p.ariveLink = { id: remote.sysGUID, loanNumber: task.loan.loanNumber };
+      p.history.push({ actor: a.name, at: new Date().toISOString(), message: 'Linked existing approved submission to its verified Arive loan.' });
+    });
+  });
+}

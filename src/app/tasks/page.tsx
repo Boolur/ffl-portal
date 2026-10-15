@@ -1,6 +1,5 @@
 import React from 'react';
 import Link from 'next/link';
-import { SUBMISSION_PILOT_LO_ID } from '@/lib/submissionPilot';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { prisma } from '@/lib/prisma';
 import { TaskList } from '@/components/tasks/TaskList';
@@ -8,7 +7,7 @@ import { TaskBucketsBoard } from '@/components/tasks/TaskBucketsBoard';
 import { TaskDeskSection } from '@/components/tasks/TaskDeskSection';
 import { TasksRouteSyncGate } from '@/components/tasks/TasksRouteSyncGate';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
-import { isAdmin } from '@/lib/adminTiers';
+import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 import { canDeleteTasks } from '@/lib/taskPermissions';
 import {
   canUsePagedTaskBuckets,
@@ -1130,7 +1129,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const pageOutput = (
     <DashboardShell user={sessionUser}>
       <TasksRouteSyncGate>
-        {(session?.user?.id === SUBMISSION_PILOT_LO_ID || sessionRole === UserRole.PROCESSOR_JR || sessionRole === UserRole.PROCESSING_MANAGER || isAdmin(sessionRole)) && <div className="mb-4"><Link className="app-btn-secondary" href="/pipeline/submission-pilot">Processing submission pilot · uploads and review</Link></div>}
+        {isAdminIII(sessionRole) && <div className="mb-4"><Link className="app-btn-secondary" href="/admin/arive">Arive integration settings</Link></div>}
         <div className="app-page-header flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="app-page-title">Tasks</h1>

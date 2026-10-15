@@ -1,6 +1,5 @@
 import React from 'react';
 import Link from 'next/link';
-import { SUBMISSION_PILOT_LO_ID } from '@/lib/submissionPilot';
 import { PipelineWorkspace } from '@/components/pipeline/PipelineWorkspace';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { getServerSession } from 'next-auth';
@@ -12,7 +11,7 @@ import { getPipelineReport } from '@/app/actions/pipelineReportingActions';
 import { getProcessingPipeline } from '@/app/actions/processingPipelineActions';
 import { getProcessingPipelineLayouts } from '@/app/actions/processingPipelineLayoutActions';
 import { prisma } from '@/lib/prisma';
-import { isAdmin } from '@/lib/adminTiers';
+import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,8 +87,8 @@ export default async function Pipeline() {
 
   return (
     <DashboardShell user={user}>
-      {(session.user.id === SUBMISSION_PILOT_LO_ID || role === UserRole.PROCESSOR_JR || role === UserRole.PROCESSING_MANAGER || isAdmin(role)) && (
-        <div className="mb-4"><Link className="app-btn-secondary" href="/pipeline/submission-pilot">Processing submission pilot</Link></div>
+      {isAdminIII(role) && (
+        <div className="mb-4"><Link className="app-btn-secondary" href="/admin/arive">Arive integration settings</Link></div>
       )}
       <PipelineWorkspace
         role={role}
