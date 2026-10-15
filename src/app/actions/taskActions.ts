@@ -1,4 +1,5 @@
 'use server';
+import { readPilotPackage } from '@/lib/submissionPilot';
 
 import { prisma } from '@/lib/prisma';
 import {
@@ -2461,6 +2462,10 @@ export async function updateTaskStatus(
 
     if (!existing) return { success: false, error: 'Task not found.' };
 
+    if (readPilotPackage(existing.submissionData)) {
+      return { success: false, error: 'Use the Processing submission pilot to review or change this package.' };
+    }
+
     const canManageAll = isAdmin(role) || role === UserRole.MANAGER;
     const isAssignedToUser = existing.assignedUserId === userId;
     const isAssignedToRole =
@@ -4099,6 +4104,9 @@ export async function addTaskNote(taskId: string, message: string) {
     }
 
     const actorName = session?.user?.name || 'Unknown';
+    if (readPilotPackage(task.submissionData)) {
+      return { success: false, error: 'Use the Processing submission pilot for document feedback.' };
+    }
     const updatedData = appendSubmissionHistoryEntry(task.submissionData, {
       author: actorName,
       role,

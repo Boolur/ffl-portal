@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { readPilotPackage } from '@/lib/submissionPilot';
 import {
   Calendar,
   CheckCircle,
@@ -4834,6 +4836,9 @@ export function TaskList({
                     )}
                   </div>
 
+                  {readPilotPackage(task.submissionData) && (
+                    <div className="app-surface-card mt-4"><p className="mb-3 text-sm">Manage document uploads, corrections, and approval in the submission pilot.</p><Link href={`/pipeline/submission-pilot?task=${task.id}`} className="app-btn-primary">Open submission package</Link></div>
+                  )}
                   {visibleTimelineItems.length > 0 && (
                     <div className="mt-8">
                       <div className="mb-5 flex items-center justify-between">
