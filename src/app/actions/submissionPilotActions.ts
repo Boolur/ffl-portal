@@ -162,6 +162,18 @@ export async function preparePilotUpload(input: { taskId: string; revision: numb
     return { signedUrl: data.signedUrl };
   });
 }
+// The modal stages files before creating the normal Processing request.
+export async function prepareProcessingSubmissionUpload(input: { name: string; size: number; type: string }) {
+  return result(async () => {
+    const a = await actor();
+    if (!a.owner) throw new Error('Document submission is limited to Matt’s Loan Officer account.');
+    validatePilotFile(input.name, input.size, input.type);
+    const path = `processing-submission/${a.id}/${randomUUID()}.${input.name.split('.').pop()!.toLowerCase()}`;
+    const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).createSignedUploadUrl(path);
+    if (error || !data) throw new Error('Unable to start the upload. Please retry.');
+    return { signedUrl: data.signedUrl, file: { id: randomUUID(), path, ...input, uploadedAt: new Date().toISOString() } };
+  });
+}
 export async function finishPilotUpload(taskId: string, itemId: string) {
   return result(async () => {
     const a = await actor(); const { p } = await taskAccess(taskId, a);

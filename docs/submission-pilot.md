@@ -1,6 +1,6 @@
 # Processing submission pilot
 
-The pilot provides stored document packages and Jr review for Matt Mahjoub, plus approved-document transfers and read-only Arive notes. It is available at `/pipeline/submission-pilot`, with links from Pipeline and Tasks. It is separate from the existing full intake form and does not replace that form for other users. No automatic loan-stage changes are included.
+The pilot adds a fourth Documents step to Matt Mahjoub's existing Submit for Processing popup. The original MISMO, Processing Method, and Processing Details steps and dashboard card are preserved. Other accounts retain the three-step form. The separate `/pipeline/submission-pilot` page remains available for document review, corrections, approved-document transfers, and read-only Arive notes.
 
 ## Connect Arive and open a test loan
 
@@ -10,15 +10,17 @@ Matt enters the test Arive loan number under Open Arive loan. The lookup require
 
 ## Loan Officer flow
 
-Only the verified active LO account `2e28c6a5-67c0-442d-94bd-59897ad8d8cd` can start or edit a package. The same-name onboarding account is excluded. Matt selects an existing loan where he is the primary LO and the processing row is active in Pipeline or Restructures. Existing processing method and assignments are retained.
+Only the verified active LO account `2e28c6a5-67c0-442d-94bd-59897ad8d8cd`, using the LO role, gets the fourth popup step. The server also enforces documents for that account's QC submissions. Matt must be the primary LO. The original form validation and processing routing remain in place. Documents are staged in private storage under a user-scoped prefix and checked for ownership, size, MIME type, duplicate paths, and checklist completeness before loan/request creation. The normal Processing request and its linked review package are created in the same transaction. No request is sent when merely continuing to Documents.
+
+The popup's unsent form and checklist stay in browser memory; keep it open until submission. Closing it loses those selections, and unused uploaded objects currently require manual cleanup. The separate pilot page can still open persistent draft packages for existing active Matt pipeline loans, or a verified Arive loan.
 
 The six categories follow the current Jr checklist: mortgage documents, homeowners insurance, income, identification, veteran documentation, and signed initial disclosures. Upload applicable files or provide an explanation for an inapplicable category. Explanations require Jr approval. Additional documents have their own labeled categories. Files are PDFs, JPGs, or PNGs up to 20 MB each, with up to 10 files per category and 30 categories per package.
 
-Drafts persist. Submission requires every required category to have files or an explanation, at least one actual document, and no unfinished upload or unresolved correction. Submitted packages are locked to LO edits until returned.
+Saved packages persist after submission (and drafts created on the separate pilot page persist). Submission requires every required category to have files or an explanation, at least one actual document, and no unfinished upload or unresolved correction. Submitted packages are locked to LO edits until returned.
 
 ## Jr Processor flow
 
-Jr Processors see submitted packages in the pilot review queue and receive an in-app notification. A Jr must claim a package before reviewing it. Another Jr cannot take it over. Processing managers and admins may inspect assigned reviews but cannot edit them without owning the claim.
+Jr Processors receive the normal Processing request notification. Its task details include Open submission documents, linking to the package in the pilot review queue. Packages submitted directly from the separate pilot page generate their own notification. A Jr must claim a package before reviewing it. Another Jr cannot take it over. Processing managers and admins may inspect assigned reviews but cannot edit them without owning the claim.
 
 The reviewer downloads each file, approves the category or explanation, or enters a required correction reason. Return Corrections routes the package back to Matt and notifies him. He replaces the affected files or changes explanations and resubmits. Changed categories require fresh review; approvals on untouched categories remain. Prior removed file metadata and storage objects are retained. The current UI displays the history but does not offer restoration of retired files.
 
@@ -34,7 +36,7 @@ Refresh notes imports the complete paginated loan-note list, up to a 5,000-note 
 
 ## Storage and task behavior
 
-Packages use dedicated generic Task records with server-controlled submission data, separate from existing Submit to Processing tasks. The pilot uses a dedicated queue linked from the task page rather than adding packages to existing specialized Jr buckets. This avoids completing an existing processing task or moving a loan during the document pilot.
+Packages use dedicated generic Task records with server-controlled submission data. Popup submissions store the package ID on the normal Processing request so the existing desk workflow and document review remain linked. Document approval controls Arive transfer eligibility; it does not automatically complete the normal Processing request. Existing processing-method behavior, including self-processed completion, is retained.
 
 Private storage uses the existing task-attachments bucket. Signed uploads are authorized per package; finalization verifies stored size and MIME metadata. Downloads require current account and package authorization and use five-minute signed links. Pilot files are not ordinary TaskAttachment records, so legacy attachment removal does not remove approved package files. Upload cancellation can leave an unreferenced object; automatic storage cleanup is not implemented in this version.
 

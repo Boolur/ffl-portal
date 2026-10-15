@@ -1,5 +1,10 @@
 // Exact active LO account; the similarly named onboarding account is excluded.
 export const SUBMISSION_PILOT_LO_ID = '2e28c6a5-67c0-442d-94bd-59897ad8d8cd';
+export function processingDocumentTaskId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const id = (value as { processingDocumentTaskId?: unknown }).processingDocumentTaskId;
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
 export const PILOT_DOCUMENT_TYPES = [
   ['mortgage', 'Mortgage statement / mortgage documents'],
   ['insurance', 'Homeowners insurance'],

@@ -1,5 +1,6 @@
 'use server';
-import { readPilotPackage } from '@/lib/submissionPilot';
+import { readPilotPackage, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { verifyProcessingSubmissionDocuments } from '@/lib/processingSubmissionDocuments';
 
 import { prisma } from '@/lib/prisma';
 import {
@@ -3088,6 +3089,7 @@ type SubmissionType = 'DISCLOSURES' | 'QC';
 
 type SubmissionPayload = {
   submissionType: SubmissionType;
+  processingDocuments?: unknown;
   sourceLoanId?: string;
   loanOfficerName?: string;
   loanOfficerId?: string;
@@ -3585,6 +3587,14 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         ? sessionUserId
         : null;
 
+    let documentPackage: PilotPackage | null = null;
+    if (submissionType === 'QC' && sessionUserId === SUBMISSION_PILOT_LO_ID && role === UserRole.LOAN_OFFICER) {
+      if (loanOfficerUser.id !== SUBMISSION_PILOT_LO_ID) return { success: false, error: 'For this document pilot, select Matt as the Primary Loan Officer.' };
+      // Validate stored files before creating or updating a loan or queuing a request.
+      documentPackage = await verifyProcessingSubmissionDocuments(payload.processingDocuments, sessionUserId);
+      documentPackage.history.push({ at: new Date().toISOString(), actor: session?.user?.name || 'Matt Mahjoub', message: 'Submitted documents with the Processing request' });
+    }
+
     // Find or create loan
     let loan = await prisma.loan.findFirst({
       where: { loanNumber: normalizedArriveLoanNumber },
@@ -3771,13 +3781,24 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         );
       }
 
+      const processingDocumentTask = documentPackage ? await tx.task.create({ data: {
+        loanId: loan.id,
+        title: 'Processing submission pilot — documents',
+        assignedRole: UserRole.PROCESSOR_JR,
+        status: TaskStatus.IN_PROGRESS,
+        submissionData: { submissionPilot: documentPackage as unknown as Prisma.InputJsonValue },
+      } }) : null;
+      const safeSubmissionData: Record<string, Prisma.InputJsonValue | null> = finalSubmissionData && typeof finalSubmissionData === 'object' && !Array.isArray(finalSubmissionData) ? { ...(finalSubmissionData as Record<string, Prisma.InputJsonValue | null>) } : {};
+      delete safeSubmissionData.submissionPilot;
+      delete safeSubmissionData.processingDocumentTaskId;
+      if (processingDocumentTask) safeSubmissionData.processingDocumentTaskId = processingDocumentTask.id;
       return tx.task.create({
         data: {
           loanId: loan.id,
           title: taskTitle,
           kind,
           description: notes || null,
-          submissionData: finalSubmissionData ?? undefined,
+          submissionData: safeSubmissionData,
           status:
             submissionType === 'QC' &&
             processingMethod === PROCESSING_METHOD_SELF_PROCESSED

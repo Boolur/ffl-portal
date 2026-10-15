@@ -3,7 +3,6 @@ import { ClipboardCheck, ShieldCheck } from 'lucide-react';
 import { NewTaskModal } from '@/components/loanOfficer/NewTaskModal';
 import { TaskKind, TaskStatus } from '@prisma/client';
 import { FormatDate } from '@/components/ui/FormatDate';
-import { useRouter } from 'next/navigation';
 
 type Loan = {
   id: string;
@@ -40,7 +39,6 @@ type LoanOfficerDashboardProps = {
   }>;
   disclosureEnabled?: boolean;
   qcEnabled?: boolean;
-  submissionPilotEnabled?: boolean;
 };
 
 export function LoanOfficerDashboard({
@@ -51,9 +49,7 @@ export function LoanOfficerDashboard({
   lenderOptions = [],
   disclosureEnabled = true,
   qcEnabled = false,
-  submissionPilotEnabled = false,
 }: LoanOfficerDashboardProps) {
-  const router = useRouter();
   const [showNewTask, setShowNewTask] = useState(false);
   const [initialTaskType, setInitialTaskType] = useState<'PLUS_ONE' | 'DISCLOSURES' | 'QC'>('DISCLOSURES');
   const scopedSubmissions = isLoanOfficerAssistant
@@ -163,7 +159,6 @@ export function LoanOfficerDashboard({
           type="button"
           onClick={() => {
             if (!qcEnabled) return;
-            if (submissionPilotEnabled) { router.push('/pipeline/submission-pilot'); return; }
             openTaskModal('QC');
           }}
           disabled={!qcEnabled}
@@ -189,11 +184,11 @@ export function LoanOfficerDashboard({
               Submit for Processing
             </h3>
             <span className="inline-flex items-center rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              {qcEnabled ? submissionPilotEnabled ? 'Document pilot' : 'Active' : 'Disabled'}
+              {qcEnabled ? 'Active' : 'Disabled'}
             </span>
           </div>
           <p className="text-slate-500 mb-8 max-w-sm">
-            {submissionPilotEnabled ? 'Build your document package, complete the required checklist, and send it to your Jr Processor for review.' : 'Send a completed loan file to the Jr Processing team for review and completion.'}
+            Send a completed loan file to the Jr Processing team for review and completion.
           </p>
           <div
             className={`mt-auto w-full inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold ${
@@ -202,7 +197,7 @@ export function LoanOfficerDashboard({
                 : 'bg-slate-200 text-slate-500'
             }`}
           >
-            {qcEnabled ? submissionPilotEnabled ? 'Build submission package' : 'Start Request' : 'Disabled by Admin'}
+            {qcEnabled ? 'Start Request' : 'Disabled by Admin'}
           </div>
         </button>
       </div>

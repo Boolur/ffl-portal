@@ -19,6 +19,9 @@ import {
   type ProcessingMethod,
 } from '@/lib/processingRouting';
 import { TaskAttachmentPurpose } from '@prisma/client';
+import { useSession } from 'next-auth/react';
+import { initialPilotPackage, pilotSubmissionError, SUBMISSION_PILOT_LO_ID } from '@/lib/submissionPilot';
+import { ProcessingDocumentsStep } from './ProcessingDocumentsStep';
 
 type NewTaskModalProps = {
   open: boolean;
@@ -44,7 +47,7 @@ type NewTaskModalProps = {
 };
 
 type SubmissionType = 'PLUS_ONE' | 'DISCLOSURES' | 'QC';
-type SubmissionStep = 1 | 2 | 3;
+type SubmissionStep = 1 | 2 | 3 | 4;
 
 const investorOptions = [
   'UWM',
@@ -113,6 +116,9 @@ export function NewTaskModal({
   shortcutPrefill = null,
   onSubmissionSuccess,
 }: NewTaskModalProps) {
+  const { data: session } = useSession();
+  const documentPilot = session?.user?.id === SUBMISSION_PILOT_LO_ID && (session.user.activeRole || session.user.role) === 'LOAN_OFFICER';
+  const [documentUploadBusy, setDocumentUploadBusy] = useState(false);
   const resolveAvailableType = useCallback(
     (requestedType: SubmissionType): SubmissionType => {
       if (requestedType === 'PLUS_ONE') return 'PLUS_ONE';
@@ -135,11 +141,11 @@ export function NewTaskModal({
   const router = useRouter();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const handleClose = useCallback(() => {
-    if (submissionOverlay) return;
+    if (submissionOverlay || documentUploadBusy) return;
     setType(resolveAvailableType('DISCLOSURES'));
     setCurrentStep(shortcutPrefill ? 2 : 1);
     onClose();
-  }, [onClose, resolveAvailableType, shortcutPrefill, submissionOverlay]);
+  }, [onClose, resolveAvailableType, shortcutPrefill, submissionOverlay, documentUploadBusy]);
 
   useEffect(() => {
     if (!open) return;
@@ -236,7 +242,7 @@ export function NewTaskModal({
             ref={closeButtonRef}
             className="app-icon-btn"
             onClick={handleClose}
-            disabled={!!submissionOverlay}
+            disabled={!!submissionOverlay || documentUploadBusy}
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />
@@ -247,9 +253,9 @@ export function NewTaskModal({
           <SubmissionProgress
             type={type}
             currentStep={currentStep}
-            totalSteps={type === 'QC' ? 3 : 2}
+            totalSteps={type === 'QC' ? documentPilot ? 4 : 3 : 2}
             onStepRequest={(step) => {
-              if (step <= currentStep && (!shortcutPrefill || step >= 2)) {
+              if (!submissionOverlay && !documentUploadBusy && step <= currentStep && (!shortcutPrefill || step >= 2)) {
                 setCurrentStep(step as SubmissionStep);
               }
             }}
@@ -285,6 +291,8 @@ export function NewTaskModal({
           ) : (
             <QcForm
               key={`qc-${shortcutPrefill?.loanId || 'new'}`}
+              documentPilot={documentPilot}
+              onDocumentUploadBusy={setDocumentUploadBusy}
               isLoanOfficerAssistant={isLoanOfficerAssistant}
               loanOfficerOptions={loanOfficerOptions}
               sourceLoanId={shortcutPrefill?.loanId}
@@ -821,7 +829,7 @@ function SubmissionProgress({
     isPlusOneTone
       ? ['Upload MISMO', '+1 Details']
       : isQcTone
-      ? ['Upload MISMO', 'Processing Method', 'Processing Details']
+      ? ['Upload MISMO', 'Processing Method', 'Processing Details', ...(totalSteps === 4 ? ['Documents'] : [])]
       : ['Upload MISMO', 'Disclosure Details'];
 
   const containerClass = isPlusOneTone
@@ -865,7 +873,7 @@ function SubmissionProgress({
           style={{ width: `${progressPercent}%` }}
         />
       </div>
-      <div className={`mt-3 grid gap-2 ${totalSteps === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div className={`mt-3 grid gap-2 ${totalSteps === 4 ? 'grid-cols-2 sm:grid-cols-4' : totalSteps === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {stepLabels.map((label, idx) => {
           const stepNumber = idx + 1;
           const isComplete = stepNumber < clampedStep;
@@ -1977,6 +1985,8 @@ function DisclosuresForm({
 }
 
 function QcForm({
+  documentPilot,
+  onDocumentUploadBusy,
   isLoanOfficerAssistant,
   loanOfficerOptions,
   sourceLoanId,
@@ -1986,6 +1996,8 @@ function QcForm({
   currentStep,
   onSubmissionOverlay,
 }: {
+  documentPilot: boolean;
+  onDocumentUploadBusy: (busy: boolean) => void;
   isLoanOfficerAssistant: boolean;
   loanOfficerOptions: Array<{ id: string; name: string }>;
   sourceLoanId?: string;
@@ -1995,6 +2007,8 @@ function QcForm({
   currentStep: SubmissionStep;
   onSubmissionOverlay: (phase: null | 'submitting' | 'success') => void;
 }) {
+  const [documents, setDocuments] = useState(initialPilotPackage);
+  const [uploadBusy, setUploadBusy] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(true);
@@ -2156,7 +2170,7 @@ function QcForm({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (isSubmitting || uploadBusy) return;
     setSubmitError('');
     setShowValidationErrors(true);
 
@@ -2188,6 +2202,14 @@ function QcForm({
       return;
     }
 
+    if (documentPilot && qcStep !== 4) {
+      onStepChange(4);
+      return;
+    }
+    if (documentPilot) {
+      const documentError = pilotSubmissionError(documents);
+      if (documentError) { setSubmitError(documentError); return; }
+    }
     setIsSubmitting(true);
     onSubmissionOverlay('submitting');
 
@@ -2195,6 +2217,7 @@ function QcForm({
     try {
       res = await createSubmissionTask({
         submissionType: 'QC',
+        processingDocuments: documentPilot ? documents.items : undefined,
         sourceLoanId,
         loanOfficerName: form.loanOfficer,
         loanOfficerId: form.loanOfficerId || undefined,
@@ -2293,6 +2316,8 @@ function QcForm({
           importError={importError}
           tone="violet"
         />
+      ) : documentPilot && qcStep === 4 ? (
+        <ProcessingDocumentsStep pkg={documents} onChange={setDocuments} busy={isSubmitting || uploadBusy} onBusyChange={value => { setUploadBusy(value); onDocumentUploadBusy(value); }} onBack={() => onStepChange(3)} error={submitError} />
       ) : qcStep === 2 ? (
         <ProcessingMethodStep
           selectedMethod={selectedProcessingMethod}
@@ -2570,7 +2595,7 @@ function QcForm({
           className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-          {isSubmitting ? 'Processing...' : 'Submit for Processing'}
+          {isSubmitting ? 'Processing...' : documentPilot ? 'Continue to documents' : 'Submit for Processing'}
         </button>
       </div>
         </>
