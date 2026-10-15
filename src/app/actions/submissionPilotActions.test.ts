@@ -3,7 +3,7 @@ import { initialPilotPackage, SUBMISSION_PILOT_LO_ID } from '../../lib/submissio
 
 const mocks = vi.hoisted(() => {
   const db = { user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
-  return { db, session: vi.fn(), download: vi.fn(), info: vi.fn() };
+  return { db, session: vi.fn(), download: vi.fn(), info: vi.fn(), signedUrl: vi.fn() };
 });
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
@@ -12,7 +12,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: mocks.db }));
 vi.mock('@/lib/adminTiers', () => ({ isAdmin: (role: string) => role === 'ADMIN_III', isAdminIII: (role: string) => role === 'ADMIN_III' }));
 vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn(() => 'encrypted') }));
 vi.mock('@/lib/ariveClient', () => ({ ariveConfigured: vi.fn(), ariveClassifications: vi.fn(), ariveSession: vi.fn(), findAriveLoan: vi.fn(), readAriveNotes: vi.fn(), validAriveUploadUrl: vi.fn(), AriveError: class extends Error {} }));
-vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download, info: mocks.info }) } }), getTaskAttachmentsBucket: () => 'test' }));
+vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download, info: mocks.info, createSignedUrl: mocks.signedUrl }) } }), getTaskAttachmentsBucket: () => 'test' }));
 vi.mock('@/lib/submissionPilot', async () => import('../../lib/submissionPilot'));
 import { getSubmissionPilot, changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
 import { ariveClassifications, ariveSession, validAriveUploadUrl, readAriveNotes } from '@/lib/ariveClient';
@@ -33,6 +33,13 @@ beforeEach(() => {
   mocks.db.user.findMany.mockResolvedValue([]);
 });
 describe('pilot server authorization and concurrency', () => {
+  it.each(['inline', 'attachment'] as const)('authorizes a %s file link with the correct display behavior', async disposition => {
+    asUser('jr', 'PROCESSOR_JR'); const p = packageTask();
+    p.items[0].files = [{ id: 'file', name: 'statement.pdf', path: 'private/test.pdf', type: 'application/pdf', size: 12, uploadedAt: '' }];
+    mocks.signedUrl.mockResolvedValue({ data: { signedUrl: 'https://example.test/signed' }, error: null });
+    expect((await downloadPilotFile('task', 'file', disposition)).success).toBe(true);
+    expect(mocks.signedUrl).toHaveBeenCalledWith('private/test.pdf', 300, disposition === 'inline' ? undefined : { download: 'statement.pdf' });
+  });
   it('lets the assigned reviewer request an additional document', async () => {
     asUser('jr', 'PROCESSOR_JR'); const p = packageTask();
     mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'IN_PROGRESS', workflowState: 'NONE', assignedUserId: 'jr' });
@@ -59,7 +66,7 @@ describe('pilot server authorization and concurrency', () => {
   });
   it('opens linked documents without starting or changing either task', async () => {
     asUser('jr', 'PROCESSOR_JR'); packageTask();
-    mocks.db.task.findUnique.mockResolvedValueOnce({ kind: 'SUBMIT_PROCESSING', loanId: 'loan', submissionData: { processingDocumentTaskId: 'task' } });
+    mocks.db.task.findUnique.mockResolvedValueOnce({ id: 'request', kind: 'SUBMIT_PROCESSING', status: 'PENDING', workflowState: 'NONE', assignedUserId: null, loanId: 'loan', submissionData: { processingDocumentTaskId: 'task' } });
     mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'PENDING', assignedUserId: null });
     const r = await getSubmissionPilot('request');
     expect(r.success).toBe(true);

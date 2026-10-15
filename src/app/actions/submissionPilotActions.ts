@@ -29,11 +29,11 @@ type Actor = Awaited<ReturnType<typeof actor>>;
 function checkReviewer(a: Actor, p: PilotPackage) {
   if (!a.reviewer || p.reviewerId !== a.id) throw new Error('Claim this review before making changes.');
 }
-async function taskAccess(id: string, a: Actor, db: Prisma.TransactionClient = prisma) {
+async function taskAccess(id: string, a: Actor, db: Prisma.TransactionClient = prisma, linkedRequest?: { id: string; status: string; workflowState?: string; assignedUserId: string | null }) {
   const task = await db.task.findUnique({ where: { id }, include: { loan: { select: { loanOfficerId: true, borrowerName: true, loanNumber: true } } } });
   const p = readPilotPackage(task?.submissionData);
   if (!task || task.kind !== null || task.title !== 'Processing submission pilot — documents' || !p || task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID) throw new Error('Pilot package not found.');
-  const request = await db.task.findFirst({ where: { loanId: task.loanId, kind: 'SUBMIT_PROCESSING', submissionData: { path: ['processingDocumentTaskId'], equals: id } }, select: { id: true, status: true, workflowState: true, assignedUserId: true } });
+  const request = linkedRequest ?? await db.task.findFirst({ where: { loanId: task.loanId, kind: 'SUBMIT_PROCESSING', submissionData: { path: ['processingDocumentTaskId'], equals: id } }, select: { id: true, status: true, workflowState: true, assignedUserId: true } });
   // The existing request's Start/reassign controls own the review assignment.
   if (request && request.status !== 'COMPLETED') p.reviewerId = !((request.status === 'IN_PROGRESS' && (!request.workflowState || request.workflowState === 'NONE')) || (request.status === 'PENDING' && request.workflowState === 'READY_TO_COMPLETE')) ? null : request.assignedUserId;
   if (!a.owner && p.state === 'DRAFT') throw new Error('The LO has not submitted this package yet.');
@@ -75,15 +75,19 @@ async function result<T>(work: () => Promise<T>) {
 }
 export async function getSubmissionPilot(requestTaskId?: string) {
   return result(async () => {
-    const a = await actor();
     if (requestTaskId) {
-      const request = await prisma.task.findUnique({ where: { id: requestTaskId }, select: { kind: true, loanId: true, submissionData: true } });
+      const [a, request, configured] = await Promise.all([
+        actor(),
+        prisma.task.findUnique({ where: { id: requestTaskId }, select: { id: true, kind: true, loanId: true, submissionData: true, status: true, workflowState: true, assignedUserId: true } }),
+        ariveConfigured(),
+      ]);
       const documentId = (request?.submissionData as { processingDocumentTaskId?: string } | null)?.processingDocumentTaskId;
       if (!request || !['SUBMIT_PROCESSING', 'LO_NEEDS_INFO'].includes(request.kind || '') || !documentId) throw new Error('Submission documents not found.');
-      const { task, p } = await taskAccess(documentId, a);
+      const { task, p } = await taskAccess(documentId, a, prisma, request.kind === 'SUBMIT_PROCESSING' ? request : undefined);
       if (task.loanId !== request.loanId) throw new Error('Submission documents do not match this loan.');
-      return { owner: a.owner, canConfigureArive: false, ariveConfigured: await ariveConfigured(), userId: a.id, loans: [], packages: [{ id: task.id, loanId: task.loanId, borrower: task.loan.borrowerName, loanNumber: task.loan.loanNumber, package: p }] };
+      return { owner: a.owner, canConfigureArive: false, ariveConfigured: configured, userId: a.id, loans: [], packages: [{ id: task.id, loanId: task.loanId, borrower: task.loan.borrowerName, loanNumber: task.loan.loanNumber, package: p }] };
     }
+    const a = await actor();
     const tasks = await prisma.task.findMany({ where: { kind: null, title: 'Processing submission pilot — documents', loan: { loanOfficerId: SUBMISSION_PILOT_LO_ID }, submissionData: { path: ['submissionPilot', 'version'], equals: 1 } }, include: { loan: { select: { borrowerName: true, loanNumber: true } } }, orderBy: { updatedAt: 'desc' } });
     const visible = tasks.filter(t => { const p = readPilotPackage(t.submissionData)!; return a.owner || (p.state !== 'DRAFT' && (!p.reviewerId || p.reviewerId === a.id || isAdmin(a.role) || a.role === 'PROCESSING_MANAGER')); });
     const loans = a.owner ? await prisma.loan.findMany({ where: { loanOfficerId: a.id, processingPipeline: { is: { archivedAt: null, sheet: { in: ['PIPELINE', 'RESTRUCTURE'] } } } }, select: { id: true, borrowerName: true, loanNumber: true, processingPipeline: { select: { processingMethod: true, assignmentGroup: true } } }, orderBy: { borrowerName: 'asc' } }) : [];
@@ -210,12 +214,12 @@ export async function finishPilotUpload(taskId: string, itemId: string) {
     });
   });
 }
-export async function downloadPilotFile(taskId: string, fileId: string) {
+export async function downloadPilotFile(taskId: string, fileId: string, disposition: 'attachment' | 'inline' = 'attachment') {
   return result(async () => {
     const a = await actor(); const { p } = await taskAccess(taskId, a);
     const file = p.items.flatMap(i => i.files).find(f => f.id === fileId);
     if (!file) throw new Error('Document not found.');
-    const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).createSignedUrl(file.path, 300, { download: file.name });
+    const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).createSignedUrl(file.path, 300, disposition === 'inline' ? undefined : { download: file.name });
     if (error || !data) throw new Error('Unable to open document.');
     return data.signedUrl;
   });

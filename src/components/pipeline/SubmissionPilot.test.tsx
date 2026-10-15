@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { initialPilotPackage } from '../../lib/submissionPilot';
 vi.mock('@/lib/submissionPilot', async () => import('../../lib/submissionPilot'));
+vi.mock('@/lib/pilotReviewLoader', () => ({ fetchPilotReview: vi.fn(), invalidatePilotReview: vi.fn() }));
 vi.mock('@/lib/pilotReviewChecklist', async () => import('../../lib/pilotReviewChecklist'));
 vi.mock('@/lib/processingRouting', async () => import('../../lib/processingRouting'));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }));
@@ -23,6 +24,9 @@ describe('integrated document checklist', () => {
     const html = render('jr');
     expect(html).toContain('Attached file');
     expect(html).toContain('N/A · verified');
+    expect(html).toContain('Approval saved');
+    expect(html).toContain('Edit decision for Mortgage statement / mortgage documents');
+    expect(html).not.toContain('Review Mortgage statement / mortgage documents</legend>');
     expect(html).toContain('Approve &amp; complete Processing');
     expect(html).toContain('Reject submission');
     expect(html).not.toContain('Processing Action Checklist');

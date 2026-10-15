@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { readPilotPackage, processingDocumentTaskId } from '@/lib/submissionPilot';
+import { preloadPilotReview } from '@/lib/pilotReviewLoader';
 import { TaskSubmissionDocuments } from '@/components/pipeline/TaskSubmissionDocuments';
 import {
   Calendar,
@@ -2080,6 +2081,15 @@ export function TaskList({
   onToggleTaskSelection?: (taskId: string, selected: boolean) => void;
   onDataChanged?: () => void | Promise<void>;
 }) {
+  const pilotCacheKey = (task: Task) => `${currentUserId}:${currentRole}:${task.id}:${task.updatedAt}:${task.status}:${task.assignedUser?.id}`;
+  React.useEffect(() => {
+    for (const task of tasks) {
+      if (processingDocumentTaskId(task.submissionData)) {
+        const key = `${currentUserId}:${currentRole}:${task.id}:${task.updatedAt}:${task.status}:${task.assignedUser?.id}`;
+        void preloadPilotReview(task.id, key).catch(() => { /* The popup offers retry if loading fails. */ });
+      }
+    }
+  }, [tasks, currentUserId, currentRole]);
   const nextRouter = useRouter();
   const router = React.useMemo(
     () => ({
@@ -4837,7 +4847,7 @@ export function TaskList({
                     )}
                   </div>
 
-                  {processingDocumentTaskId(task.submissionData) ? <section className="mt-6 border-t border-border pt-5"><TaskSubmissionDocuments key={`${task.id}:${task.status}:${task.assignedUser?.id}`} taskId={task.id} startControl={canManageQcDesk && task.status === 'PENDING' && task.workflowState === TaskWorkflowState.NONE ? <div className="rounded-xl border border-violet-200 bg-violet-50 p-4"><p className="text-sm font-semibold">{deskStartOverlayMessage}</p><button type="button" className="app-btn-primary mt-3" disabled={(hasAssignedSpecialist && !isAssignedToCurrentUser) || isDeskTaskActionStarting} onClick={() => void handleStartDeskTask(task)}>{isDeskTaskActionStarting ? 'Starting…' : hasAssignedSpecialist && !isAssignedToCurrentUser ? `Assigned to ${assignedSpecialistName}` : 'Start Processing Request'}</button></div> : undefined} /></section> : readPilotPackage(task.submissionData) && (
+                  {processingDocumentTaskId(task.submissionData) ? <section className="mt-6 border-t border-border pt-5"><TaskSubmissionDocuments key={pilotCacheKey(task)} taskId={task.id} cacheKey={pilotCacheKey(task)} startControl={canManageQcDesk && task.status === 'PENDING' && task.workflowState === TaskWorkflowState.NONE ? <div className="rounded-xl border border-violet-200 bg-violet-50 p-4"><p className="text-sm font-semibold">{deskStartOverlayMessage}</p><button type="button" className="app-btn-primary mt-3" disabled={(hasAssignedSpecialist && !isAssignedToCurrentUser) || isDeskTaskActionStarting} onClick={() => void handleStartDeskTask(task)}>{isDeskTaskActionStarting ? 'Starting…' : hasAssignedSpecialist && !isAssignedToCurrentUser ? `Assigned to ${assignedSpecialistName}` : 'Start Processing Request'}</button></div> : undefined} /></section> : readPilotPackage(task.submissionData) && (
                     <div className="app-surface-card mt-4"><p className="mb-3 text-sm">Review the documents submitted with this request, approve each category, or return corrections to the Loan Officer.</p><Link href={`/pipeline/submission-pilot?task=${encodeURIComponent(processingDocumentTaskId(task.submissionData) || task.id)}`} className="app-btn-primary">Open submission documents</Link></div>
                   )}
                   {visibleTimelineItems.length > 0 && (

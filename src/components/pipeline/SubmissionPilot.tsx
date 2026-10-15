@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileCheck2, Upload, ArrowLeft, RefreshCw, House, ShieldCheck, ReceiptText, IdCard, BadgeCheck, FileSignature, FolderPlus, Check, CircleAlert, Minus, LockKeyhole, Send, XCircle } from 'lucide-react';
 import { requestInfoFromLoanOfficer } from '@/app/actions/taskActions';
+import { fetchPilotReview, invalidatePilotReview } from '@/lib/pilotReviewLoader';
 import { pilotDecisionError } from '@/lib/pilotReviewChecklist';
 import Link from 'next/link';
 import { createSubmissionPilot, getSubmissionPilot, changeSubmissionPilot, preparePilotUpload, finishPilotUpload } from '@/app/actions/submissionPilotActions';
@@ -24,6 +25,7 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
   const [message, setMessage] = useState('');
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [extra, setExtra] = useState('');
+  const [editingReviews, setEditingReviews] = useState<string[]>([]);
   const [decision, setDecision] = useState<'APPROVE_INITIAL_DISCLOSURES' | 'MISSING_ITEMS' | 'OTHER'>('APPROVE_INITIAL_DISCLOSURES');
   const [decisionNotes, setDecisionNotes] = useState('');
   const [decisionSent, setDecisionSent] = useState(false);
@@ -32,7 +34,8 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
   const editable = data.owner && p && ['DRAFT', 'CHANGES'].includes(p.state);
   const reviewing = !decisionSent && !data.owner && p?.state === 'REVIEW' && p.reviewerId === data.userId;
   async function reload() {
-    const r = await getSubmissionPilot(requestTaskId);
+    if (requestTaskId) invalidatePilotReview(requestTaskId);
+    const r = requestTaskId ? await fetchPilotReview(requestTaskId) : await getSubmissionPilot();
     if (!r.success) throw new Error(r.error);
     setData(r.data);
   }
@@ -46,6 +49,10 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
     if (!current || !p) return;
     const r = await changeSubmissionPilot({ ...input, taskId: current.id, revision: p.revision });
     if (!r.success) throw new Error(r.error);
+  }
+  async function saveReview(itemId: string, approved: boolean, text: string) {
+    await change({ action: 'REVIEW', itemId, approved, text });
+    setEditingReviews(ids => ids.filter(id => id !== itemId));
   }
   async function upload(itemId: string, file: File) {
     if (!current || !p) return;
@@ -86,7 +93,7 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
         </div>}
         <h2 className="text-sm font-bold">{data.owner ? 'Your submissions' : 'Review queue'}</h2>
         {!data.packages.length && <p className="text-sm text-muted-foreground">{data.owner ? 'Choose an existing loan to begin.' : 'No pilot submissions yet. Submitted packages will appear here.'}</p>}
-        <div className="space-y-2">{data.packages.map(entry => <button type="button" key={entry.id} disabled={busy} aria-pressed={selected === entry.id} className={`w-full rounded-lg border p-3 text-left focus-visible:outline-2 focus-visible:outline-primary ${selected === entry.id ? 'border-primary bg-secondary' : 'border-border'}`} onClick={() => { setSelected(entry.id); setNotes({}); setMessage(''); router.replace(`/pipeline/submission-pilot?task=${entry.id}`); }}><span className="block text-sm font-semibold">{entry.borrower}</span><span className="block text-xs text-muted-foreground">{entry.loanNumber} · {labels[entry.package.state]}</span></button>)}</div>
+        <div className="space-y-2">{data.packages.map(entry => <button type="button" key={entry.id} disabled={busy} aria-pressed={selected === entry.id} className={`w-full rounded-lg border p-3 text-left focus-visible:outline-2 focus-visible:outline-primary ${selected === entry.id ? 'border-primary bg-secondary' : 'border-border'}`} onClick={() => { setSelected(entry.id); setNotes({}); setEditingReviews([]); setMessage(''); router.replace(`/pipeline/submission-pilot?task=${entry.id}`); }}><span className="block text-sm font-semibold">{entry.borrower}</span><span className="block text-xs text-muted-foreground">{entry.loanNumber} · {labels[entry.package.state]}</span></button>)}</div>
       </aside>}
       {current && p ? <main className="space-y-5" aria-busy={busy}>
         <section className="app-surface-card space-y-3"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-bold">{current.borrower}</h2><span className="app-count-badge">{labels[p.state]}</span></div>
@@ -111,7 +118,8 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
             {editable && !item.pending && <label className="block space-y-2 text-sm"><span className="flex items-center gap-2 font-medium"><Upload size={16} /> Add file · PDF, JPG, PNG · up to 20 MB</span><input className="app-input" type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={busy} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void run(() => upload(item.id, file)); }} /></label>}
             {editable && item.pending && <div className="space-y-2 text-sm"><p>Upload pending: {item.pending.name}</p><div className="flex gap-2"><button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void run(async () => { const r = await finishPilotUpload(current.id, item.id); if (!r.success) throw new Error(r.error); })}>Verify upload</button><button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void run(() => change({ action: 'CANCEL_UPLOAD', itemId: item.id }))}>Cancel upload</button></div></div>}
             {editable && !item.files.length && !item.pending && <div className="space-y-2"><label className="block text-sm">Not applicable explanation<textarea className="app-input mt-1" maxLength={2000} value={notes[item.id] ?? item.waiver} disabled={busy} onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))} placeholder="Example: Purchase loan — no existing mortgage statement." /></label><button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void run(() => change({ action: 'WAIVER', itemId: item.id, text: notes[item.id] ?? item.waiver }))}>Save explanation</button></div>}
-            {!data.owner && <fieldset disabled={busy || !reviewing} className="space-y-3 border-t border-border pt-3 disabled:opacity-60"><legend className="sr-only">Review {item.label}</legend><label className="block text-xs font-semibold">Review note<textarea className="app-input mt-1 bg-white" maxLength={2000} value={notes[item.id] ?? item.feedback} onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))} placeholder="What is missing or needs to change? Required to request documents." /></label><div className="flex flex-wrap gap-2"><button type="button" className="app-btn-success" disabled={!item.files.length && !item.waiver} onClick={() => void run(() => change({ action: 'REVIEW', itemId: item.id, approved: true, text: notes[item.id] ?? item.feedback }))}><Check size={16} />{item.waiver ? 'Accept N/A' : 'Approve'}</button><button type="button" className="app-btn-danger" disabled={!(notes[item.id] ?? item.feedback).trim()} onClick={() => void run(() => change({ action: 'REVIEW', itemId: item.id, approved: false, text: notes[item.id] ?? item.feedback }))}><CircleAlert size={16} />Request document / correction</button></div></fieldset>}
+            {!data.owner && item.review !== 'PENDING' && !editingReviews.includes(item.id) && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3"><p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground"><Check size={14} />{item.review === 'APPROVED' ? 'Approval saved' : 'Document request saved'}</p>{reviewing && <button type="button" className="app-btn-secondary" disabled={busy} aria-label={`Edit decision for ${item.label}`} onClick={() => setEditingReviews(ids => [...ids, item.id])}>Edit decision</button>}</div>}
+            {!data.owner && (item.review === 'PENDING' || editingReviews.includes(item.id)) && <fieldset disabled={busy || !reviewing} className="space-y-3 border-t border-border pt-3 disabled:opacity-60"><legend className="sr-only">Review {item.label}</legend><label className="block text-xs font-semibold">Review note<textarea className="app-input mt-1 bg-white" maxLength={2000} value={notes[item.id] ?? item.feedback} onChange={e => setNotes(n => ({ ...n, [item.id]: e.target.value }))} placeholder="What is missing or needs to change? Required to request documents." /></label><div className="flex flex-wrap gap-2"><button type="button" className="app-btn-success" disabled={!item.files.length && !item.waiver} onClick={() => void run(() => saveReview(item.id, true, notes[item.id] ?? item.feedback))}><Check size={16} />{item.waiver ? 'Accept N/A' : 'Approve'}</button><button type="button" className="app-btn-danger" disabled={!(notes[item.id] ?? item.feedback).trim()} onClick={() => void run(() => saveReview(item.id, false, notes[item.id] ?? item.feedback))}><CircleAlert size={16} />Request document / correction</button>{editingReviews.includes(item.id) && <button type="button" className="app-btn-secondary" onClick={() => { setEditingReviews(ids => ids.filter(id => id !== item.id)); setNotes(previous => { const next = { ...previous }; delete next[item.id]; return next; }); }}>Cancel edit</button>}</div></fieldset>}
           </article>; })}</div>
           {!required && reviewing && <div className="rounded-2xl border border-dashed border-violet-300 bg-violet-50/50 p-4"><label className="block text-sm font-semibold">Request an additional document<input className="app-input mt-2 bg-white" maxLength={150} value={extra} disabled={busy} onChange={e => setExtra(e.target.value)} placeholder="e.g. Updated bank statement for September" /></label><button type="button" className="app-btn-secondary mt-3" disabled={busy || !extra.trim()} onClick={() => void run(async () => { await change({ action: 'REQUEST_DOCUMENT', text: extra }); setExtra(''); setDecision('MISSING_ITEMS'); })}><FolderPlus size={16} />Add to requested documents</button><p className="mt-2 text-xs text-muted-foreground">Send all requests together using the final decision below.</p></div>}
           {!required && editable && <div className="app-surface-card space-y-2"><label className="block text-sm">Additional document label<input className="app-input mt-1" maxLength={150} disabled={busy} value={extra} onChange={e => setExtra(e.target.value)} placeholder="Example: Letter of explanation" /></label><button type="button" className="app-btn-secondary" disabled={busy || !extra.trim()} onClick={() => void run(async () => { await change({ action: 'ADD', text: extra }); setExtra(''); })}>Add document category</button></div>}
