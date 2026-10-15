@@ -1,5 +1,5 @@
 'use server';
-import { readPilotPackage, processingDocumentTaskId, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { readPilotPackage, reconcileReturnedPilotReview, processingDocumentTaskId, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
 import { pilotReviewChecklist, pilotDecisionError } from '@/lib/pilotReviewChecklist';
 import { verifyProcessingSubmissionDocuments } from '@/lib/processingSubmissionDocuments';
 
@@ -5724,6 +5724,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     if (pilotId) {
       if (!pilot || pilotTask?.loanId !== task.loanId || task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID) return { success: false, error: 'Submission documents unavailable.' };
       if (!((task.status === TaskStatus.IN_PROGRESS && task.workflowState === TaskWorkflowState.NONE) || (task.status === TaskStatus.PENDING && task.workflowState === TaskWorkflowState.READY_TO_COMPLETE)) || task.assignedUserId !== userId) return { success: false, error: 'Start this request first. Only its assigned reviewer can submit a decision.' };
+      reconcileReturnedPilotReview(pilot, task);
       const error = pilotDecisionError(pilot, normalizedReason);
       if (error) return { success: false, error };
     }

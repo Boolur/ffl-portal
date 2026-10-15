@@ -12,7 +12,7 @@ import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 import { encryptAriveCredentials } from '@/lib/ariveCrypto';
 import { ariveConfigured, ariveClassifications, ariveSession, findAriveLoan, readAriveNotes, validAriveUploadUrl, AriveError } from '@/lib/ariveClient';
 import { getSupabaseAdmin, getTaskAttachmentsBucket } from '@/lib/supabaseAdmin';
-import { initialPilotPackage, readPilotPackage, pilotApprovalError, pilotSubmissionError, validatePilotFile, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { initialPilotPackage, readPilotPackage, reconcileReturnedPilotReview, pilotApprovalError, pilotSubmissionError, validatePilotFile, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
 
 async function actor() {
   const session = await getServerSession(authOptions);
@@ -35,6 +35,7 @@ async function taskAccess(id: string, a: Actor, db: Prisma.TransactionClient = p
   const p = readPilotPackage(task?.submissionData);
   if (!task || task.kind !== null || task.title !== 'Processing submission pilot — documents' || !p || task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID) throw new Error('Pilot package not found.');
   const request = linkedRequest ?? await db.task.findFirst({ where: { loanId: task.loanId, kind: 'SUBMIT_PROCESSING', submissionData: { path: ['processingDocumentTaskId'], equals: id } }, select: { id: true, status: true, workflowState: true, assignedUserId: true } });
+  reconcileReturnedPilotReview(p, request);
   // Older resubmissions updated only the documents. Keep those packages actionable until the task is returned too.
   if (a.owner && request?.workflowState === 'WAITING_ON_LO' && p.state === 'REVIEW') p.state = 'CHANGES';
   // The existing request's Start/reassign controls own the review assignment.

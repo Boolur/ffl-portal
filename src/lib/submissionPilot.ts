@@ -57,3 +57,12 @@ export function validatePilotFile(name: string, size: number, type: string) {
   if (!types[name.split('.').pop()?.toLowerCase() || ''] || types[name.split('.').pop()!.toLowerCase()] !== type) throw new Error('Use PDF, JPG, or PNG files.');
   if (!Number.isInteger(size) || size <= 0 || size > 20 * 1024 * 1024) throw new Error('Files must be nonempty and no larger than 20 MB.');
 }
+
+// A returned task owns the review phase, including packages returned through the legacy LO response action.
+export function reconcileReturnedPilotReview(p: PilotPackage, request: { status: string; workflowState?: string; assignedUserId: string | null } | null | undefined) {
+  if (request?.status === 'PENDING' && request.workflowState === 'READY_TO_COMPLETE' && ['CHANGES', 'REVIEW'].includes(p.state)) {
+    p.state = 'REVIEW';
+    p.reviewerId = request.assignedUserId;
+  }
+  return p;
+}

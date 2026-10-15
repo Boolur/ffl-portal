@@ -2084,11 +2084,11 @@ export function TaskList({
   onToggleTaskSelection?: (taskId: string, selected: boolean) => void;
   onDataChanged?: () => void | Promise<void>;
 }) {
-  const pilotCacheKey = (task: Task) => `${currentUserId}:${currentRole}:${task.id}:${task.updatedAt}:${task.status}:${task.assignedUser?.id}`;
+  const pilotCacheKey = (task: Task) => `${currentUserId}:${currentRole}:${task.id}:${task.updatedAt}:${task.status}:${task.workflowState}:${task.assignedUser?.id}`;
   React.useEffect(() => {
     for (const task of tasks) {
       if (processingDocumentTaskId(task.submissionData)) {
-        const key = `${currentUserId}:${currentRole}:${task.id}:${task.updatedAt}:${task.status}:${task.assignedUser?.id}`;
+        const key = `${currentUserId}:${currentRole}:${task.id}:${task.updatedAt}:${task.status}:${task.workflowState}:${task.assignedUser?.id}`;
         void preloadPilotReview(task.id, key).catch(() => { /* The popup offers retry if loading fails. */ });
       }
     }

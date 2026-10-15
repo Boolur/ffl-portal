@@ -85,10 +85,24 @@ describe('pilot server authorization and concurrency', () => {
     expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REQUEST_DOCUMENT', text: 'Bank statement' })).success).toBe(false);
     expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
   });
-  it('lets the original reviewer review a returned LO response without claiming again', async () => {
-    asUser('jr', 'PROCESSOR_JR'); const p = packageTask(); p.items[0].waiver = 'Not applicable';
+  it.each(['REVIEW', 'CHANGES'] as const)('lets the original reviewer review a returned %s package without claiming again', async state => {
+    asUser('jr', 'PROCESSOR_JR'); const p = packageTask(); p.state = state; p.items[0].waiver = 'Not applicable';
     mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'PENDING', workflowState: 'READY_TO_COMPLETE', assignedUserId: 'jr' });
     expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REVIEW', itemId: 'mortgage', approved: true })).success).toBe(true);
+  });
+  it('loads returned corrections as an editable review for the assigned Jr', async () => {
+    asUser('jr', 'PROCESSOR_JR'); const p = packageTask(); p.state = 'CHANGES'; p.reviewerId = null;
+    mocks.db.task.findUnique.mockResolvedValueOnce({ id: 'request', kind: 'SUBMIT_PROCESSING', status: 'PENDING', workflowState: 'READY_TO_COMPLETE', assignedUserId: 'jr', loanId: 'loan', submissionData: { processingDocumentTaskId: 'task' } });
+    const result = await getSubmissionPilot('request');
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.packages[0].package).toMatchObject({ state: 'REVIEW', reviewerId: 'jr' });
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
+  it('keeps another Jr from reviewing returned corrections', async () => {
+    asUser('other', 'PROCESSOR_JR'); const p = packageTask(); p.state = 'CHANGES';
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'PENDING', workflowState: 'READY_TO_COMPLETE', assignedUserId: 'jr' });
+    expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REVIEW', itemId: 'mortgage', approved: true })).success).toBe(false);
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
   });
   it('accepts the active Jr role on an account whose primary role is Admin', async () => {
     asUser('jr', 'ADMIN_III'); const p = packageTask(); p.items[0].waiver = 'Not applicable';
