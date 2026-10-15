@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialPilotPackage, SUBMISSION_PILOT_LO_ID } from '../../lib/submissionPilot';
 
 const mocks = vi.hoisted(() => {
-  const db = { user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
+  const db = { user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
   return { db, session: vi.fn(), download: vi.fn(), info: vi.fn() };
 });
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
@@ -14,7 +14,7 @@ vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn(() => 'encr
 vi.mock('@/lib/ariveClient', () => ({ ariveConfigured: vi.fn(), ariveClassifications: vi.fn(), ariveSession: vi.fn(), findAriveLoan: vi.fn(), readAriveNotes: vi.fn(), validAriveUploadUrl: vi.fn(), AriveError: class extends Error {} }));
 vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download, info: mocks.info }) } }), getTaskAttachmentsBucket: () => 'test' }));
 vi.mock('@/lib/submissionPilot', async () => import('../../lib/submissionPilot'));
-import { changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
+import { getSubmissionPilot, changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
 import { ariveClassifications, ariveSession, validAriveUploadUrl, readAriveNotes } from '@/lib/ariveClient';
 
 function asUser(id: string, role: string) {
@@ -33,6 +33,34 @@ beforeEach(() => {
   mocks.db.user.findMany.mockResolvedValue([]);
 });
 describe('pilot server authorization and concurrency', () => {
+  it('opens linked documents without starting or changing either task', async () => {
+    asUser('jr', 'PROCESSOR_JR'); packageTask();
+    mocks.db.task.findUnique.mockResolvedValueOnce({ kind: 'SUBMIT_PROCESSING', loanId: 'loan', submissionData: { processingDocumentTaskId: 'task' } });
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'PENDING', assignedUserId: null });
+    const r = await getSubmissionPilot('request');
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.packages[0].package.reviewerId).toBeNull();
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
+  it('does not start a linked request merely by claiming its documents', async () => {
+    asUser('jr', 'PROCESSOR_JR'); packageTask();
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'PENDING', assignedUserId: null });
+    const r = await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'CLAIM' });
+    expect(r.success).toBe(false);
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
+  it('uses the reviewer who started the normal request without a separate claim', async () => {
+    asUser('jr', 'PROCESSOR_JR'); const p = packageTask(); p.items[0].waiver = 'Not applicable';
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'IN_PROGRESS', assignedUserId: 'jr' });
+    expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REVIEW', itemId: 'mortgage', approved: true })).success).toBe(true);
+    expect(p.reviewerId).toBe('jr'); expect(p.items[0].review).toBe('APPROVED');
+  });
+  it('prevents another Jr from taking over the linked review', async () => {
+    asUser('other-jr', 'PROCESSOR_JR'); packageTask();
+    mocks.db.task.findFirst.mockResolvedValue({ id: 'request', status: 'IN_PROGRESS', assignedUserId: 'jr' });
+    expect((await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'CLAIM' })).success).toBe(false);
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
   it.each([
     { size: 123, contentType: 'application/pdf' },
     { metadata: { size: 123, mimetype: 'application/pdf' } },

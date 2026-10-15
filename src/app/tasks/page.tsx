@@ -211,7 +211,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   const isAdminOrManager = isAdmin(role) || role === UserRole.MANAGER;
   const isGenericVa = role === UserRole.VA;
   
-  const where: Prisma.TaskWhereInput = isAdminOrManager ? {} : {};
+  const where: Prisma.TaskWhereInput = { AND: [{ OR: [{ kind: { not: null } }, { title: { not: 'Processing submission pilot — documents' } }] }] };
 
   if (isAdminOrManager || isLoanOfficerAssistant) {
     // no-op: managers/admins can review all queues

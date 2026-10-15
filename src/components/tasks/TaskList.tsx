@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { readPilotPackage, processingDocumentTaskId } from '@/lib/submissionPilot';
+import { TaskSubmissionDocuments } from '@/components/pipeline/TaskSubmissionDocuments';
 import {
   Calendar,
   CheckCircle,
@@ -4836,7 +4837,7 @@ export function TaskList({
                     )}
                   </div>
 
-                  {(readPilotPackage(task.submissionData) || processingDocumentTaskId(task.submissionData)) && (
+                  {processingDocumentTaskId(task.submissionData) ? <section className="mt-6 border-t border-border pt-5"><TaskSubmissionDocuments key={`${task.id}:${task.status}:${task.assignedUser?.id}`} taskId={task.id} /></section> : readPilotPackage(task.submissionData) && (
                     <div className="app-surface-card mt-4"><p className="mb-3 text-sm">Review the documents submitted with this request, approve each category, or return corrections to the Loan Officer.</p><Link href={`/pipeline/submission-pilot?task=${encodeURIComponent(processingDocumentTaskId(task.submissionData) || task.id)}`} className="app-btn-primary">Open submission documents</Link></div>
                   )}
                   {visibleTimelineItems.length > 0 && (

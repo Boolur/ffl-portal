@@ -20,7 +20,9 @@ Saved packages persist after submission (and drafts created on the separate pilo
 
 ## Jr Processor flow
 
-Jr Processors receive the normal Processing request notification. Its task details include Open submission documents, linking to the package in the pilot review queue. Packages submitted directly from the separate pilot page generate their own notification. A Jr must claim a package before reviewing it. Another Jr cannot take it over. Processing managers and admins may inspect assigned reviews but cannot edit them without owning the claim.
+Jr Processors receive the normal Processing request notification. Uploaded documents and review controls appear inside the existing request popup. Opening it does not start the task: the normal Start action assigns the reviewer and enables document review. Reassigning the request also changes its document reviewer. Supporting document records are excluded from task queues and counts, preventing a second Started card. Standalone pilot-page packages retain their separate claim workflow. Processing managers and admins may inspect assigned reviews but cannot edit them without ownership.
+
+Hover over or focus a filename to prepare dragging to a folder or supported upload area. Drag-out uses Chrome's DownloadURL format for desktop downloads and a File payload for compatible websites. Destination behavior varies; Download remains available. Prepared files stay in memory for one minute. Native desktop and third-party drop behavior requires manual browser acceptance testing.
 
 The reviewer downloads each file, approves the category or explanation, or enters a required correction reason. Return Corrections routes the package back to Matt and notifies him. He replaces the affected files or changes explanations and resubmits. Changed categories require fresh review; approvals on untouched categories remain. Prior removed file metadata and storage objects are retained. The current UI displays the history but does not offer restoration of retired files.
 

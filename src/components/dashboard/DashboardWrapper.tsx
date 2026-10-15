@@ -96,6 +96,7 @@ function DashboardContent({
 }: DashboardWrapperProps) {
   const { activeRole } = useImpersonation();
   const roleTasks = adminTasks.filter((t) => {
+    if (t.kind === null && t.title === 'Processing submission pilot — documents') return false;
     if (activeRole === UserRole.PROCESSOR_JR) {
       return t.kind === TaskKind.SUBMIT_PROCESSING || t.assignedRole === UserRole.PROCESSOR_JR;
     }
@@ -216,7 +217,7 @@ function DashboardContent({
               <h2 className="app-page-title">Jr Processing Desk</h2>
               <p className="app-page-subtitle">Live processing request workload and status mix.</p>
             </div>
-            <QcOverview tasks={adminTasks} />
+            <QcOverview tasks={adminTasks.filter(t => !(t.kind === null && t.title === 'Processing submission pilot — documents'))} />
           </section>
         </div>
       )}

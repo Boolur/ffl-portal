@@ -3785,7 +3785,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         loanId: loan.id,
         title: 'Processing submission pilot — documents',
         assignedRole: UserRole.PROCESSOR_JR,
-        status: TaskStatus.IN_PROGRESS,
+        status: TaskStatus.PENDING,
         submissionData: { submissionPilot: documentPackage as unknown as Prisma.InputJsonValue },
       } }) : null;
       const safeSubmissionData: Record<string, Prisma.InputJsonValue | null> = finalSubmissionData && typeof finalSubmissionData === 'object' && !Array.isArray(finalSubmissionData) ? { ...(finalSubmissionData as Record<string, Prisma.InputJsonValue | null>) } : {};

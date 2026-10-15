@@ -862,6 +862,8 @@ async function getProcessingAssignmentGroupsForUser(role: UserRole, userId?: str
 }
 
 function applySearch(where: Prisma.TaskWhereInput, search?: string): Prisma.TaskWhereInput {
+  // Document packages support the real Processing request; they are not desk tasks.
+  where = andWhere(where, { OR: [{ kind: { not: null } }, { title: { not: 'Processing submission pilot — documents' } }] });
   const query = search?.trim();
   if (!query) return where;
   const searchWhere: Prisma.TaskWhereInput = {

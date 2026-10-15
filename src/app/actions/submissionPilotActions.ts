@@ -33,14 +33,18 @@ async function taskAccess(id: string, a: Actor, db: Prisma.TransactionClient = p
   const task = await db.task.findUnique({ where: { id }, include: { loan: { select: { loanOfficerId: true, borrowerName: true, loanNumber: true } } } });
   const p = readPilotPackage(task?.submissionData);
   if (!task || task.kind !== null || task.title !== 'Processing submission pilot — documents' || !p || task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID) throw new Error('Pilot package not found.');
+  const request = await db.task.findFirst({ where: { loanId: task.loanId, kind: 'SUBMIT_PROCESSING', submissionData: { path: ['processingDocumentTaskId'], equals: id } }, select: { id: true, status: true, assignedUserId: true } });
+  // The existing request's Start/reassign controls own the review assignment.
+  if (request && request.status !== 'COMPLETED') p.reviewerId = request.status === 'PENDING' ? null : request.assignedUserId;
   if (!a.owner && p.state === 'DRAFT') throw new Error('The LO has not submitted this package yet.');
   if (!a.owner && p.reviewerId && p.reviewerId !== a.id && !isAdmin(a.role) && a.role !== UserRole.PROCESSING_MANAGER) throw new Error('This review belongs to another processor.');
-  return { task, p };
+  return { task, p, request };
 }
 async function mutate(id: string, revision: number, a: Actor, edit: (p: PilotPackage) => string) {
   await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${id}`}))`;
-    const { task, p } = await taskAccess(id, a, tx);
+    const { task, p, request } = await taskAccess(id, a, tx);
+    if (a.reviewer && request && request.status !== 'COMPLETED' && (request.status === 'PENDING' || request.assignedUserId !== a.id)) throw new Error('Start the Processing request before reviewing its documents. Only its assigned reviewer can make changes.');
     if (p.revision !== revision) throw new Error('This package changed. Refresh and try again.');
     const previousState = p.state;
     const message = edit(p);
@@ -69,9 +73,17 @@ async function result<T>(work: () => Promise<T>) {
   try { return { success: true as const, data: await work() }; }
   catch (e) { return { success: false as const, error: e instanceof Error ? e.message : 'Unable to save. Please retry.' }; }
 }
-export async function getSubmissionPilot() {
+export async function getSubmissionPilot(requestTaskId?: string) {
   return result(async () => {
     const a = await actor();
+    if (requestTaskId) {
+      const request = await prisma.task.findUnique({ where: { id: requestTaskId }, select: { kind: true, loanId: true, submissionData: true } });
+      const documentId = (request?.submissionData as { processingDocumentTaskId?: string } | null)?.processingDocumentTaskId;
+      if (request?.kind !== 'SUBMIT_PROCESSING' || !documentId) throw new Error('Submission documents not found.');
+      const { task, p } = await taskAccess(documentId, a);
+      if (task.loanId !== request.loanId) throw new Error('Submission documents do not match this loan.');
+      return { owner: a.owner, canConfigureArive: false, ariveConfigured: await ariveConfigured(), userId: a.id, loans: [], packages: [{ id: task.id, loanId: task.loanId, borrower: task.loan.borrowerName, loanNumber: task.loan.loanNumber, package: p }] };
+    }
     const tasks = await prisma.task.findMany({ where: { kind: null, title: 'Processing submission pilot — documents', loan: { loanOfficerId: SUBMISSION_PILOT_LO_ID }, submissionData: { path: ['submissionPilot', 'version'], equals: 1 } }, include: { loan: { select: { borrowerName: true, loanNumber: true } } }, orderBy: { updatedAt: 'desc' } });
     const visible = tasks.filter(t => { const p = readPilotPackage(t.submissionData)!; return a.owner || (p.state !== 'DRAFT' && (!p.reviewerId || p.reviewerId === a.id || isAdmin(a.role) || a.role === 'PROCESSING_MANAGER')); });
     const loans = a.owner ? await prisma.loan.findMany({ where: { loanOfficerId: a.id, processingPipeline: { is: { archivedAt: null, sheet: { in: ['PIPELINE', 'RESTRUCTURE'] } } } }, select: { id: true, borrowerName: true, loanNumber: true, processingPipeline: { select: { processingMethod: true, assignmentGroup: true } } }, orderBy: { borrowerName: 'asc' } }) : [];
