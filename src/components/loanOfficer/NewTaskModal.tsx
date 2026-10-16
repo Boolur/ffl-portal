@@ -20,7 +20,7 @@ import {
 } from '@/lib/processingRouting';
 import { TaskAttachmentPurpose } from '@prisma/client';
 import { useSession } from 'next-auth/react';
-import { initialPilotPackage, pilotSubmissionError, SUBMISSION_PILOT_LO_ID } from '@/lib/submissionPilot';
+import { initialPilotPackage, pilotSubmissionError, isSubmissionPilotLoanOfficer } from '@/lib/submissionPilot';
 import { ProcessingDocumentsStep } from './ProcessingDocumentsStep';
 
 type NewTaskModalProps = {
@@ -117,7 +117,7 @@ export function NewTaskModal({
   onSubmissionSuccess,
 }: NewTaskModalProps) {
   const { data: session } = useSession();
-  const documentPilot = session?.user?.id === SUBMISSION_PILOT_LO_ID && (session.user.activeRole || session.user.role) === 'LOAN_OFFICER';
+  const documentPilot = isSubmissionPilotLoanOfficer(session?.user?.id) && (session?.user?.activeRole || session?.user?.role) === 'LOAN_OFFICER';
   const [documentUploadBusy, setDocumentUploadBusy] = useState(false);
   const resolveAvailableType = useCallback(
     (requestedType: SubmissionType): SubmissionType => {

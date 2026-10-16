@@ -12,9 +12,10 @@ import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 import { encryptAriveCredentials } from '@/lib/ariveCrypto';
 import { ariveConfigured, ariveClassifications, ariveSession, findAriveLoan, readAriveNotes, validAriveUploadUrl, AriveError } from '@/lib/ariveClient';
 import { getSupabaseAdmin, getTaskAttachmentsBucket } from '@/lib/supabaseAdmin';
-import { initialPilotPackage, readPilotPackage, reconcileReturnedPilotReview, pilotApprovalError, pilotSubmissionError, validatePilotFile, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { isSubmissionPilotEnabled, initialPilotPackage, readPilotPackage, reconcileReturnedPilotReview, pilotApprovalError, pilotSubmissionError, validatePilotFile, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
 
-async function actor() {
+async function actor(allowWhilePaused = false) {
+  if (!allowWhilePaused && !isSubmissionPilotEnabled()) throw new Error('The submission pilot is paused. Use the normal Tasks and Submit to Processing workflow.');
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) throw new Error('Sign in to use the pilot.');
   const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, name: true, email: true, active: true, role: true, roles: true } });
@@ -240,7 +241,7 @@ export async function finishPilotUpload(taskId: string, itemId: string) {
 }
 export async function getPilotFileAccess(taskId: string, fileId: string, disposition: 'attachment' | 'inline' = 'inline') {
   return result(async () => {
-    const a = await actor(); const { p } = await taskAccess(taskId, a);
+    const a = await actor(true); const { p } = await taskAccess(taskId, a);
     const file = p.items.flatMap(i => i.files).find(f => f.id === fileId);
     if (!file) throw new Error('Document not found.');
     const { data, error } = await getSupabaseAdmin().storage.from(getTaskAttachmentsBucket()).createSignedUrl(file.path, 300, disposition === 'inline' ? undefined : { download: file.name });
@@ -256,7 +257,7 @@ export async function downloadPilotFile(taskId: string, fileId: string, disposit
 
 export async function configurePilotArive(input: { clientId: string; secret: string; apiKey: string }) {
   return result(async () => {
-    const a = await actor();
+    const a = await actor(true);
     if (!isAdminIII(a.role)) throw new Error('Only a portal Admin III can configure Arive API access.');
     const c = { clientId: input.clientId.trim(), secret: input.secret.trim(), apiKey: input.apiKey.trim() };
     if (Object.values(c).some(v => !v || v.length > 4096)) throw new Error('Enter all three Arive API credentials provisioned for your branch.');
@@ -372,7 +373,7 @@ export async function sendPilotDocumentToArive(input: { taskId: string; fileId: 
 // Acceptance checks are restricted to the user-authorized test file, not the branch/company pipeline.
 export async function checkAriveTestLoanAccess() {
   return result(async () => {
-    await actor();
+    await actor(true);
     const remote = await findAriveLoan('17881588');
     const api = await ariveSession();
     const id = encodeURIComponent(remote.sysGUID);
@@ -404,7 +405,7 @@ export async function checkAriveTestLoanAccess() {
 
 export async function getAriveConnectionSettings() {
   return result(async () => {
-    const a = await actor();
+    const a = await actor(true);
     if (!isAdminIII(a.role)) throw new Error('Switch to portal Admin III to configure Arive.');
     return { configured: await ariveConfigured() };
   });

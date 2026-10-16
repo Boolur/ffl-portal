@@ -83,6 +83,12 @@ Returned-package and additional-request uploads use a dashed, keyboard-accessibl
 
 ## Branch-scoped API acceptance (October 15, 2026)
 
+### Pilot paused at Matt's request (October 16, 2026)
+
+`isSubmissionPilotEnabled()` in `src/lib/submissionPilot.ts` is the shared server/client switch and currently returns `false`. Matt uses the standard submission popup without the required pilot upload step. Existing linked processing tasks use the normal checklist and LO response workflow; their stored package links, documents, decisions, and history are not deleted. Pilot package tasks remain excluded from ordinary task buckets. The standalone pilot page redirects to Tasks, pipeline pilot controls are hidden, and pilot mutations reject stale open clients. Existing authorized file downloads and Admin III Arive setup/read-only diagnostics remain available.
+
+To resume when the user requests it, set that switch to `true`, update the paused-default regression test, validate and deploy. The exact Matt account allowlist remains unchanged. Review any tasks completed through the standard workflow during the pause before attempting pilot actions; do not replay historical transfers or approvals automatically.
+
 Arive has provisioned API credentials for this branch, not a company-wide integration. Authentication setup now validates the access-token exchange independently of document classifications. The previous setup incorrectly required the document API to succeed before saving any credentials. Credentials remain encrypted in the existing integration configuration record; its legacy internal ID does not confer or expand Arive permissions. Portal Admin III is the portal's setup permission, not a demand for an Arive company administrator account.
 
 The connection panel has a read-only capability check restricted to TESTING TESTER / 17881588. It checks details/status/key dates, trackers, notes, classifications, normal and private document listing, custom fields, fees, existing credit information, and REO separately. Failures do not erase successful checks. Authentication or read success is not evidence of write permission. Status changes, date writes, and actual attachment transfers still require separate live verification. Private documents may require a separately provisioned feature. No wider pipeline import or company-wide access is enabled by this check.

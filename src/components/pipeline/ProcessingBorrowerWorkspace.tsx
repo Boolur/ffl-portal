@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { isSubmissionPilotEnabled } from '@/lib/submissionPilot';
 import { AriveWorkspacePanel } from './AriveWorkspacePanel';
 import { createPortal } from 'react-dom';
 import { DetailCard, DetailField, DetailGrid, DetailSection, WorkspacePanel } from './BorrowerWorkspaceLayout';
@@ -956,7 +957,7 @@ export function ProcessingBorrowerWorkspace({
       <DetailCard title="Documents" description="Files attached to the original Submit to Processing task." icon={FileText}>
         <div className="space-y-2">
           {details.attachments.length === 0 ? (
-            <p className="py-8 text-center text-sm font-medium text-slate-500">{details.loan.loanNumber === '17881588' ? 'Reviewed submission documents are shown below.' : 'No documents are attached to this request.'}</p>
+            <p className="py-8 text-center text-sm font-medium text-slate-500">{isSubmissionPilotEnabled() && details.loan.loanNumber === '17881588' ? 'Reviewed submission documents are shown below.' : 'No documents are attached to this request.'}</p>
           ) : details.attachments.map((attachment) => (
             <button
               key={attachment.id}
@@ -1108,7 +1109,7 @@ export function ProcessingBorrowerWorkspace({
                 </div>
               )}
               {renderTab()}
-              {details.loan.loanNumber === '17881588' && activeTab === 'documents' && !editing && <AriveWorkspacePanel requestTaskId={details.sourceTask.id} />}
+              {isSubmissionPilotEnabled() && details.loan.loanNumber === '17881588' && activeTab === 'documents' && !editing && <AriveWorkspacePanel requestTaskId={details.sourceTask.id} />}
             </>
           )}
         </main>

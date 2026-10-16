@@ -1,5 +1,14 @@
 // Exact active LO account; the similarly named onboarding account is excluded.
 export const SUBMISSION_PILOT_LO_ID = '2e28c6a5-67c0-442d-94bd-59897ad8d8cd';
+// Re-enable this switch only when Matt is ready to resume the pilot.
+// Stored packages, links, files, and history are preserved while paused.
+export function isSubmissionPilotEnabled(): boolean { return false; }
+export function isSubmissionPilotLoanOfficer(id: string | null | undefined): id is string {
+  return isSubmissionPilotEnabled() && id === SUBMISSION_PILOT_LO_ID;
+}
+export function activeProcessingDocumentTaskId(value: unknown): string | null {
+  return isSubmissionPilotEnabled() ? processingDocumentTaskId(value) : null;
+}
 export function processingDocumentTaskId(value: unknown): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const id = (value as { processingDocumentTaskId?: unknown }).processingDocumentTaskId;

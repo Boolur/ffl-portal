@@ -3,7 +3,7 @@ import { initialPilotPackage, SUBMISSION_PILOT_LO_ID } from '../../lib/submissio
 
 const mocks = vi.hoisted(() => {
   const db = { ariveIntegrationConfig: { upsert: vi.fn() }, user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
-  return { db, session: vi.fn(), download: vi.fn(), info: vi.fn(), signedUrl: vi.fn() };
+  return { enabled: vi.fn(() => true), db, session: vi.fn(), download: vi.fn(), info: vi.fn(), signedUrl: vi.fn() };
 });
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
@@ -15,7 +15,7 @@ vi.mock('@/lib/adminTiers', () => ({ isAdmin: (role: string) => role === 'ADMIN_
 vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn(() => 'encrypted') }));
 vi.mock('@/lib/ariveClient', () => ({ ariveConfigured: vi.fn(), ariveClassifications: vi.fn(), ariveSession: vi.fn(), findAriveLoan: vi.fn(), readAriveNotes: vi.fn(), validAriveUploadUrl: vi.fn(), AriveError: class extends Error {} }));
 vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download, info: mocks.info, createSignedUrl: mocks.signedUrl }) } }), getTaskAttachmentsBucket: () => 'test' }));
-vi.mock('@/lib/submissionPilot', async () => import('../../lib/submissionPilot'));
+vi.mock('@/lib/submissionPilot', async () => ({ ...await import('../../lib/submissionPilot'), isSubmissionPilotEnabled: mocks.enabled }));
 import { getAriveConnectionSettings, linkExistingAriveTestPackage, checkAriveTestLoanAccess, getSubmissionPilot, changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
 import { ariveClassifications, ariveSession, validAriveUploadUrl, readAriveNotes, findAriveLoan } from '@/lib/ariveClient';
 
@@ -30,11 +30,27 @@ function packageTask() {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.enabled.mockReturnValue(true);
   mocks.db.$transaction.mockImplementation(async fn => fn(mocks.db));
   mocks.db.task.updateMany.mockResolvedValue({ count: 1 });
   mocks.db.user.findMany.mockResolvedValue([]);
 });
 describe('pilot server authorization and concurrency', () => {
+  it('blocks document changes while paused without touching stored tasks', async () => {
+    mocks.enabled.mockReturnValue(false);
+    asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER');
+    const result = await changeSubmissionPilot({ taskId: 'task', revision: 1, action: 'SUBMIT' });
+    expect(result).toMatchObject({ success: false, error: expect.stringContaining('paused') });
+    expect(mocks.db.$transaction).not.toHaveBeenCalled();
+  });
+  it('keeps Admin III authentication setup available while the submission pilot is paused', async () => {
+    mocks.enabled.mockReturnValue(false);
+    asUser('admin', 'ADMIN_III');
+    vi.mocked(ariveSession).mockResolvedValue(vi.fn());
+    const result = await configurePilotArive({ clientId: 'id', secret: 'secret', apiKey: 'key' });
+    expect(result.success).toBe(true);
+    expect(mocks.db.ariveIntegrationConfig.upsert).toHaveBeenCalled();
+  });
   it.each(['CHANGES', 'REVIEW'] as const)('returns %s corrections to Processing and closes the LO task atomically', async state => {
     asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER'); const p = packageTask(); p.state = state;
     p.items.forEach(item => { item.waiver = 'Not applicable'; });

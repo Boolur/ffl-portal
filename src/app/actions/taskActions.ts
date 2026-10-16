@@ -1,5 +1,5 @@
 'use server';
-import { readPilotPackage, reconcileReturnedPilotReview, processingDocumentTaskId, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { readPilotPackage, reconcileReturnedPilotReview, activeProcessingDocumentTaskId as processingDocumentTaskId, isSubmissionPilotLoanOfficer, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
 import { pilotReviewChecklist, pilotDecisionError } from '@/lib/pilotReviewChecklist';
 import { verifyProcessingSubmissionDocuments } from '@/lib/processingSubmissionDocuments';
 
@@ -3589,7 +3589,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         : null;
 
     let documentPackage: PilotPackage | null = null;
-    if (submissionType === 'QC' && sessionUserId === SUBMISSION_PILOT_LO_ID && role === UserRole.LOAN_OFFICER) {
+    if (submissionType === 'QC' && isSubmissionPilotLoanOfficer(sessionUserId) && role === UserRole.LOAN_OFFICER) {
       if (loanOfficerUser.id !== SUBMISSION_PILOT_LO_ID) return { success: false, error: 'For this document pilot, select Matt as the Primary Loan Officer.' };
       // Validate stored files before creating or updating a loan or queuing a request.
       documentPackage = await verifyProcessingSubmissionDocuments(payload.processingDocuments, sessionUserId);
