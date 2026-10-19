@@ -22,6 +22,7 @@ import {
   payrollStatusLabel,
 } from '@/components/admin/payroll/payrollFormat';
 import { PAYROLL_LENDER_OPTIONS } from './payrollOptions';
+import { loanOfficerFinalComp, requestLoanOfficerRevenue } from '@/lib/payrollLoanOfficerComp';
 
 type Props = {
   rows: PayrollRequestRow[];
@@ -572,20 +573,6 @@ function formatPeriodRange(start: string, end: string) {
   const displayEnd = new Date(end);
   displayEnd.setDate(displayEnd.getDate() - 1);
   return `${formatDate(start)} - ${formatDate(displayEnd.toISOString())}`;
-}
-
-function requestLoanOfficerRevenue(row: PayrollRequestRow) {
-  if (!row.managerCalculationRequired) return row.expectedRevenue;
-  const finalCompAvailable = Boolean(row.managerCalculationCompletedAt) && (
-    row.status === PayrollCompRequestStatus.APPROVED ||
-    row.status === PayrollCompRequestStatus.PAID
-  );
-  if (!finalCompAvailable) {
-    return row.estimatedCompAmount ?? row.expectedRevenue;
-  }
-  return row.splits
-    .filter((split) => split.roleLabel === 'Loan Officer' || split.roleLabel === 'Post-Split Add-Backs')
-    .reduce((sum, split) => sum + split.amount, 0);
 }
 
 function Kpi({
@@ -1697,9 +1684,8 @@ export function PayrollPortal({
                         </div>
                       </>
                     ) : (() => {
-                      const loanOfficerSplit = preview.splits.find((split) => split.roleLabel === 'Loan Officer');
                       const postSplitAddBack = preview.splits.find((split) => split.roleLabel === 'Post-Split Add-Backs');
-                      const loanOfficerFinalComp = (loanOfficerSplit?.amount ?? 0) + (postSplitAddBack?.amount ?? 0);
+                      const finalComp = loanOfficerFinalComp(preview.splits);
                       const baseLines = preview.calculation.lines.filter((line) => line.stage === 'BASE');
                       const preSplitLines = preview.calculation.lines.filter((line) => line.stage === 'PRE_SPLIT' || line.stage === 'MISSING_FEE');
                       const postSplitLines = preview.calculation.lines.filter((line) => line.stage === 'POST_SPLIT');
@@ -1768,7 +1754,7 @@ export function PayrollPortal({
                             <p className="text-xs font-semibold text-emerald-700">Your final amount after the configured split</p>
                           </div>
                         </div>
-                        <p className="text-lg font-extrabold text-emerald-700">{formatCurrency(loanOfficerFinalComp)}</p>
+                        <p className="text-lg font-extrabold text-emerald-700">{formatCurrency(finalComp)}</p>
                       </div>
                     </div>
                         </>

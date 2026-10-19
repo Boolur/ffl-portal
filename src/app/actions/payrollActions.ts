@@ -32,6 +32,7 @@ import {
   shouldHideRetailPayrollSplitBreakdown,
 } from '@/lib/payrollRetailSimplification';
 import { prisma } from '@/lib/prisma';
+import { requestLoanOfficerRevenue } from '@/lib/payrollLoanOfficerComp';
 
 const PAYROLL_ADMIN_PATHS = [
   '/admin/payroll',
@@ -2349,7 +2350,7 @@ export async function getMyPayrollPortalData() {
     hydratePipelineFundedDates(requests.map(serializeRequestForLoanOfficer)),
     getPayrollSubmissionWindowState(actor.userId),
   ]);
-  const summary = summarizeRequests(rowsInPayPeriod(rows, window));
+  const summary = summarizeRequests(rowsInPayPeriod(rows, window), requestLoanOfficerRevenue);
   const salaryAmount = salaryPerPaycheckAmount(decimalToNumber(plan?.salaryPerPaycheck), plan?.salaryFrequency ?? PayrollSalaryFrequency.SEMI_MONTHLY);
   const commissionAmount = money(nextSplits.reduce((sum, split) => sum + decimalToNumber(split.amount), 0));
   return {
@@ -2880,7 +2881,10 @@ export async function reopenPayrollRequest(requestId: string) {
   revalidatePayroll();
 }
 
-function summarizeRequests(rows: PayrollRequestRow[]) {
+function summarizeRequests(
+  rows: PayrollRequestRow[],
+  revenueForRequest: (row: PayrollRequestRow) => number = (row) => row.expectedRevenue,
+) {
   const empty = {
     totalRequests: rows.length,
     pendingCount: 0,
@@ -2894,19 +2898,20 @@ function summarizeRequests(rows: PayrollRequestRow[]) {
   };
 
   for (const row of rows) {
-    empty.submittedRevenue = money(empty.submittedRevenue + row.expectedRevenue);
+    const revenue = revenueForRequest(row);
+    empty.submittedRevenue = money(empty.submittedRevenue + revenue);
     if (row.status === PayrollCompRequestStatus.PENDING_REVIEW) {
       empty.pendingCount += 1;
-      empty.pendingRevenue = money(empty.pendingRevenue + row.expectedRevenue);
+      empty.pendingRevenue = money(empty.pendingRevenue + revenue);
     }
     if (row.status === PayrollCompRequestStatus.APPROVED) {
       empty.approvedCount += 1;
-      empty.approvedRevenue = money(empty.approvedRevenue + row.expectedRevenue);
+      empty.approvedRevenue = money(empty.approvedRevenue + revenue);
     }
     if (row.status === PayrollCompRequestStatus.REJECTED) empty.rejectedCount += 1;
     if (row.status === PayrollCompRequestStatus.PAID) {
       empty.paidCount += 1;
-      empty.paidRevenue = money(empty.paidRevenue + row.expectedRevenue);
+      empty.paidRevenue = money(empty.paidRevenue + revenue);
     }
   }
   return empty;
