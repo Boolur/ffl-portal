@@ -103,6 +103,7 @@ async function autoClearResolvedInboxEvents(): Promise<number> {
       "errorMessage" = 'auto-cleared: later proof of successful webhook processing exists',
       "processedAt" = COALESCE(stale."processedAt", NOW())
     WHERE stale."status"::text IN (${WebhookInboxStatus.FAILED}, ${WebhookInboxStatus.PENDING})
+      AND stale."source" <> 'shape'
       AND stale."receivedAt" <= ${olderThan}
       AND (
         (
