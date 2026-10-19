@@ -45,6 +45,7 @@ import {
 } from '@/lib/processingBorrowerDetails';
 import { syncLeadStatusForLoan } from '@/lib/leadPipelineSync';
 import { notifyProcessingManagers } from '@/lib/processingManagerNotifications';
+import { calculateSigningFundingDates, isPurchasePurpose } from '@/lib/mortgageCalendar';
 
 type Actor = {
   id: string;
@@ -1889,10 +1890,24 @@ export async function updateProcessingRestructureWorkflow(input: {
   };
 }
 
+export async function getProcessingFundingContext(id: string) {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const row = await prisma.processingPipelineLoan.findFirst({
+    where: { AND: [{ id }, editableScopeWhere(actor)] },
+    select: { sourceTask: { select: { submissionData: true } } },
+  });
+  if (!row) return { success: false as const, error: 'Pipeline row not found.' };
+  const purpose = readSubmissionString(safeSubmissionObject(row.sourceTask.submissionData), 'loanPurpose', 'loanProgram');
+  return { success: true as const, isPurchase: isPurchasePurpose(purpose), purpose };
+}
+
 export async function moveProcessingPipelineLoan(input: {
   id: string;
   sheet: ProcessingPipelineSheet;
-  fundedAt?: string | null;
+  signingAt?: string;
+  rescissionApplies?: boolean;
+  rescissionStartAt?: string;
   notes?: string | null;
   version: number;
 }) {
@@ -1910,17 +1925,10 @@ export async function moveProcessingPipelineLoan(input: {
     return { success: false as const, error: 'A reason is required to move this loan to Restructures.' };
   }
 
-  let fundedAt: Date | null = null;
-  if (input.sheet === ProcessingPipelineSheet.FUNDING) {
-    fundedAt = input.fundedAt ? new Date(input.fundedAt) : null;
-    if (!fundedAt || Number.isNaN(fundedAt.getTime())) {
-      return { success: false as const, error: 'A funded/signing date is required.' };
-    }
-  }
-
   const result = await prisma.$transaction(async (tx) => {
     const current = await tx.processingPipelineLoan.findFirst({
       where: { AND: [{ id: input.id }, editableScopeWhere(actor)] },
+      include: { sourceTask: { select: { submissionData: true } } },
     });
     if (!current) return { kind: 'error' as const, error: 'Pipeline row not found.' };
     if (
@@ -1945,6 +1953,21 @@ export async function moveProcessingPipelineLoan(input: {
     const now = new Date();
     const movingToRestructure = input.sheet === ProcessingPipelineSheet.RESTRUCTURE;
     const movingToFunding = input.sheet === ProcessingPipelineSheet.FUNDING;
+    let fundingDates: ReturnType<typeof calculateSigningFundingDates> | null = null;
+    if (movingToFunding) {
+      const purpose = readSubmissionString(safeSubmissionObject(current.sourceTask.submissionData), 'loanPurpose', 'loanProgram');
+      try {
+        fundingDates = calculateSigningFundingDates({
+          signingAt: input.signingAt || '',
+          isPurchase: isPurchasePurpose(purpose),
+          rescissionApplies: input.rescissionApplies,
+          rescissionStartAt: input.rescissionStartAt,
+        });
+      } catch (error) {
+        return { kind: 'error' as const, error: error instanceof Error ? error.message : 'Invalid funding dates.' };
+      }
+    }
+    const fundedAt = fundingDates?.fundedAt || null;
     const returningToPipeline =
       current.sheet !== ProcessingPipelineSheet.PIPELINE &&
       input.sheet === ProcessingPipelineSheet.PIPELINE;
@@ -2006,6 +2029,10 @@ export async function moveProcessingPipelineLoan(input: {
           fromSheet: current.sheet,
           toSheet: input.sheet,
           fundedAt: fundedAt?.toISOString() || null,
+          signingAt: fundingDates?.signingAt.toISOString() || null,
+          rescissionApplies: fundingDates?.rescissionApplies ?? null,
+          rescissionStartAt: fundingDates?.rescissionStartAt?.toISOString() || null,
+          rescissionDeadline: fundingDates?.rescissionDeadline?.toISOString() || null,
           notes: restructureNotes || null,
           actorName: actor.name,
         }),
@@ -2271,6 +2298,9 @@ export async function updateProcessingBorrowerDetails(
         },
       });
       if (!current) return { kind: 'missing' as const };
+      if (input.sheet === ProcessingPipelineSheet.FUNDING && current.sheet !== ProcessingPipelineSheet.FUNDING) {
+        return { kind: 'validation' as const, error: 'Use Move to Fundings in the pipeline to calculate funding from the signing date.' };
+      }
       if (
         !canEditProcessingBorrowerWorkspace(actor.role) ||
         (

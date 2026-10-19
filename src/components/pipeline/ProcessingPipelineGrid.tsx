@@ -85,6 +85,7 @@ import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
 import { ProcessingBorrowerWorkspace } from './ProcessingBorrowerWorkspace';
 import { ProcessingPipelineLayoutManager } from './ProcessingPipelineLayoutManager';
 import { ProcessingPipelineReportsModal } from './ProcessingPipelineReportsModal';
+import { ProcessingFundingDialog } from './ProcessingFundingDialog';
 import {
   buildDefaultProcessingLayoutConfig,
   processingLayoutBucketColumns,
@@ -703,6 +704,7 @@ export function ProcessingPipelineGrid({
   const [restructureNotesDraft, setRestructureNotesDraft] = useState('');
   const [rateLockDialogRow, setRateLockDialogRow] = useState<ProcessingPipelineRow | null>(null);
   const [rateLockExpiryDraft, setRateLockExpiryDraft] = useState('');
+  const [fundingDialogRow, setFundingDialogRow] = useState<ProcessingPipelineRow | null>(null);
   const [payoffExpirationDialogRow, setPayoffExpirationDialogRow] =
     useState<ProcessingPipelineRow | null>(null);
   const [payoffExpirationDraft, setPayoffExpirationDraft] = useState('');
@@ -1599,16 +1601,14 @@ export function ProcessingPipelineGrid({
           ? ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE
           : ProcessingPipelineStatus.RE_SUB;
     if (!confirmProcessorStatusChange(destinationStatus)) return false;
-    let fundedAt: string | null = null;
     if (destination === ProcessingPipelineSheet.FUNDING) {
-      fundedAt = window.prompt('Funded / signing date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
-      if (!fundedAt) return false;
+      setFundingDialogRow(row);
+      return false;
     }
     setSavingRows((current) => new Set(current).add(row.id));
     const result = await moveProcessingPipelineLoan({
       id: row.id,
       sheet: destination,
-      fundedAt,
       notes,
       version: row.version,
     });
@@ -3368,6 +3368,21 @@ export function ProcessingPipelineGrid({
         </div>
       </div>
 
+      {portalReady && fundingDialogRow && createPortal(
+        <ProcessingFundingDialog
+          id={fundingDialogRow.id}
+          version={fundingDialogRow.version}
+          borrowerName={fundingDialogRow.loan.borrowerName}
+          defaultSigningDate={dateInputValue(fundingDialogRow.estimatedSigningAt) || todayInputValue()}
+          onClose={() => setFundingDialogRow(null)}
+          onSaved={() => {
+            setFundingDialogRow(null);
+            setMessage(`Moved ${fundingDialogRow.loan.borrowerName} to Fundings.`);
+            loadRows();
+          }}
+        />,
+        document.body,
+      )}
       {portalReady && payoffExpirationDialogRow && createPortal(
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/40 p-4"
