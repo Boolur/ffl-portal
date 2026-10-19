@@ -255,14 +255,15 @@ export async function downloadPilotFile(taskId: string, fileId: string, disposit
   return access.success ? { success: true as const, data: access.data.url } : access;
 }
 
-export async function configurePilotArive(input: { clientId: string; secret: string; apiKey: string }) {
+export async function configurePilotArive(input: { clientId: string; secret: string; apiKey: string; testOnly?: boolean }) {
   return result(async () => {
     const a = await actor(true);
     if (!isAdminIII(a.role)) throw new Error('Only a portal Admin III can configure Arive API access.');
     const c = { clientId: input.clientId.trim(), secret: input.secret.trim(), apiKey: input.apiKey.trim() };
     if (Object.values(c).some(v => !v || v.length > 4096)) throw new Error('Enter all three Arive API credentials provisioned for your branch.');
-    const encryptedCredentials = encryptAriveCredentials(JSON.stringify(c), process.env.NEXTAUTH_SECRET || '');
     await ariveSession(c);
+    if (input.testOnly === true) return;
+    const encryptedCredentials = encryptAriveCredentials(JSON.stringify(c), process.env.NEXTAUTH_SECRET || '');
     await prisma.$transaction(async tx => {
       await tx.ariveIntegrationConfig.upsert({ where: { id: 'company' }, create: { id: 'company', encryptedCredentials, updatedById: a.id }, update: { encryptedCredentials, updatedById: a.id } });
       await tx.auditLog.create({ data: { userId: a.id, action: 'ARIVE_CONNECTION_CONFIGURED', details: JSON.stringify({ authenticationVerified: true, documentAccessVerified: false }) } });

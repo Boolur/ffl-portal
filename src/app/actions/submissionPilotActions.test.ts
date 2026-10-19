@@ -36,6 +36,18 @@ beforeEach(() => {
   mocks.db.user.findMany.mockResolvedValue([]);
 });
 describe('pilot server authorization and concurrency', () => {
+  it('authenticates test-only credentials without storing them or calling loan APIs', async () => {
+    mocks.enabled.mockReturnValue(false);
+    asUser('admin', 'ADMIN_III');
+    const api = vi.fn();
+    vi.mocked(ariveSession).mockResolvedValue(api);
+    const result = await configurePilotArive({ clientId: 'id', secret: 'secret', apiKey: 'key', testOnly: true });
+    expect(result).toEqual({ success: true, data: undefined });
+    expect(ariveSession).toHaveBeenCalledWith({ clientId: 'id', secret: 'secret', apiKey: 'key' });
+    expect(api).not.toHaveBeenCalled();
+    expect(mocks.db.$transaction).not.toHaveBeenCalled();
+    expect(mocks.db.ariveIntegrationConfig.upsert).not.toHaveBeenCalled();
+  });
   it('blocks document changes while paused without touching stored tasks', async () => {
     mocks.enabled.mockReturnValue(false);
     asUser(SUBMISSION_PILOT_LO_ID, 'LOAN_OFFICER');

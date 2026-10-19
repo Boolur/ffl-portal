@@ -24,6 +24,13 @@ export function ArivePilotConnection({ configured, canConfigure, owner, onChange
         <label className="text-sm">Client secret<input className="app-input mt-1" type="password" autoComplete="new-password" required maxLength={4096} value={secret} disabled={busy} onChange={e => setSecret(e.target.value)} /></label>
         <label className="text-sm">API key<input className="app-input mt-1" type="password" autoComplete="new-password" required maxLength={4096} value={apiKey} disabled={busy} onChange={e => setApiKey(e.target.value)} /></label>
         <p className="text-xs text-muted-foreground md:col-span-3">Use the API credentials Arive provisioned for your branch. This does not request or expand company-wide access. Saved secrets are encrypted and never displayed again.</p><button className="app-btn-primary" disabled={busy} type="submit">{busy ? 'Connecting…' : 'Test and save connection'}</button>
+        <button className="app-btn-secondary" disabled={busy || !clientId.trim() || !secret.trim() || !apiKey.trim()} type="button" onClick={() => void perform(async () => {
+          try {
+            const r = await configurePilotArive({ clientId, secret, apiKey, testOnly: true });
+            if (!r.success) throw new Error(r.error);
+            setMessage('Authentication succeeded from the portal server. Credentials were not saved. No loan APIs were called.');
+          } finally { setClientId(''); setSecret(''); setApiKey(''); }
+        })}>Test only — don’t save</button>
       </form>
     </details>}
     {owner && configured && <form className="flex flex-wrap items-end gap-3" onSubmit={e => { e.preventDefault(); void perform(async () => { const r = await openArivePilotLoan(number); if (!r.success) throw new Error(r.error); onOpen(r.data); }); }}>
