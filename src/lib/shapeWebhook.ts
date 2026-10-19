@@ -10,7 +10,7 @@ export type ShapeWebhookCapture = {
 // assumed until Shape's callback contract has been agreed and tested.
 export async function receiveShapeWebhook(
   request: Request,
-  persist: (event: ShapeWebhookCapture) => Promise<string>,
+  persist: (event: ShapeWebhookCapture) => Promise<string | string[]>,
   secret = process.env.SHAPE_WEBHOOK_SECRET,
 ): Promise<Response> {
   const reply = (status: number, body: Record<string, unknown>) =>
@@ -63,8 +63,12 @@ export async function receiveShapeWebhook(
     if (value) headers[key] = value;
   }
   try {
-    const inboxEventId = await persist({ body, headers });
-    return reply(202, { accepted: true, inboxEventId, processing: 'awaiting_mapping' });
+    const receipt = await persist({ body, headers });
+    return reply(202, {
+      accepted: true,
+      ...(Array.isArray(receipt) ? { inboxEventIds: receipt } : { inboxEventId: receipt }),
+      processing: 'awaiting_mapping',
+    });
   } catch {
     // Do not log the body or database exception: either may contain borrower data.
     return reply(503, { accepted: false, error: 'Storage unavailable; retry delivery' });
