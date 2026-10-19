@@ -253,6 +253,15 @@ export async function replayInboxEvent(
   });
   if (!row) return { ok: false, status: 'FAILED', leadId: null, error: 'Event not found' };
 
+  if (row.source === 'shape') {
+    return {
+      ok: false,
+      status: row.status,
+      leadId: row.leadId,
+      error: 'Shape payload is saved. Status mapping and downstream actions are not configured yet.',
+    };
+  }
+
   // Reject replay for events whose body is unparseable JSON. Those were
   // captured verbatim but have no meaningful payload to re-ingest.
   let body = row.body as unknown;
