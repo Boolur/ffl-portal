@@ -4,7 +4,7 @@ import { buildShapePayload, SHAPE_ENDPOINT, validateShapeDestination } from './s
 const lead = {
   id: 'portal-123', firstName: 'Jane "JJ"', lastName: 'Borrower', email: 'jane@example.com',
   phone: ' ', homePhone: '5550100123', propertyAddress: '12 Main St',
-  vendor: { name: 'Vendor' }, campaign: { name: 'VA Leads' }, loanAmount: '250000',
+  vendor: { name: 'Vendor' }, campaign: { name: 'VA Leads' }, loanAmount: '250000', loanPurpose: 'Refinance',
 } as Parameters<typeof buildShapePayload>[0];
 
 describe('Shape mapping', () => {
@@ -13,8 +13,9 @@ describe('Shape mapping', () => {
       firstname: 'Jane "JJ"', lastname: 'Borrower', email: 'jane@example.com',
       recordtype: 3, mstrstatus1: 'New Lead', depursLi: '3', mktentryid: 'portal-123',
       phone: '5550100123', address2: '12 Main St', prStreetAddress: '12 Main St',
+      LoanAmount: '250000', qkapppurpose: 'Refinance',
     });
-    expect(buildShapePayload(lead, '3').notes).toContain('Loan amount: 250000');
+    expect(buildShapePayload(lead, '3').notes).not.toContain('Loan amount:');
     expect(buildShapePayload(lead, '3')).not.toHaveProperty('leadsource');
   });
   it.each(['firstName', 'lastName', 'email'] as const)('rejects missing %s', (key) => {

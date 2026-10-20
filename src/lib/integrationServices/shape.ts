@@ -34,6 +34,7 @@ export function buildShapePayload(lead: ShapeLead, userId: string, assignmentFie
     prStreetAddress: lead.propertyAddress, prCity: lead.propertyCity,
     prState: lead.propertyState, prZipCode: lead.propertyZip, prCounty: lead.propertyCounty,
     creditscore: lead.creditRating, mktsourceurl: lead.sourceUrl,
+    LoanAmount: lead.loanAmount, qkapppurpose: lead.loanPurpose,
   };
   return {
     firstname: lead.firstName!.trim(), lastname: lead.lastName!.trim(), email: lead.email!.trim(),
@@ -43,8 +44,6 @@ export function buildShapePayload(lead: ShapeLead, userId: string, assignmentFie
     notes: [
       'From FFL Portal', `Vendor: ${lead.vendor.name}`,
       lead.campaign && `Campaign: ${lead.campaign.name}`,
-      lead.loanAmount && `Loan amount: ${lead.loanAmount}`,
-      lead.loanPurpose && `Loan purpose: ${lead.loanPurpose}`,
       lead.loanType && `Loan type: ${lead.loanType}`,
       lead.loanTerm && `Loan term: ${lead.loanTerm}`,
     ].filter(Boolean).join('\n'),

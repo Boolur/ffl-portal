@@ -32,6 +32,7 @@ describe('Shape dispatch', () => {
       id: 'lead-1', firstName: 'Jane "JJ"', lastName: 'Borrower', email: 'jane@example.com',
       assignedUserId: 'lo-1', assignedUser: { id: 'lo-1', name: 'Officer', email: 'lo@example.com' },
       vendor: { name: 'Vendor' }, campaign: null,
+      loanAmount: '555556', loanPurpose: 'Purchase',
     });
     mocks.credential.mockResolvedValue({ values: { shapeUserId: '3' } });
     mocks.quota.mockResolvedValue(null);
@@ -44,7 +45,7 @@ describe('Shape dispatch', () => {
     const [url, request] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe(SHAPE_ENDPOINT);
     expect(request).toMatchObject({ headers: { Authorization: 'test-company-key' }, redirect: 'error' });
-    expect(JSON.parse(request!.body as string)).toMatchObject({ firstname: 'Jane "JJ"', depursLi: '3', mktentryid: 'lead-1' });
+    expect(JSON.parse(request!.body as string)).toMatchObject({ firstname: 'Jane "JJ"', depursLi: '3', mktentryid: 'lead-1', LoanAmount: '555556', qkapppurpose: 'Purchase' });
     expect(JSON.stringify(mocks.audit.mock.calls)).not.toContain('test-company-key');
   });
   it('does not send when the API key is missing', async () => {
