@@ -104,8 +104,13 @@ function noteSchemaError(value: unknown, depth: number): AriveError {
 function normalizeNote(value: unknown, depth = 0): AriveNote {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw noteSchemaError(value, depth);
   const note = value as Record<string, unknown>;
-  if (typeof note.id !== 'string' || typeof note.text !== 'string') throw noteSchemaError(note, depth);
-  return { id: note.id, text: note.text, author: typeof note.createdByName === 'string' ? note.createdByName : 'Arive user', createdAt: typeof note.createdAt === 'string' ? note.createdAt : '', updatedAt: typeof note.updatedAt === 'string' ? note.updatedAt : '', replies: depth < 3 && Array.isArray(note.nestedNotes) ? note.nestedNotes.map(n => normalizeNote(n, depth + 1)) : [] };
+  const id = typeof note.id === 'string' && note.id.trim()
+    ? note.id.trim()
+    : typeof note.id === 'number' && Number.isSafeInteger(note.id) && note.id > 0
+      ? String(note.id)
+      : null;
+  if (!id || typeof note.text !== 'string') throw noteSchemaError(note, depth);
+  return { id, text: note.text, author: typeof note.createdByName === 'string' ? note.createdByName : 'Arive user', createdAt: typeof note.createdAt === 'string' ? note.createdAt : '', updatedAt: typeof note.updatedAt === 'string' ? note.updatedAt : '', replies: depth < 3 && Array.isArray(note.nestedNotes) ? note.nestedNotes.map(n => normalizeNote(n, depth + 1)) : [] };
 }
 export async function readAriveNotes(id: string) {
   const api = await ariveSession(); const notes: AriveNote[] = [];

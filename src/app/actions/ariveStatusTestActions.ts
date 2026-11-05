@@ -96,7 +96,9 @@ export async function updateAriveTestStatus(input: { readId: string; expected: s
 
     let acknowledged = false;
     let requestError = '';
-    try { await api(`${path}?sync=true`, body, 'PATCH'); acknowledged = true; }
+    // GET accepts sysGUID; the live PATCH validator requires the numeric Arive ID.
+    // The exact test file has already been verified through its GUID above.
+    try { await api(`/loans/${ARIVE_STATUS_TEST_LOAN_NUMBER}?sync=true`, body, 'PATCH'); acknowledged = true; }
     catch (error) { requestError = error instanceof AriveError ? error.message : 'Arive did not acknowledge the stage update.'; }
     let after: AriveTestLoanStatus | null = null;
     try {

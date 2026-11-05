@@ -85,7 +85,9 @@ describe('stage concurrency and readback', () => {
     const result = await updateAriveTestStatus(input);
     expect(result).toMatchObject({ success: true, data: { stage: 'QUALIFICATION', readId: '' } });
     expect(patchCalls()).toHaveLength(1);
-    expect(patchCalls()[0][0]).toBe('/loans/test-loan-guid?sync=true');
+    expect(patchCalls()[0][0]).toBe('/loans/17881588?sync=true');
+    const detailReads = mocks.api.mock.calls.filter(call => call[0] === '/loans/test-loan-guid' && call[2] !== 'PATCH');
+    expect(detailReads).toHaveLength(3); // initial read, pre-write identity check, and readback
     expect(mocks.lock).toHaveBeenCalledOnce();
     expect(mocks.auditCreate.mock.calls.map(call => call[0].data.action)).toEqual(['ARIVE_TEST_STAGE_READ', 'ARIVE_TEST_STAGE_REQUESTED', 'ARIVE_TEST_STAGE_VERIFIED']);
     patched = false;

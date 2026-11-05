@@ -12,7 +12,7 @@ describe('Arive note schema diagnostics', () => {
       .mockResolvedValueOnce(Response.json({ count: 1, loanNotes: [note] })));
   }
   it('reports only types and date formats for an incompatible note identifier', async () => {
-    notesResponse({ id: 123, text: 'private user note with test-secret', createdByName: 'Private Name', createdAt: '2026-11-05T12:30:00Z', updatedAt: null, nestedNotes: [] });
+    notesResponse({ id: 0, text: 'private user note with test-secret', createdByName: 'Private Name', createdAt: '2026-11-05T12:30:00Z', updatedAt: null, nestedNotes: [] });
     await expect(readAriveNotes('test-loan')).rejects.toThrow('Schema: depth=0; note=object; id=number; text=string; text keys=none; other text keys=0; createdAt=string/ISO-date-time; updatedAt=null; nestedNotes=array.');
   });
   it('does not disclose text values, arbitrary object keys, authors, or secrets', async () => {
@@ -26,7 +26,7 @@ describe('Arive note schema diagnostics', () => {
     await expect(readAriveNotes('test-loan')).rejects.toThrow('Arive returned an unexpected note format. Schema: depth=0;');
   });
   it('identifies a nested reply failure without changing the parser contract', async () => {
-    notesResponse({ id: 'parent', text: 'synthetic parent', nestedNotes: [{ id: 456, text: 'private reply' }] });
+    notesResponse({ id: 'parent', text: 'synthetic parent', nestedNotes: [{ id: -456, text: 'private reply' }] });
     await expect(readAriveNotes('test-loan')).rejects.toThrow('Schema: depth=1; note=object; id=number; text=string;');
   });
   it('continues to import valid parent notes and replies unchanged', async () => {
@@ -35,6 +35,24 @@ describe('Arive note schema diagnostics', () => {
     expect(notes[0].id).toBe('parent');
     expect(notes[0].text).toBe('synthetic parent');
     expect(notes[0].replies[0].id).toBe('reply');
+  });
+  it('normalizes live numeric parent and reply IDs while preserving text and dates', async () => {
+    const createdAt = '2026-11-05T12:30:00.123Z';
+    const updatedAt = '2026-11-05T12:31:00.456Z';
+    notesResponse({ id: 123, text: 'Pending Items: synthetic parent\nSecond line.', createdByName: 'Synthetic author', createdAt, updatedAt, nestedNotes: [{ id: 456, text: 'Synthetic reply', createdByName: 'Synthetic reviewer', createdAt, updatedAt }] });
+    expect(await readAriveNotes('test-loan')).toEqual([{ id: '123', text: 'Pending Items: synthetic parent\nSecond line.', author: 'Synthetic author', createdAt, updatedAt, replies: [{ id: '456', text: 'Synthetic reply', author: 'Synthetic reviewer', createdAt, updatedAt, replies: [] }] }]);
+  });
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, '', '   '])('rejects invalid note IDs (%s)', async id => {
+    notesResponse({ id, text: 'Synthetic note' });
+    await expect(readAriveNotes('test-loan')).rejects.toThrow('Arive returned an unexpected note format.');
+  });
+  it('retains nonempty UUID IDs and deduplicates numeric/string variants', async () => {
+    const uuid = '6ac926ae-6b86-428e-9c79-99264558d17a';
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ AccessToken: 'synthetic-token' }))
+      .mockResolvedValueOnce(Response.json({ count: 3, loanNotes: [{ id: 123, text: 'Earlier synthetic note' }, { id: '123', text: 'Updated synthetic note' }, { id: uuid, text: 'UUID note' }] })));
+    const notes = await readAriveNotes('test-loan');
+    expect(notes.map(note => ({ id: note.id, text: note.text }))).toEqual([{ id: '123', text: 'Updated synthetic note' }, { id: uuid, text: 'UUID note' }]);
   });
 });
 describe('Arive HTTP contract', () => {
