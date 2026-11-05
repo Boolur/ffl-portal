@@ -53,7 +53,7 @@ function fingerprint(status: AriveTestLoanStatus): string {
   return createHash('sha256').update(JSON.stringify(status)).digest('hex');
 }
 function snapshot(status: AriveTestLoanStatus, readId = ''): AriveTestStatusSnapshot {
-  return { readId, stage: status.stage, date: status.date, historyCount: status.history.length, checkedAt: new Date().toISOString(), canChange: canChangeAriveTestStage(status) };
+  return { readId, stage: status.stage, date: status.date, historyCount: status.history.length, history: status.history.map(entry => ({ stage: entry.stage, date: entry.date })), checkedAt: new Date().toISOString(), canChange: canChangeAriveTestStage(status) };
 }
 function failure(error: unknown): Result<never> {
   return { success: false, requiresRefresh: true, error: error instanceof AriveStatusTestError || error instanceof AriveError ? error.message : 'Unable to finish the Arive stage test. Read the current stage before trying again.' };
@@ -109,7 +109,7 @@ export async function updateAriveTestStatus(input: { readId: string; expected: s
     const verified = after !== null && after.stage === input.target && preserved;
     await prisma.auditLog.create({ data: { loanId: context.loanId, userId: context.userId, action: verified ? VERIFIED : UNCERTAIN, details: JSON.stringify({
       attemptId: attempt.id, from: before.stage, target: input.target, acknowledged,
-      observedStage: after?.stage ?? null, historyPreserved: preserved, ...(requestError ? { error: requestError } : {}),
+      observedStage: after?.stage ?? null, observedStages: after?.history ?? null, historyPreserved: preserved, ...(requestError ? { error: requestError } : {}),
     }) } });
     if (!verified || !after) {
       const observed = after ? `Readback stage: ${after.stage}. ${preserved ? 'Existing history was preserved.' : 'Existing history could not be verified.'}` : 'Arive readback was unavailable or did not confirm the test-loan identity.';

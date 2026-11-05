@@ -80,6 +80,13 @@ describe('status test authorization and scope', () => {
 });
 
 describe('stage concurrency and readback', () => {
+  it('exposes only validated stage/date history in a read-only snapshot', async () => {
+    Object.assign(before.loanStatusHistory[0], { privateDetail: 'PRIVATE_FIELD' });
+    const result = await readAriveTestStatus();
+    expect(result).toMatchObject({ success: true, data: { history: [{ stage: 'APPLICATION_INTAKE', date: '2026-10-15' }], historyCount: 1 } });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_FIELD');
+    expect(patchCalls()).toHaveLength(0);
+  });
   it('audits one PATCH, verifies the new stage plus historical entries, and consumes the read receipt', async () => {
     const input = await ready();
     const result = await updateAriveTestStatus(input);
@@ -90,6 +97,7 @@ describe('stage concurrency and readback', () => {
     expect(detailReads).toHaveLength(3); // initial read, pre-write identity check, and readback
     expect(mocks.lock).toHaveBeenCalledOnce();
     expect(mocks.auditCreate.mock.calls.map(call => call[0].data.action)).toEqual(['ARIVE_TEST_STAGE_READ', 'ARIVE_TEST_STAGE_REQUESTED', 'ARIVE_TEST_STAGE_VERIFIED']);
+    expect(JSON.parse(latest!.details).observedStages).toEqual([{ stage: 'APPLICATION_INTAKE', date: '2026-10-15' }, { stage: 'QUALIFICATION', date: '2026-11-05' }]);
     patched = false;
     expect((await updateAriveTestStatus(input)).success).toBe(false);
     expect(patchCalls()).toHaveLength(1);
@@ -130,6 +138,10 @@ describe('stage concurrency and readback', () => {
     expect(await updateAriveTestStatus(input)).toMatchObject({ success: false, requiresRefresh: true, error: expect.stringContaining('No automatic retry') });
     expect(patchCalls()).toHaveLength(1);
     expect(latest!.action).toBe('ARIVE_TEST_STAGE_UNCERTAIN');
+    const observed = JSON.parse(latest!.details).observedStages;
+    if (scenario === 'lost history') expect(observed).toEqual([{ stage: 'QUALIFICATION', date: '2026-11-05' }]);
+    if (scenario === 'wrong stage') expect(observed).toEqual([{ stage: 'APPLICATION_INTAKE', date: '2026-10-15' }]);
+    if (scenario === 'readback failed') expect(observed).toBeNull();
     patched = false;
     expect((await updateAriveTestStatus(input)).success).toBe(false);
     expect(patchCalls()).toHaveLength(1);

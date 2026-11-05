@@ -9,7 +9,7 @@ export type AriveTestLoanStatus = {
   id: string; stage: string; date: string; archived: boolean; history: AriveStageEntry[];
 };
 export type AriveTestStatusSnapshot = {
-  readId: string; stage: string; date: string; historyCount: number; checkedAt: string; canChange: boolean;
+  readId: string; stage: string; date: string; historyCount: number; history: AriveStageEntry[]; checkedAt: string; canChange: boolean;
 };
 
 function object(value: unknown): Record<string, unknown> {
