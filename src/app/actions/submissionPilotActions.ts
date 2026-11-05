@@ -10,6 +10,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 import { encryptAriveCredentials } from '@/lib/ariveCrypto';
+import { normalizeAriveTrackers } from '@/lib/ariveTrackers';
 import { ariveConfigured, ariveClassifications, ariveSession, findAriveLoan, readAriveNotes, validAriveUploadUrl, AriveError } from '@/lib/ariveClient';
 import { getSupabaseAdmin, getTaskAttachmentsBucket } from '@/lib/supabaseAdmin';
 import { isSubmissionPilotEnabled, initialPilotPackage, readPilotPackage, reconcileReturnedPilotReview, pilotApprovalError, pilotSubmissionError, validatePilotFile, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
@@ -309,14 +310,41 @@ export async function openArivePilotLoan(loanNumber: string) {
 async function integrationUpdate(id: string, a: Actor, edit: (p: PilotPackage) => void) {
   await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${id}`}))`;
-    const { task, p } = await taskAccess(id, a, tx); edit(p); p.revision++;
+    const { task, p } = await integrationTaskAccess(id, a, tx); edit(p); p.revision++;
     const updated = await tx.task.updateMany({ where: { id, updatedAt: task.updatedAt }, data: { submissionData: { ...(task.submissionData as Prisma.JsonObject), submissionPilot: p as unknown as Prisma.InputJsonValue } } });
     if (updated.count !== 1) throw new Error('The package changed. Refresh and retry.');
   });
 }
+// The existing acceptance file can be exercised without restarting Matt's LO submission pilot.
+async function integrationTaskAccess(id: string, a: Actor, db: Prisma.TransactionClient = prisma) {
+  const access = await taskAccess(id, a, db);
+  if (!isSubmissionPilotEnabled() && access.task.loan.loanNumber !== '17881588') throw new Error('Live integration testing is limited to TESTING TESTER / 17881588.');
+  if (access.p.ariveLink && access.p.ariveLink.loanNumber !== access.task.loan.loanNumber) throw new Error('The saved Arive link does not match this portal loan. Reconnect the correct test file.');
+  return access;
+}
+export async function getAriveTestWorkspace(requestTaskId: string) {
+  return result(async () => {
+    const a = await actor(true);
+    const request = await prisma.task.findUnique({ where: { id: requestTaskId }, select: { id: true, kind: true, loanId: true, submissionData: true } });
+    const documentId = (request?.submissionData as { processingDocumentTaskId?: string } | null)?.processingDocumentTaskId;
+    if (!request || request.kind !== 'SUBMIT_PROCESSING' || !documentId) throw new Error('Submission documents not found.');
+    const { task, p } = await integrationTaskAccess(documentId, a);
+    if (task.loanId !== request.loanId || task.loan.loanNumber !== '17881588') throw new Error('Live integration testing is limited to TESTING TESTER / 17881588.');
+    return { owner: a.owner, canConfigureArive: isAdminIII(a.role), ariveConfigured: await ariveConfigured(), userId: a.id, loans: [], packages: [{ id: task.id, loanId: task.loanId, borrower: task.loan.borrowerName, loanNumber: task.loan.loanNumber, package: p }] };
+  });
+}
+export async function getPilotAriveTrackers(taskId: string) {
+  return result(async () => {
+    const a = await actor(true); const { p } = await integrationTaskAccess(taskId, a);
+    if (!p.ariveLink) throw new Error('Link this Arive test file first.');
+    const api = await ariveSession();
+    const trackers = normalizeAriveTrackers(await api(`/loans/${encodeURIComponent(p.ariveLink.id)}/trackers`));
+    return { checkedAt: new Date().toISOString(), trackers };
+  });
+}
 export async function refreshPilotAriveNotes(taskId: string) {
   return result(async () => {
-    const a = await actor(); const { p } = await taskAccess(taskId, a);
+    const a = await actor(true); const { p } = await integrationTaskAccess(taskId, a);
     if (!p.ariveLink) throw new Error('Open this Arive loan number in the pilot to link it first.');
     const started = new Date().toISOString();
     const notes = await readAriveNotes(p.ariveLink.id);
@@ -325,12 +353,12 @@ export async function refreshPilotAriveNotes(taskId: string) {
     });
   });
 }
-export async function getPilotAriveClassifications() {
-  return result(async () => { await actor(); return ariveClassifications(); });
+export async function getPilotAriveClassifications(taskId?: string) {
+  return result(async () => { const a = await actor(true); if (!isSubmissionPilotEnabled()) { if (!taskId) throw new Error('Choose the test file first.'); await integrationTaskAccess(taskId, a); } return ariveClassifications(); });
 }
 export async function sendPilotDocumentToArive(input: { taskId: string; fileId: string; classification: string }) {
   return result(async () => {
-    const a = await actor(); const { p } = await taskAccess(input.taskId, a);
+    const a = await actor(true); const { p } = await integrationTaskAccess(input.taskId, a);
     if (!p.ariveLink || p.state !== 'APPROVED') throw new Error('Link the loan and have the Jr Processor approve the package first.');
     const file = p.items.flatMap(i => i.files).find(f => f.id === input.fileId);
     if (!file) throw new Error('Document not found.');
@@ -414,8 +442,8 @@ export async function getAriveConnectionSettings() {
 
 export async function linkExistingAriveTestPackage(taskId: string) {
   return result(async () => {
-    const a = await actor();
-    const { task } = await taskAccess(taskId, a);
+    const a = await actor(true);
+    const { task } = await integrationTaskAccess(taskId, a);
     if (task.loan.loanNumber !== '17881588') throw new Error('Live acceptance is limited to TESTING TESTER / 17881588.');
     const remote = await findAriveLoan(task.loan.loanNumber);
     const officer = await prisma.user.findUnique({ where: { id: task.loan.loanOfficerId }, select: { email: true } });

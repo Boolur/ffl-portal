@@ -2296,7 +2296,9 @@ export function ProcessingPipelineGrid({
                 row,
                 'pipelineStatus',
                 row.pipelineStatus,
-                statusOptions,
+                statusOptions.some(option => option.value === row.pipelineStatus)
+                  ? statusOptions
+                  : [...statusOptions, ...PROCESSING_PIPELINE_STATUS_OPTIONS.filter(option => option.value === row.pipelineStatus)],
                 statusTone[row.pipelineStatus],
               )
             ) : (
