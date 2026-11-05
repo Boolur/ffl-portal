@@ -640,6 +640,9 @@ export function ProcessingPipelineGrid({
   const layoutWidthSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const lastRowsLoadedAtRef = useRef(Date.now());
+  const refreshCurrentViewRef = useRef<() => void>(() => {});
+  const savingRowsRef = useRef<Set<string>>(new Set());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const filterOptionsBySheet = useRef(
     new Map<string, PipelineFilterOptions>()
@@ -854,6 +857,7 @@ export function ProcessingPipelineGrid({
     nextFilters = appliedFilters,
     nextViewScope = activeLayout?.config.scope || 'GLOBAL',
   ) => {
+    lastRowsLoadedAtRef.current = Date.now();
     startTransition(async () => {
       const isGlobalSearch = Boolean(nextSearch.trim());
       const result = await getProcessingPipeline({
@@ -879,6 +883,28 @@ export function ProcessingPipelineGrid({
       setMessage('');
     });
   };
+  refreshCurrentViewRef.current = () => loadRows();
+  savingRowsRef.current = savingRows;
+
+  useEffect(() => {
+    const refreshCurrentViewIfStale = () => {
+      if (
+        document.visibilityState !== 'visible' ||
+        savingRowsRef.current.size > 0 ||
+        Date.now() - lastRowsLoadedAtRef.current < 60_000
+      ) {
+        return;
+      }
+      refreshCurrentViewRef.current();
+    };
+    const handleVisibilityChange = () => refreshCurrentViewIfStale();
+    window.addEventListener('focus', refreshCurrentViewIfStale);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', refreshCurrentViewIfStale);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasSearchEffectMounted.current) {
@@ -1393,6 +1419,7 @@ export function ProcessingPipelineGrid({
     if (!result.success) {
       patchRow(row.id, row);
       setMessage(result.error);
+      if ('conflict' in result) loadRows();
       return;
     }
     patchRow(row.id, {
