@@ -1,7 +1,7 @@
 'use server';
 
 import { appendLifecycleHistoryEvent } from '@/lib/taskLifecycleTimeline';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { assertStoredUpload } from '../../lib/storedUploadVerification';
 import { getServerSession } from 'next-auth';
 import { Prisma, UserRole } from '@prisma/client';
@@ -14,6 +14,7 @@ import { normalizeAriveTrackers } from '@/lib/ariveTrackers';
 import { ariveConfigured, ariveClassifications, ariveSession, findAriveLoan, readAriveNotes, validAriveUploadUrl, AriveError } from '@/lib/ariveClient';
 import { getSupabaseAdmin, getTaskAttachmentsBucket } from '@/lib/supabaseAdmin';
 import { isSubmissionPilotEnabled, initialPilotPackage, readPilotPackage, reconcileReturnedPilotReview, pilotApprovalError, pilotSubmissionError, validatePilotFile, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { selectApprovedSubmissionDocuments, submissionDocumentSelectionSource, type SubmissionDocumentDownloadManifest } from '../../lib/submissionDocumentDownload';
 
 async function actor(allowWhilePaused = false) {
   if (!allowWhilePaused && !isSubmissionPilotEnabled()) throw new Error('The submission pilot is paused. Use the normal Tasks and Submit to Processing workflow.');
@@ -254,6 +255,44 @@ export async function getPilotFileAccess(taskId: string, fileId: string, disposi
 export async function downloadPilotFile(taskId: string, fileId: string, disposition: 'attachment' | 'inline' = 'attachment') {
   const access = await getPilotFileAccess(taskId, fileId, disposition);
   return access.success ? { success: true as const, data: access.data.url } : access;
+}
+
+async function approvedDocumentSelection(taskId: string) {
+  const a = await actor(true);
+  const { task, p } = await taskAccess(taskId, a);
+  const selection = selectApprovedSubmissionDocuments(p, task.id, task.loan.loanOfficerId, task.loan.loanNumber);
+  const selectionKey = createHash('sha256').update(submissionDocumentSelectionSource(selection, task.id, task.loan.loanOfficerId)).digest('hex');
+  return { selection, selectionKey, revision: p.revision };
+}
+
+export async function preparePilotDocumentDownload(taskId: string, revision: number) {
+  return result(async (): Promise<SubmissionDocumentDownloadManifest> => {
+    const current = await approvedDocumentSelection(taskId);
+    if (!Number.isInteger(revision) || revision !== current.revision) throw new Error('This submission changed. Refresh its documents and try Download All again.');
+    const files: SubmissionDocumentDownloadManifest['files'] = [];
+    try {
+      const storage = getSupabaseAdmin().storage.from(getTaskAttachmentsBucket());
+      for (let offset = 0; offset < current.selection.files.length; offset += 4) {
+        const batch = await Promise.all(current.selection.files.slice(offset, offset + 4).map(async file => {
+          const { data, error } = await storage.createSignedUrl(file.storagePath, 300, { download: file.name });
+          if (error || !data?.signedUrl) throw new Error('Signing failed');
+          return { id: file.id, name: file.name, type: file.type, size: file.size, archivePath: file.archivePath, url: data.signedUrl };
+        }));
+        files.push(...batch);
+      }
+    } catch { throw new Error('Unable to prepare all approved documents. Please try again.'); }
+    const fresh = await approvedDocumentSelection(taskId);
+    if (fresh.selectionKey !== current.selectionKey) throw new Error('The approved documents changed while preparing the download. Refresh and try again.');
+    return { filename: current.selection.filename, selectionKey: current.selectionKey, totalBytes: current.selection.totalBytes, files };
+  });
+}
+
+export async function validatePilotDocumentDownload(taskId: string, selectionKey: string) {
+  return result(async () => {
+    const current = await approvedDocumentSelection(taskId);
+    if (typeof selectionKey !== 'string' || !/^[0-9a-f]{64}$/.test(selectionKey) || current.selectionKey !== selectionKey) throw new Error('The approved documents changed during the download. Refresh and try again.');
+    return { selectionKey: current.selectionKey };
+  });
 }
 
 export async function configurePilotArive(input: { clientId: string; secret: string; apiKey: string; testOnly?: boolean }) {

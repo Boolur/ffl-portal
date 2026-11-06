@@ -12,6 +12,7 @@ import { PILOT_DOCUMENT_TYPES, validatePilotFile, pilotApprovalError, pilotSubmi
 import { getProcessingAssignmentLabel, getProcessingMethodLabel } from '@/lib/processingRouting';
 import { ArivePilotConnection, ArivePackagePanel } from './ArivePilotPanel';
 import { PilotDocumentFile } from './PilotDocumentFile';
+import { DownloadAllDocuments } from './DownloadAllDocuments';
 import { SubmissionUploadDropzone } from './SubmissionUploadDropzone';
 
 type Data = Extract<Awaited<ReturnType<typeof getSubmissionPilot>>, { success: true }>['data'];
@@ -36,6 +37,12 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
   const [decisionSent, setDecisionSent] = useState(false);
   const current = data.packages.find(p => p.id === selected);
   const p = current?.package;
+  const approvedDownloadItems = p?.items.filter(item => item.review === 'APPROVED' && !item.pending) || [];
+  const approvedFileCount = approvedDownloadItems.reduce((count, item) => count + item.files.length, 0);
+  const downloadSelection = JSON.stringify(approvedDownloadItems.map(item => ({
+    id: item.id, label: item.label,
+    files: item.files.map(file => ({ id: file.id, name: file.name, path: file.path, size: file.size, type: file.type })),
+  })));
   const editable = data.owner && p && ['DRAFT', 'CHANGES'].includes(p.state);
   const reviewing = !decisionSent && !data.owner && p?.state === 'REVIEW' && p.reviewerId === data.userId;
   async function reload() {
@@ -132,6 +139,10 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
           <div className="space-y-2">{!requestTaskId && <div className="flex justify-between text-sm"><span className="font-semibold">Review progress</span><span>{p.items.filter(i => i.review === 'APPROVED').length} / {p.items.length} verified</span></div>}<progress className="h-2 w-full accent-emerald-600" aria-label="Document categories verified" max={p.items.length || 1} value={p.items.filter(i => i.review === 'APPROVED').length} /></div>
           {!data.owner && p.state === 'REVIEW' && !p.reviewerId && (requestTaskId ? <p className="flex items-center gap-2 rounded-xl bg-secondary p-3 text-sm"><LockKeyhole size={18} />Read-only until you start this Processing request. Adding a role alone does not assign the task.</p> : <button type="button" className="app-btn-primary" disabled={busy} onClick={() => void run(() => change({ action: 'CLAIM' }))}>Claim review</button>)}
           {!data.owner && p.reviewerId && p.reviewerId !== data.userId && <p className="text-sm text-muted-foreground">Assigned to another Jr Processor. Read-only view.</p>}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
+            <div className="min-w-0"><p className="text-sm font-semibold">Approved documents</p><p className="mt-0.5 text-xs text-muted-foreground">Extract the ZIP, then upload the files to Arive. Use each file’s download icon for individual documents.</p></div>
+            <DownloadAllDocuments taskId={current.id} revision={p.revision} approvedFileCount={approvedFileCount} selectionSignature={downloadSelection} disabled={busy} />
+          </div>
         </section>
         <div className="flex flex-wrap gap-4 text-xs font-medium"><span className="text-rose-700">● Red · needs attention</span><span className="text-emerald-700">● Green · approved</span><span className="text-slate-600">● Grey · not applicable</span></div>
         {[true, false].map(required => <section key={String(required)} className="space-y-3"><h3 className="font-bold">{required ? 'Submission checklist' : 'Additional documents'}</h3><p className="text-sm text-muted-foreground">{data.owner ? 'Upload documents or explain why an item does not apply.' : 'Review the attached files, then approve or describe what the LO needs to provide.'}</p>

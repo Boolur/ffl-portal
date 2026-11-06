@@ -5,11 +5,12 @@ export function documentDisposition(name: string, download: boolean) {
   return `${download ? 'attachment' : 'inline'}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
-export function populateDocumentDrag(transfer: DataTransfer, file: File, url: string) {
+export function populateDocumentDrag(transfer: DataTransfer, file: Pick<File, 'name' | 'type'>, url: string) {
   transfer.effectAllowed = 'copy';
   transfer.clearData();
-  // Provide real bytes to compatible web upload targets, with Chrome's download
-  // descriptor for supported desktop destinations. Never offer a text/link fallback.
-  try { transfer.items.add(file); } catch { /* Native DownloadURL may still work. */ }
-  transfer.setData('DownloadURL', `${file.type}:${file.name.replace(/[:\r\n]/g, '_')}:${url}`);
+  // Chrome can convert a synthetic File drag into filename text at native drag
+  // boundaries. Offer only its download descriptor for supported desktop folders.
+  // Website uploads and Outlook should use the downloaded file instead.
+  try { transfer.setData('DownloadURL', `${file.type}:${file.name.replace(/[:\r\n]/g, '_')}:${url}`); }
+  catch { throw new Error('This browser could not prepare the folder drag. Use the download icon, then attach the saved file.'); }
 }
