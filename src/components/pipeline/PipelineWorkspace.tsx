@@ -1,21 +1,23 @@
 'use client';
 
-import { useState } from 'react';
-import { BarChart3, CheckCircle2, Sheet } from 'lucide-react';
+import { Activity, useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { useSession } from 'next-auth/react';
+import { BarChart3, CheckCircle2, Loader2, Sheet } from 'lucide-react';
 import { UserRole } from '@prisma/client';
 import type { PipelineReport } from '@/app/actions/pipelineReportingActions';
-import type { getProcessingPipeline } from '@/app/actions/processingPipelineActions';
-import type { ProcessingPipelineSavedLayout } from '@/app/actions/processingPipelineLayoutActions';
-import { PipelinePage } from '@/components/pipeline/PipelinePage';
-import { ProcessingPipelineGrid } from '@/components/pipeline/ProcessingPipelineGrid';
-
-type ProcessingResult = Extract<Awaited<ReturnType<typeof getProcessingPipeline>>, { success: true }>;
+import { getProcessingPipelineWorkspace, type ProcessingPipelineWorkspaceData } from '@/app/actions/pipelineWorkspaceActions';
+import { createPipelineRefresh } from '@/lib/pipelineRefresh';
+import { pipelineScopeMatches, readPipelineWorkspaceCache, setPipelineWorkspaceCachedTab } from '@/lib/pipelineWorkspaceCache';
+import type { ProcessingPipelineViewSnapshot } from './ProcessingPipelineGrid';
+const PipelinePage = dynamic(() => import('@/components/pipeline/PipelinePage').then((module) => module.PipelinePage));
+const ProcessingPipelineGrid = dynamic(() => import('@/components/pipeline/ProcessingPipelineGrid').then((module) => module.ProcessingPipelineGrid));
 
 type Props = {
+  cacheScope: string;
   role: UserRole;
   initialReport: PipelineReport | null;
-  initialProcessing: ProcessingResult;
-  initialLayouts: ProcessingPipelineSavedLayout[];
+  initialWorkspace: ProcessingPipelineWorkspaceData | null;
   submissionConfig: {
     disclosureEnabled: boolean;
     qcEnabled: boolean;
@@ -23,20 +25,56 @@ type Props = {
   } | null;
 };
 
-export function PipelineWorkspace({
+export function PipelineWorkspace(props: Props) {
+  const { data: session, status } = useSession();
+  if (status !== 'authenticated' || !pipelineScopeMatches(props.cacheScope, session?.user)) {
+    return <div className="app-card p-6 text-sm text-muted-foreground" role="status">Loading your pipeline...</div>;
+  }
+  return <PipelineWorkspaceContent key={props.cacheScope} {...props} />;
+}
+
+function PipelineWorkspaceContent({
+  cacheScope,
   role,
   initialReport,
-  initialProcessing,
-  initialLayouts,
+  initialWorkspace,
   submissionConfig,
 }: Props) {
   const isProcessingRole =
     role === UserRole.PROCESSOR_JR ||
     role === UserRole.PROCESSOR_SR ||
     role === UserRole.PROCESSING_MANAGER;
+  const [restored] = useState(() => readPipelineWorkspaceCache<ProcessingPipelineViewSnapshot>(cacheScope));
   const [view, setView] = useState<'pre-processing' | 'processing'>(
-    isProcessingRole || !initialReport ? 'processing' : 'pre-processing',
+    isProcessingRole || !initialReport ? 'processing' : restored?.snapshot.tab || 'pre-processing',
   );
+  const [workspace, setWorkspace] = useState(restored?.snapshot.workspace || initialWorkspace);
+  useEffect(() => setPipelineWorkspaceCachedTab(cacheScope, view), [cacheScope, view]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [needsReload, setNeedsReload] = useState(false);
+  const loaderRef = useRef<ReturnType<typeof createPipelineRefresh<void, Awaited<ReturnType<typeof getProcessingPipelineWorkspace>>>> | null>(null);
+  useEffect(() => {
+    const loader = createPipelineRefresh<void, Awaited<ReturnType<typeof getProcessingPipelineWorkspace>>>({
+      load: getProcessingPipelineWorkspace,
+      onStart: () => { setLoading(true); setLoadError(''); },
+      onSuccess: (result) => {
+        if (result.success) setWorkspace(result);
+        else setLoadError(result.error);
+      },
+      onError: (timedOut) => {
+        setNeedsReload(timedOut);
+        setLoadError(timedOut ? 'Loading took too long. Reload the page to reconnect.' : 'Unable to load Processing. Please try again.');
+      },
+      onIdle: () => setLoading(false),
+    });
+    loaderRef.current = loader;
+    return () => { loader.dispose(); loaderRef.current = null; };
+  }, []);
+  useEffect(() => {
+    if (view === 'processing' && !workspace && !loaderRef.current?.isBusy()) loaderRef.current?.request();
+  }, [view, workspace]);
+  const initialProcessing = workspace?.data;
 
   return (
     <div className="w-full space-y-6">
@@ -73,11 +111,28 @@ export function PipelineWorkspace({
         </div>
       )}
 
-      {view === 'pre-processing' && initialReport ? (
+      {initialReport && (
+        <Activity mode={view === 'pre-processing' ? 'visible' : 'hidden'}>
         <PipelinePage
+          active={view === 'pre-processing'}
           initialReport={initialReport}
           submissionConfig={submissionConfig}
         />
+        </Activity>
+      )}
+      {(workspace || view === 'processing') && (
+      <Activity mode={view === 'processing' ? 'visible' : 'hidden'}>
+      {!initialProcessing ? (
+        <div className="app-card p-6" aria-live="polite" aria-busy={loading}>
+          {loading ? <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading Processing...</p> : (
+            <>
+              <p role="alert" className="mb-3 text-muted-foreground">{loadError || 'Open the Processing pipeline.'}</p>
+              <button type="button" className="app-btn-secondary" onClick={() => needsReload ? window.location.reload() : loaderRef.current?.request()}>
+                {needsReload ? 'Reload page' : 'Try again'}
+              </button>
+            </>
+          )}
+        </div>
       ) : (
         <div className="space-y-6">
           <header className="app-page-header flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -107,11 +162,18 @@ export function PipelineWorkspace({
             </div>
           </header>
           <ProcessingPipelineGrid
+            cacheScope={cacheScope}
+            active={view === 'processing'}
+            restoredView={restored?.snapshot.view}
+            restoredObservedAt={restored?.observedAt}
+            restoredStale={restored?.stale}
             initialData={initialProcessing}
-            initialLayouts={initialLayouts}
+            initialLayouts={workspace?.layouts || []}
             role={role}
           />
         </div>
+      )}
+      </Activity>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { initialTaskBucketSort } from './taskBucketClientState';
 import { isAdmin } from '@/lib/adminTiers';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import { normalizeProcessingAssignmentGroups } from '@/lib/processingRouting';
@@ -1328,7 +1329,7 @@ export async function queryInitialTaskBucketsForRole(role: UserRole, userId?: st
           role,
           userId,
           pageSize: TASK_BUCKET_PAGE_SIZE,
-          sort: spec.defaultSort,
+          sort: initialTaskBucketSort(role, spec.isCompleted),
           includeTotalCount: false,
           includeTimelineAttachments: false,
         })

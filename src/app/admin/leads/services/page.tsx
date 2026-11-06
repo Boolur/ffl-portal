@@ -7,7 +7,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import {
   getIntegrationServices,
-  getLeadCampaigns,
+  getLeadCampaignOptions,
   getLeadEligibleUsers,
 } from '@/app/actions/leadActions';
 
@@ -15,7 +15,7 @@ export default async function ServicesPage() {
   const session = await getServerSession(authOptions);
   const [services, campaigns, eligibleUsers] = await Promise.all([
     getIntegrationServices(),
-    getLeadCampaigns(),
+    getLeadCampaignOptions(),
     getLeadEligibleUsers(),
   ]);
 

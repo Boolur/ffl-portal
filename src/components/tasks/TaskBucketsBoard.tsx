@@ -2,16 +2,21 @@
 
 import React, {
   useCallback,
-  useDeferredValue,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { TaskList, type Task } from '@/components/tasks/TaskList';
 import { deleteTask, loadTaskBucketCount, loadTaskBucketPage } from '@/app/actions/taskActions';
+import { appendTaskBucketPage, defaultTaskBucketSort, TaskBucketRequestGate, withTaskBucketTimeout } from '@/lib/taskBucketClientState';
+import { loadTaskBucketWindow, readTaskWorkspaceCache, taskSeedSignature, taskWorkspaceCacheEpoch, taskWorkspaceKey, writeTaskWorkspaceCache, type TaskWorkspaceSnapshot } from '@/lib/taskWorkspaceCache';
+import { publishPortalUpdates, subscribePortalUpdates } from '@/lib/portalLiveUpdates';
 
 type SortOption =
   | 'updated_desc'
@@ -172,7 +177,7 @@ export type TaskBucketsBoardHandle = {
   setAllBucketsCollapsed: (collapsed: boolean) => void;
 };
 
-export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBucketsBoardProps>(
+const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBucketsBoardProps & { identity: string; workspaceKey: string }>(
   function TaskBucketsBoard(
     {
       buckets,
@@ -186,33 +191,117 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
       fixedScrollClassName = 'max-h-[520px] overflow-y-auto pr-1',
       onCollapseSummaryChange,
       enableBatchDelete = false,
+      identity,
+      workspaceKey,
     },
     ref
   ) {
   const router = useRouter();
-  const defaultGlobalSort: SortOption =
-    currentRole === 'DISCLOSURE_SPECIALIST' ||
-    currentRole === 'QC' ||
-    currentRole === 'MANAGER' ||
-    currentRole === 'VA' ||
-    currentRole === 'VA_TITLE' ||
-    currentRole === 'VA_PAYOFF' ||
-    currentRole === 'VA_APPRAISAL' ||
-    currentRole === 'PROCESSOR_JR'
-      ? 'created_asc'
-      : 'updated_desc';
-  const [globalSearch, setGlobalSearch] = useState('');
-  const [globalSort, setGlobalSort] = useState<SortOption>(defaultGlobalSort);
-  const [controlsByBucket, setControlsByBucket] = useState<Record<string, BucketControls>>({});
+  const defaultGlobalSort = defaultTaskBucketSort(currentRole);
+  const [restored] = useState(() => readTaskWorkspaceCache<Task>(workspaceKey));
+  const [cacheEpoch] = useState(taskWorkspaceCacheEpoch);
+  const [globalSearch, setGlobalSearch] = useState(restored?.globalSearch || '');
+  const [globalSort, setGlobalSort] = useState<SortOption>((restored?.globalSort as SortOption) || defaultGlobalSort);
+  const [controlsByBucket, setControlsByBucket] = useState<Record<string, BucketControls>>(
+    (restored?.controlsByBucket as Record<string, BucketControls>) || {}
+  );
   const [selectedTaskIdsByBucket, setSelectedTaskIdsByBucket] = useState<Record<string, string[]>>(
     {}
   );
   const [batchDeletingBucketId, setBatchDeletingBucketId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
-  const [serverBucketState, setServerBucketState] = useState<Record<string, ServerBucketState>>({});
+  const [serverBucketState, setServerBucketState] = useState<Record<string, ServerBucketState>>(() => restored?.pages || Object.fromEntries(
+    buckets.filter(bucket => bucket.serverPagination).map(bucket => [bucket.id, {
+      queryKey: JSON.stringify({ identity, globalSearch: '', bucketSearch: '', sort: bucket.serverSort || (bucket.isCompleted ? 'updated_desc' : defaultGlobalSort), sectionId: bucket.sectionId || '' }),
+      tasks: bucket.tasks,
+      totalCount: bucket.totalCount ?? bucket.tasks.length,
+      totalCountIsExact: bucket.totalCountIsExact ?? !bucket.nextCursor,
+      nextCursor: bucket.nextCursor || null,
+    }])
+  ));
   const [loadingBucketIds, setLoadingBucketIds] = useState<Set<string>>(() => new Set());
   const [loadingCountBucketIds, setLoadingCountBucketIds] = useState<Set<string>>(() => new Set());
-  const deferredGlobalSearch = useDeferredValue(globalSearch.trim().toLowerCase());
+  const pageRequests = useRef(new TaskBucketRequestGate());
+  const countRequests = useRef(new TaskBucketRequestGate());
+  const lastPageRequest = useRef<Record<string, { cursor: TaskBucketCursor; mode: 'replace' | 'append' | 'refresh' }>>({});
+  const seedSignature = useMemo(() => taskSeedSignature(buckets), [buckets]);
+  const lastSeed = useRef(seedSignature);
+  const [refreshGeneration, setRefreshGeneration] = useState(restored ? 1 : 0);
+  const attemptedRefresh = useRef(0);
+  const generationRef = useRef(refreshGeneration);
+  const validatedAt = useRef(restored?.validatedAt || Date.now());
+  const [interactionByBucket, setInteractionByBucket] = useState<Record<string, boolean>>({});
+  const interacting = useRef(false);
+  useLayoutEffect(() => { interacting.current = Object.values(interactionByBucket).some(Boolean); }, [interactionByBucket]);
+  const scrollTopByBucket = useRef<Record<string, number>>({ ...restored?.scrollTopByBucket });
+  const scrollElements = useRef<Record<string, HTMLDivElement | null>>({});
+  const snapshotRef = useRef<TaskWorkspaceSnapshot<Task> | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    generationRef.current = refreshGeneration;
+  }, [refreshGeneration]);
+  useEffect(() => {
+    if (lastSeed.current === seedSignature) return;
+    lastSeed.current = seedSignature;
+    setRefreshGeneration(value => value + 1);
+  }, [seedSignature]);
+  useEffect(() => subscribePortalUpdates('tasks', () => setRefreshGeneration(value => value + 1)), []);
+  useEffect(() => {
+    const resumePending = () => {
+      if (document.visibilityState === 'visible' && generationRef.current > attemptedRefresh.current) {
+        setRefreshGeneration(value => value + 1);
+      }
+    };
+    document.addEventListener('visibilitychange', resumePending);
+    return () => document.removeEventListener('visibilitychange', resumePending);
+  }, []);
+  useEffect(() => {
+    const snapshot: TaskWorkspaceSnapshot<Task> = {
+      savedAt: Date.now(), validatedAt: validatedAt.current, seedSignature,
+      globalSearch, globalSort, controlsByBucket, pages: serverBucketState,
+      scrollTopByBucket: { ...scrollTopByBucket.current },
+    };
+    snapshotRef.current = snapshot;
+    writeTaskWorkspaceCache(workspaceKey, snapshot, cacheEpoch);
+  }, [workspaceKey, cacheEpoch, seedSignature, globalSearch, globalSort, controlsByBucket, serverBucketState]);
+  useEffect(() => {
+    mounted.current = true;
+    const pages = pageRequests.current;
+    const counts = countRequests.current;
+    const scrollPositions = scrollTopByBucket.current;
+    return () => {
+      mounted.current = false;
+      for (const bucket of buckets) {
+        pages.setQuery(bucket.id, 'unmounted');
+        counts.setQuery(bucket.id, 'unmounted');
+      }
+      if (snapshotRef.current) writeTaskWorkspaceCache(workspaceKey, {
+        ...snapshotRef.current, savedAt: Date.now(), scrollTopByBucket: { ...scrollPositions },
+      }, cacheEpoch);
+    };
+  // This instance is keyed by workspace/identity; incoming server props must not unmount it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceKey, cacheEpoch]);
+  useLayoutEffect(() => {
+    for (const [id, top] of Object.entries(scrollTopByBucket.current)) {
+      const element = scrollElements.current[id];
+      if (element) element.scrollTop = top;
+    }
+  }, []);
+  const searchInput = JSON.stringify({
+    global: globalSearch.trim().toLowerCase(),
+    buckets: Object.fromEntries(Object.entries(controlsByBucket).map(([id, controls]) => [id, controls.search.trim().toLowerCase()])),
+  });
+  const [debouncedSearchInput, setDebouncedSearchInput] = useState(searchInput);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearchInput(searchInput), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+  const debouncedSearch = useMemo(() => JSON.parse(debouncedSearchInput) as {
+    global: string;
+    buckets: Record<string, string>;
+  }, [debouncedSearchInput]);
+  const deferredGlobalSearch = debouncedSearch.global;
   const searchableTextByTaskId = useMemo(() => {
     const next = new Map<string, string>();
     for (const bucket of buckets) {
@@ -244,31 +333,32 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   );
 
   const getServerQueryKey = useCallback(
-    (bucket: BucketConfig, bucketControls: BucketControls, selectedSort: SortOption) =>
+    (bucket: BucketConfig, selectedSort: SortOption) =>
       JSON.stringify({
+        identity,
         globalSearch: deferredGlobalSearch,
-        bucketSearch: bucketControls.search.trim().toLowerCase(),
+        bucketSearch: debouncedSearch.buckets[bucket.id] || '',
         sort: selectedSort,
         sectionId: bucket.sectionId || '',
       }),
-    [deferredGlobalSearch]
+    [identity, deferredGlobalSearch, debouncedSearch.buckets]
   );
 
   const isInitialServerQuery = useCallback(
     (bucket: BucketConfig, bucketControls: BucketControls, selectedSort: SortOption) =>
       !deferredGlobalSearch &&
-      !bucketControls.search.trim() &&
+      !debouncedSearch.buckets[bucket.id] &&
       bucketControls.sort === 'global' &&
       selectedSort === (bucket.serverSort || (bucket.isCompleted ? 'updated_desc' : defaultGlobalSort)),
-    [defaultGlobalSort, deferredGlobalSearch]
+    [defaultGlobalSort, deferredGlobalSearch, debouncedSearch.buckets]
   );
 
   const processedBuckets = useMemo(() => {
     return buckets.map((bucket) => {
       const bucketControls = controlsByBucket[bucket.id] || defaultControls;
-      const deferredLocalSearch = bucketControls.search.trim().toLowerCase();
+      const deferredLocalSearch = debouncedSearch.buckets[bucket.id] || '';
       const selectedSort = getSelectedSort(bucket, bucketControls);
-      const serverQueryKey = getServerQueryKey(bucket, bucketControls, selectedSort);
+      const serverQueryKey = getServerQueryKey(bucket, selectedSort);
       const state = serverBucketState[bucket.id];
       const hasMatchingServerState = state?.queryKey === serverQueryKey;
       const useInitialServerPage =
@@ -298,8 +388,10 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
             ? bucket.nextCursor ?? null
             : null,
           controls: bucketControls,
+          serverSearch: deferredLocalSearch,
           selectedSort,
           serverQueryKey,
+          requestQueryKey: `${serverQueryKey}:${refreshGeneration}`,
           isServerLoading: loadingBucketIds.has(bucket.id) || isServerPending,
           isServerPending,
         };
@@ -315,8 +407,10 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
         ...bucket,
         visibleTasks: sorted,
         controls: bucketControls,
+        serverSearch: deferredLocalSearch,
         selectedSort,
         serverQueryKey,
+        requestQueryKey: `${serverQueryKey}:${refreshGeneration}`,
         isServerLoading: false,
         isServerPending: false,
       };
@@ -325,61 +419,104 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
     buckets,
     controlsByBucket,
     deferredGlobalSearch,
+    debouncedSearch.buckets,
     getSelectedSort,
     getServerQueryKey,
     isInitialServerQuery,
     loadingBucketIds,
     searchableTextByTaskId,
     serverBucketState,
+    refreshGeneration,
   ]);
+  const latestBuckets = useRef(processedBuckets);
+  useLayoutEffect(() => { latestBuckets.current = processedBuckets; }, [processedBuckets]);
+
+  useEffect(() => {
+    for (const bucket of processedBuckets) {
+      pageRequests.current.setQuery(bucket.id, bucket.requestQueryKey);
+      countRequests.current.setQuery(bucket.id, bucket.requestQueryKey);
+    }
+  }, [processedBuckets]);
 
   const loadServerBucket = useCallback(
     async (
       bucket: (typeof processedBuckets)[number],
       cursor: TaskBucketCursor,
-      mode: 'replace' | 'append'
+      mode: 'replace' | 'append' | 'refresh',
+      retry = false
     ) => {
-      if (!bucket.serverPagination || loadingBucketIds.has(bucket.id)) return;
+      const latest = latestBuckets.current.find(current => current.id === bucket.id && current.serverQueryKey === bucket.serverQueryKey);
+      if (latest) bucket = latest;
+      if (!bucket.serverPagination) return false;
+      if (mode === 'refresh' && retry) pageRequests.current.supersede(bucket.id);
+      const token = pageRequests.current.begin(bucket.id, bucket.requestQueryKey, retry);
+      if (!token) return false;
+      lastPageRequest.current[bucket.id] = { cursor, mode };
       setLoadingBucketIds((prev) => {
         const next = new Set(prev);
         next.add(bucket.id);
         return next;
       });
+      let failure: string | undefined;
       try {
-        const result = await loadTaskBucketPage({
-          bucketId: bucket.id,
-          sectionId: bucket.sectionId,
-          cursor,
-          globalSearch: deferredGlobalSearch,
-          bucketSearch: bucket.controls.search,
-          sort: bucket.selectedSort,
-        });
-        if (!result.success) return;
+        const fetchPage = async (pageCursor: TaskBucketCursor, pageSize?: number) => {
+          const result = await loadTaskBucketPage({
+            bucketId: bucket.id,
+            sectionId: bucket.sectionId,
+            cursor: pageCursor,
+            pageSize,
+            globalSearch: deferredGlobalSearch,
+            bucketSearch: bucket.serverSearch,
+            sort: bucket.selectedSort,
+          });
+          if (!result.success) throw new Error(result.error);
+          return {
+            tasks: result.tasks || [],
+            totalCount: result.totalCount || 0,
+            totalCountIsExact: result.totalCountIsExact ?? true,
+            nextCursor: result.nextCursor || null,
+          };
+        };
+        const page = await withTaskBucketTimeout(mode === 'refresh'
+          ? loadTaskBucketWindow(bucket.visibleTasks.length, fetchPage, () => mounted.current && pageRequests.current.isCurrent(token))
+          : fetchPage(cursor));
+        if (!pageRequests.current.isCurrent(token)) return false;
+        if (mode === 'refresh' && !retry && interacting.current) {
+          attemptedRefresh.current = Math.min(attemptedRefresh.current, generationRef.current - 1);
+          return false;
+        }
         setServerBucketState((prev) => {
           const previous = prev[bucket.id];
-          const shouldAppend = mode === 'append' && previous?.queryKey === bucket.serverQueryKey;
+          const initialPage = {
+            tasks: bucket.visibleTasks,
+            totalCount: bucket.totalCount ?? bucket.visibleTasks.length,
+            totalCountIsExact: bucket.totalCountIsExact ?? !bucket.nextCursor,
+            nextCursor: bucket.nextCursor || null,
+          };
           return {
             ...prev,
             [bucket.id]: {
               queryKey: bucket.serverQueryKey,
-              tasks: shouldAppend
-                ? [...previous.tasks, ...(result.tasks || [])]
-                : result.tasks || [],
-              totalCount: result.totalCount || 0,
-              totalCountIsExact: true,
-              nextCursor: result.nextCursor || null,
+              ...(mode === 'append'
+                ? appendTaskBucketPage(previous?.queryKey === bucket.serverQueryKey ? previous : initialPage, page)
+                : page),
             },
           };
         });
+        return true;
+      } catch (error) {
+        failure = error instanceof Error ? error.message : 'Unable to load tasks. Please retry.';
+        return false;
       } finally {
-        setLoadingBucketIds((prev) => {
+        pageRequests.current.finish(token, failure);
+        if (!pageRequests.current.isActive(bucket.id)) setLoadingBucketIds((prev) => {
           const next = new Set(prev);
           next.delete(bucket.id);
           return next;
         });
       }
     },
-    [deferredGlobalSearch, loadingBucketIds]
+    [deferredGlobalSearch]
   );
 
   useEffect(() => {
@@ -398,50 +535,84 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
     serverBucketState,
   ]);
 
-  useEffect(() => {
-    for (const bucket of processedBuckets) {
-      if (!bucket.serverPagination) continue;
-      if (bucket.totalCountIsExact) continue;
-      if (bucket.isServerPending) continue;
-      if (loadingCountBucketIds.has(bucket.id)) continue;
-      const countKey = bucket.serverQueryKey;
-      setLoadingCountBucketIds((prev) => {
-        const next = new Set(prev);
-        next.add(bucket.id);
-        return next;
-      });
-      void loadTaskBucketCount({
+  const loadServerCount = useCallback(async (bucket: (typeof processedBuckets)[number], retry = false) => {
+      const token = countRequests.current.begin(bucket.id, bucket.requestQueryKey, retry);
+    if (!token) return;
+    setLoadingCountBucketIds((prev) => {
+      const next = new Set(prev);
+      next.add(bucket.id);
+      return next;
+    });
+    let failure: string | undefined;
+    try {
+      const result = await withTaskBucketTimeout(loadTaskBucketCount({
         bucketId: bucket.id,
         sectionId: bucket.sectionId,
         globalSearch: deferredGlobalSearch,
-        bucketSearch: bucket.controls.search,
-      })
-        .then((result) => {
-          if (!result.success) return;
-          setServerBucketState((prev) => {
-            const previous = prev[bucket.id];
-            if (previous && previous.queryKey !== countKey) return prev;
-            return {
-              ...prev,
-              [bucket.id]: {
-                queryKey: countKey,
-                tasks: previous?.tasks || bucket.visibleTasks,
-                totalCount: result.totalCount || 0,
-                totalCountIsExact: true,
-                nextCursor: previous?.nextCursor ?? bucket.nextCursor ?? null,
-              },
-            };
-          });
-        })
-        .finally(() => {
-          setLoadingCountBucketIds((prev) => {
-            const next = new Set(prev);
-            next.delete(bucket.id);
-            return next;
-          });
-        });
+        bucketSearch: bucket.serverSearch,
+      }));
+      if (!countRequests.current.isCurrent(token)) return;
+      if (!result.success) throw new Error(result.error);
+      setServerBucketState((prev) => {
+        const previous = prev[bucket.id];
+        const matching = previous?.queryKey === bucket.serverQueryKey ? previous : undefined;
+        // A completed page/refresh may have supplied a newer count while this was in flight.
+        if (matching?.totalCountIsExact) return prev;
+        return {
+          ...prev,
+          [bucket.id]: {
+            queryKey: bucket.serverQueryKey,
+            tasks: matching?.tasks || bucket.visibleTasks,
+            totalCount: result.totalCount || 0,
+            totalCountIsExact: true,
+            nextCursor: matching ? matching.nextCursor : bucket.nextCursor ?? null,
+          },
+        };
+      });
+    } catch (error) {
+      failure = error instanceof Error ? error.message : 'Unable to update the task count.';
+    } finally {
+      countRequests.current.finish(token, failure);
+      setLoadingCountBucketIds((prev) => {
+        const next = new Set(prev);
+        next.delete(bucket.id);
+        return next;
+      });
     }
-  }, [deferredGlobalSearch, loadingCountBucketIds, processedBuckets]);
+  }, [deferredGlobalSearch]);
+
+  useEffect(() => {
+    for (const bucket of processedBuckets) {
+      if (!bucket.serverPagination || bucket.totalCountIsExact || bucket.isServerPending) continue;
+      if (loadingCountBucketIds.has(bucket.id)) continue;
+      void loadServerCount(bucket);
+    }
+  }, [loadServerCount, loadingCountBucketIds, processedBuckets]);
+
+  useEffect(() => {
+    if (refreshGeneration <= attemptedRefresh.current || loadingBucketIds.size > 0 || batchDeletingBucketId) return;
+    if (Object.values(interactionByBucket).some(Boolean) || document.visibilityState !== 'visible') return;
+    attemptedRefresh.current = refreshGeneration;
+    void (async () => {
+      let allRefreshed = true;
+      for (const bucket of processedBuckets) {
+        if (!mounted.current || generationRef.current !== refreshGeneration) return;
+        if (interacting.current) {
+          attemptedRefresh.current = Math.min(attemptedRefresh.current, refreshGeneration - 1);
+          return;
+        }
+        if (bucket.serverPagination) allRefreshed = await loadServerBucket(bucket, null, 'refresh') && allRefreshed;
+      }
+      if (allRefreshed && mounted.current && generationRef.current === refreshGeneration) validatedAt.current = Date.now();
+    })();
+  }, [refreshGeneration, loadingBucketIds, batchDeletingBucketId, interactionByBucket, processedBuckets, loadServerBucket]);
+
+  const handleTaskDataChanged = useCallback(async (bucket: (typeof processedBuckets)[number]) => {
+    // Reconcile the user's own action even while its form is still open. The live
+    // invalidation also refreshes destination queues once editors are closed.
+    await loadServerBucket(bucket, null, 'refresh', true);
+    publishPortalUpdates(['tasks', 'overview', 'pipeline']);
+  }, [loadServerBucket]);
 
   const setAllBucketsCollapsed = useCallback(
     (collapsed: boolean) => {
@@ -548,6 +719,8 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
       >
         {processedBuckets.map((bucket) => {
           const isCollapsed = bucket.controls.collapsed;
+          const pageError = pageRequests.current.errorForView(bucket.id, bucket.serverQueryKey);
+          const countError = countRequests.current.errorForView(bucket.id, bucket.serverQueryKey);
           const selectedIds = selectedTaskIdsByBucket[bucket.id] || [];
           const selectedCount = selectedIds.length;
           const displayedCount = bucket.totalCount ?? bucket.visibleTasks.length;
@@ -703,6 +876,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                             );
                           }
                           router.refresh();
+                          publishPortalUpdates(['tasks', 'overview', 'pipeline']);
                         }}
                         className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
@@ -719,12 +893,17 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
 
               {isCollapsed ? null : (
                 <div
+                  ref={element => {
+                    if (element && scrollElements.current[bucket.id] !== element) element.scrollTop = scrollTopByBucket.current[bucket.id] || 0;
+                    scrollElements.current[bucket.id] = element;
+                  }}
                   className={
                     bucketScrollMode === 'fixed'
                       ? fixedScrollClassName
                       : undefined
                   }
                   onScroll={(event) => {
+                    scrollTopByBucket.current[bucket.id] = event.currentTarget.scrollTop;
                     if (!bucket.serverPagination || !bucket.nextCursor || bucket.isServerLoading) {
                       return;
                     }
@@ -735,7 +914,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                     void loadServerBucket(bucket, bucket.nextCursor, 'append');
                   }}
                 >
-                  {bucket.isServerPending && bucket.visibleTasks.length === 0 ? (
+                  {bucket.isServerPending && bucket.visibleTasks.length === 0 && !pageError ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                       <div className="mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
                       <h3 className="text-sm font-bold text-slate-900">Loading...</h3>
@@ -743,7 +922,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                         Searching this bucket.
                       </p>
                     </div>
-                  ) : (
+                  ) : pageError && bucket.visibleTasks.length === 0 ? null : (
                     <TaskList
                       tasks={bucket.visibleTasks}
                       canDelete={canDelete}
@@ -755,9 +934,10 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                       selectedTaskIds={new Set(selectedIds)}
                       onDataChanged={
                         bucket.serverPagination
-                          ? () => loadServerBucket(bucket, null, 'replace')
+                          ? () => handleTaskDataChanged(bucket)
                           : undefined
                       }
+                      onInteractionStateChange={(busy) => setInteractionByBucket(previous => previous[bucket.id] === busy ? previous : { ...previous, [bucket.id]: busy })}
                       onToggleTaskSelection={(taskId, selected) => {
                         setSelectedTaskIdsByBucket((prev) => {
                           const existing = prev[bucket.id] || [];
@@ -782,7 +962,22 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                       }
                     />
                   )}
-                  {bucket.serverPagination &&
+                  {pageError && (
+                    <div role="alert" className="mt-3 space-y-2 rounded-lg border border-border bg-muted/30 p-3 text-center text-xs text-muted-foreground">
+                      <p>{pageError}</p>
+                      <button type="button" className="app-btn-secondary" onClick={() => {
+                        const request = lastPageRequest.current[bucket.id];
+                        void loadServerBucket(bucket, request?.cursor || null, request?.mode || 'replace', true);
+                      }}>Retry</button>
+                    </div>
+                  )}
+                  {countError && !bucket.totalCountIsExact && (
+                    <div role="alert" className="mt-3 text-center text-xs text-muted-foreground">
+                      <p>Task count could not be updated.</p>
+                      <button type="button" className="app-btn-secondary mt-2" onClick={() => void loadServerCount(bucket, true)}>Retry count</button>
+                    </div>
+                  )}
+                  {bucket.serverPagination && !pageError &&
                     !(bucket.isServerPending && bucket.visibleTasks.length === 0) && (
                     <div className="mt-3 flex flex-col items-center gap-2 border-t border-slate-100 pt-3">
                       {bucket.nextCursor ? (
@@ -797,6 +992,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                         >
                           {bucket.isServerLoading
                             ? 'Loading...'
+                            : !bucket.totalCountIsExact ? 'Load more'
                             : `Load more (${Math.max(
                                 0,
                                 (bucket.totalCount || 0) - bucket.visibleTasks.length
@@ -824,4 +1020,17 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   }
 );
 
-TaskBucketsBoard.displayName = 'TaskBucketsBoard';
+TaskBucketsBoardContent.displayName = 'TaskBucketsBoardContent';
+
+export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBucketsBoardProps>(function TaskBucketsBoard(props, ref) {
+  const { data: session, status } = useSession();
+  const sessionRole = session?.user?.activeRole || session?.user?.role;
+  const identity = JSON.stringify([props.currentUserId || '', props.currentRole, [...(session?.user?.roles || [props.currentRole])].sort()]);
+  const workspaceKey = taskWorkspaceKey(identity, props.buckets);
+  if (status === 'unauthenticated' ||
+      (session?.user?.id && session.user.id !== props.currentUserId) ||
+      (sessionRole && sessionRole !== props.currentRole)) {
+    return <div role="status" className="py-8 text-center text-sm text-muted-foreground">Loading your task queues...</div>;
+  }
+  return <TaskBucketsBoardContent key={workspaceKey} {...props} identity={identity} workspaceKey={workspaceKey} ref={ref} />;
+});

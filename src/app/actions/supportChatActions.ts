@@ -20,6 +20,7 @@ import {
   resolveSupportDeskRouting,
 } from '@/lib/supportChatRouting';
 import { canUseSupportChatPilot } from '@/lib/supportChatPilot';
+import { getSupportUnreadCounts } from '@/lib/supportUnreadCounts';
 import {
   SupportConversationStatus,
   SupportDesk,
@@ -395,18 +396,14 @@ function shouldCountUnreadForBadge(status: SupportConversationStatus) {
   return status !== SupportConversationStatus.RESOLVED && status !== SupportConversationStatus.ARCHIVED;
 }
 
-async function countUnread(conversationId: string, userId: string) {
-  const readState = await prisma.supportConversationReadState.findUnique({
-    where: { conversationId_userId: { conversationId, userId } },
-    select: { lastReadAt: true },
-  });
-  return prisma.supportMessage.count({
-    where: {
-      conversationId,
-      authorId: { not: userId },
-      ...(readState ? { createdAt: { gt: readState.lastReadAt } } : {}),
-    },
-  });
+async function countUnreadForConversations(
+  conversations: Array<{ id: string; status: SupportConversationStatus }>,
+  userId: string,
+) {
+  return getSupportUnreadCounts(
+    conversations.filter((conversation) => shouldCountUnreadForBadge(conversation.status)).map((conversation) => conversation.id),
+    userId,
+  );
 }
 
 async function getSupportInboxScopeForActor(actor: SessionActor) {
@@ -420,8 +417,10 @@ async function getSupportInboxScopeForActor(actor: SessionActor) {
   };
 }
 
-async function getSupportInboxUnreadCountForActor(actor: SessionActor) {
-  const scope = await getSupportInboxScopeForActor(actor);
+async function getSupportInboxUnreadCountForActor(
+  actor: SessionActor,
+  scope: Awaited<ReturnType<typeof getSupportInboxScopeForActor>>,
+) {
   if (!scope.elevated && scope.assignedDesks.length === 0) return 0;
 
   const conversations = await prisma.supportConversation.findMany({
@@ -435,12 +434,33 @@ async function getSupportInboxUnreadCountForActor(actor: SessionActor) {
     take: 200,
   });
 
-  const unreadCounts = await Promise.all(
-    conversations.map((conversation) =>
-      shouldCountUnreadForBadge(conversation.status) ? countUnread(conversation.id, actor.userId) : 0
-    )
-  );
-  return unreadCounts.reduce((sum, count) => sum + count, 0);
+  const unreadCounts = await countUnreadForConversations(conversations, actor.userId);
+  return [...unreadCounts.values()].reduce((sum, count) => sum + count, 0);
+}
+
+// Match the widget's existing latest-30-conversations badge without loading
+// messages, attachments, loan options, or submission documents while closed.
+async function getSupportChatUnreadCountForActor(actor: SessionActor) {
+  if (!canUseSupportChatPilot(actor)) return 0;
+  const conversations = await prisma.supportConversation.findMany({
+    where: { requesterId: actor.userId, status: { not: SupportConversationStatus.ARCHIVED } },
+    select: { id: true, status: true },
+    orderBy: { lastMessageAt: 'desc' },
+    take: DEFAULT_LIST_LIMIT,
+  });
+  const counts = await countUnreadForConversations(conversations, actor.userId);
+  return [...counts.values()].reduce((sum, count) => sum + count, 0);
+}
+
+export async function getMySupportSummary() {
+  const actor = await getActor();
+  if (!actor) return { success: false as const, error: 'Not authenticated.' };
+  const scope = await getSupportInboxScopeForActor(actor);
+  const [unreadCount, chatUnreadCount] = await Promise.all([
+    getSupportInboxUnreadCountForActor(actor, scope),
+    getSupportChatUnreadCountForActor(actor),
+  ]);
+  return { success: true as const, desks: scope.assignedDesks, hasAccess: scope.hasDesignation, unreadCount, chatUnreadCount };
 }
 
 export async function getSupportChatBootstrap() {
@@ -486,11 +506,7 @@ export async function getSupportChatBootstrap() {
     }),
   ]);
 
-  const unreadCounts = await Promise.all(
-    conversations.map((conversation) =>
-      shouldCountUnreadForBadge(conversation.status) ? countUnread(conversation.id, actor.userId) : 0
-    )
-  );
+  const unreadCounts = await countUnreadForConversations(conversations, actor.userId);
   const loanIds = loans.map((loan) => loan.id);
   const loanNumbers = loans.map((loan) => loan.loanNumber).filter(Boolean);
   const latestDetailTasks = loans.length
@@ -524,8 +540,8 @@ export async function getSupportChatBootstrap() {
 
   return {
     success: true as const,
-    conversations: conversations.map((conversation, index) =>
-      serializeConversation(conversation, unreadCounts[index])
+    conversations: conversations.map((conversation) =>
+      serializeConversation(conversation, unreadCounts.get(conversation.id) ?? 0)
     ),
     loans: loans.map((loan) => {
       const latestTask = latestTaskByLoanId.get(loan.id) || latestTaskByLoanNumber.get(loan.loanNumber);
@@ -884,11 +900,7 @@ export async function getSupportInbox(input?: {
     orderBy: { lastMessageAt: 'desc' },
     take: 100,
   });
-  const unreadCounts = await Promise.all(
-    conversations.map((conversation) =>
-      shouldCountUnreadForBadge(conversation.status) ? countUnread(conversation.id, actor.userId) : 0
-    )
-  );
+  const unreadCounts = await countUnreadForConversations(conversations, actor.userId);
   const staffUsers = await prisma.user.findMany({
     where: {
       active: true,
@@ -904,8 +916,8 @@ export async function getSupportInbox(input?: {
 
   return {
     success: true as const,
-    conversations: conversations.map((conversation, index) =>
-      serializeConversation(conversation, unreadCounts[index])
+    conversations: conversations.map((conversation) =>
+      serializeConversation(conversation, unreadCounts.get(conversation.id) ?? 0)
     ),
     staffUsers,
     assignedDesks,
@@ -1188,10 +1200,8 @@ export async function getMySupportDeskAccess() {
   const actor = await getActor();
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
 
-  const [scope, unreadCount] = await Promise.all([
-    getSupportInboxScopeForActor(actor),
-    getSupportInboxUnreadCountForActor(actor),
-  ]);
+  const scope = await getSupportInboxScopeForActor(actor);
+  const unreadCount = await getSupportInboxUnreadCountForActor(actor, scope);
 
   return {
     success: true as const,

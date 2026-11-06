@@ -1020,6 +1020,57 @@ function buildPipelineGroupRows(
   );
 }
 
+const reportTaskSelect = {
+  id: true,
+  kind: true,
+  title: true,
+  status: true,
+  workflowState: true,
+  createdAt: true,
+  completedAt: true,
+  submissionData: true,
+  loan: {
+    select: {
+      loanNumber: true,
+      id: true,
+      borrowerName: true,
+      borrowerPhone: true,
+      borrowerEmail: true,
+      amount: true,
+      program: true,
+      propertyAddress: true,
+      stage: true,
+      createdAt: true,
+      updatedAt: true,
+      loanOfficerId: true,
+      secondaryLoanOfficerId: true,
+      loanOfficer: { select: { name: true } },
+      secondaryLoanOfficer: { select: { name: true } },
+    },
+  },
+} satisfies Prisma.TaskSelect;
+
+// Historical matching only needs these keys, not every note/checklist/document
+// stored in submissionData. Scope the IDs with the existing Prisma permissions first.
+async function reportLoanNumberData(taskIds: string[]) {
+  const data = new Map<string, Prisma.JsonValue>();
+  for (let offset = 0; offset < taskIds.length; offset += 1000) {
+    const ids = taskIds.slice(offset, offset + 1000);
+    const rows = await prisma.$queryRaw<Array<{ id: string; submissionData: Prisma.JsonValue }>>(Prisma.sql`
+      SELECT "id", jsonb_build_object(
+        'arriveLoanNumber', "submissionData"->'arriveLoanNumber',
+        'ariveLoanNumber', "submissionData"->'ariveLoanNumber',
+        'arriveNumber', "submissionData"->'arriveNumber',
+        'ariveNumber', "submissionData"->'ariveNumber',
+        'loanNumber', "submissionData"->'loanNumber'
+      ) AS "submissionData"
+      FROM "Task" WHERE "id" IN (${Prisma.join(ids)})
+    `);
+    for (const row of rows) data.set(row.id, row.submissionData);
+  }
+  return data;
+}
+
 export async function getPipelineReport(filters: PipelineReportFilters = {}): Promise<PipelineReport> {
   noStore();
   const actor = await assertPipelineActor();
@@ -1099,35 +1150,7 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
           kind: { in: [TaskKind.SUBMIT_PLUS_ONE, TaskKind.SUBMIT_DISCLOSURES, ...PROCESSING_KINDS] },
           ...dateWhere,
         },
-        select: {
-          id: true,
-          kind: true,
-          title: true,
-          status: true,
-          workflowState: true,
-          createdAt: true,
-          completedAt: true,
-          submissionData: true,
-          loan: {
-            select: {
-              loanNumber: true,
-              id: true,
-              borrowerName: true,
-              borrowerPhone: true,
-              borrowerEmail: true,
-              amount: true,
-              program: true,
-              propertyAddress: true,
-              stage: true,
-              createdAt: true,
-              updatedAt: true,
-              loanOfficerId: true,
-              secondaryLoanOfficerId: true,
-              loanOfficer: { select: { name: true } },
-              secondaryLoanOfficer: { select: { name: true } },
-            },
-          },
-        },
+        select: reportTaskSelect,
         orderBy: { createdAt: 'desc' },
         take: 5000,
       }),
@@ -1138,35 +1161,9 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         },
         select: {
           id: true,
-          kind: true,
-          title: true,
-          status: true,
-          workflowState: true,
-          createdAt: true,
-          completedAt: true,
-          submissionData: true,
-          loan: {
-            select: {
-              loanNumber: true,
-              id: true,
-              borrowerName: true,
-              borrowerPhone: true,
-              borrowerEmail: true,
-              amount: true,
-              program: true,
-              propertyAddress: true,
-              stage: true,
-              createdAt: true,
-              updatedAt: true,
-              loanOfficerId: true,
-              secondaryLoanOfficerId: true,
-              loanOfficer: { select: { name: true } },
-              secondaryLoanOfficer: { select: { name: true } },
-            },
-          },
+          loan: { select: { id: true, loanNumber: true } },
         },
         orderBy: { createdAt: 'desc' },
-        take: 10000,
       }),
       prisma.payrollCompRequest.findMany({
         where: { ...scopedPayrollWhere, ...fundingDateWhere(start, end) },
@@ -1251,7 +1248,11 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
         : Promise.resolve([]),
     ]);
 
-  const pendingCandidateTaskRows = pendingPlusOneTaskRows;
+  const historicalLoanNumberData = await reportLoanNumberData(pendingPlusOneTaskRows.map(task => task.id));
+  const pendingCandidateTaskRows = pendingPlusOneTaskRows.map(task => ({
+    ...task,
+    submissionData: historicalLoanNumberData.get(task.id) ?? null,
+  }));
   const pendingCandidateLoanIds = Array.from(new Set(pendingCandidateTaskRows.map((task) => task.loan.id)));
   const plusOneRawNumbers = Array.from(new Set(
     pendingCandidateTaskRows
@@ -1269,18 +1270,19 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
           ],
         },
         select: {
+          id: true,
           loanId: true,
-          submissionData: true,
           loan: { select: { loanNumber: true } },
         },
       })
     : [];
+  const processingLoanNumberData = await reportLoanNumberData(allTimeProcessingRows.map(row => row.id));
   const processedLoanIds = new Set(allTimeProcessingRows.map((row) => row.loanId).filter(Boolean));
   const processedLoanNumbers = new Set(
     allTimeProcessingRows
       .flatMap((row) => [
         normalizeAriveNumber(row.loan?.loanNumber),
-        normalizeAriveNumber(loanNumberFromJson(row.submissionData)),
+        normalizeAriveNumber(loanNumberFromJson(processingLoanNumberData.get(row.id))),
       ])
       .filter(Boolean)
   );
@@ -1309,13 +1311,29 @@ export async function getPipelineReport(filters: PipelineReportFilters = {}): Pr
     !plusOneLoanNumberSet.has(normalizeAriveNumber(task.loan.loanNumber)) &&
     !plusOneLoanNumberSet.has(normalizeAriveNumber(loanNumberFromJson(task.submissionData)))
   ));
-  const pendingStpTaskRows = pendingCandidateTaskRows.filter((task) => {
+  const pendingStpCandidates = pendingCandidateTaskRows.filter((task) => {
     const normalizedLoanNumber = normalizeAriveNumber(loanNumberFromJson(task.submissionData) || task.loan.loanNumber);
     return (
       !processedLoanIds.has(task.loan.id) &&
       !processedLoanNumbers.has(normalizedLoanNumber) &&
       !actionedPendingStpTaskIds.has(task.id)
     );
+  });
+
+  // Reuse details already loaded for the selected period; hydrate only the
+  // historical +1s that are still Pending STP, in batches with no history cap.
+  const detailById = new Map(taskRows.map(task => [task.id, task]));
+  const missingDetailIds = pendingStpCandidates.map(task => task.id).filter(id => !detailById.has(id));
+  for (let offset = 0; offset < missingDetailIds.length; offset += 500) {
+    const details = await prisma.task.findMany({
+      where: { ...scopedTaskWhere, id: { in: missingDetailIds.slice(offset, offset + 500) } },
+      select: reportTaskSelect,
+    });
+    for (const task of details) detailById.set(task.id, task);
+  }
+  const pendingStpTaskRows = pendingStpCandidates.flatMap(task => {
+    const details = detailById.get(task.id);
+    return details ? [details] : [];
   });
 
   const pendingStp = pendingStpTaskRows.length;

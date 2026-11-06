@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { TaskKind, TaskStatus, TaskWorkflowState } from '@prisma/client';
+import type { DeskSummary } from '@/lib/dashboardSummary';
 import {
   Inbox,
   Clock,
@@ -11,60 +11,11 @@ import {
   BellRing,
 } from 'lucide-react';
 
-type QcTask = {
-  id: string;
-  kind: TaskKind | null;
-  status: TaskStatus;
-  workflowState: TaskWorkflowState;
-  assignedUserId?: string | null;
-};
-
-function isQcTask(task: QcTask) {
-  return task.kind === TaskKind.SUBMIT_PROCESSING;
-}
-
-export function QcOverview({
-  tasks,
-  currentUserId,
-  personalStarted = false,
-}: {
-  tasks: QcTask[];
-  currentUserId?: string;
+export function QcOverview({ summary, personalStarted = false }: {
+  summary: DeskSummary;
   personalStarted?: boolean;
 }) {
-  const qcTasks = tasks.filter(isQcTask);
-
-  const newCount = qcTasks.filter(
-    (task) =>
-      task.status === TaskStatus.PENDING &&
-      task.workflowState === TaskWorkflowState.NONE &&
-      !task.assignedUserId
-  ).length;
-
-  const startedCount = qcTasks.filter(
-    (task) =>
-      task.status !== TaskStatus.COMPLETED &&
-      task.workflowState === TaskWorkflowState.NONE &&
-      Boolean(task.assignedUserId) &&
-      (!currentUserId || task.assignedUserId === currentUserId)
-  ).length;
-
-  const waitingMissingCount = qcTasks.filter(
-    (task) =>
-      task.status !== TaskStatus.COMPLETED &&
-      (task.workflowState === TaskWorkflowState.WAITING_ON_LO ||
-        task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL)
-  ).length;
-
-  const loRespondedCount = qcTasks.filter(
-    (task) =>
-      task.status !== TaskStatus.COMPLETED &&
-      task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
-  ).length;
-
-  const completedCount = qcTasks.filter(
-    (task) => task.status === TaskStatus.COMPLETED
-  ).length;
+  const { newCount, startedCount, waitingMissingCount, loRespondedCount, completedCount } = summary;
 
   const cards = [
     {

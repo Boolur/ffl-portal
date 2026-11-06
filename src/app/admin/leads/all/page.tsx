@@ -8,7 +8,7 @@ import { authOptions } from '@/lib/auth';
 import {
   getLeads,
   getLeadVendors,
-  getLeadCampaigns,
+  getLeadCampaignOptions,
   getLeadEligibleUsers,
   getDistinctLeadSources,
   getLeadCrmStats,
@@ -31,7 +31,7 @@ export default async function AllLeadsPage() {
   ] = await Promise.all([
     getLeads({ take: 200, skip: 0 }),
     getLeadVendors(true),
-    getLeadCampaigns(),
+    getLeadCampaignOptions(),
     getLeadEligibleUsers(),
     getDistinctLeadSources(),
     getLeadCrmStats(),

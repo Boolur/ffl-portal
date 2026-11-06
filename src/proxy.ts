@@ -108,6 +108,9 @@ const authProxy = withAuth({
     authorized: ({ token, req }) => {
       if (!token) return false;
       const effectiveRole = (token.activeRole as string) || (token.role as string);
+      if (req.method === 'GET' && req.nextUrl.pathname === '/api/portal/revisions') {
+        return normalizeRole(effectiveRole) !== UserRole.ONBOARDING && isAllowed('/', effectiveRole);
+      }
       // These authenticated reads serve the pipeline UI. The handlers additionally
       // enforce pilot membership, loan ownership, and reviewer assignment.
       if (req.method === 'GET' && req.nextUrl.pathname.startsWith('/api/processing-submission/')) {

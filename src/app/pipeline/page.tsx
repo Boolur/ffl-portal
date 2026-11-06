@@ -3,13 +3,12 @@ import Link from 'next/link';
 import { PipelineWorkspace } from '@/components/pipeline/PipelineWorkspace';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { getServerSession } from 'next-auth';
-import { ProcessingPipelineSheet, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { canAccessPipelinePortal } from '@/lib/pipelinePilot';
 import { getPipelineReport } from '@/app/actions/pipelineReportingActions';
-import { getProcessingPipeline } from '@/app/actions/processingPipelineActions';
-import { getProcessingPipelineLayouts } from '@/app/actions/processingPipelineLayoutActions';
+import { getProcessingPipelineWorkspace } from '@/app/actions/pipelineWorkspaceActions';
 import { prisma } from '@/lib/prisma';
 import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 
@@ -33,18 +32,8 @@ export default async function Pipeline() {
     role === UserRole.LOA ||
     role === UserRole.MANAGER ||
     isAdmin(role);
-  const initialLayouts = await getProcessingPipelineLayouts();
-  const activeLayout = initialLayouts.success
-    ? initialLayouts.layouts.find((layout) => layout.isActive)
-    : undefined;
-  const [initialProcessing, initialReport, submissionConfig] = await Promise.all([
-    getProcessingPipeline({
-      sheet: ProcessingPipelineSheet.PIPELINE,
-      sortBy: 'pipelineStatus',
-      sortDirection: 'asc',
-      filters: activeLayout?.config.buckets.PIPELINE.filters,
-      viewScope: activeLayout?.config.scope,
-    }),
+  const [initialWorkspace, initialReport, submissionConfig] = await Promise.all([
+    isProcessingRole ? getProcessingPipelineWorkspace() : Promise.resolve(null),
     isProcessingRole ? Promise.resolve(null) : getPipelineReport(),
     canUseSubmissionShortcuts
       ? Promise.all([
@@ -79,7 +68,7 @@ export default async function Pipeline() {
         }))
       : Promise.resolve(null),
   ]);
-  if (!initialProcessing.success) redirect('/');
+  if (initialWorkspace && !initialWorkspace.success) redirect('/');
   const user = {
     name: session.user.name || 'User',
     role,
@@ -91,10 +80,10 @@ export default async function Pipeline() {
         <div className="mb-4"><Link className="app-btn-secondary" href="/admin/arive">Arive integration settings</Link></div>
       )}
       <PipelineWorkspace
+        cacheScope={JSON.stringify([session.user.id, role, [...(session.user.roles || [role])].sort()])}
         role={role}
         initialReport={initialReport}
-        initialProcessing={initialProcessing}
-        initialLayouts={initialLayouts.success ? initialLayouts.layouts : []}
+        initialWorkspace={initialWorkspace?.success ? initialWorkspace : null}
         submissionConfig={submissionConfig}
       />
     </DashboardShell>

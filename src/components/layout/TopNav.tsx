@@ -11,6 +11,8 @@ import {
   markNotificationRead,
 } from '@/app/actions/notificationActions';
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
+import { resetPortalIdentity } from '@/lib/portalLiveUpdates';
+import { invalidateSupportSummary } from '@/lib/supportSummaryLoader';
 
 const formatRole = (role: string) => getRoleDisplayLabel(role);
 const retiredWorkflowRoles = new Set<UserRole>([
@@ -165,6 +167,8 @@ export function TopNav({
   const handleSignOut = async () => {
     if (isSigningOut) return;
     setIsSigningOut(true);
+    resetPortalIdentity();
+    invalidateSupportSummary();
     await signOut({ callbackUrl: '/login' });
   };
 

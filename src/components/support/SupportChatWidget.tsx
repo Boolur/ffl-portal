@@ -25,6 +25,7 @@ import {
   sendSupportMessage,
 } from '@/app/actions/supportChatActions';
 import { canUseSupportChatPilot } from '@/lib/supportChatPilot';
+import { invalidateSupportSummary, loadSupportSummary } from '@/lib/supportSummaryLoader';
 
 type ConversationSummary = {
   id: string;
@@ -132,6 +133,9 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
     email: session?.user?.email,
   });
   const [open, setOpen] = React.useState(false);
+  const [summaryUnreadCount, setSummaryUnreadCount] = React.useState(0);
+  const summaryKey = JSON.stringify([session?.user?.id, activeRole, session?.user?.activeRole, session?.user?.role, session?.user?.roles]);
+  const bootstrapPending = React.useRef(false);
   const [tab, setTab] = React.useState<'previous' | 'new'>('previous');
   const [selectedDesk, setSelectedDesk] = React.useState<SupportDesk | null>(null);
   const [newChatStep, setNewChatStep] = React.useState<'source' | 'details'>('source');
@@ -163,7 +167,8 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
   });
 
   const loadBootstrap = React.useCallback(async (showLoader = false) => {
-    if (!canOpenWidget) return;
+    if (!canOpenWidget || bootstrapPending.current) return;
+    bootstrapPending.current = true;
     if (showLoader) setLoading(true);
     setError(null);
     try {
@@ -174,7 +179,10 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
       }
       setConversations(result.conversations as ConversationSummary[]);
       setLoans(result.loans as LoanOption[]);
+    } catch {
+      setError('Unable to load support chats. Please try again.');
     } finally {
+      bootstrapPending.current = false;
       if (showLoader) setLoading(false);
     }
   }, [canOpenWidget]);
@@ -190,6 +198,7 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
         return;
       }
       setActiveConversation(result.conversation as ConversationSummary);
+      invalidateSupportSummary();
       setConversations((prev) =>
         prev.map((conversation) =>
           conversation.id === conversationId
@@ -203,19 +212,33 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
   }, []);
 
   React.useEffect(() => {
-    if (!canOpenWidget) return;
-    void loadBootstrap(false);
-  }, [canOpenWidget, loadBootstrap]);
+    if (!canOpenWidget || !session?.user?.id) return;
+    if (open) {
+      void loadBootstrap(true);
+      return;
+    }
+    let cancelled = false;
+    const refreshSummary = (force = false) => {
+      void loadSupportSummary(summaryKey, force).then((result) => {
+        if (!cancelled && result.success) setSummaryUnreadCount(result.chatUnreadCount);
+      }).catch(() => { /* Retain the previous badge on a transient failure. */ });
+    };
+    refreshSummary();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshSummary(true);
+    }, 120000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [canOpenWidget, loadBootstrap, open, session?.user?.id, summaryKey]);
 
   React.useEffect(() => {
-    if (!canOpenWidget) return;
+    if (!canOpenWidget || !open) return;
     const interval = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       void loadBootstrap(false);
-      if (open && activeConversationId) {
+      if (activeConversationId) {
         void openConversation(activeConversationId, false);
       }
-    }, open ? 60000 : 120000);
+    }, 60000);
     return () => window.clearInterval(interval);
   }, [activeConversationId, canOpenWidget, loadBootstrap, open, openConversation]);
 
@@ -317,6 +340,7 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
       }
       setReplyBody('');
       setActiveConversation(result.conversation as ConversationSummary);
+      invalidateSupportSummary();
       setConversations((prev) =>
         [result.conversation as ConversationSummary, ...prev.filter((item) => item.id !== activeConversationId)]
       );
@@ -342,7 +366,9 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
 
   if (!canOpenWidget) return null;
 
-  const unreadTotal = conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0);
+  const unreadTotal = open
+    ? conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0)
+    : summaryUnreadCount;
   const selectedLoan = loans.find((loan) => loan.id === form.loanId);
   const activeDesk = selectedDesk ? getDeskOption(selectedDesk) : null;
   const showMismoUpload = selectedDesk === SupportDesk.SCENARIO || selectedDesk === SupportDesk.PRICING;

@@ -11,6 +11,12 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Tiny committed-change markers used by visible workspace update checks.
+model PortalRevision {
+  topic   String @id
+  version BigInt @default(0)
+}
+
 model AriveIntegrationConfig {
   id                   String   @id
   encryptedCredentials String

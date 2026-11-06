@@ -6477,12 +6477,14 @@ export async function loadTaskBucketPage(input: {
       bucketSearch: input.bucketSearch,
       sort: input.sort,
       pageSize: input.pageSize || TASK_BUCKET_PAGE_SIZE,
+      includeTotalCount: !input.cursor,
     });
 
     return {
       success: true,
       tasks: page.tasks,
       totalCount: page.totalCount,
+      totalCountIsExact: page.totalCountIsExact,
       nextCursor: page.nextCursor,
       serverSort: page.serverSort,
     };

@@ -8,66 +8,14 @@ import { QcOverview } from '@/components/dashboard/QcOverview';
 import { ProcessorPipelineOverview } from '@/components/dashboard/ProcessorPipelineOverview';
 import { useImpersonation } from '@/lib/impersonation';
 import { isAdmin } from '@/lib/adminTiers';
-import {
-  DisclosureDecisionReason,
-  Prisma,
-  TaskAttachmentPurpose,
-  TaskKind,
-  TaskPriority,
-  TaskStatus,
-  TaskWorkflowState,
-  UserRole,
-} from '@prisma/client';
-
-type DashboardLoan = {
-  id: string;
-  loanNumber: string;
-  borrowerName: string;
-  amount: number;
-  stage: string;
-  updatedAt: Date;
-};
-
-type DashboardTask = {
-  id: string;
-  title: string;
-  description: string | null;
-  status: TaskStatus;
-  priority: TaskPriority;
-  createdAt: Date;
-  dueDate: Date | null;
-  kind: TaskKind | null;
-  workflowState: TaskWorkflowState;
-  disclosureReason: DisclosureDecisionReason | null;
-  parentTaskId: string | null;
-  parentTask?: {
-    kind: TaskKind | null;
-    assignedRole: UserRole | null;
-    title: string;
-    submissionData?: Prisma.JsonValue | null;
-  } | null;
-  loanOfficerApprovedAt: Date | null;
-  submissionData?: Prisma.JsonValue | null;
-  assignedUserId: string | null;
-  assignedRole: string | null;
-  assignedUser: { id?: string; name: string } | null;
-  loan: {
-    loanNumber: string;
-    borrowerName: string;
-    stage?: string;
-    loanOfficer: { name: string };
-  };
-  attachments?: {
-    id: string;
-    filename: string;
-    purpose: TaskAttachmentPurpose;
-    createdAt: Date;
-  }[];
-};
+import { UserRole } from '@prisma/client';
+import type { DashboardSummary, DashboardRequestPage } from '@/lib/dashboardSummary';
+import { loadDashboardSnapshot } from '@/app/actions/dashboardActions';
+import { usePortalRefresh } from '@/lib/usePortalRefresh';
 
 type DashboardWrapperProps = {
-  loans: DashboardLoan[];
-  adminTasks: DashboardTask[];
+  summary: DashboardSummary;
+  recentRequests: DashboardRequestPage;
   loanOfficerOptions?: Array<{
     id: string;
     name: string;
@@ -88,28 +36,22 @@ type DashboardWrapperProps = {
 };
 
 function DashboardContent({
-  loans,
-  adminTasks,
+  summary: initialSummary,
+  recentRequests: initialRecentRequests,
   user,
   loanOfficerOptions = [],
   lenderOptions = [],
 }: DashboardWrapperProps) {
   const { activeRole } = useImpersonation();
-  const roleTasks = adminTasks.filter((t) => {
-    if (t.kind === null && t.title === 'Processing submission pilot — documents') return false;
-    if (activeRole === UserRole.PROCESSOR_JR) {
-      return t.kind === TaskKind.SUBMIT_PROCESSING || t.assignedRole === UserRole.PROCESSOR_JR;
-    }
-    if (t.assignedRole === activeRole) return true;
-    if (activeRole === UserRole.DISCLOSURE_SPECIALIST) {
-      return t.kind === TaskKind.SUBMIT_DISCLOSURES;
-    }
-    if (activeRole === UserRole.QC) {
-      return false;
-    }
-    return false;
-  });
-
+  const [snapshot, setSnapshot] = React.useState({ summary: initialSummary, recentRequests: initialRecentRequests });
+  React.useEffect(() => {
+    setSnapshot({ summary: initialSummary, recentRequests: initialRecentRequests });
+  }, [initialSummary, initialRecentRequests]);
+  const { summary, recentRequests } = snapshot;
+  const { error, refresh } = usePortalRefresh('overview', loadDashboardSnapshot, result => {
+    if (result.userId === user.id && result.role === user.role) setSnapshot(result);
+  }, activeRole === user.role && activeRole !== UserRole.PROCESSOR_SR && activeRole !== UserRole.PROCESSING_MANAGER,
+  JSON.stringify([initialSummary, initialRecentRequests]));
   const roleContent: Record<string, { title: string; subtitle: string }> = {
     [UserRole.LOAN_OFFICER]: {
       title: 'Overview',
@@ -183,18 +125,20 @@ function DashboardContent({
     title: 'Overview',
     subtitle: 'Manage your assigned work and activity.',
   };
+  if (activeRole !== user.role) return <p role="status" className="text-sm text-muted-foreground">Loading your workspace...</p>;
   return (
     <>
       <div className="app-page-header">
         <h1 className="app-page-title">{currentRoleContent.title}</h1>
         <p className="app-page-subtitle">{currentRoleContent.subtitle}</p>
       </div>
+      {error && <p role="status" className="text-xs text-muted-foreground">{error} <button type="button" className="app-btn-secondary" onClick={refresh}>Retry</button></p>}
 
       {(activeRole === UserRole.LOAN_OFFICER || activeRole === UserRole.LOA) && (
         <LoanOfficerDashboard
-          loans={loans}
-          submissions={adminTasks}
-          loanOfficerName={user.name}
+          recentRequests={recentRequests}
+          requestSummary={summary.requests}
+          scopeKey={`${user.id}:${activeRole}`}
           isLoanOfficerAssistant={activeRole === UserRole.LOA}
           loanOfficerOptions={loanOfficerOptions}
           lenderOptions={lenderOptions}
@@ -210,20 +154,20 @@ function DashboardContent({
               <h2 className="app-page-title">Disclosure Desk</h2>
               <p className="app-page-subtitle">Live disclosure request workload and status mix.</p>
             </div>
-            <DisclosureOverview tasks={adminTasks} />
+            <DisclosureOverview summary={summary.disclosure} />
           </section>
           <section className="space-y-4">
             <div className="app-page-header">
               <h2 className="app-page-title">Jr Processing Desk</h2>
               <p className="app-page-subtitle">Live processing request workload and status mix.</p>
             </div>
-            <QcOverview tasks={adminTasks.filter(t => !(t.kind === null && t.title === 'Processing submission pilot — documents'))} />
+            <QcOverview summary={summary.processing} />
           </section>
         </div>
       )}
 
       {activeRole === UserRole.PROCESSOR_JR && (
-        <QcOverview tasks={roleTasks} currentUserId={user.id} personalStarted />
+        <QcOverview summary={summary.processing} personalStarted />
       )}
 
       {(activeRole === UserRole.PROCESSOR_SR ||
@@ -232,10 +176,10 @@ function DashboardContent({
       )}
 
       {activeRole === UserRole.DISCLOSURE_SPECIALIST && (
-        <DisclosureOverview tasks={roleTasks} />
+        <DisclosureOverview summary={summary.disclosure} />
       )}
 
-      {activeRole === UserRole.QC && <QcOverview tasks={roleTasks} />}
+      {activeRole === UserRole.QC && <QcOverview summary={summary.processing} />}
     </>
   );
 }
@@ -243,7 +187,7 @@ function DashboardContent({
 export function DashboardWrapper(props: DashboardWrapperProps) {
   return (
     <DashboardShell user={props.user}>
-      <DashboardContent {...props} />
+      <DashboardContent key={`${props.user.id}:${props.user.role}`} {...props} />
     </DashboardShell>
   );
 }

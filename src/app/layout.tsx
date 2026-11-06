@@ -7,6 +7,8 @@ import { authOptions } from "@/lib/auth";
 import { ImpersonationProvider } from "@/lib/impersonation";
 import { UserRole } from "@prisma/client";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { getPortalRevisions } from '@/lib/portalRevisionQueries';
+import { PersistentDashboardShell } from '@/components/layout/DashboardShell';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,6 +36,9 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await getServerSession(authOptions);
+  const initialRevisions = session?.user?.id
+    ? await getPortalRevisions().catch(() => undefined)
+    : undefined;
   const initialRole =
     (session?.user?.activeRole as UserRole | undefined) ||
     (session?.user?.role as UserRole | undefined) ||
@@ -48,9 +53,9 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Providers>
+        <Providers session={session}>
           <ImpersonationProvider initialRole={initialRole} availableRoles={availableRoles}>
-            {children}
+            <PersistentDashboardShell initialRevisions={initialRevisions}>{children}</PersistentDashboardShell>
           </ImpersonationProvider>
           <SpeedInsights />
         </Providers>

@@ -7,7 +7,7 @@ import { authOptions } from '@/lib/auth';
 import {
   getLeads,
   getLeadVendors,
-  getLeadCampaigns,
+  getLeadCampaignOptions,
   getDistinctLeadSources,
   getLeadCrmStats,
   getAllowedIntegrationServicesForUser,
@@ -50,7 +50,7 @@ export default async function MyLeadsPage() {
     // because the results list is still server-filtered to the LO's
     // own leads via `assignedUserId`.
     getLeadVendors(true),
-    getLeadCampaigns(),
+    getLeadCampaignOptions(),
     getDistinctLeadSources(),
     getLeadCrmStats(),
     getAllowedIntegrationServicesForUser(userId),

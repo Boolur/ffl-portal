@@ -19,6 +19,7 @@ import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, jsonRecord, 
 import { ARIVE_SYNC_PILOT } from '../../lib/ariveSyncTypes';
 import { parseArivePipelineDate } from '../../lib/arivePipelineMapping';
 import { prisma } from '@/lib/prisma';
+import { PIPELINE_ROW_BATCH_SIZE, orderPipelineRows } from '../../lib/processingPipelinePagination';
 import {
   addMonthsClamped,
   buildProcessingPipelineScopeWhere,
@@ -488,6 +489,64 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   return clauses;
 }
 
+const processingPipelineRowInclude = {
+        ariveSync: true,
+        loan: {
+          select: {
+            id: true,
+            loanNumber: true,
+            loanOfficerId: true,
+            borrowerName: true,
+            borrowerFirstName: true,
+            borrowerLastName: true,
+            amount: true,
+            program: true,
+            loanOfficer: { select: { id: true, name: true } },
+            secondaryLoanOfficer: { select: { id: true, name: true } },
+            payrollCompRequests: {
+              where: { status: { not: PayrollCompRequestStatus.REJECTED } },
+              orderBy: { submittedAt: 'desc' },
+              take: 1,
+              select: {
+                status: true,
+                expectedRevenue: true,
+              },
+            },
+          },
+        },
+        seniorProcessor: { select: { id: true, name: true } },
+        juniorProcessor: { select: { id: true, name: true } },
+      } satisfies Prisma.ProcessingPipelineLoanInclude;
+
+async function loadProcessingRows(actor: Actor, ids: string[], viewScope?: ProcessingLayoutScope) {
+  if (!ids.length) return [];
+  const rows = await prisma.processingPipelineLoan.findMany({
+    where: { AND: [scopeWhere(actor, viewScope), { id: { in: ids } }] },
+    include: processingPipelineRowInclude,
+  });
+  return orderPipelineRows(ids, rows);
+}
+
+/** Reauthorize every continuation; client-supplied IDs never bypass visibility. */
+export async function getProcessingPipelineRows(input: { ids: string[]; viewScope?: ProcessingLayoutScope }) {
+  noStore();
+  const actor = await getActor();
+  if (!actor || !getProcessingPipelineAccess(actor.role).canView) {
+    return { success: false as const, error: 'Not authorized.' };
+  }
+  if (!Array.isArray(input.ids) || input.ids.length > PIPELINE_ROW_BATCH_SIZE || input.ids.some((id) => typeof id !== 'string')) {
+    return { success: false as const, error: 'Invalid pipeline batch.' };
+  }
+  const rows = await loadProcessingRows(actor, [...new Set(input.ids)], input.viewScope);
+  return {
+    success: true as const,
+    rows: rows.map((row) => ({
+      ...serializeRow(row, actor.canManageArive),
+      canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
+    })),
+  };
+}
+
 export async function getProcessingPipeline(input?: {
   sheet?: ProcessingPipelineSheet;
   rateLockRequestsOnly?: boolean;
@@ -573,40 +632,41 @@ export async function getProcessingPipeline(input?: {
     ];
   }
 
-  const [rows, total, teams, juniorProcessors, seniorProcessors] = await prisma.$transaction([
-    prisma.processingPipelineLoan.findMany({
-      where,
-      include: {
-        ariveSync: true,
-        loan: {
-          select: {
-            id: true,
-            loanNumber: true,
-            loanOfficerId: true,
-            borrowerName: true,
-            borrowerFirstName: true,
-            borrowerLastName: true,
-            amount: true,
-            program: true,
-            loanOfficer: { select: { id: true, name: true } },
-            secondaryLoanOfficer: { select: { id: true, name: true } },
-            payrollCompRequests: {
-              where: { status: { not: PayrollCompRequestStatus.REJECTED } },
-              orderBy: { submittedAt: 'desc' },
-              take: 1,
-              select: {
-                status: true,
-                expectedRevenue: true,
-              },
-            },
-          },
-        },
-        seniorProcessor: { select: { id: true, name: true } },
-        juniorProcessor: { select: { id: true, name: true } },
-      },
-      orderBy,
-    }),
-    prisma.processingPipelineLoan.count({ where }),
+  // Keep full-result ordering/filtering, but transfer detailed rows in bounded chunks.
+  // A stable ID manifest prevents concurrent edits from shifting offset pages.
+  const orderedIds = await prisma.processingPipelineLoan.findMany({
+    where,
+    select: { id: true },
+    orderBy: [...(Array.isArray(orderBy) ? orderBy : [orderBy]), { id: 'asc' }],
+  });
+  const ids = orderedIds.map((row) => row.id);
+  const rows = await loadProcessingRows(actor, ids.slice(0, PIPELINE_ROW_BATCH_SIZE), input?.viewScope);
+  const total = ids.length - (Math.min(ids.length, PIPELINE_ROW_BATCH_SIZE) - rows.length);
+
+
+  return {
+    success: true as const,
+    rows: rows.map((row) => ({
+      ...serializeRow(row, actor.canManageArive),
+      canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
+    })),
+    total,
+    page: 1,
+    pageSize: PIPELINE_ROW_BATCH_SIZE,
+    remainingIds: ids.slice(PIPELINE_ROW_BATCH_SIZE),
+    canEdit: access.canEdit || actor.role === UserRole.LOAN_OFFICER,
+    role: actor.role,
+  };
+}
+
+/** Reference lists are loaded once per workspace, not on every row refresh. */
+export async function getProcessingPipelineMetadata() {
+  noStore();
+  const actor = await getActor();
+  if (!actor || !getProcessingPipelineAccess(actor.role).canView) {
+    return { success: false as const, error: 'Not authorized.' };
+  }
+  const [teams, juniorProcessors, seniorProcessors] = await Promise.all([
     prisma.leadUserTeam.findMany({
       where: { active: true },
       orderBy: { name: 'asc' },
@@ -618,7 +678,7 @@ export async function getProcessingPipeline(input?: {
         members: { select: { userId: true } },
       },
     }),
-    prisma.user.findMany({
+    isProcessingLeadership(actor.role) ? prisma.user.findMany({
       where: {
         active: true,
         OR: [
@@ -628,8 +688,8 @@ export async function getProcessingPipeline(input?: {
       },
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
-    }),
-    prisma.user.findMany({
+    }) : Promise.resolve([]),
+    isProcessingLeadership(actor.role) ? prisma.user.findMany({
       where: {
         active: true,
         OR: [
@@ -639,18 +699,10 @@ export async function getProcessingPipeline(input?: {
       },
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
-    }),
+    }) : Promise.resolve([]),
   ]);
-
   return {
     success: true as const,
-    rows: rows.map((row) => ({
-      ...serializeRow(row, actor.canManageArive),
-      canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
-    })),
-    total,
-    page: 1,
-    pageSize: Math.max(1, total),
     teams: teams.map((team) => ({
       id: team.id,
       name: team.name,
@@ -667,8 +719,6 @@ export async function getProcessingPipeline(input?: {
       isProcessingLeadership(actor.role)
         ? seniorProcessors
         : [],
-    canEdit: access.canEdit || actor.role === UserRole.LOAN_OFFICER,
-    role: actor.role,
   };
 }
 

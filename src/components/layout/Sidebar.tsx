@@ -43,7 +43,7 @@ import {
   canAccessUserManagement,
   isAdmin,
 } from '@/lib/adminTiers';
-import { getMySupportDeskAccess } from '@/app/actions/supportChatActions';
+import { invalidateSupportSummary, loadSupportSummary } from '@/lib/supportSummaryLoader';
 import { isOnboardingEnabled } from '@/lib/onboardingFeature';
 
 type SidebarProps = {
@@ -59,6 +59,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   const [supportInboxUnreadCount, setSupportInboxUnreadCount] = React.useState(0);
   const pathname = usePathname();
   const router = useRouter();
+  const supportSummaryKey = JSON.stringify([session?.user?.id, activeRole, session?.user?.activeRole, session?.user?.role, session?.user?.roles]);
   const canSeeLendersDirectory = canAccessLendersDirectory({
     role: activeRole,
     email: session?.user?.email || '',
@@ -84,13 +85,14 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
 
   React.useEffect(() => {
     if (!session?.user?.id) {
+      invalidateSupportSummary();
       setHasSupportDeskDesignation(false);
       setSupportInboxUnreadCount(0);
       return;
     }
     let cancelled = false;
-    const loadSupportAccess = () => {
-      getMySupportDeskAccess()
+    const loadSupportAccess = (force = false) => {
+      loadSupportSummary(supportSummaryKey, force)
         .then((result) => {
           if (cancelled) return;
           setHasSupportDeskDesignation(result.success && result.hasAccess);
@@ -107,14 +109,14 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
     loadSupportAccess();
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
-      loadSupportAccess();
+      loadSupportAccess(true);
     }, 120000);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, supportSummaryKey]);
 
   const supportInboxBadgeCount = supportInboxUnreadCount > 99 ? '99+' : String(supportInboxUnreadCount);
 
@@ -383,7 +385,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
             <Link
               key={item.name}
               href={item.href}
-              prefetch
+              prefetch={false}
               onClick={() => {
                 emitNavigationIntent(item.href, item.name);
                 if (window.matchMedia('(max-width: 767px)').matches) {
@@ -391,6 +393,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
                 }
               }}
               onMouseEnter={() => warmRoute(item.href)}
+              onFocus={() => warmRoute(item.href)}
               className={linkClasses(isActive)}
               title={collapsed ? item.name : undefined}
             >
@@ -431,7 +434,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
                 <Link
                   key={item.name}
                   href={item.href}
-                  prefetch
+                  prefetch={false}
                   onClick={() => {
                     emitNavigationIntent(item.href, item.name);
                     if (window.matchMedia('(max-width: 767px)').matches) {
@@ -439,6 +442,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
                     }
                   }}
                   onMouseEnter={() => warmRoute(item.href)}
+                  onFocus={() => warmRoute(item.href)}
                   className={linkClasses(isActive)}
                   title={collapsed ? item.name : undefined}
                 >

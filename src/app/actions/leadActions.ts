@@ -597,6 +597,14 @@ export async function deleteAllVendorLeads(vendorId: string) {
 // Campaign CRUD
 // ---------------------------------------------------------------------------
 
+// Filter pickers need labels, not company-wide quota and lead reporting.
+export async function getLeadCampaignOptions() {
+  return prisma.leadCampaign.findMany({
+    select: { id: true, name: true },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
 export async function getLeadCampaigns() {
   // "Last 5 business days" window in Pacific time so the rotation
   // preview shows the same data an admin would see glancing at a PT

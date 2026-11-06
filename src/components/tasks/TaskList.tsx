@@ -4,6 +4,8 @@ import React from 'react';
 import Link from 'next/link';
 import { readPilotPackage, activeProcessingDocumentTaskId as processingDocumentTaskId, isSubmissionPilotEnabled } from '@/lib/submissionPilot';
 import { preloadPilotReview } from '@/lib/pilotReviewLoader';
+import { publishPortalUpdates } from '@/lib/portalLiveUpdates';
+import { hasVisibleTaskEditor } from '@/lib/taskBucketClientState';
 import { TaskModalShell } from './ProcessingSubmissionWorkspace';
 import { TaskSubmissionDocuments } from '@/components/pipeline/TaskSubmissionDocuments';
 import {
@@ -2071,6 +2073,7 @@ export function TaskList({
   selectedTaskIds,
   onToggleTaskSelection,
   onDataChanged,
+  onInteractionStateChange,
 }: {
   tasks: Task[];
   canDelete?: boolean;
@@ -2083,6 +2086,7 @@ export function TaskList({
   selectedTaskIds?: Set<string>;
   onToggleTaskSelection?: (taskId: string, selected: boolean) => void;
   onDataChanged?: () => void | Promise<void>;
+  onInteractionStateChange?: (busy: boolean) => void;
 }) {
   const pilotCacheKey = (task: Task) => `${currentUserId}:${currentRole}:${task.id}:${task.updatedAt}:${task.status}:${task.workflowState}:${task.assignedUser?.id}`;
   React.useEffect(() => {
@@ -2102,6 +2106,7 @@ export function TaskList({
           return;
         }
         nextRouter.refresh();
+        publishPortalUpdates(['tasks', 'overview', 'pipeline']);
       },
     }),
     [nextRouter, onDataChanged]
@@ -2195,6 +2200,19 @@ export function TaskList({
   const [processingRouteStatusByTask, setProcessingRouteStatusByTask] = React.useState<
     Record<string, { type: 'success' | 'error'; message: string }>
   >({});
+
+  const isInteracting = Boolean(
+    hasVisibleTaskEditor(tasks, [focusedTaskId, editingProcessingRouteId, ...expandedTaskIds, ...expandedJrCompletedRowDetails]) ||
+    updatingTaskIds.size || deletingId || uploadingId || deletingAttachmentId || startingDisclosureId ||
+    startingQcId || sendingToLoId || respondingId || savingNoteId || updatingProcessingRouteId ||
+    Object.values(jrChecklistSaveStateByTask).some(value => value.state === 'saving')
+  );
+  const interactionCallback = React.useRef(onInteractionStateChange);
+  React.useEffect(() => { interactionCallback.current = onInteractionStateChange; }, [onInteractionStateChange]);
+  React.useEffect(() => {
+    interactionCallback.current?.(isInteracting);
+    return () => interactionCallback.current?.(false);
+  }, [isInteracting]);
 
   const setTaskUpdating = React.useCallback((taskId: string, updating: boolean) => {
     setUpdatingTaskIds((prev) => {

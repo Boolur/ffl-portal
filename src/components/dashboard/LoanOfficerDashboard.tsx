@@ -1,33 +1,13 @@
 import React, { useState } from 'react';
 import { ClipboardCheck, ShieldCheck } from 'lucide-react';
 import { NewTaskModal } from '@/components/loanOfficer/NewTaskModal';
-import { TaskKind, TaskStatus } from '@prisma/client';
-import { FormatDate } from '@/components/ui/FormatDate';
-
-type Loan = {
-  id: string;
-  loanNumber: string;
-  borrowerName: string;
-  amount: number; // or Decimal
-  stage: string;
-  updatedAt: Date;
-};
+import type { DashboardSummary, DashboardRequestPage } from '@/lib/dashboardSummary';
+import { RecentDashboardRequests } from './RecentDashboardRequests';
 
 type LoanOfficerDashboardProps = {
-  loans?: Loan[];
-  submissions?: Array<{
-    id: string;
-    title: string;
-    status: TaskStatus;
-    kind: TaskKind | null;
-    createdAt: Date;
-    loan: {
-      loanNumber: string;
-      borrowerName: string;
-      loanOfficer?: { name: string };
-    };
-  }>;
-  loanOfficerName?: string;
+  recentRequests: DashboardRequestPage;
+  requestSummary: DashboardSummary['requests'];
+  scopeKey: string;
   isLoanOfficerAssistant?: boolean;
   loanOfficerOptions?: Array<{
     id: string;
@@ -42,8 +22,9 @@ type LoanOfficerDashboardProps = {
 };
 
 export function LoanOfficerDashboard({
-  submissions = [],
-  loanOfficerName,
+  recentRequests,
+  requestSummary,
+  scopeKey,
   isLoanOfficerAssistant = false,
   loanOfficerOptions = [],
   lenderOptions = [],
@@ -52,25 +33,7 @@ export function LoanOfficerDashboard({
 }: LoanOfficerDashboardProps) {
   const [showNewTask, setShowNewTask] = useState(false);
   const [initialTaskType, setInitialTaskType] = useState<'PLUS_ONE' | 'DISCLOSURES' | 'QC'>('DISCLOSURES');
-  const scopedSubmissions = isLoanOfficerAssistant
-    ? submissions
-    : loanOfficerName
-    ? submissions.filter((t) => t.loan.loanOfficer?.name === loanOfficerName)
-    : submissions;
-  const isLoDashboardCountKind = (kind: TaskKind | null) =>
-    kind === TaskKind.SUBMIT_DISCLOSURES ||
-    kind === TaskKind.SUBMIT_PROCESSING;
-
-  // Include only active top-level request tasks in the dashboard counters.
-  const countSubmissions = scopedSubmissions.filter((t) => isLoDashboardCountKind(t.kind));
-
-  // Keep recent list aligned to top-level LO request queues only.
-  const requestSubmissions = scopedSubmissions.filter(
-    (t) => t.kind === TaskKind.SUBMIT_DISCLOSURES || t.kind === TaskKind.SUBMIT_PROCESSING
-  );
-  const pendingCount = countSubmissions.filter((t) => t.status === TaskStatus.PENDING).length;
-  const inProgressCount = countSubmissions.filter((t) => t.status === TaskStatus.IN_PROGRESS).length;
-  const completedCount = countSubmissions.filter((t) => t.status === TaskStatus.COMPLETED).length;
+  const { pendingCount, inProgressCount, completedCount } = requestSummary;
 
   const openTaskModal = (type: 'PLUS_ONE' | 'DISCLOSURES' | 'QC') => {
     setInitialTaskType(type);
@@ -231,30 +194,11 @@ export function LoanOfficerDashboard({
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Recent Task Requests</h2>
-          <span className="text-xs text-slate-500">{requestSubmissions.length} total</span>
-        </div>
-        <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
-          {requestSubmissions.map((task) => (
-            <div key={task.id} className="p-4 sm:p-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900 truncate">{task.title}</p>
-                <p className="text-xs text-slate-500">
-                  {task.loan.borrowerName} • {task.loan.loanNumber}
-                </p>
-              </div>
-              <span className="shrink-0 text-[11px] sm:text-xs text-slate-500">
-                <FormatDate date={task.createdAt} mode="datetime" />
-              </span>
-            </div>
-          ))}
-          {requestSubmissions.length === 0 && (
-            <div className="p-6 text-sm text-slate-500">No task requests yet.</div>
-          )}
-        </div>
-      </div>
+      <RecentDashboardRequests
+        key={scopeKey}
+        initialPage={recentRequests}
+        total={requestSummary.total}
+      />
 
       <NewTaskModal
         open={showNewTask}

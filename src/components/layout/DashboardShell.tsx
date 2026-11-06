@@ -8,6 +8,11 @@ import { UserRole } from '@prisma/client';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import dynamic from 'next/dynamic';
+import { PortalLiveProvider } from './PortalLiveProvider';
+import { DashboardShellContext, useDashboardShellMode } from './DashboardShellContext';
+import { dashboardShellIdentity, isPortalWorkspacePath } from '@/lib/dashboardShellRoutes';
+import { invalidateSupportSummary } from '@/lib/supportSummaryLoader';
+import { resetPortalIdentity } from '@/lib/portalLiveUpdates';
 
 const SupportChatWidget = dynamic(
   () =>
@@ -29,87 +34,72 @@ function DashboardContent({ children, user }: DashboardShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { update } = useSession();
-  const tasksSyncUiEnabled = process.env.NEXT_PUBLIC_TASKS_SYNC_UI_ENABLED !== 'false';
-  const [routeOverlay, setRouteOverlay] = React.useState<{
-    targetHref: string;
-    mode: 'basic' | 'tasks-sync';
-    startedAt: number;
-  } | null>(null);
-  const overlayShowTimerRef = React.useRef<number | null>(null);
+  const [loadingRoute, setLoadingRoute] = React.useState(false);
+  const routeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mainRef = React.useRef<HTMLElement | null>(null);
+  const scrollPositions = React.useRef(new Map<string, number>());
 
   React.useEffect(() => {
-    if (!tasksSyncUiEnabled) return;
-
     const onNavigationIntent = (event: Event) => {
-      const customEvent = event as CustomEvent<{ href?: string }>;
-      const href = customEvent.detail?.href;
+      const href = (event as CustomEvent<{ href?: string }>).detail?.href;
       if (!href || href === pathname) return;
-
-      const isTasksRoute = href === '/tasks';
-      let mode: 'basic' | 'tasks-sync' = 'basic';
-      if (isTasksRoute) {
-        const seenTasksSync = window.sessionStorage.getItem('ffl:tasks-sync-seen') === '1';
-        if (!seenTasksSync) {
-          mode = 'tasks-sync';
-          window.sessionStorage.setItem('ffl:tasks-sync-pending', '1');
-          window.sessionStorage.setItem('ffl:tasks-sync-pending-at', String(Date.now()));
-        } else {
-          window.sessionStorage.removeItem('ffl:tasks-sync-pending');
-          window.sessionStorage.removeItem('ffl:tasks-sync-pending-at');
-        }
-      }
-
-      if (overlayShowTimerRef.current) {
-        window.clearTimeout(overlayShowTimerRef.current);
-      }
-      const startedAt = Date.now();
-      // Prevent flash: only show overlay if navigation takes perceptibly long.
-      overlayShowTimerRef.current = window.setTimeout(() => {
-        setRouteOverlay({
-          targetHref: href,
-          mode,
-          startedAt,
-        });
-      }, 180);
+      if (routeTimer.current) clearTimeout(routeTimer.current);
+      routeTimer.current = setTimeout(() => setLoadingRoute(true), 180);
     };
-
-    window.addEventListener('ffl:navigation-intent', onNavigationIntent as EventListener);
+    window.addEventListener('ffl:navigation-intent', onNavigationIntent);
     return () => {
-      window.removeEventListener('ffl:navigation-intent', onNavigationIntent as EventListener);
-      if (overlayShowTimerRef.current) {
-        window.clearTimeout(overlayShowTimerRef.current);
+      window.removeEventListener('ffl:navigation-intent', onNavigationIntent);
+      if (routeTimer.current) clearTimeout(routeTimer.current);
+    };
+  }, [pathname]);
+
+  React.useEffect(() => {
+    setLoadingRoute(false);
+    setMobileSidebarOpen(false);
+  }, [pathname]);
+
+  React.useLayoutEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const target = scrollPositions.current.get(pathname) ?? 0;
+    let restoring = true;
+    let resizeObserver: ResizeObserver | undefined;
+    const restore = () => {
+      if (!restoring) return;
+      main.scrollTop = target;
+      if (main.scrollHeight - main.clientHeight >= target) {
+        restoring = false;
+        resizeObserver?.disconnect();
       }
     };
-  }, [pathname, tasksSyncUiEnabled]);
-
-  React.useEffect(() => {
-    if (!routeOverlay) return;
-    const timeoutId = window.setTimeout(() => {
-      setRouteOverlay(null);
-    }, 12000);
-    return () => window.clearTimeout(timeoutId);
-  }, [routeOverlay]);
-
-  React.useEffect(() => {
-    if (!routeOverlay) return;
-    if (pathname !== routeOverlay.targetHref) return;
-
-    if (overlayShowTimerRef.current) {
-      window.clearTimeout(overlayShowTimerRef.current);
-      overlayShowTimerRef.current = null;
+    const rememberScroll = () => {
+      if (restoring) return;
+      const positions = scrollPositions.current;
+      positions.delete(pathname);
+      positions.set(pathname, main.scrollTop);
+      while (positions.size > 8) positions.delete(positions.keys().next().value!);
+    };
+    const stopRestoring = () => { restoring = false; resizeObserver?.disconnect(); };
+    // A streamed route may initially contain only its short loading panel.
+    // Restore after content arrives instead of replacing the saved position with 0.
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(restore);
+      if (main.firstElementChild) resizeObserver.observe(main.firstElementChild);
     }
-
-    const elapsed = Date.now() - routeOverlay.startedAt;
-    const minVisibleMs = routeOverlay.mode === 'tasks-sync' ? 650 : 220;
-    const remainingMs = Math.max(0, minVisibleMs - elapsed);
-    const timeoutId = window.setTimeout(() => {
-      setRouteOverlay(null);
-    }, remainingMs);
-    return () => window.clearTimeout(timeoutId);
-  }, [pathname, routeOverlay]);
-
-  React.useEffect(() => {
-    setMobileSidebarOpen(false);
+    restore();
+    main.addEventListener('scroll', rememberScroll, { passive: true });
+    main.addEventListener('wheel', stopRestoring, { passive: true });
+    main.addEventListener('touchstart', stopRestoring, { passive: true });
+    main.addEventListener('pointerdown', stopRestoring);
+    main.addEventListener('keydown', stopRestoring);
+    return () => {
+      resizeObserver?.disconnect();
+      main.removeEventListener('scroll', rememberScroll);
+      main.removeEventListener('wheel', stopRestoring);
+      main.removeEventListener('touchstart', stopRestoring);
+      main.removeEventListener('pointerdown', stopRestoring);
+      main.removeEventListener('keydown', stopRestoring);
+    };
   }, [pathname]);
 
   // Create a display user that reflects the impersonated role
@@ -121,8 +111,11 @@ function DashboardContent({ children, user }: DashboardShellProps) {
   const handleRoleChange = React.useCallback(
     async (nextRole: UserRole) => {
       if (nextRole === activeRole) return;
-      setActiveRole(nextRole);
-      await update({ activeRole: nextRole });
+      resetPortalIdentity();
+      invalidateSupportSummary();
+      const updatedSession = await update({ activeRole: nextRole });
+      const confirmedRole = updatedSession?.user?.activeRole || updatedSession?.user?.role;
+      if (confirmedRole) setActiveRole(confirmedRole as UserRole);
       router.refresh();
     },
     [activeRole, router, setActiveRole, update]
@@ -154,52 +147,12 @@ function DashboardContent({ children, user }: DashboardShellProps) {
           onRoleChange={handleRoleChange}
           onToggleSidebar={handleToggleSidebar}
         />
-        <main id="app-main-scroll" className="min-h-0 flex-1 overflow-y-auto">
+        <main ref={mainRef} id="app-main-scroll" className="min-h-0 flex-1 overflow-y-auto">
           <div className="relative min-h-full w-full p-3 sm:p-4 md:p-6">
-            {routeOverlay && (
-              <div className="pointer-events-none absolute inset-0 z-30 flex items-start justify-center rounded-2xl bg-slate-100/20 pt-[14vh] backdrop-blur-[2px]">
-                <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 px-6 py-6 shadow-2xl">
-                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.14),transparent_46%),radial-gradient(circle_at_top_right,rgba(147,51,234,0.14),transparent_46%)]" />
-                  <div className="relative flex flex-col items-center justify-center gap-4 text-center">
-                    <div className="relative h-20 w-20">
-                      <div className="app-sync-spinner-main absolute inset-0 rounded-full" />
-                      <div className="app-sync-spinner-accent absolute inset-[6px] rounded-full opacity-75" />
-                      <div className="absolute inset-[12px] rounded-full border border-slate-200/80 bg-white/95" />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="h-3 w-3 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_18px_rgba(34,197,94,0.65)]" />
-                      </div>
-                    </div>
-                    <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
-                      {routeOverlay.mode === 'tasks-sync' ? 'Syncing Tasks' : 'Loading'}
-                    </h2>
-                    <p className="max-w-xl text-sm font-medium text-slate-600">
-                      {routeOverlay.mode === 'tasks-sync'
-                        ? 'Refreshing borrower queues, ownership updates, and latest task activity...'
-                        : 'Loading the selected workspace...'}
-                    </p>
-                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                      <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700">
-                        Disclosure
-                      </span>
-                      <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700">
-                        QC
-                      </span>
-                      <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700">
-                        VA
-                      </span>
-                      <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-bold text-cyan-700">
-                        JR Processor
-                      </span>
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
-                        Completed
-                      </span>
-                    </div>
-                    <div className="relative mt-1 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-slate-200/70">
-                      <div className="absolute inset-0 bg-gradient-to-r from-blue-500 via-violet-500 via-rose-500 via-cyan-500 to-emerald-500 opacity-75" />
-                      <div className="app-sync-progress-shimmer absolute inset-y-0 w-1/3 bg-white/70 blur-[1px]" />
-                    </div>
-                  </div>
-                </div>
+            {loadingRoute && (
+              <div role="status" aria-live="polite" className="pointer-events-none absolute inset-x-0 top-0 z-30 h-1 overflow-hidden bg-primary/10">
+                <span className="sr-only">Loading workspace...</span>
+                <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
               </div>
             )}
             {children}
@@ -211,10 +164,53 @@ function DashboardContent({ children, user }: DashboardShellProps) {
   );
 }
 
+/** Page wrappers are transparent inside the persistent root shell. */
 export function DashboardShell({ children, user }: DashboardShellProps) {
+  const mode = useDashboardShellMode();
+  if (mode !== 'standalone') return <>{children}</>;
   return (
-    <DashboardContent user={user}>
-      {children}
-    </DashboardContent>
+    <DashboardShellContext.Provider value="shared">
+      <DashboardContent user={user}>{children}</DashboardContent>
+    </DashboardShellContext.Provider>
+  );
+}
+
+/** Kept in RootLayout so navigation replaces only the workspace contents. */
+export function PersistentDashboardShell({ children, initialRevisions }: { children: React.ReactNode; initialRevisions?: Partial<Record<import('@/lib/portalLiveUpdates').PortalTopic, string>> }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { data: session, status } = useSession();
+  const { activeRole, availableRoles } = useImpersonation();
+  const userId = session?.user?.id;
+  const identity = userId ? dashboardShellIdentity(userId, activeRole, availableRoles) : '';
+  const [readyIdentity, setReadyIdentity] = React.useState(identity);
+  React.useLayoutEffect(() => {
+    if (identity === readyIdentity) return;
+    // Clear the old scope before mounting children that capture a cache epoch.
+    // Resetting on initial mount would invalidate that new child's own writes.
+    resetPortalIdentity();
+    invalidateSupportSummary();
+    setReadyIdentity(identity);
+  }, [identity, readyIdentity]);
+  const portalRoute = isPortalWorkspacePath(pathname);
+  React.useEffect(() => {
+    if (!portalRoute) return;
+    if (status === 'unauthenticated') router.replace('/login');
+    else if (userId && activeRole === UserRole.ONBOARDING) router.replace('/onboarding');
+  }, [portalRoute, status, userId, activeRole, router]);
+  if (identity !== readyIdentity || (portalRoute && (!userId || status === 'unauthenticated' || activeRole === UserRole.ONBOARDING))) {
+    return <DashboardShellContext.Provider value="bare"><div role="status" className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading your workspace...</div></DashboardShellContext.Provider>;
+  }
+  const showShell = Boolean(userId) && status !== 'unauthenticated' &&
+    activeRole !== UserRole.ONBOARDING && portalRoute;
+  if (!showShell) return <DashboardShellContext.Provider value="bare">{children}</DashboardShellContext.Provider>;
+  return (
+    <DashboardShellContext.Provider value="shared">
+      <PortalLiveProvider key={identity} initialRevisions={initialRevisions}>
+        <DashboardContent user={{ name: session?.user?.name || 'User', role: activeRole }}>
+          {children}
+        </DashboardContent>
+      </PortalLiveProvider>
+    </DashboardShellContext.Provider>
   );
 }

@@ -1,11 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import {
-  TaskKind,
-  TaskStatus,
-  TaskWorkflowState,
-} from '@prisma/client';
+import type { DeskSummary } from '@/lib/dashboardSummary';
 import {
   Inbox,
   Clock,
@@ -16,47 +12,8 @@ import {
   BellRing
 } from 'lucide-react';
 
-type DisclosureTask = {
-  id: string;
-  kind: TaskKind | null;
-  status: TaskStatus;
-  workflowState: TaskWorkflowState;
-};
-
-function isDisclosureTask(task: DisclosureTask) {
-  return task.kind === TaskKind.SUBMIT_DISCLOSURES;
-}
-
-export function DisclosureOverview({ tasks }: { tasks: DisclosureTask[] }) {
-  const disclosureTasks = tasks.filter(isDisclosureTask);
-
-  const newCount = disclosureTasks.filter(
-    (task) =>
-      task.status !== TaskStatus.COMPLETED &&
-      task.workflowState === TaskWorkflowState.NONE
-  ).length;
-
-  const waitingMissingCount = disclosureTasks.filter(
-    (task) =>
-      task.status !== TaskStatus.COMPLETED &&
-      task.workflowState === TaskWorkflowState.WAITING_ON_LO
-  ).length;
-
-  const waitingApprovalCount = disclosureTasks.filter(
-    (task) =>
-      task.status !== TaskStatus.COMPLETED &&
-      task.workflowState === TaskWorkflowState.WAITING_ON_LO_APPROVAL
-  ).length;
-
-  const loRespondedCount = disclosureTasks.filter(
-    (task) =>
-      task.status !== TaskStatus.COMPLETED &&
-      task.workflowState === TaskWorkflowState.READY_TO_COMPLETE
-  ).length;
-
-  const completedCount = disclosureTasks.filter(
-    (task) => task.status === TaskStatus.COMPLETED
-  ).length;
+export function DisclosureOverview({ summary }: { summary: DeskSummary }) {
+  const { newCount, waitingMissingCount, waitingApprovalCount, loRespondedCount, completedCount } = summary;
 
   const cards = [
     {

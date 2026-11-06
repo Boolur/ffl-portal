@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useDeferredValue, useEffect, useMemo, useState, useTransition } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
@@ -33,8 +33,11 @@ import {
 } from '@/app/actions/pipelineReportingActions';
 import { getSubmissionPrefillContext } from '@/app/actions/taskActions';
 import { NewTaskModal } from '@/components/loanOfficer/NewTaskModal';
+import { publishPortalUpdates, subscribePortalUpdates } from '@/lib/portalLiveUpdates';
+import { pipelineWorkspaceCacheRevision } from '@/lib/pipelineWorkspaceCache';
 
 type Props = {
+  active?: boolean;
   initialReport: PipelineReport;
   submissionConfig: {
     disclosureEnabled: boolean;
@@ -322,7 +325,7 @@ function loadReviewedUpdates() {
   }
 }
 
-export function PipelinePage({ initialReport, submissionConfig }: Props) {
+export function PipelinePage({ initialReport, submissionConfig, active = true }: Props) {
   const router = useRouter();
   const [report, setReport] = useState(initialReport);
   const [boardView, setBoardView] = useState<PipelineBoardView>('pipeline');
@@ -343,6 +346,37 @@ export function PipelinePage({ initialReport, submissionConfig }: Props) {
   const [isPipelineSearchLoading, setIsPipelineSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const pendingLiveRefresh = useRef(false);
+  const flushLiveRefresh = useRef<() => void>(() => {});
+  const reportRevision = useRef(0);
+  const reportRequestRunning = useRef(false);
+  const lastReportLoadedAt = useRef(Date.now());
+  const lastCacheRevision = useRef(pipelineWorkspaceCacheRevision());
+  const reportEditing = useRef<() => boolean>(() => true);
+  reportEditing.current = () => !active || document.visibilityState !== 'visible' || Boolean(selectedCard || actioningRow || shortcutPrefill || shortcutLoading) || Boolean(document.activeElement?.matches('input, textarea, select, [contenteditable="true"]'));
+  useEffect(() => {
+    const unsubscribe = subscribePortalUpdates('pipeline', () => { pendingLiveRefresh.current = true; flushLiveRefresh.current(); });
+    const afterBlur = () => window.setTimeout(() => flushLiveRefresh.current(), 0);
+    const afterVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastReportLoadedAt.current >= 60_000) pendingLiveRefresh.current = true;
+      flushLiveRefresh.current();
+    };
+    document.addEventListener('focusout', afterBlur);
+    document.addEventListener('visibilitychange', afterVisibility);
+    window.addEventListener('focus', afterVisibility);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('focusout', afterBlur);
+      document.removeEventListener('visibilitychange', afterVisibility);
+      window.removeEventListener('focus', afterVisibility);
+    };
+  }, []);
+  useEffect(() => {
+    if (Date.now() - lastReportLoadedAt.current >= 60_000 || lastCacheRevision.current !== pipelineWorkspaceCacheRevision()) pendingLiveRefresh.current = true;
+    lastCacheRevision.current = pipelineWorkspaceCacheRevision();
+    flushLiveRefresh.current();
+  }, [active, isPending, selectedCard, actioningRow, shortcutPrefill, shortcutLoading]);
   const deferredPipelineSearch = useDeferredValue(pipelineSearch.trim().toLowerCase());
   const isPipelineSearchPending =
     isPipelineSearchLoading || pipelineSearch.trim().toLowerCase() !== deferredPipelineSearch;
@@ -403,6 +437,7 @@ export function PipelinePage({ initialReport, submissionConfig }: Props) {
   async function handlePendingStpAction(input: PendingStpActionInput) {
     const result = await actionPendingStpLoan(input);
     if (result.success) {
+      publishPortalUpdates(['pipeline', 'overview', 'tasks']);
       setActioningRow(null);
       setSelectedCard(null);
       loadReport();
@@ -443,7 +478,9 @@ export function PipelinePage({ initialReport, submissionConfig }: Props) {
     });
   };
 
-  const loadReport = (nextFilters?: Partial<PipelineReportFilters>) => {
+  const loadReport = (nextFilters?: Partial<PipelineReportFilters>, background = false) => {
+    const revision = ++reportRevision.current;
+    reportRequestRunning.current = true;
     const filters: PipelineReportFilters = {
       preset,
       startDate,
@@ -456,17 +493,29 @@ export function PipelinePage({ initialReport, submissionConfig }: Props) {
       setError(null);
       try {
         const nextReport = await getPipelineReport(filters);
+        if (revision !== reportRevision.current) return;
+        if (background && reportEditing.current()) { pendingLiveRefresh.current = true; return; }
+        lastReportLoadedAt.current = Date.now();
+        lastCacheRevision.current = pipelineWorkspaceCacheRevision();
         setReport(nextReport);
         setPreset(nextReport.filters.preset);
         setStartDate(dateInputValue(nextReport.filters.startDate));
         setEndDate(dateInputValue(nextReport.filters.endDate));
         setLoanOfficerId(nextReport.filters.loanOfficerId);
-        setSelectedCard(null);
+        if (!background) setSelectedCard(null);
       } catch (err) {
         console.error(err);
-        setError('Unable to load Pipeline metrics. Please try again.');
+        if (revision === reportRevision.current) setError('Unable to load Pipeline metrics. Please try again.');
+      } finally {
+        if (revision === reportRevision.current) reportRequestRunning.current = false;
       }
     });
+  };
+
+  flushLiveRefresh.current = () => {
+    if (!pendingLiveRefresh.current || reportRequestRunning.current || reportEditing.current()) return;
+    pendingLiveRefresh.current = false;
+    loadReport(undefined, true);
   };
 
   const handlePresetChange = (nextPreset: PipelineRangePreset) => {
@@ -723,18 +772,9 @@ export function PipelinePage({ initialReport, submissionConfig }: Props) {
           />
         )}
         {isPending && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[28px] bg-white/75 backdrop-blur-[2px]">
-            <div
-              className="flex flex-col items-center rounded-2xl border border-slate-200 bg-white px-6 py-5 text-center shadow-xl shadow-slate-200/70"
-              role="status"
-              aria-live="polite"
-            >
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-              <p className="mt-3 text-sm font-bold text-slate-900">Updating pipeline</p>
-              <p className="mt-1 text-xs font-medium text-slate-500">
-                Loading the selected date range...
-              </p>
-            </div>
+          <div className="pointer-events-none absolute right-3 top-3 z-20 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground shadow-sm" role="status" aria-live="polite">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            Updating pipeline...
           </div>
         )}
       </section>
@@ -863,7 +903,7 @@ export function PipelinePage({ initialReport, submissionConfig }: Props) {
               }
             : null
         }
-        onSubmissionSuccess={() => loadReport()}
+        onSubmissionSuccess={() => { publishPortalUpdates(['pipeline', 'overview', 'tasks']); pendingLiveRefresh.current = true; flushLiveRefresh.current(); }}
       />
     </div>
   );
