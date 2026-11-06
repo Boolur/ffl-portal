@@ -7,7 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useTransition,
 } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -74,6 +73,7 @@ import {
   PROCESSING_METHOD_THIRD_PARTY,
 } from '@/lib/processingRouting';
 import { isAdmin } from '@/lib/adminTiers';
+import { createPipelineRefresh } from '@/lib/pipelineRefresh';
 import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
 import { ProcessingBorrowerWorkspace } from './ProcessingBorrowerWorkspace';
 import { AriveSyncBadge } from './AriveSyncStatus';
@@ -91,6 +91,8 @@ import {
 } from '@/lib/processingPipelineLayouts';
 
 type PipelineResult = Extract<Awaited<ReturnType<typeof getProcessingPipeline>>, { success: true }>;
+type PipelineRefreshInput = Parameters<typeof getProcessingPipeline>[0];
+type PipelineRefreshResult = Awaited<ReturnType<typeof getProcessingPipeline>>;
 type PipelineFilterOptions = Extract<
   Awaited<ReturnType<typeof getProcessingPipelineFilterOptions>>,
   { success: true }
@@ -719,7 +721,12 @@ export function ProcessingPipelineGrid({
     actor: string;
     actorRole: UserRole;
   }>>([]);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
+  const [refreshNeedsReload, setRefreshNeedsReload] = useState(false);
+  const rowRefreshRef = useRef<ReturnType<
+    typeof createPipelineRefresh<PipelineRefreshInput, PipelineRefreshResult>
+  > | null>(null);
   const canEdit = initialData.canEdit;
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const canEditRow = (row: ProcessingPipelineRow) => canEdit && row.canEdit;
@@ -848,6 +855,39 @@ export function ProcessingPipelineGrid({
     [],
   );
 
+  useEffect(() => {
+    const refresh = createPipelineRefresh<PipelineRefreshInput, PipelineRefreshResult>({
+      load: getProcessingPipeline,
+      onStart: () => {
+        setIsPending(true);
+        setRefreshError('');
+      },
+      onSuccess: (result) => {
+        if (!result.success) {
+          setRefreshError(result.error);
+          return;
+        }
+        lastRowsLoadedAtRef.current = Date.now();
+        setRows(result.rows);
+        setTotal(result.total);
+        setRefreshError('');
+        setMessage('');
+      },
+      onError: (timedOut) => {
+        setRefreshNeedsReload(timedOut);
+        setRefreshError(timedOut
+          ? 'The pipeline refresh took too long. Reload the page to reconnect.'
+          : 'Unable to refresh the pipeline. Check your connection and try Refresh again.');
+      },
+      onIdle: () => setIsPending(false),
+    });
+    rowRefreshRef.current = refresh;
+    return () => {
+      refresh.dispose();
+      rowRefreshRef.current = null;
+    };
+  }, []);
+
   const loadRows = (
     nextSheet = sheet,
     nextSearch = search,
@@ -857,29 +897,20 @@ export function ProcessingPipelineGrid({
     nextViewScope = activeLayout?.config.scope || 'GLOBAL',
   ) => {
     lastRowsLoadedAtRef.current = Date.now();
-    startTransition(async () => {
-      const isGlobalSearch = Boolean(nextSearch.trim());
-      const result = await getProcessingPipeline({
-        sheet:
-          nextSheet === RATE_LOCK_REQUESTS_VIEW
-            ? undefined
-            : nextSheet,
-        rateLockRequestsOnly:
-          !isGlobalSearch && nextSheet === RATE_LOCK_REQUESTS_VIEW,
-        allSheets: isGlobalSearch,
-        search: nextSearch,
-        sortBy: nextSortBy,
-        sortDirection: nextSortDirection,
-        filters: isGlobalSearch ? {} : nextFilters,
-        viewScope: nextViewScope,
-      });
-      if (!result.success) {
-        setMessage(result.error);
-        return;
-      }
-      setRows(result.rows);
-      setTotal(result.total);
-      setMessage('');
+    const isGlobalSearch = Boolean(nextSearch.trim());
+    rowRefreshRef.current?.request({
+      sheet:
+        nextSheet === RATE_LOCK_REQUESTS_VIEW
+          ? undefined
+          : nextSheet,
+      rateLockRequestsOnly:
+        !isGlobalSearch && nextSheet === RATE_LOCK_REQUESTS_VIEW,
+      allSheets: isGlobalSearch,
+      search: nextSearch,
+      sortBy: nextSortBy,
+      sortDirection: nextSortDirection,
+      filters: isGlobalSearch ? {} : nextFilters,
+      viewScope: nextViewScope,
     });
   };
   refreshCurrentViewRef.current = () => loadRows();
@@ -888,7 +919,7 @@ export function ProcessingPipelineGrid({
   useEffect(() => {
     if (!rows.some(row => row.ariveSync?.enabled)) return;
     const timer = window.setInterval(() => {
-      if (document.visibilityState !== 'visible' || savingRowsRef.current.size > 0 || document.activeElement?.matches('input, textarea, select')) return;
+      if (document.visibilityState !== 'visible' || rowRefreshRef.current?.isBusy() || savingRowsRef.current.size > 0 || document.activeElement?.matches('input, textarea, select')) return;
       refreshCurrentViewRef.current();
     }, 60_000);
     return () => window.clearInterval(timer);
@@ -905,6 +936,7 @@ export function ProcessingPipelineGrid({
     const refreshCurrentViewIfStale = () => {
       if (
         document.visibilityState !== 'visible' ||
+        rowRefreshRef.current?.isBusy() ||
         savingRowsRef.current.size > 0 ||
         Date.now() - lastRowsLoadedAtRef.current < 60_000
       ) {
@@ -2741,7 +2773,7 @@ export function ProcessingPipelineGrid({
               type="button"
               className="app-btn-secondary !h-10 !rounded-xl"
               onClick={() => loadRows()}
-              disabled={isPending}
+              disabled={isPending || refreshNeedsReload}
             >
               <RefreshCw className={`h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
               Refresh
@@ -3086,6 +3118,22 @@ export function ProcessingPipelineGrid({
           </div>
         )}
       </div>
+
+      {refreshError && (
+        <div role="alert" className="app-surface-card flex flex-wrap items-center justify-between gap-3 text-sm">
+          <div>
+            <p className="font-semibold text-red-700">{refreshError}</p>
+            <p className="mt-1 text-muted-foreground">
+              Showing the last loaded results. They may not match your selected view or filters.
+            </p>
+          </div>
+          {refreshNeedsReload && (
+            <button type="button" className="app-btn-secondary" onClick={() => window.location.reload()}>
+              Reload page
+            </button>
+          )}
+        </div>
+      )}
 
       {message && (
         <div role="status" className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800">
