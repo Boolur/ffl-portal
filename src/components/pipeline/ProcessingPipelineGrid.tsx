@@ -67,13 +67,6 @@ import {
   PROCESSING_PIPELINE_SHEETS,
   PROCESSING_PIPELINE_STATUS_OPTIONS,
   getProcessingPipelineLockedDefaults,
-  getPayoffExpirationWarning,
-  isAppraisalBackOverdue,
-  isCdSentOverdue,
-  isConditionItemOverdue,
-  isOrderedItemOverdue,
-  isRateLockExpiring,
-  isRateLockOverdueAfterAppraisal,
   type LockedProcessingPipelineField,
 } from '@/lib/processingPipeline';
 import {
@@ -83,6 +76,8 @@ import {
 import { isAdmin } from '@/lib/adminTiers';
 import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
 import { ProcessingBorrowerWorkspace } from './ProcessingBorrowerWorkspace';
+import { AriveSyncBadge } from './AriveSyncStatus';
+import { ariveFieldLabel, ariveFieldMissing, arivePipelineWarnings, formatAriveCalendarDate } from '@/lib/ariveSyncPresentation';
 import { ProcessingPipelineLayoutManager } from './ProcessingPipelineLayoutManager';
 import { ProcessingPipelineReportsModal } from './ProcessingPipelineReportsModal';
 import { ProcessingFundingDialog } from './ProcessingFundingDialog';
@@ -271,6 +266,7 @@ const NUMBER_COLUMN_IDS = new Set<ColumnId>([
 ]);
 
 function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | number | null {
+  if (ariveFieldMissing(row.ariveSync, id)) return null;
   if (id === 'loanOfficer') return row.loan.loanOfficer.name;
   if (id === 'dateAssigned') return row.dateAssigned;
   if (id === 'loanNumber') return row.loan.loanNumber;
@@ -286,12 +282,13 @@ function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | numb
   if (id === 'juniorProcessor') return row.juniorProcessor?.name || 'Unassigned';
   if (id === 'seniorProcessor') return processorLabel(row);
   if (id === 'pipelineStatus') {
+    if (row.ariveSync?.enabled) return row.ariveSync.stageLabel || 'Stage missing in Arive';
     return PROCESSING_PIPELINE_STATUS_OPTIONS.find(
       (option) => option.value === row.pipelineStatus,
     )?.label || row.pipelineStatus;
   }
   if (id === 'estimatedSigningAt') return row.estimatedSigningAt;
-  if (id === 'daysInStatus') return row.daysInStatus;
+  if (id === 'daysInStatus') return row.ariveSync?.enabled && !row.ariveSync.stageDate ? null : row.daysInStatus;
   if (id === 'titleStatus') {
     return PROCESSING_ITEM_STATUS_OPTIONS.find((option) => option.value === row.titleStatus)?.label || row.titleStatus;
   }
@@ -323,7 +320,7 @@ function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | numb
 function columnDisplayValue(row: ProcessingPipelineRow, id: ColumnId) {
   const value = columnRawValue(row, id);
   if (value === null || value === '') return 'Blank';
-  if (DATE_COLUMN_IDS.has(id)) return formatDate(String(value));
+  if (DATE_COLUMN_IDS.has(id)) return row.ariveSync?.enabled && id !== 'dateAssigned' ? formatAriveCalendarDate(String(value)) : formatDate(String(value));
   if (
     id === 'loanAmount' ||
     id === 'projectedRevenue' ||
@@ -692,6 +689,7 @@ export function ProcessingPipelineGrid({
   const [columnOptionSearch, setColumnOptionSearch] = useState('');
   const [savingRows, setSavingRows] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
+  const [ariveConflictWarning, setAriveConflictWarning] = useState('');
   const [historyRow, setHistoryRow] = useState<ProcessingPipelineRow | null>(null);
   const [borrowerWorkspaceRowId, setBorrowerWorkspaceRowId] =
     useState<string | null>(null);
@@ -729,6 +727,7 @@ export function ProcessingPipelineGrid({
     row: ProcessingPipelineRow,
     field: EditableField | 'rateLock',
   ) => {
+    if (row.ariveSync?.enabled) return false;
     const resolvedField =
       field === 'payoffExpiresAt' ? 'payoffStatus' : field;
     const lockableFields: readonly LockedProcessingPipelineField[] = [
@@ -885,6 +884,22 @@ export function ProcessingPipelineGrid({
   };
   refreshCurrentViewRef.current = () => loadRows();
   savingRowsRef.current = savingRows;
+
+  useEffect(() => {
+    if (!rows.some(row => row.ariveSync?.enabled)) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible' || savingRowsRef.current.size > 0 || document.activeElement?.matches('input, textarea, select')) return;
+      refreshCurrentViewRef.current();
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [rows]);
+
+  const showAriveConflict = (result: { error: string; ariveConflict?: unknown }) => {
+    if (result.ariveConflict !== true) return false;
+    setAriveConflictWarning(result.error);
+    loadRows();
+    return true;
+  };
 
   useEffect(() => {
     const refreshCurrentViewIfStale = () => {
@@ -1419,6 +1434,7 @@ export function ProcessingPipelineGrid({
     if (!result.success) {
       patchRow(row.id, row);
       setMessage(result.error);
+      if (showAriveConflict(result)) return;
       if ('conflict' in result) loadRows();
       return;
     }
@@ -1453,7 +1469,7 @@ export function ProcessingPipelineGrid({
     });
     if (!result.success) {
       setMessage(result.error);
-      if ('conflict' in result) loadRows();
+      if (!showAriveConflict(result) && 'conflict' in result) loadRows();
       return;
     }
     setJuniorProcessorEditorRowId(null);
@@ -1492,7 +1508,7 @@ export function ProcessingPipelineGrid({
     });
     if (!result.success) {
       setMessage(result.error);
-      if ('conflict' in result) loadRows();
+      if (!showAriveConflict(result) && 'conflict' in result) loadRows();
       return;
     }
     setSeniorProcessorEditorRowId(null);
@@ -1528,7 +1544,7 @@ export function ProcessingPipelineGrid({
     });
     if (!result.success) {
       setMessage(result.error);
-      if ('conflict' in result) loadRows();
+      if (!showAriveConflict(result) && 'conflict' in result) loadRows();
       return;
     }
     if (isRateLockRequestsView && rateLock) {
@@ -1560,7 +1576,7 @@ export function ProcessingPipelineGrid({
     });
     if (!result.success) {
       setMessage(result.error);
-      if ('conflict' in result) loadRows();
+      if (!showAriveConflict(result) && 'conflict' in result) loadRows();
       return;
     }
     patchRow(row.id, { ...result.patch, version: result.version });
@@ -1581,7 +1597,7 @@ export function ProcessingPipelineGrid({
     });
     if (!result.success) {
       setMessage(result.error);
-      if ('conflict' in result) loadRows();
+      if (!showAriveConflict(result) && 'conflict' in result) loadRows();
       return;
     }
     setRows((current) => current.filter((candidate) => candidate.id !== row.id));
@@ -1607,7 +1623,7 @@ export function ProcessingPipelineGrid({
     });
     if (!result.success) {
       setMessage(result.error);
-      if ('conflict' in result) loadRows();
+      if (!showAriveConflict(result) && 'conflict' in result) loadRows();
       return;
     }
     setRows((current) => current.filter((candidate) => candidate.id !== row.id));
@@ -1646,7 +1662,7 @@ export function ProcessingPipelineGrid({
     });
     if (!result.success) {
       setMessage(result.error);
-      if ('conflict' in result) loadRows();
+      if (!showAriveConflict(result) && 'conflict' in result) loadRows();
       return false;
     }
     setRows((current) => current.filter((candidate) => candidate.id !== row.id));
@@ -1701,7 +1717,7 @@ export function ProcessingPipelineGrid({
     });
     if (!result.success) {
       setMessage(result.error);
-      if ('conflict' in result) loadRows();
+      if (!showAriveConflict(result) && 'conflict' in result) loadRows();
       return;
     }
     patchRow(row.id, { ...result.patch, version: result.version });
@@ -1819,6 +1835,7 @@ export function ProcessingPipelineGrid({
     placeholder = '—',
   ) => canEditRow(row) ? (
     <input
+      key={row.ariveSync?.enabled ? `${row.id}:${field}:${value ?? ''}` : undefined}
       aria-label={field}
       defaultValue={value || ''}
       placeholder={placeholder}
@@ -1838,8 +1855,9 @@ export function ProcessingPipelineGrid({
     value: string | null,
     className = '',
   ) =>
-    canEditRow(row) ? (
+    ariveFieldMissing(row.ariveSync, field) ? <span className="inline-flex rounded-lg border border-red-300 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-800" title={`${ariveFieldLabel(field)} is missing in Arive`}>Missing in Arive</span> : canEditRow(row) ? (
       <input
+        key={row.ariveSync?.enabled ? `${row.id}:${field}:${value ?? ''}` : undefined}
         type="date"
         aria-label={field}
         defaultValue={dateInputValue(value)}
@@ -1850,7 +1868,7 @@ export function ProcessingPipelineGrid({
           className || 'border-transparent bg-transparent hover:border-slate-200 hover:bg-white focus:border-blue-300 focus:bg-white'
         }`}
       />
-    ) : <span className={className ? `inline-flex rounded-lg border px-2.5 py-1 font-bold ${className}` : ''}>{formatDate(value)}</span>;
+    ) : <span className={className ? `inline-flex rounded-lg border px-2.5 py-1 font-bold ${className}` : ''}>{row.ariveSync?.enabled ? formatAriveCalendarDate(value) : formatDate(value)}</span>;
 
   const yesNoCell = (row: ProcessingPipelineRow, field: EditableField, value: boolean | null) =>
     editableSelect(row, field, value, [
@@ -1860,7 +1878,7 @@ export function ProcessingPipelineGrid({
     ], value === false ? neutralNoTone : booleanTone(value));
 
   const cdSentCell = (row: ProcessingPipelineRow) => {
-    const overdue = isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow);
+    const overdue = arivePipelineWarnings(row, clockNow).cdSent;
     return editableSelect(
       row,
       'cdSent',
@@ -1878,13 +1896,8 @@ export function ProcessingPipelineGrid({
   };
 
   const rateLockCell = (row: ProcessingPipelineRow) => {
-    const expiring = isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow);
-    const overdueAfterAppraisal = isRateLockOverdueAfterAppraisal(
-      row.rateLock,
-      row.appraisalBackAt,
-      clockNow,
-    );
-    const warning = expiring || overdueAfterAppraisal;
+    const reminders = arivePipelineWarnings(row, clockNow);
+    const warning = reminders.rateLockExpiring || reminders.rateLockAfterAppraisal;
     const tone = warning
       ? `${deadlineTone} motion-safe:animate-pulse`
       : row.rateLock
@@ -2011,6 +2024,9 @@ export function ProcessingPipelineGrid({
       appraisalBack: boolean;
     },
   ) => {
+    if (ariveFieldMissing(row.ariveSync, id) || (id === 'daysInStatus' && row.ariveSync?.enabled && !row.ariveSync.stageDate)) {
+      return <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}><span className="inline-flex rounded-lg border border-red-300 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-800" title={`${id === 'daysInStatus' ? 'Stage date' : ariveFieldLabel(id)} was not supplied by Arive`}>{id === 'daysInStatus' ? 'Stage date missing' : 'Missing in Arive'}</span></td>;
+    }
     const resultBucketLabel = row.rateLockRequestedAt
       ? 'Rate Lock'
       : row.sheet === ProcessingPipelineSheet.RESTRUCTURE
@@ -2037,6 +2053,7 @@ export function ProcessingPipelineGrid({
             className={`border-b border-r border-slate-200 font-mono text-[12px] font-semibold text-slate-700 lg:sticky lg:z-10 ${cellPadding} ${stickyRowSurfaceTone[row.pipelineStatus]}`}
           >
             <span className="block truncate">{row.loan.loanNumber}</span>
+            {row.ariveSync && <button type="button" className="mt-1 block max-w-full text-left" onClick={() => setBorrowerWorkspaceRowId(row.id)} aria-label={`View Arive sync for ${row.loan.borrowerName}`}><AriveSyncBadge view={row.ariveSync} /></button>}
             {search.trim() && (
               <span className="mt-1 inline-flex max-w-full truncate rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-sans text-[9px] font-bold uppercase tracking-wide text-blue-700">
                 {resultBucketLabel}
@@ -2291,7 +2308,7 @@ export function ProcessingPipelineGrid({
       case 'pipelineStatus':
         return (
           <td key={id} className="border-b border-r border-slate-200 px-1.5 py-1">
-            {canEditRow(row) && row.sheet !== ProcessingPipelineSheet.RESTRUCTURE ? (
+            {row.ariveSync?.enabled ? <span className={`inline-flex max-w-full rounded-full border px-2.5 py-1 text-xs font-bold ${row.ariveSync.stageLabel ? statusTone[row.pipelineStatus] : 'border-red-300 bg-red-50 text-red-800'}`} title="Current stage from Arive">{row.ariveSync.stageLabel || 'Stage missing in Arive'}</span> : canEditRow(row) && row.sheet !== ProcessingPipelineSheet.RESTRUCTURE ? (
               editableSelect(
                 row,
                 'pipelineStatus',
@@ -2368,11 +2385,7 @@ export function ProcessingPipelineGrid({
           </td>
         );
       case 'payoffExpiresAt': {
-        const warning = getPayoffExpirationWarning(
-          row.payoffStatus,
-          row.payoffExpiresAt,
-          clockNow,
-        );
+        const warning = arivePipelineWarnings(row, clockNow).payoffExpiration;
         const warningTone =
           warning === 'danger'
             ? 'border-red-300 bg-red-100 text-red-800 motion-safe:animate-pulse'
@@ -2467,7 +2480,7 @@ export function ProcessingPipelineGrid({
           <td
             key={id}
             className={`border-b border-r border-slate-200 px-1.5 py-1 ${
-              isCdSentOverdue(row.cdSent, row.cdWarningStartsAt, clockNow)
+              arivePipelineWarnings(row, clockNow).cdSent
                 ? 'bg-red-100'
                 : ''
             }`}
@@ -2492,12 +2505,8 @@ export function ProcessingPipelineGrid({
           <td
             key={id}
             className={`border-b border-r border-slate-200 px-1.5 py-1 ${
-              isRateLockExpiring(row.rateLock, row.rateLockExpiresAt, clockNow) ||
-              isRateLockOverdueAfterAppraisal(
-                row.rateLock,
-                row.appraisalBackAt,
-                clockNow,
-              )
+              arivePipelineWarnings(row, clockNow).rateLockExpiring ||
+              arivePipelineWarnings(row, clockNow).rateLockAfterAppraisal
                 ? 'bg-red-100'
                 : ''
             }`}
@@ -2534,7 +2543,7 @@ export function ProcessingPipelineGrid({
       case 'fundedAt':
         return (
           <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}>
-            {formatDate(row.fundedAt)}
+            {row.ariveSync?.enabled ? formatAriveCalendarDate(row.fundedAt) : formatDate(row.fundedAt)}
           </td>
         );
       case 'finalRevenue':
@@ -2608,13 +2617,13 @@ export function ProcessingPipelineGrid({
       case 'firstPaymentAt':
         return (
           <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}>
-            {formatDate(row.firstPaymentAt)}
+            {row.ariveSync?.enabled ? formatAriveCalendarDate(row.firstPaymentAt) : formatDate(row.firstPaymentAt)}
           </td>
         );
       case 'sixthPaymentAt':
         return (
           <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}>
-            {formatDate(row.sixthPaymentAt)}
+            {row.ariveSync?.enabled ? formatAriveCalendarDate(row.sixthPaymentAt) : formatDate(row.sixthPaymentAt)}
           </td>
         );
       case 'actions':
@@ -3083,6 +3092,7 @@ export function ProcessingPipelineGrid({
           {message}
         </div>
       )}
+      {ariveConflictWarning && <div role="alert" className="flex items-start justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950"><p>{ariveConflictWarning}</p><button type="button" onClick={() => setAriveConflictWarning('')} aria-label="Dismiss Arive conflict warning" className="rounded-lg p-1 hover:bg-amber-100"><X size={16} /></button></div>}
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
         <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
@@ -3179,26 +3189,7 @@ export function ProcessingPipelineGrid({
               )}
               {virtualRows.map((virtualRow) => {
                 const row = visibleRows[virtualRow.index];
-                const titleOverdue = isConditionItemOverdue(
-                  row.approvedWithConditionsAt,
-                  row.titleStatus,
-                  clockNow,
-                );
-                const payoffOverdue = isConditionItemOverdue(
-                  row.approvedWithConditionsAt,
-                  row.payoffStatus,
-                  clockNow,
-                ) || isOrderedItemOverdue(row.payoffOrderedAt, row.payoffStatus, clockNow);
-                const hoiOverdue = isOrderedItemOverdue(
-                  row.hoiOrderedAt,
-                  row.hoiStatus,
-                  clockNow,
-                );
-                const appraisalBackOverdue = isAppraisalBackOverdue(
-                  row.appraisalOrderedAt,
-                  row.appraisalBackAt,
-                  clockNow,
-                );
+                const reminders = arivePipelineWarnings(row, clockNow);
                 return (
                 <tr
                   key={row.id}
@@ -3208,12 +3199,7 @@ export function ProcessingPipelineGrid({
                   className={`group transition-colors ${rowSurfaceTone[row.pipelineStatus]}`}
                 >
                   {currentColumns.map((column) =>
-                    renderCell(row, column.id, {
-                      title: titleOverdue,
-                      payoff: payoffOverdue,
-                      hoi: hoiOverdue,
-                      appraisalBack: appraisalBackOverdue,
-                    }),
+                    renderCell(row, column.id, reminders),
                   )}
                 </tr>
                 );

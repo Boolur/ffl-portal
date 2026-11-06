@@ -7,7 +7,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { ReactNode } from 'react';
 import { AriveWorkspacePanel } from './AriveWorkspacePanel';
+import { AriveSyncStatus } from './AriveSyncStatus';
+import { ariveFieldLabel, ariveFieldMissing, formatAriveCalendarDate, mergeAriveConflictDraft } from '@/lib/ariveSyncPresentation';
 import { createPortal } from 'react-dom';
 import { DetailCard, DetailField, DetailGrid, DetailSection, WorkspacePanel } from './BorrowerWorkspaceLayout';
 import {
@@ -281,6 +284,8 @@ export function ProcessingBorrowerWorkspace({
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [ariveBlockedFields, setAriveBlockedFields] = useState<string[]>([]);
+  const [ariveLatestDraft, setAriveLatestDraft] = useState<ProcessingBorrowerDetailsInput | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -321,6 +326,26 @@ export function ProcessingBorrowerWorkspace({
       cancelled = true;
     };
   }, [pipelineLoanId]);
+
+  const refreshAriveDetails = useCallback(async () => {
+    const result = await getProcessingBorrowerDetails(pipelineLoanId);
+    onSaved?.();
+    if (!result.success) throw new Error(result.error);
+    setDetails(result.details);
+  }, [pipelineLoanId, onSaved]);
+
+  useEffect(() => {
+    if (!details?.ariveSync?.enabled || editing || saving) return;
+    let active = true;
+    const timer = window.setInterval(async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const result = await getProcessingBorrowerDetails(pipelineLoanId);
+        if (active && result.success) setDetails(result.details);
+      } catch { /* Retain the last visible file until the next refresh. */ }
+    }, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [details?.ariveSync?.enabled, editing, saving, pipelineLoanId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -383,6 +408,8 @@ export function ProcessingBorrowerWorkspace({
     setDraft(buildEditDraft(details));
     setSaveMessage('');
     setSaveError('');
+    setAriveBlockedFields([]);
+    setAriveLatestDraft(null);
     setEditing(true);
     if (activeTab === 'overview') setActiveTab('borrower');
   };
@@ -396,6 +423,16 @@ export function ProcessingBorrowerWorkspace({
     if (!result.success) {
       setSaving(false);
       setSaveError(result.error);
+      if ('ariveConflict' in result && result.ariveConflict) {
+        const blocked = 'blockedFields' in result && Array.isArray(result.blockedFields) ? result.blockedFields.filter((field): field is string => typeof field === 'string') : [];
+        setAriveBlockedFields(blocked);
+        const latest = await getProcessingBorrowerDetails(pipelineLoanId);
+        if (latest.success) {
+          setDetails(latest.details);
+          setAriveLatestDraft(buildEditDraft(latest.details));
+        }
+        onSaved?.();
+      }
       return;
     }
     const refreshed = await getProcessingBorrowerDetails(pipelineLoanId);
@@ -406,10 +443,19 @@ export function ProcessingBorrowerWorkspace({
     }
     setDetails(refreshed.details);
     setDraft(null);
+    setAriveBlockedFields([]);
+    setAriveLatestDraft(null);
     setEditing(false);
     setSaveMessage('Changes saved and added to the activity history.');
     onSaved?.();
   };
+
+  const stageDisplay = details?.ariveSync?.enabled ? details.ariveSync.stageLabel || 'Stage missing in Arive' : details ? statusLabel(details.processing.pipelineStatus) : '';
+  const missingAriveValue = (field: string, value: ReactNode) => ariveFieldMissing(details?.ariveSync, field)
+    ? <span className="inline-flex rounded-md border border-red-300 bg-red-50 px-2 py-1 text-xs font-semibold text-red-800">Missing in Arive</span> : value;
+  const milestoneDate = (field: string, value: string | null) => missingAriveValue(field, details?.ariveSync?.enabled ? formatAriveCalendarDate(value) : formatDate(value));
+  const daysDisplay = details?.ariveSync?.enabled && !details.ariveSync.stageDate
+    ? <span className="text-red-700">Stage date missing</span> : details?.processing.daysInStatus;
 
   const renderOverview = () =>
     details && (
@@ -435,16 +481,16 @@ export function ProcessingBorrowerWorkspace({
             icon={Building2}
           >
             <DetailGrid>
-              <DetailField label="Pipeline status" value={statusLabel(details.processing.pipelineStatus)} />
-              <DetailField label="Days in status" value={details.processing.daysInStatus} />
-              <DetailField label="Title" value={itemStatusLabel(details.processing.titleStatus)} />
-              <DetailField label="Payoff" value={itemStatusLabel(details.processing.payoffStatus)} />
+              <DetailField label="Pipeline status" value={stageDisplay} />
+              <DetailField label="Days in status" value={daysDisplay} />
+              <DetailField label="Title" value={missingAriveValue('titleStatus', itemStatusLabel(details.processing.titleStatus))} />
+              <DetailField label="Payoff" value={missingAriveValue('payoffStatus', itemStatusLabel(details.processing.payoffStatus))} />
               <DetailField
                 label="Payoff expiration"
-                value={formatDate(details.processing.payoffExpiresAt)}
+                value={milestoneDate('payoffExpiresAt', details.processing.payoffExpiresAt)}
               />
-              <DetailField label="HOI" value={itemStatusLabel(details.processing.hoiStatus)} />
-              <DetailField label="CD sent" value={details.processing.cdSent ? 'Yes' : 'No'} />
+              <DetailField label="HOI" value={missingAriveValue('hoiStatus', itemStatusLabel(details.processing.hoiStatus))} />
+              <DetailField label="CD sent" value={missingAriveValue('cdSent', details.processing.cdSent ? 'Yes' : 'No')} />
             </DetailGrid>
           </DetailCard>
         </div>
@@ -659,7 +705,7 @@ export function ProcessingBorrowerWorkspace({
                 : option.value !== 'FUNDED' &&
                   !restructureStatusValues.has(option.value),
         );
-        const payoffLocked = Boolean(
+        const payoffLocked = !details.ariveSync?.enabled && Boolean(
           getProcessingPipelineLockedDefaults(
             draft.lender,
             details.ownership.processingMethod,
@@ -810,26 +856,26 @@ export function ProcessingBorrowerWorkspace({
         <div className="space-y-4">
           <DetailCard title="Milestones" description="Current processing status and checklist." icon={Building2}>
             <DetailSection title="Status and key dates">
-              <DetailField label="Pipeline status" value={statusLabel(details.processing.pipelineStatus)} />
+              <DetailField label="Pipeline status" value={stageDisplay} />
               <DetailField label="Sheet" value={humanize(details.processing.sheet)} />
-              <DetailField label="Days in status" value={details.processing.daysInStatus} />
+              <DetailField label="Days in status" value={daysDisplay} />
               <DetailField label="Assigned" value={formatDate(details.processing.dateAssigned)} />
-              <DetailField label="Estimated signing" value={formatDate(details.processing.estimatedSigningAt)} />
-              <DetailField label="Funded date" value={formatDate(details.processing.fundedAt)} />
+              <DetailField label="Estimated signing" value={milestoneDate('estimatedSigningAt', details.processing.estimatedSigningAt)} />
+              <DetailField label="Funded date" value={milestoneDate('fundedAt', details.processing.fundedAt)} />
               </DetailSection>
               <DetailSection title="Third-party services">
-              <DetailField label="Title" value={itemStatusLabel(details.processing.titleStatus)} />
-              <DetailField label="Payoff" value={itemStatusLabel(details.processing.payoffStatus)} />
+              <DetailField label="Title" value={missingAriveValue('titleStatus', itemStatusLabel(details.processing.titleStatus))} />
+              <DetailField label="Payoff" value={missingAriveValue('payoffStatus', itemStatusLabel(details.processing.payoffStatus))} />
               <DetailField
                 label="Payoff expiration"
-                value={formatDate(details.processing.payoffExpiresAt)}
+                value={milestoneDate('payoffExpiresAt', details.processing.payoffExpiresAt)}
               />
-              <DetailField label="HOI" value={itemStatusLabel(details.processing.hoiStatus)} />
+              <DetailField label="HOI" value={missingAriveValue('hoiStatus', itemStatusLabel(details.processing.hoiStatus))} />
               </DetailSection>
               <DetailSection title="Rate lock and disclosures">
-              <DetailField label="Rate lock" value={details.processing.rateLock ? 'Yes' : 'No'} />
-              <DetailField label="Lock expiration" value={formatDate(details.processing.rateLockExpiresAt)} />
-              <DetailField label="CD sent" value={details.processing.cdSent ? 'Yes' : 'No'} />
+              <DetailField label="Rate lock" value={missingAriveValue('rateLock', details.processing.rateLock ? 'Yes' : 'No')} />
+              <DetailField label="Lock expiration" value={milestoneDate('rateLockExpiresAt', details.processing.rateLockExpiresAt)} />
+              <DetailField label="CD sent" value={missingAriveValue('cdSent', details.processing.cdSent ? 'Yes' : 'No')} />
             </DetailSection>
           </DetailCard>
           <DetailCard title="Processor notes" description="Open items and workflow context." icon={Clipboard}>
@@ -888,9 +934,9 @@ export function ProcessingBorrowerWorkspace({
               <DetailField label="Waiver" value={details.appraisal.waiver} />
               </DetailSection>
               <DetailSection title="Appraisal milestones">
-              <DetailField label="Ordered" value={formatDate(details.appraisal.orderedAt)} />
-              <DetailField label="Scheduled" value={formatDate(details.appraisal.scheduledAt)} />
-              <DetailField label="Received" value={formatDate(details.appraisal.backAt)} />
+              <DetailField label="Ordered" value={milestoneDate('appraisalOrderedAt', details.appraisal.orderedAt)} />
+              <DetailField label="Scheduled" value={milestoneDate('appraisalScheduledAt', details.appraisal.scheduledAt)} />
+              <DetailField label="Received" value={milestoneDate('appraisalBackAt', details.appraisal.backAt)} />
               </DetailSection>
               <DetailSection title="Appraisal notes">
               <div className="sm:col-span-2 xl:col-span-3 whitespace-pre-wrap"><DetailField label="Notes" value={details.appraisal.notes} /></div>
@@ -1013,7 +1059,7 @@ export function ProcessingBorrowerWorkspace({
               </div>
               <p className="mt-1 text-xs font-semibold text-slate-500 sm:text-sm">
                 {details
-                  ? `${statusLabel(details.processing.pipelineStatus)} · ${details.ownership.loanOfficer?.name || 'Unassigned LO'}`
+                  ? `${stageDisplay} · ${details.ownership.loanOfficer?.name || 'Unassigned LO'}`
                   : 'Loading the complete processing file…'}
               </p>
             </div>
@@ -1034,6 +1080,8 @@ export function ProcessingBorrowerWorkspace({
                   setEditing(false);
                   setDraft(null);
                   setSaveError('');
+                  setAriveBlockedFields([]);
+                  setAriveLatestDraft(null);
                 }}
                 disabled={saving}
                 className="app-btn-secondary !h-10 !rounded-xl"
@@ -1097,9 +1145,11 @@ export function ProcessingBorrowerWorkspace({
             </div>
           ) : (
             <>
+              <AriveSyncStatus view={details.ariveSync} pipelineLoanId={pipelineLoanId} onChanged={refreshAriveDetails} editing={editing || saving} responsibilityLabel={getProcessingPipelineLockedDefaults(details.loan.lender, details.ownership.processingMethod)?.label} />
               {saveError && (
                 <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800">
                   {saveError}
+                  {ariveBlockedFields.length > 0 && <div className="mt-2 space-y-2"><p className="text-xs font-medium">Review: {ariveBlockedFields.map(ariveFieldLabel).join(', ')}. Your other unsaved edits have been kept.</p>{ariveLatestDraft && <button type="button" className="app-btn-secondary !bg-white" onClick={() => { setDraft(current => current ? mergeAriveConflictDraft(current, ariveLatestDraft, ariveBlockedFields) : current); setAriveBlockedFields([]); setAriveLatestDraft(null); setSaveError(''); setSaveMessage('Current Arive values restored. Review and save your remaining portal changes.'); }}>Use current Arive values</button>}</div>}
                 </div>
               )}
               {saveMessage && (
@@ -1120,7 +1170,7 @@ export function ProcessingBorrowerWorkspace({
               <button
                 type="button"
                 onClick={() => void saveDetails()}
-                disabled={saving}
+                disabled={saving || ariveBlockedFields.length > 0}
                 className="app-btn-primary !h-10 !rounded-xl disabled:cursor-wait disabled:opacity-60"
               >
                 {saving ? (

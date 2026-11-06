@@ -112,8 +112,8 @@ function normalizeNote(value: unknown, depth = 0): AriveNote {
   if (!id || typeof note.text !== 'string') throw noteSchemaError(note, depth);
   return { id, text: note.text, author: typeof note.createdByName === 'string' ? note.createdByName : 'Arive user', createdAt: typeof note.createdAt === 'string' ? note.createdAt : '', updatedAt: typeof note.updatedAt === 'string' ? note.updatedAt : '', replies: depth < 3 && Array.isArray(note.nestedNotes) ? note.nestedNotes.map(n => normalizeNote(n, depth + 1)) : [] };
 }
-export async function readAriveNotes(id: string) {
-  const api = await ariveSession(); const notes: AriveNote[] = [];
+export async function readAriveNotes(id: string, session?: Awaited<ReturnType<typeof ariveSession>>) {
+  const api = session || await ariveSession(); const notes: AriveNote[] = [];
   for (let offset = 0; offset < 5000; offset += 100) {
     const data = await api(`/loans/${encodeURIComponent(id)}/notes?limit=100&offset=${offset}`);
     if (!Array.isArray(data.loanNotes) || !Number.isInteger(data.count) || data.count < 0) throw new AriveError('Unexpected Arive notes response.');

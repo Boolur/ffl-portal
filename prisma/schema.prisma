@@ -18,6 +18,32 @@ model AriveIntegrationConfig {
   updatedAt            DateTime @updatedAt
 }
 
+model ArivePipelineSync {
+  id             String   @id @default(uuid())
+  pipelineId     String   @unique
+  pipeline       ProcessingPipelineLoan @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  enabled        Boolean  @default(false)
+  enabledById    String
+  ariveLoanId    String
+  ariveGuid      String?
+  lastAttemptAt  DateTime?
+  lastSuccessAt  DateTime?
+  nextAttemptAt  DateTime?
+  failureCount   Int      @default(0)
+  lastError      String?
+  leaseToken     String?
+  leaseUntil     DateTime?
+  snapshot       Json     @default("{}")
+  fieldSources   Json     @default("{}")
+  conflicts      Json     @default("[]")
+  issues         Json     @default("[]")
+  snapshotHash   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([enabled, nextAttemptAt])
+}
+
 enum UserRole {
   ADMIN // @deprecated — retained for enum-value stability; existing rows backfilled to ADMIN_III. No new rows should use this.
   ADMIN_I
@@ -580,6 +606,7 @@ model ProcessingPipelineLoan {
   version                   Int                      @default(1)
   createdAt                 DateTime                 @default(now())
   updatedAt                 DateTime                 @updatedAt
+  ariveSync                 ArivePipelineSync?
 
   @@index([sheet, statusChangedAt])
   @@index([sheet, dateAssigned(sort: Desc)])

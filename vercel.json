@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/internal/arive/sync",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/internal/notifications/drain?batchSize=2",
       "schedule": "* * * * *"
     },

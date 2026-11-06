@@ -5,6 +5,7 @@ import {
   upsertProcessingPipelineForCompletedTask,
 } from './processingPipelineService';
 import { getProcessingAssignmentGroupForSeniorName } from './processingRouting';
+import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
 
 function asTx(value: unknown) {
   return value as Prisma.TransactionClient;
@@ -63,6 +64,119 @@ describe('Sr Processor account-name mapping', () => {
 });
 
 describe('upsertProcessingPipelineForCompletedTask', () => {
+  function existingSubmission(options: { lender?: string; processingMethod?: string; loanId?: string; enabled?: boolean } = {}) {
+    const loanId = options.loanId ?? ARIVE_SYNC_PILOT.loanId;
+    const order: string[] = [];
+    let current = {
+      id: 'pilot-pipeline', loanId, sourceTaskId: 'previous-task', version: 7,
+      finalRevenue: new Prisma.Decimal(6200), projectedRevenue: new Prisma.Decimal(5000),
+      sheet: 'PIPELINE', pipelineStatus: 'CTC', statusChangedAt: new Date('2026-11-01T00:00:00Z'),
+      titleStatus: 'ORDERED', payoffStatus: 'ORDERED', hoiStatus: 'NOT_STARTED',
+      payoffOrderedAt: new Date('2026-10-25T00:00:00Z'), payoffExpiresAt: new Date('2026-11-20T00:00:00Z'),
+      hoiOrderedAt: new Date('2026-10-26T00:00:00Z'), appraisalNeeded: true,
+      cdSent: false, cdWarningStartsAt: new Date('2026-10-29T00:00:00Z'),
+      rateLock: false, rateLockExpiresAt: null, rateLockConfirmedAt: null as Date | null,
+      rateLockRequestedAt: new Date('2026-11-05T12:00:00Z'), rateLockRequestedById: 'requesting-lo',
+      firstPaymentAt: new Date('2027-01-01T00:00:00Z'), sixthPaymentAt: new Date('2027-06-01T00:00:00Z'),
+    };
+    const managed = Object.fromEntries([
+      'sheet', 'pipelineStatus', 'statusChangedAt', 'titleStatus', 'payoffStatus', 'hoiStatus',
+      'payoffOrderedAt', 'payoffExpiresAt', 'hoiOrderedAt', 'appraisalNeeded',
+      'cdSent', 'cdWarningStartsAt', 'rateLock', 'rateLockExpiresAt', 'rateLockConfirmedAt',
+    ].map(field => [field, current[field as keyof typeof current]]));
+    const state = { enabled: options.enabled ?? true, snapshot: { managed }, fieldSources: { pendingItems: { author: 'Arive processor' } } };
+    const db = {
+      $executeRaw: vi.fn(async (...args: unknown[]) => { void args; order.push('lock'); return 1; }),
+      task: { findUnique: vi.fn().mockResolvedValue({
+        id: 'resubmitted-task', loanId, kind: TaskKind.SUBMIT_PROCESSING, assignedUserId: 'junior-2',
+        submissionData: {
+          processingAssignmentGroup: 'MARTIN_SON_BUI', processingMethod: options.processingMethod ?? 'IN_HOUSE',
+          investor: options.lender ?? 'AVEN', appraisalNeeded: 'No', projectedRevenue: '$4,500',
+        },
+        loan: { id: loanId, program: null },
+      }) },
+      loan: { findUnique: vi.fn().mockResolvedValue({ id: loanId, loanNumber: '17881588', borrowerName: 'TESTING TESTER' }) },
+      user: { findMany: vi.fn().mockResolvedValue([{ id: 'senior-2' }]) },
+      lead: { findMany: vi.fn().mockResolvedValue([]) },
+      processingPipelineLoan: {
+        findUnique: vi.fn(async (query: { select?: unknown }) => {
+          order.push(query.select ? 'reference' : 'fresh-row');
+          return query.select ? { id: current.id, finalRevenue: current.finalRevenue } : { ...current };
+        }),
+        update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          order.push('update');
+          current = { ...current, ...data, version: data.version ? current.version + 1 : current.version };
+          return current;
+        }),
+        create: vi.fn(),
+      },
+      arivePipelineSync: { findUnique: vi.fn().mockResolvedValue(state), update: vi.fn() },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit' }) },
+      notificationOutbox: { upsert: vi.fn().mockResolvedValue({ id: 'outbox' }) },
+    };
+    return { db, tx: asTx(db), state, order, get current() { return current; } };
+  }
+
+  it.each([
+    { lender: 'AVEN', processingMethod: 'IN_HOUSE' },
+    { lender: 'UWM', processingMethod: 'THIRD_PARTY' },
+  ])('retains imported milestones and payment dates when an enabled pilot submission is completed again ($lender)', async options => {
+    const h = existingSubmission(options);
+    const before = { ...h.current };
+    const sourceBefore = structuredClone(h.state);
+    await upsertProcessingPipelineForCompletedTask(h.tx, {
+      taskId: 'resubmitted-task', actorId: 'reviewing-jr', completedAt: new Date('2026-11-06T12:00:00Z'),
+    });
+    expect(h.current).toMatchObject({
+      ...before, sourceTaskId: 'resubmitted-task', version: 8,
+      projectedRevenue: 4500, seniorProcessorId: 'senior-2', juniorProcessorId: 'junior-2',
+    });
+    expect(h.order).toEqual(['reference', 'lock', 'fresh-row', 'update']);
+    expect(h.db.$executeRaw.mock.calls[0]?.[1]).toBe('arive-pipeline:pilot-pipeline');
+    expect(h.db.processingPipelineLoan.update.mock.calls[0][0].data).not.toHaveProperty('finalRevenue');
+    expect(h.db.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      userId: 'reviewing-jr', action: 'PROCESSING_PIPELINE_REFRESHED',
+    }) }));
+    expect(h.db.arivePipelineSync.update).not.toHaveBeenCalled();
+    expect(h.state).toEqual(sourceBefore);
+  });
+
+  it('preserves the sync result committed while a repeated completion was waiting for the pipeline lock', async () => {
+    const h = existingSubmission();
+    h.db.$executeRaw.mockImplementationOnce(async () => {
+      h.order.push('lock');
+      // Represents another transaction committing before our advisory lock resolves.
+      h.current.titleStatus = 'RECEIVED';
+      h.current.payoffOrderedAt = new Date('2026-11-05T00:00:00Z');
+      h.current.rateLock = true;
+      h.current.rateLockConfirmedAt = new Date('2026-11-05T14:00:00Z');
+      h.current.finalRevenue = new Prisma.Decimal(7000);
+      h.current.version = 8;
+      return 1;
+    });
+    await upsertProcessingPipelineForCompletedTask(h.tx, { taskId: 'resubmitted-task', actorId: 'reviewing-jr' });
+    expect(h.current).toMatchObject({ titleStatus: 'RECEIVED', payoffOrderedAt: new Date('2026-11-05T00:00:00Z'),
+      rateLock: true, rateLockConfirmedAt: new Date('2026-11-05T14:00:00Z'), finalRevenue: new Prisma.Decimal(7000), version: 9 });
+    expect(h.order.indexOf('fresh-row')).toBeGreaterThan(h.order.indexOf('lock'));
+  });
+
+  it.each([
+    { loanId: ARIVE_SYNC_PILOT.loanId, enabled: false },
+    { loanId: 'ordinary-loan', enabled: true },
+  ])('retains the legacy completion behavior for paused or unrelated loans ($loanId, enabled $enabled)', async options => {
+    const h = existingSubmission(options);
+    await upsertProcessingPipelineForCompletedTask(h.tx, {
+      taskId: 'resubmitted-task', actorId: 'reviewing-jr', completedAt: new Date('2026-11-06T12:00:00Z'),
+    });
+    expect(h.current).toMatchObject({ titleStatus: 'RECEIVED', payoffStatus: 'RECEIVED', hoiStatus: 'RECEIVED',
+      payoffOrderedAt: null, rateLock: true, rateLockRequestedAt: null, appraisalNeeded: false, version: 7 });
+    expect(h.db.processingPipelineLoan.update.mock.calls[0][0].data).not.toHaveProperty('version');
+    if (options.loanId !== ARIVE_SYNC_PILOT.loanId) {
+      expect(h.db.$executeRaw).not.toHaveBeenCalled();
+      expect(h.db.arivePipelineSync.findUnique).not.toHaveBeenCalled();
+    }
+  });
+
   it('creates once, then refreshes the existing loan row and audits both events', async () => {
     let existing: { id: string; finalRevenue: number | null } | null = null;
     const create = vi.fn(async () => {

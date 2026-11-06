@@ -10,9 +10,14 @@ import {
   ProcessingPipelineSheet,
   ProcessingPipelineStatus,
   UserRole,
+  type ArivePipelineSync,
+  type ProcessingPipelineLoan,
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
-import { isAdmin } from '@/lib/adminTiers';
+import { isAdmin, isAdminIII } from '@/lib/adminTiers';
+import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, jsonRecord, preserveAriveManagedFields } from '../../lib/ariveSyncState';
+import { ARIVE_SYNC_PILOT } from '../../lib/ariveSyncTypes';
+import { parseArivePipelineDate } from '../../lib/arivePipelineMapping';
 import { prisma } from '@/lib/prisma';
 import {
   addMonthsClamped,
@@ -52,6 +57,7 @@ type Actor = {
   role: UserRole;
   name: string;
   processingAssignmentGroups: string[];
+  canManageArive: boolean;
 };
 
 function isProcessingLeadership(role: UserRole) {
@@ -67,7 +73,7 @@ async function getActor(): Promise<Actor | null> {
   if (!id || !role) return null;
   const user = await prisma.user.findUnique({
     where: { id },
-    select: { processingAssignmentGroups: true },
+    select: { processingAssignmentGroups: true, active: true, role: true, roles: true },
   });
   if (!user) return null;
   return {
@@ -75,7 +81,29 @@ async function getActor(): Promise<Actor | null> {
     role,
     name: session.user.name || 'Unknown user',
     processingAssignmentGroups: user.processingAssignmentGroups,
+    canManageArive: Boolean(user.active && (role === user.role || user.roles.includes(role)) && isAdminIII(role)),
   };
+}
+
+async function ariveEditContext(tx: Prisma.TransactionClient, current: ProcessingPipelineLoan) {
+  if (current.loanId !== ARIVE_SYNC_PILOT.loanId) return { enabled: false, managed: new Set<string>() };
+  const state = await tx.arivePipelineSync.findUnique({ where: { pipelineId: current.id } });
+  return { enabled: Boolean(state?.enabled), managed: new Set(state?.enabled ? Object.keys(jsonRecord(jsonRecord(state.snapshot).managed)) : []) };
+}
+
+function ariveDateAttempt(raw: unknown, normalized: unknown) {
+  return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim()) ? raw.trim() : normalized;
+}
+
+function ariveEligibleLoan(loan: { id: string; loanNumber: string; loanOfficerId: string }) {
+  return loan.id === ARIVE_SYNC_PILOT.loanId && loan.loanNumber === ARIVE_SYNC_PILOT.loanNumber && loan.loanOfficerId === ARIVE_SYNC_PILOT.ownerId;
+}
+
+function displayedDaysInStatus(statusChangedAt: Date, state: ArivePipelineSync | null | undefined, eligible: boolean) {
+  const sourceDate = state?.enabled && eligible
+    ? parseArivePipelineDate(jsonRecord(jsonRecord(state.snapshot).source).stageDate)
+    : null;
+  return calculateDaysInStatus(sourceDate ?? statusChangedAt);
 }
 
 function scopeWhere(
@@ -123,6 +151,7 @@ function editableScopeWhere(actor: Actor): Prisma.ProcessingPipelineLoanWhereInp
 }
 
 function serializeRow(row: {
+  ariveSync?: ArivePipelineSync | null;
   id: string;
   version: number;
   sheet: ProcessingPipelineSheet;
@@ -170,6 +199,7 @@ function serializeRow(row: {
   loan: {
     id: string;
     loanNumber: string;
+    loanOfficerId: string;
     borrowerName: string;
     borrowerFirstName: string | null;
     borrowerLastName: string | null;
@@ -184,10 +214,12 @@ function serializeRow(row: {
   };
   seniorProcessor: { id: string; name: string } | null;
   juniorProcessor: { id: string; name: string } | null;
-}) {
+}, canManageArive: boolean) {
   const fallbackBorrowerName = splitBorrowerName(row.loan.borrowerName);
+  const { ariveSync: syncState, ...safeRow } = row;
   return {
-    ...row,
+    ...safeRow,
+    ariveSync: ariveSyncView(syncState, ariveEligibleLoan(row.loan), canManageArive),
     dateAssigned: row.dateAssigned.toISOString(),
     statusChangedAt: row.statusChangedAt.toISOString(),
     estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
@@ -212,7 +244,7 @@ function serializeRow(row: {
     finalRevenue: row.finalRevenue === null ? null : Number(row.finalRevenue),
     payrollSubmitted: row.loan.payrollCompRequests.length > 0,
     payrollStatus: row.loan.payrollCompRequests[0]?.status || null,
-    daysInStatus: calculateDaysInStatus(row.statusChangedAt),
+    daysInStatus: displayedDaysInStatus(row.statusChangedAt, syncState, ariveEligibleLoan(row.loan)),
     loan: {
       ...row.loan,
       amount: Number(row.loan.amount),
@@ -545,10 +577,12 @@ export async function getProcessingPipeline(input?: {
     prisma.processingPipelineLoan.findMany({
       where,
       include: {
+        ariveSync: true,
         loan: {
           select: {
             id: true,
             loanNumber: true,
+            loanOfficerId: true,
             borrowerName: true,
             borrowerFirstName: true,
             borrowerLastName: true,
@@ -611,7 +645,7 @@ export async function getProcessingPipeline(input?: {
   return {
     success: true as const,
     rows: rows.map((row) => ({
-      ...serializeRow(row),
+      ...serializeRow(row, actor.canManageArive),
       canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
     })),
     total,
@@ -1109,6 +1143,24 @@ export async function updateProcessingPipelineCell(input: {
       if (current.version !== input.version) {
         return { conflict: true as const, version: current.version };
       }
+      const nextValue = normalizeCellValue(input.field, input.value);
+      const attempted = {
+        [input.field]: ariveDateAttempt(input.value, nextValue),
+        ...(input.estimatedSigningAt !== undefined ? { estimatedSigningAt: input.estimatedSigningAt || null } : {}),
+        ...(input.payoffExpiresAt !== undefined ? { payoffExpiresAt: input.payoffExpiresAt || null } : {}),
+      };
+      const ariveBlocked = await guardArivePipelineEdit(tx, current, actor.id, attempted);
+      if (ariveBlocked) return { ariveBlocked };
+      const arive = await ariveEditContext(tx, current);
+      if (arive.managed.has(input.field) && Object.entries(attempted).every(([field, value]) => ariveSyncSameValue(field, value, (current as unknown as Record<string, unknown>)[field]))) {
+        return { conflict: false as const, unchanged: true as const, version: current.version, patch: {
+          approvedWithConditionsAt: current.approvedWithConditionsAt?.toISOString() || null,
+          payoffOrderedAt: current.payoffOrderedAt?.toISOString() || null,
+          payoffExpiresAt: current.payoffExpiresAt?.toISOString() || null,
+          hoiOrderedAt: current.hoiOrderedAt?.toISOString() || null,
+          estimatedSigningAt: current.estimatedSigningAt?.toISOString() || null,
+        } };
+      }
       if (
         (
           input.field === 'titleStatus' ||
@@ -1133,7 +1185,6 @@ export async function updateProcessingPipelineCell(input: {
         );
       }
 
-      const nextValue = normalizeCellValue(input.field, input.value);
       if (input.field === 'pipelineStatus') {
         const nextStatus = nextValue as ProcessingPipelineStatus;
         if (nextStatus === ProcessingPipelineStatus.FUNDED) {
@@ -1263,6 +1314,16 @@ export async function updateProcessingPipelineCell(input: {
           }
         }
       }
+      await preserveAriveManagedFields(tx, current, data);
+      if (arive.managed.has('approvedWithConditionsAt')) approvedWithConditionsAt = current.approvedWithConditionsAt;
+      if (arive.managed.has('payoffOrderedAt')) payoffOrderedAt = current.payoffOrderedAt;
+      if (arive.managed.has('payoffExpiresAt')) payoffExpiresAt = current.payoffExpiresAt;
+      if (arive.managed.has('hoiOrderedAt')) hoiOrderedAt = current.hoiOrderedAt;
+      if (arive.managed.has('estimatedSigningAt')) estimatedSigningAt = current.estimatedSigningAt;
+      for (const key of Object.keys(lockedDefaultsPatch)) {
+        const actual = (data as Record<string, unknown>)[key];
+        lockedDefaultsPatch[key] = actual instanceof Date ? actual.toISOString() : actual;
+      }
       const updated = await tx.processingPipelineLoan.updateMany({
         where: { id: current.id, version: input.version },
         data,
@@ -1323,6 +1384,7 @@ export async function updateProcessingPipelineCell(input: {
       };
     });
 
+    if ('ariveBlocked' in result && result.ariveBlocked) return result.ariveBlocked;
     if (result.conflict) {
       return {
         success: false as const,
@@ -1331,7 +1393,7 @@ export async function updateProcessingPipelineCell(input: {
         error: 'This row changed in another session. Refreshing the latest values.',
       };
     }
-    if (input.field === 'pipelineStatus') {
+    if (input.field === 'pipelineStatus' && !('unchanged' in result)) {
       const statusLabel = String(input.value).replace(/_/g, ' ');
       await notifyProcessingManagers({
         processingPipelineLoanId: input.id,
@@ -1372,14 +1434,6 @@ export async function updateProcessingPipelineRateLock(input: {
         error: 'A valid Rate Lock expiration date is required.',
       };
     }
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    if (expiresAt < today) {
-      return {
-        success: false as const,
-        error: 'Rate Lock expiration cannot be in the past.',
-      };
-    }
   }
 
   try {
@@ -1393,6 +1447,21 @@ export async function updateProcessingPipelineRateLock(input: {
       }
       if (current.version !== input.version) {
         return { conflict: true as const, version: current.version };
+      }
+      const attempted = { rateLock: input.rateLock, ...(input.expiresAt !== undefined ? { rateLockExpiresAt: ariveDateAttempt(input.expiresAt, expiresAt) } : {}) };
+      const ariveBlocked = await guardArivePipelineEdit(tx, current, actor.id, attempted);
+      if (ariveBlocked) return { ariveBlocked };
+      const arive = await ariveEditContext(tx, current);
+      if (arive.managed.has('rateLock') && Object.entries(attempted).every(([field, value]) => ariveSyncSameValue(field, value, (current as unknown as Record<string, unknown>)[field]))) {
+        return { conflict: false as const, unchanged: true as const, version: current.version, fulfilledRequest: false, patch: {
+          rateLock: current.rateLock, rateLockExpiresAt: current.rateLockExpiresAt?.toISOString() || null,
+          rateLockConfirmedAt: current.rateLockConfirmedAt?.toISOString() || null, cdWarningStartsAt: current.cdWarningStartsAt?.toISOString() || null,
+          rateLockRequestedAt: current.rateLockRequestedAt?.toISOString() || null, rateLockRequestedById: current.rateLockRequestedById,
+        } };
+      }
+      if (expiresAt) {
+        const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+        if (expiresAt < today) throw new Error('Rate Lock expiration cannot be in the past.');
       }
       if (
         isProcessingPipelineFieldLocked(
@@ -1416,9 +1485,7 @@ export async function updateProcessingPipelineRateLock(input: {
         current.cdWarningStartsAt,
         now,
       );
-      const updated = await tx.processingPipelineLoan.updateMany({
-        where: { id: current.id, version: input.version },
-        data: {
+      const data: Prisma.ProcessingPipelineLoanUpdateManyMutationInput = {
           rateLock: input.rateLock,
           rateLockExpiresAt: expiresAt,
           rateLockConfirmedAt,
@@ -1430,7 +1497,13 @@ export async function updateProcessingPipelineRateLock(input: {
               }
             : {}),
           version: { increment: 1 },
-        },
+      };
+      await preserveAriveManagedFields(tx, current, data);
+      const persisted = { ...current, ...data } as ProcessingPipelineLoan;
+      const fulfilledRequest = Boolean(input.rateLock && current.rateLockRequestedAt && persisted.rateLockRequestedAt === null);
+      const updated = await tx.processingPipelineLoan.updateMany({
+        where: { id: current.id, version: input.version },
+        data,
       });
       if (updated.count !== 1) {
         return { conflict: true as const, version: current.version };
@@ -1452,7 +1525,7 @@ export async function updateProcessingPipelineRateLock(input: {
           }),
         },
       });
-      if (input.rateLock && current.rateLockRequestedAt) {
+      if (fulfilledRequest && current.rateLockRequestedAt) {
         await tx.auditLog.create({
           data: {
             loanId: current.loanId,
@@ -1472,22 +1545,19 @@ export async function updateProcessingPipelineRateLock(input: {
       return {
         conflict: false as const,
         version: input.version + 1,
-        fulfilledRequest: Boolean(input.rateLock && current.rateLockRequestedAt),
+        fulfilledRequest,
         patch: {
-          rateLock: input.rateLock,
-          rateLockExpiresAt: expiresAt?.toISOString() || null,
-          rateLockConfirmedAt: rateLockConfirmedAt?.toISOString() || null,
-          cdWarningStartsAt: cdWarningStartsAt?.toISOString() || null,
-          ...(input.rateLock
-            ? {
-                rateLockRequestedAt: null,
-                rateLockRequestedById: null,
-              }
-            : {}),
+          rateLock: persisted.rateLock,
+          rateLockExpiresAt: persisted.rateLockExpiresAt?.toISOString() || null,
+          rateLockConfirmedAt: persisted.rateLockConfirmedAt?.toISOString() || null,
+          cdWarningStartsAt: persisted.cdWarningStartsAt?.toISOString() || null,
+          rateLockRequestedAt: persisted.rateLockRequestedAt?.toISOString() || null,
+          rateLockRequestedById: persisted.rateLockRequestedById,
         },
       };
     });
 
+    if ('ariveBlocked' in result && result.ariveBlocked) return result.ariveBlocked;
     if (result.conflict) {
       return {
         success: false as const,
@@ -1496,7 +1566,7 @@ export async function updateProcessingPipelineRateLock(input: {
         error: 'This row changed in another session. Refreshing the latest values.',
       };
     }
-    await notifyProcessingManagers({
+    if (!('unchanged' in result)) await notifyProcessingManagers({
       processingPipelineLoanId: input.id,
       event: 'RATE_LOCK_UPDATED',
       eventLabel: result.fulfilledRequest
@@ -1712,6 +1782,8 @@ export async function declineProcessingPipelineLoan(input: {
       return { kind: 'conflict' as const, version: current.version };
     }
     const now = new Date();
+    const ariveBlocked = await guardArivePipelineEdit(tx, current, actor.id, { archivedAt: now });
+    if (ariveBlocked) return { ariveBlocked };
     const updated = await tx.processingPipelineLoan.updateMany({
       where: { id: current.id, version: input.version },
       data: {
@@ -1741,6 +1813,7 @@ export async function declineProcessingPipelineLoan(input: {
     return { kind: 'ok' as const };
   });
 
+  if ('ariveBlocked' in result && result.ariveBlocked) return result.ariveBlocked;
   if (result.kind === 'error') return { success: false as const, error: result.error };
   if (result.kind === 'conflict') {
     return {
@@ -1800,6 +1873,8 @@ export async function updateProcessingRestructureWorkflow(input: {
       input.action === 'REQUEST_ADVERSE'
         ? ProcessingPipelineStatus.ADVERSE_PENDING
         : ProcessingPipelineStatus.PENDING_APPROVAL;
+    const ariveBlocked = await guardArivePipelineEdit(tx, current, actor.id, { pipelineStatus });
+    if (ariveBlocked) return { ariveBlocked };
     const actionLabel =
       input.action === 'REQUEST_ADVERSE'
         ? 'Requested to Adverse'
@@ -1811,14 +1886,16 @@ export async function updateProcessingRestructureWorkflow(input: {
       notes,
       now,
     );
-    const updated = await tx.processingPipelineLoan.updateMany({
-      where: { id: current.id, version: input.version },
-      data: {
+    const data: Prisma.ProcessingPipelineLoanUpdateManyMutationInput = {
         pipelineStatus,
         statusChangedAt: now,
         restructureNotes,
         version: { increment: 1 },
-      },
+    };
+    await preserveAriveManagedFields(tx, current, data);
+    const updated = await tx.processingPipelineLoan.updateMany({
+      where: { id: current.id, version: input.version },
+      data,
     });
     if (updated.count !== 1) {
       return { kind: 'conflict' as const, version: current.version };
@@ -1852,12 +1929,13 @@ export async function updateProcessingRestructureWorkflow(input: {
       version: input.version + 1,
       patch: {
         pipelineStatus,
-        statusChangedAt: now.toISOString(),
+        statusChangedAt: data.statusChangedAt instanceof Date ? data.statusChangedAt.toISOString() : current.statusChangedAt.toISOString(),
         restructureNotes,
       },
     };
   });
 
+  if ('ariveBlocked' in result && result.ariveBlocked) return result.ariveBlocked;
   if (result.kind === 'error') return { success: false as const, error: result.error };
   if (result.kind === 'conflict') {
     return {
@@ -1953,6 +2031,14 @@ export async function moveProcessingPipelineLoan(input: {
     const now = new Date();
     const movingToRestructure = input.sheet === ProcessingPipelineSheet.RESTRUCTURE;
     const movingToFunding = input.sheet === ProcessingPipelineSheet.FUNDING;
+    const returningToPipeline = current.sheet !== ProcessingPipelineSheet.PIPELINE && input.sheet === ProcessingPipelineSheet.PIPELINE;
+    const targetStatus = movingToFunding ? ProcessingPipelineStatus.FUNDED : movingToRestructure ? ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE : returningToPipeline ? ProcessingPipelineStatus.RE_SUB : current.pipelineStatus;
+    const ariveBlocked = await guardArivePipelineEdit(tx, current, actor.id, { sheet: input.sheet, pipelineStatus: targetStatus });
+    if (ariveBlocked) return { ariveBlocked };
+    const arive = await ariveEditContext(tx, current);
+    if (arive.enabled && current.sheet === input.sheet && !restructureNotes && input.signingAt === undefined) {
+      return { kind: 'ok' as const, unchanged: true as const, version: current.version, pipelineStatus: current.pipelineStatus, restructureNotes: current.restructureNotes };
+    }
     let fundingDates: ReturnType<typeof calculateSigningFundingDates> | null = null;
     if (movingToFunding) {
       const purpose = readSubmissionString(safeSubmissionObject(current.sourceTask.submissionData), 'loanPurpose', 'loanProgram');
@@ -1968,9 +2054,10 @@ export async function moveProcessingPipelineLoan(input: {
       }
     }
     const fundedAt = fundingDates?.fundedAt || null;
-    const returningToPipeline =
-      current.sheet !== ProcessingPipelineSheet.PIPELINE &&
-      input.sheet === ProcessingPipelineSheet.PIPELINE;
+    if (movingToFunding) {
+      const fundingBlocked = await guardArivePipelineEdit(tx, current, actor.id, { fundedAt });
+      if (fundingBlocked) return { ariveBlocked: fundingBlocked };
+    }
     const nextRestructureNotes = movingToRestructure
       ? appendRestructureNote(
           current.restructureNotes,
@@ -1980,9 +2067,7 @@ export async function moveProcessingPipelineLoan(input: {
           now,
         )
       : current.restructureNotes;
-    const updated = await tx.processingPipelineLoan.updateMany({
-      where: { id: current.id, version: input.version },
-      data: {
+    const data: Prisma.ProcessingPipelineLoanUpdateManyMutationInput = {
         sheet: input.sheet,
         movedAt: now,
         ...(movingToRestructure || returningToPipeline || movingToFunding
@@ -2016,7 +2101,11 @@ export async function moveProcessingPipelineLoan(input: {
                 sixthPaymentAt: null,
               }
           : {}),
-      },
+    };
+    await preserveAriveManagedFields(tx, current, data);
+    const updated = await tx.processingPipelineLoan.updateMany({
+      where: { id: current.id, version: input.version },
+      data,
     });
     if (updated.count !== 1) return { kind: 'conflict' as const, version: current.version };
     await tx.auditLog.create({
@@ -2059,6 +2148,7 @@ export async function moveProcessingPipelineLoan(input: {
     };
   });
 
+  if ('ariveBlocked' in result && result.ariveBlocked) return result.ariveBlocked;
   if (result.kind === 'error') return { success: false as const, error: result.error };
   if (result.kind === 'conflict') {
     return {
@@ -2068,7 +2158,7 @@ export async function moveProcessingPipelineLoan(input: {
       error: 'This row changed in another session. Refreshing the latest values.',
     };
   }
-  await notifyProcessingManagers({
+  if (!('unchanged' in result)) await notifyProcessingManagers({
     processingPipelineLoanId: input.id,
     event:
       input.sheet === ProcessingPipelineSheet.FUNDING
@@ -2251,43 +2341,6 @@ export async function updateProcessingBorrowerDetails(
   ) {
     return { success: false as const, error: 'Enter valid processing dates.' };
   }
-  const restructureStatuses = new Set<ProcessingPipelineStatus>([
-    ProcessingPipelineStatus.SUSPENDED_RESTRUCTURE,
-    ProcessingPipelineStatus.ADVERSE_PENDING,
-    ProcessingPipelineStatus.PENDING_APPROVAL,
-  ]);
-  if (
-    input.sheet === ProcessingPipelineSheet.RESTRUCTURE &&
-    !restructureStatuses.has(input.pipelineStatus)
-  ) {
-    return {
-      success: false as const,
-      error: 'Restructures must use Suspended/Restructure, Adverse Pending, or Pending Approval.',
-    };
-  }
-  if (
-    input.sheet === ProcessingPipelineSheet.PIPELINE &&
-    (restructureStatuses.has(input.pipelineStatus) ||
-      input.pipelineStatus === ProcessingPipelineStatus.FUNDED)
-  ) {
-    return { success: false as const, error: 'Select a status valid for the Pipeline sheet.' };
-  }
-  if (
-    input.pipelineStatus === ProcessingPipelineStatus.DOCS_OUT &&
-    !estimatedSigningAt
-  ) {
-    return { success: false as const, error: 'Estimated signing is required for Docs Out.' };
-  }
-  if (input.sheet === ProcessingPipelineSheet.FUNDING && !fundedAt) {
-    return { success: false as const, error: 'A funded date is required for Fundings.' };
-  }
-  if (
-    input.sheet === ProcessingPipelineSheet.RESTRUCTURE &&
-    !borrowerDetailText(input.restructureNotes, 4000)
-  ) {
-    return { success: false as const, error: 'Restructure notes are required.' };
-  }
-
   try {
     const result = await prisma.$transaction(async (tx) => {
       const current = await tx.processingPipelineLoan.findFirst({
@@ -2298,9 +2351,6 @@ export async function updateProcessingBorrowerDetails(
         },
       });
       if (!current) return { kind: 'missing' as const };
-      if (input.sheet === ProcessingPipelineSheet.FUNDING && current.sheet !== ProcessingPipelineSheet.FUNDING) {
-        return { kind: 'validation' as const, error: 'Use Move to Fundings in the pipeline to calculate funding from the signing date.' };
-      }
       if (
         !canEditProcessingBorrowerWorkspace(actor.role) ||
         (
@@ -2312,6 +2362,32 @@ export async function updateProcessingBorrowerDetails(
       }
       if (current.version !== input.version) {
         return { kind: 'conflict' as const };
+      }
+
+      const attempted = {
+        sheet: input.sheet, pipelineStatus: input.pipelineStatus, dateAssigned: input.dateAssigned,
+        estimatedSigningAt: input.estimatedSigningAt || null, titleStatus: input.titleStatus,
+        payoffStatus: input.payoffStatus, payoffExpiresAt: input.payoffExpiresAt || null,
+        hoiStatus: input.hoiStatus, missingItemsCurrentStatus: String(input.missingItemsCurrentStatus ?? '').trim() || null,
+        rateLock: input.rateLock, rateLockExpiresAt: input.rateLockExpiresAt || null, cdSent: input.cdSent,
+        fundedAt: input.fundedAt || null, appraisalNeeded: input.appraisalNeeded,
+        appraisalOrderedAt: input.appraisalOrderedAt || null, appraisalScheduledAt: input.appraisalScheduledAt || null,
+        appraisalBackAt: input.appraisalBackAt || null, appraisalNotes: borrowerDetailText(input.appraisalNotes, 2000) || null,
+        lender: borrowerDetailText(input.lender, 200) || null, loanType: borrowerDetailText(input.loanType, 100) || null,
+        propertyState: propertyState || null, leadSource: borrowerDetailText(input.leadSource, 200) || null,
+      };
+      const ariveBlocked = await guardArivePipelineEdit(tx, current, actor.id, attempted);
+      if (ariveBlocked) return { ariveBlocked };
+      const arive = await ariveEditContext(tx, current);
+      if (input.sheet === ProcessingPipelineSheet.FUNDING && current.sheet !== ProcessingPipelineSheet.FUNDING) {
+        return { kind: 'validation' as const, error: 'Use Move to Fundings in the pipeline to calculate funding from the signing date.' };
+      }
+      if (!arive.enabled) {
+        if (input.sheet === ProcessingPipelineSheet.RESTRUCTURE && !RESTRUCTURE_PIPELINE_STATUSES.has(input.pipelineStatus)) return { kind: 'validation' as const, error: 'Restructures must use Suspended/Restructure, Adverse Pending, or Pending Approval.' };
+        if (input.sheet === ProcessingPipelineSheet.PIPELINE && (RESTRUCTURE_PIPELINE_STATUSES.has(input.pipelineStatus) || input.pipelineStatus === ProcessingPipelineStatus.FUNDED)) return { kind: 'validation' as const, error: 'Select a status valid for the Pipeline sheet.' };
+        if (input.pipelineStatus === ProcessingPipelineStatus.DOCS_OUT && !estimatedSigningAt) return { kind: 'validation' as const, error: 'Estimated signing is required for Docs Out.' };
+        if (input.sheet === ProcessingPipelineSheet.FUNDING && !fundedAt) return { kind: 'validation' as const, error: 'A funded date is required for Fundings.' };
+        if (input.sheet === ProcessingPipelineSheet.RESTRUCTURE && !borrowerDetailText(input.restructureNotes, 4000)) return { kind: 'validation' as const, error: 'Restructure notes are required.' };
       }
 
       const submission = safeSubmissionObject(
@@ -2387,6 +2463,7 @@ export async function updateProcessingBorrowerDetails(
         current.processingMethod,
       );
       if (
+        !arive.enabled &&
         !lockedPayoff &&
         input.payoffStatus === ProcessingItemStatus.RECEIVED &&
         !payoffExpiresAt
@@ -2412,7 +2489,7 @@ export async function updateProcessingBorrowerDetails(
         nextLender,
         current.processingMethod,
       );
-      if (input.rateLock && !rateLockExpiresAt && !lockedRateLock) {
+      if (!arive.enabled && input.rateLock && !rateLockExpiresAt && !lockedRateLock) {
         return {
           kind: 'validation' as const,
           error: 'A Rate Lock expiration date is required when Rate Lock is Yes.',
@@ -2529,6 +2606,8 @@ export async function updateProcessingBorrowerDetails(
           });
         }
       }
+      await preserveAriveManagedFields(tx, current, pipelineData);
+      if (arive.managed.has('appraisalNeeded')) submissionPatch.appraisalNeeded = current.appraisalNeeded;
       const updated = await tx.processingPipelineLoan.updateMany({
         where: { id: current.id, version: current.version },
         data: pipelineData,
@@ -2598,6 +2677,7 @@ export async function updateProcessingBorrowerDetails(
       return { kind: 'ok' as const, workflowChanged: statusChanged };
     });
 
+    if ('ariveBlocked' in result && result.ariveBlocked) return result.ariveBlocked;
     if (result.kind === 'missing') {
       return { success: false as const, error: 'Pipeline row not found.' };
     }
@@ -2651,6 +2731,7 @@ export async function getProcessingBorrowerDetails(id: string) {
   const row = await prisma.processingPipelineLoan.findFirst({
     where: { AND: [{ id }, scopeWhere(actor)] },
     include: {
+      ariveSync: true,
       loan: {
         include: {
           loanOfficer: { select: { id: true, name: true, email: true } },
@@ -2725,6 +2806,7 @@ export async function getProcessingBorrowerDetails(id: string) {
     details: {
       id: row.id,
       version: row.version,
+      ariveSync: ariveSyncView(row.ariveSync, ariveEligibleLoan(row.loan), actor.canManageArive),
       canEdit:
         (
           row.sheet !== ProcessingPipelineSheet.FUNDING ||
@@ -2818,7 +2900,7 @@ export async function getProcessingBorrowerDetails(id: string) {
       processing: {
         sheet: row.sheet,
         pipelineStatus: row.pipelineStatus,
-        daysInStatus: calculateDaysInStatus(row.statusChangedAt),
+        daysInStatus: displayedDaysInStatus(row.statusChangedAt, row.ariveSync, ariveEligibleLoan(row.loan)),
         statusChangedAt: row.statusChangedAt.toISOString(),
         dateAssigned: row.dateAssigned.toISOString(),
         estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,

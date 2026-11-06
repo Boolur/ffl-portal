@@ -2,6 +2,7 @@ import {
   LeadStatus,
   NotificationOutboxEventType,
   Prisma,
+  type ProcessingPipelineLoan,
   UserRole,
 } from '@prisma/client';
 import {
@@ -15,6 +16,8 @@ import {
   isInHouseProcessingAssignmentGroup,
 } from './processingRouting';
 import { syncLeadStatusForLoan } from './leadPipelineSync';
+import { preserveAriveManagedFields } from './ariveSyncState';
+import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
 
 type TransactionClient = Prisma.TransactionClient;
 
@@ -158,19 +161,38 @@ export async function upsertProcessingPipelineForCompletedTask(
     });
   }
 
-  const existing = await tx.processingPipelineLoan.findUnique({
+  let existing = await tx.processingPipelineLoan.findUnique({
     where: { loanId: task.loanId },
     select: { id: true, finalRevenue: true },
   });
+  let syncedCurrent: ProcessingPipelineLoan | null = null;
+  if (existing && task.loanId === ARIVE_SYNC_PILOT.loanId) {
+    // The caller may already hold the submission-package lock. Keep the same
+    // package -> pipeline lock order as the inbound worker, then use fresh values.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${existing.id}`}))`;
+    const current = await tx.processingPipelineLoan.findUnique({ where: { id: existing.id } });
+    if (!current || current.loanId !== task.loanId) {
+      throw new Error('The processing file changed. Reopen the task before completing it.');
+    }
+    existing = current;
+    const sync = await tx.arivePipelineSync.findUnique({
+      where: { pipelineId: current.id },
+      select: { enabled: true },
+    });
+    if (sync?.enabled) syncedCurrent = current;
+  }
+  const updateData: Prisma.ProcessingPipelineLoanUncheckedUpdateInput = {
+    ...pipelineData,
+    ...(existing?.finalRevenue == null ? { finalRevenue: submittedRevenue } : {}),
+  };
+  if (syncedCurrent) {
+    await preserveAriveManagedFields(tx, syncedCurrent, updateData);
+    updateData.version = { increment: 1 };
+  }
   const row = existing
     ? await tx.processingPipelineLoan.update({
-        where: { id: existing.id },
-        data: {
-          ...pipelineData,
-          ...(existing.finalRevenue == null
-            ? { finalRevenue: submittedRevenue }
-            : {}),
-        },
+        where: { id: existing.id, ...(syncedCurrent ? { version: syncedCurrent.version } : {}) },
+        data: updateData,
       })
     : await tx.processingPipelineLoan.create({
         data: {
