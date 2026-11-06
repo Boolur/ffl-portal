@@ -1,8 +1,8 @@
 // Exact active LO account; the similarly named onboarding account is excluded.
 export const SUBMISSION_PILOT_LO_ID = '2e28c6a5-67c0-442d-94bd-59897ad8d8cd';
-// Re-enable this switch only when Matt is ready to resume the pilot.
+// Resumed for Matt at his request on November 6, 2026; the exact account gate stays below.
 // Stored packages, links, files, and history are preserved while paused.
-export function isSubmissionPilotEnabled(): boolean { return false; }
+export function isSubmissionPilotEnabled(): boolean { return true; }
 export function isSubmissionPilotLoanOfficer(id: string | null | undefined): id is string {
   return isSubmissionPilotEnabled() && id === SUBMISSION_PILOT_LO_ID;
 }

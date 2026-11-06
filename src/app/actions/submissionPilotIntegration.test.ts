@@ -5,14 +5,14 @@ const mocks = vi.hoisted(() => ({
   session: vi.fn(), findUser: vi.fn(), findTask: vi.fn(), findRequest: vi.fn(), updateTask: vi.fn(),
   transaction: vi.fn(), lock: vi.fn(), configured: vi.fn(), classifications: vi.fn(),
   findLoan: vi.fn(), readNotes: vi.fn(), ariveSession: vi.fn(), api: vi.fn(),
-  storage: vi.fn(), download: vi.fn(),
+  storage: vi.fn(), download: vi.fn(), enabled: vi.fn(),
 }));
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 vi.mock('@/lib/taskLifecycleTimeline', () => ({ appendLifecycleHistoryEvent: vi.fn() }));
 vi.mock('@/lib/adminTiers', async () => import('../../lib/adminTiers'));
-vi.mock('@/lib/submissionPilot', async () => import('../../lib/submissionPilot'));
+vi.mock('@/lib/submissionPilot', async () => ({ ...await import('../../lib/submissionPilot'), isSubmissionPilotEnabled: mocks.enabled }));
 vi.mock('@/lib/ariveTrackers', async () => import('../../lib/ariveTrackers'));
 vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({ prisma: {
@@ -34,7 +34,7 @@ import {
   getAriveTestWorkspace, refreshPilotAriveNotes, getPilotAriveClassifications,
   sendPilotDocumentToArive, linkExistingAriveTestPackage, prepareProcessingSubmissionUpload, getPilotAriveTrackers,
 } from './submissionPilotActions';
-import { SUBMISSION_PILOT_LO_ID, isSubmissionPilotEnabled } from '../../lib/submissionPilot';
+import { SUBMISSION_PILOT_LO_ID } from '../../lib/submissionPilot';
 
 let pkg: PilotPackage;
 let loan: { loanOfficerId: string; borrowerName: string; loanNumber: string };
@@ -55,6 +55,8 @@ function expectNoProviderAccess() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // These cases explicitly exercise integration access while general enrollment is paused.
+  mocks.enabled.mockReturnValue(false);
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
   pkg = { version: 1, revision: 31, state: 'APPROVED', reviewerId: 'reviewer', history: [],
     ariveLink: { id: 'remote-test', loanNumber: '17881588' },
@@ -88,7 +90,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('paused submission pilot integration boundary', () => {
   it('keeps Matt’s general LO submission uploads paused', async () => {
-    expect(isSubmissionPilotEnabled()).toBe(false);
+    expect(mocks.enabled()).toBe(false);
     expect(await prepareProcessingSubmissionUpload({ name: 'synthetic.pdf', size: 3, type: 'application/pdf' })).toMatchObject({ success: false, error: expect.stringContaining('paused') });
     expectNoProviderAccess();
   });

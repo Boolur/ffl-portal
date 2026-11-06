@@ -21,6 +21,16 @@ import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
 
 type TransactionClient = Prisma.TransactionClient;
 
+// This request was reconstructed after deletion, without its original submission
+// fields. Re-reviewing it must not replay those incomplete fields onto the live file.
+const RECOVERED_ARIVE_REQUEST = {
+  taskId: 'a21bf78b-821e-4d6a-bf2f-76200e2b0c10',
+  pipelineId: '4f2cb065-4e77-4d21-9c6b-7cdd3004c122',
+  packageId: '9e1e3bf6-9aa0-4bc0-a254-7036ef4542c7',
+  oldTaskId: '022123b3-ad09-4592-b6b3-901ed6ed8fe1',
+  oldPipelineId: '5775fac3-d362-49f5-bc13-c027d3e6dc0d',
+} as const;
+
 function asObject(value: Prisma.JsonValue | null): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -30,6 +40,44 @@ function asObject(value: Prisma.JsonValue | null): Record<string, unknown> {
 function optionalString(value: unknown) {
   const normalized = String(value ?? '').trim();
   return normalized || null;
+}
+
+async function preserveRecoveredArivePipeline(tx: TransactionClient) {
+  // The completion transaction already owns the request/package locks. Match the
+  // inbound worker's package -> pipeline order and inspect the freshly locked row.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${RECOVERED_ARIVE_REQUEST.pipelineId}`}))`;
+  const task = await tx.task.findUnique({
+    where: { id: RECOVERED_ARIVE_REQUEST.taskId },
+    include: { loan: { select: { id: true, loanNumber: true, borrowerName: true, loanOfficerId: true } } },
+  });
+  const pipeline = await tx.processingPipelineLoan.findUnique({ where: { id: RECOVERED_ARIVE_REQUEST.pipelineId } });
+  const audits = await tx.auditLog.findMany({
+    where: { loanId: ARIVE_SYNC_PILOT.loanId, action: 'ARIVE_TEST_PIPELINE_RECOVERED' },
+    select: { details: true },
+    take: 2,
+  });
+  let recovery: Record<string, unknown> = {};
+  if (audits.length === 1) {
+    try { recovery = asObject(JSON.parse(audits[0].details ?? 'null')); } catch { /* Unverified recovery fails closed below. */ }
+  }
+  if (
+    !task || task.id !== RECOVERED_ARIVE_REQUEST.taskId || task.kind !== 'SUBMIT_PROCESSING' ||
+    task.status !== 'COMPLETED' || task.workflowState !== 'NONE' || !task.completedAt || task.parentTaskId !== null ||
+    task.loanId !== ARIVE_SYNC_PILOT.loanId || task.loan.id !== ARIVE_SYNC_PILOT.loanId ||
+    task.loan.loanNumber !== ARIVE_SYNC_PILOT.loanNumber || task.loan.loanOfficerId !== ARIVE_SYNC_PILOT.ownerId ||
+    task.loan.borrowerName.trim().toUpperCase() !== ARIVE_SYNC_PILOT.borrowerName ||
+    asObject(task.submissionData).processingDocumentTaskId !== RECOVERED_ARIVE_REQUEST.packageId ||
+    !pipeline || pipeline.id !== RECOVERED_ARIVE_REQUEST.pipelineId || pipeline.loanId !== ARIVE_SYNC_PILOT.loanId ||
+    pipeline.sourceTaskId !== RECOVERED_ARIVE_REQUEST.taskId || pipeline.archivedAt !== null ||
+    recovery.recoveryVersion !== 1 || recovery.newRequestId !== RECOVERED_ARIVE_REQUEST.taskId ||
+    recovery.newPipelineId !== RECOVERED_ARIVE_REQUEST.pipelineId || recovery.packageId !== RECOVERED_ARIVE_REQUEST.packageId ||
+    recovery.oldRequestId !== RECOVERED_ARIVE_REQUEST.oldTaskId || recovery.oldPipelineId !== RECOVERED_ARIVE_REQUEST.oldPipelineId
+  ) {
+    throw new Error('The recovered processing file changed or its recovery record is unavailable. Reopen the task and contact an administrator before completing it.');
+  }
+  // The caller completes the review and its history. Do not refresh the pipeline,
+  // update the loan, re-sync a lead, or enqueue another submission notification.
+  return pipeline;
 }
 
 export async function resolveSeniorProcessorForGroup(
@@ -93,6 +141,9 @@ export async function upsertProcessingPipelineForCompletedTask(
     completedAt?: Date;
   },
 ) {
+  if (input.taskId === RECOVERED_ARIVE_REQUEST.taskId) {
+    return preserveRecoveredArivePipeline(tx);
+  }
   const task = await tx.task.findUnique({
     where: { id: input.taskId },
     include: {

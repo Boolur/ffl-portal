@@ -9,14 +9,15 @@ function filledPackage() {
   return p;
 }
 describe('processing submission pilot gates', () => {
-  it('pauses enrollment and active task routing without deleting package links or history', () => {
+  it('enables only Matt and resumes linked task routing without changing package history', () => {
     const p = initialPilotPackage();
     p.history.push({ at: '2026-10-16', actor: 'Test', message: 'Preserved' });
     const data = { processingDocumentTaskId: 'saved-documents', submissionPilot: p };
     const before = JSON.stringify(data);
-    expect(isSubmissionPilotEnabled()).toBe(false);
-    expect(isSubmissionPilotLoanOfficer(SUBMISSION_PILOT_LO_ID)).toBe(false);
-    expect(activeProcessingDocumentTaskId(data)).toBeNull();
+    expect(isSubmissionPilotEnabled()).toBe(true);
+    expect(isSubmissionPilotLoanOfficer(SUBMISSION_PILOT_LO_ID)).toBe(true);
+    for (const other of ['another-lo', 'onboarding-matt', null, undefined]) expect(isSubmissionPilotLoanOfficer(other)).toBe(false);
+    expect(activeProcessingDocumentTaskId(data)).toBe('saved-documents');
     expect(processingDocumentTaskId(data)).toBe('saved-documents');
     expect(readPilotPackage(data)).toBe(p);
     expect(JSON.stringify(data)).toBe(before);

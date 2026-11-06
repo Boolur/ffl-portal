@@ -63,6 +63,109 @@ describe('Sr Processor account-name mapping', () => {
   });
 });
 
+describe('re-completing the recovered TESTING TESTER review', () => {
+  const taskId = 'a21bf78b-821e-4d6a-bf2f-76200e2b0c10';
+  const pipelineId = '4f2cb065-4e77-4d21-9c6b-7cdd3004c122';
+  const packageId = '9e1e3bf6-9aa0-4bc0-a254-7036ef4542c7';
+  function recoveredReview() {
+    const order: string[] = [];
+    const task = {
+      id: taskId, loanId: ARIVE_SYNC_PILOT.loanId, kind: TaskKind.SUBMIT_PROCESSING,
+      status: 'COMPLETED', workflowState: 'NONE', completedAt: new Date('2026-11-06T12:00:00Z'), parentTaskId: null as string | null,
+      submissionData: { processingDocumentTaskId: packageId, processingMethod: 'IN_HOUSE', loanProgram: 'Stale recovered program' },
+      loan: { ...ARIVE_SYNC_PILOT, id: ARIVE_SYNC_PILOT.loanId, loanOfficerId: ARIVE_SYNC_PILOT.ownerId, program: 'Current program' },
+    };
+    const pipeline = {
+      id: pipelineId, loanId: ARIVE_SYNC_PILOT.loanId, sourceTaskId: taskId, archivedAt: null as Date | null,
+      version: 9, lender: 'Current lender', processingMethod: 'IN_HOUSE', assignmentGroup: 'MARTIN_SON_BUI',
+      seniorProcessorId: 'current-senior', juniorProcessorId: 'current-junior',
+      dateAssigned: new Date('2026-11-05T12:00:00Z'), projectedRevenue: new Prisma.Decimal(4500), finalRevenue: new Prisma.Decimal(6000),
+      appraisalNeeded: true, appraisalNotes: 'Preserve current instructions', propertyState: 'CA', loanType: 'Conventional',
+      sheet: 'PIPELINE', pipelineStatus: 'CTC', statusChangedAt: new Date('2026-11-05T14:00:00Z'),
+      rateLockRequestedAt: new Date('2026-11-05T13:00:00Z'), rateLockRequestedById: 'loan-officer',
+    };
+    const recovery = {
+      recoveryVersion: 1, newRequestId: taskId, newPipelineId: pipelineId, packageId,
+      oldRequestId: '022123b3-ad09-4592-b6b3-901ed6ed8fe1', oldPipelineId: '5775fac3-d362-49f5-bc13-c027d3e6dc0d',
+    };
+    const db = {
+      $executeRaw: vi.fn(async (...args: unknown[]) => { void args; order.push('lock'); return 1; }),
+      task: { findUnique: vi.fn(async () => { order.push('task'); return task; }), update: vi.fn() },
+      processingPipelineLoan: {
+        findUnique: vi.fn(async () => { order.push('pipeline'); return pipeline; }), update: vi.fn(), create: vi.fn(),
+      },
+      auditLog: { findMany: vi.fn().mockResolvedValue([{ details: JSON.stringify(recovery) }]), create: vi.fn() },
+      loan: { update: vi.fn() }, user: { findMany: vi.fn() },
+      lead: { findMany: vi.fn(), update: vi.fn() }, notificationOutbox: { upsert: vi.fn() },
+      arivePipelineSync: { findUnique: vi.fn(), update: vi.fn() },
+    };
+    return { task, pipeline, recovery, order, db, tx: asTx(db) };
+  }
+  function expectNoReplay(h: ReturnType<typeof recoveredReview>) {
+    for (const operation of [h.db.task.update, h.db.processingPipelineLoan.update, h.db.processingPipelineLoan.create,
+      h.db.loan.update, h.db.user.findMany, h.db.lead.findMany, h.db.lead.update, h.db.auditLog.create,
+      h.db.notificationOutbox.upsert, h.db.arivePipelineSync.findUnique, h.db.arivePipelineSync.update]) {
+      expect(operation).not.toHaveBeenCalled();
+    }
+  }
+
+  it('allows repeated review completion without replaying sparse submission fields or side effects', async () => {
+    const h = recoveredReview();
+    const before = JSON.stringify({ pipeline: h.pipeline, loan: h.task.loan, task: h.task });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const row = await upsertProcessingPipelineForCompletedTask(h.tx, { taskId, actorId: 'reviewer', completedAt: new Date('2026-11-07T12:00:00Z') });
+      expect(row).toEqual(h.pipeline);
+    }
+    expect(JSON.stringify({ pipeline: h.pipeline, loan: h.task.loan, task: h.task })).toBe(before);
+    expect(h.order).toEqual(['lock', 'task', 'pipeline', 'lock', 'task', 'pipeline']);
+    expect(h.db.$executeRaw.mock.calls[0]?.[1]).toBe(`arive-pipeline:${pipelineId}`);
+    expect(h.db.auditLog.findMany).toHaveBeenCalledWith({
+      where: { loanId: ARIVE_SYNC_PILOT.loanId, action: 'ARIVE_TEST_PIPELINE_RECOVERED' }, select: { details: true }, take: 2,
+    });
+    expectNoReplay(h);
+  });
+
+  it('returns the pipeline state committed while review completion waited for its lock', async () => {
+    const h = recoveredReview();
+    h.db.$executeRaw.mockImplementationOnce(async () => {
+      h.order.push('lock'); h.pipeline.lender = 'Latest lender'; h.pipeline.version = 10; return 1;
+    });
+    await expect(upsertProcessingPipelineForCompletedTask(h.tx, { taskId, actorId: 'reviewer' })).resolves.toMatchObject({ lender: 'Latest lender', version: 10 });
+    expect(h.order).toEqual(['lock', 'task', 'pipeline']);
+    expectNoReplay(h);
+  });
+
+  it.each([
+    'missing request', 'request identity changed', 'request still open', 'request still waiting', 'missing completion date',
+    'wrong loan identity', 'wrong owner', 'wrong number', 'wrong borrower', 'changed package',
+    'missing pipeline', 'changed pipeline source', 'archived pipeline',
+    'missing recovery audit', 'ambiguous recovery audit', 'malformed recovery audit', 'mismatched recovery audit',
+  ])('fails closed without replaying submission effects when %s', async scenario => {
+    const h = recoveredReview();
+    switch (scenario) {
+      case 'missing request': h.db.task.findUnique.mockResolvedValueOnce(null!); break;
+      case 'request identity changed': h.task.id = 'another-task'; break;
+      case 'request still open': h.task.status = 'IN_PROGRESS'; break;
+      case 'request still waiting': h.task.workflowState = 'WAITING_ON_LO'; break;
+      case 'missing completion date': h.task.completedAt = null!; break;
+      case 'wrong loan identity': h.task.loan.id = 'another-loan' as typeof h.task.loan.id; break;
+      case 'wrong owner': h.task.loan.loanOfficerId = 'another-owner' as typeof h.task.loan.loanOfficerId; break;
+      case 'wrong number': h.task.loan.loanNumber = '999999' as typeof h.task.loan.loanNumber; break;
+      case 'wrong borrower': h.task.loan.borrowerName = 'Another borrower' as typeof h.task.loan.borrowerName; break;
+      case 'changed package': h.task.submissionData.processingDocumentTaskId = 'another-package'; break;
+      case 'missing pipeline': h.db.processingPipelineLoan.findUnique.mockResolvedValueOnce(null!); break;
+      case 'changed pipeline source': h.pipeline.sourceTaskId = 'another-request'; break;
+      case 'archived pipeline': h.pipeline.archivedAt = new Date(); break;
+      case 'missing recovery audit': h.db.auditLog.findMany.mockResolvedValueOnce([]); break;
+      case 'ambiguous recovery audit': h.db.auditLog.findMany.mockResolvedValueOnce([{ details: JSON.stringify(h.recovery) }, { details: JSON.stringify(h.recovery) }]); break;
+      case 'malformed recovery audit': h.db.auditLog.findMany.mockResolvedValueOnce([{ details: '{' }]); break;
+      case 'mismatched recovery audit': h.db.auditLog.findMany.mockResolvedValueOnce([{ details: JSON.stringify({ ...h.recovery, oldRequestId: 'another-request' }) }]); break;
+    }
+    await expect(upsertProcessingPipelineForCompletedTask(h.tx, { taskId, actorId: 'reviewer' })).rejects.toThrow('The recovered processing file changed');
+    expectNoReplay(h);
+  });
+});
+
 describe('upsertProcessingPipelineForCompletedTask', () => {
   function existingSubmission(options: { lender?: string; processingMethod?: string; loanId?: string; enabled?: boolean } = {}) {
     const loanId = options.loanId ?? ARIVE_SYNC_PILOT.loanId;

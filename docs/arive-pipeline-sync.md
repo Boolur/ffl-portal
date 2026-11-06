@@ -5,7 +5,7 @@ Implemented November 5, 2026. This document describes the inbound baseline reque
 ## Scope and operation
 
 - Only the existing TESTING TESTER loan 17881588 is eligible. The server verifies its exact portal loan ID, Matt's owner ID, borrower name, Arive number/GUID, and originator email. No loan import or company-wide enrollment is enabled.
-- Matt's new-submission pilot remains paused. Its forms, task workflow, document approvals, and stored files are unchanged.
+- Matt's new-submission pilot was resumed at his request on November 6, 2026, for his exact active LO account only. This separate submission switch does not expand the background-sync enrollment beyond TESTING TESTER. Existing document approvals and stored files are preserved.
 - Admin III can enable, pause, refresh, and acknowledge differences from the existing pipeline Borrower Workspace. Mutations check the current active database account as well as the active session role.
 - The worker uses the saved encrypted branch connection and only GET operations: exact-loan search when linking, details, dedicated trackers, paginated notes/replies, and a final details read. No status, key-date, document, credit, webhook, or other Arive write is performed by this worker.
 - Vercel checks for due files every minute through `/api/internal/arive/sync`. `CRON_SECRET` authorization and production-environment checks are required. A successful refresh becomes due again five minutes later, giving approximately five-to-six-minute refresh spacing. Empty checks do not call Arive. Failures back off from five to sixty minutes. This is scheduled polling, not a webhook or real-time guarantee.

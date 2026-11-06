@@ -16,6 +16,7 @@ vi.mock('@/lib/ariveCrypto', () => ({ encryptAriveCredentials: vi.fn(() => 'encr
 vi.mock('@/lib/ariveClient', () => ({ ariveConfigured: vi.fn(), ariveClassifications: vi.fn(), ariveSession: vi.fn(), findAriveLoan: vi.fn(), readAriveNotes: vi.fn(), validAriveUploadUrl: vi.fn(), AriveError: class extends Error {} }));
 vi.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ storage: { from: () => ({ download: mocks.download, info: mocks.info, createSignedUrl: mocks.signedUrl }) } }), getTaskAttachmentsBucket: () => 'test' }));
 vi.mock('@/lib/submissionPilot', async () => ({ ...await import('../../lib/submissionPilot'), isSubmissionPilotEnabled: mocks.enabled }));
+vi.mock('@/lib/ariveTrackers', async () => import('../../lib/ariveTrackers'));
 import { getAriveConnectionSettings, linkExistingAriveTestPackage, checkAriveTestLoanAccess, getSubmissionPilot, changeSubmissionPilot, downloadPilotFile, configurePilotArive, sendPilotDocumentToArive, refreshPilotAriveNotes, finishPilotUpload } from './submissionPilotActions';
 import { ariveClassifications, ariveSession, validAriveUploadUrl, readAriveNotes, findAriveLoan } from '@/lib/ariveClient';
 
@@ -25,7 +26,7 @@ function asUser(id: string, role: string) {
 }
 function packageTask() {
   const p = initialPilotPackage(); p.state = 'REVIEW';
-  mocks.db.task.findUnique.mockResolvedValue({ id: 'task', kind: null, title: 'Processing submission pilot — documents', loanId: 'loan', updatedAt: new Date(), loan: { loanOfficerId: SUBMISSION_PILOT_LO_ID, borrowerName: 'Test borrower' }, submissionData: { submissionPilot: p } });
+  mocks.db.task.findUnique.mockResolvedValue({ id: 'task', kind: null, title: 'Processing submission pilot — documents', loanId: 'loan', updatedAt: new Date(), loan: { loanOfficerId: SUBMISSION_PILOT_LO_ID, borrowerName: 'Test borrower', loanNumber: '123' }, submissionData: { submissionPilot: p } });
   return p;
 }
 beforeEach(() => {
