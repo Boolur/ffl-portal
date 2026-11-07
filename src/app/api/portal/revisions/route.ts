@@ -3,6 +3,7 @@ import { getToken } from 'next-auth/jwt';
 import { UserRole } from '@prisma/client';
 import { getPortalRevisions } from '@/lib/portalRevisionQueries';
 import { canAccessPipelinePortal } from '@/lib/pipelinePilot';
+import { decodePortalSession } from '../../../../lib/sessionGeneration';
 
 const viewingRoles = new Set<UserRole>([
   UserRole.ADMIN, UserRole.ADMIN_I, UserRole.ADMIN_II, UserRole.ADMIN_III,
@@ -15,7 +16,7 @@ const headers = { 'Cache-Control': 'private, no-store' };
 export async function GET(request: NextRequest) {
   // Validate the signed, expiring session without a database/session refresh on
   // every heartbeat. All actual record reads still use their existing guards.
-  const token = await getToken({ req: request });
+  const token = await getToken({ req: request, decode: decodePortalSession });
   if (!token?.id) return NextResponse.json({ error: 'Sign in required.' }, { status: 401, headers });
   const role = (token.activeRole || token.role) as UserRole;
   if (!viewingRoles.has(role)) return NextResponse.json({ error: 'Not authorized.' }, { status: 403, headers });

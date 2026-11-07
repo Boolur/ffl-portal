@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('next-auth/middleware', () => ({ withAuth: (config: unknown) => config }));
 import proxy from './proxy';
+import { decodePortalSession } from './lib/sessionGeneration';
 
 const { callbacks } = proxy as unknown as { callbacks: { authorized: (input: { token: { role: string; activeRole?: string } | null; req: { method: string; nextUrl: { pathname: string } } }) => boolean } };
 const request = (role: string | null, pathname = '/api/processing-submission/request', method = 'GET', activeRole?: string) => callbacks.authorized({ token: role ? { role, activeRole } : null, req: { method, nextUrl: { pathname } } });
 
 describe('processing submission read access through proxy', () => {
+  it('rejects retired session generations before authorizing requests', () => {
+    expect((proxy as unknown as { jwt: { decode: unknown } }).jwt.decode).toBe(decodePortalSession);
+  });
   it.each(['PROCESSOR_JR', 'LOAN_OFFICER', 'MANAGER', 'ADMIN_I', 'ADMIN_II', 'ADMIN_III'])('allows %s reads to reach document-level authorization', role => {
     expect(request(role)).toBe(true);
     expect(request(role, '/api/processing-submission/package/files/file')).toBe(true);

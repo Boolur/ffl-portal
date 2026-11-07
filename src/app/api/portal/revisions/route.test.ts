@@ -2,10 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const mocks = vi.hoisted(() => ({ token: vi.fn(), revisions: vi.fn() }));
-vi.mock('next-auth/jwt', () => ({ getToken: mocks.token }));
+vi.mock('next-auth/jwt', async importOriginal => ({
+  ...await importOriginal<typeof import('next-auth/jwt')>(),
+  getToken: mocks.token,
+}));
 vi.mock('@/lib/portalRevisionQueries', () => ({ getPortalRevisions: mocks.revisions }));
 vi.mock('@/lib/pipelinePilot', async () => import('../../../../lib/pipelinePilot'));
 import { GET } from './route';
+import { decodePortalSession } from '../../../../lib/sessionGeneration';
 
 const request = (topic = 'tasks') => new NextRequest(`https://portal.example.test/api/portal/revisions?topic=${topic}`);
 
@@ -14,6 +18,12 @@ describe('portal revision read boundary', () => {
     vi.clearAllMocks();
     mocks.token.mockResolvedValue({ id: 'viewer', role: 'LOAN_OFFICER' });
     mocks.revisions.mockResolvedValue({ overview: 'overview-hash', tasks: 'tasks-hash', pipeline: 'pipeline-hash' });
+  });
+
+  it('enforces the same session reset as page requests', async () => {
+    const req = request();
+    await GET(req);
+    expect(mocks.token).toHaveBeenCalledWith({ req, decode: decodePortalSession });
   });
 
   it.each([null, {}, { role: 'ADMIN_III' }])('rejects absent identity before reading markers', async token => {

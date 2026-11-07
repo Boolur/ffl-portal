@@ -1,5 +1,6 @@
 import { withAuth } from 'next-auth/middleware';
 import { UserRole } from '@prisma/client';
+import { decodePortalSession } from './lib/sessionGeneration';
 
 const RETIRED_WORKFLOW_ROLES = new Set<UserRole>([
   UserRole.QC,
@@ -101,6 +102,7 @@ function isAllowedByAnyRole(pathname: string, roles?: unknown) {
 }
 
 const authProxy = withAuth({
+  jwt: { decode: decodePortalSession },
   pages: {
     signIn: '/login',
   },

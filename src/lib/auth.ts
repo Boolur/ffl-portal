@@ -8,6 +8,7 @@ import {
   type LoginFailureReason,
 } from '@/lib/loginAudit';
 import { getRequestClientMeta } from '@/lib/requestContext';
+import { CURRENT_SESSION_GENERATION, decodePortalSession } from './sessionGeneration';
 
 const ALL_ROLES = Object.values(UserRole) as string[];
 
@@ -40,6 +41,7 @@ function resolveActiveRole(
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: 'jwt' },
+  jwt: { decode: decodePortalSession },
   pages: {
     signIn: '/login',
   },
@@ -131,6 +133,9 @@ export const authOptions: NextAuthOptions = {
       };
 
       if (user) {
+        // Only a successful sign-in can join the current session generation.
+        // Never upgrade an existing cookie during refresh or role switching.
+        tokenWithMeta.sessionGeneration = CURRENT_SESSION_GENERATION;
         tokenWithMeta.id = (user as { id?: string }).id;
         const fallbackRole = normalizeRole((user as { role?: string }).role);
         const roles = normalizeRoles((user as { roles?: string[] }).roles, fallbackRole);
