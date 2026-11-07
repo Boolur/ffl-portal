@@ -14,7 +14,7 @@ import { useSession } from 'next-auth/react';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { TaskList, type Task } from '@/components/tasks/TaskList';
 import { deleteTask, loadTaskBucketCount, loadTaskBucketPage } from '@/app/actions/taskActions';
-import { appendTaskBucketPage, defaultTaskBucketSort, TaskBucketRequestGate, withTaskBucketTimeout } from '@/lib/taskBucketClientState';
+import { appendTaskBucketPage, defaultTaskBucketSort, mergeTaskBucketSeedCounts, reconcileTaskBucketTotal, TaskBucketRequestGate, withTaskBucketTimeout } from '@/lib/taskBucketClientState';
 import { loadTaskBucketWindow, readTaskWorkspaceCache, taskSeedSignature, taskWorkspaceCacheEpoch, taskWorkspaceKey, writeTaskWorkspaceCache, type TaskWorkspaceSnapshot } from '@/lib/taskWorkspaceCache';
 import { publishPortalUpdates, subscribePortalUpdates } from '@/lib/portalLiveUpdates';
 
@@ -198,6 +198,16 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   ) {
   const router = useRouter();
   const defaultGlobalSort = defaultTaskBucketSort(currentRole);
+  const seedSignature = useMemo(() => taskSeedSignature(buckets), [buckets]);
+  const seedPages = useMemo<Record<string, ServerBucketState>>(() => Object.fromEntries(
+    buckets.filter(bucket => bucket.serverPagination).map(bucket => [bucket.id, {
+      queryKey: JSON.stringify({ identity, globalSearch: '', bucketSearch: '', sort: bucket.serverSort || (bucket.isCompleted ? 'updated_desc' : defaultGlobalSort), sectionId: bucket.sectionId || '' }),
+      tasks: bucket.tasks,
+      totalCount: bucket.totalCount ?? bucket.tasks.length,
+      totalCountIsExact: bucket.totalCountIsExact ?? !bucket.nextCursor,
+      nextCursor: bucket.nextCursor || null,
+    }])
+  ), [buckets, identity, defaultGlobalSort]);
   const [restored] = useState(() => readTaskWorkspaceCache<Task>(workspaceKey));
   const [cacheEpoch] = useState(taskWorkspaceCacheEpoch);
   const [globalSearch, setGlobalSearch] = useState(restored?.globalSearch || '');
@@ -210,21 +220,17 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   );
   const [batchDeletingBucketId, setBatchDeletingBucketId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
-  const [serverBucketState, setServerBucketState] = useState<Record<string, ServerBucketState>>(() => restored?.pages || Object.fromEntries(
-    buckets.filter(bucket => bucket.serverPagination).map(bucket => [bucket.id, {
-      queryKey: JSON.stringify({ identity, globalSearch: '', bucketSearch: '', sort: bucket.serverSort || (bucket.isCompleted ? 'updated_desc' : defaultGlobalSort), sectionId: bucket.sectionId || '' }),
-      tasks: bucket.tasks,
-      totalCount: bucket.totalCount ?? bucket.tasks.length,
-      totalCountIsExact: bucket.totalCountIsExact ?? !bucket.nextCursor,
-      nextCursor: bucket.nextCursor || null,
-    }])
-  ));
+  const [serverBucketState, setServerBucketState] = useState<Record<string, ServerBucketState>>(() => {
+    if (!restored) return seedPages;
+    return restored.seedSignature !== seedSignature ? mergeTaskBucketSeedCounts(restored.pages, seedPages) : restored.pages;
+  });
   const [loadingBucketIds, setLoadingBucketIds] = useState<Set<string>>(() => new Set());
   const [loadingCountBucketIds, setLoadingCountBucketIds] = useState<Set<string>>(() => new Set());
   const pageRequests = useRef(new TaskBucketRequestGate());
   const countRequests = useRef(new TaskBucketRequestGate());
   const lastPageRequest = useRef<Record<string, { cursor: TaskBucketCursor; mode: 'replace' | 'append' | 'refresh' }>>({});
-  const seedSignature = useMemo(() => taskSeedSignature(buckets), [buckets]);
+  const countSequence = useRef(0);
+  const appliedCountSequence = useRef<Record<string, number>>({});
   const lastSeed = useRef(seedSignature);
   const [refreshGeneration, setRefreshGeneration] = useState(restored ? 1 : 0);
   const attemptedRefresh = useRef(0);
@@ -243,8 +249,13 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   useEffect(() => {
     if (lastSeed.current === seedSignature) return;
     lastSeed.current = seedSignature;
+    const sequence = ++countSequence.current;
+    for (const [id, seed] of Object.entries(seedPages)) {
+      if (seed.totalCountIsExact && serverBucketState[id]?.queryKey === seed.queryKey) appliedCountSequence.current[id] = sequence;
+    }
+    setServerBucketState(previous => mergeTaskBucketSeedCounts(previous, seedPages));
     setRefreshGeneration(value => value + 1);
-  }, [seedSignature]);
+  }, [seedSignature, seedPages, serverBucketState]);
   useEffect(() => subscribePortalUpdates('tasks', () => setRefreshGeneration(value => value + 1)), []);
   useEffect(() => {
     const resumePending = () => {
@@ -378,10 +389,10 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
           visibleTasks: serverTasks,
           totalCount: hasMatchingServerState
             ? state.totalCount
-            : bucket.totalCount ?? serverTasks.length,
+            : useInitialServerPage ? bucket.totalCount ?? serverTasks.length : 0,
           totalCountIsExact: hasMatchingServerState
             ? state.totalCountIsExact
-            : bucket.totalCountIsExact ?? !bucket.nextCursor,
+            : useInitialServerPage ? bucket.totalCountIsExact ?? !bucket.nextCursor : false,
           nextCursor: hasMatchingServerState
             ? state.nextCursor
             : useInitialServerPage
@@ -434,7 +445,8 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   useEffect(() => {
     for (const bucket of processedBuckets) {
       pageRequests.current.setQuery(bucket.id, bucket.requestQueryKey);
-      countRequests.current.setQuery(bucket.id, bucket.requestQueryKey);
+      // A live card refresh does not change the count's scope or search.
+      countRequests.current.setQuery(bucket.id, bucket.serverQueryKey);
     }
   }, [processedBuckets]);
 
@@ -458,6 +470,8 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
         return next;
       });
       let failure: string | undefined;
+      const countRequestSequence = mode === 'append' ? 0 : ++countSequence.current;
+      let authoritativeTotal: number | undefined;
       try {
         const fetchPage = async (pageCursor: TaskBucketCursor, pageSize?: number) => {
           const result = await loadTaskBucketPage({
@@ -470,10 +484,11 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
             sort: bucket.selectedSort,
           });
           if (!result.success) throw new Error(result.error);
+          if (!pageCursor && result.totalCountIsExact) authoritativeTotal = result.totalCount;
           return {
             tasks: result.tasks || [],
             totalCount: result.totalCount || 0,
-            totalCountIsExact: result.totalCountIsExact ?? true,
+            totalCountIsExact: result.totalCountIsExact ?? false,
             nextCursor: result.nextCursor || null,
           };
         };
@@ -485,6 +500,8 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
           attemptedRefresh.current = Math.min(attemptedRefresh.current, generationRef.current - 1);
           return false;
         }
+        const applyCount = authoritativeTotal !== undefined && countRequestSequence >= (appliedCountSequence.current[bucket.id] || 0);
+        if (applyCount) appliedCountSequence.current[bucket.id] = countRequestSequence;
         setServerBucketState((prev) => {
           const previous = prev[bucket.id];
           const initialPage = {
@@ -493,13 +510,13 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
             totalCountIsExact: bucket.totalCountIsExact ?? !bucket.nextCursor,
             nextCursor: bucket.nextCursor || null,
           };
+          const matching = previous?.queryKey === bucket.serverQueryKey ? previous : undefined;
+          const merged = mode === 'append' ? appendTaskBucketPage(matching || initialPage, page) : page;
           return {
             ...prev,
             [bucket.id]: {
               queryKey: bucket.serverQueryKey,
-              ...(mode === 'append'
-                ? appendTaskBucketPage(previous?.queryKey === bucket.serverQueryKey ? previous : initialPage, page)
-                : page),
+              ...reconcileTaskBucketTotal(merged, matching || (mode === 'append' ? initialPage : undefined), applyCount ? authoritativeTotal : undefined),
             },
           };
         });
@@ -536,8 +553,9 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   ]);
 
   const loadServerCount = useCallback(async (bucket: (typeof processedBuckets)[number], retry = false) => {
-      const token = countRequests.current.begin(bucket.id, bucket.requestQueryKey, retry);
+    const token = countRequests.current.begin(bucket.id, bucket.serverQueryKey, retry);
     if (!token) return;
+    const sequence = ++countSequence.current;
     setLoadingCountBucketIds((prev) => {
       const next = new Set(prev);
       next.add(bucket.id);
@@ -553,11 +571,11 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
       }));
       if (!countRequests.current.isCurrent(token)) return;
       if (!result.success) throw new Error(result.error);
+      if (sequence < (appliedCountSequence.current[bucket.id] || 0)) return;
+      appliedCountSequence.current[bucket.id] = sequence;
       setServerBucketState((prev) => {
         const previous = prev[bucket.id];
         const matching = previous?.queryKey === bucket.serverQueryKey ? previous : undefined;
-        // A completed page/refresh may have supplied a newer count while this was in flight.
-        if (matching?.totalCountIsExact) return prev;
         return {
           ...prev,
           [bucket.id]: {
@@ -582,10 +600,14 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   }, [deferredGlobalSearch]);
 
   useEffect(() => {
+    // Next serializes client server-actions. Do not start all fallback timers
+    // while their count requests are still queued behind one another.
+    if (loadingCountBucketIds.size > 0) return;
     for (const bucket of processedBuckets) {
       if (!bucket.serverPagination || bucket.totalCountIsExact || bucket.isServerPending) continue;
-      if (loadingCountBucketIds.has(bucket.id)) continue;
+      if (countRequests.current.error(bucket.id, bucket.serverQueryKey)) continue;
       void loadServerCount(bucket);
+      break;
     }
   }, [loadServerCount, loadingCountBucketIds, processedBuckets]);
 
@@ -720,7 +742,7 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
         {processedBuckets.map((bucket) => {
           const isCollapsed = bucket.controls.collapsed;
           const pageError = pageRequests.current.errorForView(bucket.id, bucket.serverQueryKey);
-          const countError = countRequests.current.errorForView(bucket.id, bucket.serverQueryKey);
+          const countError = countRequests.current.error(bucket.id, bucket.serverQueryKey);
           const selectedIds = selectedTaskIdsByBucket[bucket.id] || [];
           const selectedCount = selectedIds.length;
           const displayedCount = bucket.totalCount ?? bucket.visibleTasks.length;
@@ -774,9 +796,9 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                     )}
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+                    <span title={bucket.serverPagination && !bucket.totalCountIsExact ? 'Counting all matching tasks' : 'Total matching tasks'} className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
                       {bucket.serverPagination && !bucket.totalCountIsExact
-                        ? `${displayedCount}+`
+                        ? 'Counting…'
                         : displayedCount}
                     </span>
                     <button
@@ -998,11 +1020,15 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                                 (bucket.totalCount || 0) - bucket.visibleTasks.length
                               )} remaining)`}
                         </button>
+                      ) : bucket.totalCountIsExact && displayedCount > bucket.visibleTasks.length ? (
+                        <button type="button" disabled={bucket.isServerLoading} className="app-btn-secondary" onClick={() => void loadServerBucket(bucket, null, 'refresh', true)}>
+                          {bucket.isServerLoading ? 'Loading...' : 'Refresh tasks'}
+                        </button>
                       ) : bucket.isServerLoading ? (
                         <span className="text-[11px] font-semibold text-slate-500">
                           Loading...
                         </span>
-                      ) : bucket.visibleTasks.length > 0 ? (
+                      ) : bucket.totalCountIsExact && bucket.visibleTasks.length > 0 ? (
                         <span className="text-[11px] font-semibold text-slate-400">
                           All matching tasks loaded
                         </span>

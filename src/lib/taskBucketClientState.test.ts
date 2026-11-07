@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { appendTaskBucketPage, hasVisibleTaskEditor, TaskBucketRequestGate, withTaskBucketTimeout, type TaskBucketPageState } from './taskBucketClientState';
+import { appendTaskBucketPage, hasVisibleTaskEditor, mergeTaskBucketSeedCounts, reconcileTaskBucketTotal, TaskBucketRequestGate, withTaskBucketTimeout, type TaskBucketPageState } from './taskBucketClientState';
 
 describe('task bucket request recovery', () => {
   it('releases the edit guard when a completed or routed task leaves its bucket', () => {
@@ -97,5 +97,59 @@ describe('task bucket scrolling without repeated counts', () => {
     expect(merged.totalCount).toBe(3);
     expect(merged.totalCountIsExact).toBe(true);
     expect(merged.nextCursor).toBeNull();
+  });
+});
+
+describe('confirmed task totals and cached cards', () => {
+  it('keeps a confirmed queue total when the final scroll page only proves the loaded card count', () => {
+    const previous = page(['a', 'b'], 1583, true, 'b');
+    const appended = appendTaskBucketPage(previous, page(['b', 'c'], 2, true, null));
+    const reconciled = reconcileTaskBucketTotal(appended, previous);
+    expect(reconciled.tasks.map(task => task.id)).toEqual(['a', 'b', 'c']);
+    expect(reconciled.nextCursor).toBeNull();
+    expect(reconciled.totalCount).toBe(1583);
+    expect(reconciled.totalCountIsExact).toBe(true);
+  });
+
+  it('accepts a newly confirmed smaller count, including an empty queue', () => {
+    const previous = page(['a', 'b'], 1583, true, 'b');
+    expect(reconcileTaskBucketTotal(page(['a'], 1, true, null), previous, 1).totalCount).toBe(1);
+    expect(reconcileTaskBucketTotal(page([], 0, true, null), previous, 0).totalCount).toBe(0);
+  });
+
+  it('preserves the first-page confirmed total through a multipage refresh', () => {
+    const refreshedWindow = page(['a', 'b', 'c'], 3, true, null);
+    expect(reconcileTaskBucketTotal(refreshedWindow, page(['a'], 57, true, null), 1583))
+      .toMatchObject({ totalCount: 1583, totalCountIsExact: true });
+  });
+
+  it('does not turn a loaded window into a confirmed full total without an authoritative count', () => {
+    expect(reconcileTaskBucketTotal(page(['a', 'b'], 2, true, null)))
+      .toMatchObject({ totalCount: 2, totalCountIsExact: false });
+  });
+
+  it('updates stale cached totals from fresh server counts without replacing cards or their exhausted cursor', () => {
+    const cached = { completed: { ...page(['a', 'b'], 57, true, null), queryKey: 'admin-unfiltered' } };
+    const merged = mergeTaskBucketSeedCounts(cached, {
+      completed: { totalCount: 1583, totalCountIsExact: true, queryKey: 'admin-unfiltered' },
+    });
+    expect(merged.completed.totalCount).toBe(1583);
+    expect(merged.completed.tasks).toBe(cached.completed.tasks);
+    expect(merged.completed.nextCursor).toBeNull();
+    expect(cached.completed.totalCount).toBe(57);
+  });
+
+  it('never applies an unfiltered or other-role server count to a different cached query', () => {
+    const cached = { completed: { ...page(['a'], 1, true, null), queryKey: 'lo-search' } };
+    expect(mergeTaskBucketSeedCounts(cached, {
+      completed: { totalCount: 1583, totalCountIsExact: true, queryKey: 'admin-unfiltered' },
+    })).toBe(cached);
+  });
+
+  it('does not downgrade confirmed cached totals to a server lower bound', () => {
+    const cached = { completed: { ...page(['a'], 1583, true, 'a'), queryKey: 'same-query' } };
+    expect(mergeTaskBucketSeedCounts(cached, {
+      completed: { totalCount: 7, totalCountIsExact: false, queryKey: 'same-query' },
+    })).toBe(cached);
   });
 });

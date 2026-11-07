@@ -27,13 +27,17 @@ beforeEach(() => {
 
 describe('initial task queues', () => {
   it.each([UserRole.ADMIN_I, UserRole.ADMIN_II, UserRole.ADMIN_III, UserRole.LOAN_OFFICER, UserRole.LOA])(
-    'uses the existing client-visible newest-update ordering for %s without recounts', async role => {
+    'loads exact initial totals with the newest-update ordering for %s', async role => {
       const initial = await queryInitialTaskBucketsForRole(role, 'current-user');
       const buckets = [...initial.disclosureBuckets, ...initial.qcBuckets];
       expect(buckets).toHaveLength(role.startsWith('ADMIN') ? 10 : 8);
       expect(buckets.every(bucket => bucket.serverSort === 'updated_desc')).toBe(true);
       expect(db.task.findMany.mock.calls.every(([query]) => query.orderBy[0].updatedAt === 'desc')).toBe(true);
-      expect(db.task.count).not.toHaveBeenCalled();
+      expect(db.task.count).toHaveBeenCalledTimes(buckets.length);
+      expect(buckets.every(bucket => bucket.totalCount === 42 && bucket.totalCountIsExact)).toBe(true);
+      expect(initial.totalCount).toBe(42 * buckets.length);
+      expect(initial.totalCountIsExact).toBe(true);
+      expect(db.task.findMany.mock.calls.every(([query]) => query.take === 7)).toBe(true);
     }
   );
 
@@ -41,6 +45,29 @@ describe('initial task queues', () => {
     const initial = await queryInitialTaskBucketsForRole(role, 'current-user');
     expect(initial.qcBuckets.find(bucket => bucket.id === 'qc-started')?.serverSort).toBe('created_asc');
     expect(initial.qcBuckets.find(bucket => bucket.isCompleted)?.serverSort).toBe('updated_desc');
+  });
+
+  it('shows the full completed totals while returning only six cards per queue', async () => {
+    const totals = [0, 1, 0, 1, 1584, 1, 1, 4, 1, 1583];
+    for (const total of totals) {
+      db.task.count.mockResolvedValueOnce(total);
+      db.task.findMany.mockResolvedValueOnce(Array.from({ length: Math.min(total, 7) }, (_, index) => ({
+        id: `card-${index}`, priority: 'NORMAL', parentTaskId: null, attachments: [],
+      })));
+    }
+    const initial = await queryInitialTaskBucketsForRole(UserRole.ADMIN_III, 'admin');
+    const disclosure = initial.disclosureBuckets.find(bucket => bucket.id === 'completed-disclosure')!;
+    const processing = initial.qcBuckets.find(bucket => bucket.id === 'qc-completed-requests')!;
+    expect(disclosure.tasks).toHaveLength(6);
+    expect(disclosure.totalCount).toBe(1584);
+    expect(disclosure.totalCountIsExact).toBe(true);
+    expect(disclosure.nextCursor).not.toBeNull();
+    expect(processing.tasks).toHaveLength(6);
+    expect(processing.totalCount).toBe(1583);
+    expect(processing.totalCountIsExact).toBe(true);
+    expect(processing.nextCursor).not.toBeNull();
+    expect(initial.totalCount).toBe(totals.reduce((sum, count) => sum + count, 0));
+    expect(initial.totalCountIsExact).toBe(true);
   });
 
   it('does not issue an exact count for an append page', async () => {

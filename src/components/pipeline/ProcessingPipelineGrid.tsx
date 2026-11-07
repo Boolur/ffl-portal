@@ -76,9 +76,11 @@ import {
 import { isAdmin } from '@/lib/adminTiers';
 import { createProgressivePipelineRefresh } from '@/lib/progressivePipelineRefresh';
 import { appendPipelineRows } from '@/lib/processingPipelinePagination';
+import { selectProcessingPipelineViewResults } from '@/lib/processingPipelineViewResults';
 import { invalidatePipelineWorkspaceCache, pipelineWorkspaceCacheEpoch, pipelineWorkspaceCacheRevision, setPipelineWorkspaceCachedScroll, writePipelineWorkspaceCache } from '@/lib/pipelineWorkspaceCache';
 import { publishPortalUpdates, subscribePortalUpdates } from '@/lib/portalLiveUpdates';
 import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
 import { ProcessingBorrowerWorkspace } from './ProcessingBorrowerWorkspace';
 import { AriveSyncBadge } from './AriveSyncStatus';
 import { ariveFieldLabel, ariveFieldMissing, arivePipelineWarnings, formatAriveCalendarDate } from '@/lib/ariveSyncPresentation';
@@ -780,7 +782,12 @@ export function ProcessingPipelineGrid({
     view: viewInput(sheet, search, sortBy, sortDirection, appliedFilters, activeLayout?.config.scope || 'GLOBAL'),
     remainingIds: initialData.remainingIds,
   });
-  const resolvedQueryRef = useRef(JSON.stringify(progressRef.current.view));
+  const [resolvedQueryKey, setResolvedQueryKey] = useState(() => JSON.stringify(progressRef.current.view));
+  const selectedQueryKey = JSON.stringify(viewInput(sheet, search, sortBy, sortDirection, appliedFilters, activeLayout?.config.scope || 'GLOBAL'));
+  const currentViewResults = selectProcessingPipelineViewResults(selectedQueryKey, {
+    queryKey: resolvedQueryKey, rows, total, remainingCount,
+  });
+  const hasCurrentViewResults = currentViewResults !== null;
   const canEdit = initialData.canEdit;
   const isLoanOfficer = role === UserRole.LOAN_OFFICER;
   const canEditRow = (row: ProcessingPipelineRow) => canEdit && row.canEdit;
@@ -939,7 +946,7 @@ export function ProcessingPipelineGrid({
           if (nextTotal !== undefined) setTotal(nextTotal);
           else if (removed) setTotal((current) => Math.max(0, current - removed));
         }
-        resolvedQueryRef.current = JSON.stringify(view);
+        setResolvedQueryKey(JSON.stringify(view));
         if (!remaining) { lastRowsLoadedAtRef.current = Date.now(); observedCacheRevisionRef.current = pipelineWorkspaceCacheRevision(); }
         setRemainingCount(remaining);
         setIsPending(false);
@@ -980,9 +987,10 @@ export function ProcessingPipelineGrid({
   ) => {
     setColumnMenu(null);
     lastRequestedSearchRef.current = nextSearch;
-    refreshIsBackgroundRef.current = background;
-    if (background) { backgroundRowsRef.current = []; backgroundTotalRef.current = 0; }
     const nextView = viewInput(nextSheet, nextSearch, nextSortBy, nextSortDirection, nextFilters, nextViewScope);
+    // Only a matching sheet can stay visible while a full background update is buffered.
+    refreshIsBackgroundRef.current = background && resolvedQueryKey === JSON.stringify(nextView);
+    if (refreshIsBackgroundRef.current) { backgroundRowsRef.current = []; backgroundTotalRef.current = 0; }
     progressRef.current = { view: nextView, remainingIds: null };
     rowRefreshRef.current?.request(nextView);
   };
@@ -1019,7 +1027,7 @@ export function ProcessingPipelineGrid({
   useEffect(() => {
     if (savingRows.size > 0) { invalidatePipelineWorkspaceCache(cacheScope); return; }
     const query = viewInput(sheet, search, sortBy, sortDirection, appliedFilters, activeLayout?.config.scope || 'GLOBAL');
-    if (remainingCount || isPending || editorOpen || rowRefreshRef.current?.isBusy() || progressRef.current.remainingIds === null || resolvedQueryRef.current !== JSON.stringify(query)) return;
+    if (remainingCount || isPending || editorOpen || rowRefreshRef.current?.isBusy() || progressRef.current.remainingIds === null || resolvedQueryKey !== JSON.stringify(query)) return;
     const persist = () => writePipelineWorkspaceCache(cacheScope, {
       workspace: { success: true, data: { ...initialData, rows, total, remainingIds: [] }, layouts },
       tab: active ? 'processing' : 'pre-processing',
@@ -1032,7 +1040,7 @@ export function ProcessingPipelineGrid({
     }, lastRowsLoadedAtRef.current, cacheEpochRef.current);
     const timer = window.setTimeout(persist, 100);
     return () => window.clearTimeout(timer);
-  }, [cacheScope, active, rows, total, layouts, initialData, sheet, search, filtersExpanded, fundingRangePreset, appliedFilters, draftFilters, selectedTeamIds, detailsExpanded, columnWidths, sortBy, sortDirection, columnSort, columnFilters, remainingCount, isPending, editorOpen, savingRows, activeLayout?.config.scope]);
+  }, [cacheScope, active, rows, total, layouts, initialData, sheet, search, filtersExpanded, fundingRangePreset, appliedFilters, draftFilters, selectedTeamIds, detailsExpanded, columnWidths, sortBy, sortDirection, columnSort, columnFilters, remainingCount, isPending, editorOpen, savingRows, activeLayout?.config.scope, resolvedQueryKey]);
 
   useEffect(() => {
     if (!active || !rows.some(row => row.ariveSync?.enabled)) return;
@@ -1125,7 +1133,7 @@ export function ProcessingPipelineGrid({
   }, [columnMenu]);
 
   const openColumnMenu = (id: ColumnId, button: HTMLButtonElement) => {
-    if (remainingCount > 0 || isPending) return;
+    if (!hasCurrentViewResults || remainingCount > 0 || isPending) return;
     if (columnMenu?.id === id) {
       setColumnMenu(null);
       return;
@@ -1140,7 +1148,7 @@ export function ProcessingPipelineGrid({
   };
 
   const columnMenuContextValue: ColumnMenuContextValue = {
-    disabled: remainingCount > 0 || isPending,
+    disabled: !hasCurrentViewResults || remainingCount > 0 || isPending,
     activeColumnId: columnMenu?.id || null,
     activeSort: columnSort,
     activeFilters: columnFilters,
@@ -1148,6 +1156,7 @@ export function ProcessingPipelineGrid({
   };
 
   const visibleRows = useMemo(() => {
+    if (!hasCurrentViewResults) return [];
     const filtered = rows.filter((row) =>
       Object.entries(columnFilters).every(([rawId, rule]) => {
         const id = rawId as ColumnId;
@@ -1201,7 +1210,7 @@ export function ProcessingPipelineGrid({
       }
       return columnSort.direction === 'asc' ? comparison : -comparison;
     });
-  }, [columnFilters, columnSort, rows]);
+  }, [columnFilters, columnSort, rows, hasCurrentViewResults]);
 
   const activeColumnRule = columnMenu ? columnFilters[columnMenu.id] || {} : {};
   const activeColumnLabel = columnMenu
@@ -1910,7 +1919,7 @@ export function ProcessingPipelineGrid({
   };
 
   const changeSort = (nextSort: typeof sortBy) => {
-    if (remainingCount > 0 || isPending) return;
+    if (!hasCurrentViewResults || remainingCount > 0 || isPending) return;
     const direction = sortBy === nextSort && sortDirection === 'desc' ? 'asc' : 'desc';
     const columnId: ColumnId =
       nextSort === 'statusChangedAt' ? 'daysInStatus' : nextSort;
@@ -2174,7 +2183,7 @@ export function ProcessingPipelineGrid({
         {sortableBy ? (
           <button
             type="button"
-            disabled={remainingCount > 0 || isPending}
+            disabled={!hasCurrentViewResults || remainingCount > 0 || isPending}
             title={remainingCount > 0 ? 'Sorting will be ready when all loans are loaded' : undefined}
             onClick={() => changeSort(sortableBy)}
             className="w-full text-left hover:text-blue-700"
@@ -2892,7 +2901,7 @@ export function ProcessingPipelineGrid({
               >
                 <span className="inline-flex items-center gap-2">
                   {isPending && sheet === option.value && (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" aria-hidden="true" />
+                    <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-blue-600" aria-hidden="true" />
                   )}
                   {option.label}
                 </span>
@@ -2917,7 +2926,7 @@ export function ProcessingPipelineGrid({
               onClick={() => loadRows()}
               disabled={isPending || refreshNeedsReload}
             >
-              <RefreshCw className={`h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${isPending ? 'motion-safe:animate-spin' : ''}`} />
               Refresh
             </button>
           </div>
@@ -3266,14 +3275,14 @@ export function ProcessingPipelineGrid({
           <div>
             <p className="font-semibold text-red-700">{refreshError}</p>
             <p className="mt-1 text-muted-foreground">
-              Showing the last loaded results. They may not match your selected view or filters.
+              {hasCurrentViewResults
+                ? 'Showing the last loaded results for this view.'
+                : 'This view could not be loaded. Try again to see its loans.'}
             </p>
           </div>
-          {refreshNeedsReload && (
-            <button type="button" className="app-btn-secondary" onClick={() => window.location.reload()}>
-              Reload page
-            </button>
-          )}
+          <button type="button" className="app-btn-secondary" onClick={() => refreshNeedsReload ? window.location.reload() : loadRows()}>
+            {refreshNeedsReload ? 'Reload page' : 'Try again'}
+          </button>
         </div>
       )}
 
@@ -3331,15 +3340,29 @@ export function ProcessingPipelineGrid({
           )}
         </div>
         <div className="relative min-h-72">
-          {(isPending || remainingCount > 0) && (
+          {hasCurrentViewResults && (isPending || remainingCount > 0) && (
             <div className="flex items-center gap-2 border-b border-border bg-card px-4 py-2 text-xs text-muted-foreground" role="status" aria-live="polite">
-              {!refreshError && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+              {!refreshError && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />}
               {isPending
                 ? `Updating ${activeViewLabel}... You can keep searching and scrolling.`
                 : refreshError
                   ? `${rows.length} of ${total} loans loaded. Refresh to load the remaining loans.`
                   : `${rows.length} of ${total} loans loaded. Search and scrolling are ready; column options will be ready shortly.`}
             </div>
+          )}
+          {!hasCurrentViewResults && (
+            refreshError ? (
+              <div className="flex min-h-72 items-center justify-center px-6 text-sm text-muted-foreground">
+                Results are unavailable for this view.
+              </div>
+            ) : (
+              <PortalLoadingState
+                variant="compact"
+                preview="table"
+                label={search.trim() ? 'Finding matching loans' : `Loading ${activeViewLabel}`}
+                description="You can keep searching while this view loads."
+              />
+            )
           )}
           <div
             ref={scrollContainerRef}
@@ -3348,8 +3371,8 @@ export function ProcessingPipelineGrid({
               scrollPositionRef.current = { top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft };
               setPipelineWorkspaceCachedScroll(cacheScope, event.currentTarget.scrollTop, event.currentTarget.scrollLeft);
             }}
-            className="relative max-h-[66vh] min-h-72 overflow-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable]"
-            aria-busy={isPending || remainingCount > 0}
+            className={`${hasCurrentViewResults ? 'relative' : 'hidden'} max-h-[66vh] min-h-72 overflow-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable]`}
+            aria-busy={!hasCurrentViewResults || isPending || remainingCount > 0}
           >
             <ColumnMenuContext.Provider value={columnMenuContextValue}>
             <table
@@ -3562,10 +3585,10 @@ export function ProcessingPipelineGrid({
           </div>
         )}
         <div className="border-t border-slate-200 px-4 py-3 text-xs font-semibold text-slate-600">
-          {visibleRows.length} loan{visibleRows.length === 1 ? '' : 's'} · {
+          {!hasCurrentViewResults ? (refreshError ? 'Results unavailable' : 'Loading matching loans...') : <>{visibleRows.length} loan{visibleRows.length === 1 ? '' : 's'} · {
             remainingCount > 0 ? `${rows.length} of ${total} loaded; results still loading`
               : visibleRows.length === total ? 'All loans displayed' : `${total} loaded`
-          }
+          }</>}
         </div>
       </div>
 

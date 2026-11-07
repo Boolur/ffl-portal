@@ -9,6 +9,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import dynamic from 'next/dynamic';
 import { PortalLiveProvider } from './PortalLiveProvider';
+import { PortalLoadingState } from './PortalLoadingState';
 import { DashboardShellContext, useDashboardShellMode } from './DashboardShellContext';
 import { dashboardShellIdentity, isPortalWorkspacePath } from '@/lib/dashboardShellRoutes';
 import { invalidateSupportSummary } from '@/lib/supportSummaryLoader';
@@ -150,9 +151,8 @@ function DashboardContent({ children, user }: DashboardShellProps) {
         <main ref={mainRef} id="app-main-scroll" className="min-h-0 flex-1 overflow-y-auto">
           <div className="relative min-h-full w-full p-3 sm:p-4 md:p-6">
             {loadingRoute && (
-              <div role="status" aria-live="polite" className="pointer-events-none absolute inset-x-0 top-0 z-30 h-1 overflow-hidden bg-primary/10">
-                <span className="sr-only">Loading workspace...</span>
-                <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+              <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">
+                <PortalLoadingState variant="navigation" label="Opening workspace" />
               </div>
             )}
             {children}
@@ -199,7 +199,7 @@ export function PersistentDashboardShell({ children, initialRevisions }: { child
     else if (userId && activeRole === UserRole.ONBOARDING) router.replace('/onboarding');
   }, [portalRoute, status, userId, activeRole, router]);
   if (identity !== readyIdentity || (portalRoute && (!userId || status === 'unauthenticated' || activeRole === UserRole.ONBOARDING))) {
-    return <DashboardShellContext.Provider value="bare"><div role="status" className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading your workspace...</div></DashboardShellContext.Provider>;
+    return <DashboardShellContext.Provider value="bare"><div className="grid min-h-[100dvh] w-full place-items-center app-shell-bg"><PortalLoadingState label="Opening your workspace" /></div></DashboardShellContext.Provider>;
   }
   const showShell = Boolean(userId) && status !== 'unauthenticated' &&
     activeRole !== UserRole.ONBOARDING && portalRoute;

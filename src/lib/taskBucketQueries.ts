@@ -1330,7 +1330,10 @@ export async function queryInitialTaskBucketsForRole(role: UserRole, userId?: st
           userId,
           pageSize: TASK_BUCKET_PAGE_SIZE,
           sort: initialTaskBucketSort(role, spec.isCompleted),
-          includeTotalCount: false,
+          // Count all matching requests alongside the first small card page.
+          // Deferring one server action per bucket can leave queued counts
+          // timed out and the page-wide total stuck at a partial lower bound.
+          includeTotalCount: true,
           includeTimelineAttachments: false,
         })
       )

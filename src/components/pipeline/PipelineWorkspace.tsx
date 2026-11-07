@@ -3,15 +3,20 @@
 import { Activity, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
-import { BarChart3, CheckCircle2, Loader2, Sheet } from 'lucide-react';
+import { BarChart3, CheckCircle2, Sheet } from 'lucide-react';
 import { UserRole } from '@prisma/client';
 import type { PipelineReport } from '@/app/actions/pipelineReportingActions';
 import { getProcessingPipelineWorkspace, type ProcessingPipelineWorkspaceData } from '@/app/actions/pipelineWorkspaceActions';
 import { createPipelineRefresh } from '@/lib/pipelineRefresh';
 import { pipelineScopeMatches, readPipelineWorkspaceCache, setPipelineWorkspaceCachedTab } from '@/lib/pipelineWorkspaceCache';
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
 import type { ProcessingPipelineViewSnapshot } from './ProcessingPipelineGrid';
-const PipelinePage = dynamic(() => import('@/components/pipeline/PipelinePage').then((module) => module.PipelinePage));
-const ProcessingPipelineGrid = dynamic(() => import('@/components/pipeline/ProcessingPipelineGrid').then((module) => module.ProcessingPipelineGrid));
+const PipelinePage = dynamic(() => import('@/components/pipeline/PipelinePage').then((module) => module.PipelinePage), {
+  loading: () => <PortalLoadingState label="Loading Pre-Processing" />,
+});
+const ProcessingPipelineGrid = dynamic(() => import('@/components/pipeline/ProcessingPipelineGrid').then((module) => module.ProcessingPipelineGrid), {
+  loading: () => <PortalLoadingState label="Loading Processing" variant="compact" preview="table" />,
+});
 
 type Props = {
   cacheScope: string;
@@ -28,7 +33,7 @@ type Props = {
 export function PipelineWorkspace(props: Props) {
   const { data: session, status } = useSession();
   if (status !== 'authenticated' || !pipelineScopeMatches(props.cacheScope, session?.user)) {
-    return <div className="app-card p-6 text-sm text-muted-foreground" role="status">Loading your pipeline...</div>;
+    return <PortalLoadingState label="Loading your pipeline" preview="table" />;
   }
   return <PipelineWorkspaceContent key={props.cacheScope} {...props} />;
 }
@@ -123,14 +128,14 @@ function PipelineWorkspaceContent({
       {(workspace || view === 'processing') && (
       <Activity mode={view === 'processing' ? 'visible' : 'hidden'}>
       {!initialProcessing ? (
-        <div className="app-card p-6" aria-live="polite" aria-busy={loading}>
-          {loading ? <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading Processing...</p> : (
-            <>
+        <div>
+          {loading || !loadError ? <PortalLoadingState label="Loading Processing" preview="table" /> : (
+            <div className="app-card p-6">
               <p role="alert" className="mb-3 text-muted-foreground">{loadError || 'Open the Processing pipeline.'}</p>
               <button type="button" className="app-btn-secondary" onClick={() => needsReload ? window.location.reload() : loaderRef.current?.request()}>
                 {needsReload ? 'Reload page' : 'Try again'}
               </button>
-            </>
+            </div>
           )}
         </div>
       ) : (

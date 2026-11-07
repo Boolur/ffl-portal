@@ -85,6 +85,39 @@ export type TaskBucketPageState<T> = {
   nextCursor: { id: string } | null;
 };
 
+type BucketCountState = { totalCount: number; totalCountIsExact: boolean };
+
+/** A card page (including its final page) never replaces a confirmed queue total. */
+export function reconcileTaskBucketTotal<T extends BucketCountState>(
+  page: T,
+  previous?: BucketCountState,
+  authoritativeTotal?: number,
+): T {
+  if (authoritativeTotal !== undefined) {
+    return { ...page, totalCount: authoritativeTotal, totalCountIsExact: true };
+  }
+  if (previous?.totalCountIsExact) {
+    return { ...page, totalCount: previous.totalCount, totalCountIsExact: true };
+  }
+  return { ...page, totalCountIsExact: false };
+}
+
+/** New server totals can update a cached view without disturbing cards or edits. */
+export function mergeTaskBucketSeedCounts<T extends BucketCountState & { queryKey: string }>(
+  current: Record<string, T>,
+  seeds: Record<string, BucketCountState & { queryKey: string }>,
+): Record<string, T> {
+  let next = current;
+  for (const [id, seed] of Object.entries(seeds)) {
+    const previous = current[id];
+    if (!previous || previous.queryKey !== seed.queryKey || !seed.totalCountIsExact) continue;
+    if (previous.totalCountIsExact && previous.totalCount === seed.totalCount) continue;
+    if (next === current) next = { ...current };
+    next[id] = { ...previous, totalCount: seed.totalCount, totalCountIsExact: true };
+  }
+  return next;
+}
+
 /** Scroll pages do not recount the queue; retain the count from its first read. */
 export function appendTaskBucketPage<T extends { id: string }>(
   previous: TaskBucketPageState<T>,

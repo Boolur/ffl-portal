@@ -637,6 +637,7 @@ type RoleBucket = {
   isCompleted?: boolean;
   tasks: TaskRow[];
   totalCount?: number;
+  totalCountIsExact?: boolean;
   nextCursor?: { id: string } | null;
   serverPagination?: true;
   serverSort?: TaskBucketSort;
@@ -1086,8 +1087,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     : allTasks.length;
   const totalTaskCountLabel =
     usePagedBuckets && pagedTaskBuckets && !pagedTaskBuckets.totalCountIsExact
-      ? `${totalTaskCount}+`
-      : String(totalTaskCount);
+      ? 'Counting tasks…'
+      : `${totalTaskCount.toLocaleString()} Total Tasks`;
   const isDualDeskMode = Boolean(dualDeskRows);
   const canDelete = canDeleteTasks(sessionRole);
   const roleTaskSubtitle: Record<string, string> = {
@@ -1141,7 +1142,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
         </div>
         <div className="flex shrink-0 space-x-3">
           <span className="app-count-badge">
-            {totalTaskCountLabel} Total Tasks
+            {totalTaskCountLabel}
           </span>
         </div>
       </div>
