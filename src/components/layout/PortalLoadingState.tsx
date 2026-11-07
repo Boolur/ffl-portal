@@ -77,7 +77,7 @@ export function PortalLoadingState({
 }: PortalLoadingStateProps) {
   if (variant === 'navigation') {
     return (
-      <div role="status" aria-live="polite" aria-atomic="true" className="inline-flex items-center gap-2.5 rounded-full border border-border bg-card/95 px-4 py-2 text-xs font-medium text-muted-foreground shadow-sm">
+      <div role="status" aria-live="polite" aria-atomic="true" className="inline-flex items-center gap-2.5 rounded-full border border-border bg-card/95 px-4 py-2 text-xs font-bold text-slate-700 shadow-sm">
         <LoadingMark small />
         <span>{label}</span>
       </div>
@@ -91,9 +91,9 @@ export function PortalLoadingState({
       <div className="w-full max-w-2xl">
         <div role="status" aria-live="polite" aria-atomic="true" className="text-center">
           <LoadingMark />
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-primary/80">BISU Workspace</p>
-          <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">{label}</h2>
-          {description && <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{description}</p>}
+          <p className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-primary">BISU Workspace</p>
+          <h2 className="text-2xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-3xl">{label}</h2>
+          {description && <p className="mx-auto mt-3 max-w-sm text-sm font-medium leading-6 text-slate-600">{description}</p>}
         </div>
         <WorkspacePreview table={preview === 'table'} />
       </div>

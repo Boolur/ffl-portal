@@ -12,6 +12,7 @@ vi.mock('next-auth/react', () => ({ useSession: () => ({
 vi.mock('@/components/tasks/TaskList', () => ({
   TaskList: ({ tasks }: { tasks: Task[] }) => <div data-card-count={tasks.length}>{tasks.map(task => task.id).join(',')}</div>,
 }));
+vi.mock('@/components/layout/PortalLoadingState', async () => import('../layout/PortalLoadingState'));
 vi.mock('@/app/actions/taskActions', () => ({ deleteTask: vi.fn(), loadTaskBucketCount: vi.fn(), loadTaskBucketPage: vi.fn() }));
 vi.mock('@/lib/taskBucketClientState', async () => import('../../lib/taskBucketClientState'));
 vi.mock('@/lib/taskWorkspaceCache', async () => ({
@@ -54,6 +55,7 @@ describe('task queue count labels', () => {
     expect(html).toContain('>1583</span>');
     expect(html).toContain('data-card-count="6"');
     expect(html).toContain('Load more (1577 remaining)');
+    expect(html).not.toContain('role="status"');
   });
 
   it('shows a pending count instead of presenting a loaded lower bound as the total', () => {
@@ -85,6 +87,11 @@ describe('task queue count labels', () => {
     const html = render();
     expect(html).toContain('Counting…');
     expect(html).toContain('Searching this bucket.');
+    expect(html).toContain('Finding tasks');
+    expect(html).toContain('role="status"');
+    expect(html).not.toContain('data-portal-loading="compact"');
+    expect(html).not.toContain('min-h-[60vh]');
+    expect(html).toContain('placeholder="Search all buckets..."');
     expect(html).not.toContain('>1583</span>');
     expect(html).not.toContain('>57</span>');
   });

@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
+import React, { useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import {
   Database,
@@ -8,7 +10,6 @@ import {
   Megaphone,
   UserCog,
   Inbox,
-  Loader2,
   Zap,
 } from 'lucide-react';
 import { LeadDetailModal } from './LeadDetailModal';
@@ -98,8 +99,12 @@ export function LeadDashboard({
 }) {
   const [detailLead, setDetailLead] = useState<React.ComponentProps<typeof LeadDetailModal>['lead'] | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const detailRequestPending = useRef(false);
 
   const openLeadDetail = useCallback(async (leadId: string) => {
+    // The local loading indicator keeps navigation usable; coalesce repeat opens.
+    if (detailRequestPending.current) return;
+    detailRequestPending.current = true;
     setDetailLoading(true);
     try {
       const full = await getLead(leadId);
@@ -115,12 +120,18 @@ export function LeadDashboard({
         } as React.ComponentProps<typeof LeadDetailModal>['lead']);
       }
     } finally {
+      detailRequestPending.current = false;
       setDetailLoading(false);
     }
   }, []);
 
   return (
     <div className="space-y-8">
+      {detailLoading && (
+        <div className="pointer-events-none sticky top-4 z-30 flex justify-center">
+          <PortalLoadingState variant="navigation" label="Opening lead details" />
+        </div>
+      )}
       {/* Webhook inbox health — visible whenever there are failed or
           pending inbound webhook events so admins can replay after any
           downstream outage. Renders a compact healthy indicator otherwise. */}
@@ -257,12 +268,6 @@ export function LeadDashboard({
           </div>
         )}
       </div>
-
-      {detailLoading && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        </div>
-      )}
 
       {detailLead && (
         <LeadDetailModal

@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
 import React from 'react';
 import {
   DollarSign,
@@ -466,9 +468,8 @@ export function SupportChatWidget({ activeRole }: SupportChatWidgetProps) {
             </div>
           )}
           {loading && (
-            <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading support chats...
+            <div className="flex justify-center border-b border-border px-4 py-3">
+              <PortalLoadingState variant="navigation" label="Loading support chats" />
             </div>
           )}
 

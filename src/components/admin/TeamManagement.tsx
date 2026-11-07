@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   TeamMemberSummary,
@@ -176,8 +178,8 @@ export function TeamManagement({
           className="flex-[1.5] bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden h-full fixed inset-0 md:static z-50 md:z-auto"
         >
           {loading ? (
-            <div className="flex-1 flex items-center justify-center">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            <div className="flex-1 overflow-auto">
+              <PortalLoadingState variant="compact" preview="table" label="Loading team member" />
             </div>
           ) : details ? (
             <>

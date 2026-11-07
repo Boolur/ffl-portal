@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
 import React, { useMemo, useState, useTransition } from 'react';
 import {
   ChevronDown,
@@ -1808,17 +1810,12 @@ export function LeaderboardPage({ initialReport }: Props) {
         </div>
       )}
 
-      <div className="relative space-y-4" aria-busy={isPending}>
+      <div className="relative space-y-4">
         {isPending && (
           <div
-            className="absolute inset-0 z-40 flex items-center justify-center rounded-[28px] bg-white/70 backdrop-blur-[2px]"
-            role="status"
-            aria-live="polite"
+            className="absolute inset-0 z-40 flex items-start justify-center rounded-[28px] bg-white/70 pt-8 backdrop-blur-[2px]"
           >
-            <div className="inline-flex items-center gap-3 rounded-2xl border border-blue-100 bg-white px-5 py-4 text-sm font-bold text-slate-700 shadow-xl shadow-slate-200/70">
-              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-              Refreshing leaderboard
-            </div>
+            <PortalLoadingState variant="navigation" label="Updating leaderboard" />
           </div>
         )}
 

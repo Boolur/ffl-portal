@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { TaskList, type Task } from '@/components/tasks/TaskList';
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
 import { deleteTask, loadTaskBucketCount, loadTaskBucketPage } from '@/app/actions/taskActions';
 import { appendTaskBucketPage, defaultTaskBucketSort, mergeTaskBucketSeedCounts, reconcileTaskBucketTotal, TaskBucketRequestGate, withTaskBucketTimeout } from '@/lib/taskBucketClientState';
 import { loadTaskBucketWindow, readTaskWorkspaceCache, taskSeedSignature, taskWorkspaceCacheEpoch, taskWorkspaceKey, writeTaskWorkspaceCache, type TaskWorkspaceSnapshot } from '@/lib/taskWorkspaceCache';
@@ -936,12 +937,11 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                     void loadServerBucket(bucket, bucket.nextCursor, 'append');
                   }}
                 >
-                  {bucket.isServerPending && bucket.visibleTasks.length === 0 && !pageError ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <div className="mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
-                      <h3 className="text-sm font-bold text-slate-900">Loading...</h3>
-                      <p className="mt-1 text-xs font-medium text-slate-500">
-                        Searching this bucket.
+                  {bucket.isServerLoading && bucket.visibleTasks.length === 0 && !pageError ? (
+                    <div className="flex min-h-44 flex-col items-center justify-center gap-3 px-3 py-8 text-center">
+                      <PortalLoadingState variant="navigation" label={deferredGlobalSearch || bucket.serverSearch ? 'Finding tasks' : 'Loading tasks'} />
+                      <p className="text-xs text-muted-foreground">
+                        {deferredGlobalSearch || bucket.serverSearch ? 'Searching this bucket.' : 'Getting this queue ready.'}
                       </p>
                     </div>
                   ) : pageError && bucket.visibleTasks.length === 0 ? null : (
@@ -1000,9 +1000,11 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                     </div>
                   )}
                   {bucket.serverPagination && !pageError &&
-                    !(bucket.isServerPending && bucket.visibleTasks.length === 0) && (
+                    !(bucket.isServerLoading && bucket.visibleTasks.length === 0) && (
                     <div className="mt-3 flex flex-col items-center gap-2 border-t border-slate-100 pt-3">
-                      {bucket.nextCursor ? (
+                      {bucket.isServerLoading ? (
+                        <PortalLoadingState variant="navigation" label={lastPageRequest.current[bucket.id]?.mode === 'append' ? 'Loading more tasks' : 'Updating tasks'} />
+                      ) : bucket.nextCursor ? (
                         <button
                           type="button"
                           disabled={bucket.isServerLoading}
@@ -1012,9 +1014,7 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                           }}
                           className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {bucket.isServerLoading
-                            ? 'Loading...'
-                            : !bucket.totalCountIsExact ? 'Load more'
+                          {!bucket.totalCountIsExact ? 'Load more'
                             : `Load more (${Math.max(
                                 0,
                                 (bucket.totalCount || 0) - bucket.visibleTasks.length
@@ -1022,12 +1022,8 @@ const TaskBucketsBoardContent = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
                         </button>
                       ) : bucket.totalCountIsExact && displayedCount > bucket.visibleTasks.length ? (
                         <button type="button" disabled={bucket.isServerLoading} className="app-btn-secondary" onClick={() => void loadServerBucket(bucket, null, 'refresh', true)}>
-                          {bucket.isServerLoading ? 'Loading...' : 'Refresh tasks'}
+                          Refresh tasks
                         </button>
-                      ) : bucket.isServerLoading ? (
-                        <span className="text-[11px] font-semibold text-slate-500">
-                          Loading...
-                        </span>
                       ) : bucket.totalCountIsExact && bucket.visibleTasks.length > 0 ? (
                         <span className="text-[11px] font-semibold text-slate-400">
                           All matching tasks loaded
@@ -1056,7 +1052,7 @@ export const TaskBucketsBoard = React.forwardRef<TaskBucketsBoardHandle, TaskBuc
   if (status === 'unauthenticated' ||
       (session?.user?.id && session.user.id !== props.currentUserId) ||
       (sessionRole && sessionRole !== props.currentRole)) {
-    return <div role="status" className="py-8 text-center text-sm text-muted-foreground">Loading your task queues...</div>;
+    return <PortalLoadingState variant="compact" label="Loading your task queues" description="Getting your workspace ready." />;
   }
   return <TaskBucketsBoardContent key={workspaceKey} {...props} identity={identity} workspaceKey={workspaceKey} ref={ref} />;
 });

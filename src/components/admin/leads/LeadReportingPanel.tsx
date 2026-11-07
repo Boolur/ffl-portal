@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
 import React, { useCallback, useMemo, useState, useTransition } from 'react';
 import {
   AlertTriangle,
@@ -725,6 +727,8 @@ export function LeadReportingPanel({ options, initialReport }: Props) {
           </label>
         </div>
       </section>
+
+      {isPending && <div className="flex justify-center"><PortalLoadingState variant="navigation" label="Updating lead report" /></div>}
 
       <section className="grid gap-4 lg:grid-cols-4">
         <KpiCard

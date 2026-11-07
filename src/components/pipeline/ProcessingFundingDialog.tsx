@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ProcessingPipelineSheet } from '@prisma/client';
 import { getProcessingFundingContext, moveProcessingPipelineLoan } from '@/app/actions/processingPipelineActions';
 import { calculateSigningFundingDates } from '@/lib/mortgageCalendar';
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
 
 export function ProcessingFundingDialog({ id, version, borrowerName, defaultSigningDate, onClose, onSaved }: {
   id: string;
@@ -69,7 +70,7 @@ export function ProcessingFundingDialog({ id, version, borrowerName, defaultSign
       }}>
         <h2 id="funding-dialog-title" className="text-xl font-black">Move to Fundings</h2>
         <p className="mt-1 text-sm text-slate-500">{borrowerName}</p>
-        {!context && !error && <p className="mt-4" role="status">Loading loan details…</p>}
+        {!context && !error && <div className="mt-4 flex justify-center"><PortalLoadingState variant="navigation" label="Loading loan details" /></div>}
         <fieldset disabled={saving || !context} className="mt-5 space-y-4">
           <label className="block text-sm font-semibold">
             Signing date

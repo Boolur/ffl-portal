@@ -13,6 +13,7 @@ import { AriveSyncStatus } from './AriveSyncStatus';
 import { ariveFieldLabel, ariveFieldMissing, formatAriveCalendarDate, mergeAriveConflictDraft } from '@/lib/ariveSyncPresentation';
 import { createPortal } from 'react-dom';
 import { DetailCard, DetailField, DetailGrid, DetailSection, WorkspacePanel } from './BorrowerWorkspaceLayout';
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
 import {
   Activity,
   Building2,
@@ -321,6 +322,8 @@ export function ProcessingBorrowerWorkspace({
         return;
       }
       setDetails(result.details);
+    }).catch(() => {
+      if (!cancelled) setError('Unable to load borrower details. Close this file and try again.');
     });
     return () => {
       cancelled = true;
@@ -1131,18 +1134,16 @@ export function ProcessingBorrowerWorkspace({
 
         <main className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
           {error ? (
-            <div className="mx-auto mt-16 max-w-lg rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+            <div role="alert" className="mx-auto mt-16 max-w-lg rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
               <p className="font-bold text-red-900">Unable to open this borrower file</p>
               <p className="mt-2 text-sm font-medium text-red-700">{error}</p>
             </div>
           ) : !details ? (
-            <div className="flex h-full min-h-72 flex-col items-center justify-center gap-3 text-center">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-              <div>
-                <p className="font-bold text-slate-900">Building borrower workspace</p>
-                <p className="mt-1 text-sm font-medium text-slate-500">Combining submission, loan, processing, and activity data.</p>
-              </div>
-            </div>
+            <PortalLoadingState
+              variant="compact"
+              label="Opening borrower file"
+              description="Preparing loan details, documents, and activity."
+            />
           ) : (
             <>
               <AriveSyncStatus view={details.ariveSync} pipelineLoanId={pipelineLoanId} onChanged={refreshAriveDetails} editing={editing || saving} responsibilityLabel={getProcessingPipelineLockedDefaults(details.loan.lender, details.ownership.processingMethod)?.label} />

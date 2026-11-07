@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
 import React from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -329,9 +331,8 @@ export function SupportInbox() {
           </div>
         )}
         {loading && (
-          <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2 text-sm text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading...
+          <div className="flex justify-center border-b border-border px-4 py-3">
+            <PortalLoadingState variant="navigation" label={selectedConversationId && selectedConversation?.id !== selectedConversationId ? 'Opening support request' : 'Updating support inbox'} />
           </div>
         )}
 
@@ -347,7 +348,7 @@ export function SupportInbox() {
               />
             );
           })}
-          {activeConversations.length === 0 && resolvedConversations.length === 0 && (
+          {!loading && activeConversations.length === 0 && resolvedConversations.length === 0 && (
             <div className="flex flex-col items-center justify-center px-5 py-12 text-center text-slate-500">
               <Inbox className="mb-3 h-8 w-8 text-slate-300" />
               <p className="text-sm font-semibold">No support requests match this view.</p>

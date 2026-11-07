@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
 import React from 'react';
 import { DashboardShell } from '@/components/layout/DashboardShell';
 import { LoanOfficerDashboard } from '@/components/dashboard/LoanOfficerDashboard';
@@ -125,7 +127,7 @@ function DashboardContent({
     title: 'Overview',
     subtitle: 'Manage your assigned work and activity.',
   };
-  if (activeRole !== user.role) return <p role="status" className="text-sm text-muted-foreground">Loading your workspace...</p>;
+  if (activeRole !== user.role) return <PortalLoadingState label="Opening your workspace" />;
   return (
     <>
       <div className="app-page-header">

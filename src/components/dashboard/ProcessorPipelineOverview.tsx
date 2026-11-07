@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { FileSpreadsheet, Landmark, Loader2, RefreshCw } from 'lucide-react';
+import { FileSpreadsheet, Landmark, RefreshCw } from 'lucide-react';
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
 import { ProcessingPipelineSheet } from '@prisma/client';
 import { getProcessingPipelineSheetCounts } from '@/app/actions/processingPipelineActions';
 import { usePortalRefresh } from '@/lib/usePortalRefresh';
@@ -40,6 +41,7 @@ export function ProcessorPipelineOverview() {
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
+      {loading && !error && <div className="flex justify-center md:col-span-3"><PortalLoadingState variant="navigation" label="Loading pipeline totals" /></div>}
       {error && <p role="status" className="text-xs text-muted-foreground md:col-span-3">{error} <button type="button" className="app-btn-secondary" onClick={refresh}>Retry</button></p>}
       {cards.map((card) => {
         const Icon = card.icon;
@@ -54,7 +56,7 @@ export function ProcessorPipelineOverview() {
                 <Icon className="h-5 w-5" />
               </div>
               {loading && !error ? (
-                <Loader2 className="h-5 w-5 animate-spin text-slate-300" />
+                <span aria-hidden="true" className="h-8 w-12 rounded-lg bg-muted motion-safe:animate-pulse" />
               ) : (
                 <span className="text-3xl font-bold text-slate-950">{counts[card.sheet] ?? '—'}</span>
               )}

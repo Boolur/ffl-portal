@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from './PortalLoadingState';
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Bell, LogOut, PanelLeft, Shield } from 'lucide-react';
 import { signOut } from 'next-auth/react';
@@ -276,8 +278,8 @@ export function TopNav({
 
               <div className="max-h-[420px] overflow-y-auto">
                 {isLoadingNotifications && notifications.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-sm font-medium text-slate-500">
-                    Loading notifications...
+                  <div className="flex justify-center px-4 py-6">
+                    <PortalLoadingState variant="navigation" label="Loading notifications" />
                   </div>
                 ) : notifications.length === 0 ? (
                   <div className="px-4 py-6 text-center text-sm font-medium text-slate-500">

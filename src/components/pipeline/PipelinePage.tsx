@@ -33,6 +33,7 @@ import {
 } from '@/app/actions/pipelineReportingActions';
 import { getSubmissionPrefillContext } from '@/app/actions/taskActions';
 import { NewTaskModal } from '@/components/loanOfficer/NewTaskModal';
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
 import { publishPortalUpdates, subscribePortalUpdates } from '@/lib/portalLiveUpdates';
 import { pipelineWorkspaceCacheRevision } from '@/lib/pipelineWorkspaceCache';
 
@@ -343,7 +344,6 @@ export function PipelinePage({ initialReport, submissionConfig, active = true }:
   const [shortcutLoading, setShortcutLoading] = useState<string | null>(null);
   const [reviewedUpdates, setReviewedUpdates] = useState<Set<string>>(() => new Set());
   const [pipelineSearch, setPipelineSearch] = useState('');
-  const [isPipelineSearchLoading, setIsPipelineSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const pendingLiveRefresh = useRef(false);
@@ -379,7 +379,7 @@ export function PipelinePage({ initialReport, submissionConfig, active = true }:
   }, [active, isPending, selectedCard, actioningRow, shortcutPrefill, shortcutLoading]);
   const deferredPipelineSearch = useDeferredValue(pipelineSearch.trim().toLowerCase());
   const isPipelineSearchPending =
-    isPipelineSearchLoading || pipelineSearch.trim().toLowerCase() !== deferredPipelineSearch;
+    pipelineSearch.trim().toLowerCase() !== deferredPipelineSearch;
   const filteredBucketRows = useMemo(() => {
     if (!deferredPipelineSearch) return report.bucketRows;
     return BUCKETS.reduce((acc, bucket) => {
@@ -400,12 +400,6 @@ export function PipelinePage({ initialReport, submissionConfig, active = true }:
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, []);
-
-  useEffect(() => {
-    if (!isPipelineSearchLoading) return;
-    const timeoutId = window.setTimeout(() => setIsPipelineSearchLoading(false), 220);
-    return () => window.clearTimeout(timeoutId);
-  }, [isPipelineSearchLoading, pipelineSearch]);
 
   const markUpdateReviewed = (row: PipelineMilestoneRow) => {
     const key = updateSignalKey(row);
@@ -611,7 +605,6 @@ export function PipelinePage({ initialReport, submissionConfig, active = true }:
 
       <section
         className="relative rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70"
-        aria-busy={isPending}
       >
         <div className="flex flex-col gap-3 px-1 pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -695,17 +688,16 @@ export function PipelinePage({ initialReport, submissionConfig, active = true }:
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <input
                     value={pipelineSearch}
-                    onChange={(event) => {
-                      setPipelineSearch(event.target.value);
-                      setIsPipelineSearchLoading(true);
-                    }}
+                    onChange={(event) => setPipelineSearch(event.target.value)}
                     placeholder="Search clients, loan numbers, lenders..."
                     className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-xs font-medium text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
                     aria-label="Search pipeline clients"
                   />
                 </label>
                 <div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-500 sm:justify-end">
-                  {pipelineSearch.trim() ? (
+                  {isPipelineSearchPending ? (
+                    <PortalLoadingState variant="navigation" label="Filtering clients" />
+                  ) : pipelineSearch.trim() ? (
                     <span>{formatNumber(filteredPipelineClientCount)} matching client{filteredPipelineClientCount === 1 ? '' : 's'}</span>
                   ) : (
                     <span>{formatNumber(filteredPipelineClientCount)} visible client{filteredPipelineClientCount === 1 ? '' : 's'}</span>
@@ -713,10 +705,7 @@ export function PipelinePage({ initialReport, submissionConfig, active = true }:
                   {pipelineSearch.trim() && (
                     <button
                       type="button"
-                      onClick={() => {
-                        setPipelineSearch('');
-                        setIsPipelineSearchLoading(true);
-                      }}
+                      onClick={() => setPipelineSearch('')}
                       className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                     >
                       Clear
@@ -733,15 +722,7 @@ export function PipelinePage({ initialReport, submissionConfig, active = true }:
                 return (
                   <div key={bucket.key} className={cx('flex min-h-[360px] flex-col overflow-hidden rounded-[24px] border shadow-sm', surface.column)}>
                     <div className="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-4">
-                      {isPipelineSearchPending ? (
-                        <div className="flex min-h-[180px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/70 p-4 text-center shadow-sm">
-                          <div className="mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
-                          <h3 className="text-sm font-bold text-slate-900">Loading...</h3>
-                          <p className="mt-1 text-xs font-medium text-slate-500">
-                            Searching this bucket.
-                          </p>
-                        </div>
-                      ) : rows.length === 0 ? (
+                      {rows.length === 0 ? (
                         <div className="flex min-h-[92px] items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/70 p-4 text-center text-sm font-medium text-slate-500 shadow-sm">
                           {deferredPipelineSearch
                             ? 'No clients match your current search.'
@@ -772,9 +753,8 @@ export function PipelinePage({ initialReport, submissionConfig, active = true }:
           />
         )}
         {isPending && (
-          <div className="pointer-events-none absolute right-3 top-3 z-20 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground shadow-sm" role="status" aria-live="polite">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-            Updating pipeline...
+          <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex justify-center">
+            <PortalLoadingState variant="navigation" label="Updating pipeline" />
           </div>
         )}
       </section>

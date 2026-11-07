@@ -76,7 +76,7 @@ import {
 import { isAdmin } from '@/lib/adminTiers';
 import { createProgressivePipelineRefresh } from '@/lib/progressivePipelineRefresh';
 import { appendPipelineRows } from '@/lib/processingPipelinePagination';
-import { selectProcessingPipelineViewResults } from '@/lib/processingPipelineViewResults';
+import { processingPipelineResultsQueryKey, selectProcessingPipelineViewResults } from '@/lib/processingPipelineViewResults';
 import { invalidatePipelineWorkspaceCache, pipelineWorkspaceCacheEpoch, pipelineWorkspaceCacheRevision, setPipelineWorkspaceCachedScroll, writePipelineWorkspaceCache } from '@/lib/pipelineWorkspaceCache';
 import { publishPortalUpdates, subscribePortalUpdates } from '@/lib/portalLiveUpdates';
 import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
@@ -744,6 +744,9 @@ export function ProcessingPipelineGrid({
   const [message, setMessage] = useState('');
   const [ariveConflictWarning, setAriveConflictWarning] = useState('');
   const [historyRow, setHistoryRow] = useState<ProcessingPipelineRow | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const historyRequestRef = useRef(0);
   const [borrowerWorkspaceRowId, setBorrowerWorkspaceRowId] =
     useState<string | null>(null);
   const [actionsMenuRow, setActionsMenuRow] = useState<ProcessingPipelineRow | null>(null);
@@ -782,8 +785,8 @@ export function ProcessingPipelineGrid({
     view: viewInput(sheet, search, sortBy, sortDirection, appliedFilters, activeLayout?.config.scope || 'GLOBAL'),
     remainingIds: initialData.remainingIds,
   });
-  const [resolvedQueryKey, setResolvedQueryKey] = useState(() => JSON.stringify(progressRef.current.view));
-  const selectedQueryKey = JSON.stringify(viewInput(sheet, search, sortBy, sortDirection, appliedFilters, activeLayout?.config.scope || 'GLOBAL'));
+  const [resolvedQueryKey, setResolvedQueryKey] = useState(() => processingPipelineResultsQueryKey(progressRef.current.view));
+  const selectedQueryKey = processingPipelineResultsQueryKey(viewInput(sheet, search, sortBy, sortDirection, appliedFilters, activeLayout?.config.scope || 'GLOBAL'));
   const currentViewResults = selectProcessingPipelineViewResults(selectedQueryKey, {
     queryKey: resolvedQueryKey, rows, total, remainingCount,
   });
@@ -946,7 +949,7 @@ export function ProcessingPipelineGrid({
           if (nextTotal !== undefined) setTotal(nextTotal);
           else if (removed) setTotal((current) => Math.max(0, current - removed));
         }
-        setResolvedQueryKey(JSON.stringify(view));
+        setResolvedQueryKey(processingPipelineResultsQueryKey(view));
         if (!remaining) { lastRowsLoadedAtRef.current = Date.now(); observedCacheRevisionRef.current = pipelineWorkspaceCacheRevision(); }
         setRemainingCount(remaining);
         setIsPending(false);
@@ -989,7 +992,7 @@ export function ProcessingPipelineGrid({
     lastRequestedSearchRef.current = nextSearch;
     const nextView = viewInput(nextSheet, nextSearch, nextSortBy, nextSortDirection, nextFilters, nextViewScope);
     // Only a matching sheet can stay visible while a full background update is buffered.
-    refreshIsBackgroundRef.current = background && resolvedQueryKey === JSON.stringify(nextView);
+    refreshIsBackgroundRef.current = background && resolvedQueryKey === processingPipelineResultsQueryKey(nextView);
     if (refreshIsBackgroundRef.current) { backgroundRowsRef.current = []; backgroundTotalRef.current = 0; }
     progressRef.current = { view: nextView, remainingIds: null };
     rowRefreshRef.current?.request(nextView);
@@ -1027,7 +1030,7 @@ export function ProcessingPipelineGrid({
   useEffect(() => {
     if (savingRows.size > 0) { invalidatePipelineWorkspaceCache(cacheScope); return; }
     const query = viewInput(sheet, search, sortBy, sortDirection, appliedFilters, activeLayout?.config.scope || 'GLOBAL');
-    if (remainingCount || isPending || editorOpen || rowRefreshRef.current?.isBusy() || progressRef.current.remainingIds === null || resolvedQueryKey !== JSON.stringify(query)) return;
+    if (remainingCount || isPending || editorOpen || rowRefreshRef.current?.isBusy() || progressRef.current.remainingIds === null || resolvedQueryKey !== processingPipelineResultsQueryKey(query)) return;
     const persist = () => writePipelineWorkspaceCache(cacheScope, {
       workspace: { success: true, data: { ...initialData, rows, total, remainingIds: [] }, layouts },
       tab: active ? 'processing' : 'pre-processing',
@@ -1911,11 +1914,21 @@ export function ProcessingPipelineGrid({
   };
 
   const openHistory = async (row: ProcessingPipelineRow) => {
+    const request = ++historyRequestRef.current;
     setHistoryRow(row);
     setHistoryEntries([]);
-    const result = await getProcessingPipelineHistory(row.id);
-    if (result.success) setHistoryEntries(result.entries);
-    else setMessage(result.error);
+    setHistoryError('');
+    setHistoryLoading(true);
+    try {
+      const result = await getProcessingPipelineHistory(row.id);
+      if (request !== historyRequestRef.current) return;
+      if (result.success) setHistoryEntries(result.entries);
+      else setHistoryError(result.error);
+    } catch {
+      if (request === historyRequestRef.current) setHistoryError('Unable to load change history. Please try again.');
+    } finally {
+      if (request === historyRequestRef.current) setHistoryLoading(false);
+    }
   };
 
   const changeSort = (nextSort: typeof sortBy) => {
@@ -4044,7 +4057,14 @@ export function ProcessingPipelineGrid({
               </div>
               <button type="button" className="app-btn-secondary" onClick={() => setHistoryRow(null)}>Close</button>
             </div>
-            <ol className="mt-6 space-y-3">
+            {historyLoading ? (
+              <PortalLoadingState variant="compact" preview="table" label="Loading change history" description="Gathering this loan's latest activity." />
+            ) : historyError ? (
+              <div className="mt-6 space-y-3">
+                <p role="alert" className="text-sm text-red-700">{historyError}</p>
+                <button type="button" className="app-btn-secondary" onClick={() => void openHistory(historyRow)}>Try again</button>
+              </div>
+            ) : <ol className="mt-6 space-y-3">
               {historyEntries.map((entry) => {
                 const details = parseAuditDetails(entry.details);
                 return (
@@ -4067,7 +4087,7 @@ export function ProcessingPipelineGrid({
                 );
               })}
               {historyEntries.length === 0 && <li className="text-sm text-slate-500">No tracked changes yet.</li>}
-            </ol>
+            </ol>}
           </aside>
         </div>
       )}

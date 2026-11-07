@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
 /**
  * Lead Distribution Health page client. Surfaces three diagnostics in one
  * place so admins can answer "what's broken right now?" without shelling
@@ -1628,9 +1630,7 @@ function BrokerLaunchEmailSection({
       )}
 
       {!status ? (
-        <div className="px-6 py-10 text-center text-sm text-slate-500">
-          Loading email status…
-        </div>
+        <PortalLoadingState variant="compact" preview="table" label="Loading email status" />
       ) : (
         <BrokerLaunchEmailBody
           status={status}
@@ -1783,9 +1783,7 @@ function BonzoForwardSection({
       )}
 
       {!status ? (
-        <div className="px-6 py-10 text-center text-sm text-slate-500">
-          Loading Bonzo status…
-        </div>
+        <PortalLoadingState variant="compact" preview="table" label="Loading Bonzo status" />
       ) : (
         <BonzoForwardBody
           status={status}

@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Activity,
@@ -846,6 +848,7 @@ export function LeadsCRM({
   const [globalIds, setGlobalIds] = useState<string[] | null>(null);
   const [detailLead, setDetailLead] = useState<LeadDetailData | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const detailRequestPending = useRef(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusChangeOpen, setStatusChangeOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -1794,6 +1797,9 @@ export function LeadsCRM({
 
   const openLeadDetail = useCallback(
     async (leadId: string) => {
+      // Preserve one open at a time without blocking the rest of the workspace.
+      if (detailRequestPending.current) return;
+      detailRequestPending.current = true;
       setDetailLoading(true);
       try {
         const full = await getLead(leadId);
@@ -1827,6 +1833,7 @@ export function LeadsCRM({
           await fetchLeads();
         }
       } finally {
+        detailRequestPending.current = false;
         setDetailLoading(false);
       }
     },
@@ -2077,8 +2084,8 @@ export function LeadsCRM({
       )}
 
       {detailLoading && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <div className="pointer-events-none sticky top-4 z-30 flex justify-center">
+          <PortalLoadingState variant="navigation" label="Opening lead details" />
         </div>
       )}
 
@@ -2739,7 +2746,7 @@ export function LeadsCRM({
             )}
           </p>
           <div className="flex items-center gap-3">
-            {loading && (
+            {loading && fetchMode === 'idle' && (
               <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
             )}
             <button
@@ -2753,19 +2760,10 @@ export function LeadsCRM({
           </div>
         </div>
 
-        {/* Thin top progress strip for page-change fetches. Non-
-            blocking on purpose — clicking Prev/Next should never
-            disable itself. The strip sits directly under the header
-            bar and above the table, so it's clearly tied to the
-            fetch that's in flight. Animation defined in globals.css
-            as `.leads-page-strip` (leadsPageStripSlide keyframe). */}
+        {/* Keep pagination available while the next set of leads loads. */}
         {fetchMode === 'page-change' && (
-          <div
-            className="h-0.5 w-full overflow-hidden bg-slate-100"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <div className="leads-page-strip h-full w-1/4 bg-blue-500" />
+          <div className="pointer-events-none flex justify-center border-b border-border bg-muted/50 py-2">
+            <PortalLoadingState variant="navigation" label="Loading leads" />
           </div>
         )}
 
@@ -2784,19 +2782,8 @@ export function LeadsCRM({
           {fetchMode === 'query-change' && (
             <div
               className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-[1px]"
-              aria-live="polite"
-              aria-busy="true"
             >
-              <div
-                className="pointer-events-auto flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm"
-              >
-                <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                <span className="text-sm font-medium text-slate-700">
-                  {search.trim().length >= 2
-                    ? `Searching ${total > 0 ? `${total.toLocaleString()} ` : ''}leads\u2026`
-                    : 'Applying filters\u2026'}
-                </span>
-              </div>
+              <PortalLoadingState variant="navigation" label={search.trim().length >= 2 ? 'Finding matching leads' : 'Updating lead results'} />
             </div>
           )}
 

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { appendPipelineRows } from './processingPipelinePagination';
 import { createProgressivePipelineRefresh } from './progressivePipelineRefresh';
-import { selectProcessingPipelineViewResults, type ProcessingPipelineViewResults } from './processingPipelineViewResults';
+import { processingPipelineResultsQueryKey, selectProcessingPipelineViewResults, type ProcessingPipelineViewResults } from './processingPipelineViewResults';
 
 type Row = { id: string; draft?: string };
 type Page = { success: true; rows: Row[]; total: number; remainingIds: string[] };
 type Failure = { success: false; error: string };
-const query = (patch: Record<string, unknown> = {}) => JSON.stringify({
+const query = (patch: Record<string, unknown> = {}) => processingPipelineResultsQueryKey({
   sheet: 'PIPELINE', search: '', allSheets: false, viewScope: 'GLOBAL', filters: {}, ...patch,
 });
 const initial: ProcessingPipelineViewResults<Row> = {
@@ -58,6 +58,14 @@ describe('Processing results belong to the selected view', () => {
   it('keeps the exact same-view rows and drafts available during a refresh', () => {
     expect(selectProcessingPipelineViewResults(query(), initial)).toBe(initial);
     expect(initial.rows[0].draft).toBe('unsaved note');
+  });
+
+  it('keeps complete same-view results visible when a header sorts them locally', () => {
+    const complete = { ...initial, remainingCount: 0 };
+    const sorted = query({ sortBy: 'borrowerName', sortDirection: 'desc' });
+    expect(selectProcessingPipelineViewResults(sorted, complete)).toBe(complete);
+    expect(query({ sortBy: 'loanNumber', sortDirection: 'asc' })).toBe(sorted);
+    expect(query({ viewScope: 'ASSIGNED', sortBy: 'borrowerName', sortDirection: 'desc' })).not.toBe(sorted);
   });
 
   it('shows only the new sheet first page and appends only its remaining loans', async () => {

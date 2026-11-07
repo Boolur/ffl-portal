@@ -1,5 +1,7 @@
 'use client';
 
+import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
+
 import React, { useCallback, useEffect, useState, useTransition } from 'react';
 import {
   AlertTriangle,
@@ -309,9 +311,7 @@ export function WebhookInboxPanel() {
             </div>
 
             {loadingList ? (
-              <div className="flex items-center justify-center py-10 text-sm text-slate-500">
-                <Loader2 className="h-5 w-5 animate-spin" />
-              </div>
+              <PortalLoadingState variant="compact" preview="table" label="Loading incoming leads" />
             ) : events.length === 0 ? (
               <div className="py-10 text-center text-sm text-slate-500">
                 No events in this bucket.
@@ -434,8 +434,8 @@ export function WebhookInboxPanel() {
             </div>
             <div className="flex-1 overflow-auto p-5 text-xs font-mono text-slate-800 bg-slate-50">
               {detailLoading ? (
-                <div className="flex items-center justify-center py-10">
-                  <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                <div className="font-sans">
+                  <PortalLoadingState variant="compact" label="Loading delivery details" />
                 </div>
               ) : detail ? (
                 <>
