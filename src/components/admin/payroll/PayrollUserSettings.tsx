@@ -158,6 +158,8 @@ export function PayrollUserSettings({
   const [brokerPlan, setBrokerPlan] = useState<PlanDraft>(planToDraft(selected?.plan ?? null));
   const [retailPlan, setRetailPlan] = useState<PlanDraft>(selected?.retailPlan ? planToDraft(selected.retailPlan) : emptyRetailDraft());
   const [isPending, startTransition] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const recipientOptions = useMemo(
     () => eligibleUsers.filter((user) => user.id !== selected?.id),
@@ -202,6 +204,8 @@ export function PayrollUserSettings({
   const chooseUser = (id: string) => {
     const user = users.find((item) => item.id === id) ?? null;
     setSelectedId(id);
+    setSaveError(null);
+    setSaveMessage(null);
     setClassification(user?.userClassification ?? PayrollUserClassification.BROKER);
     setSalary({
       salaryPerPaycheck: user?.plan?.salaryPerPaycheck?.toString() ?? '',
@@ -214,16 +218,41 @@ export function PayrollUserSettings({
 
   const save = () => {
     if (!selected) return;
+    if (Math.abs(brokerTotal - 100) > 0.0001) {
+      setSaveMessage(null);
+      setSaveError(`Broker split percentages must total 100%. Current total: ${brokerTotal}%.`);
+      return;
+    }
+    if (
+      classification === PayrollUserClassification.BROKER &&
+      Math.abs(retailTotal - 100) > 0.0001
+    ) {
+      setSaveMessage(null);
+      setSaveError(`Retail split percentages must total 100%. Current total: ${retailTotal}%.`);
+      return;
+    }
     startTransition(async () => {
-      await savePayrollCompPlanSettings({
-        loanOfficerId: selected.id,
-        userClassification: classification,
-        salaryPerPaycheck: salary.salaryPerPaycheck ? Number(salary.salaryPerPaycheck) : null,
-        salaryFrequency: salary.salaryFrequency,
-        salaryNotes: salary.salaryNotes,
-        brokerPlan: draftToInput(brokerPlan),
-        retailPlan: classification === PayrollUserClassification.BROKER ? draftToInput(retailPlan) : null,
-      });
+      try {
+        setSaveError(null);
+        setSaveMessage(null);
+        await savePayrollCompPlanSettings({
+          loanOfficerId: selected.id,
+          userClassification: classification,
+          salaryPerPaycheck: salary.salaryPerPaycheck ? Number(salary.salaryPerPaycheck) : null,
+          salaryFrequency: salary.salaryFrequency,
+          salaryNotes: salary.salaryNotes,
+          brokerPlan: draftToInput(brokerPlan),
+          retailPlan: classification === PayrollUserClassification.BROKER ? draftToInput(retailPlan) : null,
+        });
+        setSaveMessage(`Payroll splits saved for ${selected.name}.`);
+        router.refresh();
+      } catch (err) {
+        setSaveError(
+          err instanceof Error
+            ? err.message
+            : 'Unable to save payroll splits. Please review the values and try again.',
+        );
+      }
     });
   };
 
@@ -328,6 +357,16 @@ export function PayrollUserSettings({
             </div>
 
             <div className="space-y-6 p-6">
+              {saveError ? (
+                <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                  {saveError}
+                </div>
+              ) : null}
+              {saveMessage ? (
+                <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                  {saveMessage}
+                </div>
+              ) : null}
               <PayrollPlanEditorContent
                 classification={classification}
                 setClassification={setClassification}
