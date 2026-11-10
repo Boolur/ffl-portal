@@ -8,7 +8,7 @@ function serviceTone(tracker: AriveSyncServiceTracker) {
   if (tracker.availability !== 'current') return {
     card: 'border-amber-200 bg-amber-50 text-amber-950', icon: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500',
   };
-  if (tracker.status === 'RECEIVED') return {
+  if (tracker.status === 'RECEIVED' || (tracker.name === 'APPRAISAL' && tracker.status === 'COMPLETE')) return {
     card: 'border-emerald-200 bg-emerald-50 text-emerald-950', icon: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500',
   };
   if (['NOT_ORDERED', 'NOT_REQUESTED', 'NOT_STARTED'].includes(tracker.status)) return {

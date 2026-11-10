@@ -40,7 +40,7 @@ const adverseReasons = new Set(['APP_DENIED_BY_LENDING_INSTITUTION', 'APP_APPROV
 const fundedStages = new Set(['LOAN_FUNDED', 'BROKER_CHECK_RECEIVED', 'COMMISSION_PAID']);
 const itemMapping: Record<string, ProcessingItemStatus> = { NOT_ORDERED: 'NOT_STARTED', NOT_REQUESTED: 'NOT_STARTED', ORDERED: 'ORDERED', REQUESTED: 'ORDERED', RECEIVED: 'RECEIVED', WAIVED: 'NOT_APPLICABLE', NOT_NEEDED: 'NOT_APPLICABLE' };
 function appraisalRequirement(status: string): boolean | undefined {
-  if (['ORDERED', 'PAID', 'ASSIGNED', 'SCHEDULED', 'INSPECTED', 'RECEIVED'].includes(status)) return true;
+  if (['ORDERED', 'PAID', 'ASSIGNED', 'SCHEDULED', 'INSPECTED', 'RECEIVED', 'COMPLETE'].includes(status)) return true;
   if (['WAIVED', 'NOT_NEEDED'].includes(status)) return false;
   return undefined;
 }
@@ -159,10 +159,11 @@ export function planArivePipelineSync(input: { details: unknown; trackers: unkno
     if (recognized) {
       patch.appraisalOrderedAt = actualDate('appraisalOrderedAt', 'appraisalOrderedDate', appraisal, ['ORDERED']);
       patch.appraisalScheduledAt = trackerDate(appraisal, ['SCHEDULED']);
-      // Delivery to the borrower is not proof that the appraisal report was received.
-      patch.appraisalBackAt = trackerDate(appraisal, ['RECEIVED']);
+      // Arive's appraisal tracker also names its final status COMPLETE. Keep the
+      // actual supplied receipt/completion date; borrower delivery is not proof.
+      patch.appraisalBackAt = trackerDate(appraisal, ['RECEIVED', 'COMPLETE']);
       if (inProgress && !patch.appraisalOrderedAt) issue('appraisalOrderedAt', 'MISSING_DATE', 'Arive did not supply the appraisal order date needed for reminders.');
-      if (appraisal.status === 'RECEIVED' && !patch.appraisalBackAt) issue('appraisalBackAt', 'MISSING_DATE', 'Arive reports the appraisal received but its receipt date is missing.');
+      if (['RECEIVED', 'COMPLETE'].includes(appraisal.status) && !patch.appraisalBackAt) issue('appraisalBackAt', 'MISSING_DATE', 'Arive reports the appraisal received or complete, but its receipt/completion date is missing.');
     }
   }
   const cd = one('CD');

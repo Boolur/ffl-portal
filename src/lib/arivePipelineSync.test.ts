@@ -142,7 +142,7 @@ describe('inbound synchronization with real mapping, note import, and parsing', 
     expect(h.api.mock.calls.every(call => call[1] === undefined && call[2] === undefined)).toBe(true);
     h.advance(); expect(await h.run()).toMatchObject({ success: true, changed: false });
   });
-  it.each([['ORDERED', true], ['WAIVED', false]] as const)('uses successful source provenance to reverse the %s appraisal requirement inference', async (status, needed) => {
+  it.each([['ORDERED', true], ['WAIVED', false], ['COMPLETE', true]] as const)('uses successful source provenance to reverse the %s appraisal requirement inference', async (status, needed) => {
     const h = harness();
     h.remote.trackers[3] = tracker('APPRAISAL', status, '2026-11-05');
     await h.run(); expect(h.store.row.appraisalNeeded).toBe(needed);

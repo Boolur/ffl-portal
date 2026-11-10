@@ -120,7 +120,23 @@ describe('actual tracker milestones and SLA fields', () => {
     expect(result.patch.appraisalOrderedAt).toEqual(at('2026-10-19')); expect(result.patch).not.toHaveProperty('appraisalBackAt');
     expect(result.issues).toContainEqual(expect.objectContaining({ field: 'appraisalBackAt', code: 'MISSING_DATE' }));
   });
-  it.each([['ORDERED', true], ['WAIVED', false]] as const)('removes only the prior %s requirement inference when appraisal returns to Not Ordered', (status, needed) => {
+  it('recognizes exact appraisal COMPLETE while preserving its label and actual supplied milestones', () => {
+    const result = plan({ trackers: [tracker('APPRAISAL', 'COMPLETE', '2026-11-10', [{ name: 'ORDERED', date: '2026-11-08' }])] });
+    expect(result.patch).toMatchObject({ appraisalNeeded: true, appraisalOrderedAt: at('2026-11-08'), appraisalBackAt: at('2026-11-10') });
+    expect(result.source.trackers[0]).toMatchObject({ status: 'COMPLETE', statusLabel: 'Complete', date: '2026-11-10' });
+    expect(result.issues.some(issue => issue.field.startsWith('appraisal'))).toBe(false);
+  });
+  it('flags an undated complete appraisal without substituting delivery or the synchronization time', () => {
+    const result = plan({ details: { keyDates: { appraisalDeliveryDate: '2026-11-10' } }, trackers: [tracker('APPRAISAL', 'COMPLETE')], current: current({ appraisalBackAt: at('2026-11-01') }) });
+    expect(result.patch).toMatchObject({ appraisalNeeded: true, appraisalBackAt: null });
+    expect(result.issues).toContainEqual(expect.objectContaining({ field: 'appraisalBackAt', code: 'MISSING_DATE' }));
+  });
+  it.each(['NOT_COMPLETE', 'COMPLETED', 'UNKNOWN', 'complete'])('does not treat appraisal %s as complete', status => {
+    const result = plan({ trackers: [tracker('APPRAISAL', status, '2026-11-10')], current: current({ appraisalNeeded: false, appraisalBackAt: at('2026-11-01') }) });
+    expect(result.patch).not.toHaveProperty('appraisalNeeded'); expect(result.patch).not.toHaveProperty('appraisalBackAt');
+    expect(result.issues).toContainEqual(expect.objectContaining({ field: 'appraisalNeeded', code: 'UNMAPPED_TRACKER_STATUS' }));
+  });
+  it.each([['ORDERED', true], ['WAIVED', false], ['COMPLETE', true]] as const)('removes only the prior %s requirement inference when appraisal returns to Not Ordered', (status, needed) => {
     const forward = plan({ trackers: [tracker('APPRAISAL', status, '2026-11-05')] });
     expect(forward.patch.appraisalNeeded).toBe(needed);
     const restored = plan({ trackers: [tracker('APPRAISAL', 'NOT_ORDERED')], current: current({ ...forward.patch, previousArive: { appraisal: { status, needed } } }) });

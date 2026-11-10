@@ -41,6 +41,20 @@ describe('service status cards', () => {
       expect(html).not.toContain('bg-rose-50');
     }
   });
+  it('recognizes the exact appraisal Complete status without treating other services or lookalikes as complete', () => {
+    const complete = render({ trackers: [tracker({ status: 'COMPLETE', statusLabel: 'Complete' })] });
+    expect(complete).toContain('>Complete<');
+    expect(complete).toContain('border-emerald-200 bg-emerald-50');
+    for (const value of [
+      tracker({ name: 'TITLE', label: 'Title', status: 'COMPLETE', statusLabel: 'Complete' }),
+      tracker({ status: 'NOT_COMPLETE', statusLabel: 'Not complete' }),
+      tracker({ status: 'CUSTOM_COMPLETE', statusLabel: 'Custom complete' }),
+    ]) {
+      const html = render({ trackers: [value] });
+      expect(html).toContain('border-slate-200 bg-white');
+      expect(html).not.toContain('bg-emerald-50');
+    }
+  });
   it('labels portal data with its actual source and keeps the compact variant concise', () => {
     const portal = render({ trackers: [tracker()], sourceLabel: 'Portal' });
     expect(portal).toContain('Portal service progress');

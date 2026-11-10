@@ -36,6 +36,31 @@ describe('allowlisted Arive application snapshot', () => {
     expect(snapshot.employment[0]).toMatchObject({ startDate: null, monthlyIncome: null, selfEmployed: null });
     expect(projectAriveApplicationSnapshot(null).employment).toEqual([]);
   });
+  it('maps only documented subject-property fields and keeps purchase price/value distinct from contract amount', () => {
+    const snapshot = projectAriveApplicationSnapshot({ purchasePriceOrEstimatedValue: 800000, subjectTBDIndicator: false,
+      subjectProperty: { addressLineText: '123 Synthetic Lane', addressUnitIdentifier: '2', city: 'Sample', county: 'Example', state: 'CA', postalCode: '90000',
+        salesContractAmt: '750000', housingType: 'SingleFamily', financedUnitCount: 1, attachmentType: 'Detached', propertyUsageType: 'PrimaryResidence',
+        yearBuilt: 'DO_NOT_EXPOSE', yearAcquired: 'DO_NOT_EXPOSE', vesting: 'DO_NOT_EXPOSE', accountNumber: 'DO_NOT_EXPOSE' },
+    });
+    expect(snapshot.property).toEqual({ street: '123 Synthetic Lane', unit: '2', city: 'Sample', county: 'Example', state: 'CA', postalCode: '90000',
+      salesContractAmount: 750000, purchasePriceOrEstimatedValue: 800000, housingType: 'SingleFamily', financedUnitCount: 1,
+      attachmentType: 'Detached', usageType: 'PrimaryResidence', addressTbd: false });
+    expect(JSON.stringify(snapshot)).not.toContain('DO_NOT_EXPOSE');
+  });
+  it('does not invent property details from lead aliases or unsupported fields and preserves older snapshot compatibility', () => {
+    expect(projectAriveApplicationSnapshot({ subjectProperty: { lineText: 'Lead address', unitId: '2', yearBuilt: 1990, estimatedValue: 800000 }, propertyUsageType: 'Investment' }).property).toBeUndefined();
+    expect(projectAriveApplicationSnapshot({ purchasePriceOrEstimatedValue: -1, subjectProperty: { financedUnitCount: 1.5, salesContractAmt: false, city: { privateData: 'DO_NOT_EXPOSE' } } }).property).toBeUndefined();
+    expect(projectAriveApplicationSnapshot({ purchasePriceOrEstimatedValue: 0, subjectTBDIndicator: true }).property).toMatchObject({ purchasePriceOrEstimatedValue: 0, addressTbd: true, street: null });
+    const oldSnapshot = projectAriveApplicationSnapshot({ baseLoanAmount: 100000 });
+    expect(readAriveApplicationView({ application: oldSnapshot }, null)?.property).toBeUndefined();
+  });
+  it('re-applies the property allowlist to stored snapshots without exposing added private fields', () => {
+    const application = projectAriveApplicationSnapshot({ subjectProperty: { city: 'Sample' } });
+    Object.assign(application.property!, { accountNumber: 'DO_NOT_EXPOSE', rawResponse: { privateData: 'DO_NOT_EXPOSE' } });
+    const view = readAriveApplicationView({ application }, null);
+    expect(view?.property).toMatchObject({ city: 'Sample', street: null, purchasePriceOrEstimatedValue: null });
+    expect(JSON.stringify(view)).not.toContain('DO_NOT_EXPOSE');
+  });
   it('re-applies the allowlist when reading stored snapshots, excludes metadata, and preserves provenance time', () => {
     const application = projectAriveApplicationSnapshot({ baseLoanAmount: 100000 });
     Object.assign(application, { ssn: 'DO_NOT_EXPOSE', rawResponse: 'DO_NOT_EXPOSE' });

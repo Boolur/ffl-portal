@@ -87,3 +87,14 @@ Funded/adverse/restructure routing, rate-lock fulfillment ordering, invalid-note
 - The application snapshot is refreshed by Sync now and the existing background worker. A new successful sync is necessary after deployment before the application panels have data.
 - Returning Appraisal to NOT_ORDERED clears only a verified prior Arive-derived requirement inference, preserving independent portal requirements and source-supplied history dates.
 - Successful sync timestamps refresh mounted notes/documents/tracker panels. Skipped/failed sync responses no longer claim a successful refresh.
+
+### Live demo acceptance — November 10, 2026
+
+- Production commit 30b360a deployed successfully. TESTING TESTER 17881588 alone was used for live changes; no real service orders, stage/funding changes, or financial approvals were initiated.
+- Saved Title Received (existing October 15 source date), HOI Ordered (November 10), Appraisal Waived (November 10), and Payoffs Ordered (November 10) in Arive. Email/SMS and loan-team notifications were disabled where Arive prompted before saving.
+- Added a clearly marked synthetic note containing all eight supported headers. At 12:33 PM Pacific, the actual workspace Sync now completed and the mounted notes panel changed from 3 notes/1 reply to 4 notes/1 reply, newest first, without reopening or waiting for its former one-minute poll. Completion and refreshed history were observed within approximately 13 seconds.
+- Verified all eight current structured values, Scheduled Signing 11/18/2026 and Payoff Expiry 11/30/2026 in Key dates, and all four source-status cards. Financial values matched Arive: $400,000 loan, 7.125% note rate, 50% LTV, 6.49% DTI, $3,244.87 housing total, plus employer record. Seven approved submission files remained accessible.
+- All Arive trackers resolved the authorized document package and loaded 18 current tracker entries. Subsequent Sync refreshed that mounted panel too.
+- Appraisal's actual final API label was confirmed as COMPLETE, not only RECEIVED. Added that exact appraisal-only alias for requirement/receipt-date mapping and green card styling, with no widening to other unknown statuses.
+- Added documented property address/type/occupancy/value to the same allowlisted application snapshot. Unsupported year-built/acquisition/vesting remain portal fields.
+- Final live restoration is recorded after verification of the follow-up deployment.
