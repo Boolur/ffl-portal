@@ -18,6 +18,7 @@ import { isAdmin, isAdminIII } from '@/lib/adminTiers';
 import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, jsonRecord, preserveAriveManagedFields } from '../../lib/ariveSyncState';
 import { ARIVE_SYNC_PILOT } from '../../lib/ariveSyncTypes';
 import { parseArivePipelineDate } from '../../lib/arivePipelineMapping';
+import { readAriveApplicationView } from '../../lib/ariveApplicationSnapshot';
 import { prisma } from '@/lib/prisma';
 import { PIPELINE_ROW_BATCH_SIZE, orderPipelineRows } from '../../lib/processingPipelinePagination';
 import {
@@ -2857,6 +2858,9 @@ export async function getProcessingBorrowerDetails(id: string) {
       id: row.id,
       version: row.version,
       ariveSync: ariveSyncView(row.ariveSync, ariveEligibleLoan(row.loan), actor.canManageArive),
+      ...(ariveEligibleLoan(row.loan) && row.loan.borrowerName.trim().replace(/\s+/g, ' ').toUpperCase() === ARIVE_SYNC_PILOT.borrowerName && row.ariveSync
+        ? { ariveApplication: readAriveApplicationView(row.ariveSync.snapshot, row.ariveSync.lastSuccessAt) }
+        : {}),
       canEdit:
         (
           row.sheet !== ProcessingPipelineSheet.FUNDING ||

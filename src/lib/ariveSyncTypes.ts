@@ -9,6 +9,14 @@ export type AriveSyncIssue = { field: string; code: string; message: string };
 export type AriveSyncConflict = {
   field: string; label: string; portalValue: string | null; ariveValue: string | null; detectedAt: string;
 };
+export type AriveSyncServiceTracker = {
+  name: 'TITLE' | 'HOI' | 'APPRAISAL' | 'PAYOFFS';
+  label: string;
+  status: string;
+  statusLabel: string;
+  date: string | null;
+  availability: 'current' | 'missing' | 'ambiguous';
+};
 export type AriveSyncView = {
   enabled: boolean;
   lastSuccessAt: string | null;
@@ -23,6 +31,7 @@ export type AriveSyncView = {
   issues: AriveSyncIssue[];
   managedFields: string[];
   canManage: boolean;
+  serviceTrackers?: AriveSyncServiceTracker[];
   structuredFields?: { key: string; label: string; value: string | null; author: string; updatedAt: string | null }[];
 };
 

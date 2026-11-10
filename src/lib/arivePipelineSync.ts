@@ -8,6 +8,7 @@ import { ariveSyncSameValue, ariveSyncValue, jsonRecord, syncConflicts } from '.
 import { planArivePipelineSync } from './arivePipelineMapping';
 import { parseAriveStructuredNotes, type AriveStructuredNoteKey, type AriveStructuredNoteSource } from './ariveStructuredNotes';
 import { readPilotPackage } from './submissionPilot';
+import { projectAriveApplicationSnapshot } from './ariveApplicationSnapshot';
 
 export const ARIVE_SYNC_INTERVAL_MS = 5 * 60_000;
 const LEASE_MS = 4 * 60_000;
@@ -112,7 +113,14 @@ export async function syncArivePipeline(pipelineId: string, options: { force?: b
       // unavailable/unknown tracker must never make an old lock look newly confirmed.
       const priorLock = priorLockStatus === 'Locked' ? true : typeof priorLockStatus === 'string' && ['None', 'Requested', 'Expired', 'Rejected'].includes(priorLockStatus) ? false : undefined;
       const previousReadStartedAt = previousSnapshot.readStartedAt;
-      const plan = planArivePipelineSync({ details, trackers, current: { ...current, ...(typeof priorLock === 'boolean' && typeof previousReadStartedAt === 'string' ? { previousArive: { rateLock: priorLock, observedAt: previousReadStartedAt } } : {}) }, now });
+      const priorAppraisalTrackers = Array.isArray(priorTrackers) ? priorTrackers.map(jsonRecord).filter(t => t.name === 'APPRAISAL') : [];
+      const priorAppraisalStatus = priorAppraisalTrackers.length === 1 ? priorAppraisalTrackers[0].status : null;
+      const priorAppraisalNeeded = jsonRecord(previousSnapshot.managed).appraisalNeeded;
+      const previousArive = {
+        ...(typeof priorLock === 'boolean' && typeof previousReadStartedAt === 'string' ? { rateLock: priorLock, observedAt: previousReadStartedAt } : {}),
+        ...(typeof priorAppraisalStatus === 'string' && typeof priorAppraisalNeeded === 'boolean' ? { appraisal: { status: priorAppraisalStatus, needed: priorAppraisalNeeded } } : {}),
+      };
+      const plan = planArivePipelineSync({ details, trackers, current: { ...current, previousArive }, now });
       const parsed = parseAriveStructuredNotes(notes, notesPrevious(state.fieldSources));
       const fieldSources = { ...jsonRecord(state.fieldSources) };
       const structuredValues = { ...jsonRecord(previousSnapshot.structuredValues) };
@@ -144,7 +152,7 @@ export async function syncArivePipeline(pipelineId: string, options: { force?: b
         const before = (current as unknown as Record<string, unknown>)[field];
         if (field in managed && (field in priorManaged ? !ariveSyncSameValue(field, before, priorManaged[field]) : ariveSyncValue(before) !== null)) conflicts.push({ field, label: ariveSyncFieldLabel(field), portalValue: ariveSyncValue(before), ariveValue: ariveSyncValue(value), detectedAt: now.toISOString() });
       }
-      const content = { source: plan.source, managed, structuredValues, modifiedDateTime: typeof modified === 'string' ? modified : null };
+      const content = { source: plan.source, managed, structuredValues, application: projectAriveApplicationSnapshot(details), modifiedDateTime: typeof modified === 'string' ? modified : null };
       // Start time conservatively proves that a prior unlocked read happened
       // after a request. The observation clock itself is not a content change.
       const snapshot = { ...content, readStartedAt: started.toISOString() };

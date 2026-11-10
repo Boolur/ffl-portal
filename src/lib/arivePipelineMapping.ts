@@ -6,7 +6,10 @@ type OwnedField = 'sheet' | 'pipelineStatus' | 'statusChangedAt' | 'movedAt' | '
   | 'cdSent' | 'cdWarningStartsAt' | 'rateLock' | 'rateLockExpiresAt' | 'rateLockConfirmedAt'
   | 'rateLockRequestedAt' | 'rateLockRequestedById' | 'approvedWithConditionsAt' | 'fundedAt';
 export type ArivePipelineCurrent = Pick<ProcessingPipelineLoan, OwnedField | 'estimatedSigningAt' | 'payoffExpiresAt'> & {
-  previousArive?: { rateLock: boolean; observedAt: string };
+  previousArive?: {
+    rateLock?: boolean; observedAt?: string;
+    appraisal?: { status: string; needed: boolean };
+  };
 };
 export type ArivePipelinePatch = Partial<Pick<ProcessingPipelineLoan, OwnedField>>;
 export type ArivePipelineIssue = { field: string; code: string; message: string };
@@ -36,6 +39,11 @@ const stageMapping: Record<string, ProcessingPipelineStatus> = {
 const adverseReasons = new Set(['APP_DENIED_BY_LENDING_INSTITUTION', 'APP_APPROVED_BUT_NOT_ACCEPTED', 'APP_WITHDRAWN_BY_BORROWER', 'FILE_CLOSED_FOR_INCOMPLETENESS', 'PREAPPROVAL_APPROVED_BUT_NOT_ACCEPTED', 'PREAPPROVAL_DENIED', 'APP_RESCINDED_BY_BORROWER']);
 const fundedStages = new Set(['LOAN_FUNDED', 'BROKER_CHECK_RECEIVED', 'COMMISSION_PAID']);
 const itemMapping: Record<string, ProcessingItemStatus> = { NOT_ORDERED: 'NOT_STARTED', NOT_REQUESTED: 'NOT_STARTED', ORDERED: 'ORDERED', REQUESTED: 'ORDERED', RECEIVED: 'RECEIVED', WAIVED: 'NOT_APPLICABLE', NOT_NEEDED: 'NOT_APPLICABLE' };
+function appraisalRequirement(status: string): boolean | undefined {
+  if (['ORDERED', 'PAID', 'ASSIGNED', 'SCHEDULED', 'INSPECTED', 'RECEIVED'].includes(status)) return true;
+  if (['WAIVED', 'NOT_NEEDED'].includes(status)) return false;
+  return undefined;
+}
 function record(value: unknown): Record<string, unknown> | null { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function string(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
 function title(value: string): string { return value.replaceAll('_', ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase()); }
@@ -134,10 +142,19 @@ export function planArivePipelineSync(input: { details: unknown; trackers: unkno
   }
   const appraisal = one('APPRAISAL');
   if (appraisal) {
-    const inProgress = ['ORDERED', 'PAID', 'ASSIGNED', 'SCHEDULED', 'INSPECTED', 'RECEIVED'].includes(appraisal.status);
-    const recognized = inProgress || ['WAIVED', 'NOT_NEEDED', 'NOT_ORDERED'].includes(appraisal.status);
-    if (['WAIVED', 'NOT_NEEDED'].includes(appraisal.status)) patch.appraisalNeeded = false;
-    else if (inProgress) patch.appraisalNeeded = true;
+    const inferredNeeded = appraisalRequirement(appraisal.status);
+    const inProgress = inferredNeeded === true;
+    const recognized = inferredNeeded !== undefined || appraisal.status === 'NOT_ORDERED';
+    const previous = input.current.previousArive?.appraisal;
+    if (inferredNeeded !== undefined) patch.appraisalNeeded = inferredNeeded;
+    else if (appraisal.status === 'NOT_ORDERED' && previous
+      && appraisalRequirement(previous.status) === previous.needed
+      && input.current.appraisalNeeded === previous.needed) {
+      // Not ordered does not establish whether an appraisal is required. Clear
+      // only the inference from the preceding confirmed Arive state, never an
+      // independent portal requirement or a value retained through unknown data.
+      patch.appraisalNeeded = null;
+    }
     else if (appraisal.status !== 'NOT_ORDERED') issue('appraisalNeeded', 'UNMAPPED_TRACKER_STATUS', 'The actual Arive appraisal state is shown; appraisal requirements were retained.');
     if (recognized) {
       patch.appraisalOrderedAt = actualDate('appraisalOrderedAt', 'appraisalOrderedDate', appraisal, ['ORDERED']);

@@ -11,7 +11,10 @@ export function normalizeAriveTrackers(value: unknown): AriveTrackerSummary[] {
   return data.loanTrackers.map((raw: unknown) => {
     const t = raw as Record<string, unknown> | null;
     if (!t || typeof t.name !== 'string') throw new Error('Arive returned an unexpected tracker.');
-    const current = t.currentTrackerStatus as Record<string, unknown> | null | undefined;
+    const rawCurrent = t.currentTrackerStatus;
+    if (Array.isArray(rawCurrent) && rawCurrent.length > 1) throw new Error('Arive returned multiple current tracker statuses.');
+    const current = (Array.isArray(rawCurrent) ? rawCurrent[0] : rawCurrent) as Record<string, unknown> | null | undefined;
+    if (Array.isArray(rawCurrent) && rawCurrent.length === 1 && current == null) throw new Error('Arive returned an unexpected tracker status.');
     if (current != null && (typeof current !== 'object' || Array.isArray(current))) throw new Error('Arive returned an unexpected tracker status.');
     return {
       name: t.name,

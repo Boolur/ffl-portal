@@ -132,6 +132,46 @@ describe('inbound synchronization with real mapping, note import, and parsing', 
     expect(h.store.sync.snapshot.managed).toMatchObject({ titleStatus: 'NOT_STARTED', cdSent: false, rateLock: false });
     expect(h.store.sync.snapshot.managed).not.toHaveProperty('rateLockRequestedAt');
   });
+  it('stores an allowlisted financial snapshot from the already-verified read without changing financial approvals', async () => {
+    const h = harness(); const before = clone(h.store.row);
+    Object.assign(h.remote.details, { baseLoanAmount: 250000, estCashToClose: 15000, backEndDTI: 34, ssn: 'DO_NOT_STORE', accountNumber: 'DO_NOT_STORE' });
+    await h.run();
+    expect(h.store.sync.snapshot.application).toMatchObject({ loan: { baseLoanAmount: 250000 }, financial: { estimatedCashToClose: 15000, backEndDti: 34 } });
+    expect(JSON.stringify(h.store.sync.snapshot.application)).not.toContain('DO_NOT_STORE');
+    for (const key of ['finalRevenue', 'projectedRevenue', 'payrollApproved', 'firstPaymentAt', 'sixthPaymentAt'] as const) expect(h.store.row[key]).toEqual(before[key]);
+    expect(h.api.mock.calls.every(call => call[1] === undefined && call[2] === undefined)).toBe(true);
+    h.advance(); expect(await h.run()).toMatchObject({ success: true, changed: false });
+  });
+  it.each([['ORDERED', true], ['WAIVED', false]] as const)('uses successful source provenance to reverse the %s appraisal requirement inference', async (status, needed) => {
+    const h = harness();
+    h.remote.trackers[3] = tracker('APPRAISAL', status, '2026-11-05');
+    await h.run(); expect(h.store.row.appraisalNeeded).toBe(needed);
+    h.advance(); h.remote.trackers[3] = tracker('APPRAISAL', 'NOT_ORDERED');
+    await h.run(); expect(h.store.row.appraisalNeeded).toBeNull();
+    expect(h.store.sync.snapshot.managed).toMatchObject({ appraisalNeeded: null });
+    const version = h.store.row.version;
+    h.advance(); expect(await h.run()).toMatchObject({ success: true, changed: false });
+    expect(h.store.row.version).toBe(version);
+  });
+  it.each([true, false])('keeps an independent appraisal requirement %s when Not Ordered has never implied a requirement', async appraisalNeeded => {
+    const h = harness(); h.store.row.appraisalNeeded = appraisalNeeded;
+    await h.run(); expect(h.store.row.appraisalNeeded).toBe(appraisalNeeded);
+    h.advance(); await h.run(); expect(h.store.row.appraisalNeeded).toBe(appraisalNeeded);
+    expect(h.store.sync.snapshot.managed).not.toHaveProperty('appraisalNeeded');
+  });
+  it.each(['unknown', 'duplicate', 'independent change'])('does not reset the appraisal requirement after %s interrupts source proof', async interruption => {
+    const h = harness(); h.remote.trackers[3] = tracker('APPRAISAL', 'ORDERED', '2026-11-05');
+    await h.run();
+    if (interruption === 'independent change') h.store.row.appraisalNeeded = false;
+    else {
+      h.advance();
+      if (interruption === 'unknown') h.remote.trackers[3] = tracker('APPRAISAL', 'UNFAMILIAR');
+      else h.remote.trackers.push(tracker('APPRAISAL', 'WAIVED'));
+      await h.run();
+    }
+    h.advance(); h.remote.trackers = h.remote.trackers.filter(t => t.name !== 'APPRAISAL'); h.remote.trackers.push(tracker('APPRAISAL', 'NOT_ORDERED'));
+    await h.run(); expect(h.store.row.appraisalNeeded).toBe(interruption === 'independent change' ? false : true);
+  });
   it.each(['SUSPENDED', 'LOAN_FUNDED', 'ADVERSE'])('routes %s while preserving financial and assignment records', async stage => {
     const h = harness(); const before = clone(h.store.row);
     h.remote.details.currentLoanStatus = { status: stage === 'ADVERSE' ? 'APPLICATION_INTAKE' : stage, date: '2026-11-01', adverseReason: stage === 'ADVERSE' ? 'APP_WITHDRAWN_BY_BORROWER' : '' };

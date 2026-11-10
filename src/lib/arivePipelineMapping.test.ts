@@ -120,6 +120,35 @@ describe('actual tracker milestones and SLA fields', () => {
     expect(result.patch.appraisalOrderedAt).toEqual(at('2026-10-19')); expect(result.patch).not.toHaveProperty('appraisalBackAt');
     expect(result.issues).toContainEqual(expect.objectContaining({ field: 'appraisalBackAt', code: 'MISSING_DATE' }));
   });
+  it.each([['ORDERED', true], ['WAIVED', false]] as const)('removes only the prior %s requirement inference when appraisal returns to Not Ordered', (status, needed) => {
+    const forward = plan({ trackers: [tracker('APPRAISAL', status, '2026-11-05')] });
+    expect(forward.patch.appraisalNeeded).toBe(needed);
+    const restored = plan({ trackers: [tracker('APPRAISAL', 'NOT_ORDERED')], current: current({ ...forward.patch, previousArive: { appraisal: { status, needed } } }) });
+    expect(restored.patch.appraisalNeeded).toBeNull();
+    expect(restored.managed.appraisalNeeded).toBeNull();
+  });
+  it.each([true, false])('keeps an independently known appraisal requirement of %s on the first Not Ordered read', appraisalNeeded => {
+    const result = plan({ trackers: [tracker('APPRAISAL', 'NOT_ORDERED')], current: current({ appraisalNeeded }) });
+    expect(result.patch).not.toHaveProperty('appraisalNeeded');
+    expect(result.managed).not.toHaveProperty('appraisalNeeded');
+  });
+  it.each([
+    { status: 'NOT_ORDERED', needed: true, current: true },
+    { status: 'UNFAMILIAR', needed: true, current: true },
+    { status: 'ORDERED', needed: true, current: false },
+    { status: 'ORDERED', needed: false, current: false },
+  ])('does not clear an unproven or independently changed appraisal requirement ($status, $needed, $current)', previous => {
+    const result = plan({ trackers: [tracker('APPRAISAL', 'NOT_ORDERED')], current: current({ appraisalNeeded: previous.current, previousArive: { appraisal: { status: previous.status, needed: previous.needed } } }) });
+    expect(result.patch).not.toHaveProperty('appraisalNeeded');
+  });
+  it('retains actual appraisal milestones when resetting only the inferred requirement', () => {
+    const result = plan({ trackers: [tracker('APPRAISAL', 'NOT_ORDERED', null, [
+      { name: 'ORDERED', date: '2026-10-20' }, { name: 'SCHEDULED', date: '2026-10-22' }, { name: 'RECEIVED', date: '2026-10-25' },
+    ])], current: current({ appraisalNeeded: true, appraisalOrderedAt: at('2026-10-20'), appraisalScheduledAt: at('2026-10-22'), appraisalBackAt: at('2026-10-25'), previousArive: { appraisal: { status: 'RECEIVED', needed: true } } }) });
+    expect(result.patch.appraisalNeeded).toBeNull();
+    for (const field of ['appraisalOrderedAt', 'appraisalScheduledAt', 'appraisalBackAt']) expect(result.patch).not.toHaveProperty(field);
+    expect(result.managed).toMatchObject({ appraisalOrderedAt: at('2026-10-20'), appraisalScheduledAt: at('2026-10-22'), appraisalBackAt: at('2026-10-25') });
+  });
   it('captures all trackers without treating payroll/funding trackers as accounting approvals', () => {
     const names = ['TRID', 'RATE_LOCK', 'ITP', 'APPRAISAL', 'HOI', 'TITLE', 'PAYOFFS', 'HOA_FEE', 'FLOOD_CERTIFICATION', 'CD', 'SIGNED_DOCS_WITH_LENDER', 'FUNDING_CONDITIONS', 'FTC', 'FUNDING_WIRE', 'MERS', 'POST_CLOSING_AUDIT', 'PAYROLL', 'CLIENT_REVIEW'];
     const result = plan({ trackers: names.map(name => tracker(name, 'COMPLETE', '2026-10-20')) });

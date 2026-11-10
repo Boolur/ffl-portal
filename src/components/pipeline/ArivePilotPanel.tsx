@@ -43,7 +43,7 @@ export function ArivePilotConnection({ configured, canConfigure, owner, onChange
   </section>;
 }
 
-export function ArivePackagePanel({ taskId, pkg, configured, parentBusy, onChanged }: { taskId: string; pkg: PilotPackage; configured: boolean; parentBusy: boolean; onChanged: () => Promise<void> }) {
+export function ArivePackagePanel({ taskId, pkg, configured, parentBusy, onChanged, hideNotes = false }: { taskId: string; pkg: PilotPackage; configured: boolean; parentBusy: boolean; onChanged: () => Promise<void>; hideNotes?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [classes, setClasses] = useState<{ name: string; subName: string }[] | null>(null);
@@ -54,7 +54,7 @@ export function ArivePackagePanel({ taskId, pkg, configured, parentBusy, onChang
     finally { try { await onChanged(); } catch { setMessage('Unable to refresh the package. Refresh before retrying.'); } setBusy(false); }
   }
   useEffect(() => {
-    if (!configured || !pkg.ariveLink || parentBusy || busy) return;
+    if (hideNotes || !configured || !pkg.ariveLink || parentBusy || busy) return;
     let active = true;
     let running = false;
     const timer = window.setInterval(async () => {
@@ -69,17 +69,17 @@ export function ArivePackagePanel({ taskId, pkg, configured, parentBusy, onChang
       finally { running = false; }
     }, 60000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [configured, pkg.ariveLink, parentBusy, busy, taskId, onChanged]);
+  }, [hideNotes, configured, pkg.ariveLink, parentBusy, busy, taskId, onChanged]);
   const disabled = busy || parentBusy;
   return <section className="app-surface-card space-y-4">
-    <h3 className="font-bold">Arive documents and notes</h3>
+    {!hideNotes && <h3 className="font-bold">Arive documents and notes</h3>}
     {!pkg.ariveLink ? <p className="text-sm text-muted-foreground">Matt can enter this loan number under Arive connection to link the existing package.</p> : <>
-      <p className="text-sm text-muted-foreground">Linked to Arive #{pkg.ariveLink.loanNumber}. Notes refresh every minute while this page is visible. All imports are read-only.</p>
+      {!hideNotes && <><p className="text-sm text-muted-foreground">Linked to Arive #{pkg.ariveLink.loanNumber}. Notes refresh every minute while this page is visible. Edit notes in Arive; their updates are imported here.</p>
       <button type="button" className="app-btn-secondary" disabled={disabled || !configured} onClick={() => void perform(async () => { const r = await refreshPilotAriveNotes(taskId); if (!r.success) throw new Error(r.error); })}>Refresh notes from Arive</button>
       <p className="text-xs text-muted-foreground">{pkg.ariveNotes ? `Last successful refresh: ${new Date(pkg.ariveNotes.syncedAt).toLocaleString()}` : 'No notes have been imported yet.'}</p>
       {pkg.ariveNotes && !pkg.ariveNotes.notes.length && <p className="text-sm">Arive returned no notes for this loan.</p>}
-      <div className="max-h-96 space-y-3 overflow-y-auto">{[...(pkg.ariveNotes?.notes || [])].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).map(note => <article key={note.id} className="rounded-lg border border-border p-3 text-sm"><p className="font-semibold">{note.author}</p><p className="text-xs text-muted-foreground">{note.createdAt ? new Date(note.createdAt).toLocaleString() : 'Date not supplied'}</p><p className="mt-2 whitespace-pre-wrap break-words">{ariveNotePlainText(note.text)}</p>{note.replies.map(reply => <div key={reply.id} className="ml-3 mt-2 border-l border-border pl-3"><strong>{reply.author}</strong><p className="whitespace-pre-wrap break-words">{ariveNotePlainText(reply.text)}</p></div>)}</article>)}</div>
-      {pkg.state === 'APPROVED' ? <div className="space-y-3 border-t border-border pt-4"><h4 className="font-semibold">Send approved documents</h4><p className="text-sm text-muted-foreground">Documents are not borrower-visible. Select a classification or let Arive classify the file. Only documents marked Sent have a confirmed Arive attachment.</p>
+      <div className="max-h-96 space-y-3 overflow-y-auto">{[...(pkg.ariveNotes?.notes || [])].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).map(note => <article key={note.id} className="rounded-lg border border-border p-3 text-sm"><p className="font-semibold">{note.author}</p><p className="text-xs text-muted-foreground">{note.createdAt ? new Date(note.createdAt).toLocaleString() : 'Date not supplied'}</p><p className="mt-2 whitespace-pre-wrap break-words">{ariveNotePlainText(note.text)}</p>{note.replies.map(reply => <div key={reply.id} className="ml-3 mt-2 border-l border-border pl-3"><strong>{reply.author}</strong><p className="whitespace-pre-wrap break-words">{ariveNotePlainText(reply.text)}</p></div>)}</article>)}</div></>}
+      {pkg.state === 'APPROVED' ? <div className={`space-y-3 ${hideNotes ? '' : 'border-t border-border pt-4'}`}><h4 className="font-semibold">Send approved documents</h4><p className="text-sm text-muted-foreground">Documents are not borrower-visible. Select a classification or let Arive classify the file. Only documents marked Sent have a confirmed Arive attachment.</p>
         {!classes && <button type="button" className="app-btn-secondary" disabled={disabled || !configured} onClick={() => void perform(async () => { const r = await getPilotAriveClassifications(taskId); if (!r.success) throw new Error(r.error); setClasses(r.data); })}>Load Arive classifications</button>}
         {pkg.items.flatMap(i => i.files).map(file => { const transfer = pkg.ariveTransfers?.[file.id]; return <div key={file.id} className="space-y-2 rounded-lg border border-border p-3 text-sm"><p className="break-words font-medium">{file.name}</p><p>{transfer?.state === 'SENT' ? `Sent · Arive document ${transfer.documentId}` : transfer?.state === 'SENDING' ? 'Transfer started — refresh to check. Do not resend until verified in Arive.' : transfer?.state === 'UNKNOWN' ? 'Needs verification in Arive' : transfer?.state === 'FAILED' ? 'Failed — retry available' : 'Not sent'}</p>{transfer?.error && <p className="text-red-700">{transfer.error}</p>}
           {classes && (!transfer || transfer.state === 'FAILED') && <div className="flex flex-wrap gap-2"><label className="flex-1">Classification<select className="app-input mt-1" value={selection[file.id] || ''} disabled={disabled} onChange={e => setSelection(s => ({ ...s, [file.id]: e.target.value }))}><option value="">Automatic classification in Arive</option>{[...new Set(classes.map(c => c.name))].map(name => <option key={name} value={name}>{name}</option>)}</select></label><button type="button" className="app-btn-primary self-end" disabled={disabled || !configured} onClick={() => void perform(async () => { const r = await sendPilotDocumentToArive({ taskId, fileId: file.id, classification: selection[file.id] || '' }); if (!r.success) throw new Error(r.error); })}>Send to Arive</button></div>}

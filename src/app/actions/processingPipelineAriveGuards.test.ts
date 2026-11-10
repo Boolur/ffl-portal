@@ -217,6 +217,24 @@ describe('Arive authority in the borrower workspace', () => {
 });
 
 describe('sanitized Arive metadata', () => {
+  it('returns only the allowlisted application projection for the exact authorized pilot', async () => {
+    const state = configureRow(current());
+    Object.assign(state.snapshot, { application: { version: 1, loan: { baseLoanAmount: 250000, privateAccount: 'DO_NOT_EXPOSE_APPLICATION' }, financial: { estimatedCashToClose: 12000 }, ssn: 'DO_NOT_EXPOSE_APPLICATION' } });
+    const result = await getProcessingBorrowerDetails('pipeline');
+    expect(result).toMatchObject({ success: true, details: { ariveApplication: { syncedAt: actualDate.toISOString(), loan: { baseLoanAmount: 250000 }, financial: { estimatedCashToClose: 12000 } } } });
+    expect(JSON.stringify(result)).not.toContain('DO_NOT_EXPOSE_APPLICATION');
+    for (const override of [{ loanNumber: '999999' }, { loanOfficerId: 'another-owner' }, { id: 'another-loan' }, { borrowerName: 'Different borrower' }]) {
+      const other = configureRow(current({ loan: { ...current().loan, ...override } }));
+      Object.assign(other.snapshot, { application: { version: 1, financial: { estimatedCashToClose: 12000 } } });
+      const unrelated = await getProcessingBorrowerDetails('pipeline');
+      if (unrelated.success) expect(unrelated.details).not.toHaveProperty('ariveApplication');
+    }
+  });
+  it('keeps application reads behind the existing authenticated row lookup', async () => {
+    mocks.session.mockResolvedValue(null);
+    expect(await getProcessingBorrowerDetails('pipeline')).toMatchObject({ success: false });
+    expect(mocks.db.processingPipelineLoan.findFirst).not.toHaveBeenCalled();
+  });
   it.each([
     { sheet: 'FUNDING', pipelineStatus: 'FUNDED', stage: 'APPLICATION_INTAKE' },
     { sheet: 'PIPELINE', pipelineStatus: 'PENDING_APPROVAL', stage: 'UNRECOGNIZED_ARIVE_STAGE' },

@@ -1,5 +1,6 @@
 import type { ArivePipelineSync, Prisma, ProcessingPipelineLoan } from '@prisma/client';
-import { ARIVE_SYNC_PILOT, ariveSyncFieldLabel, type AriveSyncConflict, type AriveSyncIssue, type AriveSyncView } from './ariveSyncTypes';
+import { ARIVE_SYNC_PILOT, ariveSyncFieldLabel, type AriveSyncConflict, type AriveSyncIssue, type AriveSyncServiceTracker, type AriveSyncView } from './ariveSyncTypes';
+import { parseArivePipelineDate } from './arivePipelineMapping';
 
 export function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -25,6 +26,27 @@ export function syncConflicts(value: unknown): AriveSyncConflict[] {
 export function syncIssues(value: unknown): AriveSyncIssue[] {
   return Array.isArray(value) ? value.filter((i): i is AriveSyncIssue => !!i && typeof i === 'object' && typeof i.field === 'string' && typeof i.code === 'string' && typeof i.message === 'string').slice(0, 100) : [];
 }
+function serviceTrackerView(value: unknown, issues: AriveSyncIssue[]): AriveSyncServiceTracker[] {
+  const trackers = Array.isArray(value) ? value.map(jsonRecord) : [];
+  const text = (value: unknown) => typeof value === 'string' && value.trim().length <= 200 ? value.trim() : '';
+  return ([['TITLE', 'Title'], ['HOI', 'Homeowners insurance'], ['APPRAISAL', 'Appraisal'], ['PAYOFFS', 'Payoffs']] as const).map(([name, label]) => {
+    const matches = trackers.filter(tracker => tracker.name === name);
+    const ambiguous = matches.length > 1 || issues.some(issue => issue.field === name && ['AMBIGUOUS_TRACKER_STATUS', 'DUPLICATE_TRACKER'].includes(issue.code));
+    const tracker = matches.length === 1 ? matches[0] : null;
+    const status = text(tracker?.status);
+    if (ambiguous || !status) return {
+      name, label, status: '', statusLabel: ambiguous ? 'Multiple current statuses — review Arive' : 'Not supplied by Arive',
+      date: null, availability: ambiguous ? 'ambiguous' as const : 'missing' as const,
+    };
+    // Only the confirmed source status is presented here. Retained portal fields
+    // and historical milestones cannot substitute for a missing current status.
+    return {
+      name, label, status, statusLabel: text(tracker?.statusLabel) || status.replaceAll('_', ' ').toLowerCase().replace(/^./, letter => letter.toUpperCase()),
+      date: typeof tracker?.date === 'string' && parseArivePipelineDate(tracker.date) ? tracker.date : null,
+      availability: 'current' as const,
+    };
+  });
+}
 export function ariveSyncView(state: ArivePipelineSync | null | undefined, eligible: boolean, canManage: boolean): AriveSyncView | null {
   if (!eligible) return null;
   const snapshot = jsonRecord(state?.snapshot); const source = jsonRecord(snapshot.source);
@@ -41,6 +63,7 @@ export function ariveSyncView(state: ArivePipelineSync | null | undefined, eligi
     conflicts: syncConflicts(state?.conflicts), issues,
     missingFields: [...new Set(issues.filter(i => /MISSING|INVALID|UNAVAILABLE|EMPTY|REMOVED|REGRESSED/.test(i.code)).map(i => i.field))],
     managedFields: Object.keys(jsonRecord(snapshot.managed)), canManage,
+    serviceTrackers: serviceTrackerView(source.trackers, issues),
     structuredFields: Object.entries(structured).map(([key, value]) => {
       const provenance = jsonRecord(sources[key]);
       return { key, label: labels[key] || key, value: ariveSyncValue(value), author: typeof provenance.author === 'string' ? provenance.author : 'Arive', updatedAt: typeof provenance.effectiveAt === 'string' ? provenance.effectiveAt : null };

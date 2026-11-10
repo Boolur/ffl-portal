@@ -10,6 +10,11 @@ import {
 import type { ReactNode } from 'react';
 import { AriveWorkspacePanel } from './AriveWorkspacePanel';
 import { AriveSyncStatus } from './AriveSyncStatus';
+import { AriveNoteHeaderGuide } from './AriveNoteHeaderGuide';
+import { AriveNotesPanel } from './AriveNotesTimeline';
+import { AriveRequestTrackersPanel } from './AriveTrackerPanel';
+import { AriveFinancialInfo } from './FinancialInfoPanel';
+import { BorrowerInfoView, LoanCenterView, LoanPropertyView } from './ProcessingWorkspaceViews';
 import { ariveFieldLabel, ariveFieldMissing, formatAriveCalendarDate, mergeAriveConflictDraft } from '@/lib/ariveSyncPresentation';
 import { createPortal } from 'react-dom';
 import { DetailCard, DetailField, DetailGrid, DetailSection, WorkspacePanel } from './BorrowerWorkspaceLayout';
@@ -26,8 +31,8 @@ import {
   Landmark,
   Loader2,
   MapPin,
+  MessageSquare,
   Pencil,
-  Phone,
   Save,
   ShieldCheck,
   UserRound,
@@ -51,8 +56,7 @@ type DetailResult = Extract<
   { success: true }
 >['details'];
 
-type WorkspaceTab =
-  | 'overview'
+type DetailSectionKey =
   | 'borrower'
   | 'property'
   | 'loan'
@@ -61,19 +65,25 @@ type WorkspaceTab =
   | 'activity'
   | 'documents';
 
+type WorkspaceTab = 'loan-property' | 'borrower-info' | 'financial-info' | 'loan-center';
+type CenterSection = 'services' | 'notes' | 'documents' | 'activity';
+
 const tabs: Array<{
   id: WorkspaceTab;
   label: string;
   icon: typeof UserRound;
 }> = [
-  { id: 'overview', label: 'Overview', icon: Home },
-  { id: 'borrower', label: 'Borrower', icon: UserRound },
-  { id: 'property', label: 'Property', icon: MapPin },
-  { id: 'loan', label: 'Loan', icon: Landmark },
-  { id: 'processing', label: 'Processing', icon: Building2 },
-  { id: 'appraisal', label: 'Appraisal', icon: ShieldCheck },
-  { id: 'activity', label: 'Activity', icon: Activity },
+  { id: 'loan-property', label: 'Loan & Property', icon: Home },
+  { id: 'borrower-info', label: 'Borrower Info', icon: UserRound },
+  { id: 'financial-info', label: 'Financial Info', icon: DollarSign },
+  { id: 'loan-center', label: 'Loan Center', icon: Building2 },
+];
+
+const centerSections: { id: CenterSection; label: string; icon: typeof Home }[] = [
+  { id: 'services', label: 'Services & milestones', icon: ShieldCheck },
+  { id: 'notes', label: 'Notes', icon: MessageSquare },
   { id: 'documents', label: 'Documents', icon: FileText },
+  { id: 'activity', label: 'Activity', icon: Activity },
 ];
 
 function formatDate(value: string | null | undefined) {
@@ -278,7 +288,9 @@ export function ProcessingBorrowerWorkspace({
 }) {
   const [details, setDetails] = useState<DetailResult | null>(null);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>('overview');
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('loan-center');
+  const [centerSection, setCenterSection] = useState<CenterSection>('services');
+  const [allTrackersOpen, setAllTrackersOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ProcessingBorrowerDetailsInput | null>(null);
@@ -360,9 +372,9 @@ export function ProcessingBorrowerWorkspace({
       if (event.key !== 'Tab' || !panelRef.current) return;
       const focusable = Array.from(
         panelRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          'button:not([disabled]), summary, a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ),
-      );
+      ).filter(element => element.getClientRects().length > 0);
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -414,7 +426,8 @@ export function ProcessingBorrowerWorkspace({
     setAriveBlockedFields([]);
     setAriveLatestDraft(null);
     setEditing(true);
-    if (activeTab === 'overview') setActiveTab('borrower');
+    if (activeTab === 'financial-info') setActiveTab('loan-property');
+    if (activeTab === 'loan-center') setCenterSection('services');
   };
 
   const saveDetails = async () => {
@@ -460,93 +473,8 @@ export function ProcessingBorrowerWorkspace({
   const daysDisplay = details?.ariveSync?.enabled && !details.ariveSync.stageDate
     ? <span className="text-red-700">Stage date missing</span> : details?.processing.daysInStatus;
 
-  const renderOverview = () =>
-    details && (
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.8fr)]">
-        <div className="space-y-4">
-          <DetailCard
-            title="File at a glance"
-            description="The operational facts processors need most often."
-            icon={Home}
-          >
-            <DetailGrid>
-              <DetailField label="Loan amount" value={formatMoney(details.loan.amount)} />
-              <DetailField label="Lender" value={details.loan.lender} />
-              <DetailField label="Loan type" value={details.loan.loanType} />
-              <DetailField label="Program" value={details.loan.program} />
-              <DetailField label="Property" value={details.property.address} copyable />
-              <DetailField label="Effective Loan Officer" value={details.ownership.loanOfficer?.name} />
-            </DetailGrid>
-          </DetailCard>
-          <DetailCard
-            title="Processing snapshot"
-            description="Live milestones from the processing pipeline."
-            icon={Building2}
-          >
-            <DetailGrid>
-              <DetailField label="Pipeline status" value={stageDisplay} />
-              <DetailField label="Days in status" value={daysDisplay} />
-              <DetailField label="Title" value={missingAriveValue('titleStatus', itemStatusLabel(details.processing.titleStatus))} />
-              <DetailField label="Payoff" value={missingAriveValue('payoffStatus', itemStatusLabel(details.processing.payoffStatus))} />
-              <DetailField
-                label="Payoff expiration"
-                value={milestoneDate('payoffExpiresAt', details.processing.payoffExpiresAt)}
-              />
-              <DetailField label="HOI" value={missingAriveValue('hoiStatus', itemStatusLabel(details.processing.hoiStatus))} />
-              <DetailField label="CD sent" value={missingAriveValue('cdSent', details.processing.cdSent ? 'Yes' : 'No')} />
-            </DetailGrid>
-          </DetailCard>
-        </div>
-        <div className="space-y-4">
-          <DetailCard
-            title="Contact"
-            description="Reach the borrower without leaving the file."
-            icon={Phone}
-          >
-            <div className="space-y-2">
-              <DetailField
-                label="Phone"
-                value={
-                  details.borrower.phone ? (
-                    <a className="text-blue-700 hover:underline" href={`tel:${details.borrower.phone}`}>
-                      {details.borrower.phone}
-                    </a>
-                  ) : null
-                }
-                copyable={false}
-              />
-              <DetailField
-                label="Email"
-                value={
-                  details.borrower.email ? (
-                    <a className="text-blue-700 hover:underline" href={`mailto:${details.borrower.email}`}>
-                      {details.borrower.email}
-                    </a>
-                  ) : null
-                }
-              />
-            </div>
-          </DetailCard>
-          <DetailCard
-            title="Ownership"
-            description="Current file routing and accountability."
-            icon={Users}
-          >
-            <div className="space-y-2">
-              <DetailField label="Primary Loan Officer" value={details.ownership.primaryLoanOfficer?.name} />
-              <DetailField label="Secondary Loan Officer" value={details.ownership.secondaryLoanOfficer?.name || 'Not assigned'} />
-              <DetailField label="Senior Processor" value={details.ownership.seniorProcessor?.name} />
-              <DetailField label="Junior Processor" value={details.ownership.juniorProcessor?.name} />
-              <DetailField label="Processing method" value={humanize(details.ownership.processingMethod)} />
-            </div>
-          </DetailCard>
-        </div>
-      </div>
-    );
-
-  const renderTab = () => {
+  const renderSection = (activeTab: DetailSectionKey) => {
     if (!details) return null;
-    if (activeTab === 'overview') return renderOverview();
     if (activeTab === 'borrower') {
       if (editing && draft) {
         return (
@@ -894,7 +822,7 @@ export function ProcessingBorrowerWorkspace({
     if (activeTab === 'appraisal') {
       if (editing && draft) {
         return (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.8fr)]">
+          <div className="space-y-4">
             <DetailCard title="Appraisal workflow" description="Update appraisal intent, dates, waiver, and notes." icon={ShieldCheck}>
               <DetailSection title="Requirements">
                 <label className="block min-w-0">
@@ -920,17 +848,11 @@ export function ProcessingBorrowerWorkspace({
               <div className="sm:col-span-2 xl:col-span-3"><EditField label="Notes" value={draft.appraisalNotes} onChange={(value) => patchDraft('appraisalNotes', value)} multiline /></div>
               </DetailSection>
             </DetailCard>
-            <DetailCard title="Payment method" description="Card data is intentionally not stored in this portal." icon={DollarSign}>
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                <p className="text-sm font-bold text-amber-900">Secure capture not configured</p>
-                <p className="mt-1 text-xs font-medium leading-5 text-amber-800">Payment card details remain outside this editable workspace.</p>
-              </div>
-            </DetailCard>
           </div>
         );
       }
       return (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.8fr)]">
+        <div className="space-y-4">
           <DetailCard title="Appraisal workflow" description="Submission intent and processing dates." icon={ShieldCheck}>
             <DetailSection title="Requirements">
               <DetailField label="Appraisal needed" value={details.appraisal.needed === null ? 'Not set' : details.appraisal.needed ? 'Yes' : 'No'} />
@@ -944,14 +866,6 @@ export function ProcessingBorrowerWorkspace({
               <DetailSection title="Appraisal notes">
               <div className="sm:col-span-2 xl:col-span-3 whitespace-pre-wrap"><DetailField label="Notes" value={details.appraisal.notes} /></div>
             </DetailSection>
-          </DetailCard>
-          <DetailCard title="Payment method" description="Card data is intentionally not stored in this portal." icon={DollarSign}>
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="text-sm font-bold text-amber-900">Secure capture not configured</p>
-              <p className="mt-1 text-xs font-medium leading-5 text-amber-800">
-                A future PCI-compliant provider can supply a masked card summary and payment status here.
-              </p>
-            </div>
           </DetailCard>
         </div>
       );
@@ -978,7 +892,7 @@ export function ProcessingBorrowerWorkspace({
           new Date(left.date || 0).getTime(),
       );
       return (
-        <DetailCard title="Notes and activity" description="Submission notes and audited pipeline changes." icon={Activity}>
+        <DetailCard title="Portal activity" description="Submission conversations and audited BISU changes, newest first." icon={Activity}>
           <div className="space-y-3">
             {combined.length === 0 ? (
               <p className="py-8 text-center text-sm font-medium text-slate-500">No activity has been recorded.</p>
@@ -1029,6 +943,30 @@ export function ProcessingBorrowerWorkspace({
         </div>
       </DetailCard>
     );
+  };
+
+  const renderWorkspace = () => {
+    if (!details) return null;
+    if (activeTab === 'loan-property') return editing ? <div className="space-y-4">{renderSection('loan')}{renderSection('property')}</div> : <LoanPropertyView details={details} />;
+    if (activeTab === 'borrower-info') return editing ? renderSection('borrower') : <BorrowerInfoView details={details} />;
+    if (activeTab === 'financial-info') return <AriveFinancialInfo application={details.ariveApplication} />;
+    return <div className="space-y-4">
+      <nav className="flex flex-wrap gap-1.5 border-b border-slate-200 pb-3" aria-label="Loan Center sections">{centerSections.map(section => {
+        const Icon = section.icon;
+        return <button type="button" key={section.id} aria-pressed={centerSection === section.id} onClick={() => setCenterSection(section.id)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${centerSection === section.id ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}><Icon size={15} aria-hidden="true" />{section.label}</button>;
+      })}</nav>
+      {centerSection === 'services' && (editing ? <div className="space-y-4">{renderSection('processing')}{renderSection('appraisal')}</div> : <LoanCenterView details={details} stageLabel={stageDisplay} onNotes={() => setCenterSection('notes')} appraisal={renderSection('appraisal')} />)}
+      {centerSection === 'services' && !editing && details.ariveSync && details.loan.loanNumber === '17881588' && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><button type="button" aria-expanded={allTrackersOpen} onClick={() => setAllTrackersOpen(value => !value)} className="flex w-full items-center justify-between text-left text-sm font-semibold text-slate-700">All Arive trackers<span className="text-xs text-blue-600">{allTrackersOpen ? 'Hide' : 'Show'}</span></button>{allTrackersOpen && <div className="mt-4"><AriveRequestTrackersPanel requestTaskId={details.sourceTask.id} refreshSignal={details.ariveSync?.lastSuccessAt} /></div>}</section>}
+      {centerSection === 'notes' && <div className="space-y-4">
+        {details.ariveSync && <><AriveNoteHeaderGuide />{Boolean(details.ariveSync.structuredFields?.length) && <details className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm"><summary className="cursor-pointer text-sm font-bold text-slate-800">Current values from note headers</summary><p className="mt-2 text-xs text-slate-500">The latest value for each header. The full imported conversation is below.</p><div className="mt-3 grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">{details.ariveSync.structuredFields!.map(field => <DetailField key={field.key} label={field.label} value={<span className="whitespace-pre-wrap">{field.value || 'Not supplied'}</span>} />)}</div></details>}</>}
+        {details.loan.loanNumber === '17881588' && <AriveNotesPanel requestTaskId={details.sourceTask.id} successfulSyncAt={details.ariveSync?.lastSuccessAt} />}
+        <DetailCard title="Portal conversation" description="Notes recorded in the submission task, newest first." icon={MessageSquare}>
+          {details.notes.length ? <div className="space-y-3">{[...details.notes].sort((left, right) => new Date(right.date || 0).getTime() - new Date(left.date || 0).getTime()).map(note => <article key={note.id} className="rounded-xl border border-slate-100 bg-slate-50/60 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-bold text-slate-800">{note.author}</h4><span className="text-xs text-slate-500">{note.date ? new Date(note.date).toLocaleString() : 'Date not supplied'}</span></div><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{note.message}</p>{note.role && <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{humanize(note.role)}</p>}</article>)}</div> : <p className="text-sm text-slate-500">No portal conversation has been recorded for this file.</p>}
+        </DetailCard>
+      </div>}
+      {centerSection === 'documents' && <div className="space-y-4">{(details.attachments.length > 0 || details.loan.loanNumber !== '17881588' || editing) && renderSection('documents')}{details.loan.loanNumber === '17881588' && !editing && <AriveWorkspacePanel requestTaskId={details.sourceTask.id} refreshSignal={details.ariveSync?.lastSuccessAt} />}</div>}
+      {centerSection === 'activity' && renderSection('activity')}
+    </div>;
   };
 
   return createPortal(
@@ -1107,7 +1045,7 @@ export function ProcessingBorrowerWorkspace({
 
         {details && (
           <div className="border-b border-slate-200 bg-white px-3 py-2 sm:px-5">
-            <nav className="flex gap-1 overflow-x-auto" aria-label="Borrower detail sections">
+            <nav className="grid grid-cols-2 gap-1.5 sm:grid-cols-4" aria-label="Borrower detail sections">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const selected = activeTab === tab.id;
@@ -1117,13 +1055,13 @@ export function ProcessingBorrowerWorkspace({
                     type="button"
                     aria-pressed={selected}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 sm:text-sm ${
                       selected
                         ? 'bg-blue-600 text-white shadow-sm'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     }`}
                   >
-                    <Icon className="h-3.5 w-3.5" />
+                    <Icon className="h-4 w-4" aria-hidden="true" />
                     {tab.label}
                   </button>
                 );
@@ -1146,7 +1084,7 @@ export function ProcessingBorrowerWorkspace({
             />
           ) : (
             <>
-              <AriveSyncStatus view={details.ariveSync} pipelineLoanId={pipelineLoanId} onChanged={refreshAriveDetails} editing={editing || saving} responsibilityLabel={getProcessingPipelineLockedDefaults(details.loan.lender, details.ownership.processingMethod)?.label} />
+              <AriveSyncStatus compact view={details.ariveSync} pipelineLoanId={pipelineLoanId} onChanged={refreshAriveDetails} editing={editing || saving} responsibilityLabel={getProcessingPipelineLockedDefaults(details.loan.lender, details.ownership.processingMethod)?.label} />
               {saveError && (
                 <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800">
                   {saveError}
@@ -1158,8 +1096,7 @@ export function ProcessingBorrowerWorkspace({
                   {saveMessage}
                 </div>
               )}
-              {renderTab()}
-              {details.loan.loanNumber === '17881588' && activeTab === 'documents' && !editing && <AriveWorkspacePanel requestTaskId={details.sourceTask.id} />}
+              {renderWorkspace()}
             </>
           )}
         </main>

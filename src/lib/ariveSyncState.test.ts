@@ -66,6 +66,53 @@ describe('Arive-owned portal edits', () => {
 });
 
 describe('safe sync presentation and comparisons', () => {
+  function trackerState(trackers: unknown, issues: { field: string; code: string; message: string }[] = []) {
+    const h = setup();
+    h.state.snapshot = {
+      source: { trackers, privatePayload: 'DO_NOT_EXPOSE_SOURCE_PAYLOAD' },
+      managed: { titleStatus: 'RECEIVED', appraisalNeeded: true },
+    } as unknown as Prisma.JsonValue;
+    h.state.issues = issues;
+    return h.state;
+  }
+  it('presents the four current source trackers in a fixed order without leaking history or unrelated trackers', () => {
+    const state = trackerState([
+      { name: 'PAYOFFS', status: 'REQUESTED', statusLabel: 'Requested', date: '2026-11-10' },
+      { name: 'APPRAISAL', status: 'NOT_ORDERED', statusLabel: 'Not ordered', date: null, history: [{ status: 'RECEIVED', date: '2026-10-01', privateValue: 'DO_NOT_EXPOSE_HISTORY' }] },
+      { name: 'TITLE', label: 'DO_NOT_EXPOSE_UNTRUSTED_LABEL', status: 'RECEIVED', statusLabel: 'Received', date: '2026-10-15', rawText: 'DO_NOT_EXPOSE_RAW_TEXT' },
+      { name: 'HOI', status: 'ORDERED', statusLabel: 'Ordered', date: '2026-11-10T17:30:00.000Z' },
+      { name: 'PAYROLL', status: 'DO_NOT_EXPOSE_UNRELATED_STATUS', date: '2026-11-10' },
+    ]);
+    const view = ariveSyncView(state, true, false)!;
+    expect(view.serviceTrackers).toEqual([
+      { name: 'TITLE', label: 'Title', status: 'RECEIVED', statusLabel: 'Received', date: '2026-10-15', availability: 'current' },
+      { name: 'HOI', label: 'Homeowners insurance', status: 'ORDERED', statusLabel: 'Ordered', date: '2026-11-10T17:30:00.000Z', availability: 'current' },
+      { name: 'APPRAISAL', label: 'Appraisal', status: 'NOT_ORDERED', statusLabel: 'Not ordered', date: null, availability: 'current' },
+      { name: 'PAYOFFS', label: 'Payoffs', status: 'REQUESTED', statusLabel: 'Requested', date: '2026-11-10', availability: 'current' },
+    ]);
+    expect(JSON.stringify(view)).not.toContain('DO_NOT_EXPOSE');
+  });
+  it('shows an unfamiliar actual status without substituting the retained portal value or an invalid date', () => {
+    const state = trackerState([{ name: 'TITLE', status: 'ADDITIONAL_REVIEW', statusLabel: 'Additional review', date: 'DO_NOT_EXPOSE_INVALID_DATE' }]);
+    expect(ariveSyncView(state, true, false)?.serviceTrackers?.[0]).toEqual({
+      name: 'TITLE', label: 'Title', status: 'ADDITIONAL_REVIEW', statusLabel: 'Additional review', date: null, availability: 'current',
+    });
+  });
+  it('marks duplicate trackers and ambiguous current-status responses for review instead of choosing a status', () => {
+    const state = trackerState([
+      { name: 'TITLE', status: 'RECEIVED', statusLabel: 'Received', date: '2026-11-10' },
+      { name: 'TITLE', status: 'ORDERED', statusLabel: 'Ordered', date: '2026-11-09' },
+      { name: 'APPRAISAL', status: '', statusLabel: 'Not supplied', date: null },
+    ], [{ field: 'APPRAISAL', code: 'AMBIGUOUS_TRACKER_STATUS', message: 'Multiple current statuses.' }]);
+    const trackers = ariveSyncView(state, true, false)!.serviceTrackers!;
+    for (const index of [0, 2]) expect(trackers[index]).toMatchObject({ status: '', date: null, availability: 'ambiguous', statusLabel: 'Multiple current statuses — review Arive' });
+    expect(trackers[1]).toMatchObject({ status: '', date: null, availability: 'missing' });
+  });
+  it.each([undefined, null, {}, [{ name: 'APPRAISAL', status: null, date: '2026-11-10' }]])('does not infer missing tracker statuses from retained fields or malformed snapshots (%j)', trackers => {
+    const view = ariveSyncView(trackerState(trackers), true, false)!;
+    expect(view.serviceTrackers).toHaveLength(4);
+    for (const tracker of view.serviceTrackers!) expect(tracker).toMatchObject({ status: '', date: null, availability: 'missing', statusLabel: 'Not supplied by Arive' });
+  });
   it('compares actual timestamps and equivalent date-only inputs without treating unrelated strings as dates', () => {
     expect(ariveSyncSameValue('statusChangedAt', '2026-11-05', new Date('2026-11-05T00:00:00Z'))).toBe(true);
     expect(ariveSyncSameValue('statusChangedAt', '2026-11-05T05:00:00-07:00', '2026-11-05T12:00:00Z')).toBe(true);
