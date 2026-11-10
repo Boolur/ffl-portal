@@ -140,7 +140,7 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
           {!data.owner && p.state === 'REVIEW' && !p.reviewerId && (requestTaskId ? <p className="flex items-center gap-2 rounded-xl bg-secondary p-3 text-sm"><LockKeyhole size={18} />Read-only until you start this Processing request. Adding a role alone does not assign the task.</p> : <button type="button" className="app-btn-primary" disabled={busy} onClick={() => void run(() => change({ action: 'CLAIM' }))}>Claim review</button>)}
           {!data.owner && p.reviewerId && p.reviewerId !== data.userId && <p className="text-sm text-muted-foreground">Assigned to another Jr Processor. Read-only view.</p>}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
-            <div className="min-w-0"><p className="text-sm font-semibold">Approved documents</p><p className="mt-0.5 text-xs text-muted-foreground">Extract the ZIP, then upload the files to Arive. Use each file’s download icon for individual documents.</p></div>
+            <div className="min-w-0"><p className="text-sm font-semibold">Approved documents</p><p className="mt-0.5 text-xs text-muted-foreground">Download All, extract once, then select the files together and drag them from that folder into Arive. Use each file’s download icon for individual documents.</p></div>
             <DownloadAllDocuments taskId={current.id} revision={p.revision} approvedFileCount={approvedFileCount} selectionSignature={downloadSelection} disabled={busy} />
           </div>
         </section>

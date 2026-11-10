@@ -71,9 +71,9 @@ describe('approved document manifest', () => {
   it('returns original filenames and signed approved files, without raw paths or writes', async () => {
     const before = JSON.stringify(pkg);
     const result = await manifest();
-    expect(result).toMatchObject({ filename: 'Arive-17881588-Approved-Documents.zip', totalBytes: 6, files: [{ id: 'file-1', name: 'File 1.pdf', archivePath: 'Income/File 1.pdf' }, { id: 'file-2', name: 'File 2.pdf' }] });
+    expect(result).toMatchObject({ filename: 'Arive-17881588-Approved-Documents.zip', totalBytes: 6, files: [{ id: 'file-1', name: 'File 1.pdf', archivePath: 'File 1.pdf' }, { id: 'file-2', name: 'File 2.pdf', archivePath: 'File 2.pdf' }] });
     expect(result.selectionKey).toMatch(/^[0-9a-f]{64}$/);
-    expect(result.files.every(file => !('storagePath' in file) && !('categoryId' in file))).toBe(true);
+    expect(result.files.every(file => !('storagePath' in file) && !('categoryId' in file) && !('categoryLabel' in file))).toBe(true);
     expect(mocks.sign).toHaveBeenCalledWith(pkg.items[0].files[0].path, 300, { download: 'File 1.pdf' });
     expect(JSON.stringify(pkg)).toBe(before); expect(mocks.write).not.toHaveBeenCalled(); expect(mocks.arive).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
   });

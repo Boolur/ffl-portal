@@ -72,11 +72,11 @@ export function DownloadAllDocuments({ taskId, revision, approvedFileCount, sele
   }
 
   return <div className="flex min-w-0 flex-col items-end gap-1">
-    <button type="button" className="app-btn-secondary" disabled={disabled || visible.busy || approvedFileCount < 1} onClick={() => void downloadAll()} aria-busy={visible.busy} title="Download approved documents together as a ZIP file">
+    <button type="button" className="app-btn-secondary" disabled={disabled || visible.busy || approvedFileCount < 1} onClick={() => void downloadAll()} aria-busy={visible.busy} title="Download approved documents in one ZIP, without category subfolders">
       {visible.busy ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}
       <span aria-live="polite">{visible.busy ? visible.label : 'Download All'}</span>
     </button>
-    <span className="text-[11px] text-muted-foreground">{approvedFileCount} approved {approvedFileCount === 1 ? 'file' : 'files'} · ZIP</span>
+    <span className="text-[11px] text-muted-foreground">{approvedFileCount} approved {approvedFileCount === 1 ? 'file' : 'files'} · ZIP · one folder</span>
     {visible.error && <p role="alert" className="max-w-sm text-right text-xs text-rose-700">{visible.error}</p>}
   </div>;
 }

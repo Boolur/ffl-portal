@@ -4,7 +4,7 @@ export const MAX_DOCUMENT_DOWNLOAD_BYTES = 200 * 1024 * 1024;
 export const MAX_DOCUMENT_DOWNLOAD_FILES = 300;
 export type SubmissionDocumentDownloadFile = { id: string; name: string; type: string; size: number; archivePath: string; url: string };
 export type SubmissionDocumentDownloadManifest = { filename: string; selectionKey: string; totalBytes: number; files: SubmissionDocumentDownloadFile[] };
-type SelectedFile = Omit<SubmissionDocumentDownloadFile, 'url'> & { storagePath: string; categoryId: string };
+type SelectedFile = Omit<SubmissionDocumentDownloadFile, 'url'> & { storagePath: string; categoryId: string; categoryLabel: string };
 
 function safeComponent(value: string, fallback: string, limit: number, preserveExtension = false) {
   let safe = value.normalize('NFC').replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_').trim().replace(/[. ]+$/g, '');
@@ -34,7 +34,7 @@ function uniqueComponent(value: string, used: Set<string>, isFile: boolean, limi
 
 export function selectApprovedSubmissionDocuments(pkg: PilotPackage, taskId: string, ownerId: string, loanNumber: string) {
   const files: SelectedFile[] = [];
-  const usedDirectories = new Set<string>();
+  const usedNames = new Set<string>();
   const usedIds = new Set<string>();
   const usedPaths = new Set<string>();
   const usedCategories = new Set<string>();
@@ -45,8 +45,6 @@ export function selectApprovedSubmissionDocuments(pkg: PilotPackage, taskId: str
     if (!item.files.length) continue;
     if (typeof item.id !== 'string' || !item.id || usedCategories.has(item.id) || typeof item.label !== 'string') throw new Error('Approved document categories are invalid. Refresh the submission and try again.');
     usedCategories.add(item.id);
-    const directory = uniqueComponent(safeComponent(item.label, 'Documents', 48), usedDirectories, false, 48);
-    const usedNames = new Set<string>();
     for (const file of item.files) {
       if (!file || typeof file.id !== 'string' || !file.id || typeof file.name !== 'string' || typeof file.type !== 'string' || typeof file.path !== 'string') throw new Error('Approved document details are invalid. Refresh the submission and try again.');
       validatePilotFile(file.name, file.size, file.type);
@@ -60,7 +58,7 @@ export function selectApprovedSubmissionDocuments(pkg: PilotPackage, taskId: str
       totalBytes += file.size;
       if (files.length >= MAX_DOCUMENT_DOWNLOAD_FILES || totalBytes > MAX_DOCUMENT_DOWNLOAD_BYTES) throw new Error('Download All supports up to 300 files and 200 MB. Download these files individually.');
       const name = uniqueComponent(safeComponent(file.name, 'Document', 200, true), usedNames, true, 200);
-      files.push({ id: file.id, name: file.name, type: file.type, size: file.size, archivePath: `${directory}/${name}`, storagePath: file.path, categoryId: item.id });
+      files.push({ id: file.id, name: file.name, type: file.type, size: file.size, archivePath: name, storagePath: file.path, categoryId: item.id, categoryLabel: item.label });
     }
   }
   if (!files.length) throw new Error('There are no approved documents available to download.');

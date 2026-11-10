@@ -15,7 +15,8 @@ describe('approved submission download selection', () => {
     expect(result.files.map(value => value.id)).toEqual(['file-1', 'file-2', 'file-3']);
     expect(result.totalBytes).toBe(9);
     expect(result.filename).toBe('Arive-17881588-Approved-Documents.zip');
-    expect(result.files[0].archivePath).toBe('Mortgage documents/Mortgage Statement.pdf');
+    expect(result.files.map(value => value.archivePath)).toEqual(['Mortgage Statement.pdf', 'Second Statement.pdf', 'Mortgage Statement (2).pdf']);
+    expect(result.files.every(value => !value.archivePath.includes('/'))).toBe(true);
   });
   it('excludes retired, unapproved, correction-requested, pending-upload, and no-file N/A categories', () => {
     const value = pkg([item(), item([file(2)], { id: 'unapproved', review: 'PENDING' }), item([file(3)], { id: 'correction', review: 'CHANGES' }), item([file(4)], { id: 'uploading', pending: { path: 'pending', name: 'New.pdf', type: 'application/pdf', size: 3 } }), item([], { id: 'na', waiver: 'Not applicable' })]);
@@ -43,7 +44,7 @@ describe('approved submission download selection', () => {
       item([file(6, { name: '..\\outside.pdf' })], { id: 'second', label: 'Mortgage\\Title' }),
       item([file(7)], { id: 'reserved', label: 'NUL' }),
     ]));
-    expect(result.files.map(value => value.archivePath)).toEqual(['Mortgage_Title/Statement.pdf', 'Mortgage_Title/statement (2).PDF', 'Mortgage_Title/a_b.pdf', 'Mortgage_Title/a_b (2).pdf', 'Mortgage_Title/_CON.pdf', 'Mortgage_Title (2)/.._outside.pdf', '_NUL/Mortgage Statement.pdf']);
+    expect(result.files.map(value => value.archivePath)).toEqual(['Statement.pdf', 'statement (2).PDF', 'a_b.pdf', 'a_b (2).pdf', '_CON.pdf', '.._outside.pdf', 'Mortgage Statement.pdf']);
     expect(new Set(result.files.map(value => value.archivePath.toLowerCase())).size).toBe(7);
   });
   it('accepts the exact size/file limits and refuses larger archives', () => {
@@ -53,21 +54,21 @@ describe('approved submission download selection', () => {
     expect(select(pkg([item(Array.from({ length: 300 }, (_, index) => file(index)))])).files).toHaveLength(300);
     expect(() => select(pkg([item(Array.from({ length: 301 }, (_, index) => file(index))) ]))).toThrow('300 files');
   });
-  it('deduplicates compatibility-equivalent Unicode names and directories consistently with the archive builder', () => {
+  it('deduplicates compatibility-equivalent Unicode filenames across categories consistently with the archive builder', () => {
     const result = select(pkg([
       item([file(1, { name: 'Statement.pdf' }), file(2, { name: 'Ｓtatement.pdf' })], { label: 'Mortgage' }),
-      item([file(3)], { id: 'extra', label: 'Ｍortgage' }),
+      item([file(3, { name: 'STATEMENT.pdf' }), file(4, { name: 'Statement (2).pdf' })], { id: 'extra', label: 'Ｍortgage' }),
     ]));
     expect(result.files.map(value => value.archivePath)).toEqual([
-      'Mortgage/Statement.pdf', 'Mortgage/Ｓtatement (2).pdf', 'Ｍortgage (2)/Mortgage Statement.pdf',
+      'Statement.pdf', 'Ｓtatement (2).pdf', 'STATEMENT (3).pdf', 'Statement (2) (2).pdf',
     ]);
-    expect(new Set(result.files.map(value => value.archivePath.normalize('NFKC').toLowerCase())).size).toBe(3);
+    expect(new Set(result.files.map(value => value.archivePath.normalize('NFKC').toLowerCase())).size).toBe(4);
   });
   it('preserves a valid document extension when sanitization or duplicate suffixes lengthen a maximum-length name', () => {
     const name = `CON.${'x'.repeat(192)}.pdf`;
     expect(name.length).toBe(200);
     const result = select(pkg([item([file(1, { name }), file(2, { name })])]));
-    const names = result.files.map(value => value.archivePath.split('/')[1]);
+    const names = result.files.map(value => value.archivePath);
     expect(names[0]).toMatch(/^_CON\..*\.pdf$/);
     expect(names[1]).toMatch(/^_CON\..* \(2\)\.pdf$/);
     expect(names.every(value => value.length <= 200)).toBe(true);
@@ -79,6 +80,8 @@ describe('approved submission download selection', () => {
     const original = source();
     value.revision++; value.history.push({ actor: 'Reviewer', message: 'Imported notes', at: '' }); value.ariveTransfers = { 'file-1': { state: 'SENT', attemptId: 'transfer', at: '' } };
     expect(source()).toBe(original);
+    value.items[0].label = 'Updated mortgage documents'; expect(source()).not.toBe(original);
+    value.items[0].label = 'Mortgage documents'; expect(source()).toBe(original);
     value.items[0].files[1].name = 'Replacement.pdf'; expect(source()).not.toBe(original);
     value.items[0].files[1] = file(2); value.items.push(item([file(3)], { id: 'extra', review: 'PENDING' })); expect(source()).toBe(original);
     value.items[1].review = 'APPROVED'; expect(source()).not.toBe(original);

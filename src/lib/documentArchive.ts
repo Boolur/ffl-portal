@@ -22,7 +22,7 @@ function assertActive(signal: AbortSignal) {
 function safeSegment(segment: string) {
   return !!segment && segment !== '.' && segment !== '..' &&
     !/[<>:"\\|?*\u0000-\u001f\u007f]/.test(segment) && !/[. ]$/.test(segment) &&
-    !/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(segment);
+    !/^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]|CONIN\$|CONOUT\$)(?:\.|$)/i.test(segment);
 }
 
 function validateManifest(manifest: SubmissionDocumentDownloadManifest) {
@@ -31,14 +31,24 @@ function validateManifest(manifest: SubmissionDocumentDownloadManifest) {
   if (typeof manifest.filename !== 'string' || manifest.filename.includes('/') || !safeSegment(manifest.filename) || !/\.zip$/i.test(manifest.filename)) invalid();
   if (!Number.isSafeInteger(manifest.totalBytes) || manifest.totalBytes <= 0 || manifest.totalBytes > MAX_DOCUMENT_DOWNLOAD_BYTES) invalid();
   const paths = new Set<string>();
+  const directories = new Set<string>();
   const ids = new Set<string>();
   let total = 0;
   for (const file of manifest.files) {
     if (!file || typeof file.id !== 'string' || !file.id || ids.has(file.id) || !Number.isSafeInteger(file.size) || file.size <= 0) invalid();
     if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) invalid();
-    if (typeof file.archivePath !== 'string' || file.archivePath.length > 1024 || file.archivePath.split('/').length !== 2 || !file.archivePath.split('/').every(safeSegment)) invalid();
+    if (typeof file.archivePath !== 'string' || file.archivePath.length > 1024) invalid();
+    const segments = file.archivePath.split('/');
+    // New manifests use root filenames; safe legacy category/file paths are
+    // also valid here. Final authorization still validates the current selection.
+    if (segments.length > 2 || !segments.every(safeSegment)) invalid();
     const pathKey = file.archivePath.normalize('NFKC').toLowerCase();
-    if (paths.has(pathKey)) invalid();
+    if (paths.has(pathKey) || directories.has(pathKey)) invalid();
+    if (segments.length === 2) {
+      const directoryKey = segments[0].normalize('NFKC').toLowerCase();
+      if (paths.has(directoryKey)) invalid();
+      directories.add(directoryKey);
+    }
     paths.add(pathKey); ids.add(file.id); total += file.size;
     if (!Number.isSafeInteger(total) || total > MAX_DOCUMENT_DOWNLOAD_BYTES) invalid();
     try {

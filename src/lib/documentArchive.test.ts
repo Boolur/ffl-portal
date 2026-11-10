@@ -1,15 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { strFromU8, unzipSync } from 'fflate';
 import { buildDocumentArchive } from './documentArchive';
-import { MAX_DOCUMENT_DOWNLOAD_BYTES, MAX_DOCUMENT_DOWNLOAD_FILES, type SubmissionDocumentDownloadManifest } from './submissionDocumentDownload';
+import { MAX_DOCUMENT_DOWNLOAD_BYTES, MAX_DOCUMENT_DOWNLOAD_FILES, selectApprovedSubmissionDocuments, type SubmissionDocumentDownloadManifest } from './submissionDocumentDownload';
+import type { PilotItem, PilotPackage } from './submissionPilot';
 
 const bytes = new TextEncoder().encode('%PDF-synthetic');
 function manifest(): SubmissionDocumentDownloadManifest {
   return {
     filename: 'approved-documents.zip', selectionKey: 'synthetic-selection', totalBytes: bytes.length * 2,
     files: [
-      { id: 'one', name: 'statement.pdf', type: 'application/pdf', size: bytes.length, archivePath: 'Mortgage/statement.pdf', url: 'https://storage.example/one?token=synthetic' },
-      { id: 'two', name: 'statement.pdf', type: 'application/pdf', size: bytes.length, archivePath: 'Mortgage/statement (2).pdf', url: 'https://storage.example/two?token=synthetic' },
+      { id: 'one', name: 'statement.pdf', type: 'application/pdf', size: bytes.length, archivePath: 'statement.pdf', url: 'https://storage.example/one?token=synthetic' },
+      { id: 'two', name: 'statement.pdf', type: 'application/pdf', size: bytes.length, archivePath: 'statement (2).pdf', url: 'https://storage.example/two?token=synthetic' },
     ],
   };
 }
@@ -23,7 +24,7 @@ function setup() {
 }
 
 describe('approved document archive', () => {
-  it('archives actual bytes under category paths, sequentially, then revalidates approval before returning', async () => {
+  it('archives actual bytes at the ZIP root, sequentially, then revalidates approval before returning', async () => {
     const h = setup();
     const order: string[] = [];
     h.fetchFile.mockImplementation(async () => {
@@ -40,13 +41,53 @@ describe('approved document archive', () => {
     const archive = await buildDocumentArchive(manifest(), h.options);
     const extracted = unzipSync(new Uint8Array(await archive.arrayBuffer()));
     expect(archive.type).toBe('application/zip');
-    expect(Object.keys(extracted)).toEqual(['Mortgage/statement.pdf', 'Mortgage/statement (2).pdf']);
+    expect(Object.keys(extracted)).toEqual(['statement.pdf', 'statement (2).pdf']);
     expect(Object.values(extracted).map(value => strFromU8(value))).toEqual(['%PDF-synthetic', '%PDF-synthetic']);
     expect(order).toEqual(['fetch-1', 'complete-1', 'fetch-2', 'complete-2', 'validate']);
     expect(h.onProgress.mock.calls).toEqual([[{ current: 1, total: 2 }], [{ current: 2, total: 2 }]]);
     expect(h.fetchFile.mock.calls[0]).toEqual([manifest().files[0].url, expect.objectContaining({
       credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer', signal: expect.any(AbortSignal),
     })]);
+  });
+
+  it('still accepts safe legacy category paths from an already-prepared manifest', async () => {
+    const h = setup(); const data = manifest();
+    data.files.forEach(file => { file.archivePath = `Mortgage/${file.archivePath}`; });
+    const archive = await buildDocumentArchive(data, h.options);
+    const extracted = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+    expect(Object.keys(extracted)).toEqual(['Mortgage/statement.pdf', 'Mortgage/statement (2).pdf']);
+    expect(Object.values(extracted).map(value => strFromU8(value))).toEqual(['%PDF-synthetic', '%PDF-synthetic']);
+  });
+
+  it('keeps every attachment and its bytes when names collide within and across approved categories', async () => {
+    const contents = ['%PDF-first attachment', '%PDF-second attachment', '%PDF-third attachment'];
+    const files = contents.map((content, index) => ({
+      id: `file-${index}`, name: index === 2 ? 'STATEMENT.PDF' : 'Statement.pdf', type: 'application/pdf',
+      size: new TextEncoder().encode(content).length, uploadedAt: '',
+      path: `submission-pilot/package/00000000-0000-0000-0000-${index.toString(16).padStart(12, '0')}.pdf`,
+    }));
+    const item = (id: string, attachments: typeof files): PilotItem => ({ id, label: id, required: true, review: 'APPROVED', feedback: '', waiver: '', files: attachments });
+    const pkg: PilotPackage = { version: 1, revision: 1, state: 'REVIEW', reviewerId: 'reviewer', history: [], items: [item('Income', files.slice(0, 2)), item('Additional', files.slice(2))] };
+    const selected = selectApprovedSubmissionDocuments(pkg, 'package', 'owner', '17881588');
+    const data: SubmissionDocumentDownloadManifest = {
+      ...selected, selectionKey: 'synthetic-selection',
+      files: selected.files.map((file, index) => ({ ...file, url: `https://storage.example/${index}` })),
+    };
+    const h = setup();
+    h.fetchFile.mockImplementation(async (url?: string) => new Response(contents[Number(new URL(url!).pathname.slice(1))], { headers: { 'content-type': 'application/pdf' } }));
+    const archive = await buildDocumentArchive(data, h.options);
+    const extracted = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+    expect(Object.keys(extracted)).toEqual(['Statement.pdf', 'Statement (2).pdf', 'STATEMENT (3).PDF']);
+    expect(Object.values(extracted).map(value => strFromU8(value))).toEqual(contents);
+    expect(h.validateSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('rejects a file-versus-directory collision regardless of manifest order: %s', async reverse => {
+    const h = setup(); const data = manifest();
+    data.files[1].archivePath = 'STATEMENT.pdf/second.pdf';
+    if (reverse) data.files.reverse();
+    await expect(buildDocumentArchive(data, h.options)).rejects.toThrow('download list is invalid');
+    expect(h.fetchFile).not.toHaveBeenCalled();
   });
 
   it.each(['application/octet-stream', null])('accepts exact-sized storage bytes with content type %s', async type => {
@@ -103,7 +144,7 @@ describe('approved document archive', () => {
     await expect(buildDocumentArchive(manifest(), h.options)).rejects.toMatchObject({ name: 'AbortError' });
   });
 
-  it.each(['../outside.pdf', '/Mortgage/statement.pdf', 'Mortgage/../statement.pdf', 'Mortgage\\statement.pdf', 'Mortgage/CON.pdf', 'Mortgage/file:stream.pdf', 'Mortgage/file.pdf\u0000', 'Mortgage/file.pdf '])('rejects unsafe archive path %j before any download', async path => {
+  it.each(['', '.', '..', '../outside.pdf', '/statement.pdf', '/Mortgage/statement.pdf', 'Mortgage/../statement.pdf', 'Mortgage/Nested/statement.pdf', 'Mortgage\\statement.pdf', 'CON.pdf', 'LPT¹.pdf', 'CONIN$.pdf', 'Mortgage/CON.pdf', 'file:stream.pdf', 'Mortgage/file:stream.pdf', 'file.pdf\u0000', 'Mortgage/file.pdf\u0000', 'file.pdf ', 'Mortgage/file.pdf '])('rejects unsafe archive path %j before any download', async path => {
     const h = setup(); const data = manifest(); data.files[0].archivePath = path;
     await expect(buildDocumentArchive(data, h.options)).rejects.toThrow('download list is invalid');
     expect(h.fetchFile).not.toHaveBeenCalled();
