@@ -1,4 +1,5 @@
 import { withAuth } from 'next-auth/middleware';
+import { NextResponse } from 'next/server';
 import { UserRole } from '@prisma/client';
 import { decodePortalSession } from './lib/sessionGeneration';
 
@@ -135,8 +136,24 @@ const authProxy = withAuth({
   },
 });
 
-export default authProxy;
-export const proxy = authProxy;
+export const proxy: typeof authProxy = async (request, event) => {
+  const response = await authProxy(request, event);
+  // A native file download follows redirects. Keep failed document access from
+  // downloading the sign-in page under the document's suggested filename.
+  if (
+    request.method === 'GET' &&
+    /^\/api\/processing-submission\/[^/]+\/files\/[^/]+\/?$/.test(request.nextUrl.pathname) &&
+    response && response.status >= 300 && response.status < 400 &&
+    response.headers.has('Location')
+  ) {
+    return NextResponse.json(
+      { success: false, error: 'Sign in with an account that can access this document.' },
+      { status: 403, headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } },
+    );
+  }
+  return response;
+};
+export default proxy;
 
 export const config = {
   matcher: [
