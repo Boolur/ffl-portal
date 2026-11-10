@@ -23,7 +23,9 @@ export function LoanPropertyView({ details }: { details: ProcessingWorkspaceDeta
   const application = details.ariveApplication;
   const sourceAmount = application?.loan.totalLoanAmount ?? application?.loan.baseLoanAmount;
   const property = application?.property;
-  const address = property ? property.addressTbd ? 'Address to be determined' : [property.street, property.unit, property.city, property.state, property.postalCode].filter(Boolean).join(', ') : details.property.address;
+  const postalCode = property?.postalCode?.replace(/^(\d{5})(\d{4})$/, '$1-$2');
+  const locality = property ? [property.city, [property.state, postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ') : '';
+  const address = property ? property.addressTbd ? 'Address to be determined' : [property.street, property.unit, locality].filter(Boolean).join(', ') : details.property.address;
   const occupancy = property ? property.usageType : details.property.occupancy;
   const portalFields = <DetailGrid columns={2}>
     <DetailField label="Loan type" value={details.loan.loanType} /><DetailField label="Purpose" value={words(details.loan.purpose)} />

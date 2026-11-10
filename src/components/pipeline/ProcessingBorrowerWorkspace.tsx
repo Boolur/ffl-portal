@@ -300,8 +300,18 @@ export function ProcessingBorrowerWorkspace({
   const [ariveBlockedFields, setAriveBlockedFields] = useState<string[]>([]);
   const [ariveLatestDraft, setAriveLatestDraft] = useState<ProcessingBorrowerDetailsInput | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  const openTab = (tab: WorkspaceTab) => {
+    setActiveTab(tab);
+    contentRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+  };
+  const openCenterSection = (section: CenterSection) => {
+    setCenterSection(section);
+    contentRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+  };
 
   const requestClose = useCallback(() => {
     if (
@@ -953,9 +963,9 @@ export function ProcessingBorrowerWorkspace({
     return <div className="space-y-4">
       <nav className="flex flex-wrap gap-1.5 border-b border-slate-200 pb-3" aria-label="Loan Center sections">{centerSections.map(section => {
         const Icon = section.icon;
-        return <button type="button" key={section.id} aria-pressed={centerSection === section.id} onClick={() => setCenterSection(section.id)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${centerSection === section.id ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}><Icon size={15} aria-hidden="true" />{section.label}</button>;
+        return <button type="button" key={section.id} aria-pressed={centerSection === section.id} onClick={() => openCenterSection(section.id)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${centerSection === section.id ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}><Icon size={15} aria-hidden="true" />{section.label}</button>;
       })}</nav>
-      {centerSection === 'services' && (editing ? <div className="space-y-4">{renderSection('processing')}{renderSection('appraisal')}</div> : <LoanCenterView details={details} stageLabel={stageDisplay} onNotes={() => setCenterSection('notes')} appraisal={renderSection('appraisal')} />)}
+      {centerSection === 'services' && (editing ? <div className="space-y-4">{renderSection('processing')}{renderSection('appraisal')}</div> : <LoanCenterView details={details} stageLabel={stageDisplay} onNotes={() => openCenterSection('notes')} appraisal={renderSection('appraisal')} />)}
       {centerSection === 'services' && !editing && details.ariveSync && details.loan.loanNumber === '17881588' && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><button type="button" aria-expanded={allTrackersOpen} onClick={() => setAllTrackersOpen(value => !value)} className="flex w-full items-center justify-between text-left text-sm font-semibold text-slate-700">All Arive trackers<span className="text-xs text-blue-600">{allTrackersOpen ? 'Hide' : 'Show'}</span></button>{allTrackersOpen && <div className="mt-4"><AriveRequestTrackersPanel requestTaskId={details.sourceTask.id} refreshSignal={details.ariveSync?.lastSuccessAt} /></div>}</section>}
       {centerSection === 'notes' && <div className="space-y-4">
         {details.ariveSync && <><AriveNoteHeaderGuide />{Boolean(details.ariveSync.structuredFields?.length) && <details className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm"><summary className="cursor-pointer text-sm font-bold text-slate-800">Current values from note headers</summary><p className="mt-2 text-xs text-slate-500">The latest value for each header. The full imported conversation is below.</p><div className="mt-3 grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">{[...details.ariveSync.structuredFields!].sort((a, b) => ariveNoteHeaderGuide.findIndex(item => item.key === a.key) - ariveNoteHeaderGuide.findIndex(item => item.key === b.key)).map(field => <DetailField key={field.key} label={field.label} value={<span className="whitespace-pre-wrap">{field.value || 'Not supplied'}</span>} />)}</div></details>}</>}
@@ -1054,7 +1064,7 @@ export function ProcessingBorrowerWorkspace({
                     key={tab.id}
                     type="button"
                     aria-pressed={selected}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => openTab(tab.id)}
                     className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 sm:text-sm ${
                       selected
                         ? 'bg-blue-600 text-white shadow-sm'
@@ -1070,7 +1080,7 @@ export function ProcessingBorrowerWorkspace({
           </div>
         )}
 
-        <main className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
+        <main ref={contentRef} className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
           {error ? (
             <div role="alert" className="mx-auto mt-16 max-w-lg rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
               <p className="font-bold text-red-900">Unable to open this borrower file</p>
