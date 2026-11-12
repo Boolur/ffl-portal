@@ -15,6 +15,7 @@ import {
 import { getRoleDisplayLabel } from '@/lib/roleLabels';
 import { resetPortalIdentity } from '@/lib/portalLiveUpdates';
 import { invalidateSupportSummary } from '@/lib/supportSummaryLoader';
+import { PilotModeToggle } from './PilotModeToggle';
 
 const formatRole = (role: string) => getRoleDisplayLabel(role);
 const retiredWorkflowRoles = new Set<UserRole>([
@@ -242,6 +243,7 @@ export function TopNav({
       </div>
 
       <div className="flex items-center space-x-4">
+        <PilotModeToggle activeRole={user.role} availableRoles={availableRoles} />
         <div ref={notificationRef} className="relative">
           <button
             type="button"

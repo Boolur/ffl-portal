@@ -20,6 +20,16 @@ explicit cutover. Adding schema does not enroll files or call Arive. Appearance,
 practice work and canonical synchronization are three independent concerns.
 No client mode flag selects a production versus practice mutation.
 
+### Pilot button follow-up
+
+The top bar now includes a Pilot on/off switch for server-authorized Admin I/II/III
+accounts and Matt. Production enables only `PILOT_VIEW_ENABLED` for this switch;
+the practice and generalized collection gates remain off. The preference persists
+without refreshing the page or discarding open work. The current screens still
+use live records; enabling the preference does not create practice copies or
+activate synchronization. The facelift and explicit practice/live entries follow
+in the design milestone. Other open tabs pick up the saved preference on reload.
+
 ## Server contracts
 
 Practice actions return `{success:true,data}` or `{success:false,error}`. Other
