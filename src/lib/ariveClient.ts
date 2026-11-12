@@ -1,6 +1,8 @@
 import 'server-only';
 import { prisma } from '@/lib/prisma';
 import { decryptAriveCredentials } from '@/lib/ariveCrypto';
+import { sharedAriveSessionIfEnabled } from './ariveTransportPrisma';
+import { AriveTransportError } from './ariveTransport';
 
 const BASE = 'https://gwapiconnect.myarive.com/api';
 export type AriveCredentials = { clientId: string; secret: string; apiKey: string };
@@ -56,7 +58,23 @@ async function responseJson(response: Response, operation = 'API request', valid
   }
   try { return await response.json(); } catch { throw new AriveError('Arive returned an unexpected response.'); }
 }
+function safeSharedSession(shared: NonNullable<Awaited<ReturnType<typeof sharedAriveSessionIfEnabled>>>) {
+  return async (path: string, body?: object, method?: 'PATCH') => {
+    try { return await shared(path, body, method); }
+    catch (error) {
+      if (error instanceof AriveError || error instanceof AriveTransportError) throw error;
+      throw new AriveError('Arive request did not finish. Check the transfer status before retrying.');
+    }
+  };
+}
 export async function ariveSession(provided?: AriveCredentials) {
+  try {
+    const shared = await sharedAriveSessionIfEnabled(responseJson, { provided });
+    if (shared) return safeSharedSession(shared);
+  } catch (error) {
+    if (error instanceof AriveError || error instanceof AriveTransportError) throw error;
+    throw new AriveError('Shared Arive request controls are unavailable. Please retry later.');
+  }
   const c = provided || await credentials();
   let auth;
   try { auth = await responseJson(await fetch(`${BASE}/auth/access-token`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey }, body: JSON.stringify(c), cache: 'no-store', signal: AbortSignal.timeout(20000), redirect: 'error' }), 'authentication'); }
@@ -66,6 +84,17 @@ export async function ariveSession(provided?: AriveCredentials) {
     try { return await responseJson(await fetch(`${BASE}${path}`, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey, Authorization: `Bearer ${auth.AccessToken}` }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store', signal: AbortSignal.timeout(25000), redirect: 'error' }), path === '/loans/document-classifications' ? 'document classification access check' : 'API request', method === 'PATCH' && /^\/loans\/[a-zA-Z0-9-]{1,100}(?:\?sync=true)?$/.test(path) ? [c.clientId, c.secret, c.apiKey, auth.AccessToken] : undefined); }
     catch (e) { if (e instanceof AriveError) throw e; throw new AriveError('Arive request did not finish. Check the transfer status before retrying.'); }
   };
+}
+/** Required shared limits and a GET-only surface for broader inbound workers. */
+export async function ariveReadOnlySession() {
+  try {
+    const shared = await sharedAriveSessionIfEnabled(responseJson, { readOnly: true, required: true });
+    if (!shared) throw new AriveTransportError('DISABLED', 'Shared Arive request controls are not enabled.');
+    return safeSharedSession(shared);
+  } catch (error) {
+    if (error instanceof AriveError || error instanceof AriveTransportError) throw error;
+    throw new AriveError('Shared Arive request controls are unavailable. Please retry later.');
+  }
 }
 export async function ariveClassifications(provided?: AriveCredentials) {
   const api = await ariveSession(provided);

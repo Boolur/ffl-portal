@@ -52,7 +52,7 @@ import {
   type TaskBucketCursor,
   type TaskBucketSort,
 } from '@/lib/taskBucketQueries';
-import { upsertProcessingPipelineForCompletedTask } from '@/lib/processingPipelineService';
+import { lockProcessingPipelineForTask, upsertProcessingPipelineForCompletedTask } from '@/lib/processingPipelineService';
 import {
   leadStatusForTaskKind,
   syncLeadStatusForLoan,
@@ -2695,6 +2695,9 @@ export async function updateTaskStatus(
     } else {
       const completedAt = newStatus === TaskStatus.COMPLETED ? new Date() : null;
       await prisma.$transaction(async (tx) => {
+        if (existing.kind === TaskKind.SUBMIT_PROCESSING && newStatus === TaskStatus.COMPLETED) {
+          await lockProcessingPipelineForTask(tx, existing);
+        }
         await tx.task.update({
           where: { id: taskId },
           data: {
@@ -5512,6 +5515,7 @@ export async function updateProcessingRoute(
         completedAt: true,
         assignedUser: { select: { name: true } },
         submissionData: true,
+        loanId: true,
       },
     });
 
@@ -5622,6 +5626,7 @@ export async function updateProcessingRoute(
 
     const routeCompletedAt = isSelfProcessed ? new Date() : task.completedAt;
     await prisma.$transaction(async (tx) => {
+      if (isSelfProcessed) await lockProcessingPipelineForTask(tx, task);
       await tx.task.update({
         where: { id: task.id },
         data: {
@@ -5828,6 +5833,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     const actorName = session?.user?.name || 'Unknown';
     const processingCompletedAt = new Date();
     await prisma.$transaction(async (tx) => {
+      if (processingSubmissionTask) await lockProcessingPipelineForTask(tx, task);
       if (pilot && pilotTask) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${pilotTask.id}`}))`;
         await tx.$queryRaw`SELECT id FROM "Task" WHERE id = ${taskId} FOR UPDATE`;

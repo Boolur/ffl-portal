@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   db: {
     user: { findUnique: vi.fn(), findMany: vi.fn() },
     processingPipelineLoan: { findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
-    arivePipelineSync: { findUnique: vi.fn(), update: vi.fn() },
+    arivePipelineSync: { findUnique: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     auditLog: { create: vi.fn(), findMany: vi.fn() },
     loan: { update: vi.fn() }, task: { update: vi.fn() }, leadUserTeam: { findMany: vi.fn() },
     $transaction: vi.fn(), $executeRaw: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock('@/lib/leadPipelineSync', () => ({ syncLeadStatusForLoan: mocks.sync }))
 vi.mock('@/lib/processingManagerNotifications', () => ({ notifyProcessingManagers: mocks.notify }));
 import {
   declineProcessingPipelineLoan, dismissProcessingRateLockRequest, getProcessingBorrowerDetails,
-  getProcessingPipeline, moveProcessingPipelineLoan, requestProcessingRateLock,
+  getProcessingPipeline, getProcessingAriveSnapshot, getProcessingAriveStageCounts, moveProcessingPipelineLoan, requestProcessingRateLock,
   updateProcessingBorrowerDetails, updateProcessingPipelineCell, updateProcessingPipelineRateLock,
   updateProcessingRestructureWorkflow, type ProcessingBorrowerDetailsInput,
 } from './processingPipelineActions';
@@ -112,10 +112,10 @@ describe('Arive authority in pipeline mutation actions', () => {
   it('does not inspect or write sync state before authentication and version checks', async () => {
     mocks.session.mockResolvedValue(null);
     expect(await updateProcessingPipelineCell({ id: 'pipeline', version: 1, field: 'titleStatus', value: 'RECEIVED' })).toMatchObject({ success: false });
-    expect(mocks.db.arivePipelineSync.findUnique).not.toHaveBeenCalled();
+    expect(mocks.db.arivePipelineSync.update).not.toHaveBeenCalled();
     mocks.session.mockResolvedValue({ user: { id: 'admin', role: UserRole.ADMIN_III } });
     expect(await updateProcessingPipelineCell({ id: 'pipeline', version: 0, field: 'titleStatus', value: 'RECEIVED' })).toMatchObject({ success: false, conflict: true });
-    expect(mocks.db.arivePipelineSync.findUnique).not.toHaveBeenCalled();
+    expect(mocks.db.arivePipelineSync.update).not.toHaveBeenCalled();
     expect(mocks.db.auditLog.create).not.toHaveBeenCalled();
   });
   it('treats an unchanged managed calendar date as a no-op without inventing timestamps', async () => {
@@ -175,7 +175,7 @@ describe('Arive authority in pipeline mutation actions', () => {
   it('leaves nonpilot workflow behavior unchanged', async () => {
     configureRow(current({ loanId: 'another-loan', pipelineStatus: 'SUBBED_TO_UW' }));
     expect(await updateProcessingPipelineCell({ id: 'pipeline', version: 1, field: 'titleStatus', value: 'ORDERED' })).toMatchObject({ success: true, version: 2 });
-    expect(mocks.db.arivePipelineSync.findUnique).not.toHaveBeenCalled();
+    expect(mocks.db.arivePipelineSync.update).not.toHaveBeenCalled();
     expect(mocks.db.processingPipelineLoan.updateMany).toHaveBeenCalledOnce();
   });
 });
@@ -286,6 +286,40 @@ describe('sanitized Arive metadata', () => {
   });
   it('only marks fresh active Admin III role membership as eligible to manage sync', async () => {
     mocks.db.user.findUnique.mockResolvedValue({ active: true, role: UserRole.LOAN_OFFICER, roles: [], processingAssignmentGroups: [] });
-    expect(await getProcessingPipeline()).toMatchObject({ rows: [{ ariveSync: { canManage: false } }] });
+    expect(await getProcessingPipeline()).toMatchObject({ success: false, error: 'Not authenticated.' });
   });
+});
+
+
+describe('rollout saved reads and source-stage queries', () => {
+  it('rejects a revoked active role before reading cached or current loan data', async () => {
+    mocks.db.user.findUnique.mockResolvedValue({ active: true, role: UserRole.LOAN_OFFICER, roles: [], processingAssignmentGroups: [] });
+    expect(await getProcessingAriveSnapshot('pipeline')).toMatchObject({ success: false });
+    expect(mocks.db.processingPipelineLoan.findFirst).not.toHaveBeenCalled();
+  });
+  it('rejects a disabled account before reading its previously visible loan', async () => {
+    mocks.db.user.findUnique.mockResolvedValue({ active: false, role: UserRole.ADMIN_III, roles: [], processingAssignmentGroups: [] });
+    expect(await getProcessingBorrowerDetails('pipeline')).toMatchObject({ success: false });
+    expect(mocks.db.processingPipelineLoan.findFirst).not.toHaveBeenCalled();
+  });
+  it('uses the same exact source-stage predicate for the ordered pagination manifest', async () => {
+    await getProcessingPipeline({ filters: { ariveStages: ['DOCS_SIGNED', 'APPLICATION_INTAKE'] }, sortBy: 'ariveStage', sortDirection: 'asc' });
+    const query = mocks.db.processingPipelineLoan.findMany.mock.calls[0][0];
+    expect(JSON.stringify(query.where)).toContain('DOCS_SIGNED');
+    expect(JSON.stringify(query.where)).toContain('VERIFIED');
+    expect(query.orderBy).toContainEqual({ ariveSync: { sourceStage: { sort: 'asc', nulls: 'last' } } });
+    expect(query.orderBy.at(-1)).toEqual({ id: 'asc' });
+  });
+});
+
+
+it('counts source stages using the same authenticated sheet and row filters', async () => {
+  mocks.db.arivePipelineSync.groupBy.mockResolvedValue([{ sourceStage: 'DOCS_SIGNED', _count: { _all: 3 } }]);
+  const result = await getProcessingAriveStageCounts({ sheet: 'PIPELINE', filters: { ariveStages: ['DOCS_SIGNED'] } });
+  expect(result).toMatchObject({ success: true, counts: [{ value: 'DOCS_SIGNED', label: 'Docs signed', count: 3 }] });
+  const query = mocks.db.arivePipelineSync.groupBy.mock.calls[0][0];
+  expect(query.where).toMatchObject({ workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', lastSuccessAt: { not: null } });
+  expect(JSON.stringify(query.where.pipeline)).toContain('PIPELINE');
+  expect(JSON.stringify(query.where.pipeline)).toContain('archivedAt');
+  expect(JSON.stringify(query.where.pipeline)).toContain('DOCS_SIGNED');
 });

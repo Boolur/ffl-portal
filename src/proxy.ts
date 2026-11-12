@@ -116,7 +116,7 @@ const authProxy = withAuth({
       }
       // These authenticated reads serve the pipeline UI. The handlers additionally
       // enforce pilot membership, loan ownership, and reviewer assignment.
-      if (req.method === 'GET' && req.nextUrl.pathname.startsWith('/api/processing-submission/')) {
+      if (req.method === 'GET' && (req.nextUrl.pathname.startsWith('/api/processing-submission/') || /^\/api\/pilot\/practice\/[^/]+\/files\/[^/]+\/?$/.test(req.nextUrl.pathname))) {
         return isAllowed('/pipeline', effectiveRole);
       }
       if (req.nextUrl.pathname === '/leaderboard' || req.nextUrl.pathname.startsWith('/leaderboard/')) {
@@ -142,7 +142,7 @@ export const proxy: typeof authProxy = async (request, event) => {
   // downloading the sign-in page under the document's suggested filename.
   if (
     request.method === 'GET' &&
-    /^\/api\/processing-submission\/[^/]+\/files\/[^/]+\/?$/.test(request.nextUrl.pathname) &&
+    /^\/api\/(?:processing-submission|pilot\/practice)\/[^/]+\/files\/[^/]+\/?$/.test(request.nextUrl.pathname) &&
     response && response.status >= 300 && response.status < 400 &&
     response.headers.has('Location')
   ) {

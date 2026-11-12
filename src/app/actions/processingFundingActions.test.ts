@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
     user: { findUnique: vi.fn() },
     processingPipelineLoan: { findFirst: vi.fn(), updateMany: vi.fn() },
     auditLog: { create: vi.fn() },
-    $transaction: vi.fn(),
+    $transaction: vi.fn(), $executeRaw: vi.fn(),
+    arivePipelineSync: { findUnique: vi.fn().mockResolvedValue(null) },
   },
 }));
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
@@ -32,7 +33,7 @@ function current(purpose = 'Refinance') {
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.session.mockResolvedValue({ user: { id: 'processor', role: UserRole.PROCESSOR_SR, name: 'Processor' } });
-  mocks.db.user.findUnique.mockResolvedValue({ processingAssignmentGroups: [] });
+  mocks.db.user.findUnique.mockResolvedValue({ active: true, role: UserRole.PROCESSOR_SR, roles: [], processingAssignmentGroups: [] });
   mocks.db.$transaction.mockImplementation(async (callback) => callback(mocks.db));
   mocks.db.processingPipelineLoan.findFirst.mockResolvedValue(current());
   mocks.db.processingPipelineLoan.updateMany.mockResolvedValue({ count: 1 });

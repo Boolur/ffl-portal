@@ -1,4 +1,5 @@
 import type { ProcessingItemStatus, ProcessingPipelineLoan, ProcessingPipelineStatus } from '@prisma/client';
+import { addMonthsClamped, getMortgageFirstPaymentDate } from './processingPipeline';
 
 type OwnedField = 'sheet' | 'pipelineStatus' | 'statusChangedAt' | 'movedAt' | 'archivedAt'
   | 'titleStatus' | 'payoffStatus' | 'hoiStatus' | 'payoffOrderedAt' | 'hoiOrderedAt'
@@ -32,6 +33,7 @@ const stages: Record<string, string> = {
   DOCS_OUT: 'Docs out', DOCS_SIGNED: 'Docs signed', LOAN_FUNDED: 'Funded', BROKER_CHECK_RECEIVED: 'Broker check received',
   COMMISSION_PAID: 'Commission paid', SUSPENDED: 'Suspended',
 };
+export const ARIVE_LOAN_STAGE_OPTIONS = Object.entries(stages).map(([value, label]) => ({ value, label }));
 const stageMapping: Record<string, ProcessingPipelineStatus> = {
   UNDERWRITING_SUBMITTED: 'SUBBED_TO_UW', APPROVED_WITH_CONDITION: 'APPROVED_WITH_CONDITIONS',
   RE_SUBMITTAL: 'RE_SUB', CLEAR_TO_CLOSE: 'CTC', DOCS_OUT: 'DOCS_OUT',
@@ -213,4 +215,103 @@ export function planArivePipelineSync(input: { details: unknown; trackers: unkno
 function latest(values: (string | null)[]): Date | null {
   const timestamps = values.flatMap(value => value ? [Date.parse(value)] : []).filter(Number.isFinite);
   return timestamps.length ? new Date(Math.max(...timestamps)) : null;
+}
+
+export type AriveRoutingProvenance = {
+  kind: 'ARCHIVE' | 'RESTRUCTURE'; generation: number; pipelineVersion: number;
+  sheet: string; pipelineStatus: string; archivedAt: string | null;
+  archivedById: string | null; movedAt: string | null;
+};
+export type AriveRolloutCurrent = ArivePipelineCurrent & Pick<ProcessingPipelineLoan, 'version' | 'archivedById' | 'firstPaymentAt' | 'sixthPaymentAt'>;
+export type AriveRolloutPlan = Omit<ArivePipelinePlan, 'patch'> & {
+  patch: ArivePipelinePatch & Partial<Pick<ProcessingPipelineLoan, 'firstPaymentAt' | 'sixthPaymentAt'>>;
+  everFunded: boolean; ownsPreviousRoute: boolean;
+};
+const iso = (value: Date | null) => value?.toISOString() ?? null;
+export function ownsAriveRoute(current: AriveRolloutCurrent, provenance: unknown, generation: number): provenance is AriveRoutingProvenance {
+  const p = record(provenance);
+  return !!p && ['ARCHIVE', 'RESTRUCTURE'].includes(String(p.kind)) && p.generation === generation
+    && p.pipelineVersion === current.version && p.sheet === current.sheet && p.pipelineStatus === current.pipelineStatus
+    && p.archivedAt === iso(current.archivedAt) && p.archivedById === current.archivedById && p.movedAt === iso(current.movedAt);
+}
+
+/** Generalized routing is opt-in; the deployed exact-file pilot keeps its existing rules. */
+export function planAriveRolloutSync(input: {
+  details: unknown; trackers: unknown; current: AriveRolloutCurrent; now: Date;
+  everFunded: boolean; routingProvenance: unknown; generation: number;
+}): AriveRolloutPlan {
+  const d = record(input.details) ?? {}; const s = record(d.currentLoanStatus) ?? {};
+  const history = Array.isArray(d.loanStatusHistory) ? d.loanStatusHistory : [];
+  const stage = string(s.status); const reason = string(s.adverseReason);
+  const previouslyFunded = input.everFunded || input.current.sheet === 'FUNDING' || input.current.fundedAt !== null;
+  const everFunded = previouslyFunded
+    || fundedStages.has(stage) || history.some(h => fundedStages.has(string(record(h)?.status)));
+  const ownsPreviousRoute = ownsAriveRoute(input.current, input.routingProvenance, input.generation);
+  const invalidAdverse = s.adverseReason != null && typeof s.adverseReason !== 'string';
+  const active = Boolean(stages[stage]) && stage !== 'SUSPENDED' && !fundedStages.has(stage) && !reason && !invalidAdverse && d.archiveIndicator === false;
+  const mayRestore = ownsPreviousRoute && !reason && !invalidAdverse && d.archiveIndicator === false
+    && (active && !everFunded || fundedStages.has(stage) && !previouslyFunded);
+  const adjusted = { ...input.current,
+    ...(mayRestore ? { archivedAt: null, sheet: 'PIPELINE' as const } : {}),
+    ...(everFunded && !fundedStages.has(stage) ? { sheet: 'FUNDING' as const } : {}),
+  };
+  const base = planArivePipelineSync({ ...input, current: adjusted });
+  const patch: AriveRolloutPlan['patch'] = { ...base.patch };
+  if (mayRestore && input.current.archivedAt) patch.archivedAt = null;
+  const issues = [...base.issues];
+  const blockedManualRoute = input.current.sheet === 'RESTRUCTURE' && active && !mayRestore;
+  const blockedArchive = input.current.archivedAt !== null && !mayRestore;
+  const uncertainActive = typeof d.archiveIndicator !== 'boolean' || invalidAdverse || Boolean(reason) && !adverseReasons.has(reason) || d.archiveIndicator === true && !adverseReasons.has(reason);
+  if (typeof d.archiveIndicator !== 'boolean') issues.push({ field: 'archivedAt', code: 'ARCHIVE_INDICATOR_UNAVAILABLE', message: 'Arive did not confirm whether the file is archived. Portal routing was retained until that indicator is available.' });
+  if (invalidAdverse) issues.push({ field: 'adverseReason', code: 'ADVERSE_INDICATOR_UNAVAILABLE', message: 'Arive returned an invalid adverse indicator. Portal routing was retained for review.' });
+  if (blockedManualRoute || blockedArchive || uncertainActive) {
+    for (const field of ['sheet', 'pipelineStatus', 'statusChangedAt', 'movedAt', 'archivedAt', 'fundedAt'] as const) {
+      delete patch[field]; delete base.managed[field];
+    }
+    if (blockedManualRoute) issues.push({ field: 'sheet', code: 'MANUAL_ROUTE_REVIEW', message: 'This restructure is not owned by the current Arive sync event. A manager must confirm its return.' });
+  } else if (active && !everFunded) {
+    patch.sheet = 'PIPELINE';
+    // Exact sourceStage is stored separately. These compatibility values keep
+    // existing forms and reporting valid until their source-stage UI is adopted.
+    patch.pipelineStatus = stageMapping[stage] ?? (stage === 'DOCS_SIGNED' ? 'DOCS_OUT' : 'PENDING_APPROVAL');
+    base.managed.sheet = patch.sheet; base.managed.pipelineStatus = patch.pipelineStatus;
+    if (input.current.archivedAt) patch.archivedAt = null;
+    if (input.current.sheet !== 'PIPELINE') {
+      const at = parseArivePipelineDate(base.source.stageDate); if (at) patch.movedAt = at;
+    }
+  }
+  if (fundedStages.has(stage) && !blockedArchive && !uncertainActive && patch.fundedAt instanceof Date) {
+    if (input.current.firstPaymentAt === null) patch.firstPaymentAt = getMortgageFirstPaymentDate(patch.fundedAt);
+    if (input.current.sixthPaymentAt === null) patch.sixthPaymentAt = addMonthsClamped(patch.fundedAt, 6);
+  } else if (fundedStages.has(stage) && !blockedArchive && !uncertainActive) {
+    // An equal fundedAt is omitted by the base planner; only the confirmed
+    // source milestone can supply missing payment dates, never a retained date.
+    const actual = latest(base.source.stageHistory.filter(h => h.stage === 'LOAN_FUNDED').map(h => h.date));
+    if (actual) {
+      if (input.current.firstPaymentAt === null) patch.firstPaymentAt = getMortgageFirstPaymentDate(actual);
+      if (input.current.sixthPaymentAt === null) patch.sixthPaymentAt = addMonthsClamped(actual, 6);
+    }
+  }
+  const confirmedFunding = fundedStages.has(stage) ? latest(base.source.stageHistory.filter(h => h.stage === 'LOAN_FUNDED').map(h => h.date)) : null;
+  if (confirmedFunding) {
+    for (const [field, expected] of [['firstPaymentAt', getMortgageFirstPaymentDate(confirmedFunding)], ['sixthPaymentAt', addMonthsClamped(confirmedFunding, 6)]] as const) {
+      const existing = input.current[field];
+      if (existing && existing.toISOString().slice(0, 10) !== expected.toISOString().slice(0, 10)) issues.push({ field, code: 'PAYMENT_DATE_DISAGREEMENT', message: `The existing ${field === 'firstPaymentAt' ? 'first' : 'sixth'} payment date differs from the date calculated from Arive funding. The existing portal date was preserved for review.` });
+    }
+  }
+  for (const [field, value] of Object.entries(patch)) {
+    const before = input.current[field as keyof AriveRolloutCurrent];
+    if (before instanceof Date && value instanceof Date ? before.getTime() === value.getTime() : before === value) delete (patch as Record<string, unknown>)[field];
+  }
+  return { ...base, patch, issues, everFunded, ownsPreviousRoute };
+}
+
+export function ariveRouteAfterApply(current: AriveRolloutCurrent, plan: AriveRolloutPlan, previous: unknown, generation: number, nextVersion: number): AriveRoutingProvenance | null {
+  const next = { ...current, ...plan.patch };
+  const kind = plan.patch.archivedAt instanceof Date ? 'ARCHIVE'
+    : plan.patch.sheet === 'RESTRUCTURE' ? 'RESTRUCTURE'
+      : plan.ownsPreviousRoute && (next.archivedAt || next.sheet === 'RESTRUCTURE') ? record(previous)?.kind : null;
+  if (kind !== 'ARCHIVE' && kind !== 'RESTRUCTURE') return null;
+  return { kind, generation, pipelineVersion: nextVersion, sheet: next.sheet, pipelineStatus: next.pipelineStatus,
+    archivedAt: iso(next.archivedAt), archivedById: next.archivedById, movedAt: iso(next.movedAt) };
 }

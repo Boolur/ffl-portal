@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-vi.mock('next-auth/middleware', () => ({ withAuth: (config: unknown) => config }));
-import proxy from './proxy';
+const mocks = vi.hoisted(() => ({ config: undefined as unknown }));
+vi.mock('next-auth/middleware', () => ({ withAuth: (config: unknown) => { mocks.config = config; return vi.fn(); } }));
+import './proxy';
 
-const { callbacks } = proxy as unknown as { callbacks: { authorized(input: {
+const { callbacks } = mocks.config as { callbacks: { authorized(input: {
   token: { role: string; activeRole?: string } | null;
   req: { method: string; nextUrl: { pathname: string } };
 }): boolean } };

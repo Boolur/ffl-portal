@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const run = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/arivePipelineSync', () => ({ runDueArivePipelineSyncs: run }));
 import { GET } from './route';
-beforeEach(() => { vi.resetAllMocks(); vi.stubEnv('CRON_SECRET', 'synthetic-secret'); vi.stubEnv('VERCEL_ENV', 'production'); run.mockResolvedValue({ checked: 1, succeeded: 1, failed: 0 }); });
+beforeEach(() => { vi.resetAllMocks(); vi.stubEnv('CRON_SECRET', 'synthetic-secret'); vi.stubEnv('VERCEL_ENV', 'production'); vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'false'); run.mockResolvedValue({ checked: 1, succeeded: 1, failed: 0 }); });
 describe('Arive scheduled updates', () => {
   it.each([undefined, 'Bearer wrong', 'synthetic-secret'])('rejects an unauthorized request without reading loans', async authorization => {
     const response = await GET(new Request('https://bisuportal.com/api/internal/arive/sync', { headers: authorization ? { authorization } : {} }));

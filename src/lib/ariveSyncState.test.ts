@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ArivePipelineSync, Prisma, ProcessingPipelineLoan } from '@prisma/client';
 import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
-import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, preserveAriveManagedFields } from './ariveSyncState';
+import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, preserveAriveManagedFields } from './ariveSyncState';
 
 function setup() {
   const current = { id: 'pilot-pipeline', loanId: ARIVE_SYNC_PILOT.loanId, archivedAt: null, titleStatus: 'RECEIVED', statusChangedAt: new Date('2026-11-05T00:00:00Z'),
@@ -47,7 +47,7 @@ describe('Arive-owned portal edits', () => {
   });
   it('does not affect other loans or a paused integration', async () => {
     const h = setup(); expect(await guardArivePipelineEdit(h.client, { ...h.current, loanId: 'other-loan' }, 'admin', { titleStatus: 'ORDERED' })).toBeNull();
-    expect(h.tx.arivePipelineSync.findUnique).not.toHaveBeenCalled();
+    expect(h.tx.arivePipelineSync.findUnique).toHaveBeenCalledOnce();
     h.state.enabled = false; expect(await guardArivePipelineEdit(h.client, h.current, 'admin', { titleStatus: 'ORDERED' })).toBeNull();
     expect(h.tx.auditLog.create).not.toHaveBeenCalled();
   });
@@ -61,7 +61,7 @@ describe('Arive-owned portal edits', () => {
   it('leaves legacy mutations untouched on other loans', async () => {
     const h = setup(); const data = { titleStatus: 'NOT_APPLICABLE' as const, firstPaymentAt: null };
     await preserveAriveManagedFields(h.client, { ...h.current, loanId: 'other-loan' }, data);
-    expect(data).toEqual({ titleStatus: 'NOT_APPLICABLE', firstPaymentAt: null }); expect(h.tx.arivePipelineSync.findUnique).not.toHaveBeenCalled();
+    expect(data).toEqual({ titleStatus: 'NOT_APPLICABLE', firstPaymentAt: null }); expect(h.tx.arivePipelineSync.findUnique).toHaveBeenCalledOnce();
   });
 });
 
@@ -128,5 +128,32 @@ describe('safe sync presentation and comparisons', () => {
   });
   it('renders an eligible unconfigured file as paused without synthetic success dates', () => {
     expect(ariveSyncView(null, true, true)).toMatchObject({ enabled: false, lastSuccessAt: null, stage: null, issues: [], conflicts: [], managedFields: [], canManage: true });
+  });
+});
+
+
+describe('verified generalized field ownership', () => {
+  function enrolled() {
+    const h = setup();
+    Object.assign(h.state, { workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', verifiedAt: new Date(), ariveGuid: 'verified-guid', ariveLoanId: '4001' });
+    h.current.loanId = 'live-loan';
+    return h;
+  }
+  it('protects a verified real loan independently of the old test-file identifier', async () => {
+    const h = enrolled();
+    expect(await guardArivePipelineEdit(h.client, h.current, 'admin', { titleStatus: 'ORDERED' })).toMatchObject({ ariveConflict: true });
+    expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4001', loanOfficerId: 'lo' })).toBe(true);
+    expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4002', loanOfficerId: 'lo' })).toBe(false);
+  });
+  it.each(['COLLECTED_ONLY', 'REVIEW', 'DISABLED', 'UNVERIFIED', 'EMPTY'])('does not take production ownership for %s', async condition => {
+    const h = enrolled();
+    if (condition === 'COLLECTED_ONLY') h.state.lastSuccessAt = null;
+    if (condition === 'REVIEW') h.state.enrollmentStatus = 'REVIEW';
+    if (condition === 'DISABLED') h.state.enabled = false;
+    if (condition === 'UNVERIFIED') h.state.verifiedAt = null;
+    if (condition === 'EMPTY') h.state.snapshot = {};
+    expect(isAriveManagedState(h.state, h.current.loanId)).toBe(false);
+    expect(await guardArivePipelineEdit(h.client, h.current, 'admin', { titleStatus: 'ORDERED' })).toBeNull();
+    expect(h.tx.arivePipelineSync.update).not.toHaveBeenCalled();
   });
 });

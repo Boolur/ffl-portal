@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && prisma migrate deploy && next build",
+    "build": "prisma generate && next build",
+    "db:deploy": "prisma migrate deploy",
+    "release:vercel": "node src/scripts/deploySchema.mjs && npm run build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",

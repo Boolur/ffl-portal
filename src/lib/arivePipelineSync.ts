@@ -54,7 +54,7 @@ export async function syncArivePipeline(pipelineId: string, options: { force?: b
   const claimed = await db.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${pipelineId}`}))`;
     const row = await tx.processingPipelineLoan.findUnique({ where: { id: pipelineId }, include: { ariveSync: true, loan: { include: { loanOfficer: { select: { email: true } } } } } });
-    if (!row?.ariveSync?.enabled) return null;
+    if (!row?.ariveSync?.enabled || row.ariveSync.workerOwner && row.ariveSync.workerOwner !== 'LEGACY') return null;
     assertAriveSyncPilot(row.loan);
     const state = row.ariveSync;
     if (state.ariveLoanId !== ARIVE_SYNC_PILOT.loanNumber) throw new AriveError('The saved Arive loan link does not match this pilot.');
@@ -101,7 +101,7 @@ export async function syncArivePipeline(pipelineId: string, options: { force?: b
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${pipelineId}`}))`;
       const current = await tx.processingPipelineLoan.findUnique({ where: { id: pipelineId }, include: { ariveSync: true, loan: { include: { loanOfficer: { select: { email: true } } } }, sourceTask: { select: { submissionData: true } } } });
       const state = current?.ariveSync; const now = clock();
-      if (!current || !state?.enabled || state.leaseToken !== token || !state.leaseUntil || state.leaseUntil <= now) return { success: true as const, skipped: true };
+      if (!current || !state?.enabled || state.workerOwner && state.workerOwner !== 'LEGACY' || state.workerGeneration !== claimed.state.workerGeneration || state.leaseToken !== token || !state.leaseUntil || state.leaseUntil <= now) return { success: true as const, skipped: true };
       if (jsonRecord(current.sourceTask.submissionData).processingDocumentTaskId !== lockedDocumentTaskId) throw new AriveError('The submission link changed during this refresh. The refresh will be retried.');
       assertAriveSyncPilot(current.loan);
       if (current.loan.loanOfficer.email.toLowerCase() !== claimed.row.loan.loanOfficer.email.toLowerCase()) throw new AriveError('The loan originator changed during this refresh.');
@@ -191,7 +191,7 @@ export async function syncArivePipeline(pipelineId: string, options: { force?: b
 
 export async function runDueArivePipelineSyncs(deps: SyncDeps = {}) {
   const db = deps.db || prisma; const now = (deps.now || (() => new Date()))();
-  const due = await db.arivePipelineSync.findMany({ where: { enabled: true, ariveLoanId: ARIVE_SYNC_PILOT.loanNumber, pipeline: { loanId: ARIVE_SYNC_PILOT.loanId, loan: { loanOfficerId: ARIVE_SYNC_PILOT.ownerId } }, AND: [{ OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] }, { OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] }] }, select: { pipelineId: true }, take: 1 });
+  const due = await db.arivePipelineSync.findMany({ where: { workerOwner: 'LEGACY', enabled: true, ariveLoanId: ARIVE_SYNC_PILOT.loanNumber, pipeline: { loanId: ARIVE_SYNC_PILOT.loanId, loan: { loanOfficerId: ARIVE_SYNC_PILOT.ownerId } }, AND: [{ OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] }, { OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] }] }, select: { pipelineId: true }, take: 1 });
   const results = [];
   for (const row of due) results.push(await syncArivePipeline(row.pipelineId, {}, deps));
   return { checked: due.length, succeeded: results.filter(r => r.success && !r.skipped).length, failed: results.filter(r => !r.success).length };

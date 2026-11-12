@@ -44,10 +44,160 @@ model ArivePipelineSync {
   conflicts      Json     @default("[]")
   issues         Json     @default("[]")
   snapshotHash   String?
+  workerOwner    String   @default("LEGACY")
+  operatorPaused Boolean @default(false)
+  workerGeneration Int   @default(0)
+  connectionId   String   @default("company")
+  enrollmentStatus String @default("VERIFIED")
+  enrollmentIssue String?
+  verifiedAt     DateTime?
+  verifiedOriginatorEmail String?
+  sourceStage    String?
+  everFunded     Boolean  @default(false)
+  routingProvenance Json  @default("{}")
+  manualRefreshRequestedAt DateTime?
+  collectedSnapshot Json @default("{}")
+  collectedAt    DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([enabled, nextAttemptAt])
+  @@index([workerOwner, enabled, nextAttemptAt])
+  @@index([connectionId, enrollmentStatus])
+  @@index([sourceStage])
+}
+
+// Independent controls: a UI preference never enrolls a live loan or enables writes.
+model AriveRolloutControl {
+  id String @id @default("company")
+  collectionEnabled Boolean @default(false)
+  applicationEnabled Boolean @default(false)
+  enrollmentEnabled Boolean @default(false)
+  cohortLimit Int? @default(10)
+  enabledById String?
+  enrollmentCursor String?
+  generation Int @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model AriveLoanNotes {
+  pipelineId String @id
+  pipeline ProcessingPipelineLoan @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  notes Json @default("[]")
+  contentHash String
+  syncedAt DateTime
+}
+
+// Real Arive test IDs must never enter canonical enrollment, even through an accidental portal match.
+model ArivePracticeLoan {
+  ariveLoanId String @id
+  label String
+  ariveGuid String?
+  enabled Boolean @default(true)
+  createdById String
+  createdAt DateTime @default(now())
+}
+
+model AriveConnectionRuntime {
+  id String @id
+  enabled Boolean @default(false)
+  providerRequestLimit Int?
+  providerWindowSeconds Int?
+  quotaConfirmedAt DateTime?
+  quotaKeyFingerprint String?
+  cooldownUntil DateTime?
+  encryptedAccessToken String?
+  accessTokenExpiresAt DateTime?
+  credentialFingerprint String?
+  refreshLeaseToken String?
+  refreshLeaseUntil DateTime?
+  updatedAt DateTime @updatedAt
+  requests AriveTransportRequest[]
+}
+
+model AriveTransportRequest {
+  id String @id @default(uuid())
+  connectionId String
+  connection AriveConnectionRuntime @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  keyFingerprint String
+  kind String
+  startedAt DateTime @default(now())
+  leaseUntil DateTime
+  finishedAt DateTime?
+  statusCode Int?
+  @@index([connectionId, keyFingerprint, startedAt])
+  @@index([connectionId, startedAt])
+  @@index([connectionId, finishedAt, leaseUntil])
+}
+
+// Source IDs deliberately have no cascading relation to live business records.
+model PilotPracticeTask {
+  id String @id @default(uuid())
+  ownerId String
+  sourceTaskId String?
+  sourceLoanId String?
+  title String
+  kind String @default("SUBMIT_PROCESSING")
+  state String @default("DRAFT")
+  version Int @default(0)
+  snapshot Json
+  draft Json @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  package PilotPracticePackage?
+  events PilotPracticeEvent[]
+  notifications PilotPracticeNotification[]
+  @@index([ownerId, updatedAt])
+  @@index([sourceTaskId])
+  @@index([sourceLoanId])
+}
+
+model PilotPracticePackage {
+  id String @id @default(uuid())
+  taskId String @unique
+  task PilotPracticeTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  items Json
+  files PilotPracticeFile[]
+}
+
+model PilotPracticeFile {
+  id String @id @default(uuid())
+  packageId String
+  package PilotPracticePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  itemId String
+  name String
+  type String
+  size Int
+  path String?
+  sourceAttachmentId String?
+  sourceDocumentTaskId String?
+  sourceDocumentFileId String?
+  uploaded Boolean @default(false)
+  retired Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@index([packageId, itemId])
+}
+
+model PilotPracticeEvent {
+  id String @id @default(uuid())
+  taskId String
+  task PilotPracticeTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actorId String
+  persona String
+  action String
+  message String
+  createdAt DateTime @default(now())
+  @@index([taskId, createdAt])
+}
+
+model PilotPracticeNotification {
+  id String @id @default(uuid())
+  taskId String
+  task PilotPracticeTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  persona String
+  message String
+  createdAt DateTime @default(now())
+  @@index([taskId, createdAt])
 }
 
 enum UserRole {
@@ -366,6 +516,7 @@ model User {
   role                          UserRole
   roles                         UserRole[] @default([])
   loQcTwoRowPilot               Boolean    @default(false)
+  pilotViewEnabled             Boolean    @default(false)
   loDisclosureSubmissionEnabled Boolean    @default(false)
   loQcSubmissionEnabled         Boolean    @default(true)
   processingAssignmentGroups    String[]   @default([])
@@ -613,6 +764,7 @@ model ProcessingPipelineLoan {
   createdAt                 DateTime                 @default(now())
   updatedAt                 DateTime                 @updatedAt
   ariveSync                 ArivePipelineSync?
+  notesSnapshot             AriveLoanNotes?
 
   @@index([sheet, statusChangedAt])
   @@index([sheet, dateAssigned(sort: Desc)])

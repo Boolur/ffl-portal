@@ -15,10 +15,11 @@ import {
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { isAdmin, isAdminIII } from '@/lib/adminTiers';
-import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, jsonRecord, preserveAriveManagedFields } from '../../lib/ariveSyncState';
+import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, jsonRecord, preserveAriveManagedFields } from '../../lib/ariveSyncState';
 import { ARIVE_SYNC_PILOT } from '../../lib/ariveSyncTypes';
-import { parseArivePipelineDate } from '../../lib/arivePipelineMapping';
+import { ARIVE_LOAN_STAGE_OPTIONS, parseArivePipelineDate } from '../../lib/arivePipelineMapping';
 import { readAriveApplicationView } from '../../lib/ariveApplicationSnapshot';
+import { savedAriveNotes } from '../../lib/ariveSavedNotes';
 import { prisma } from '@/lib/prisma';
 import { PIPELINE_ROW_BATCH_SIZE, orderPipelineRows } from '../../lib/processingPipelinePagination';
 import {
@@ -77,7 +78,7 @@ async function getActor(): Promise<Actor | null> {
     where: { id },
     select: { processingAssignmentGroups: true, active: true, role: true, roles: true },
   });
-  if (!user) return null;
+  if (!user?.active || ![user.role, ...user.roles].includes(role)) return null;
   return {
     id,
     role,
@@ -88,17 +89,13 @@ async function getActor(): Promise<Actor | null> {
 }
 
 async function ariveEditContext(tx: Prisma.TransactionClient, current: ProcessingPipelineLoan) {
-  if (current.loanId !== ARIVE_SYNC_PILOT.loanId) return { enabled: false, managed: new Set<string>() };
   const state = await tx.arivePipelineSync.findUnique({ where: { pipelineId: current.id } });
-  return { enabled: Boolean(state?.enabled), managed: new Set(state?.enabled ? Object.keys(jsonRecord(jsonRecord(state.snapshot).managed)) : []) };
+  const enabled = isAriveManagedState(state, current.loanId);
+  return { enabled, managed: new Set(enabled && state ? Object.keys(jsonRecord(jsonRecord(state.snapshot).managed)) : []) };
 }
 
 function ariveDateAttempt(raw: unknown, normalized: unknown) {
   return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim()) ? raw.trim() : normalized;
-}
-
-function ariveEligibleLoan(loan: { id: string; loanNumber: string; loanOfficerId: string }) {
-  return loan.id === ARIVE_SYNC_PILOT.loanId && loan.loanNumber === ARIVE_SYNC_PILOT.loanNumber && loan.loanOfficerId === ARIVE_SYNC_PILOT.ownerId;
 }
 
 function displayedDaysInStatus(statusChangedAt: Date, state: ArivePipelineSync | null | undefined, eligible: boolean) {
@@ -221,7 +218,7 @@ function serializeRow(row: {
   const { ariveSync: syncState, ...safeRow } = row;
   return {
     ...safeRow,
-    ariveSync: ariveSyncView(syncState, ariveEligibleLoan(row.loan), canManageArive),
+    ariveSync: ariveSyncView(syncState, isAriveVisibleForLoan(syncState, row.loan), canManageArive),
     dateAssigned: row.dateAssigned.toISOString(),
     statusChangedAt: row.statusChangedAt.toISOString(),
     estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
@@ -246,7 +243,7 @@ function serializeRow(row: {
     finalRevenue: row.finalRevenue === null ? null : Number(row.finalRevenue),
     payrollSubmitted: row.loan.payrollCompRequests.length > 0,
     payrollStatus: row.loan.payrollCompRequests[0]?.status || null,
-    daysInStatus: displayedDaysInStatus(row.statusChangedAt, syncState, ariveEligibleLoan(row.loan)),
+    daysInStatus: displayedDaysInStatus(row.statusChangedAt, syncState, isAriveVisibleForLoan(syncState, row.loan)),
     loan: {
       ...row.loan,
       amount: Number(row.loan.amount),
@@ -278,6 +275,7 @@ export type ProcessingPipelineFilters = {
   juniorProcessorIds?: string[];
   seniorProcessorIds?: string[];
   pipelineStatuses?: ProcessingPipelineStatus[];
+  ariveStages?: string[];
   daysInStatusMin?: number;
   daysInStatusMax?: number;
   titleStatuses?: ProcessingItemStatus[];
@@ -388,6 +386,9 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   const senior = processorFilter('seniorProcessorId', filters.seniorProcessorIds);
   if (junior) clauses.push(junior);
   if (senior) clauses.push(senior);
+  if (filters.ariveStages?.length) {
+    clauses.push({ ariveSync: { is: { workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', enabled: true, lastSuccessAt: { not: null }, sourceStage: { in: filters.ariveStages.slice(0, 30) } } } });
+  }
   if (filters.pipelineStatuses?.length) {
     clauses.push({ pipelineStatus: { in: filters.pipelineStatuses } });
   }
@@ -553,7 +554,7 @@ export async function getProcessingPipeline(input?: {
   rateLockRequestsOnly?: boolean;
   allSheets?: boolean;
   search?: string;
-  sortBy?: 'pipelineStatus' | 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber';
+  sortBy?: 'ariveStage' | 'pipelineStatus' | 'dateAssigned' | 'statusChangedAt' | 'borrowerName' | 'loanNumber';
   sortDirection?: 'asc' | 'desc';
   filters?: ProcessingPipelineFilters;
   viewScope?: ProcessingLayoutScope;
@@ -621,7 +622,8 @@ export async function getProcessingPipeline(input?: {
   let orderBy:
     | Prisma.ProcessingPipelineLoanOrderByWithRelationInput
     | Prisma.ProcessingPipelineLoanOrderByWithRelationInput[];
-  if (input?.sortBy === 'borrowerName') orderBy = { loan: { borrowerName: sortDirection } };
+  if (input?.sortBy === 'ariveStage') orderBy = [{ ariveSync: { sourceStage: { sort: sortDirection, nulls: 'last' } } }, { pipelineStatus: sortDirection }];
+  else if (input?.sortBy === 'borrowerName') orderBy = { loan: { borrowerName: sortDirection } };
   else if (input?.sortBy === 'loanNumber') orderBy = { loan: { loanNumber: sortDirection } };
   else if (input?.sortBy === 'statusChangedAt') orderBy = { statusChangedAt: sortDirection };
   else if (input?.sortBy === 'dateAssigned') orderBy = { dateAssigned: sortDirection };
@@ -740,6 +742,22 @@ export async function getProcessingPipelineSheetCounts() {
   ) as Partial<Record<ProcessingPipelineSheet, number>>;
 
   return { success: true as const, counts };
+}
+
+/** Stage facets for the future design use the same access/filter predicates as rows. */
+export async function getProcessingAriveStageCounts(input: { sheet: ProcessingPipelineSheet; filters?: ProcessingPipelineFilters; viewScope?: ProcessingLayoutScope }) {
+  noStore();
+  const actor = await getActor();
+  if (!actor || !getProcessingPipelineAccess(actor.role).canView) return { success: false as const, error: 'Not authorized.' };
+  const groups = await prisma.arivePipelineSync.groupBy({
+    by: ['sourceStage'],
+    where: { workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', enabled: true, verifiedAt: { not: null }, lastSuccessAt: { not: null },
+      pipeline: { is: { AND: [scopeWhere(actor, input.viewScope), { sheet: input.sheet }, ...buildFilterWhere(input.filters)] } } },
+    _count: { _all: true },
+  });
+  const known = new Map(ARIVE_LOAN_STAGE_OPTIONS.map(option => [option.value, option.label]));
+  return { success: true as const, options: ARIVE_LOAN_STAGE_OPTIONS, counts: groups.flatMap(group => group.sourceStage
+    ? [{ value: group.sourceStage, label: known.get(group.sourceStage) || group.sourceStage, count: group._count._all }] : []) };
 }
 
 export async function getProcessingPipelineFilterOptions(
@@ -2772,6 +2790,22 @@ export async function updateProcessingBorrowerDetails(
   }
 }
 
+/** A saved read only: this interface never spends an Arive API request. */
+export async function getProcessingAriveSnapshot(id: string) {
+  noStore();
+  const actor = await getActor();
+  if (!actor || !getProcessingPipelineAccess(actor.role).canView) return { success: false as const, error: 'Not authorized.' };
+  if (typeof id !== 'string' || id.length > 100) return { success: false as const, error: 'File not found.' };
+  const row = await prisma.processingPipelineLoan.findFirst({
+    where: { AND: [{ id }, scopeWhere(actor)] },
+    select: { version: true, ariveSync: true, notesSnapshot: true, loan: { select: { id: true, loanNumber: true, loanOfficerId: true } } },
+  });
+  if (!row || !isAriveVisibleForLoan(row.ariveSync, row.loan)) return { success: false as const, error: 'No applied Arive snapshot is available for this file.' };
+  return { success: true as const, version: row.version, sync: ariveSyncView(row.ariveSync, true, actor.canManageArive),
+    application: readAriveApplicationView(row.ariveSync?.snapshot, row.ariveSync?.lastSuccessAt),
+    notes: savedAriveNotes(row.notesSnapshot?.notes), notesSyncedAt: row.notesSnapshot?.syncedAt.toISOString() ?? null };
+}
+
 export async function getProcessingBorrowerDetails(id: string) {
   noStore();
   const actor = await getActor();
@@ -2857,8 +2891,8 @@ export async function getProcessingBorrowerDetails(id: string) {
     details: {
       id: row.id,
       version: row.version,
-      ariveSync: ariveSyncView(row.ariveSync, ariveEligibleLoan(row.loan), actor.canManageArive),
-      ...(ariveEligibleLoan(row.loan) && row.loan.borrowerName.trim().replace(/\s+/g, ' ').toUpperCase() === ARIVE_SYNC_PILOT.borrowerName && row.ariveSync
+      ariveSync: ariveSyncView(row.ariveSync, isAriveVisibleForLoan(row.ariveSync, row.loan), actor.canManageArive),
+      ...(isAriveVisibleForLoan(row.ariveSync, row.loan) && row.ariveSync && (row.ariveSync.workerOwner === 'GENERALIZED' || row.loan.borrowerName.trim().replace(/\s+/g, ' ').toUpperCase() === ARIVE_SYNC_PILOT.borrowerName)
         ? { ariveApplication: readAriveApplicationView(row.ariveSync.snapshot, row.ariveSync.lastSuccessAt) }
         : {}),
       canEdit:
@@ -2954,7 +2988,7 @@ export async function getProcessingBorrowerDetails(id: string) {
       processing: {
         sheet: row.sheet,
         pipelineStatus: row.pipelineStatus,
-        daysInStatus: displayedDaysInStatus(row.statusChangedAt, row.ariveSync, ariveEligibleLoan(row.loan)),
+        daysInStatus: displayedDaysInStatus(row.statusChangedAt, row.ariveSync, isAriveVisibleForLoan(row.ariveSync, row.loan)),
         statusChangedAt: row.statusChangedAt.toISOString(),
         dateAssigned: row.dateAssigned.toISOString(),
         estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,

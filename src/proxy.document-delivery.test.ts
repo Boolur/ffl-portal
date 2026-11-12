@@ -41,7 +41,7 @@ async function expectDocumentDenied(response: Awaited<ReturnType<typeof run>>) {
   expect(await response?.json()).toEqual({ success: false, error: 'Sign in with an account that can access this document.' });
 }
 
-describe('document access through real NextAuth middleware', () => {
+describe.each([documentPath, '/api/pilot/practice/copy/files/file'])('document access through real NextAuth middleware: %s', documentPath => {
   it.each(['', '?prepare=1', '?download=1'])('rejects signed-out document reads without redirecting to HTML: %s', async query => {
     expect(unstable_doesMiddlewareMatch({ config, url: `${origin}${documentPath}${query}` })).toBe(true);
     await expectDocumentDenied(await run(`${documentPath}${query}`));

@@ -5,6 +5,20 @@ import { parseArivePipelineDate } from './arivePipelineMapping';
 export function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
+/** Collection alone never takes ownership of production fields. Pausing collection
+ * retains applied provenance; disabling an individual enrollment releases edits. */
+export function isAriveManagedState(state: ArivePipelineSync | null | undefined, loanId: string): boolean {
+  if (!state?.enabled) return false;
+  if (!state.workerOwner || state.workerOwner === 'LEGACY') return loanId === ARIVE_SYNC_PILOT.loanId;
+  return state.workerOwner === 'GENERALIZED' && state.enrollmentStatus === 'VERIFIED'
+    && !!state.verifiedAt && !!state.lastSuccessAt && !!state.ariveGuid
+    && Object.keys(jsonRecord(jsonRecord(state.snapshot).managed)).length > 0;
+}
+
+export function isAriveVisibleForLoan(state: ArivePipelineSync | null | undefined, loan: { id: string; loanNumber: string; loanOfficerId: string }): boolean {
+  if (state?.workerOwner === 'GENERALIZED') return isAriveManagedState(state, loan.id) && state.ariveLoanId === loan.loanNumber;
+  return loan.id === ARIVE_SYNC_PILOT.loanId && loan.loanNumber === ARIVE_SYNC_PILOT.loanNumber && loan.loanOfficerId === ARIVE_SYNC_PILOT.ownerId;
+}
 export function ariveSyncValue(value: unknown): string | null {
   if (value == null || value === '') return null;
   if (value instanceof Date) return value.toISOString();
@@ -73,10 +87,9 @@ export function ariveSyncView(state: ArivePipelineSync | null | undefined, eligi
 
 /** Called only after the existing action's row access/version checks. Never makes an Arive write. */
 export async function guardArivePipelineEdit(tx: Prisma.TransactionClient, current: ProcessingPipelineLoan, actorId: string, attempted: Record<string, unknown>) {
-  if (current.loanId !== ARIVE_SYNC_PILOT.loanId) return null;
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${current.id}`}))`;
   const state = await tx.arivePipelineSync.findUnique({ where: { pipelineId: current.id } });
-  if (!state?.enabled) return null;
+  if (!isAriveManagedState(state, current.loanId) || !state) return null;
   const managed = { ...jsonRecord(jsonRecord(state.snapshot).managed), archivedAt: current.archivedAt } as Record<string, unknown>;
   const blockedFields = Object.keys(attempted).filter(field => field in managed && !ariveSyncSameValue(field, attempted[field], managed[field]));
   if (!blockedFields.length) return null;
@@ -89,9 +102,8 @@ export async function guardArivePipelineEdit(tx: Prisma.TransactionClient, curre
 
 /** Prevent legacy derived defaults from changing imported dates/statuses during unrelated edits. */
 export async function preserveAriveManagedFields(tx: Prisma.TransactionClient, current: ProcessingPipelineLoan, data: Prisma.ProcessingPipelineLoanUpdateManyMutationInput) {
-  if (current.loanId !== ARIVE_SYNC_PILOT.loanId) return;
   const state = await tx.arivePipelineSync.findUnique({ where: { pipelineId: current.id } });
-  if (!state?.enabled) return;
+  if (!isAriveManagedState(state, current.loanId) || !state) return;
   const managed = jsonRecord(jsonRecord(state.snapshot).managed);
   for (const field of [...Object.keys(managed), 'firstPaymentAt', 'sixthPaymentAt', 'rateLockRequestedAt', 'rateLockRequestedById']) {
     if (field in current) (data as Record<string, unknown>)[field] = (current as unknown as Record<string, unknown>)[field];

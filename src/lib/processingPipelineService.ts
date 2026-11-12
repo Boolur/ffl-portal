@@ -16,10 +16,20 @@ import {
   isInHouseProcessingAssignmentGroup,
 } from './processingRouting';
 import { syncLeadStatusForLoan } from './leadPipelineSync';
-import { preserveAriveManagedFields } from './ariveSyncState';
+import { isAriveManagedState, preserveAriveManagedFields } from './ariveSyncState';
 import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
+import { processingDocumentTaskId } from './submissionPilot';
 
 type TransactionClient = Prisma.TransactionClient;
+
+/** Acquire before writing a completion's Task or Loan rows. Workspace edits and
+ * inbound sync already own the pipeline lock before touching those rows. */
+export async function lockProcessingPipelineForTask(tx: TransactionClient, input: { loanId: string; submissionData: unknown }) {
+  const packageId = processingDocumentTaskId(input.submissionData);
+  if (packageId) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${packageId}`}))`;
+  const pipeline = await tx.processingPipelineLoan.findUnique({ where: { loanId: input.loanId }, select: { id: true } });
+  if (pipeline) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${pipeline.id}`}))`;
+}
 
 // This request was reconstructed after deletion, without its original submission
 // fields. Re-reviewing it must not replay those incomplete fields onto the live file.
@@ -205,19 +215,12 @@ export async function upsertProcessingPipelineForCompletedTask(
     ...lockedPipelineData,
   };
 
-  if (loanProgram && loanProgram !== task.loan.program) {
-    await tx.loan.update({
-      where: { id: task.loan.id },
-      data: { program: loanProgram },
-    });
-  }
-
   let existing = await tx.processingPipelineLoan.findUnique({
     where: { loanId: task.loanId },
     select: { id: true, finalRevenue: true },
   });
   let syncedCurrent: ProcessingPipelineLoan | null = null;
-  if (existing && task.loanId === ARIVE_SYNC_PILOT.loanId) {
+  if (existing) {
     // The caller may already hold the submission-package lock. Keep the same
     // package -> pipeline lock order as the inbound worker, then use fresh values.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${existing.id}`}))`;
@@ -228,9 +231,13 @@ export async function upsertProcessingPipelineForCompletedTask(
     existing = current;
     const sync = await tx.arivePipelineSync.findUnique({
       where: { pipelineId: current.id },
-      select: { enabled: true },
     });
-    if (sync?.enabled) syncedCurrent = current;
+    if (isAriveManagedState(sync, current.loanId)) syncedCurrent = current;
+  }
+  // Never hold a Loan row while waiting for the pipeline lock: workspace edits
+  // acquire that lock first and then update the same Loan and source Task rows.
+  if (loanProgram && loanProgram !== task.loan.program) {
+    await tx.loan.update({ where: { id: task.loan.id }, data: { program: loanProgram } });
   }
   const updateData: Prisma.ProcessingPipelineLoanUncheckedUpdateInput = {
     ...pipelineData,

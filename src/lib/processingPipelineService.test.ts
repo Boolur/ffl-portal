@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LeadStatus, Prisma, TaskKind } from '@prisma/client';
 import {
+  lockProcessingPipelineForTask,
   resolveSeniorProcessorForGroup,
   upsertProcessingPipelineForCompletedTask,
 } from './processingPipelineService';
@@ -10,6 +11,40 @@ import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
 function asTx(value: unknown) {
   return value as Prisma.TransactionClient;
 }
+
+describe('processing completion lock ordering', () => {
+  it('waits for package then pipeline locks before the caller can write Task or Loan rows', async () => {
+    const order: string[] = [];
+    let releasePackage!: () => void;
+    let releasePipeline!: () => void;
+    const packageGate = new Promise<void>(resolve => { releasePackage = resolve; });
+    const pipelineGate = new Promise<void>(resolve => { releasePipeline = resolve; });
+    const db = {
+      $executeRaw: vi.fn(async (_sql: unknown, key: string) => {
+        order.push(key);
+        await (key.startsWith('submission-pilot:') ? packageGate : pipelineGate);
+        return 1;
+      }),
+      processingPipelineLoan: { findUnique: vi.fn(async () => { order.push('find-pipeline'); return { id: 'pipeline' }; }) },
+    };
+    const completion = lockProcessingPipelineForTask(asTx(db), { loanId: 'loan', submissionData: { processingDocumentTaskId: 'package' } }).then(() => { order.push('write-task'); order.push('write-loan'); });
+    await vi.waitFor(() => expect(order).toEqual(['submission-pilot:package']));
+    expect(db.processingPipelineLoan.findUnique).not.toHaveBeenCalled();
+    releasePackage();
+    await vi.waitFor(() => expect(order).toEqual(['submission-pilot:package', 'find-pipeline', 'arive-pipeline:pipeline']));
+    expect(order).not.toContain('write-task'); expect(order).not.toContain('write-loan');
+    releasePipeline(); await completion;
+    expect(order.slice(-2)).toEqual(['write-task', 'write-loan']);
+    expect(db.processingPipelineLoan.findUnique).toHaveBeenCalledWith({ where: { loanId: 'loan' }, select: { id: true } });
+  });
+  it('uses the existing pipeline lock for ordinary requests and permits new rows without inventing a pipeline ID', async () => {
+    const db = { $executeRaw: vi.fn().mockResolvedValue(1), processingPipelineLoan: { findUnique: vi.fn().mockResolvedValueOnce({ id: 'existing' }).mockResolvedValueOnce(null) } };
+    await lockProcessingPipelineForTask(asTx(db), { loanId: 'ordinary', submissionData: null });
+    expect(db.$executeRaw).toHaveBeenCalledTimes(1); expect(db.$executeRaw.mock.calls[0][1]).toBe('arive-pipeline:existing');
+    await lockProcessingPipelineForTask(asTx(db), { loanId: 'new', submissionData: null });
+    expect(db.$executeRaw).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('resolveSeniorProcessorForGroup', () => {
   it('returns the single configured Sr Processor', async () => {
@@ -198,7 +233,7 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
         },
         loan: { id: loanId, program: null },
       }) },
-      loan: { findUnique: vi.fn().mockResolvedValue({ id: loanId, loanNumber: '17881588', borrowerName: 'TESTING TESTER' }) },
+      loan: { findUnique: vi.fn().mockResolvedValue({ id: loanId, loanNumber: '17881588', borrowerName: 'TESTING TESTER' }), update: vi.fn(async () => { order.push('write-loan'); }) },
       user: { findMany: vi.fn().mockResolvedValue([{ id: 'senior-2' }]) },
       lead: { findMany: vi.fn().mockResolvedValue([]) },
       processingPipelineLoan: {
@@ -244,6 +279,15 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
     expect(h.state).toEqual(sourceBefore);
   });
 
+  it.each([ARIVE_SYNC_PILOT.loanId, 'ordinary-loan'])('takes the pipeline lock before updating the Loan program (%s)', async loanId => {
+    const h = existingSubmission({ loanId });
+    const task = await h.db.task.findUnique();
+    h.db.task.findUnique.mockResolvedValue({ ...task, submissionData: { ...task.submissionData, loanProgram: 'Updated program' } });
+    await upsertProcessingPipelineForCompletedTask(h.tx, { taskId: 'resubmitted-task', actorId: 'reviewing-jr' });
+    expect(h.order).toEqual(['reference', 'lock', 'fresh-row', 'write-loan', 'update']);
+    expect(h.db.loan.update).toHaveBeenCalledWith({ where: { id: loanId }, data: { program: 'Updated program' } });
+  });
+
   it('preserves the sync result committed while a repeated completion was waiting for the pipeline lock', async () => {
     const h = existingSubmission();
     h.db.$executeRaw.mockImplementationOnce(async () => {
@@ -275,15 +319,14 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
       payoffOrderedAt: null, rateLock: true, rateLockRequestedAt: null, appraisalNeeded: false, version: 7 });
     expect(h.db.processingPipelineLoan.update.mock.calls[0][0].data).not.toHaveProperty('version');
     if (options.loanId !== ARIVE_SYNC_PILOT.loanId) {
-      expect(h.db.$executeRaw).not.toHaveBeenCalled();
-      expect(h.db.arivePipelineSync.findUnique).not.toHaveBeenCalled();
+      expect(h.db.arivePipelineSync.update).not.toHaveBeenCalled();
     }
   });
 
   it('creates once, then refreshes the existing loan row and audits both events', async () => {
-    let existing: { id: string; finalRevenue: number | null } | null = null;
+    let existing: { id: string; loanId: string; finalRevenue: number | null } | null = null;
     const create = vi.fn(async () => {
-      existing = { id: 'pipeline-1', finalRevenue: 4500 };
+      existing = { id: 'pipeline-1', loanId: 'loan-1', finalRevenue: 4500 };
       return existing;
     });
     const update = vi.fn(async (input: unknown) => {
@@ -292,6 +335,8 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
     });
     const auditCreate = vi.fn().mockResolvedValue({ id: 'audit-1' });
     const tx = asTx({
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      arivePipelineSync: { findUnique: vi.fn().mockResolvedValue(null) },
       task: {
         findUnique: vi.fn().mockResolvedValue({
           id: 'task-1',

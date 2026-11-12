@@ -1,5 +1,10 @@
 {
+  "buildCommand": "npm run release:vercel",
   "crons": [
+    {
+      "path": "/api/internal/arive/sync/enroll",
+      "schedule": "*/5 * * * *"
+    },
     {
       "path": "/api/internal/arive/sync",
       "schedule": "* * * * *"
