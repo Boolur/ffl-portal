@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Clock3, FlaskConical, Loader2, Pause, RefreshCw, ShieldCheck } from 'lucide-react';
 import {
+  compareAriveLoanAccess,
   configureAriveRollout,
   configureAriveRolloutOperatorBudget,
   configureAriveRolloutRequestAllowance,
@@ -27,6 +28,7 @@ type Review = Extract<Awaited<ReturnType<typeof getAriveRolloutReview>>, { succe
 type Timing = Extract<Awaited<ReturnType<typeof measureAriveTestReadTiming>>, { success: true }>['timing'];
 type Coverage = Extract<Awaited<ReturnType<typeof inspectAriveAccessibleLoanCount>>, { success: true }>;
 type Visibility = Extract<Awaited<ReturnType<typeof inspectAriveLoanCoverage>>, { success: true }>;
+type AccessComparison = Extract<Awaited<ReturnType<typeof compareAriveLoanAccess>>, { success: true }>;
 type Controls = { collectionEnabled: boolean; applicationEnabled: boolean; enrollmentEnabled: boolean; cohortLimit: 10 | 50 | null };
 type Success = { success: true; queued?: boolean; queuedCount?: number; applied?: boolean; collected?: boolean; changed?: boolean; scanned?: number; verified?: number; review?: number };
 type Result = Success | { success: false; error: string };
@@ -87,6 +89,8 @@ export function AriveRolloutSettings() {
   const [timing, setTiming] = useState<Timing | null>(null);
   const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [visibility, setVisibility] = useState<Visibility | null>(null);
+  const [accessLoanNumber, setAccessLoanNumber] = useState('');
+  const [accessComparison, setAccessComparison] = useState<AccessComparison | null>(null);
   const [busy, setBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
@@ -106,7 +110,7 @@ export function AriveRolloutSettings() {
     if (!alive.current || version !== loadVersion.current) return;
     if (!nextStatus.success || !nextInventory.success) {
       // A revoked account/role must not leave previously authorized records visible.
-      setStatus(null); setInventory(null); setReview(null); setTiming(null); setCoverage(null); setVisibility(null);
+      setStatus(null); setInventory(null); setReview(null); setTiming(null); setCoverage(null); setVisibility(null); setAccessComparison(null);
       throw new Error(!nextStatus.success ? nextStatus.error : !nextInventory.success ? nextInventory.error : 'Unable to load rollout status.');
     }
     setStatus(nextStatus);
@@ -187,6 +191,12 @@ export function AriveRolloutSettings() {
     if (result.success && alive.current) setVisibility(result);
     return result;
   }, 'API visibility inspection finished. Review its completeness and overlaps below; no loans were enabled or changed.');
+  const compareAccess = () => perform('Comparing loan access', async () => {
+    setAccessComparison(null);
+    const result = await compareAriveLoanAccess({ loanNumber: accessLoanNumber.trim() });
+    if (result.success && alive.current) setAccessComparison(result);
+    return result;
+  }, 'Loan access comparison finished. Review individual results below; no loan or enrollment was changed.');
   const totals = status?.counts.reduce((sum, group) => {
     sum.enrolled += group._count._all;
     if (group.enabled) sum.enabled += group._count._all;
@@ -276,6 +286,16 @@ export function AriveRolloutSettings() {
             <p className="text-xs text-muted-foreground">Checked {when(visibility.checkedAt)} · {visibility.pagesRead} page responses · {visibility.eligiblePortalCount} eligible BISU loans</p>
             <div className="flex flex-wrap gap-2">{visibility.originators.map(originator => <span key={originator.email ?? 'unknown'} className="rounded-lg border border-border px-2.5 py-1.5 text-xs"><strong>{originator.name}</strong>{originator.email && originator.name !== originator.email && <> · {originator.email}</>} · {originator.count} loans</span>)}</div>
             <div className="max-h-80 divide-y divide-border overflow-y-auto">{visibility.matches.map(match => <article key={match.pipelineId} className="flex flex-wrap items-center justify-between gap-3 py-2"><div><h4 className="text-xs font-semibold">{match.borrowerName}</h4><p className="text-xs text-muted-foreground">Arive #{match.loanNumber} · {words(match.sheet)} · Numeric overlap; identity not verified by this inspection</p></div><button type="button" className={secondary} disabled={Boolean(busy) || !status.control.collectionEnabled} onClick={() => void perform('Verifying file identity', () => verifyAndEnrollExistingAriveLoan({ pipelineId: match.pipelineId }), ariveRolloutEnrollmentFeedback)}>Verify file</button></article>)}</div>
+          </div>}
+          <form className="space-y-2 border-t border-border pt-3" onSubmit={event => { event.preventDefault(); void compareAccess(); }}>
+            <label className="block max-w-sm text-xs font-medium">Existing portal Arive loan number<input className="app-input mt-1" value={accessLoanNumber} onChange={event => setAccessLoanNumber(event.target.value)} inputMode="numeric" pattern="[0-9]{1,15}" maxLength={15} required disabled={Boolean(busy)} /></label>
+            <button type="submit" className={secondary} disabled={Boolean(busy) || !inventory.gates.sharedTransport || !status.transport.enabled}>Compare loan access</button>
+            <p className="text-xs leading-relaxed text-muted-foreground">Compares direct reads and documented searches with the shared session and fresh authentication using the same saved credentials. At most eight loan reads and two authentication requests, all within the shared budget; once per five minutes. This does not change credentials, enrollment or loan values.</p>
+          </form>
+          {accessComparison && <div className="space-y-2 border-t border-border pt-3">
+            <p role="status" className="text-xs font-semibold">Arive #{accessComparison.loanNumber} · {accessComparison.partial ? 'Some checks could not complete' : 'Comparison complete'} · {accessComparison.getRequests} loan reads / {accessComparison.authenticationRequests} authentication requests · {when(accessComparison.checkedAt)}</p>
+            <p className="text-xs text-muted-foreground">{accessComparison.limitations} An HTTP denial or not-found response is a completed diagnostic observation, not a loan update.</p>
+            <div className="divide-y divide-border">{accessComparison.steps.map((step, index) => <article key={`${step.phase}:${index}`} className="space-y-1 py-2 text-xs"><p className="font-semibold">{step.phase === 'FRESH' ? 'Fresh authentication' : 'Shared session'} · {step.label}</p><p className="text-muted-foreground">{step.method} {step.pathLabel} · {words(step.outcome)}{step.httpStatus !== null && <> · HTTP {step.httpStatus}</>}</p>{step.count !== null && <p>Reported count: {step.count} · Returned rows: {step.returnedRows} · {step.pageComplete ? 'Complete search page' : 'Partial search page'}</p>}{step.exactLoanIdMatches !== null && <p>Exact target ID matches: {step.exactLoanIdMatches}{step.identityMatches !== null && <> · Full identity check: {step.identityMatches ? 'Passed' : 'Did not pass'}</>}</p>}{step.message && <p>{step.message}</p>}{(step.gatewayCode || step.requestId) && <p className="break-all text-muted-foreground">{step.gatewayCode && <>Gateway: {step.gatewayCode} </>}{step.requestId && <>Request ID: {step.requestId}</>}</p>}</article>)}</div>
           </div>}
         </div>
 

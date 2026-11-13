@@ -12,6 +12,7 @@ import { configureAriveOperatorBudget, configureAriveTransportQuota, getAriveTra
 import { ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER, ariveRolloutCohortWhere, ariveRolloutEnvironmentEnabled, assertAriveRolloutReady, enrollAriveRolloutBatch, isArivePracticeFile, rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity } from '@/lib/ariveRollout';
 import { ARIVE_SYNC_PILOT } from '@/lib/ariveSyncTypes';
 import { sampleAriveTestReadTiming } from '@/lib/ariveReadTiming';
+import { compareSavedAriveLoanAccess } from '@/lib/ariveLoanAccessDiagnostic';
 
 async function admin() {
   const session = await getServerSession(authOptions);
@@ -276,6 +277,28 @@ export async function inspectAriveAccessibleLoanCount() {
     const coverage = { count: response.count, returnedRowCount: response.rows.length, checkedAt: new Date().toISOString() };
     await prisma.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_LOAN_COVERAGE_COMPLETED', details: JSON.stringify(coverage) } });
     return { success: true as const, ...coverage };
+  } catch (error) { return failure(error); }
+}
+
+/** Compare documented access paths for one existing portal loan without changing its enrollment. */
+export async function compareAriveLoanAccess(input: { loanNumber: string }) {
+  try {
+    const actor = await admin();
+    if (!input || typeof input.loanNumber !== 'string' || !/^\d{1,15}$/.test(input.loanNumber)) throw new AriveError('Enter an existing portal Arive loan number.');
+    const budget = await isAriveBudgetReady();
+    if (!budget.ready) throw new AriveError(budget.reason || 'Shared Arive request controls must be ready before comparing loan access.');
+    const targets = await prisma.processingPipelineLoan.findMany({ where: { loan: { loanNumber: input.loanNumber } }, select: { loan: { select: rolloutLoanSelect } }, take: 2 });
+    if (targets.length !== 1 || targets[0].loan.loanNumber !== input.loanNumber) throw new AriveError('Choose a loan number belonging to one existing portal pipeline record.');
+    const loan = targets[0].loan;
+    if (!loan.borrowerName?.trim() || loan.borrowerName.length > 300) throw new AriveError('The portal borrower name must be present before comparing the documented search.');
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-loan-access-probe'))`;
+      if (await tx.auditLog.findFirst({ where: { action: 'ARIVE_LOAN_ACCESS_STARTED', createdAt: { gt: new Date(Date.now() - 5 * 60_000) } }, select: { id: true } })) throw new AriveError('Wait five minutes between loan access comparisons.');
+      await tx.auditLog.create({ data: { userId: actor.id, loanId: loan.id, action: 'ARIVE_LOAN_ACCESS_STARTED', details: '{}' } });
+    });
+    const comparison = await compareSavedAriveLoanAccess(loan);
+    await prisma.auditLog.create({ data: { userId: actor.id, loanId: loan.id, action: 'ARIVE_LOAN_ACCESS_COMPLETED', details: JSON.stringify(comparison) } });
+    return { success: true as const, loanNumber: loan.loanNumber, ...comparison };
   } catch (error) { return failure(error); }
 }
 

@@ -5,6 +5,7 @@ const timing = vi.hoisted(() => ({ sample: vi.fn(), activeCount: vi.fn() }));
 const operatorBudget = vi.hoisted(() => ({ configure: vi.fn() }));
 const cohort = vi.hoisted(() => ({ queue: vi.fn() }));
 const visibility = vi.hoisted(() => ({ users: vi.fn() }));
+const access = vi.hoisted(() => ({ compare: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next-auth', () => ({ getServerSession: m.session }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
@@ -13,6 +14,7 @@ vi.mock('@/lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, ariveS
 vi.mock('@/lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget, configureAriveTransportQuota: m.quota, configureAriveOperatorBudget: operatorBudget.configure, getAriveTransportMetrics: m.metrics, sharedAriveTransportEnabled: () => process.env.ARIVE_SHARED_TRANSPORT_ENABLED === 'true' }));
 vi.mock('@/lib/ariveRolloutWorker', () => ({ syncAriveRolloutLoan: m.worker }));
 vi.mock('@/lib/ariveReadTiming', () => ({ sampleAriveTestReadTiming: timing.sample }));
+vi.mock('@/lib/ariveLoanAccessDiagnostic', () => ({ compareSavedAriveLoanAccess: access.compare }));
 vi.mock('@/lib/adminTiers', async () => import('../../lib/adminTiers'));
 vi.mock('@/lib/ariveTransport', async () => import('../../lib/ariveTransport'));
 vi.mock('@/lib/ariveSyncState', async () => import('../../lib/ariveSyncState'));
@@ -21,7 +23,7 @@ vi.mock('@/lib/ariveRollout', async () => import('../../lib/ariveRollout'));
 vi.mock('../../lib/prisma', () => ({ prisma: {} }));
 vi.mock('../../lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, AriveError: errors.AriveError }));
 vi.mock('../../lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget }));
-import { acknowledgeAriveRolloutConflicts, configureAriveRollout, configureAriveRolloutOperatorBudget, getAriveRolloutInventory, inspectAriveAccessibleLoanCount, inspectAriveLoanCoverage, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutCohortRefresh, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
+import { acknowledgeAriveRolloutConflicts, compareAriveLoanAccess, configureAriveRollout, configureAriveRolloutOperatorBudget, getAriveRolloutInventory, inspectAriveAccessibleLoanCount, inspectAriveLoanCoverage, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutCohortRefresh, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
 
 let state: ReturnType<typeof initial>;
 function initial() {
@@ -53,6 +55,7 @@ beforeEach(() => {
   operatorBudget.configure.mockResolvedValue({ enabled: true, allowance: 120, windowSeconds: 60, deploymentActive: false, allowanceSource: 'OPERATOR_AUTHORIZED' });
   cohort.queue.mockResolvedValue({ count: 10 });
   visibility.users.mockResolvedValue([]);
+  access.compare.mockResolvedValue({ steps: [], partial: false, checkedAt: '2026-11-13T01:00:00Z', limitations: 'No enrollment changes.', getRequests: 6, authenticationRequests: 1 });
   m.transaction.mockImplementation(async work => work({ $executeRaw: m.lock, processingPipelineLoan: { findUnique: m.row }, arivePipelineSync: { findUnique: m.sync, update: m.update, updateMany: cohort.queue, count: m.count, findFirst: m.existingLink }, ariveRolloutControl: { findUnique: m.control, upsert: m.controlWrite }, arivePracticeLoan: { findFirst: m.practice, upsert: m.practiceWrite }, loan: { findUnique: m.existingLoan }, auditLog: { create: m.audit, findFirst: m.recentProbe } }));
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
@@ -69,6 +72,7 @@ describe('rollout control authentication and canonical isolation', () => {
     expect((await queueAriveRolloutCohortRefresh()).success).toBe(false);
     expect((await inspectAriveAccessibleLoanCount()).success).toBe(false);
     expect((await inspectAriveLoanCoverage()).success).toBe(false);
+    expect((await compareAriveLoanAccess({ loanNumber: '99999123' })).success).toBe(false);
     expect((await configureAriveRolloutOperatorBudget({ requestsPerMinute: 120, enabled: true })).success).toBe(false);
     expect(m.transaction).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled(); expect(operatorBudget.configure).not.toHaveBeenCalled();
   });
@@ -339,6 +343,38 @@ describe('bounded API loan visibility inspection', () => {
     m.budget.mockResolvedValue({ ready: false, reason: 'Provider cooldown' });
     expect(await inspectAriveLoanCoverage()).toEqual({ success: false, error: 'Provider cooldown' });
     expect(m.transaction).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('protected existing-loan access comparison', () => {
+  it('selects only a single existing portal loan and never trusts client-supplied borrower or credentials', async () => {
+    m.candidates.mockResolvedValue([{ loan: state.row.loan }]);
+    const input = { loanNumber: '99999123', borrowerName: 'forged borrower', secret: 'forged secret' };
+    expect(await compareAriveLoanAccess(input)).toMatchObject({ success: true, loanNumber: '99999123', getRequests: 6 });
+    expect(access.compare).toHaveBeenCalledWith(state.row.loan);
+    expect(m.candidates.mock.calls[0][0]).toMatchObject({ where: { loan: { loanNumber: '99999123' } }, take: 2 });
+    expect(m.audit.mock.calls[0][0].data).toMatchObject({ userId: 'admin', loanId: 'loan-test', action: 'ARIVE_LOAN_ACCESS_STARTED' });
+    expect(m.audit.mock.calls.at(-1)?.[0].data.action).toBe('ARIVE_LOAN_ACCESS_COMPLETED');
+    expect(m.controlWrite).not.toHaveBeenCalled(); expect(m.update).not.toHaveBeenCalled(); expect(cohort.queue).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled();
+    expect(JSON.stringify(m.audit.mock.calls)).not.toContain('forged');
+  });
+  it.each(['', '123&limit=1000', 'abc', '1234567890123456'])('rejects invalid numeric input %s before queries', async loanNumber => {
+    expect((await compareAriveLoanAccess({ loanNumber })).success).toBe(false);
+    expect(m.candidates).not.toHaveBeenCalled(); expect(access.compare).not.toHaveBeenCalled();
+  });
+  it.each([0, 2])('rejects a target resolving to %s existing portal records', async count => {
+    m.candidates.mockResolvedValue(Array.from({ length: count }, () => ({ loan: state.row.loan })));
+    expect((await compareAriveLoanAccess({ loanNumber: '99999123' })).success).toBe(false);
+    expect(access.compare).not.toHaveBeenCalled(); expect(m.audit).not.toHaveBeenCalled();
+  });
+  it('honors the shared budget and the global five-minute attempt throttle', async () => {
+    m.candidates.mockResolvedValue([{ loan: state.row.loan }]); m.budget.mockResolvedValueOnce({ ready: false, reason: 'Shared cooldown' });
+    expect(await compareAriveLoanAccess({ loanNumber: '99999123' })).toMatchObject({ success: false, error: 'Shared cooldown' });
+    expect(m.candidates).not.toHaveBeenCalled();
+    m.recentProbe.mockResolvedValue({ id: 'recent' });
+    expect(await compareAriveLoanAccess({ loanNumber: '99999123' })).toMatchObject({ success: false, error: expect.stringContaining('five minutes') });
+    expect(m.recentProbe).toHaveBeenCalledWith({ where: { action: 'ARIVE_LOAN_ACCESS_STARTED', createdAt: { gt: expect.any(Date) } }, select: { id: true } });
+    expect(access.compare).not.toHaveBeenCalled(); expect(m.audit).not.toHaveBeenCalled();
   });
 });
 
