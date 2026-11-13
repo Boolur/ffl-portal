@@ -114,7 +114,13 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
           throw new AriveError('The exact-loan search was incomplete or ambiguous. Review this link before enrolling it.');
         }
         const matches = Array.isArray(found.rows) ? (found.rows as unknown[]).map(jsonRecord).filter(r => String(r.ariveLoanId) === row.loan.loanNumber) : [];
-        if (matches.length !== 1 || typeof matches[0].sysGUID !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(matches[0].sysGUID)) throw new AriveError('No unique Arive file matches this existing portal loan number.');
+        // Diagnose the shape of an unsuccessful search without persisting any
+        // returned identities, borrower details, or arbitrary provider values.
+        if (found.rows.length === 0) throw new AriveError('Arive returned zero loans for this portal loan number using the saved branch connection. Confirm the loan number and API access scope.');
+        if (matches.length === 0) throw new AriveError(`Arive returned ${found.rows.length} loan result(s), but none had the exact portal loan number. The link remains unverified.`);
+        if (matches.length > 1) throw new AriveError(`Arive returned ${matches.length} exact matches for this portal loan number. Resolve the duplicate search results before syncing.`);
+        if (matches[0].sysGUID == null || matches[0].sysGUID === '') throw new AriveError('The exact Arive loan match is missing its permanent sysGUID. The link remains unverified.');
+        if (typeof matches[0].sysGUID !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(matches[0].sysGUID)) throw new AriveError('The exact Arive loan match has an invalid permanent sysGUID. The link remains unverified.');
         if (await isArivePracticeFile(db, row.loan.loanNumber, matches[0].sysGUID)) { status = 'EXCLUDED'; enrollmentIssue = 'This file is registered for isolated practice.'; }
         else { match = verifyAriveRolloutIdentity(await api(`/loans/${encodeURIComponent(matches[0].sysGUID)}`), row.loan); status = 'VERIFIED'; }
       } catch (error) {

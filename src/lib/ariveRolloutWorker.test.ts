@@ -293,6 +293,27 @@ describe('existing-portal enrollment', () => {
     const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;
     expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ verified: 1 }); expect(h.store.sync).toMatchObject({ enabled: true, enrollmentStatus: 'VERIFIED', verifiedOriginatorEmail: 'other@example.test' });
   });
+  it.each([
+    { label: 'zero rows', result: { rows: [], count: 0 }, message: 'returned zero loans' },
+    { label: 'non-exact rows', result: { rows: [{ ariveLoanId: 11111111, sysGUID: 'unrelated-private-identifier', borrowerName: 'Private unrelated borrower' }], count: 1 }, message: 'returned 1 loan result(s), but none had the exact portal loan number' },
+    { label: 'duplicate exact rows', result: { rows: [{ ariveLoanId: 99999123, sysGUID: 'private-first-guid' }, { ariveLoanId: 99999123, sysGUID: 'private-second-guid' }], count: 2 }, message: 'returned 2 exact matches' },
+    { label: 'absent GUID', result: { rows: [{ ariveLoanId: 99999123 }], count: 1 }, message: 'missing its permanent sysGUID' },
+    { label: 'null GUID', result: { rows: [{ ariveLoanId: 99999123, sysGUID: null }], count: 1 }, message: 'missing its permanent sysGUID' },
+    { label: 'empty GUID', result: { rows: [{ ariveLoanId: 99999123, sysGUID: '' }], count: 1 }, message: 'missing its permanent sysGUID' },
+    { label: 'non-string GUID', result: { rows: [{ ariveLoanId: 99999123, sysGUID: { secret: 'private-invalid-guid-value' } }], count: 1 }, message: 'invalid permanent sysGUID' },
+    { label: 'unsafe GUID', result: { rows: [{ ariveLoanId: 99999123, sysGUID: '../private-invalid-guid-value' }], count: 1 }, message: 'invalid permanent sysGUID' },
+    { label: 'whitespace GUID', result: { rows: [{ ariveLoanId: 99999123, sysGUID: ' remote-other ' }], count: 1 }, message: 'invalid permanent sysGUID' },
+  ])('distinguishes $label without saving returned personal data or weakening matching', async ({ result, message }) => {
+    const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;
+    h.api.mockImplementationOnce(async () => result);
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ verified: 0, review: 1 });
+    expect(h.store.sync).toMatchObject({ enrollmentStatus: 'REVIEW', enabled: false, ariveGuid: null });
+    expect(h.store.sync.enrollmentIssue).toContain(message);
+    expect(h.api).toHaveBeenCalledTimes(1);
+    expect(h.api).toHaveBeenCalledWith('/loans?searchField=DISPLAY_ID&searchValue=99999123&limit=100&offset=0');
+    const persisted = JSON.stringify({ issue: h.store.sync.enrollmentIssue, audits: h.store.audits });
+    for (const value of ['unrelated-private-identifier', 'Private unrelated borrower', 'private-first-guid', 'private-second-guid', 'private-invalid-guid-value']) expect(persisted).not.toContain(value);
+  });
   it('records practice exclusion and missing funded-date exceptions without remote requests', async () => {
     for (const cause of ['practice', 'funding']) {
       const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;
