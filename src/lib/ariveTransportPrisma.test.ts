@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({
   config: vi.fn(), runtime: vi.fn(), upsert: vi.fn(), lock: vi.fn(), transaction: vi.fn(), session: vi.fn(),
-  aggregate: vi.fn(), count: vi.fn(), expired: vi.fn(), remove: vi.fn(), create: vi.fn(),
+  aggregate: vi.fn(), count: vi.fn(), expired: vi.fn(), remove: vi.fn(), create: vi.fn(), finish: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/prisma', () => ({ prisma: {
   ariveIntegrationConfig: { findUnique: mock.config }, ariveConnectionRuntime: { findUnique: mock.runtime, upsert: mock.upsert },
+  ariveTransportRequest: { aggregate: mock.aggregate, count: mock.count, updateMany: mock.finish },
   $transaction: mock.transaction,
 } }));
 vi.mock('@/lib/ariveCrypto', async () => import('./ariveCrypto'));
@@ -24,7 +25,7 @@ beforeEach(() => {
   mock.aggregate.mockResolvedValue({ _count: { _all: 10 }, _min: { startedAt: new Date('2026-11-12T19:00:00Z') } });
   mock.count.mockResolvedValue(1); mock.expired.mockResolvedValue([]);
   mock.transaction.mockImplementation(async work => work({ $executeRaw: mock.lock, ariveConnectionRuntime: { findUnique: mock.runtime, upsert: mock.upsert },
-    ariveTransportRequest: { aggregate: mock.aggregate, count: mock.count, findMany: mock.expired, deleteMany: mock.remove, create: mock.create } }));
+    ariveTransportRequest: { aggregate: mock.aggregate, count: mock.count, findMany: mock.expired, deleteMany: mock.remove, create: mock.create, updateMany: mock.finish } }));
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -107,6 +108,8 @@ describe('shared transport deployment and quota gates', () => {
     expect(mock.aggregate.mock.calls[0][0].where).toEqual({ connectionId: 'company', keyFingerprint: ariveTransportFingerprint(credentials, secret, 'key'), startedAt: { gt: new Date('2026-11-12T18:59:30Z') } });
     for (const value of [credentials.apiKey, credentials.secret, secret, ariveTransportFingerprint(credentials, secret, 'key')]) expect(JSON.stringify(result)).not.toContain(value);
     expect(mock.session).not.toHaveBeenCalled();
+    expect(mock.transaction).not.toHaveBeenCalled(); expect(mock.lock).not.toHaveBeenCalled();
+    expect(mock.upsert).not.toHaveBeenCalled(); expect(mock.create).not.toHaveBeenCalled(); expect(mock.remove).not.toHaveBeenCalled(); expect(mock.finish).not.toHaveBeenCalled();
   });
   it('shows the latest safe retry deadline and never negative remaining capacity', async () => {
     const now = new Date('2026-11-12T19:00:30Z'); const runtime = await mock.runtime();
@@ -130,6 +133,28 @@ describe('shared transport deployment and quota gates', () => {
     expect(mock.expired).toHaveBeenCalledWith({ where: { connectionId: 'company', startedAt: { lt: cutoff }, leaseUntil: { lt: now } }, select: { id: true }, orderBy: { startedAt: 'asc' }, take: 1000 });
     expect(mock.remove).toHaveBeenCalledWith({ where: { connectionId: 'company', id: { in: ['old-1', 'old-2'] }, startedAt: { lt: cutoff }, leaseUntil: { lt: now } } });
     expect(mock.create).toHaveBeenCalledWith({ data: request });
+  });
+  it('finishes only the exact active reservation atomically without a global transaction or removing budget history', async () => {
+    const finishedAt = new Date('2026-11-12T19:00:30Z');
+    const rows = [
+      { id: 'request-one', connectionId: 'company', finishedAt: null as Date | null, statusCode: null as number | null },
+      { id: 'request-two', connectionId: 'company', finishedAt: null as Date | null, statusCode: null as number | null },
+      { id: 'other-connection', connectionId: 'other', finishedAt: null as Date | null, statusCode: null as number | null },
+    ];
+    mock.finish.mockImplementation(async ({ where, data }) => {
+      const row = rows.find(item => item.id === where.id && item.connectionId === where.connectionId && item.finishedAt === where.finishedAt);
+      if (row) Object.assign(row, data);
+      return { count: row ? 1 : 0 };
+    });
+    const store = createPrismaAriveTransportStore();
+    await store.finishRequest('request-one', finishedAt, 200);
+    await store.finishRequest('request-one', new Date(finishedAt.getTime() + 1000), 500);
+    await store.finishRequest('other-connection', finishedAt, 200);
+    expect(mock.finish.mock.calls[0][0]).toEqual({ where: { id: 'request-one', connectionId: 'company', finishedAt: null }, data: { finishedAt, statusCode: 200 } });
+    expect(rows).toHaveLength(3); expect(rows[0]).toMatchObject({ finishedAt, statusCode: 200 });
+    expect(rows[1].finishedAt).toBeNull(); expect(rows[2].finishedAt).toBeNull();
+    expect(mock.transaction).not.toHaveBeenCalled(); expect(mock.lock).not.toHaveBeenCalled();
+    expect(mock.create).not.toHaveBeenCalled(); expect(mock.remove).not.toHaveBeenCalled(); expect(mock.upsert).not.toHaveBeenCalled();
   });
 });
 

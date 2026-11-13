@@ -16,6 +16,12 @@ export function sharedAriveTransportEnabled() { return process.env.ARIVE_SHARED_
 
 export function createPrismaAriveTransportStore(db: Database = prisma): AriveTransportStore {
   return {
+    // Releasing one completed reservation can only reduce active concurrency.
+    // Keep its budget history and first completion intact without taking the
+    // global reservation/token lock while other requests are being admitted.
+    finishRequest: async (id, finishedAt, statusCode) => {
+      await db.ariveTransportRequest.updateMany({ where: { id, connectionId: CONNECTION, finishedAt: null }, data: { finishedAt, statusCode } });
+    },
     transaction: work => db.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-transport:${CONNECTION}`}))`;
       return work({
@@ -32,7 +38,6 @@ export function createPrismaAriveTransportStore(db: Database = prisma): AriveTra
           if (expired.length) await tx.ariveTransportRequest.deleteMany({ where: { connectionId: CONNECTION, id: { in: expired.map(item => item.id) }, startedAt: { lt: cutoff }, leaseUntil: { lt: request.startedAt } } });
           await tx.ariveTransportRequest.create({ data: request });
         },
-        finishRequest: async (id, finishedAt, statusCode) => { await tx.ariveTransportRequest.updateMany({ where: { id, connectionId: CONNECTION, finishedAt: null }, data: { finishedAt, statusCode } }); },
       });
     }, { maxWait: 5000, timeout: 10000 }),
   };
@@ -67,7 +72,8 @@ export async function isAriveBudgetReady(deps: { db?: Database; now?: () => Date
   } catch (error) { return { ready: false, reason: error instanceof AriveTransportError ? error.message : 'Arive request controls are unavailable.' }; }
 }
 
-/** Caller must enforce Admin III. Contains counts and deadlines, never token/key metadata. */
+/** Caller must enforce Admin III. Display-only counts and deadlines, never token/key metadata.
+ * These reads do not reserve capacity; request admission still rechecks under the global lock. */
 export async function getAriveTransportMetrics(deps: { db?: Database; now?: () => Date } = {}) {
   const db = deps.db ?? prisma; const now = deps.now?.() ?? new Date();
   const empty = { checkedAt: now.toISOString(), deploymentActive: sharedAriveTransportEnabled(), enabled: false, ready: false,
@@ -102,23 +108,24 @@ export async function getAriveTransportMetrics(deps: { db?: Database; now?: () =
   try {
     const secret = process.env.NEXTAUTH_SECRET ?? ''; const c = await savedCredentials(db, secret);
     const key = ariveTransportFingerprint(c, secret, 'key');
-    return await createPrismaAriveTransportStore(db).transaction(async tx => {
-      const runtime = await tx.runtime();
-      const base = { ...empty, ...savedBudget(runtime) };
-      let quota: ReturnType<typeof assertAriveTransportReady>;
-      try { quota = assertAriveTransportReady(runtime, key, now); }
-      catch (error) { return { ...base, reason: error instanceof AriveTransportError ? error.message : 'Arive request controls are unavailable.' }; }
-      const recent = await tx.recentRequests(key, new Date(now.getTime() - quota.seconds * 1000));
-      const activeRequests = await tx.activeRequests(now);
-      const cooldown = runtime!.cooldownUntil && runtime!.cooldownUntil > now ? runtime!.cooldownUntil.getTime() : 0;
-      const reset = recent.count >= quota.allowance ? (recent.oldest?.getTime() ?? now.getTime()) + quota.seconds * 1000 + 1 : 0;
-      const busy = activeRequests >= 2 ? now.getTime() + 1000 : 0;
-      const next = Math.max(cooldown, reset, busy);
-      return { ...base, windowSeconds: quota.seconds, allowance: quota.allowance,
-        used: recent.count, remaining: Math.max(0, quota.allowance - recent.count), activeRequests,
-        ready: !next, reason: cooldown ? 'Arive requests are paused until the provider cooldown ends.' : reset ? 'The reserved Arive request allowance has been reached.' : busy ? 'Two Arive requests are already running.' : null,
-        nextAvailableAt: next ? new Date(next).toISOString() : null };
-    });
+    const runtime = await db.ariveConnectionRuntime.findUnique({ where: { id: CONNECTION } });
+    const base = { ...empty, ...savedBudget(runtime) };
+    let quota: ReturnType<typeof assertAriveTransportReady>;
+    try { quota = assertAriveTransportReady(runtime, key, now); }
+    catch (error) { return { ...base, reason: error instanceof AriveTransportError ? error.message : 'Arive request controls are unavailable.' }; }
+    const [recent, activeRequests] = await Promise.all([
+      db.ariveTransportRequest.aggregate({ where: { connectionId: CONNECTION, keyFingerprint: key, startedAt: { gt: new Date(now.getTime() - quota.seconds * 1000) } }, _count: { _all: true }, _min: { startedAt: true } }),
+      db.ariveTransportRequest.count({ where: { connectionId: CONNECTION, finishedAt: null, leaseUntil: { gt: now } } }),
+    ]);
+    const used = recent._count._all;
+    const cooldown = runtime!.cooldownUntil && runtime!.cooldownUntil > now ? runtime!.cooldownUntil.getTime() : 0;
+    const reset = used >= quota.allowance ? (recent._min.startedAt?.getTime() ?? now.getTime()) + quota.seconds * 1000 + 1 : 0;
+    const busy = activeRequests >= 2 ? now.getTime() + 1000 : 0;
+    const next = Math.max(cooldown, reset, busy);
+    return { ...base, windowSeconds: quota.seconds, allowance: quota.allowance,
+      used, remaining: Math.max(0, quota.allowance - used), activeRequests,
+      ready: !next, reason: cooldown ? 'Arive requests are paused until the provider cooldown ends.' : reset ? 'The reserved Arive request allowance has been reached.' : busy ? 'Two Arive requests are already running.' : null,
+      nextAvailableAt: next ? new Date(next).toISOString() : null };
   } catch (error) { return { ...empty, reason: error instanceof AriveTransportError ? error.message : 'Arive request controls are unavailable.' }; }
 }
 

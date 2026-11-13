@@ -11,7 +11,12 @@ function fixture(limit = 100, seconds = 60) {
     encryptedAccessToken: null, accessTokenExpiresAt: null, credentialFingerprint: null, refreshLeaseToken: null, refreshLeaseUntil: null };
   const requests: AriveRequestReservation[] = [];
   let queue = Promise.resolve();
-  const store: AriveTransportStore = { async transaction(work) {
+  const store: AriveTransportStore = {
+    finishRequest: async (id, finishedAt, statusCode) => {
+      const row = requests.find(row => row.id === id && row.connectionId === 'company' && !row.finishedAt);
+      if (row) Object.assign(row, { finishedAt, statusCode });
+    },
+    async transaction(work) {
     const prior = queue; let release!: () => void; queue = new Promise<void>(resolve => { release = resolve; });
     await prior;
     try { return await work({
@@ -19,7 +24,6 @@ function fixture(limit = 100, seconds = 60) {
       recentRequests: async (key, since) => { const rows = requests.filter(row => row.keyFingerprint === key && row.startedAt > since); return { count: rows.length, oldest: rows[0]?.startedAt ?? null }; },
       activeRequests: async at => requests.filter(row => !row.finishedAt && row.leaseUntil > at).length,
       createRequest: async value => { requests.push(value); },
-      finishRequest: async (id, finishedAt, statusCode) => { Object.assign(requests.find(row => row.id === id)!, { finishedAt, statusCode }); },
     }); } finally { release(); }
   } };
   let issued = 0;
@@ -128,6 +132,24 @@ describe('shared Arive request budget', () => {
     await expect(api('/loans/test')).rejects.toThrow('Network unavailable');
     expect(h.requests).toHaveLength(2); expect(h.requests[1].finishedAt).not.toBeNull();
     await api('/loans/test'); expect(h.requests).toHaveLength(3);
+  });
+  it('releases a completed reservation without waiting for the admission lock or erasing its request usage', async () => {
+    const h = fixture(5); const api = await createAriveTransportSession(h.options);
+    const response = deferred<Response>(); h.fetcher.mockImplementationOnce(() => response.promise);
+    const result = api('/loans/test');
+    await vi.waitFor(() => expect(h.fetcher).toHaveBeenCalledTimes(2));
+    const entered = deferred<boolean>(); const release = deferred<boolean>();
+    const admission = h.options.store.transaction(async () => { entered.resolve(true); await release.promise; });
+    await entered.promise;
+    let completed = false; void result.then(() => { completed = true; });
+    try {
+      response.resolve(Response.json({ ok: true }));
+      await vi.waitFor(() => expect(completed).toBe(true));
+      expect(h.requests).toHaveLength(2); expect(h.requests.every(row => row.finishedAt)).toBe(true);
+    } finally { release.resolve(true); await admission; }
+    await api('/loans/test'); await api('/loans/test');
+    await expect(api('/loans/test')).rejects.toMatchObject({ code: 'BUDGET_EXHAUSTED' });
+    expect(h.requests).toHaveLength(4);
   });
   it('expires abandoned request leases without forgetting that their attempts consumed quota', async () => {
     const h = fixture(5, 60); const api = await createAriveTransportSession(h.options);

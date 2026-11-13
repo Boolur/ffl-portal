@@ -19,9 +19,12 @@ export type AriveTransportTransaction = {
   recentRequests(key: string, since: Date): Promise<{ count: number; oldest: Date | null }>;
   activeRequests(now: Date): Promise<number>;
   createRequest(request: AriveRequestReservation): Promise<void>;
+};
+export type AriveTransportStore = {
+  transaction<T>(work: (tx: AriveTransportTransaction) => Promise<T>): Promise<T>;
+  // Completion only releases this reservation; it does not alter budget history.
   finishRequest(id: string, finishedAt: Date, status: number | null): Promise<void>;
 };
-export type AriveTransportStore = { transaction<T>(work: (tx: AriveTransportTransaction) => Promise<T>): Promise<T> };
 export class AriveTransportError extends Error {
   constructor(public code: string, message: string, public retryAt: Date | null = null) { super(message); this.name = 'AriveTransportError'; }
 }
@@ -158,7 +161,7 @@ export async function createAriveTransportSession(options: AriveTransportOptions
         }
       });
     } finally {
-      await options.store.transaction(tx => tx.finishRequest(id, clock(), status));
+      await options.store.finishRequest(id, clock(), status);
     }
   }
 
