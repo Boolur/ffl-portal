@@ -280,3 +280,11 @@ No SSNs, raw provider bodies, or new outbound loan/document operations are intro
   Financial Info showed housing expenses, qualification figures, financing and the
   employer phone/classification. Its successful background sync was visible at
   4:04:18 p.m. Pacific. This validates the existing synthetic file, not broad cohorts.
+- Release `50d6064` deployed successfully. At 4:10:34 p.m. Pacific the bounded
+  production sample completed all 12 GETs / three cycles on TESTING TESTER without
+  an error: median 96.5 ms, sample p95 138 ms. The measured API-only estimate was
+  72 seconds for 409 active Pipeline/Restructures files at global concurrency two.
+  Authentication, database work, notes pagination, cron phase and quota waits add
+  time; this is an extrapolation from one synthetic file, not a sustained load test.
+  The sample did not establish an approved request allowance, enroll real loans,
+  or enable any generalized rollout controls.
