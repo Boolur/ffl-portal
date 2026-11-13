@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/app/actions/ariveRolloutActions', () => ({}));
-import { ariveRolloutBudgetDescription, ariveRolloutEnrollmentFeedback, ariveRolloutRefreshFeedback } from './AriveRolloutSettings';
+import { ariveRolloutBudgetDescription, ariveRolloutCohortRefreshFeedback, ariveRolloutEnrollmentFeedback, ariveRolloutRefreshFeedback } from './AriveRolloutSettings';
 
 describe('operator sync feedback', () => {
   it('does not present a queued refresh as applied or freshly read', () => {
@@ -36,6 +36,15 @@ describe('operator sync feedback', () => {
     expect(message).toContain('Review the latest collection and application timestamps');
     expect(message).not.toContain('Arive checked');
     expect(message).not.toContain('applied');
+  });
+  it('reports cohort queue counts without claiming reads or application completed', () => {
+    const message = ariveRolloutCohortRefreshFeedback({ success: true, queued: true, queuedCount: 10 });
+    expect(message).toContain('10 verified loans queued');
+    expect(message).toContain('scheduled worker'); expect(message).toContain('cooldowns, and retry delays');
+    expect(message).not.toContain('Arive checked'); expect(message).not.toContain('have been applied');
+    expect(ariveRolloutCohortRefreshFeedback({ success: true, queuedCount: 1 })).toContain('1 verified loan queued');
+    expect(ariveRolloutCohortRefreshFeedback({ success: true, queuedCount: 0 })).toContain('No additional loans were queued');
+    expect(ariveRolloutCohortRefreshFeedback({ success: true })).not.toContain('undefined');
   });
 });
 

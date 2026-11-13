@@ -131,6 +131,26 @@ export async function queueAriveRolloutRefresh(input: { pipelineId: string }) {
   } catch (error) { return failure(error); }
 }
 
+/** Queues the existing verified cohort only; the scheduled worker owns every read. */
+export async function queueAriveRolloutCohortRefresh() {
+  try {
+    const actor = await admin();
+    await assertAriveRolloutReady({}, { allowCooldown: true });
+    const queuedCount = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-rollout:company'))`;
+      const control = await tx.ariveRolloutControl.findUnique({ where: { id: ARIVE_ROLLOUT_CONNECTION } });
+      if (!ariveRolloutEnvironmentEnabled() || !control?.collectionEnabled || !control.enabledById) throw new AriveError('Enable authorized rollout collection before queuing the cohort.');
+      const queued = await tx.arivePipelineSync.updateMany({
+        where: { enabled: true, workerOwner: ARIVE_ROLLOUT_OWNER, enrollmentStatus: 'VERIFIED', connectionId: ARIVE_ROLLOUT_CONNECTION, operatorPaused: false, manualRefreshRequestedAt: null },
+        data: { manualRefreshRequestedAt: new Date() },
+      });
+      await tx.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_ROLLOUT_COHORT_REFRESH_QUEUED', details: JSON.stringify({ queuedCount: queued.count }) } });
+      return queued.count;
+    });
+    return { success: true as const, queued: true as const, queuedCount };
+  } catch (error) { return failure(error); }
+}
+
 export async function setAriveRolloutLoanEnabled(input: { pipelineId: string; enabled: boolean }) {
   try {
     const actor = await admin(); const pipelineId = id(input?.pipelineId);

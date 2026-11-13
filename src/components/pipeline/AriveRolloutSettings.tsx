@@ -12,6 +12,7 @@ import {
   getAriveRolloutStatus,
   inspectAriveReportedAllowance,
   measureAriveTestReadTiming,
+  queueAriveRolloutCohortRefresh,
   queueAriveRolloutRefresh,
   setAriveRolloutLoanEnabled,
   transferLegacyAriveRolloutFile,
@@ -23,7 +24,7 @@ type Inventory = Extract<Awaited<ReturnType<typeof getAriveRolloutInventory>>, {
 type Review = Extract<Awaited<ReturnType<typeof getAriveRolloutReview>>, { success: true }>;
 type Timing = Extract<Awaited<ReturnType<typeof measureAriveTestReadTiming>>, { success: true }>['timing'];
 type Controls = { collectionEnabled: boolean; applicationEnabled: boolean; enrollmentEnabled: boolean; cohortLimit: 10 | 50 | null };
-type Success = { success: true; queued?: boolean; applied?: boolean; collected?: boolean; changed?: boolean; scanned?: number; verified?: number; review?: number };
+type Success = { success: true; queued?: boolean; queuedCount?: number; applied?: boolean; collected?: boolean; changed?: boolean; scanned?: number; verified?: number; review?: number };
 type Result = Success | { success: false; error: string };
 const initialControls: Controls = { collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false, cohortLimit: 10 };
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -46,6 +47,12 @@ export function ariveRolloutRefreshFeedback(result: Success): string {
 export function ariveRolloutEnrollmentFeedback(result: Success): string {
   if ([result.scanned, result.verified, result.review].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) return `${result.scanned} files checked · ${result.verified} verified · ${result.review} need review. Existing verified files may be included in the checked count.`;
   return 'Identity check finished. Review the resulting enrollment status and exceptions below.';
+}
+
+export function ariveRolloutCohortRefreshFeedback(result: Success): string {
+  if (result.queuedCount === 0) return 'No additional loans were queued. Existing queued requests are unchanged; only enabled, verified cohort loans can be added.';
+  if (typeof result.queuedCount === 'number' && Number.isSafeInteger(result.queuedCount) && result.queuedCount > 0) return `${result.queuedCount} verified ${result.queuedCount === 1 ? 'loan' : 'loans'} queued. The scheduled worker will check them within the shared request budget, cooldowns, and retry delays. Collection and application timestamps will update after successful checks.`;
+  return 'Cohort refresh requested. Review queue status and the collection and application timestamps below.';
 }
 
 export function ariveRolloutBudgetDescription(transport: { allowanceSource?: string | null; providerRequestLimit?: number | null; operatorRequestLimit?: number | null; allowance?: number | null; windowSeconds?: number | null }): string {
@@ -173,8 +180,9 @@ export function AriveRolloutSettings() {
         <div className="grid gap-3 sm:grid-cols-3">
           <Metric title="Enabled loans" value={totals?.enabled ?? 0} detail={`${totals?.enrolled ?? 0} enrollment records`} />
           <Metric title="Matching exceptions" value={totals?.review ?? 0} detail="These loans do not apply Arive updates" />
-          <Metric title="Latest successful update" value={when(status.freshness._max.lastSuccessAt)} detail={`Oldest enabled update: ${when(status.freshness._min.lastSuccessAt)}`} />
+          <Metric title="Latest successful update" value={when(status.freshness._max.lastSuccessAt)} detail={`${status.freshness._count.lastSuccessAt} / ${status.freshness._count._all} enabled loans applied · Oldest enabled update: ${when(status.freshness._min.lastSuccessAt)}`} />
         </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">Complete collections: {status.freshness._count.collectedAt} / {status.freshness._count._all} enabled loans · Oldest collection: {when(status.freshness._min.collectedAt)} · Latest collection: {when(status.freshness._max.collectedAt)}</p>
         <div className="flex flex-wrap gap-2 text-xs">
           <Flag label="Rollout deployment" enabled={inventory.gates.rollout} />
           <Flag label="Shared API budget" enabled={inventory.gates.sharedTransport} />
@@ -244,6 +252,7 @@ export function AriveRolloutSettings() {
         </form>
 
         <div className="space-y-3"><div><h3 className="text-sm font-semibold">Enrolled files and matching exceptions</h3><p className="mt-1 text-xs text-muted-foreground">Sync now requests an immediate Arive check within the shared budget. If another check is running or capacity is unavailable, it stays queued. Refresh status only reloads saved BISU information.</p></div>
+          <div className="flex flex-wrap items-center gap-3"><button type="button" className={secondary} disabled={Boolean(busy) || !status.control.collectionEnabled} onClick={() => void perform('Queuing cohort refresh', queueAriveRolloutCohortRefresh, ariveRolloutCohortRefreshFeedback)}><RefreshCw className="h-3.5 w-3.5" />Queue cohort refresh</button><p className="max-w-xl text-xs text-muted-foreground">Queues the existing enabled, verified loans for the scheduled worker using the same shared budget. This does not enroll loans or change application settings.</p></div>
           {!status.rows.length ? <p className="rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">No generalized enrollment records yet. The existing test-file integration remains separate.</p> : <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">{status.rows.map(row => <article key={row.pipelineId} className="space-y-2 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="text-sm font-semibold">{row.borrowerName || `Arive #${row.ariveLoanId}`}</h4><p className="mt-0.5 text-xs text-muted-foreground">Arive #{row.ariveLoanId} · {words(row.sheet)} · {words(row.enrollmentStatus)} · {row.enabled ? 'Enabled' : 'Paused / waiting'}{row.sourceStage ? ` · ${words(row.sourceStage)}` : ''}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${row.enrollmentStatus === 'VERIFIED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300'}`}>{row.enrollmentStatus === 'VERIFIED' ? 'Identity verified' : 'Review match'}</span></div>
             {(row.enrollmentIssue || row.lastError) && <p className="rounded-lg bg-secondary p-2 text-xs leading-relaxed text-foreground">{row.enrollmentIssue || row.lastError}</p>}
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground"><span>Collected: {when(row.collectedAt)}</span><span>Applied: {when(row.lastSuccessAt)}</span><span>Next check: {when(row.nextAttemptAt)}</span>{row.manualRefreshRequestedAt && <span className="font-semibold text-primary">Refresh queued</span>}</div>

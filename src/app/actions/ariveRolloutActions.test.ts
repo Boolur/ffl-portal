@@ -3,6 +3,7 @@ const m = vi.hoisted(() => ({ session: vi.fn(), user: vi.fn(), row: vi.fn(), syn
 const errors = vi.hoisted(() => ({ AriveError: class AriveError extends Error {} }));
 const timing = vi.hoisted(() => ({ sample: vi.fn(), activeCount: vi.fn() }));
 const operatorBudget = vi.hoisted(() => ({ configure: vi.fn() }));
+const cohort = vi.hoisted(() => ({ queue: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next-auth', () => ({ getServerSession: m.session }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
@@ -19,7 +20,7 @@ vi.mock('@/lib/ariveRollout', async () => import('../../lib/ariveRollout'));
 vi.mock('../../lib/prisma', () => ({ prisma: {} }));
 vi.mock('../../lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, AriveError: errors.AriveError }));
 vi.mock('../../lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget }));
-import { acknowledgeAriveRolloutConflicts, configureAriveRollout, configureAriveRolloutOperatorBudget, getAriveRolloutInventory, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
+import { acknowledgeAriveRolloutConflicts, configureAriveRollout, configureAriveRolloutOperatorBudget, getAriveRolloutInventory, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutCohortRefresh, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
 
 let state: ReturnType<typeof initial>;
 function initial() {
@@ -30,7 +31,7 @@ function initial() {
       ariveLoanId: '99999123', ariveGuid: 'remote-guid', verifiedOriginatorEmail: 'owner@example.test', enrollmentStatus: 'VERIFIED',
       snapshot: { source: { stage: 'APPLICATION_INTAKE' }, managed: { sheet: 'PIPELINE' } }, everFunded: false, manualRefreshRequestedAt: null as Date | null,
       leaseToken: 'in-flight-old-worker', leaseUntil: new Date('2099-01-01'), pipeline: { loanId: 'loan-test' } },
-    control: { collectionEnabled: true, applicationEnabled: false, enrollmentEnabled: true, cohortLimit: 10 as number | null },
+    control: { collectionEnabled: true, applicationEnabled: false, enrollmentEnabled: true, cohortLimit: 10 as number | null, enabledById: 'admin' as string | null },
     practice: false, linked: false, existingLoan: false,
   };
 }
@@ -49,7 +50,8 @@ beforeEach(() => {
   timing.activeCount.mockResolvedValue(409);
   timing.sample.mockResolvedValue({ success: true, completedRequests: 12, completedCycles: 3, meanCycleApiMs: 1200, error: null });
   operatorBudget.configure.mockResolvedValue({ enabled: true, allowance: 120, windowSeconds: 60, deploymentActive: false, allowanceSource: 'OPERATOR_AUTHORIZED' });
-  m.transaction.mockImplementation(async work => work({ $executeRaw: m.lock, processingPipelineLoan: { findUnique: m.row }, arivePipelineSync: { findUnique: m.sync, update: m.update, count: m.count, findFirst: m.existingLink }, ariveRolloutControl: { findUnique: m.control, upsert: m.controlWrite }, arivePracticeLoan: { findFirst: m.practice, upsert: m.practiceWrite }, loan: { findUnique: m.existingLoan }, auditLog: { create: m.audit, findFirst: m.recentProbe } }));
+  cohort.queue.mockResolvedValue({ count: 10 });
+  m.transaction.mockImplementation(async work => work({ $executeRaw: m.lock, processingPipelineLoan: { findUnique: m.row }, arivePipelineSync: { findUnique: m.sync, update: m.update, updateMany: cohort.queue, count: m.count, findFirst: m.existingLink }, ariveRolloutControl: { findUnique: m.control, upsert: m.controlWrite }, arivePracticeLoan: { findFirst: m.practice, upsert: m.practiceWrite }, loan: { findUnique: m.existingLoan }, auditLog: { create: m.audit, findFirst: m.recentProbe } }));
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -62,6 +64,7 @@ describe('rollout control authentication and canonical isolation', () => {
     if (scenario === 'wrong active role') m.session.mockResolvedValue({ user: { id: 'admin', role: 'ADMIN_III', activeRole: 'LOAN_OFFICER' } });
     if (scenario === 'preview') vi.stubEnv('VERCEL_ENV', 'preview');
     expect((await queueAriveRolloutRefresh({ pipelineId: 'pipeline-test' })).success).toBe(false);
+    expect((await queueAriveRolloutCohortRefresh()).success).toBe(false);
     expect((await configureAriveRolloutOperatorBudget({ requestsPerMinute: 120, enabled: true })).success).toBe(false);
     expect(m.transaction).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled(); expect(operatorBudget.configure).not.toHaveBeenCalled();
   });
@@ -138,6 +141,52 @@ describe('rollout control authentication and canonical isolation', () => {
   });
   it('registers only local exclusion metadata and makes no remote request or synthetic Loan', async () => {
     expect(await registerPracticeAriveLoan({ ariveLoanId: '99999123', label: 'Synthetic practice' })).toMatchObject({ success: true }); expect(m.practiceWrite).toHaveBeenCalledOnce(); expect(m.apiSession).not.toHaveBeenCalled(); expect(m.lock).toHaveBeenCalled();
+  });
+});
+
+describe('durable cohort refresh requests', () => {
+  it('queues only enabled verified company loans without resetting worker safeguards or making provider calls', async () => {
+    expect(await queueAriveRolloutCohortRefresh()).toEqual({ success: true, queued: true, queuedCount: 10 });
+    expect(m.budget).toHaveBeenCalledWith({ allowCooldown: true });
+    expect(cohort.queue).toHaveBeenCalledWith({
+      where: { enabled: true, workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', connectionId: 'company', operatorPaused: false, manualRefreshRequestedAt: null },
+      data: { manualRefreshRequestedAt: expect.any(Date) },
+    });
+    expect(m.lock.mock.invocationCallOrder[0]).toBeLessThan(m.control.mock.invocationCallOrder[0]);
+    expect(m.control.mock.invocationCallOrder[0]).toBeLessThan(cohort.queue.mock.invocationCallOrder[0]);
+    const audit = m.audit.mock.calls.at(-1)?.[0].data;
+    expect(audit).toMatchObject({ userId: 'admin', action: 'ARIVE_ROLLOUT_COHORT_REFRESH_QUEUED' });
+    expect(JSON.parse(audit.details)).toEqual({ queuedCount: 10 });
+    expect(m.apiSession).not.toHaveBeenCalled(); expect(m.probe).not.toHaveBeenCalled(); expect(m.worker).not.toHaveBeenCalled();
+    expect(m.controlWrite).not.toHaveBeenCalled(); expect(m.update).not.toHaveBeenCalled();
+  });
+  it('does not replace pending request timestamps on repeated clicks', async () => {
+    cohort.queue.mockResolvedValueOnce({ count: 10 }).mockResolvedValueOnce({ count: 0 });
+    expect(await queueAriveRolloutCohortRefresh()).toMatchObject({ queuedCount: 10 });
+    expect(await queueAriveRolloutCohortRefresh()).toMatchObject({ queuedCount: 0 });
+    for (const [request] of cohort.queue.mock.calls) expect(request.where.manualRefreshRequestedAt).toBeNull();
+    expect(JSON.parse(m.audit.mock.calls.at(-1)?.[0].data.details)).toEqual({ queuedCount: 0 });
+  });
+  it('queues during a cooldown without invoking the worker or erasing delays', async () => {
+    m.budget.mockResolvedValue({ ready: true, reason: null, cooldownUntil: new Date('2099-01-01') });
+    expect(await queueAriveRolloutCohortRefresh()).toMatchObject({ success: true, queuedCount: 10 });
+    expect(Object.keys(cohort.queue.mock.calls[0][0].data)).toEqual(['manualRefreshRequestedAt']);
+    expect(m.worker).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled();
+  });
+  it.each(['deployment disabled', 'budget unavailable'])('refuses %s before queue mutation', async reason => {
+    if (reason === 'deployment disabled') vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'false');
+    else m.budget.mockResolvedValue({ ready: false, reason: 'Shared budget unavailable' });
+    expect((await queueAriveRolloutCohortRefresh()).success).toBe(false);
+    expect(m.transaction).not.toHaveBeenCalled(); expect(cohort.queue).not.toHaveBeenCalled(); expect(m.audit).not.toHaveBeenCalled();
+  });
+  it.each(['collection paused', 'missing authorizer', 'deployment paused'])('rechecks %s after taking the rollout lock', async reason => {
+    m.lock.mockImplementationOnce(async () => {
+      if (reason === 'collection paused') state.control.collectionEnabled = false;
+      if (reason === 'missing authorizer') state.control.enabledById = null;
+      if (reason === 'deployment paused') vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'false');
+    });
+    expect((await queueAriveRolloutCohortRefresh()).success).toBe(false);
+    expect(m.control).toHaveBeenCalled(); expect(cohort.queue).not.toHaveBeenCalled(); expect(m.audit).not.toHaveBeenCalled();
   });
 });
 

@@ -108,6 +108,10 @@ the existing flat ZIP manifest protocol and revision/selection validation.
   requiring the same identity verification, quota and cohort controls.
 - `queueAriveRolloutRefresh({pipelineId})`: deduplicated refresh queue; no direct
   fetch or bypass of shared budget/leases.
+- `queueAriveRolloutCohortRefresh()`: Admin III can queue the already-enabled,
+  verified generalized cohort for another scheduled read. It neither enrolls nor
+  enables files, retains pending timestamps and retry delays, and makes no provider
+  calls itself. Use this for repeat-cycle checks, including hourly Funding files.
 - `setAriveRolloutLoanEnabled({pipelineId,enabled})`: per-loan exception/pause.
   Automatic enrollment does not silently re-enable an operator-paused file.
 - `getAriveRolloutReview({pipelineId})`: saved safe collection/proposed-change view.
