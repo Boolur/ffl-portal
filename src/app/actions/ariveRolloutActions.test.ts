@@ -20,7 +20,7 @@ vi.mock('@/lib/ariveRollout', async () => import('../../lib/ariveRollout'));
 vi.mock('../../lib/prisma', () => ({ prisma: {} }));
 vi.mock('../../lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, AriveError: errors.AriveError }));
 vi.mock('../../lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget }));
-import { acknowledgeAriveRolloutConflicts, configureAriveRollout, configureAriveRolloutOperatorBudget, getAriveRolloutInventory, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutCohortRefresh, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
+import { acknowledgeAriveRolloutConflicts, configureAriveRollout, configureAriveRolloutOperatorBudget, getAriveRolloutInventory, inspectAriveAccessibleLoanCount, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutCohortRefresh, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
 
 let state: ReturnType<typeof initial>;
 function initial() {
@@ -65,6 +65,7 @@ describe('rollout control authentication and canonical isolation', () => {
     if (scenario === 'preview') vi.stubEnv('VERCEL_ENV', 'preview');
     expect((await queueAriveRolloutRefresh({ pipelineId: 'pipeline-test' })).success).toBe(false);
     expect((await queueAriveRolloutCohortRefresh()).success).toBe(false);
+    expect((await inspectAriveAccessibleLoanCount()).success).toBe(false);
     expect((await configureAriveRolloutOperatorBudget({ requestsPerMinute: 120, enabled: true })).success).toBe(false);
     expect(m.transaction).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled(); expect(operatorBudget.configure).not.toHaveBeenCalled();
   });
@@ -187,6 +188,57 @@ describe('durable cohort refresh requests', () => {
     });
     expect((await queueAriveRolloutCohortRefresh()).success).toBe(false);
     expect(m.control).toHaveBeenCalled(); expect(cohort.queue).not.toHaveBeenCalled(); expect(m.audit).not.toHaveBeenCalled();
+  });
+});
+
+describe('saved connection loan coverage diagnostics', () => {
+  it('checks one unfiltered page under the shared budget while collection is paused and returns only counts', async () => {
+    state.control.collectionEnabled = false; state.control.enrollmentEnabled = false;
+    vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'false');
+    m.api.mockResolvedValue({ count: 87, rows: [{ sysGUID: 'never-return-guid', ariveLoanId: 123456789, borrowerName: 'Never Return Borrower' }], secret: 'never-return-secret' });
+    const result = await inspectAriveAccessibleLoanCount();
+    expect(result).toEqual({ success: true, count: 87, returnedRowCount: 1, checkedAt: expect.any(String) });
+    expect(m.budget).toHaveBeenCalledWith(); expect(m.apiSession).toHaveBeenCalledExactlyOnceWith();
+    expect(m.api).toHaveBeenCalledExactlyOnceWith('/loans?limit=1&offset=0');
+    expect(m.control).not.toHaveBeenCalled(); expect(m.controlWrite).not.toHaveBeenCalled(); expect(m.update).not.toHaveBeenCalled(); expect(cohort.queue).not.toHaveBeenCalled(); expect(m.quota).not.toHaveBeenCalled(); expect(operatorBudget.configure).not.toHaveBeenCalled();
+    expect(m.lock.mock.invocationCallOrder[0]).toBeLessThan(m.recentProbe.mock.invocationCallOrder[0]);
+    expect(m.audit.mock.invocationCallOrder[0]).toBeLessThan(m.apiSession.mock.invocationCallOrder[0]);
+    const completed = m.audit.mock.calls.at(-1)?.[0].data;
+    expect(completed).toMatchObject({ userId: 'admin', action: 'ARIVE_LOAN_COVERAGE_COMPLETED' });
+    expect(JSON.parse(completed.details)).toEqual({ count: 87, returnedRowCount: 1, checkedAt: expect.any(String) });
+    expect(JSON.stringify([result, m.audit.mock.calls])).not.toContain('never-return');
+    expect(JSON.stringify([result, m.audit.mock.calls])).not.toContain('Never Return Borrower');
+    expect(m.probe).not.toHaveBeenCalled();
+  });
+  it('accepts an empty accessible inventory without claiming a match', async () => {
+    m.api.mockResolvedValue({ count: 0, rows: [] });
+    expect(await inspectAriveAccessibleLoanCount()).toMatchObject({ success: true, count: 0, returnedRowCount: 0 });
+  });
+  it.each([
+    { count: -1, rows: [] }, { count: 1.5, rows: [] }, { count: '1', rows: [] }, { count: Infinity, rows: [] },
+    { count: Number.MAX_SAFE_INTEGER + 1, rows: [] }, { rows: [] }, { count: 1, rows: null }, { count: 1 },
+    { count: 2, rows: [{}, {}] }, { count: 0, rows: [{}] }, null,
+  ])('rejects malformed or excessive responses without persisting provider content: %j', async response => {
+    m.api.mockResolvedValue(response);
+    expect(await inspectAriveAccessibleLoanCount()).toMatchObject({ success: false, error: 'Arive returned an invalid loan coverage response. No coverage count was accepted.' });
+    expect(m.audit).toHaveBeenCalledTimes(1);
+    expect(m.audit.mock.calls[0][0].data.action).toBe('ARIVE_LOAN_COVERAGE_STARTED');
+  });
+  it('requires shared readiness and honors provider cooldown before the diagnostic starts', async () => {
+    m.budget.mockResolvedValue({ ready: false, reason: 'Provider cooldown is active', cooldownUntil: new Date('2099-01-01') });
+    expect(await inspectAriveAccessibleLoanCount()).toEqual({ success: false, error: 'Provider cooldown is active' });
+    expect(m.transaction).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled();
+  });
+  it('serializes attempts across administrators and refuses repeats before any API call', async () => {
+    m.recentProbe.mockResolvedValue({ id: 'recent-check' });
+    expect(await inspectAriveAccessibleLoanCount()).toMatchObject({ success: false, error: expect.stringContaining('five minutes') });
+    expect(m.recentProbe).toHaveBeenCalledWith({ where: { action: 'ARIVE_LOAN_COVERAGE_STARTED', createdAt: { gt: expect.any(Date) } }, select: { id: true } });
+    expect(m.lock).toHaveBeenCalled(); expect(m.audit).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled();
+  });
+  it('retains a started attempt when the provider fails, without treating it as successful coverage', async () => {
+    m.api.mockRejectedValue(new errors.AriveError('Arive denied this read.'));
+    expect(await inspectAriveAccessibleLoanCount()).toEqual({ success: false, error: 'Arive denied this read.' });
+    expect(m.audit).toHaveBeenCalledTimes(1); expect(m.audit.mock.calls[0][0].data.action).toBe('ARIVE_LOAN_COVERAGE_STARTED');
   });
 });
 

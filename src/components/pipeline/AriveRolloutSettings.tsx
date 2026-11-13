@@ -10,6 +10,7 @@ import {
   getAriveRolloutInventory,
   getAriveRolloutReview,
   getAriveRolloutStatus,
+  inspectAriveAccessibleLoanCount,
   inspectAriveReportedAllowance,
   measureAriveTestReadTiming,
   queueAriveRolloutCohortRefresh,
@@ -23,6 +24,7 @@ type Status = Extract<Awaited<ReturnType<typeof getAriveRolloutStatus>>, { succe
 type Inventory = Extract<Awaited<ReturnType<typeof getAriveRolloutInventory>>, { success: true }>;
 type Review = Extract<Awaited<ReturnType<typeof getAriveRolloutReview>>, { success: true }>;
 type Timing = Extract<Awaited<ReturnType<typeof measureAriveTestReadTiming>>, { success: true }>['timing'];
+type Coverage = Extract<Awaited<ReturnType<typeof inspectAriveAccessibleLoanCount>>, { success: true }>;
 type Controls = { collectionEnabled: boolean; applicationEnabled: boolean; enrollmentEnabled: boolean; cohortLimit: 10 | 50 | null };
 type Success = { success: true; queued?: boolean; queuedCount?: number; applied?: boolean; collected?: boolean; changed?: boolean; scanned?: number; verified?: number; review?: number };
 type Result = Success | { success: false; error: string };
@@ -61,6 +63,10 @@ export function ariveRolloutBudgetDescription(transport: { allowanceSource?: str
   return 'No request budget is configured.';
 }
 
+export function ariveAccessibleLoanCountDescription(count: number): string {
+  return `${count} ${count === 1 ? 'loan' : 'loans'} accessible to the saved Arive connection. This is not a count of matched or enrolled BISU loans.`;
+}
+
 export function AriveRolloutSettings() {
   const [status, setStatus] = useState<Status | null>(null);
   const [inventory, setInventory] = useState<Inventory | null>(null);
@@ -73,6 +79,7 @@ export function AriveRolloutSettings() {
   const [allowOperatorRequests, setAllowOperatorRequests] = useState(false);
   const [review, setReview] = useState<{ loanNumber: string; value: Review } | null>(null);
   const [timing, setTiming] = useState<Timing | null>(null);
+  const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [busy, setBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
@@ -92,7 +99,7 @@ export function AriveRolloutSettings() {
     if (!alive.current || version !== loadVersion.current) return;
     if (!nextStatus.success || !nextInventory.success) {
       // A revoked account/role must not leave previously authorized records visible.
-      setStatus(null); setInventory(null); setReview(null); setTiming(null);
+      setStatus(null); setInventory(null); setReview(null); setTiming(null); setCoverage(null);
       throw new Error(!nextStatus.success ? nextStatus.error : !nextInventory.success ? nextInventory.error : 'Unable to load rollout status.');
     }
     setStatus(nextStatus);
@@ -161,6 +168,12 @@ export function AriveRolloutSettings() {
     if (result.success && alive.current) setTiming(result.timing);
     return result;
   }, 'Bounded timing sample finished. This measures response time; it does not establish an approved request allowance or activate synchronization.');
+  const inspectCoverage = () => perform('Checking API loan coverage', async () => {
+    setCoverage(null);
+    const result = await inspectAriveAccessibleLoanCount();
+    if (result.success && alive.current) setCoverage(result);
+    return result;
+  }, 'API loan coverage checked using the saved connection. No matching, enrollment, or synchronization settings were changed.');
   const totals = status?.counts.reduce((sum, group) => {
     sum.enrolled += group._count._all;
     if (group.enabled) sum.enabled += group._count._all;
@@ -238,6 +251,11 @@ export function AriveRolloutSettings() {
           <Metric title="API budget remaining" value={status.transport.remaining === null ? status.transport.allowance === null ? 'Not configured' : 'Not active' : `${status.transport.remaining} / ${status.transport.allowance}`} detail={status.transport.windowSeconds ? `${status.transport.allowanceSource === 'OPERATOR_AUTHORIZED' ? 'Operator cap' : 'Provider allowance'} · Per ${status.transport.windowSeconds}-second window` : 'Choose an authorized request budget'} />
           <Metric title="Requests in progress" value={status.transport.activeRequests === null ? 'Not active' : `${status.transport.activeRequests} / 2`} detail="Shared across all running workers" />
           <Metric title="Next API availability" value={status.transport.ready ? 'Ready' : when(status.transport.nextAvailableAt)} detail={status.transport.reason || 'Requests use the shared queue'} />
+        </div>
+        <div className="space-y-2 rounded-xl border border-border p-4">
+          <button type="button" className={secondary} disabled={Boolean(busy) || !inventory.gates.sharedTransport || !status.transport.enabled} onClick={() => void inspectCoverage()}><ShieldCheck className="h-3.5 w-3.5" />Check API loan coverage</button>
+          <p className="text-xs leading-relaxed text-muted-foreground">Checks the loan count reported by the saved Arive connection with one limited read under the shared request budget. Available once per five minutes; collection can remain paused. No borrower details are displayed.</p>
+          {coverage && <p role="status" className="text-xs leading-relaxed"><span className="font-semibold">{ariveAccessibleLoanCountDescription(coverage.count)}</span><br />Checked {when(coverage.checkedAt)} · {coverage.returnedRowCount} sample {coverage.returnedRowCount === 1 ? 'row' : 'rows'} returned; identifying details withheld.</p>}
         </div>
 
         <form className="space-y-4 rounded-xl border border-border p-4" onSubmit={event => { event.preventDefault(); void perform('Saving collection settings', () => configureAriveRollout(controls), 'Collection settings saved. In-flight reads respect the new settings.'); }}>

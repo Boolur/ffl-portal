@@ -8,7 +8,7 @@ import { isAdminIII } from '@/lib/adminTiers';
 import { AriveError, ariveReadOnlySession, ariveSession } from '@/lib/ariveClient';
 import { AriveTransportError } from '@/lib/ariveTransport';
 import { jsonRecord } from '@/lib/ariveSyncState';
-import { configureAriveOperatorBudget, configureAriveTransportQuota, getAriveTransportMetrics, sharedAriveTransportEnabled } from '@/lib/ariveTransportPrisma';
+import { configureAriveOperatorBudget, configureAriveTransportQuota, getAriveTransportMetrics, isAriveBudgetReady, sharedAriveTransportEnabled } from '@/lib/ariveTransportPrisma';
 import { ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER, ariveRolloutCohortWhere, ariveRolloutEnvironmentEnabled, assertAriveRolloutReady, enrollAriveRolloutBatch, isArivePracticeFile, rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity } from '@/lib/ariveRollout';
 import { ARIVE_SYNC_PILOT } from '@/lib/ariveSyncTypes';
 import { sampleAriveTestReadTiming } from '@/lib/ariveReadTiming';
@@ -256,6 +256,26 @@ export async function getAriveRolloutInventory(input: { cursor?: string } = {}) 
         ...practice.map(row => ({ ...row, kind: 'PRACTICE' as const, pipelineId: null })),
       ],
     };
+  } catch (error) { return failure(error); }
+}
+
+/** A single count-only coverage diagnostic using the saved, shared connection. */
+export async function inspectAriveAccessibleLoanCount() {
+  try {
+    const actor = await admin();
+    const budget = await isAriveBudgetReady();
+    if (!budget.ready) throw new AriveError(budget.reason || 'Shared Arive request controls must be ready before checking API loan coverage.');
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-loan-coverage-probe'))`;
+      if (await tx.auditLog.findFirst({ where: { action: 'ARIVE_LOAN_COVERAGE_STARTED', createdAt: { gt: new Date(Date.now() - 5 * 60_000) } }, select: { id: true } })) throw new AriveError('Wait five minutes between API loan coverage checks.');
+      await tx.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_LOAN_COVERAGE_STARTED', details: '{}' } });
+    });
+    const api = await ariveReadOnlySession();
+    const response = jsonRecord(await api('/loans?limit=1&offset=0'));
+    if (typeof response.count !== 'number' || !Number.isSafeInteger(response.count) || response.count < 0 || !Array.isArray(response.rows) || response.rows.length > 1 || response.count < response.rows.length) throw new AriveError('Arive returned an invalid loan coverage response. No coverage count was accepted.');
+    const coverage = { count: response.count, returnedRowCount: response.rows.length, checkedAt: new Date().toISOString() };
+    await prisma.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_LOAN_COVERAGE_COMPLETED', details: JSON.stringify(coverage) } });
+    return { success: true as const, ...coverage };
   } catch (error) { return failure(error); }
 }
 

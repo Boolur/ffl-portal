@@ -93,6 +93,10 @@ the existing flat ZIP manifest protocol and revision/selection validation.
 `src/app/actions/ariveRolloutActions.ts` requires a fresh active Admin III role:
 
 - `getAriveRolloutStatus({cursor?})`: paged enrollments, controls and safe metrics.
+- `inspectAriveAccessibleLoanCount()`: one shared-budget, count-only search using
+  the saved connection (`limit=1`, no filter), at most once per five minutes. Returns
+  provider count, row count and time only; it does not log or expose the sample
+  borrower's data. API visibility is distinct from portal enrollment and matching.
 - `configureAriveRollout({collectionEnabled,applicationEnabled,enrollmentEnabled,
   cohortLimit?})`: independent controls and atomic generation fencing. Cohort
   limit is 10, 50 or null for the remainder; default 10.
