@@ -5,6 +5,8 @@ import { AriveError, ariveReadOnlySession } from './ariveClient';
 import { isAriveBudgetReady } from './ariveTransportPrisma';
 import { AriveTransportError } from './ariveTransport';
 import { jsonRecord } from './ariveSyncState';
+import { ariveRolloutEnvironmentEnabled } from './ariveRolloutFlags';
+export { ariveRolloutEnvironmentEnabled, ariveCanonicalWritesEnabled } from './ariveRolloutFlags';
 
 export const ARIVE_ROLLOUT_CONNECTION = 'company';
 export const ARIVE_ROLLOUT_OWNER = 'GENERALIZED';
@@ -17,8 +19,6 @@ export type AriveRolloutDeps = {
   budgetReady?: typeof isAriveBudgetReady;
   deadlineMs?: number;
 };
-export const ariveRolloutEnvironmentEnabled = () => process.env.ARIVE_ROLLOUT_ENABLED === 'true'
-  && (!process.env.VERCEL_ENV || process.env.VERCEL_ENV === 'production');
 export async function assertAriveRolloutReady(deps: AriveRolloutDeps = {}, options: { allowCooldown?: boolean } = {}) {
   if (!ariveRolloutEnvironmentEnabled()) throw new AriveError('The generalized Arive rollout is disabled in this deployment.');
   const budget = await (deps.budgetReady || isAriveBudgetReady)(options.allowCooldown ? { allowCooldown: true } : undefined);

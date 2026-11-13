@@ -1,24 +1,44 @@
 import type { ArivePipelineSync, Prisma, ProcessingPipelineLoan } from '@prisma/client';
 import { ARIVE_SYNC_PILOT, ariveSyncFieldLabel, type AriveSyncConflict, type AriveSyncIssue, type AriveSyncServiceTracker, type AriveSyncView } from './ariveSyncTypes';
 import { parseArivePipelineDate } from './arivePipelineMapping';
+import { ariveCanonicalWritesEnabled } from './ariveRolloutFlags';
 
 export function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
-/** Collection alone never takes ownership of production fields. Pausing collection
- * retains applied provenance; disabling an individual enrollment releases edits. */
+/** Snapshot-level ownership candidate. Mutations must also check the fresh
+ * application controls through isAriveManagedForEdit. */
 export function isAriveManagedState(state: ArivePipelineSync | null | undefined, loanId: string): boolean {
   if (!state?.enabled) return false;
   if (!state.workerOwner || state.workerOwner === 'LEGACY') return loanId === ARIVE_SYNC_PILOT.loanId;
-  return state.workerOwner === 'GENERALIZED' && state.enrollmentStatus === 'VERIFIED'
+  return state.workerOwner === 'GENERALIZED' && !state.operatorPaused && state.enrollmentStatus === 'VERIFIED'
     && !!state.verifiedAt && !!state.lastSuccessAt && !!state.ariveGuid
     && Object.keys(jsonRecord(jsonRecord(state.snapshot).managed)).length > 0;
 }
 
-export function isAriveVisibleForLoan(state: ArivePipelineSync | null | undefined, loan: { id: string; loanNumber: string; loanOfficerId: string }): boolean {
-  // Pausing updates retains the last verified read-only snapshot and its controls.
-  // Edit ownership remains separately governed by isAriveManagedState.
-  if (state?.workerOwner === 'GENERALIZED') return state.enrollmentStatus === 'VERIFIED'
+/** Read without acquiring a rollout lock: callers may already hold a row lock.
+ * The worker independently fences application against the rollout generation. */
+export async function generalizedAriveApplicationActive(db: Pick<Prisma.TransactionClient, 'ariveRolloutControl'>): Promise<boolean> {
+  if (!ariveCanonicalWritesEnabled()) return false;
+  const control = await db.ariveRolloutControl.findUnique({ where: { id: 'company' }, select: { collectionEnabled: true, applicationEnabled: true } });
+  return Boolean(control?.collectionEnabled && control.applicationEnabled);
+}
+
+export async function isAriveManagedForEdit(db: Pick<Prisma.TransactionClient, 'ariveRolloutControl'>, state: ArivePipelineSync | null | undefined, loanId: string): Promise<boolean> {
+  if (!isAriveManagedState(state, loanId)) return false;
+  return state?.workerOwner !== 'GENERALIZED' || await generalizedAriveApplicationActive(db);
+}
+
+/** Account eligibility and preference are supplied only from a fresh server read. */
+export function canViewGeneralizedArive(user: { id: string; active: boolean; role: string; roles: string[]; pilotViewEnabled?: boolean }): boolean {
+  return process.env.PILOT_VIEW_ENABLED === 'true' && user.active && user.pilotViewEnabled === true
+    && (user.id === ARIVE_SYNC_PILOT.ownerId || [user.role, ...user.roles].some(role => ['ADMIN_I', 'ADMIN_II', 'ADMIN_III'].includes(role)));
+}
+
+export function isAriveVisibleForLoan(state: ArivePipelineSync | null | undefined, loan: { id: string; loanNumber: string; loanOfficerId: string }, canViewGeneralized = false): boolean {
+  // Pilot participants retain the last verified read-only snapshot after pause.
+  // Edit ownership is separately governed by the current application controls.
+  if (state?.workerOwner === 'GENERALIZED') return canViewGeneralized && state.enrollmentStatus === 'VERIFIED'
     && !!state.verifiedAt && !!state.lastSuccessAt && !!state.ariveGuid
     && state.ariveLoanId === loan.loanNumber
     && Object.keys(jsonRecord(jsonRecord(state.snapshot).managed)).length > 0;
@@ -66,15 +86,16 @@ function serviceTrackerView(value: unknown, issues: AriveSyncIssue[]): AriveSync
     };
   });
 }
-export function ariveSyncView(state: ArivePipelineSync | null | undefined, eligible: boolean, canManage: boolean): AriveSyncView | null {
+export function ariveSyncView(state: ArivePipelineSync | null | undefined, eligible: boolean, canManage: boolean, generalizedApplicationEnabled = false): AriveSyncView | null {
   if (!eligible) return null;
   const snapshot = jsonRecord(state?.snapshot); const source = jsonRecord(snapshot.source);
   const issues = syncIssues(state?.issues);
   const structured = jsonRecord(snapshot.structuredValues);
   const sources = jsonRecord(state?.fieldSources);
+  const enabled = Boolean(state?.enabled && (state.workerOwner !== 'GENERALIZED' || (!state.operatorPaused && generalizedApplicationEnabled)));
   const labels: Record<string, string> = { pendingItems: 'Pending items', scheduledSigning: 'Scheduled signing', payoffExpiry: 'Payoff expiry', conditionNeeded: 'Conditions needed', hoiExpiration: 'Insurance expiration', completion1004D: '1004D', waterInspection: 'Water inspection', pestInspection: 'Pest inspection' };
   return {
-    enabled: state?.enabled || false, lastSuccessAt: state?.lastSuccessAt?.toISOString() || null,
+    enabled, lastSuccessAt: state?.lastSuccessAt?.toISOString() || null,
     workerOwner: state?.workerOwner === 'GENERALIZED' ? 'GENERALIZED' : 'LEGACY',
     manualRefreshRequestedAt: state?.manualRefreshRequestedAt?.toISOString() || null,
     lastAttemptAt: state?.lastAttemptAt?.toISOString() || null, nextAttemptAt: state?.nextAttemptAt?.toISOString() || null,
@@ -83,7 +104,7 @@ export function ariveSyncView(state: ArivePipelineSync | null | undefined, eligi
     stageDate: typeof source.stageDate === 'string' ? source.stageDate : null,
     conflicts: syncConflicts(state?.conflicts), issues,
     missingFields: [...new Set(issues.filter(i => /MISSING|INVALID|UNAVAILABLE|EMPTY|REMOVED|REGRESSED/.test(i.code)).map(i => i.field))],
-    managedFields: Object.keys(jsonRecord(snapshot.managed)), canManage,
+    managedFields: enabled ? Object.keys(jsonRecord(snapshot.managed)) : [], canManage,
     serviceTrackers: serviceTrackerView(source.trackers, issues),
     structuredFields: Object.entries(structured).map(([key, value]) => {
       const provenance = jsonRecord(sources[key]);
@@ -107,7 +128,7 @@ export function savedAriveTrackers(snapshot: unknown) {
 export async function guardArivePipelineEdit(tx: Prisma.TransactionClient, current: ProcessingPipelineLoan, actorId: string, attempted: Record<string, unknown>) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${current.id}`}))`;
   const state = await tx.arivePipelineSync.findUnique({ where: { pipelineId: current.id } });
-  if (!isAriveManagedState(state, current.loanId) || !state) return null;
+  if (!state || !await isAriveManagedForEdit(tx, state, current.loanId)) return null;
   const managed = { ...jsonRecord(jsonRecord(state.snapshot).managed), archivedAt: current.archivedAt } as Record<string, unknown>;
   const blockedFields = Object.keys(attempted).filter(field => field in managed && !ariveSyncSameValue(field, attempted[field], managed[field]));
   if (!blockedFields.length) return null;
@@ -121,7 +142,7 @@ export async function guardArivePipelineEdit(tx: Prisma.TransactionClient, curre
 /** Prevent legacy derived defaults from changing imported dates/statuses during unrelated edits. */
 export async function preserveAriveManagedFields(tx: Prisma.TransactionClient, current: ProcessingPipelineLoan, data: Prisma.ProcessingPipelineLoanUpdateManyMutationInput) {
   const state = await tx.arivePipelineSync.findUnique({ where: { pipelineId: current.id } });
-  if (!isAriveManagedState(state, current.loanId) || !state) return;
+  if (!state || !await isAriveManagedForEdit(tx, state, current.loanId)) return;
   const managed = jsonRecord(jsonRecord(state.snapshot).managed);
   for (const field of [...Object.keys(managed), 'firstPaymentAt', 'sixthPaymentAt', 'rateLockRequestedAt', 'rateLockRequestedById']) {
     if (field in current) (data as Record<string, unknown>)[field] = (current as unknown as Record<string, unknown>)[field];

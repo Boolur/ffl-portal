@@ -11,7 +11,7 @@ import { parseAriveStructuredNotes, type AriveStructuredNoteKey, type AriveStruc
 import { projectAriveApplicationSnapshot } from './ariveApplicationSnapshot';
 import {
   ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER,
-  ariveRolloutEnvironmentEnabled, ariveRolloutJson, assertAriveRolloutReady, isArivePracticeFile,
+  ariveCanonicalWritesEnabled, ariveRolloutEnvironmentEnabled, ariveRolloutJson, assertAriveRolloutReady, isArivePracticeFile,
   rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity, type AriveRolloutDeps,
 } from './ariveRollout';
 
@@ -129,7 +129,7 @@ export async function syncAriveRolloutLoan(pipelineId: string, deps: AriveRollou
       const snapshotHash = hash({ snapshot: content, fieldSources, issues });
       const collectedSnapshot = ariveRolloutJson({ source: plan.source, application: content.application, structuredValues, notes, issues, everFunded: plan.everFunded,
         changes: changes.map(([field, value]) => ({ field, previous: ariveSyncValue((current as unknown as Record<string, unknown>)[field]), next: ariveSyncValue(value) })) });
-      if (!control.applicationEnabled) {
+      if (!control.applicationEnabled || !ariveCanonicalWritesEnabled()) {
         await tx.arivePipelineSync.update({ where: { id: state.id }, data: {
           collectedSnapshot, collectedAt: now, nextAttemptAt: new Date(now.getTime() + nextInterval(current)),
           failureCount: 0, lastError: null, leaseToken: null, leaseUntil: null,

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     user: { findUnique: vi.fn(), findMany: vi.fn() },
     processingPipelineLoan: { findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     arivePipelineSync: { findUnique: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
+    ariveRolloutControl: { findUnique: vi.fn() },
     auditLog: { create: vi.fn(), findMany: vi.fn() },
     loan: { update: vi.fn() }, task: { update: vi.fn() }, leadUserTeam: { findMany: vi.fn() },
     $transaction: vi.fn(), $executeRaw: vi.fn(),
@@ -85,8 +86,11 @@ function detailsInput(overrides: Partial<ProcessingBorrowerDetailsInput> = {}): 
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubEnv('PILOT_VIEW_ENABLED', 'true'); vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true');
+  vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production');
+  mocks.db.ariveRolloutControl.findUnique.mockResolvedValue({ collectionEnabled: true, applicationEnabled: true });
   mocks.session.mockResolvedValue({ user: { id: 'admin', role: UserRole.ADMIN_III, name: 'Admin' } });
-  mocks.db.user.findUnique.mockResolvedValue({ active: true, role: UserRole.ADMIN_III, roles: [], processingAssignmentGroups: [] });
+  mocks.db.user.findUnique.mockResolvedValue({ active: true, role: UserRole.ADMIN_III, roles: [], processingAssignmentGroups: [], pilotViewEnabled: true });
   mocks.db.$transaction.mockImplementation(async work => {
     const result = typeof work === 'function' ? await work(mocks.db) : await Promise.all(work);
     mocks.committed(); return result;
@@ -98,7 +102,7 @@ beforeEach(() => {
   mocks.db.auditLog.findMany.mockResolvedValue([]);
   configureRow(current());
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe('Arive authority in pipeline mutation actions', () => {
   it('records a conflicting cell edit in a committed transaction and retains the row', async () => {
@@ -322,4 +326,55 @@ it('counts source stages using the same authenticated sheet and row filters', as
   expect(JSON.stringify(query.where.pipeline)).toContain('PIPELINE');
   expect(JSON.stringify(query.where.pipeline)).toContain('archivedAt');
   expect(JSON.stringify(query.where.pipeline)).toContain('DOCS_SIGNED');
+});
+
+
+describe('generalized pilot containment', () => {
+  function generalized() {
+    const state = configureRow(current({ loanId: 'real-loan', pipelineStatus: 'SUBBED_TO_UW', loan: { ...current().loan, id: 'real-loan', loanNumber: '4001' } }));
+    Object.assign(state, { workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', verifiedAt: actualDate, ariveGuid: 'verified-guid', ariveLoanId: '4001' });
+    return state;
+  }
+  it.each(['APPLICATION_PAUSED', 'NO_CANONICAL_RELEASE'])('restores ordinary cell and details edits and removes UI locks for %s', async condition => {
+    const state = generalized();
+    if (condition === 'APPLICATION_PAUSED') mocks.db.ariveRolloutControl.findUnique.mockResolvedValue({ collectionEnabled: true, applicationEnabled: false });
+    else vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', '');
+    const saved = structuredClone(state);
+    expect(await updateProcessingPipelineCell({ id: 'pipeline', version: 1, field: 'titleStatus', value: 'ORDERED' })).toMatchObject({ success: true, version: 2 });
+    expect(mocks.db.processingPipelineLoan.updateMany.mock.calls[0][0].data).toMatchObject({ titleStatus: 'ORDERED' });
+    expect(await updateProcessingBorrowerDetails(detailsInput({ pipelineStatus: 'SUBBED_TO_UW', titleStatus: 'ORDERED' }))).toMatchObject({ success: true });
+    expect(await getProcessingPipeline()).toMatchObject({ rows: [{ ariveSync: { enabled: false, managedFields: [] } }] });
+    expect(await getProcessingBorrowerDetails('pipeline')).toMatchObject({ details: { ariveSync: { enabled: false, managedFields: [] } } });
+    expect(mocks.db.arivePipelineSync.update).not.toHaveBeenCalled(); expect(state).toEqual(saved);
+  });
+  it.each(['STANDARD_ADMIN', 'INELIGIBLE_JUNIOR', 'PILOT_DEPLOYMENT_OFF'])('hides generalized panels, source filters and saved notes for %s', async condition => {
+    generalized();
+    if (condition === 'STANDARD_ADMIN') mocks.db.user.findUnique.mockResolvedValue({ active: true, role: UserRole.ADMIN_III, roles: [], processingAssignmentGroups: [], pilotViewEnabled: false });
+    if (condition === 'INELIGIBLE_JUNIOR') {
+      mocks.session.mockResolvedValue({ user: { id: 'ordinary-junior', role: UserRole.PROCESSOR_JR } });
+      mocks.db.user.findUnique.mockResolvedValue({ active: true, role: UserRole.PROCESSOR_JR, roles: [], processingAssignmentGroups: [], pilotViewEnabled: true });
+    }
+    if (condition === 'PILOT_DEPLOYMENT_OFF') vi.stubEnv('PILOT_VIEW_ENABLED', 'false');
+    const rows = await getProcessingPipeline({ filters: { ariveStages: ['DOCS_SIGNED'] }, sortBy: 'ariveStage' });
+    expect(rows).toMatchObject({ success: true, rows: [{ ariveSync: null }] });
+    const query = mocks.db.processingPipelineLoan.findMany.mock.calls[0][0];
+    expect(JSON.stringify(query)).not.toContain('sourceStage'); expect(JSON.stringify(query)).not.toContain('DOCS_SIGNED');
+    const details = await getProcessingBorrowerDetails('pipeline');
+    expect(details).toMatchObject({ success: true, details: { ariveSync: null } });
+    if (details.success) expect(details.details).not.toHaveProperty('ariveApplication');
+    expect(await getProcessingAriveSnapshot('pipeline')).toMatchObject({ success: false });
+    expect(await getProcessingAriveStageCounts({ sheet: 'PIPELINE' })).toMatchObject({ success: true, options: [], counts: [] });
+    expect(mocks.db.arivePipelineSync.groupBy).not.toHaveBeenCalled();
+  });
+  it('reauthorizes saved reads when an eligible account switches back to Standard', async () => {
+    generalized();
+    expect(await getProcessingAriveSnapshot('pipeline')).toMatchObject({ success: true });
+    mocks.db.user.findUnique.mockResolvedValue({ active: true, role: UserRole.ADMIN_III, roles: [], processingAssignmentGroups: [], pilotViewEnabled: false });
+    expect(await getProcessingAriveSnapshot('pipeline')).toMatchObject({ success: false });
+  });
+  it('preserves the original legacy TEST visibility independently of generalized Pilot preference', async () => {
+    mocks.db.user.findUnique.mockResolvedValue({ active: true, role: UserRole.ADMIN_III, roles: [], processingAssignmentGroups: [], pilotViewEnabled: false });
+    expect(await getProcessingPipeline()).toMatchObject({ rows: [{ ariveSync: { enabled: true, workerOwner: 'LEGACY' } }] });
+    expect(await getProcessingAriveSnapshot('pipeline')).toMatchObject({ success: true });
+  });
 });

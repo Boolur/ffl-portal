@@ -1,7 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArivePipelineSync, Prisma, ProcessingPipelineLoan } from '@prisma/client';
 import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
-import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, preserveAriveManagedFields, savedAriveTrackers } from './ariveSyncState';
+import { ariveSyncSameValue, ariveSyncView, canViewGeneralizedArive, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, preserveAriveManagedFields, savedAriveTrackers } from './ariveSyncState';
+
+beforeEach(() => {
+  vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true'); vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production');
+  vi.stubEnv('PILOT_VIEW_ENABLED', 'true');
+});
+afterEach(() => vi.unstubAllEnvs());
 
 function setup() {
   const current = { id: 'pilot-pipeline', loanId: ARIVE_SYNC_PILOT.loanId, archivedAt: null, titleStatus: 'RECEIVED', statusChangedAt: new Date('2026-11-05T00:00:00Z'),
@@ -19,6 +25,7 @@ function setup() {
   } as unknown as ArivePipelineSync;
   const tx = {
     $executeRaw: vi.fn().mockResolvedValue(1),
+    ariveRolloutControl: { findUnique: vi.fn().mockResolvedValue({ collectionEnabled: true, applicationEnabled: true }) },
     arivePipelineSync: {
       findUnique: vi.fn(async () => state),
       update: vi.fn(async ({ data }: { data: Partial<ArivePipelineSync> }) => { state = { ...state, ...data }; return state; }),
@@ -142,14 +149,44 @@ describe('verified generalized field ownership', () => {
   it('protects a verified real loan independently of the old test-file identifier', async () => {
     const h = enrolled();
     expect(await guardArivePipelineEdit(h.client, h.current, 'admin', { titleStatus: 'ORDERED' })).toMatchObject({ ariveConflict: true });
-    expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4001', loanOfficerId: 'lo' })).toBe(true);
+    expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4001', loanOfficerId: 'lo' }, true)).toBe(true);
     expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4002', loanOfficerId: 'lo' })).toBe(false);
   });
   it('keeps saved data and resume controls visible for a paused verified file without locking edits', () => {
     const h = enrolled(); h.state.enabled = false;
-    expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4001', loanOfficerId: 'lo' })).toBe(true);
+    expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4001', loanOfficerId: 'lo' }, true)).toBe(true);
     expect(isAriveManagedState(h.state, h.current.loanId)).toBe(false);
     expect(ariveSyncView(h.state, true, true)).toMatchObject({ workerOwner: 'GENERALIZED', enabled: false, canManage: true });
+  });
+  it.each(['APPLICATION_PAUSED', 'COLLECTION_PAUSED', 'DEPLOYMENT_DISABLED', 'NO_CANONICAL_RELEASE', 'LOAN_PAUSED'])('releases conflicts and task preservation without changing saved history when %s', async condition => {
+    const h = enrolled();
+    if (condition === 'APPLICATION_PAUSED') h.tx.ariveRolloutControl.findUnique.mockResolvedValue({ collectionEnabled: true, applicationEnabled: false });
+    if (condition === 'COLLECTION_PAUSED') h.tx.ariveRolloutControl.findUnique.mockResolvedValue({ collectionEnabled: false, applicationEnabled: true });
+    if (condition === 'DEPLOYMENT_DISABLED') vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'false');
+    if (condition === 'NO_CANONICAL_RELEASE') vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', '');
+    if (condition === 'LOAN_PAUSED') h.state.operatorPaused = true;
+    const before = structuredClone(h.state);
+    expect(await guardArivePipelineEdit(h.client, h.current, 'junior', { titleStatus: 'ORDERED' })).toBeNull();
+    const data = { titleStatus: 'NOT_STARTED' as const, firstPaymentAt: null };
+    await preserveAriveManagedFields(h.client, h.current, data);
+    expect(data).toEqual({ titleStatus: 'NOT_STARTED', firstPaymentAt: null });
+    expect(h.tx.arivePipelineSync.update).not.toHaveBeenCalled(); expect(h.tx.auditLog.create).not.toHaveBeenCalled();
+    expect(h.state).toEqual(before);
+  });
+  it('keeps pilot saved data readable while removing UI edit locks after application is paused', () => {
+    const h = enrolled();
+    expect(ariveSyncView(h.state, true, true, false)).toMatchObject({ enabled: false, managedFields: [], stage: 'UNDERWRITING_SUBMITTED', lastSuccessAt: h.state.lastSuccessAt?.toISOString() });
+    expect(ariveSyncView(h.state, true, true, true)).toMatchObject({ enabled: true, managedFields: ['titleStatus', 'statusChangedAt'] });
+    expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4001', loanOfficerId: 'lo' })).toBe(false);
+  });
+  it('requires an active eligible account and persisted Pilot preference, not a client mode flag', () => {
+    const user = { id: 'admin', active: true, role: 'ADMIN_III', roles: [], pilotViewEnabled: true };
+    expect(canViewGeneralizedArive(user)).toBe(true);
+    expect(canViewGeneralizedArive({ ...user, pilotViewEnabled: false })).toBe(false);
+    expect(canViewGeneralizedArive({ ...user, active: false })).toBe(false);
+    expect(canViewGeneralizedArive({ ...user, role: 'PROCESSOR_JR' })).toBe(false);
+    expect(canViewGeneralizedArive({ ...user, id: ARIVE_SYNC_PILOT.ownerId, role: 'PROCESSOR_JR' })).toBe(true);
+    vi.stubEnv('PILOT_VIEW_ENABLED', 'false'); expect(canViewGeneralizedArive(user)).toBe(false);
   });
   it('bounds and allowlists saved trackers without exposing provider payloads or invalid dates', () => {
     expect(savedAriveTrackers({ source: { trackers: [{ name: 'VOE', label: 'Employment', status: 'RECEIVED', statusLabel: 'Received', date: 'invalid', raw: 'PRIVATE' }, null, { name: '', status: 'ignored' }] } })).toEqual([

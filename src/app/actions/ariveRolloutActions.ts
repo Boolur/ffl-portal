@@ -9,7 +9,7 @@ import { AriveError, ariveReadOnlySession, ariveSession } from '@/lib/ariveClien
 import { AriveTransportError } from '@/lib/ariveTransport';
 import { jsonRecord } from '@/lib/ariveSyncState';
 import { configureAriveOperatorBudget, configureAriveTransportQuota, getAriveTransportMetrics, isAriveBudgetReady, sharedAriveTransportEnabled } from '@/lib/ariveTransportPrisma';
-import { ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER, ariveRolloutCohortWhere, ariveRolloutEnvironmentEnabled, assertAriveRolloutReady, enrollAriveRolloutBatch, isArivePracticeFile, rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity } from '@/lib/ariveRollout';
+import { ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER, ariveCanonicalWritesEnabled, ariveRolloutCohortWhere, ariveRolloutEnvironmentEnabled, assertAriveRolloutReady, enrollAriveRolloutBatch, isArivePracticeFile, rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity } from '@/lib/ariveRollout';
 import { ARIVE_SYNC_PILOT } from '@/lib/ariveSyncTypes';
 import { sampleAriveTestReadTiming } from '@/lib/ariveReadTiming';
 import { compareSavedAriveLoanAccess } from '@/lib/ariveLoanAccessDiagnostic';
@@ -40,7 +40,7 @@ export async function getAriveRolloutStatus(input: { cursor?: string } = {}) {
       prisma.arivePipelineSync.groupBy({ by: ['enrollmentStatus', 'enabled'], where: { workerOwner: ARIVE_ROLLOUT_OWNER }, _count: { _all: true } }),
       prisma.arivePipelineSync.aggregate({ where: { workerOwner: ARIVE_ROLLOUT_OWNER, enabled: true }, _min: { lastSuccessAt: true, collectedAt: true }, _max: { lastSuccessAt: true, collectedAt: true }, _count: { _all: true, lastSuccessAt: true, collectedAt: true } }),
     ]);
-    return { success: true as const, control: control ? { collectionEnabled: control.collectionEnabled, applicationEnabled: control.applicationEnabled,
+    return { success: true as const, canonicalWritesAllowed: ariveCanonicalWritesEnabled(), control: control ? { collectionEnabled: control.collectionEnabled, applicationEnabled: control.applicationEnabled,
       enrollmentEnabled: control.enrollmentEnabled, generation: control.generation, cohortLimit: control.cohortLimit } : { collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false, generation: 0, cohortLimit: 10 },
       rows: rows.slice(0, 50).map(({ pipeline, ...row }) => ({ ...row, sheet: pipeline.sheet, borrowerName: pipeline.loan.borrowerName })), nextCursor: rows.length > 50 ? rows[49].pipelineId : null, transport, counts, freshness };
   } catch (error) { return failure(error); }
@@ -51,6 +51,7 @@ export async function configureAriveRollout(input: { collectionEnabled: boolean;
     const actor = await admin();
     if (!input || [input.collectionEnabled, input.applicationEnabled, input.enrollmentEnabled].some(value => typeof value !== 'boolean')) throw new AriveError('Choose the rollout collection, application, and enrollment settings.');
     if (!input.collectionEnabled && (input.applicationEnabled || input.enrollmentEnabled)) throw new AriveError('Collection must be enabled before applying changes or enrolling files.');
+    if (input.applicationEnabled && !ariveCanonicalWritesEnabled()) throw new AriveError('Live Arive application is disabled for this deployment. Pilot collection can save previews without changing standard loan values.');
     if (input.cohortLimit !== undefined && input.cohortLimit !== null && input.cohortLimit !== 10 && input.cohortLimit !== 50) throw new AriveError('Choose a cohort of 10, 50, or all eligible files.');
     if (input.collectionEnabled) {
       await assertAriveRolloutReady();
@@ -68,6 +69,59 @@ export async function configureAriveRollout(input: { collectionEnabled: boolean;
       await tx.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_ROLLOUT_CONTROL_CHANGED', details: JSON.stringify(settings) } });
     });
     return { success: true as const };
+  } catch (error) { return failure(error); }
+}
+
+/** Emergency containment also releases per-file edit protection used by older clients. */
+export async function emergencyContainAriveRollout() {
+  try {
+    const actor = await admin();
+    const disabledCount = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-rollout:company'))`;
+      const settings = { collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false };
+      await tx.ariveRolloutControl.upsert({ where: { id: ARIVE_ROLLOUT_CONNECTION },
+        create: { id: ARIVE_ROLLOUT_CONNECTION, ...settings, enabledById: actor.id, generation: 1 },
+        update: { ...settings, enabledById: actor.id, generation: { increment: 1 } } });
+      const disabled = await tx.arivePipelineSync.updateMany({ where: { workerOwner: ARIVE_ROLLOUT_OWNER, enabled: true },
+        data: { enabled: false, operatorPaused: true, leaseToken: null, leaseUntil: null, manualRefreshRequestedAt: null, nextAttemptAt: null } });
+      await tx.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_ROLLOUT_EMERGENCY_CONTAINED',
+        details: JSON.stringify({ ...settings, workerOwner: ARIVE_ROLLOUT_OWNER, disabledCount: disabled.count, appliedValuesPreserved: true }) } });
+      return disabled.count;
+    }, { maxWait: 10_000, timeout: 20_000 });
+    return { success: true as const, disabledCount };
+  } catch (error) { return failure(error); }
+}
+
+/** Read-only historical impact; works while the deployment or collection is paused. */
+export async function getAriveRolloutImpact() {
+  try {
+    await admin(); const checkedAt = new Date(); const limit = 10_000;
+    const [events, practice] = await Promise.all([
+      prisma.auditLog.findMany({ where: { action: 'PROCESSING_ARIVE_SYNC_APPLIED', createdAt: { lte: checkedAt } },
+        select: { id: true, loanId: true, details: true, createdAt: true, loan: { select: { loanNumber: true } } }, orderBy: { id: 'asc' }, take: limit + 1 }),
+      prisma.arivePracticeLoan.findMany({ select: { ariveLoanId: true } }),
+    ]);
+    const testNumbers = new Set([ARIVE_SYNC_PILOT.loanNumber, ...practice.map(row => row.ariveLoanId)]);
+    const files = new Map<string, { kind: 'real' | 'test' | 'unknown'; changed: boolean }>();
+    let changeEvents = 0; let snapshotOnlyEvents = 0; let unreadableEvents = 0;
+    for (const event of events.slice(0, limit)) {
+      let details: Record<string, unknown>;
+      try { details = jsonRecord(JSON.parse(event.details || '{}')); } catch { unreadableEvents++; continue; }
+      if (details.worker !== ARIVE_ROLLOUT_OWNER) continue;
+      if (typeof details.pipelineId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(details.pipelineId) || !Array.isArray(details.changes)
+        || details.changes.some(change => typeof jsonRecord(change).field !== 'string' || !('previous' in jsonRecord(change)) || !('next' in jsonRecord(change)))) { unreadableEvents++; continue; }
+      const number = event.loan?.loanNumber;
+      const kind = number && testNumbers.has(number) ? 'test' : event.loanId && number ? 'real' : 'unknown';
+      const key = event.loanId || details.pipelineId;
+      const changed = details.changes.length > 0;
+      const prior = files.get(key);
+      files.set(key, { kind, changed: changed || prior?.changed === true });
+      if (changed) changeEvents++; else snapshotOnlyEvents++;
+    }
+    const applied = { real: 0, test: 0, unknown: 0 }; const changed = { real: 0, test: 0, unknown: 0 };
+    for (const file of files.values()) { applied[file.kind]++; if (file.changed) changed[file.kind]++; }
+    return { success: true as const, checkedAt: checkedAt.toISOString(), partial: events.length > limit || unreadableEvents > 0,
+      inspectedEvents: Math.min(events.length, limit), unreadableEvents, applied, changed, changeEvents, snapshotOnlyEvents };
   } catch (error) { return failure(error); }
 }
 

@@ -16,7 +16,7 @@ import {
   isInHouseProcessingAssignmentGroup,
 } from './processingRouting';
 import { syncLeadStatusForLoan } from './leadPipelineSync';
-import { isAriveManagedState, preserveAriveManagedFields } from './ariveSyncState';
+import { isAriveManagedForEdit, preserveAriveManagedFields } from './ariveSyncState';
 import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
 import { processingDocumentTaskId } from './submissionPilot';
 
@@ -232,7 +232,7 @@ export async function upsertProcessingPipelineForCompletedTask(
     const sync = await tx.arivePipelineSync.findUnique({
       where: { pipelineId: current.id },
     });
-    if (isAriveManagedState(sync, current.loanId)) syncedCurrent = current;
+    if (await isAriveManagedForEdit(tx, sync, current.loanId)) syncedCurrent = current;
   }
   // Never hold a Loan row while waiting for the pipeline lock: workspace edits
   // acquire that lock first and then update the same Loan and source Task rows.

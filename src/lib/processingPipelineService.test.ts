@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LeadStatus, Prisma, TaskKind } from '@prisma/client';
 import {
   lockProcessingPipelineForTask,
@@ -7,6 +7,8 @@ import {
 } from './processingPipelineService';
 import { getProcessingAssignmentGroupForSeniorName } from './processingRouting';
 import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
+
+afterEach(() => vi.unstubAllEnvs());
 
 function asTx(value: unknown) {
   return value as Prisma.TransactionClient;
@@ -249,6 +251,7 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
         create: vi.fn(),
       },
       arivePipelineSync: { findUnique: vi.fn().mockResolvedValue(state), update: vi.fn() },
+      ariveRolloutControl: { findUnique: vi.fn().mockResolvedValue({ collectionEnabled: true, applicationEnabled: true }) },
       auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit' }) },
       notificationOutbox: { upsert: vi.fn().mockResolvedValue({ id: 'outbox' }) },
     };
@@ -277,6 +280,27 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
     }) }));
     expect(h.db.arivePipelineSync.update).not.toHaveBeenCalled();
     expect(h.state).toEqual(sourceBefore);
+  });
+
+  it.each(['APPLICATION_PAUSED', 'NO_CANONICAL_RELEASE'])('uses ordinary task completion after generalized writes stop: %s', async condition => {
+    vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production');
+    vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', condition === 'NO_CANONICAL_RELEASE' ? '' : 'true');
+    const h = existingSubmission({ loanId: 'verified-real-loan' });
+    Object.assign(h.state, { workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', verifiedAt: new Date(), lastSuccessAt: new Date(), ariveGuid: 'verified-guid' });
+    if (condition === 'APPLICATION_PAUSED') h.db.ariveRolloutControl.findUnique.mockResolvedValue({ collectionEnabled: true, applicationEnabled: false });
+    const saved = structuredClone(h.state);
+    await upsertProcessingPipelineForCompletedTask(h.tx, { taskId: 'resubmitted-task', actorId: 'reviewing-jr' });
+    expect(h.current).toMatchObject({ titleStatus: 'RECEIVED', payoffStatus: 'RECEIVED', hoiStatus: 'RECEIVED', rateLock: true, rateLockRequestedAt: null, appraisalNeeded: false });
+    expect(h.db.arivePipelineSync.update).not.toHaveBeenCalled(); expect(h.state).toEqual(saved);
+  });
+
+  it('still preserves imported fields on an explicitly released and active generalized file', async () => {
+    vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production'); vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'true');
+    const h = existingSubmission({ loanId: 'verified-real-loan' });
+    Object.assign(h.state, { workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', verifiedAt: new Date(), lastSuccessAt: new Date(), ariveGuid: 'verified-guid' });
+    await upsertProcessingPipelineForCompletedTask(h.tx, { taskId: 'resubmitted-task', actorId: 'reviewing-jr' });
+    expect(h.current).toMatchObject({ titleStatus: 'ORDERED', payoffStatus: 'ORDERED', hoiStatus: 'NOT_STARTED', rateLock: false, appraisalNeeded: true, version: 8 });
+    expect(h.db.ariveRolloutControl.findUnique).toHaveBeenCalled();
   });
 
   it.each([ARIVE_SYNC_PILOT.loanId, 'ordinary-loan'])('takes the pipeline lock before updating the Loan program (%s)', async loanId => {

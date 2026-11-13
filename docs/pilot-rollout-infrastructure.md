@@ -1,12 +1,39 @@
 # Pilot and Arive infrastructure
 
+## Current operating boundary — November 13, 2026
+
+The user clarified that Standard-mode staff must not be affected by the pilot.
+The earlier canonical rollout wrote shared production rows and therefore did
+affect Standard users; a Pilot appearance preference cannot isolate those writes.
+Collection, enrollment, and application were paused in production after the report.
+Historical activation and acceptance records below describe the previous rollout,
+not authorization to resume shared writes.
+
+`ARIVE_CANONICAL_APPLY_ENABLED` now defaults off independently of collection and
+Pilot appearance. Without that explicit release, the generalized worker can only
+save collection previews; it cannot update shared pipeline values, routing, loan
+notes, or rate-lock workflows even if an old database application flag is on.
+Standard-mode users must receive canonical BISU data without generalized Arive
+overlays. Current pilot eligibility and the persisted Pilot preference are checked
+on the server. Legacy synthetic-file behavior remains separately controlled.
+
+Emergency containment disables generalized file ownership and clears outstanding
+leases/requests while retaining snapshots, notes, audit records, and already-applied
+loan values. It does not delete history or silently reverse staff work. Applied
+changes must be reviewed using `PROCESSING_ARIVE_SYNC_APPLIED` before/after audit
+entries, subsequent staff edits, and financial-history checks before any reversal.
+
+Do not resume shared production application under a pilot-only request. A fully
+isolated pilot needs separate preview/practice data; its presentation must not
+write the shared loan/task/financial records used by Standard staff.
+
 Backend milestone, November 12, 2026. Based on accepted production `94814d4`.
 This change leaves the redesign checkout, layouts, navigation, themes, document
 cards and delivery behavior untouched. It supplies interfaces for later integration.
 
 ## Disabled deployment
 
-All four deployment gates default off, and absent database controls are off:
+All deployment gates default off, and absent database controls are off:
 
 - `PILOT_VIEW_ENABLED`: allows eligible users to persist the Pilot preference.
 - `PILOT_PRACTICE_ENABLED`: also required for practice actions and documents.
@@ -14,6 +41,9 @@ All four deployment gates default off, and absent database controls are off:
   request controls. When on, a missing/paused runtime fails closed.
 - `ARIVE_ROLLOUT_ENABLED`: permits generalized collection, still requiring
   collection/enrollment/application controls and an authorized request budget.
+- `ARIVE_CANONICAL_APPLY_ENABLED`: separately authorizes shared production
+  application. Remains off during the isolated pilot; the Pilot switch cannot
+  enable it.
 
 Matt's existing submission pilot and TESTING TESTER sync remain unchanged until
 explicit cutover. Adding schema does not enroll files or call Arive. Appearance,

@@ -6,6 +6,8 @@ import { useSession } from 'next-auth/react';
 import { UserRole } from '@prisma/client';
 import { getPilotPreferences, setPilotViewEnabled } from '@/app/actions/pilotPreferenceActions';
 import { SUBMISSION_PILOT_LO_ID } from '@/lib/submissionPilot';
+import { clearPipelineWorkspaceCache } from '@/lib/pipelineWorkspaceCache';
+import { publishPortalUpdates } from '@/lib/portalLiveUpdates';
 
 const adminRoles: UserRole[] = [UserRole.ADMIN_I, UserRole.ADMIN_II, UserRole.ADMIN_III];
 
@@ -50,9 +52,11 @@ function AuthorizedPilotToggle() {
         return;
       }
       setPreference({ enabled: result.data.enabled });
+      clearPipelineWorkspaceCache();
+      publishPortalUpdates(['pipeline']);
       setNotice({
         text: result.data.enabled
-          ? 'Pilot mode is on. These screens still use live records. The facelift and separate practice workspace will be added next.'
+          ? 'Pilot mode is on. Saved Arive previews are available. These screens still use live BISU records; shared Arive updates are paused.'
           : 'Standard mode is on. Your Pilot preference has been saved.',
         error: false,
       });

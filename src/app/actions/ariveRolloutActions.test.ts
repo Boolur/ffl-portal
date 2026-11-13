@@ -6,10 +6,11 @@ const operatorBudget = vi.hoisted(() => ({ configure: vi.fn() }));
 const cohort = vi.hoisted(() => ({ queue: vi.fn() }));
 const visibility = vi.hoisted(() => ({ users: vi.fn() }));
 const access = vi.hoisted(() => ({ compare: vi.fn() }));
+const impact = vi.hoisted(() => ({ events: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next-auth', () => ({ getServerSession: m.session }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
-vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: m.user, findMany: visibility.users }, processingPipelineLoan: { findUnique: m.row, findMany: m.candidates, groupBy: m.candidateCounts, findFirst: m.testLoan, count: timing.activeCount }, arivePracticeLoan: { findMany: m.practiceList }, arivePipelineSync: { findUnique: m.sync, findFirst: m.existingLink, update: m.update, count: m.count }, auditLog: { create: m.audit }, $transaction: m.transaction } }));
+vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: m.user, findMany: visibility.users }, processingPipelineLoan: { findUnique: m.row, findMany: m.candidates, groupBy: m.candidateCounts, findFirst: m.testLoan, count: timing.activeCount }, arivePracticeLoan: { findMany: m.practiceList }, arivePipelineSync: { findUnique: m.sync, findFirst: m.existingLink, update: m.update, count: m.count }, auditLog: { create: m.audit, findMany: impact.events }, $transaction: m.transaction } }));
 vi.mock('@/lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, ariveSession: m.probe, AriveError: errors.AriveError }));
 vi.mock('@/lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget, configureAriveTransportQuota: m.quota, configureAriveOperatorBudget: operatorBudget.configure, getAriveTransportMetrics: m.metrics, sharedAriveTransportEnabled: () => process.env.ARIVE_SHARED_TRANSPORT_ENABLED === 'true' }));
 vi.mock('@/lib/ariveRolloutWorker', () => ({ syncAriveRolloutLoan: m.worker }));
@@ -23,7 +24,7 @@ vi.mock('@/lib/ariveRollout', async () => import('../../lib/ariveRollout'));
 vi.mock('../../lib/prisma', () => ({ prisma: {} }));
 vi.mock('../../lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, AriveError: errors.AriveError }));
 vi.mock('../../lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget }));
-import { acknowledgeAriveRolloutConflicts, compareAriveLoanAccess, configureAriveRollout, configureAriveRolloutOperatorBudget, getAriveRolloutInventory, inspectAriveAccessibleLoanCount, inspectAriveLoanCoverage, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutCohortRefresh, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
+import { acknowledgeAriveRolloutConflicts, compareAriveLoanAccess, configureAriveRollout, configureAriveRolloutOperatorBudget, emergencyContainAriveRollout, getAriveRolloutImpact, getAriveRolloutInventory, inspectAriveAccessibleLoanCount, inspectAriveLoanCoverage, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutCohortRefresh, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
 
 let state: ReturnType<typeof initial>;
 function initial() {
@@ -41,6 +42,7 @@ function initial() {
 beforeEach(() => {
   vi.clearAllMocks(); state = initial();
   vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production'); vi.stubEnv('CRON_SECRET', 'synthetic-cron');
+  vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'true');
   vi.stubEnv('ARIVE_SHARED_TRANSPORT_ENABLED', 'false');
   m.session.mockResolvedValue({ user: { id: 'admin', role: 'ADMIN_III' } }); m.user.mockResolvedValue({ id: 'admin', active: true, role: 'ADMIN_III', roles: [] });
   m.row.mockImplementation(async () => structuredClone({ ...state.row, ariveSync: state.sync })); m.sync.mockImplementation(async () => structuredClone(state.sync));
@@ -55,6 +57,7 @@ beforeEach(() => {
   operatorBudget.configure.mockResolvedValue({ enabled: true, allowance: 120, windowSeconds: 60, deploymentActive: false, allowanceSource: 'OPERATOR_AUTHORIZED' });
   cohort.queue.mockResolvedValue({ count: 10 });
   visibility.users.mockResolvedValue([]);
+  impact.events.mockResolvedValue([]);
   access.compare.mockResolvedValue({ steps: [], partial: false, checkedAt: '2026-11-13T01:00:00Z', limitations: 'No enrollment changes.', getRequests: 6, authenticationRequests: 1 });
   m.transaction.mockImplementation(async work => work({ $executeRaw: m.lock, processingPipelineLoan: { findUnique: m.row }, arivePipelineSync: { findUnique: m.sync, update: m.update, updateMany: cohort.queue, count: m.count, findFirst: m.existingLink }, ariveRolloutControl: { findUnique: m.control, upsert: m.controlWrite }, arivePracticeLoan: { findFirst: m.practice, upsert: m.practiceWrite }, loan: { findUnique: m.existingLoan }, auditLog: { create: m.audit, findFirst: m.recentProbe } }));
 });
@@ -74,6 +77,9 @@ describe('rollout control authentication and canonical isolation', () => {
     expect((await inspectAriveLoanCoverage()).success).toBe(false);
     expect((await compareAriveLoanAccess({ loanNumber: '99999123' })).success).toBe(false);
     expect((await configureAriveRolloutOperatorBudget({ requestsPerMinute: 120, enabled: true })).success).toBe(false);
+    expect((await emergencyContainAriveRollout()).success).toBe(false);
+    expect((await getAriveRolloutImpact()).success).toBe(false);
+    expect(impact.events).not.toHaveBeenCalled();
     expect(m.transaction).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled(); expect(operatorBudget.configure).not.toHaveBeenCalled();
   });
   it('records operator authorization from the current account without claiming provider confirmation', async () => {
@@ -149,6 +155,71 @@ describe('rollout control authentication and canonical isolation', () => {
   });
   it('registers only local exclusion metadata and makes no remote request or synthetic Loan', async () => {
     expect(await registerPracticeAriveLoan({ ariveLoanId: '99999123', label: 'Synthetic practice' })).toMatchObject({ success: true }); expect(m.practiceWrite).toHaveBeenCalledOnce(); expect(m.apiSession).not.toHaveBeenCalled(); expect(m.lock).toHaveBeenCalled();
+  });
+});
+
+describe('emergency rollout containment and historical impact', () => {
+  it('atomically stops all generalized work without credentials, gates, or changing any loan values', async () => {
+    vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'false'); vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'false');
+    m.budget.mockResolvedValue({ ready: false, reason: 'Unavailable' });
+    expect(await emergencyContainAriveRollout()).toEqual({ success: true, disabledCount: 10 });
+    expect(m.transaction).toHaveBeenCalledTimes(1);
+    expect(m.lock.mock.calls[0][0].join('')).toContain('arive-rollout:company');
+    expect(m.controlWrite).toHaveBeenCalledWith({ where: { id: 'company' },
+      create: { id: 'company', collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false, enabledById: 'admin', generation: 1 },
+      update: { collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false, enabledById: 'admin', generation: { increment: 1 } } });
+    expect(cohort.queue).toHaveBeenCalledWith({ where: { workerOwner: 'GENERALIZED', enabled: true },
+      data: { enabled: false, operatorPaused: true, leaseToken: null, leaseUntil: null, manualRefreshRequestedAt: null, nextAttemptAt: null } });
+    expect(m.lock.mock.invocationCallOrder[0]).toBeLessThan(m.controlWrite.mock.invocationCallOrder[0]);
+    expect(m.controlWrite.mock.invocationCallOrder[0]).toBeLessThan(cohort.queue.mock.invocationCallOrder[0]);
+    expect(cohort.queue.mock.invocationCallOrder[0]).toBeLessThan(m.audit.mock.invocationCallOrder[0]);
+    expect(m.audit.mock.calls[0][0].data).toMatchObject({ userId: 'admin', action: 'ARIVE_ROLLOUT_EMERGENCY_CONTAINED' });
+    expect(JSON.parse(m.audit.mock.calls[0][0].data.details)).toMatchObject({ disabledCount: 10, appliedValuesPreserved: true, workerOwner: 'GENERALIZED' });
+    expect(m.row).not.toHaveBeenCalled(); expect(m.update).not.toHaveBeenCalled(); expect(m.budget).not.toHaveBeenCalled();
+    expect(m.apiSession).not.toHaveBeenCalled(); expect(m.worker).not.toHaveBeenCalled(); expect(m.quota).not.toHaveBeenCalled();
+    for (const field of ['snapshot', 'collectedSnapshot', 'workerGeneration', 'routingProvenance', 'conflicts', 'fieldSources']) expect(cohort.queue.mock.calls[0][0].data).not.toHaveProperty(field);
+  });
+  it('repeated containment reports zero newly disabled files without reenabling any records', async () => {
+    cohort.queue.mockResolvedValueOnce({ count: 10 }).mockResolvedValueOnce({ count: 0 });
+    expect(await emergencyContainAriveRollout()).toMatchObject({ disabledCount: 10 });
+    expect(await emergencyContainAriveRollout()).toMatchObject({ disabledCount: 0 });
+    for (const [request] of cohort.queue.mock.calls) expect(request.where).toEqual({ workerOwner: 'GENERALIZED', enabled: true });
+    expect(JSON.parse(m.audit.mock.calls.at(-1)![0].data.details).disabledCount).toBe(0);
+  });
+  it('fails the atomic action if its audit cannot be written', async () => {
+    m.audit.mockRejectedValueOnce(new Error('private persistence failure'));
+    expect(await emergencyContainAriveRollout()).toEqual({ success: false, error: 'The Arive rollout operation could not be completed.' });
+    expect(m.transaction).toHaveBeenCalledTimes(1);
+    expect(m.transaction.mock.calls[0][1]).toEqual({ maxWait: 10_000, timeout: 20_000 });
+  });
+  it('blocks live application by default without blocking preview collection', async () => {
+    vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', '');
+    expect(await configureAriveRollout({ collectionEnabled: true, applicationEnabled: true, enrollmentEnabled: true })).toMatchObject({ success: false, error: expect.stringContaining('Live Arive application is disabled') });
+    expect(m.transaction).not.toHaveBeenCalled();
+    expect(await configureAriveRollout({ collectionEnabled: true, applicationEnabled: false, enrollmentEnabled: true })).toMatchObject({ success: true });
+  });
+  it('counts distinct real, synthetic and unknown files from generalized change history while paused', async () => {
+    vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'false'); state.control.collectionEnabled = false;
+    const event = (pipelineId: string, loanId: string | null, number: string | null, changed: boolean, worker = 'GENERALIZED') => ({ id: pipelineId, loanId, loan: number ? { loanNumber: number } : null,
+      details: JSON.stringify({ pipelineId, worker, changes: changed ? [{ field: 'titleStatus', previous: 'private previous', next: 'private next' }] : [] }), createdAt: new Date() });
+    m.practiceList.mockResolvedValue([{ ariveLoanId: '77777' }]);
+    impact.events.mockResolvedValue([
+      event('real-one', 'loan-one', '11111', true), event('real-one', 'loan-one', '11111', true),
+      event('real-two', 'loan-two', '22222', false), event('test-known', 'loan-test', '17881588', true),
+      event('test-practice', 'loan-practice', '77777', true), event('missing-loan', null, null, true),
+      event('legacy', 'loan-legacy', '33333', true, 'LEGACY'),
+    ]);
+    const result = await getAriveRolloutImpact();
+    expect(result).toMatchObject({ success: true, partial: false, applied: { real: 2, test: 2, unknown: 1 }, changed: { real: 1, test: 2, unknown: 1 }, changeEvents: 5, snapshotOnlyEvents: 1 });
+    expect(impact.events.mock.calls[0][0]).toMatchObject({ where: { action: 'PROCESSING_ARIVE_SYNC_APPLIED', createdAt: { lte: expect.any(Date) } }, take: 10001 });
+    expect(JSON.stringify(result)).not.toContain('private'); expect(JSON.stringify(result)).not.toContain('11111');
+    expect(m.transaction).not.toHaveBeenCalled(); expect(m.audit).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled(); expect(m.budget).not.toHaveBeenCalled();
+  });
+  it('labels truncated or unreadable impact history as partial instead of an exact zero', async () => {
+    impact.events.mockResolvedValue([{ id: 'bad', details: 'not JSON', loanId: null, loan: null }]);
+    expect(await getAriveRolloutImpact()).toMatchObject({ success: true, partial: true, unreadableEvents: 1 });
+    impact.events.mockResolvedValue(Array.from({ length: 10001 }, (_, index) => ({ id: String(index), details: '{}', loanId: null, loan: null })));
+    expect(await getAriveRolloutImpact()).toMatchObject({ success: true, partial: true, inspectedEvents: 10000 });
   });
 });
 

@@ -15,6 +15,7 @@ const date = (value: string) => new Date(value);
 const tracker = (name: string, status: string, at: string | null = null) => ({ name, currentTrackerStatus: { name: status, date: at }, trackerStatusesHistory: [] });
 function harness() {
   vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production');
+  vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'true');
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Tests must not use the network'); }));
   let time = date('2026-11-12T20:00:00Z');
   const initial = {
@@ -155,6 +156,24 @@ describe('generalized worker isolation and atomic application', () => {
     expect(h.store.sync.collectedSnapshot).toMatchObject({ source: { stage: 'SUSPENDED' }, structuredValues: { pendingItems: 'insurance' } });
     for (const key of ['snapshot', 'fieldSources', 'routingProvenance'] as const) expect(h.store.sync[key]).toEqual({});
     expect(h.store.sync.lastSuccessAt).toBeNull(); expect(h.store.sync.sourceStage).toBeNull(); expect(h.store.notes).toBeNull(); expect(h.store.audits).toHaveLength(0);
+  });
+  it.each([undefined, 'false'])('cannot write shared loans without the explicit production release (%s)', async flag => {
+    const h = harness(); vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', flag);
+    h.remote.details.currentLoanStatus.status = 'LOAN_FUNDED'; h.remote.notes = [note('Pending Items: pilot only')];
+    const before = clone(h.store.row);
+    expect(await h.run()).toMatchObject({ success: true, applied: false });
+    expect(h.store.row).toEqual(before); expect(h.store.sync.collectedSnapshot).toMatchObject({ source: { stage: 'LOAN_FUNDED' } });
+    expect(h.store.sync.lastSuccessAt).toBeNull(); expect(h.store.sync.snapshot).toEqual({});
+    expect(h.client.processingPipelineLoan.updateMany).not.toHaveBeenCalled(); expect(h.store.notes).toBeNull();
+    expect(h.store.audits).toHaveLength(0); expect(h.client.task.update).not.toHaveBeenCalled(); expect(h.client.notificationOutbox.create).not.toHaveBeenCalled();
+  });
+  it('rechecks shared-write authorization immediately before committing an in-flight read', async () => {
+    const h = harness(); const before = clone(h.store.row);
+    h.remote.details.currentLoanStatus.status = 'SUSPENDED';
+    h.beforeApply(() => vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'false'));
+    expect(await h.run()).toMatchObject({ success: true, applied: false });
+    expect(h.store.row).toEqual(before); expect(h.store.sync.snapshot).toEqual({});
+    expect(h.client.processingPipelineLoan.updateMany).not.toHaveBeenCalled(); expect(h.store.notes).toBeNull();
   });
   it('repeats an identical refresh without additional version, audit or notes write', async () => {
     const h = harness(); await h.run(); const version = h.store.row.version; const auditCount = h.store.audits.length; const noteWrites = h.client.ariveLoanNotes.upsert.mock.calls.length;

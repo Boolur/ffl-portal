@@ -7,7 +7,9 @@ import {
   configureAriveRollout,
   configureAriveRolloutOperatorBudget,
   configureAriveRolloutRequestAllowance,
+  emergencyContainAriveRollout,
   enrollAriveRolloutFiles,
+  getAriveRolloutImpact,
   getAriveRolloutInventory,
   getAriveRolloutReview,
   getAriveRolloutStatus,
@@ -29,8 +31,9 @@ type Timing = Extract<Awaited<ReturnType<typeof measureAriveTestReadTiming>>, { 
 type Coverage = Extract<Awaited<ReturnType<typeof inspectAriveAccessibleLoanCount>>, { success: true }>;
 type Visibility = Extract<Awaited<ReturnType<typeof inspectAriveLoanCoverage>>, { success: true }>;
 type AccessComparison = Extract<Awaited<ReturnType<typeof compareAriveLoanAccess>>, { success: true }>;
+type Impact = Extract<Awaited<ReturnType<typeof getAriveRolloutImpact>>, { success: true }>;
 type Controls = { collectionEnabled: boolean; applicationEnabled: boolean; enrollmentEnabled: boolean; cohortLimit: 10 | 50 | null };
-type Success = { success: true; queued?: boolean; queuedCount?: number; applied?: boolean; collected?: boolean; changed?: boolean; scanned?: number; verified?: number; review?: number };
+type Success = { success: true; queued?: boolean; queuedCount?: number; disabledCount?: number; applied?: boolean; collected?: boolean; changed?: boolean; scanned?: number; verified?: number; review?: number };
 type Result = Success | { success: false; error: string };
 const initialControls: Controls = { collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false, cohortLimit: 10 };
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -91,6 +94,7 @@ export function AriveRolloutSettings() {
   const [visibility, setVisibility] = useState<Visibility | null>(null);
   const [accessLoanNumber, setAccessLoanNumber] = useState('');
   const [accessComparison, setAccessComparison] = useState<AccessComparison | null>(null);
+  const [impact, setImpact] = useState<Impact | null>(null);
   const [busy, setBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
@@ -110,14 +114,14 @@ export function AriveRolloutSettings() {
     if (!alive.current || version !== loadVersion.current) return;
     if (!nextStatus.success || !nextInventory.success) {
       // A revoked account/role must not leave previously authorized records visible.
-      setStatus(null); setInventory(null); setReview(null); setTiming(null); setCoverage(null); setVisibility(null); setAccessComparison(null);
+      setStatus(null); setInventory(null); setReview(null); setTiming(null); setCoverage(null); setVisibility(null); setAccessComparison(null); setImpact(null);
       throw new Error(!nextStatus.success ? nextStatus.error : !nextInventory.success ? nextInventory.error : 'Unable to load rollout status.');
     }
     setStatus(nextStatus);
     setInventory(nextInventory);
     if (firstLoad.current) {
       firstLoad.current = false;
-      setControls({ ...nextStatus.control, cohortLimit: nextStatus.control.cohortLimit as 10 | 50 | null });
+      setControls({ ...nextStatus.control, applicationEnabled: nextStatus.canonicalWritesAllowed && nextStatus.control.applicationEnabled, cohortLimit: nextStatus.control.cohortLimit as 10 | 50 | null });
       setRequestLimit(nextStatus.transport.providerRequestLimit?.toString() ?? '');
       setWindowSeconds(nextStatus.transport.windowSeconds?.toString() ?? '');
       setAllowRequests(nextStatus.transport.enabled);
@@ -158,6 +162,12 @@ export function AriveRolloutSettings() {
   };
 
   const refreshStatus = () => perform('Refreshing status', async () => ({ success: true }), 'Status refreshed from BISU. No new Arive request was made.');
+  const reviewImpact = () => perform('Reviewing applied impact', async () => {
+    const result = await getAriveRolloutImpact();
+    if (!result.success) return result;
+    if (alive.current) setImpact(result);
+    return { success: true as const };
+  }, 'Applied-impact counts loaded from saved history. No loan values were changed.');
   const openReview = (pipelineId: string, loanNumber: string) => perform('Loading review', async () => {
     const result = await getAriveRolloutReview({ pipelineId });
     if (result.success && alive.current) setReview({ loanNumber, value: result });
@@ -207,12 +217,18 @@ export function AriveRolloutSettings() {
   return (
     <section aria-label="Arive pipeline rollout" className="app-surface-card space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="flex items-center gap-2 text-lg font-bold"><RefreshCw className="h-5 w-5 text-primary" />Live pipeline synchronization</h2><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Arive updates enrolled real loans for everyone, in Standard and Pilot modes. Assignment, payroll, and financial approvals stay in BISU.</p></div>
+        <div><h2 className="flex items-center gap-2 text-lg font-bold"><RefreshCw className="h-5 w-5 text-primary" />Arive pipeline controls</h2><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Review collected Arive data and control its rollout. Assignment, payroll, and financial approvals stay in BISU.</p></div>
         <button type="button" className={secondary} disabled={Boolean(busy) || loading} onClick={() => void refreshStatus()}><RefreshCw className="h-3.5 w-3.5" />Refresh status</button>
       </div>
       {(loading || busy) && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />{busy || 'Loading integration status…'}</p>}
       {feedback && <p role={feedback.error ? 'alert' : 'status'} className={`rounded-xl border p-3 text-sm ${feedback.error ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300'}`}>{feedback.text}</p>}
+      <div className="space-y-3 rounded-xl border border-red-200 bg-red-50/50 p-4 dark:border-red-900 dark:bg-red-950/20">
+        <div><h3 className="text-sm font-semibold">Stop synchronization and release portal editing</h3><p className="mt-1 text-xs text-muted-foreground">Pauses collection, enrollment, and application, disables shared-collector files, and cancels their queued work. Existing loan values and saved history are retained; earlier changes are not reversed.</p></div>
+        <div className="flex flex-wrap gap-2"><button type="button" className={`${secondary} !border-red-300 !text-red-700 dark:!text-red-300`} disabled={Boolean(busy)} onClick={() => void perform('Stopping synchronization', async () => { const result = await emergencyContainAriveRollout(); if (result.success) setControls(value => ({ ...value, collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false })); return result; }, result => `Synchronization stopped. ${result.disabledCount ?? 0} shared-collector files disabled and their edit protection released. Existing values and history were retained.`)}><Pause className="h-3.5 w-3.5" />Stop sync and release editing</button><button type="button" className={secondary} disabled={Boolean(busy)} onClick={() => void reviewImpact()}>Review applied impact</button></div>
+        {impact && <div className="space-y-1 text-xs" role="status"><p className="font-medium">{impact.partial ? 'Partial history — counts are minimums.' : 'Saved application history.'} Checked {when(impact.checkedAt)}.</p><p>Changed fields on {impact.changed.real} real files · {impact.changed.test} test files · {impact.changed.unknown} unclassified files.</p><p>Applied snapshots: {impact.applied.real} real files · {impact.applied.test} test files · {impact.applied.unknown} unclassified files. {impact.changeEvents} change events and {impact.snapshotOnlyEvents} snapshot-only events.</p>{impact.unreadableEvents > 0 && <p>{impact.unreadableEvents} history records require separate review.</p>}<p className="text-muted-foreground">These historical counts include files that are now paused. They do not determine whether an automatic reversal would be safe.</p></div>}
+      </div>
       {status && inventory && <>
+        {!status.canonicalWritesAllowed && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">Pilot preview only: applying Arive updates to standard loan values is disabled for this deployment. Collection can save snapshots for review.</p>}
         <div className="grid gap-3 sm:grid-cols-3">
           <Metric title="Enabled loans" value={totals?.enabled ?? 0} detail={`${totals?.enrolled ?? 0} enrollment records`} />
           <Metric title="Matching exceptions" value={totals?.review ?? 0} detail="These loans do not apply Arive updates" />
@@ -223,7 +239,7 @@ export function AriveRolloutSettings() {
           <Flag label="Rollout deployment" enabled={inventory.gates.rollout} />
           <Flag label="Shared API budget" enabled={inventory.gates.sharedTransport} />
           <Flag label="Collecting" enabled={status.control.collectionEnabled} />
-          <Flag label="Applying to live loans" enabled={status.control.applicationEnabled} />
+          <Flag label="Applying to live loans" enabled={status.canonicalWritesAllowed && status.control.applicationEnabled} />
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">Active-loan refresh target: {inventory.targets.activeSeconds} seconds. Recent Fundings and sync-archived files: {inventory.targets.quietSeconds / 60} minutes. The timestamps show actual freshness; capacity limits or Arive errors can delay a check.</p>
         {(!inventory.gates.rollout || !inventory.gates.sharedTransport) && <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">Broad synchronization is not activated in this deployment. Saving a request allowance does not activate it.{inventory.tests.some(test => test.kind === 'LEGACY') && ' Existing TESTING TESTER synchronization uses its current separate control until cutover.'}</p>}
@@ -304,7 +320,7 @@ export function AriveRolloutSettings() {
           <div className="grid gap-3 sm:grid-cols-3">
             <Control label="Collect from Arive" detail="Save complete read snapshots in the queue." checked={controls.collectionEnabled} disabled={Boolean(busy)} onChange={checked => setControls(value => ({ ...value, collectionEnabled: checked, ...(!checked ? { applicationEnabled: false, enrollmentEnabled: false } : {}) }))} />
             <Control label="Enroll new eligible loans" detail="Verify existing portal files before adding them." checked={controls.enrollmentEnabled} disabled={Boolean(busy) || !controls.collectionEnabled} onChange={checked => setControls(value => ({ ...value, enrollmentEnabled: checked }))} />
-            <Control label="Apply to live loans" detail="Update shared pipeline fields and routing." checked={controls.applicationEnabled} disabled={Boolean(busy) || !controls.collectionEnabled} onChange={checked => setControls(value => ({ ...value, applicationEnabled: checked }))} />
+            <Control label="Apply to live loans" detail={status.canonicalWritesAllowed ? 'Update shared pipeline fields and routing.' : 'Disabled for this deployment; collection saves pilot previews.'} checked={status.canonicalWritesAllowed && controls.applicationEnabled} disabled={Boolean(busy) || !controls.collectionEnabled || !status.canonicalWritesAllowed} onChange={checked => setControls(value => ({ ...value, applicationEnabled: checked }))} />
           </div>
           <p className="text-xs text-muted-foreground">Collect first to review matching and proposed changes. Applying updates affects real loans in both portal modes. Pausing stops future updates and does not reverse completed changes.</p>
           <div className="flex flex-wrap gap-2"><button type="submit" className="app-btn-primary !h-9 !text-xs" disabled={Boolean(busy)}>Save collection settings</button><button type="button" className={secondary} disabled={Boolean(busy)} onClick={() => void perform('Pausing rollout', async () => { const result = await configureAriveRollout({ ...controls, collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false }); if (result.success) setControls(value => ({ ...value, collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false })); return result; }, 'Rollout paused. Previously completed updates are retained.')}><Pause className="h-3.5 w-3.5" />Pause rollout</button><button type="button" className={secondary} disabled={Boolean(busy) || !status.control.collectionEnabled || !status.control.enrollmentEnabled} onClick={() => void perform('Verifying next files', async () => { const result = await enrollAriveRolloutFiles(); if (result.success && result.skipped) return { success: false, error: 'Enrollment is paused or not enabled for this deployment.' }; return result; }, ariveRolloutEnrollmentFeedback)}><ShieldCheck className="h-3.5 w-3.5" />Verify next files</button></div>

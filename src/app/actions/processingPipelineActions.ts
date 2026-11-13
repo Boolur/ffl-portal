@@ -15,7 +15,7 @@ import {
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { isAdmin, isAdminIII } from '@/lib/adminTiers';
-import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, jsonRecord, preserveAriveManagedFields, savedAriveTrackers } from '../../lib/ariveSyncState';
+import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedForEdit, generalizedAriveApplicationActive, canViewGeneralizedArive, isAriveVisibleForLoan, jsonRecord, preserveAriveManagedFields, savedAriveTrackers } from '../../lib/ariveSyncState';
 import { ARIVE_SYNC_PILOT } from '../../lib/ariveSyncTypes';
 import { ARIVE_LOAN_STAGE_OPTIONS, parseArivePipelineDate } from '../../lib/arivePipelineMapping';
 import { readAriveApplicationView } from '../../lib/ariveApplicationSnapshot';
@@ -61,6 +61,8 @@ type Actor = {
   name: string;
   processingAssignmentGroups: string[];
   canManageArive: boolean;
+  canViewGeneralizedArive: boolean;
+  generalizedApplicationEnabled: boolean;
 };
 
 function isProcessingLeadership(role: UserRole) {
@@ -76,12 +78,15 @@ async function getActor(): Promise<Actor | null> {
   if (!id || !role) return null;
   const user = await prisma.user.findUnique({
     where: { id },
-    select: { processingAssignmentGroups: true, active: true, role: true, roles: true },
+    select: { processingAssignmentGroups: true, active: true, role: true, roles: true, pilotViewEnabled: true },
   });
   if (!user?.active || ![user.role, ...user.roles].includes(role)) return null;
+  const canViewGeneralized = canViewGeneralizedArive({ ...user, id });
   return {
     id,
     role,
+    canViewGeneralizedArive: canViewGeneralized,
+    generalizedApplicationEnabled: canViewGeneralized && await generalizedAriveApplicationActive(prisma),
     name: session.user.name || 'Unknown user',
     processingAssignmentGroups: user.processingAssignmentGroups,
     canManageArive: Boolean(user.active && (role === user.role || user.roles.includes(role)) && isAdminIII(role)),
@@ -90,7 +95,7 @@ async function getActor(): Promise<Actor | null> {
 
 async function ariveEditContext(tx: Prisma.TransactionClient, current: ProcessingPipelineLoan) {
   const state = await tx.arivePipelineSync.findUnique({ where: { pipelineId: current.id } });
-  const enabled = isAriveManagedState(state, current.loanId);
+  const enabled = await isAriveManagedForEdit(tx, state, current.loanId);
   return { enabled, managed: new Set(enabled && state ? Object.keys(jsonRecord(jsonRecord(state.snapshot).managed)) : []) };
 }
 
@@ -98,8 +103,8 @@ function ariveDateAttempt(raw: unknown, normalized: unknown) {
   return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim()) ? raw.trim() : normalized;
 }
 
-function displayedDaysInStatus(statusChangedAt: Date, state: ArivePipelineSync | null | undefined, eligible: boolean) {
-  const sourceDate = state?.enabled && eligible
+function displayedDaysInStatus(statusChangedAt: Date, state: ArivePipelineSync | null | undefined, eligible: boolean, generalizedApplicationEnabled = false) {
+  const sourceDate = state?.enabled && eligible && (state.workerOwner !== 'GENERALIZED' || generalizedApplicationEnabled)
     ? parseArivePipelineDate(jsonRecord(jsonRecord(state.snapshot).source).stageDate)
     : null;
   return calculateDaysInStatus(sourceDate ?? statusChangedAt);
@@ -213,12 +218,12 @@ function serializeRow(row: {
   };
   seniorProcessor: { id: string; name: string } | null;
   juniorProcessor: { id: string; name: string } | null;
-}, canManageArive: boolean) {
+}, actor: Actor) {
   const fallbackBorrowerName = splitBorrowerName(row.loan.borrowerName);
   const { ariveSync: syncState, ...safeRow } = row;
   return {
     ...safeRow,
-    ariveSync: ariveSyncView(syncState, isAriveVisibleForLoan(syncState, row.loan), canManageArive),
+    ariveSync: ariveSyncView(syncState, isAriveVisibleForLoan(syncState, row.loan, actor.canViewGeneralizedArive), actor.canManageArive, actor.generalizedApplicationEnabled),
     dateAssigned: row.dateAssigned.toISOString(),
     statusChangedAt: row.statusChangedAt.toISOString(),
     estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
@@ -243,7 +248,7 @@ function serializeRow(row: {
     finalRevenue: row.finalRevenue === null ? null : Number(row.finalRevenue),
     payrollSubmitted: row.loan.payrollCompRequests.length > 0,
     payrollStatus: row.loan.payrollCompRequests[0]?.status || null,
-    daysInStatus: displayedDaysInStatus(row.statusChangedAt, syncState, isAriveVisibleForLoan(syncState, row.loan)),
+    daysInStatus: displayedDaysInStatus(row.statusChangedAt, syncState, isAriveVisibleForLoan(syncState, row.loan, actor.canViewGeneralizedArive), actor.generalizedApplicationEnabled),
     loan: {
       ...row.loan,
       amount: Number(row.loan.amount),
@@ -543,7 +548,7 @@ export async function getProcessingPipelineRows(input: { ids: string[]; viewScop
   return {
     success: true as const,
     rows: rows.map((row) => ({
-      ...serializeRow(row, actor.canManageArive),
+      ...serializeRow(row, actor),
       canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
     })),
   };
@@ -614,7 +619,7 @@ export async function getProcessingPipeline(input?: {
             ],
           }]
         : []),
-      ...buildFilterWhere(input?.filters),
+      ...buildFilterWhere(actor.canViewGeneralizedArive ? input?.filters : { ...input?.filters, ariveStages: undefined }),
     ],
   };
 
@@ -622,7 +627,7 @@ export async function getProcessingPipeline(input?: {
   let orderBy:
     | Prisma.ProcessingPipelineLoanOrderByWithRelationInput
     | Prisma.ProcessingPipelineLoanOrderByWithRelationInput[];
-  if (input?.sortBy === 'ariveStage') orderBy = [{ ariveSync: { sourceStage: { sort: sortDirection, nulls: 'last' } } }, { pipelineStatus: sortDirection }];
+  if (input?.sortBy === 'ariveStage' && actor.canViewGeneralizedArive) orderBy = [{ ariveSync: { sourceStage: { sort: sortDirection, nulls: 'last' } } }, { pipelineStatus: sortDirection }];
   else if (input?.sortBy === 'borrowerName') orderBy = { loan: { borrowerName: sortDirection } };
   else if (input?.sortBy === 'loanNumber') orderBy = { loan: { loanNumber: sortDirection } };
   else if (input?.sortBy === 'statusChangedAt') orderBy = { statusChangedAt: sortDirection };
@@ -650,7 +655,7 @@ export async function getProcessingPipeline(input?: {
   return {
     success: true as const,
     rows: rows.map((row) => ({
-      ...serializeRow(row, actor.canManageArive),
+      ...serializeRow(row, actor),
       canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
     })),
     total,
@@ -749,6 +754,7 @@ export async function getProcessingAriveStageCounts(input: { sheet: ProcessingPi
   noStore();
   const actor = await getActor();
   if (!actor || !getProcessingPipelineAccess(actor.role).canView) return { success: false as const, error: 'Not authorized.' };
+  if (!actor.canViewGeneralizedArive) return { success: true as const, options: [], counts: [] };
   const groups = await prisma.arivePipelineSync.groupBy({
     by: ['sourceStage'],
     where: { workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', enabled: true, verifiedAt: { not: null }, lastSuccessAt: { not: null },
@@ -2800,8 +2806,8 @@ export async function getProcessingAriveSnapshot(id: string) {
     where: { AND: [{ id }, scopeWhere(actor)] },
     select: { version: true, ariveSync: true, notesSnapshot: true, loan: { select: { id: true, loanNumber: true, loanOfficerId: true } } },
   });
-  if (!row || !isAriveVisibleForLoan(row.ariveSync, row.loan)) return { success: false as const, error: 'No applied Arive snapshot is available for this file.' };
-  return { success: true as const, version: row.version, sync: ariveSyncView(row.ariveSync, true, actor.canManageArive),
+  if (!row || !isAriveVisibleForLoan(row.ariveSync, row.loan, actor.canViewGeneralizedArive)) return { success: false as const, error: 'No applied Arive snapshot is available for this file.' };
+  return { success: true as const, version: row.version, sync: ariveSyncView(row.ariveSync, true, actor.canManageArive, actor.generalizedApplicationEnabled),
     application: readAriveApplicationView(row.ariveSync?.snapshot, row.ariveSync?.lastSuccessAt),
     trackers: savedAriveTrackers(row.ariveSync?.snapshot),
     notes: savedAriveNotes(row.notesSnapshot?.notes), notesSyncedAt: row.notesSnapshot?.syncedAt.toISOString() ?? null };
@@ -2892,8 +2898,8 @@ export async function getProcessingBorrowerDetails(id: string) {
     details: {
       id: row.id,
       version: row.version,
-      ariveSync: ariveSyncView(row.ariveSync, isAriveVisibleForLoan(row.ariveSync, row.loan), actor.canManageArive),
-      ...(isAriveVisibleForLoan(row.ariveSync, row.loan) && row.ariveSync && (row.ariveSync.workerOwner === 'GENERALIZED' || row.loan.borrowerName.trim().replace(/\s+/g, ' ').toUpperCase() === ARIVE_SYNC_PILOT.borrowerName)
+      ariveSync: ariveSyncView(row.ariveSync, isAriveVisibleForLoan(row.ariveSync, row.loan, actor.canViewGeneralizedArive), actor.canManageArive, actor.generalizedApplicationEnabled),
+      ...(isAriveVisibleForLoan(row.ariveSync, row.loan, actor.canViewGeneralizedArive) && row.ariveSync && (row.ariveSync.workerOwner === 'GENERALIZED' || row.loan.borrowerName.trim().replace(/\s+/g, ' ').toUpperCase() === ARIVE_SYNC_PILOT.borrowerName)
         ? { ariveApplication: readAriveApplicationView(row.ariveSync.snapshot, row.ariveSync.lastSuccessAt) }
         : {}),
       canEdit:
@@ -2989,7 +2995,7 @@ export async function getProcessingBorrowerDetails(id: string) {
       processing: {
         sheet: row.sheet,
         pipelineStatus: row.pipelineStatus,
-        daysInStatus: displayedDaysInStatus(row.statusChangedAt, row.ariveSync, isAriveVisibleForLoan(row.ariveSync, row.loan)),
+        daysInStatus: displayedDaysInStatus(row.statusChangedAt, row.ariveSync, isAriveVisibleForLoan(row.ariveSync, row.loan, actor.canViewGeneralizedArive), actor.generalizedApplicationEnabled),
         statusChangedAt: row.statusChangedAt.toISOString(),
         dateAssigned: row.dateAssigned.toISOString(),
         estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
