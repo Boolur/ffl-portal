@@ -486,3 +486,65 @@ resolved the observed artificial failure-backoff case, but further scheduling an
 throughput tuning is needed before making a 30–60-second freshness claim. The
 operator cap was not increased to 300 or 600, and these checks do not establish
 Arive's provider allowance or the performance of all 799 candidates.
+
+### Missing-loan access comparison, November 12, 2026
+
+The protected production diagnostic added in `de28571` completed at **5:56:58 p.m.
+Pacific** (2026-11-13 01:56:58 UTC). It used the same encrypted saved connection,
+shared request budget, and concurrency controls as canonical sync. It performed
+six loan GET requests and one fresh authentication request, with no changes to
+enrollment, source loan teams, credentials, or loan values.
+
+- Control `GET /api/loans/17881588`: **200**, exact loan ID matched.
+  Request ID `45453336-f3f6-43e0-b34c-144704788f09`.
+- Missing target `GET /api/loans/17981070`: **403**.
+  Request ID `81af871c-2351-4180-9b2b-e906eea11013`.
+- Target `DISPLAY_ID` search: **200**, count 0, rows 0, complete page.
+  Request ID `54e6551d-b44c-4853-8d7f-22436e45010e`.
+- Target `BORROWER_NAME` search using its existing portal name: **200**, count 0,
+  rows 0, complete page. Request ID `ac9c2921-fa92-4081-9ca7-0d0a45ee146c`.
+- Fresh `POST /api/auth/access-token`: **201**.
+  Request ID `e52a6066-e8f4-4fbe-bcc7-b43072090215`.
+- Target numeric detail with that fresh token: **403**.
+  Request ID `5427e9fd-b84c-4caf-9c44-1eb78874278a`.
+- Target `DISPLAY_ID` search with the fresh token: **200**, count 0, rows 0,
+  complete page. Request ID `835a5957-04ca-4d5f-b902-d6bc9635c84c`.
+
+No target GUID lookup was attempted because no exact target search row supplied
+one. Numeric detail support was confirmed by the synthetic control. The missing
+record is visible in Arive's browser as **Jarrid Aquila, 17981070**, with primary LO
+Mo Daneshfar; its visible loan team did not include Matt. A previously API-visible
+comparison, **Bridger Burt, 17911176**, also has Mo as primary LO but includes Matt
+as a secondary LO. This is evidence for a user/loan-team visibility restriction,
+not proof of Arive's internal permission rule. Arive must trace the request IDs
+and confirm the saved credential's actor, branch scope, and loan-team restrictions.
+Browser admin visibility is not evidence of equivalent API visibility.
+
+The test rules out an expired cached token and a general failure to authenticate
+for this comparison. It confirms a loan-specific API denial for the known missing
+target. It does not prove that every absent portal record has the same cause;
+originator mismatches and incorrect or missing loan numbers remain separate issues.
+There is no evidence supporting a direct-numeric fallback that would recover this
+target, and no access check or matching rule was bypassed.
+
+The new Admin III interface is `compareAriveLoanAccess({ loanNumber })`, limited to
+one uniquely identified existing portal pipeline loan. It permits at most eight
+loan reads and two authentications per invocation, once per five minutes. It
+returns only HTTP metadata, counts, and identity booleans. Credential rotation
+stops the comparison; transient failures and incomplete checks are marked partial.
+
+### New-submission discovery
+
+Automatic enrollment now reserves up to five candidates per invocation for the
+newest eligible pipeline rows without an enrollment record. These candidates
+alternate with the existing cursor lane, share its 100-row total and time budget,
+and never advance the cursor themselves. Duplicate candidates are verified once.
+This covers normal JR completion, completed self-processing submissions, and
+import-created pipeline rows without adding Arive calls to task transactions.
+
+This removes the need for a newly submitted row to wait for a full UUID cursor
+wrap. It does not guarantee enrollment in 30–60 seconds: API access, request
+capacity, scheduler timing, identity verification, and provider indexing still
+apply. A failed identity/access check remains quarantined under existing retry
+rules. Full active-pipeline rollout is blocked until missing-file access and
+matching exceptions are resolved and the expanded cohort passes acceptance.

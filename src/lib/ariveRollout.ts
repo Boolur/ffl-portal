@@ -11,6 +11,7 @@ export const ARIVE_ROLLOUT_OWNER = 'GENERALIZED';
 export const ARIVE_ACTIVE_INTERVAL_MS = 60_000;
 export const ARIVE_QUIET_INTERVAL_MS = 60 * 60_000;
 const ENROLLMENT_BATCH_SIZE = 100;
+const NEW_ENROLLMENT_BATCH_SIZE = 5;
 export type AriveRolloutDeps = {
   db?: typeof prisma; session?: typeof ariveReadOnlySession; now?: () => Date;
   budgetReady?: typeof isAriveBudgetReady;
@@ -81,15 +82,38 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
   const control = await db.ariveRolloutControl.findUnique({ where: { id: ARIVE_ROLLOUT_CONNECTION } });
   if (!control?.collectionEnabled || !control.enrollmentEnabled && !options.pipelineId || !control.enabledById) return { scanned: 0, verified: 0, review: 0, skipped: true };
   await assertAriveRolloutReady(deps);
+  // New submissions must not wait for the UUID cursor to wrap through older
+  // exceptions. Keep this lane small and alternate it with the normal cursor.
+  const newRows = options.pipelineId ? [] : await db.processingPipelineLoan.findMany({
+    where: { AND: [ariveRolloutCohortWhere(now), { ariveSync: { is: null } }] },
+    include: { loan: { select: rolloutLoanSelect }, ariveSync: true },
+    orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], take: NEW_ENROLLMENT_BATCH_SIZE,
+  });
+  const cursorLimit = options.pipelineId ? 1 : ENROLLMENT_BATCH_SIZE - newRows.length;
   const rows = await db.processingPipelineLoan.findMany({
     where: options.pipelineId ? { id: options.pipelineId } : { AND: [ariveRolloutCohortWhere(now), ...(control.enrollmentCursor ? [{ id: { gt: control.enrollmentCursor } }] : [])] },
-    include: { loan: { select: rolloutLoanSelect }, ariveSync: true }, orderBy: { id: 'asc' }, take: options.pipelineId ? 1 : ENROLLMENT_BATCH_SIZE,
+    include: { loan: { select: rolloutLoanSelect }, ariveSync: true }, orderBy: { id: 'asc' }, take: cursorLimit,
   });
+  const candidates: { row: typeof rows[number]; fromCursor: boolean }[] = [];
+  for (let index = 0; index < Math.max(newRows.length, rows.length); index++) {
+    if (newRows[index]) candidates.push({ row: newRows[index], fromCursor: false });
+    if (rows[index]) candidates.push({ row: rows[index], fromCursor: true });
+  }
   let verified = 0; let review = 0; let scanned = 0; let lastScanned: string | null = null;
-  for (const row of rows) {
+  let cursorScanned = 0;
+  const seen = new Set<string>();
+  for (const { row, fromCursor } of candidates) {
     if (Date.now() > deadlineMs - 75_000) break;
     const priorScanned = lastScanned;
-    scanned++; lastScanned = row.id;
+    if (fromCursor) { cursorScanned++; lastScanned = row.id; }
+    // An overlap still advances its normal cursor position, but is never read
+    // or enrolled twice using the same pre-verification snapshot.
+    if (seen.has(row.id)) continue;
+    seen.add(row.id); scanned++;
+    const deferCandidate = () => {
+      scanned--;
+      if (fromCursor) { cursorScanned--; lastScanned = priorScanned; }
+    };
     if (row.ariveSync?.workerOwner === 'LEGACY' || row.ariveSync?.operatorPaused || !options.pipelineId && (row.ariveSync?.enrollmentStatus === 'VERIFIED' && row.ariveSync.enabled
       || row.ariveSync?.nextAttemptAt && row.ariveSync.nextAttemptAt > now)) continue;
     // Leave the next candidate at the cursor while the operator reviews the
@@ -98,7 +122,7 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
     // verify a file, but the transaction below always enforces the live cap.
     if (!options.pipelineId && control.cohortLimit !== null
       && await db.arivePipelineSync.count({ where: { workerOwner: ARIVE_ROLLOUT_OWNER, enabled: true } }) >= control.cohortLimit) {
-      scanned--; lastScanned = priorScanned; break;
+      deferCandidate(); break;
     }
     let enrollmentIssue: string | null = null; let match: ReturnType<typeof verifyAriveRolloutIdentity> | null = null;
     let status = 'REVIEW';
@@ -126,7 +150,7 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
       } catch (error) {
         // A busy shared transport or exhausted allowance did not verify this
         // candidate. Leave it next in line rather than skipping it until wrap.
-        if (error instanceof AriveTransportError) { scanned--; lastScanned = priorScanned; break; }
+        if (error instanceof AriveTransportError) { deferCandidate(); break; }
         enrollmentIssue = error instanceof AriveError ? error.message : 'The Arive link could not be verified. Existing portal values were retained.';
       }
     }
@@ -157,6 +181,6 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
     });
     if (saved) { if (match) verified++; else review++; }
   }
-  if (!options.pipelineId && (lastScanned || rows.length === 0)) await db.ariveRolloutControl.updateMany({ where: { id: ARIVE_ROLLOUT_CONNECTION, generation: control.generation, enrollmentEnabled: true }, data: { enrollmentCursor: scanned < rows.length || rows.length === ENROLLMENT_BATCH_SIZE ? lastScanned : null } });
+  if (!options.pipelineId && (lastScanned || rows.length === 0 && Date.now() <= deadlineMs - 75_000)) await db.ariveRolloutControl.updateMany({ where: { id: ARIVE_ROLLOUT_CONNECTION, generation: control.generation, enrollmentEnabled: true }, data: { enrollmentCursor: cursorScanned < rows.length || rows.length === cursorLimit ? lastScanned : null } });
   return { scanned, verified, review, skipped: false };
 }

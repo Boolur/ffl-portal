@@ -43,14 +43,17 @@ function harness() {
     audits: [] as Data[], practice: false,
   };
   let store = clone(initial); let transactionCount = 0; let beforeApply: (() => void) | undefined; let failNotesWrite = false; let activeLeases = 0; let enrolledCount = 0;
+  type EnrollmentRow = typeof store.row & { ariveSync: typeof store.sync | null };
+  const cursorRows = vi.fn(async (): Promise<EnrollmentRow[]> => [{ ...clone(store.row), ariveSync: clone(store.sync) }]);
+  const newRows = vi.fn(async (): Promise<EnrollmentRow[]> => []);
   const mutate = (target: object, data: Data) => { for (const [key, value] of Object.entries(data)) (target as Data)[key] = value && typeof value === 'object' && 'increment' in value ? Number((target as Data)[key]) + Number(value.increment) : clone(value); };
   const client = {
     $executeRaw: vi.fn().mockResolvedValue(1),
     ariveRolloutControl: { findUnique: vi.fn(async () => clone(store.control)), updateMany: vi.fn(async ({ data }: { data: Data }) => { mutate(store.control, data); return { count: 1 }; }) },
     arivePracticeLoan: { findFirst: vi.fn(async () => store.practice ? { ariveLoanId: store.sync.ariveLoanId } : null) },
     processingPipelineLoan: {
-      findUnique: vi.fn(async () => ({ ...clone(store.row), ariveSync: clone(store.sync) })),
-      findMany: vi.fn(async () => [{ ...clone(store.row), ariveSync: clone(store.sync) }]),
+      findUnique: vi.fn(async (args?: { where: { id?: string; loanId?: string } }): Promise<EnrollmentRow | null> => { void args; return { ...clone(store.row), ariveSync: clone(store.sync) }; }),
+      findMany: vi.fn(async (args?: { orderBy?: unknown }) => Array.isArray(args?.orderBy) ? newRows() : cursorRows()),
       updateMany: vi.fn(async ({ where, data }: { where: { version: number }; data: Data }) => { if (where.version !== store.row.version) return { count: 0 }; mutate(store.row, data); return { count: 1 }; }),
     },
     arivePipelineSync: {
@@ -64,7 +67,7 @@ function harness() {
           || where.manualRefreshRequestedAt === null && store.sync.manualRefreshRequestedAt !== null) return { count: 0 };
         mutate(store.sync, data); return { count: 1 };
       }),
-      upsert: vi.fn(async ({ update }: { update: Data }) => { mutate(store.sync, update); return clone(store.sync); }),
+      upsert: vi.fn(async ({ update }: { where?: { pipelineId: string }; create?: Data; update: Data }) => { mutate(store.sync, update); return clone(store.sync); }),
     },
     ariveLoanNotes: {
       findUnique: vi.fn(async () => clone(store.notes)),
@@ -94,12 +97,39 @@ function harness() {
   });
   const session = vi.fn(async () => api); const budgetReady = vi.fn(async () => ({ ready: true, reason: null as string | null }));
   const deps: AriveRolloutDeps = { db: db as unknown as AriveRolloutDeps['db'], session, budgetReady, now: () => new Date(time) };
-  return { get store() { return store; }, remote, db, client, session, api, deps, budgetReady,
+  return { get store() { return store; }, remote, db, client, session, api, deps, budgetReady, cursorRows, newRows,
     run: () => syncAriveRolloutLoan(store.row.id, deps), advance: () => { time = new Date(time.getTime() + 61 * 60_000); },
     beforeApply: (fn: () => void) => { beforeApply = fn; }, failNotes: () => { failNotesWrite = true; }, leases: (n: number) => { activeLeases = n; }, enrolled: (n: number) => { enrolledCount = n; },
   };
 }
 const note = (text: string) => ({ id: 1, text, createdByName: 'Synthetic processor', createdAt: '2026-11-12T19:00:00Z', updatedAt: '2026-11-12T19:00:00Z', nestedNotes: [] });
+
+function enrollmentLanes() {
+  const h = harness();
+  type Row = Awaited<ReturnType<typeof h.cursorRows>>[number];
+  const records = new Map<string, Row>();
+  const candidate = (id: string, number: string, isNew: boolean) => {
+    const row: Row = { ...clone(h.store.row), id, loanId: `loan-${id}`,
+      loan: { ...clone(h.store.row.loan), id: `loan-${id}`, loanNumber: number },
+      ariveSync: isNew ? null : { ...clone(h.store.sync), pipelineId: id, ariveLoanId: number, enabled: false, enrollmentStatus: 'REVIEW' } };
+    records.set(id, row); return clone(row);
+  };
+  h.client.processingPipelineLoan.findUnique.mockImplementation(async args => clone(records.get(args?.where.id ?? '') ?? null));
+  h.client.arivePipelineSync.upsert.mockImplementation(async args => {
+    const row = records.get(args.where!.pipelineId)!;
+    row.ariveSync = { ...clone(h.store.sync), ...(row.ariveSync ?? {}), ...clone(args.update), pipelineId: row.id };
+    return clone(row.ariveSync);
+  });
+  h.client.arivePipelineSync.count.mockImplementation(async () => [...records.values()].filter(row => row.ariveSync?.enabled).length);
+  h.api.mockImplementation(async path => {
+    const number = path.includes('?') ? new URL(`https://example.test${path}`).searchParams.get('searchValue') : path.replace('/loans/remote-', '');
+    const row = [...records.values()].find(row => row.loan.loanNumber === number);
+    if (!row) throw new Error('Unexpected synthetic loan read');
+    const details = { ...clone(h.remote.details), ariveLoanId: Number(number), sysGUID: `remote-${number}` };
+    return path.includes('?') ? { count: 1, rows: [details] } : details;
+  });
+  return { ...h, records, candidate };
+}
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('generalized worker isolation and atomic application', () => {
@@ -295,11 +325,107 @@ describe('generalized worker isolation and atomic application', () => {
 });
 
 describe('existing-portal enrollment', () => {
+  it('discovers a new UUID behind the cursor without waiting for a backlog wrap', async () => {
+    const h = enrollmentLanes(); h.store.control.enrollmentCursor = 'pipeline-500';
+    const newest = h.candidate('pipeline-001', '99999001', true);
+    const older = h.candidate('pipeline-900', '99999900', false);
+    h.newRows.mockResolvedValueOnce([newest]); h.cursorRows.mockResolvedValueOnce([older]);
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 2, verified: 2 });
+    expect(h.records.get(newest.id)?.ariveSync).toMatchObject({ enabled: true, enrollmentStatus: 'VERIFIED' });
+    expect(h.api.mock.calls[0][0]).toContain('searchValue=99999001');
+    expect(h.client.processingPipelineLoan.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: { AND: expect.arrayContaining([{ ariveSync: { is: null } }]) }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], take: 5,
+    }));
+    expect(h.client.processingPipelineLoan.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: { AND: expect.arrayContaining([{ id: { gt: 'pipeline-500' } }]) }, orderBy: { id: 'asc' }, take: 99,
+    }));
+    expect(h.store.control.enrollmentCursor).toBeNull();
+  });
+  it('interleaves older retries with new submissions and reserves cursor space within one hundred candidates', async () => {
+    const h = enrollmentLanes(); h.store.control.cohortLimit = null;
+    const newest = Array.from({ length: 5 }, (_, index) => h.candidate(`new-${index}`, String(99999000 + index), true));
+    const older = Array.from({ length: 95 }, (_, index) => h.candidate(`old-${String(index).padStart(3, '0')}`, String(99999100 + index), false));
+    h.newRows.mockResolvedValueOnce(newest); h.cursorRows.mockResolvedValueOnce(older);
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 100, verified: 100 });
+    const searched = h.api.mock.calls.map(call => call[0]).filter(path => path.includes('searchValue='));
+    expect(searched.slice(0, 4)).toEqual([
+      expect.stringContaining('searchValue=99999000'), expect.stringContaining('searchValue=99999100'),
+      expect.stringContaining('searchValue=99999001'), expect.stringContaining('searchValue=99999101'),
+    ]);
+    expect(h.client.processingPipelineLoan.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 95 }));
+    expect(h.store.control.enrollmentCursor).toBe('old-094');
+  });
+  it('deduplicates a new row appearing in the cursor batch while advancing only cursor positions', async () => {
+    const h = enrollmentLanes(); const newest = h.candidate('pipeline-900', '99999900', true);
+    h.newRows.mockResolvedValueOnce([newest]); h.cursorRows.mockResolvedValueOnce([newest]);
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 1, verified: 1 });
+    expect(h.api).toHaveBeenCalledTimes(2); expect(h.client.arivePipelineSync.upsert).toHaveBeenCalledTimes(1);
+    expect(h.store.control.enrollmentCursor).toBeNull();
+  });
+  it('does not advance the cursor when a completed priority read consumes the remaining headroom', async () => {
+    const h = enrollmentLanes(); const started = Date.now(); const wallClock = vi.spyOn(Date, 'now').mockReturnValue(started);
+    h.store.control.enrollmentCursor = 'pipeline-500';
+    const newest = h.candidate('pipeline-001', '99999001', true); const older = h.candidate('pipeline-900', '99999900', false);
+    h.newRows.mockResolvedValueOnce([newest]); h.cursorRows.mockResolvedValueOnce([older]);
+    const api = h.api.getMockImplementation()!;
+    h.api.mockImplementation(async (...args) => { const result = await api(...args); wallClock.mockReturnValue(started + 76_000); return result; });
+    expect(await enrollAriveRolloutBatch({ ...h.deps, deadlineMs: started + 150_000 })).toMatchObject({ scanned: 1, verified: 1 });
+    expect(h.store.control.enrollmentCursor).toBe('pipeline-500');
+    expect(h.client.ariveRolloutControl.updateMany).not.toHaveBeenCalled();
+    expect(h.records.get(older.id)?.ariveSync?.enrollmentStatus).toBe('REVIEW');
+  });
+  it('keeps partial cursor progress separate from the number of priority candidates scanned', async () => {
+    const h = enrollmentLanes(); const started = Date.now(); const wallClock = vi.spyOn(Date, 'now').mockReturnValue(started);
+    const newest = Array.from({ length: 3 }, (_, index) => h.candidate(`new-${index}`, String(99999000 + index), true));
+    const older = Array.from({ length: 3 }, (_, index) => h.candidate(`old-${index}`, String(99999100 + index), false));
+    h.newRows.mockResolvedValueOnce(newest); h.cursorRows.mockResolvedValueOnce(older);
+    const api = h.api.getMockImplementation()!; let reads = 0;
+    h.api.mockImplementation(async (...args) => { const result = await api(...args); if (++reads === 6) wallClock.mockReturnValue(started + 76_000); return result; });
+    expect(await enrollAriveRolloutBatch({ ...h.deps, deadlineMs: started + 150_000 })).toMatchObject({ scanned: 3, verified: 3 });
+    expect(h.store.control.enrollmentCursor).toBe('old-0');
+    expect(h.records.get('old-1')?.ariveSync?.enrollmentStatus).toBe('REVIEW');
+    expect(h.records.get('new-2')?.ariveSync).toBeNull();
+  });
+  it('does not reset an exhausted cursor if discovery queries consume the remaining headroom', async () => {
+    const h = enrollmentLanes(); const started = Date.now(); const wallClock = vi.spyOn(Date, 'now').mockReturnValue(started);
+    h.store.control.enrollmentCursor = 'pipeline-500';
+    h.newRows.mockResolvedValueOnce([h.candidate('pipeline-001', '99999001', true)]);
+    h.cursorRows.mockImplementationOnce(async () => { wallClock.mockReturnValue(started + 76_000); return []; });
+    expect(await enrollAriveRolloutBatch({ ...h.deps, deadlineMs: started + 150_000 })).toMatchObject({ scanned: 0 });
+    expect(h.store.control.enrollmentCursor).toBe('pipeline-500'); expect(h.api).not.toHaveBeenCalled();
+    expect(h.client.ariveRolloutControl.updateMany).not.toHaveBeenCalled();
+  });
+  it.each(['transport', 'cohort', 'deadline'])('retains both lanes when %s prevents the first priority read', async cause => {
+    const h = enrollmentLanes(); h.store.control.enrollmentCursor = 'pipeline-500';
+    const newest = h.candidate('pipeline-001', '99999001', true); const older = h.candidate('pipeline-900', '99999900', false);
+    h.newRows.mockResolvedValueOnce([newest]); h.cursorRows.mockResolvedValueOnce([older]);
+    if (cause === 'transport') h.api.mockRejectedValueOnce(new AriveTransportError('BUDGET_EXHAUSTED', 'Synthetic budget exhausted'));
+    if (cause === 'cohort') h.store.control.cohortLimit = 0;
+    const deps = cause === 'deadline' ? { ...h.deps, deadlineMs: Date.now() + 74_000 } : h.deps;
+    expect(await enrollAriveRolloutBatch(deps)).toMatchObject({ scanned: 0, verified: 0 });
+    expect(h.store.control.enrollmentCursor).toBe('pipeline-500'); expect(h.client.arivePipelineSync.upsert).not.toHaveBeenCalled();
+  });
+  it.each(['operator pause', 'global pause', 'legacy ownership', 'practice'])('retains priority verification fences after %s changes during a read', async cause => {
+    const h = enrollmentLanes(); const newest = h.candidate('pipeline-001', '99999001', true);
+    h.newRows.mockResolvedValueOnce([newest]); h.cursorRows.mockResolvedValueOnce([]);
+    const api = h.api.getMockImplementation()!;
+    h.api.mockImplementationOnce(async (...args) => {
+      const row = h.records.get(newest.id)!;
+      if (cause === 'operator pause') row.ariveSync = { ...clone(h.store.sync), operatorPaused: true };
+      if (cause === 'global pause') { h.store.control.enrollmentEnabled = false; h.store.control.generation++; }
+      if (cause === 'legacy ownership') row.ariveSync = { ...clone(h.store.sync), workerOwner: 'LEGACY' };
+      if (cause === 'practice') h.store.practice = true;
+      return api(...args);
+    });
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ verified: 0 });
+    if (cause === 'practice') expect(h.records.get(newest.id)?.ariveSync).toMatchObject({ enabled: false, enrollmentStatus: 'EXCLUDED' });
+    else expect(h.client.arivePipelineSync.upsert).not.toHaveBeenCalled();
+  });
   it.each([false, true])('retries the same transport-deferred enrollment candidate (prior scanned: %s)', async prior => {
     const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;
     h.store.control.enrollmentCursor = 'pipeline-before'; h.remote.transportFailure = true;
     const candidate = { ...clone(h.store.row), ariveSync: clone(h.store.sync) };
-    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce(prior
+    h.cursorRows.mockResolvedValueOnce(prior
       ? [{ ...clone(candidate), id: 'pipeline-checked', ariveSync: { ...clone(h.store.sync), enabled: true, enrollmentStatus: 'VERIFIED' } }, candidate]
       : [candidate]);
     expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: prior ? 1 : 0, verified: 0 });
@@ -309,11 +435,11 @@ describe('existing-portal enrollment', () => {
   it('scans one hundred candidates and advances the cursor until the final partial batch', async () => {
     const h = harness();
     const candidates = Array.from({ length: 100 }, (_, index) => ({ ...clone(h.store.row), id: `pipeline-${String(index).padStart(3, '0')}`, ariveSync: clone(h.store.sync) }));
-    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce(candidates);
+    h.cursorRows.mockResolvedValueOnce(candidates);
     expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 100, verified: 0 });
     expect(h.client.processingPipelineLoan.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 100 }));
     expect(h.store.control.enrollmentCursor).toBe('pipeline-099');
-    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce([{ ...clone(h.store.row), id: 'pipeline-100', ariveSync: clone(h.store.sync) }]);
+    h.cursorRows.mockResolvedValueOnce([{ ...clone(h.store.row), id: 'pipeline-100', ariveSync: clone(h.store.sync) }]);
     expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 1 });
     expect(h.client.processingPipelineLoan.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
       where: { AND: expect.arrayContaining([{ id: { gt: 'pipeline-099' } }]) }, take: 100,
@@ -367,7 +493,7 @@ describe('existing-portal enrollment', () => {
     const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;
     h.store.control.enrollmentCursor = 'pipeline-before'; h.enrolled(10);
     const candidate = { ...clone(h.store.row), ariveSync: clone(h.store.sync) };
-    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce(prior
+    h.cursorRows.mockResolvedValueOnce(prior
       ? [{ ...clone(candidate), id: 'pipeline-checked', ariveSync: { ...clone(h.store.sync), enabled: true, enrollmentStatus: 'VERIFIED' } }, candidate]
       : [candidate]);
     expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: prior ? 1 : 0, verified: 0 });
@@ -386,7 +512,7 @@ describe('existing-portal enrollment', () => {
   it('stops within a batch immediately after filling the last cohort slot', async () => {
     const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false; h.enrolled(9);
     const candidate = { ...clone(h.store.row), ariveSync: clone(h.store.sync) };
-    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce([candidate, { ...clone(candidate), id: 'pipeline-other-2' }]);
+    h.cursorRows.mockResolvedValueOnce([candidate, { ...clone(candidate), id: 'pipeline-other-2' }]);
     const upsert = h.client.arivePipelineSync.upsert.getMockImplementation()!;
     h.client.arivePipelineSync.upsert.mockImplementation(async args => { const result = await upsert(args); h.enrolled(10); return result; });
     expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 1, verified: 1 });
@@ -416,6 +542,7 @@ describe('existing-portal enrollment', () => {
     h.remote.details.currentLoanStatus = { status: 'LOAN_FUNDED', date: '2026-05-10', adverseReason: '' };
     expect(await enrollAriveRolloutBatch(h.deps, { pipelineId: h.store.row.id })).toMatchObject({ verified: 1 });
     expect(h.client.processingPipelineLoan.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: h.store.row.id }, take: 1 }));
+    expect(h.client.processingPipelineLoan.findMany).toHaveBeenCalledTimes(1); expect(h.newRows).not.toHaveBeenCalled();
     expect(h.store.sync.manualRefreshRequestedAt).toBeInstanceOf(Date); expect(await h.run()).toMatchObject({ success: true, applied: true });
     h.advance(); expect(await h.run()).toMatchObject({ skipped: true });
   });
