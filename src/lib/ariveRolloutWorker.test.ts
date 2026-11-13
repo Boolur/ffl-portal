@@ -100,7 +100,7 @@ function harness() {
   };
 }
 const note = (text: string) => ({ id: 1, text, createdByName: 'Synthetic processor', createdAt: '2026-11-12T19:00:00Z', updatedAt: '2026-11-12T19:00:00Z', nestedNotes: [] });
-afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('generalized worker isolation and atomic application', () => {
   it('is off by default and never claims legacy-owned rows', async () => {
@@ -212,11 +212,47 @@ describe('generalized worker isolation and atomic application', () => {
     expect(h.client.arivePipelineSync.findMany).toHaveBeenCalledTimes(500);
     expect(h.client.arivePipelineSync.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 1 }));
   });
-  it('does not start another wave without thirty seconds left in the invocation', async () => {
+  it.each([29_000, 74_000, 75_000])('does not start another wave with only %i milliseconds left in the invocation', async remaining => {
     const h = harness();
-    expect(await runDueAriveRolloutSyncs({ ...h.deps, deadlineMs: Date.now() + 29_000 })).toEqual({ checked: 0, succeeded: 0, failed: 0 });
+    expect(await runDueAriveRolloutSyncs({ ...h.deps, deadlineMs: Date.now() + remaining })).toEqual({ checked: 0, succeeded: 0, failed: 0 });
     expect(h.client.arivePipelineSync.findMany).not.toHaveBeenCalled();
     expect(h.api).not.toHaveBeenCalled();
+  });
+  it('rechecks wave headroom after a delayed due query before claiming any file', async () => {
+    const h = harness(); const started = Date.now(); const wallClock = vi.spyOn(Date, 'now').mockReturnValue(started);
+    h.client.arivePipelineSync.findMany.mockImplementationOnce(async () => { wallClock.mockReturnValue(started + 76_000); return [{ pipelineId: h.store.row.id }]; });
+    expect(await runDueAriveRolloutSyncs({ ...h.deps, deadlineMs: started + 150_000 })).toEqual({ checked: 0, succeeded: 0, failed: 0 });
+    expect(h.db.$transaction).not.toHaveBeenCalled(); expect(h.api).not.toHaveBeenCalled();
+  });
+  it.each([0, 2])('defers a partial read at the shared deadline without changing %i prior failures', async failures => {
+    const h = harness(); const started = Date.now(); const wallClock = vi.spyOn(Date, 'now').mockReturnValue(started);
+    const pendingAt = date('2026-11-12T19:59:00Z'); h.store.sync.manualRefreshRequestedAt = pendingAt;
+    h.store.sync.failureCount = failures; h.store.sync.lastError = failures ? 'Previous provider failure' : null;
+    h.store.sync.snapshot = { lastComplete: 'retained' }; h.store.sync.collectedSnapshot = { lastCompleteCollection: 'retained' };
+    h.store.sync.lastSuccessAt = date('2026-11-12T19:00:00Z'); h.store.sync.collectedAt = date('2026-11-12T19:00:00Z');
+    const before = clone(h.store.row); const previousSync = clone(h.store.sync); let calls = 0;
+    const api = h.api.getMockImplementation()!;
+    h.api.mockImplementation(async (...args) => { const result = await api(...args); if (++calls === 2) wallClock.mockReturnValue(started + 125_000); return result; });
+    expect(await syncAriveRolloutLoan(h.store.row.id, { ...h.deps, deadlineMs: started + 150_000 })).toMatchObject({ success: false, deferred: true, localDeadline: true });
+    expect(h.api).toHaveBeenCalledTimes(2); expect(h.store.row).toEqual(before);
+    expect(h.store.sync).toMatchObject({ snapshot: previousSync.snapshot, collectedSnapshot: previousSync.collectedSnapshot,
+      collectedAt: previousSync.collectedAt, lastSuccessAt: previousSync.lastSuccessAt, failureCount: failures, lastError: previousSync.lastError,
+      manualRefreshRequestedAt: pendingAt, nextAttemptAt: date('2026-11-12T20:01:00Z'), leaseToken: null, leaseUntil: null });
+    expect(h.store.notes).toBeNull(); expect(h.store.audits).toHaveLength(0);
+  });
+  it('does not count a local scheduling deferral as a failed provider read', async () => {
+    const h = harness(); const started = Date.now(); const wallClock = vi.spyOn(Date, 'now').mockReturnValue(started);
+    h.api.mockImplementationOnce(async () => { wallClock.mockReturnValue(started + 125_000); return clone(h.remote.details); });
+    expect(await runDueAriveRolloutSyncs({ ...h.deps, deadlineMs: started + 150_000 })).toEqual({ checked: 1, succeeded: 0, failed: 0 });
+    expect(h.store.sync.failureCount).toBe(0); expect(h.store.sync.nextAttemptAt).toEqual(date('2026-11-12T20:01:00Z'));
+    expect(h.client.arivePipelineSync.findMany).toHaveBeenCalledTimes(1);
+  });
+  it('keeps an independent overlong loan read on the genuine failure backoff', async () => {
+    const h = harness(); h.api.mockImplementationOnce(async () => { h.advance(); return clone(h.remote.details); });
+    expect(await h.run()).toMatchObject({ success: false, deferred: false, localDeadline: false });
+    expect(h.store.sync).toMatchObject({ failureCount: 1, nextAttemptAt: date('2026-11-12T21:06:00Z'), leaseToken: null, leaseUntil: null });
+    expect(h.store.sync.lastError).toContain('exceeded its time budget');
+    expect(h.client.processingPipelineLoan.updateMany).not.toHaveBeenCalled();
   });
   it('retains a failed manual request without letting it bypass retry backoff', async () => {
     const h = harness(); h.store.sync.manualRefreshRequestedAt = date('2026-11-12T19:59:00Z'); h.remote.notesFailure = true;

@@ -18,6 +18,8 @@ import {
 const LEASE_MS = 4 * 60_000;
 const READ_BUDGET_MS = 150_000;
 const MAX_SCHEDULED_ATTEMPTS = 500;
+const SCHEDULED_WAVE_HEADROOM_MS = 75_000;
+const WORKER_DEADLINE_RETRY_MS = 60_000;
 // Faster successful polling must not shorten the existing failure backoff.
 const RETRY_BASE_MS = 5 * 60_000;
 const noteTargets: Partial<Record<AriveStructuredNoteKey, keyof ProcessingPipelineLoan>> = {
@@ -69,7 +71,8 @@ export async function syncAriveRolloutLoan(pipelineId: string, deps: AriveRollou
     const underlying = await (deps.session || ariveReadOnlySession)();
     const api: Awaited<ReturnType<typeof ariveReadOnlySession>> = async (path, body, method) => {
       if (body || method) throw new AriveError('Canonical synchronization only reads from Arive.');
-      if (clock().getTime() - started.getTime() > READ_BUDGET_MS || deps.deadlineMs && Date.now() > deps.deadlineMs - 25_000) throw new AriveError('Arive refresh exceeded its time budget. The previous applied snapshot was retained.');
+      if (clock().getTime() - started.getTime() > READ_BUDGET_MS) throw new AriveError('Arive refresh exceeded its time budget. The previous applied snapshot was retained.');
+      if (deps.deadlineMs && Date.now() >= deps.deadlineMs - 25_000) throw new AriveTransportError('WORKER_DEADLINE', 'This refresh was deferred to the next worker run. The previous complete snapshot was retained.', new Date(clock().getTime() + WORKER_DEADLINE_RETRY_MS));
       return underlying(path);
     };
     const path = `/loans/${encodeURIComponent(claimed.state.ariveGuid!)}`;
@@ -160,6 +163,7 @@ export async function syncAriveRolloutLoan(pipelineId: string, deps: AriveRollou
     }, { maxWait: 10_000, timeout: 20_000 });
   } catch (error) {
     const deferred = error instanceof AriveTransportError;
+    const localDeadline = deferred && error.code === 'WORKER_DEADLINE';
     const message = error instanceof AriveError || deferred ? error.message : 'Arive synchronization failed. The previous applied values were retained.';
     await db.$transaction(async tx => {
       const owner = { pipelineId, leaseToken: token, workerOwner: ARIVE_ROLLOUT_OWNER, workerGeneration: claimed.state.workerGeneration };
@@ -170,11 +174,14 @@ export async function syncAriveRolloutLoan(pipelineId: string, deps: AriveRollou
         data: { manualRefreshRequestedAt: claimed.state.manualRefreshRequestedAt },
       });
       await tx.arivePipelineSync.updateMany({ where: owner, data: {
-        failureCount: claimed.state.failureCount + 1, lastError: message, leaseToken: null, leaseUntil: null,
+        // A spent invocation budget is local scheduling, not a provider error.
+        // Keep any previous failure history without starting exponential backoff.
+        ...(!localDeadline ? { failureCount: claimed.state.failureCount + 1, lastError: message } : {}),
+        leaseToken: null, leaseUntil: null,
         nextAttemptAt: deferred && error.retryAt && error.retryAt > clock() ? error.retryAt : new Date(clock().getTime() + Math.min(ARIVE_QUIET_INTERVAL_MS, RETRY_BASE_MS * 2 ** Math.min(claimed.state.failureCount, 4))),
       } });
     });
-    return { success: false as const, error: message, deferred };
+    return { success: false as const, error: message, deferred, localDeadline };
   }
 }
 
@@ -186,7 +193,7 @@ export async function runDueAriveRolloutSyncs(deps: AriveRolloutDeps = {}) {
   await assertAriveRolloutReady(deps);
   const deadlineMs = deps.deadlineMs ?? Date.now() + 150_000;
   const attempted: string[] = []; const results: Awaited<ReturnType<typeof syncAriveRolloutLoan>>[] = [];
-  while (attempted.length < MAX_SCHEDULED_ATTEMPTS && Date.now() < deadlineMs - 30_000) {
+  while (attempted.length < MAX_SCHEDULED_ATTEMPTS && Date.now() < deadlineMs - SCHEDULED_WAVE_HEADROOM_MS) {
   const due = await db.arivePipelineSync.findMany({ where: {
     enabled: true, workerOwner: ARIVE_ROLLOUT_OWNER, connectionId: ARIVE_ROLLOUT_CONNECTION, enrollmentStatus: 'VERIFIED',
     pipelineId: { notIn: attempted },
@@ -202,11 +209,12 @@ export async function runDueAriveRolloutSyncs(deps: AriveRolloutDeps = {}) {
     { nextAttemptAt: { sort: 'asc', nulls: 'first' } },
     { pipelineId: 'asc' },
   ], take: Math.min(2, MAX_SCHEDULED_ATTEMPTS - attempted.length) });
-  if (!due.length) break;
+  // The due query can wait on the database; recheck before taking file leases.
+  if (!due.length || Date.now() >= deadlineMs - SCHEDULED_WAVE_HEADROOM_MS) break;
   attempted.push(...due.map(row => row.pipelineId));
   const wave = await Promise.all(due.map(row => syncAriveRolloutLoan(row.pipelineId, { ...deps, deadlineMs })));
   results.push(...wave);
   if (wave.some(result => !result.success && result.deferred) || wave.every(result => result.success && result.skipped)) break;
   }
-  return { checked: attempted.length, succeeded: results.filter(r => r.success && !r.skipped).length, failed: results.filter(r => !r.success).length };
+  return { checked: attempted.length, succeeded: results.filter(r => r.success && !r.skipped).length, failed: results.filter(r => !r.success && !r.localDeadline).length };
 }
