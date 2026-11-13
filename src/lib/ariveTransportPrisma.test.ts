@@ -12,7 +12,7 @@ vi.mock('@/lib/ariveCrypto', async () => import('./ariveCrypto'));
 vi.mock('./ariveTransport', async () => ({ ...await vi.importActual<typeof import('./ariveTransport')>('./ariveTransport'), createAriveTransportSession: mock.session }));
 import { encryptAriveCredentials } from './ariveCrypto';
 import { ariveTransportFingerprint } from './ariveTransport';
-import { configureAriveTransportQuota, createPrismaAriveTransportStore, getAriveTransportMetrics, isAriveBudgetReady, sharedAriveSessionIfEnabled } from './ariveTransportPrisma';
+import { configureAriveOperatorBudget, configureAriveTransportQuota, createPrismaAriveTransportStore, getAriveTransportMetrics, isAriveBudgetReady, sharedAriveSessionIfEnabled } from './ariveTransportPrisma';
 
 const secret = 'synthetic-server-encryption-secret-for-tests-only';
 const credentials = { clientId: 'synthetic-client', secret: 'synthetic-secret', apiKey: 'synthetic-api-key' };
@@ -85,7 +85,7 @@ describe('shared transport deployment and quota gates', () => {
     const result = await configureAriveTransportQuota({ providerRequestLimit: 125, providerWindowSeconds: 60, enabled: true });
     expect(result).toEqual({ enabled: true, allowance: 100, windowSeconds: 60, deploymentActive: true });
     const update = mock.upsert.mock.calls[0][0].update;
-    expect(update).toMatchObject({ providerRequestLimit: 125, providerWindowSeconds: 60, enabled: true, quotaKeyFingerprint: ariveTransportFingerprint(credentials, secret, 'key') });
+    expect(update).toMatchObject({ allowanceSource: 'PROVIDER_CONFIRMED', providerRequestLimit: 125, providerWindowSeconds: 60, enabled: true, quotaKeyFingerprint: ariveTransportFingerprint(credentials, secret, 'key') });
     expect(update).not.toHaveProperty('cooldownUntil'); expect(update).not.toHaveProperty('encryptedAccessToken');
     expect(mock.lock.mock.calls[0][1]).toBe('arive-transport:company'); expect(mock.session).not.toHaveBeenCalled();
   });
@@ -102,6 +102,7 @@ describe('shared transport deployment and quota gates', () => {
     const now = new Date('2026-11-12T19:00:30Z');
     const result = await getAriveTransportMetrics({ now: () => now });
     expect(result).toEqual({ checkedAt: now.toISOString(), deploymentActive: true, enabled: true, ready: true, reason: null,
+      allowanceSource: 'PROVIDER_CONFIRMED', operatorRequestLimit: null,
       providerRequestLimit: 100, windowSeconds: 60, allowance: 80, used: 10, remaining: 70, activeRequests: 1, cooldownUntil: null, nextAvailableAt: null });
     expect(mock.aggregate.mock.calls[0][0].where).toEqual({ connectionId: 'company', keyFingerprint: ariveTransportFingerprint(credentials, secret, 'key'), startedAt: { gt: new Date('2026-11-12T18:59:30Z') } });
     for (const value of [credentials.apiKey, credentials.secret, secret, ariveTransportFingerprint(credentials, secret, 'key')]) expect(JSON.stringify(result)).not.toContain(value);
@@ -114,10 +115,12 @@ describe('shared transport deployment and quota gates', () => {
     const result = await getAriveTransportMetrics({ now: () => now });
     expect(result).toMatchObject({ ready: false, used: 90, remaining: 0, cooldownUntil: '2026-11-12T19:02:00.000Z', nextAvailableAt: '2026-11-12T19:02:00.000Z' });
   });
-  it('does not query new tables for metrics when the deployment flag is off', async () => {
+  it('shows saved controls before activation without touching credentials, usage or network', async () => {
     vi.stubEnv('ARIVE_SHARED_TRANSPORT_ENABLED', 'false');
-    expect(await getAriveTransportMetrics()).toMatchObject({ ready: false, deploymentActive: false, used: null });
-    expect(mock.runtime).not.toHaveBeenCalled(); expect(mock.config).not.toHaveBeenCalled();
+    expect(await getAriveTransportMetrics()).toMatchObject({ ready: false, deploymentActive: false, used: null, allowanceSource: 'PROVIDER_CONFIRMED', providerRequestLimit: 100, allowance: 80 });
+    expect(mock.runtime).toHaveBeenCalledTimes(1); expect(mock.config).not.toHaveBeenCalled();
+    expect(mock.session).not.toHaveBeenCalled(); expect(mock.aggregate).not.toHaveBeenCalled();
+    expect(mock.runtime.mock.calls[0][0].select).not.toHaveProperty('encryptedAccessToken');
   });
   it('cleans only a bounded expired batch outside every supported quota window', async () => {
     const now = new Date('2026-11-12T19:00:30Z'); const cutoff = new Date(now.getTime() - 31_536_000_000);
@@ -127,5 +130,65 @@ describe('shared transport deployment and quota gates', () => {
     expect(mock.expired).toHaveBeenCalledWith({ where: { connectionId: 'company', startedAt: { lt: cutoff }, leaseUntil: { lt: now } }, select: { id: true }, orderBy: { startedAt: 'asc' }, take: 1000 });
     expect(mock.remove).toHaveBeenCalledWith({ where: { connectionId: 'company', id: { in: ['old-1', 'old-2'] }, startedAt: { lt: cutoff }, leaseUntil: { lt: now } } });
     expect(mock.create).toHaveBeenCalledWith({ data: request });
+  });
+});
+
+describe('operator-authorized capacity persistence', () => {
+  it('records the actor and current key without asserting provider confirmation or resetting existing limits', async () => {
+    const now = new Date('2026-11-12T20:00:00Z');
+    const result = await configureAriveOperatorBudget({ requestsPerMinute: 120, enabled: true, authorizedById: 'admin-test' }, { now: () => now });
+    expect(result).toEqual({ enabled: true, allowance: 120, windowSeconds: 60, deploymentActive: true, allowanceSource: 'OPERATOR_AUTHORIZED' });
+    const update = mock.upsert.mock.calls[0][0].update;
+    expect(update).toEqual({ enabled: true, allowanceSource: 'OPERATOR_AUTHORIZED', operatorRequestLimit: 120,
+      operatorAuthorizedAt: now, operatorAuthorizedById: 'admin-test', quotaKeyFingerprint: ariveTransportFingerprint(credentials, secret, 'key'), quotaConfirmedAt: null });
+    for (const untouched of ['providerRequestLimit', 'providerWindowSeconds', 'cooldownUntil', 'encryptedAccessToken']) expect(update).not.toHaveProperty(untouched);
+    expect(mock.lock.mock.calls[0][1]).toBe('arive-transport:company');
+    expect(mock.remove).not.toHaveBeenCalled(); expect(mock.session).not.toHaveBeenCalled(); expect(mock.create).not.toHaveBeenCalled();
+  });
+  it.each(['disabled', 'key rotation'])('invalidates cached authentication on %s while preserving cooldown and request history', async scenario => {
+    if (scenario === 'key rotation') {
+      const prior = await mock.runtime(); mock.runtime.mockResolvedValue({ ...prior, quotaKeyFingerprint: 'old-key' });
+    }
+    await configureAriveOperatorBudget({ requestsPerMinute: 120, enabled: scenario !== 'disabled', authorizedById: 'admin-test' });
+    const update = mock.upsert.mock.calls[0][0].update;
+    expect(update).toMatchObject({ encryptedAccessToken: null, accessTokenExpiresAt: null, credentialFingerprint: null, refreshLeaseToken: null, refreshLeaseUntil: null });
+    expect(update).not.toHaveProperty('cooldownUntil'); expect(mock.remove).not.toHaveBeenCalled();
+  });
+  it.each([
+    { requestsPerMinute: 9, enabled: true, authorizedById: 'admin-test' },
+    { requestsPerMinute: 601, enabled: true, authorizedById: 'admin-test' },
+    { requestsPerMinute: 120, enabled: true, authorizedById: '' },
+    { requestsPerMinute: 120, enabled: true, authorizedById: 'invalid actor' },
+    { requestsPerMinute: 120, enabled: 'true' as unknown as boolean, authorizedById: 'admin-test' },
+  ])('rejects invalid capacity or actor before database access: %j', async input => {
+    await expect(configureAriveOperatorBudget(input)).rejects.toThrow();
+    expect(mock.config).not.toHaveBeenCalled(); expect(mock.transaction).not.toHaveBeenCalled(); expect(mock.upsert).not.toHaveBeenCalled();
+  });
+  it('allows an authorized operator budget without a provider confirmation and rejects key rotation', async () => {
+    const prior = await mock.runtime();
+    const runtime = { ...prior, allowanceSource: 'OPERATOR_AUTHORIZED', operatorRequestLimit: 120,
+      operatorAuthorizedAt: new Date('2026-01-01'), operatorAuthorizedById: 'admin-test', quotaConfirmedAt: null };
+    mock.runtime.mockResolvedValue(runtime);
+    expect(await isAriveBudgetReady()).toEqual({ ready: true, reason: null });
+    mock.runtime.mockResolvedValue({ ...runtime, quotaKeyFingerprint: 'another-key' });
+    expect(await isAriveBudgetReady()).toMatchObject({ ready: false, reason: expect.stringContaining('current API key') });
+    expect(mock.session).not.toHaveBeenCalled();
+  });
+  it.each([true, false])('reports operator capacity truthfully with deployment enabled: %s', async active => {
+    vi.stubEnv('ARIVE_SHARED_TRANSPORT_ENABLED', String(active));
+    const prior = await mock.runtime();
+    mock.runtime.mockResolvedValue({ ...prior, allowanceSource: 'OPERATOR_AUTHORIZED', operatorRequestLimit: 120,
+      operatorAuthorizedAt: new Date('2026-01-01'), operatorAuthorizedById: 'admin-test', quotaConfirmedAt: null });
+    const result = await getAriveTransportMetrics();
+    expect(result).toMatchObject({ deploymentActive: active, ready: active, allowanceSource: 'OPERATOR_AUTHORIZED',
+      providerRequestLimit: null, operatorRequestLimit: 120, allowance: 120, windowSeconds: 60, used: active ? 10 : null, remaining: active ? 110 : null });
+    for (const hidden of ['quotaConfirmedAt', 'quotaKeyFingerprint', 'operatorAuthorizedById', 'encryptedAccessToken', 'credentialFingerprint']) expect(result).not.toHaveProperty(hidden);
+    expect(JSON.stringify(result)).not.toContain('synthetic'); expect(mock.session).not.toHaveBeenCalled();
+    if (!active) { expect(mock.config).not.toHaveBeenCalled(); expect(mock.aggregate).not.toHaveBeenCalled(); }
+  });
+  it('fails safely when pre-activation migration or saved controls are unavailable', async () => {
+    vi.stubEnv('ARIVE_SHARED_TRANSPORT_ENABLED', 'false'); mock.runtime.mockRejectedValue(new Error('sensitive database detail'));
+    expect(await getAriveTransportMetrics()).toMatchObject({ ready: false, allowanceSource: null, operatorRequestLimit: null, reason: 'Saved Arive request controls are unavailable.' });
+    expect(mock.config).not.toHaveBeenCalled(); expect(mock.session).not.toHaveBeenCalled();
   });
 });

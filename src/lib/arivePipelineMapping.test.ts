@@ -53,6 +53,11 @@ describe('inbound Arive stage routing', () => {
     for (const key of ['sheet', 'pipelineStatus', 'fundedAt', 'statusChangedAt']) expect(result.patch).not.toHaveProperty(key);
     expect(result.issues).toContainEqual(expect.objectContaining({ code: 'FUNDED_REVERSAL_REVIEW' }));
   });
+  it.each(['LOAN_FUNDED', 'BROKER_CHECK_RECEIVED', 'COMMISSION_PAID'])('retains an existing funded date when %s has no funded milestone date', stage => {
+    const result = plan({ stage, date: null, current: current({ sheet: 'FUNDING', pipelineStatus: 'FUNDED', fundedAt: at('2026-11-01') }) });
+    expect(result.patch).not.toHaveProperty('fundedAt');
+    expect(result.issues).toContainEqual(expect.objectContaining({ field: 'fundedAt', code: 'MISSING_DATE' }));
+  });
   it('archives recognized adverse files without deletion or fabricating an adverse milestone', () => {
     const result = plan({ details: { currentLoanStatus: { status: 'APPLICATION_INTAKE', date: null, adverseReason: 'APP_WITHDRAWN_BY_BORROWER' } } });
     expect(result.patch.archivedAt).toEqual(now); expect(result.source.stageDate).toBeNull();

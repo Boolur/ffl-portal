@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { decryptAriveCredentials, encryptAriveCredentials } from './ariveCrypto';
-import { AriveTransportError, ariveResponseCooldown, ariveTransportFingerprint, createAriveTransportSession, validateAriveProviderAllowance, type AriveRequestReservation, type AriveRuntime, type AriveTransportOptions, type AriveTransportStore, type TransportCredentials } from './ariveTransport';
+import { AriveTransportError, ariveResponseCooldown, ariveTransportFingerprint, createAriveTransportSession, validateAriveOperatorBudget, validateAriveProviderAllowance, type AriveRequestReservation, type AriveRuntime, type AriveTransportOptions, type AriveTransportStore, type TransportCredentials } from './ariveTransport';
 
 const serverSecret = 'synthetic-server-encryption-secret-for-tests-only';
 function fixture(limit = 100, seconds = 60) {
@@ -35,6 +35,12 @@ function fixture(limit = 100, seconds = 60) {
     rotate: (patch: Partial<TransportCredentials>) => { credentials = { ...credentials, ...patch }; } };
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; }
+function operatorFixture(limit = 120) {
+  const h = fixture();
+  Object.assign(h.runtime, { allowanceSource: 'OPERATOR_AUTHORIZED', operatorRequestLimit: limit,
+    operatorAuthorizedAt: new Date(h.now), operatorAuthorizedById: 'admin-test', quotaConfirmedAt: null });
+  return h;
+}
 
 describe('shared Arive request budget', () => {
   it.each(['disabled', 'unconfirmed', 'wrong key'])('does not make a request when quota is %s', async reason => {
@@ -65,6 +71,57 @@ describe('shared Arive request budget', () => {
     pending.forEach(item => item.resolve(Response.json({ ok: true }))); await Promise.all([one, two]);
     expect(h.requests.every(row => row.finishedAt)).toBe(true);
   });
+  it('lets an unreserved third call wait for a global slot without sending or charging retries', async () => {
+    const h = fixture(); const first = await createAriveTransportSession(h.options);
+    const pending = [deferred<Response>(), deferred<Response>()]; let index = 0; let maxActive = 0;
+    h.fetcher.mockImplementation(async () => {
+      maxActive = Math.max(maxActive, h.requests.filter(row => !row.finishedAt).length);
+      return index < 2 ? pending[index++].promise : Response.json({ ok: true });
+    });
+    const one = first('/loans/one'); const two = first('/loans/two');
+    await vi.waitFor(() => expect(h.fetcher).toHaveBeenCalledTimes(3));
+    const waited = deferred<boolean>(); const releaseWait = deferred<boolean>();
+    const sleep = vi.fn(async () => { waited.resolve(true); await releaseWait.promise; });
+    const other = await createAriveTransportSession({ ...h.options, sleep });
+    const third = other('/loans/three'); await waited.promise;
+    expect(h.fetcher).toHaveBeenCalledTimes(3); expect(h.requests).toHaveLength(3);
+    pending[0].resolve(Response.json({ ok: true })); await one; releaseWait.resolve(true);
+    await expect(third).resolves.toEqual({ ok: true });
+    expect(maxActive).toBe(2); expect(h.requests).toHaveLength(4); expect(sleep).toHaveBeenCalledTimes(1);
+    pending[1].resolve(Response.json({ ok: true })); await two;
+  });
+  it.each([true, false])('bounds a busy wait when its injected clock advances: %s', async advances => {
+    const h = fixture(); const first = await createAriveTransportSession(h.options);
+    const sleep = vi.fn(async (ms: number) => { if (advances) h.advance(ms); });
+    const other = await createAriveTransportSession({ ...h.options, sleep });
+    const pending = [deferred<Response>(), deferred<Response>()]; let index = 0;
+    h.fetcher.mockImplementation(() => pending[index++].promise);
+    const one = first('/loans/one'); const two = first('/loans/two');
+    await vi.waitFor(() => expect(h.fetcher).toHaveBeenCalledTimes(3));
+    const started = h.now;
+    await expect(other('/loans/three')).rejects.toMatchObject({ code: 'BUSY' });
+    expect(sleep).toHaveBeenCalledTimes(12); expect(h.now - started).toBeLessThanOrEqual(5000);
+    expect(h.requests).toHaveLength(3); expect(h.fetcher).toHaveBeenCalledTimes(3);
+    pending.forEach(item => item.resolve(Response.json({ ok: true }))); await Promise.all([one, two]);
+  });
+  it.each(['pause', 'cooldown', 'key', 'budget'])('rechecks %s after waiting for a slot', async change => {
+    const h = fixture(); const first = await createAriveTransportSession(h.options);
+    const pending = [deferred<Response>(), deferred<Response>()]; let index = 0;
+    h.fetcher.mockImplementation(() => pending[index++].promise);
+    const one = first('/loans/one'); const two = first('/loans/two');
+    await vi.waitFor(() => expect(h.fetcher).toHaveBeenCalledTimes(3));
+    const sleep = vi.fn(async () => {
+      pending[0].resolve(Response.json({ ok: true })); await one;
+      if (change === 'pause') h.runtime.enabled = false;
+      if (change === 'cooldown') h.runtime.cooldownUntil = new Date(h.now + 60_000);
+      if (change === 'key') h.runtime.quotaKeyFingerprint = 'replacement-key';
+      if (change === 'budget') h.runtime.providerRequestLimit = 2;
+    });
+    const other = await createAriveTransportSession({ ...h.options, sleep });
+    await expect(other('/loans/three')).rejects.toMatchObject({ code: { pause: 'DISABLED', cooldown: 'COOLDOWN', key: 'QUOTA_UNCONFIRMED', budget: 'BUDGET_EXHAUSTED' }[change] });
+    expect(h.fetcher).toHaveBeenCalledTimes(3); expect(h.requests).toHaveLength(3);
+    pending[1].resolve(Response.json({ ok: true })); await two;
+  });
   it('retains failed attempts in the budget and releases their concurrency slot', async () => {
     const h = fixture(); const api = await createAriveTransportSession(h.options);
     h.fetcher.mockRejectedValueOnce(new Error('Network unavailable'));
@@ -82,7 +139,7 @@ describe('shared Arive request budget', () => {
   it('persists the longest provider cooldown and blocks other sessions without another API request', async () => {
     const h = fixture(); const api = await createAriveTransportSession(h.options);
     h.fetcher.mockResolvedValueOnce(new Response('private upstream text', { status: 429, headers: { 'Retry-After': '30', 'X-RateLimit-Reset': String(h.now / 1000 + 90) } }));
-    await expect(api('/loans/test')).rejects.toThrow('HTTP 429');
+    await expect(api('/loans/test')).rejects.toMatchObject({ code: 'COOLDOWN', retryAt: new Date(h.now + 90_000) });
     expect(h.runtime.cooldownUntil?.getTime()).toBe(h.now + 90_000);
     const other = await createAriveTransportSession(h.options);
     await expect(other('/loans/test')).rejects.toMatchObject({ code: 'COOLDOWN' });
@@ -91,9 +148,111 @@ describe('shared Arive request budget', () => {
   });
   it('counts and applies cooldown to authentication failures too', async () => {
     const h = fixture(); h.fetcher.mockResolvedValue(new Response('', { status: 429, headers: { 'ratelimit-reset': '120' } }));
-    await expect(createAriveTransportSession(h.options)).rejects.toThrow('HTTP 429');
+    await expect(createAriveTransportSession(h.options)).rejects.toMatchObject({ code: 'COOLDOWN' });
     await expect(createAriveTransportSession(h.options)).rejects.toMatchObject({ code: 'COOLDOWN' });
     expect(h.fetcher).toHaveBeenCalledTimes(1); expect(h.requests[0].statusCode).toBe(429); expect(h.runtime.refreshLeaseToken).toBeNull();
+  });
+  it.each(['authentication', 'loan read'])('returns typed throttling before a generic HTTP parser during %s', async operation => {
+    const h = fixture();
+    const parseJson = vi.fn(async (response: Response) => {
+      if (!response.ok) throw new Error(`Provider HTTP ${response.status}`);
+      return response.json();
+    });
+    const options = { ...h.options, parseJson };
+    const api = operation === 'loan read' ? await createAriveTransportSession(options) : null;
+    parseJson.mockClear();
+    h.fetcher.mockResolvedValueOnce(new Response('sensitive provider body', { status: 429, headers: { 'Retry-After': '45' } }));
+    await expect(api ? api('/loans/test') : createAriveTransportSession(options)).rejects.toMatchObject({
+      name: 'AriveTransportError', code: 'COOLDOWN', retryAt: new Date(h.now + 45_000),
+    });
+    expect(parseJson).not.toHaveBeenCalled();
+    expect(h.runtime.cooldownUntil).toEqual(new Date(h.now + 45_000));
+    expect(h.requests.at(-1)).toMatchObject({ statusCode: 429, finishedAt: new Date(h.now) });
+  });
+  it('returns the longest already persisted cooldown when another in-flight response asks for less', async () => {
+    const h = fixture(); const api = await createAriveTransportSession(h.options);
+    const pending = deferred<Response>(); h.fetcher.mockImplementationOnce(() => pending.promise);
+    const result = api('/loans/test');
+    const expected = expect(result).rejects.toMatchObject({ code: 'COOLDOWN', retryAt: new Date(h.now + 90_000) });
+    await vi.waitFor(() => expect(h.fetcher).toHaveBeenCalledTimes(2));
+    h.runtime.cooldownUntil = new Date(h.now + 90_000);
+    pending.resolve(new Response('', { status: 429, headers: { 'Retry-After': '10' } })); await expected;
+    expect(h.runtime.cooldownUntil).toEqual(new Date(h.now + 90_000));
+  });
+});
+
+describe('operator-authorized request ceilings', () => {
+  it('shares an exact minute ceiling across instances, including authentication and writes', async () => {
+    const h = operatorFixture(10); const first = await createAriveTransportSession(h.options);
+    const second = await createAriveTransportSession(h.options);
+    for (let i = 0; i < 9; i++) await (i % 2 ? first : second)('/loans/test', i === 3 ? { synthetic: true } : undefined);
+    await expect(second('/loans/test')).rejects.toMatchObject({ code: 'BUDGET_EXHAUSTED' });
+    expect(h.fetcher).toHaveBeenCalledTimes(10); expect(h.requests).toHaveLength(10);
+    expect(h.requests.filter(row => row.kind === 'AUTH')).toHaveLength(1);
+    expect(h.requests.filter(row => row.kind === 'POST')).toHaveLength(1);
+    expect(h.runtime.quotaConfirmedAt).toBeNull(); expect(h.runtime.providerRequestLimit).toBe(100);
+    h.advance(60_001); await second('/loans/test'); expect(h.fetcher).toHaveBeenCalledTimes(11);
+  });
+  it.each(['missing actor', 'missing date', 'future date', 'invalid date', 'wrong key', 'invalid cap', 'unknown mode'])('refuses %s before authentication', async invalid => {
+    const h = operatorFixture();
+    if (invalid === 'missing actor') h.runtime.operatorAuthorizedById = null;
+    if (invalid === 'missing date') h.runtime.operatorAuthorizedAt = null;
+    if (invalid === 'future date') h.runtime.operatorAuthorizedAt = new Date(h.now + 1);
+    if (invalid === 'invalid date') h.runtime.operatorAuthorizedAt = new Date('invalid');
+    if (invalid === 'wrong key') h.rotate({ apiKey: 'new-key' });
+    if (invalid === 'invalid cap') h.runtime.operatorRequestLimit = 601;
+    if (invalid === 'unknown mode') h.runtime.allowanceSource = 'UNVERIFIED';
+    await expect(createAriveTransportSession(h.options)).rejects.toBeInstanceOf(AriveTransportError);
+    expect(h.fetcher).not.toHaveBeenCalled(); expect(h.requests).toHaveLength(0);
+  });
+  it('requires authorization for a rotated API key and never treats a saved provider quota as authorization', async () => {
+    const h = operatorFixture(); const api = await createAriveTransportSession(h.options);
+    h.rotate({ apiKey: 'replacement-key' }); h.runtime.quotaConfirmedAt = new Date(h.now);
+    await expect(api('/loans/test')).rejects.toMatchObject({ code: 'OPERATOR_BUDGET_UNAUTHORIZED' });
+    expect(h.fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('halves the persistent ceiling once per cooldown episode across concurrent responses', async () => {
+    const h = operatorFixture(120); const api = await createAriveTransportSession(h.options);
+    const pending = [deferred<Response>(), deferred<Response>()]; let index = 0;
+    h.fetcher.mockImplementation(() => pending[index++].promise);
+    const one = api('/loans/one'); const two = api('/loans/two');
+    const rejectedOne = expect(one).rejects.toMatchObject({ code: 'COOLDOWN' }); const rejectedTwo = expect(two).rejects.toMatchObject({ code: 'COOLDOWN' });
+    await vi.waitFor(() => expect(h.fetcher).toHaveBeenCalledTimes(3));
+    pending[0].resolve(new Response('', { status: 429, headers: { 'Retry-After': '30' } })); await rejectedOne;
+    expect(h.runtime.operatorRequestLimit).toBe(60);
+    pending[1].resolve(new Response('', { status: 429, headers: { 'Retry-After': '90' } })); await rejectedTwo;
+    expect(h.runtime.operatorRequestLimit).toBe(60); expect(h.runtime.cooldownUntil?.getTime()).toBe(h.now + 90_000);
+    expect(h.runtime.providerRequestLimit).toBe(100); expect(h.runtime.quotaConfirmedAt).toBeNull();
+    await expect(api('/loans/test')).rejects.toMatchObject({ code: 'COOLDOWN' });
+    expect(h.fetcher).toHaveBeenCalledTimes(3);
+    h.advance(90_001); h.fetcher.mockResolvedValueOnce(new Response('', { status: 429, headers: { 'Retry-After': '1' } }));
+    await expect(api('/loans/test')).rejects.toMatchObject({ code: 'COOLDOWN' }); expect(h.runtime.operatorRequestLimit).toBe(30);
+    h.advance(1001); h.fetcher.mockResolvedValueOnce(Response.json({ ok: true })); await api('/loans/test');
+    expect(h.runtime.operatorRequestLimit).toBe(30);
+  });
+  it('applies the 10-request minimum to authentication throttling without automatic increases', async () => {
+    const h = operatorFixture(15);
+    h.fetcher.mockResolvedValueOnce(new Response('', { status: 429, headers: { 'Retry-After': '1' } }));
+    await expect(createAriveTransportSession(h.options)).rejects.toMatchObject({ code: 'COOLDOWN' });
+    expect(h.runtime.operatorRequestLimit).toBe(10); expect(h.requests[0].statusCode).toBe(429);
+    h.advance(1001); const api = await createAriveTransportSession(h.options); await api('/loans/test');
+    expect(h.runtime.operatorRequestLimit).toBe(10);
+  });
+  it.each(['key', 'authorization'])('does not lower newer %s settings from an in-flight throttled response', async change => {
+    const h = operatorFixture(); const api = await createAriveTransportSession(h.options);
+    const pending = deferred<Response>(); h.fetcher.mockImplementationOnce(() => pending.promise);
+    const request = api('/loans/test'); const rejected = expect(request).rejects.toMatchObject({ code: 'COOLDOWN' });
+    await vi.waitFor(() => expect(h.fetcher).toHaveBeenCalledTimes(2));
+    if (change === 'key') h.runtime.quotaKeyFingerprint = 'new-key-fingerprint';
+    else h.runtime.operatorAuthorizedAt = new Date(h.now + 1);
+    pending.resolve(new Response('', { status: 429, headers: { 'Retry-After': '30' } })); await rejected;
+    expect(h.runtime.operatorRequestLimit).toBe(120);
+    expect(h.runtime.cooldownUntil?.getTime() ?? null).toBe(change === 'key' ? null : h.now + 30_000);
+  });
+  it('validates the operator ceiling independently from the provider reserve', () => {
+    expect(validateAriveOperatorBudget(10)).toEqual({ limit: 10, seconds: 60, allowance: 10 });
+    expect(validateAriveOperatorBudget(600)).toEqual({ limit: 600, seconds: 60, allowance: 600 });
+    for (const value of [9, 601, 10.5, '120', null, Infinity]) expect(() => validateAriveOperatorBudget(value)).toThrow();
   });
 });
 

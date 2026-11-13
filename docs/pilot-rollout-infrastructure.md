@@ -13,7 +13,7 @@ All four deployment gates default off, and absent database controls are off:
 - `ARIVE_SHARED_TRANSPORT_ENABLED`: routes every Arive session through shared
   request controls. When on, a missing/paused runtime fails closed.
 - `ARIVE_ROLLOUT_ENABLED`: permits generalized collection, still requiring
-  collection/enrollment/application controls and a confirmed quota.
+  collection/enrollment/application controls and an authorized request budget.
 
 Matt's existing submission pilot and TESTING TESTER sync remain unchanged until
 explicit cutover. Adding schema does not enroll files or call Arive. Appearance,
@@ -99,6 +99,10 @@ the existing flat ZIP manifest protocol and revision/selection validation.
 - `configureAriveRolloutRequestAllowance({providerRequestLimit,
   providerWindowSeconds,enabled})`: provider-confirmed allowance only. Effective
   ceiling is floor(80%); no guessed allowance is supplied.
+- `configureAriveRolloutOperatorBudget({requestsPerMinute,enabled})`: separately
+  authorizes a BISU ceiling of 10–600 requests per minute, recording the fresh
+  Admin III actor and timestamp. This is not an Arive-confirmed quota. The exact
+  cap applies without the provider allowance's 80% multiplier.
 - `enrollAriveRolloutFiles()`: bounded existing-file scan.
 - `verifyAndEnrollExistingAriveLoan({pipelineId})`: explicit older-funding path,
   requiring the same identity verification, quota and cohort controls.
@@ -160,7 +164,8 @@ date formats, explicit clearing, source removal and provenance behavior.
 ## Queue and API capacity
 
 Minute cron `/api/internal/arive/sync` runs owners separately; minute cron
-`/api/internal/arive/sync/enroll` handles up to 25 enrollment candidates. Both require CRON_SECRET and
+`/api/internal/arive/sync/enroll` handles up to 100 enrollment candidates and stops
+when the current cohort fills, preserving its cursor. Both require CRON_SECRET and
 production environment. Disabled rollout performs no new collection/enrollment.
 
 Persistent oldest-due queue, two-file waves, globally enforced request concurrency
@@ -179,9 +184,15 @@ Authentication, pagination, panels and retries share a rolling request budget.
 Encrypted tokens are reused with expiry margin, refresh leases and credential
 fingerprint invalidation. GET authentication can refresh/retry once. Provider
 cooldowns and retry backoff retain the last complete successful applied snapshot.
+Operator-authorized budgets preserve existing usage and cooldowns when changed.
+An Arive 429 halves the operator ceiling, with a floor of 10, once per cooldown
+episode; increases require another explicit operator configuration. A busy request
+slot may wait up to five seconds before dispatch, always rechecking the shared
+budget and global concurrency. This never retries an already-sent request.
 
 For a new API key: pause generalized collection, disable shared deployment gate,
-test/save through protected existing setup, confirm that key's quota, then re-enable
+test/save through protected existing setup, confirm that key's quota or explicitly
+authorize its operator budget, then re-enable
 shared transport and collection. Same-key secret/client rotation invalidates tokens
 without resetting usage. Never log credentials or paste them into chat.
 
@@ -204,7 +215,8 @@ without resetting usage. Never log credentials or paste them into chat.
 6. Create three clearly synthetic Arive files without invitations/messages/credit/
    services; register their IDs before enrollment. Test practice workflow and real
    reads. Read acceptance does not establish document-upload permission.
-7. Confirm provider quota; enable shared transport and collection with application
+7. Save a confirmed provider quota or an explicitly authorized operator cap before
+   enabling the shared transport gate; enable collection with application
    false and cohort limit 10. Review matches, exceptions and proposed differences.
 8. Transfer TESTING TESTER with the worker-handoff action. Its transaction increments
    workerGeneration, changes one owner and clears the prior lease. In-flight legacy
@@ -239,7 +251,7 @@ no provider calls. `inspectAriveReportedAllowance` makes one known TESTING TESTE
 (plus authentication when needed), no more than once per minute across operators.
 It reads only documented `X-RateLimit-Limit`/`X-RateLimit-Remaining` headers. A missing
 or malformed limit is not confirmation and never enables collection. Run this probe
-and save the confirmed allowance **before** enabling the shared deployment gate;
+and save a confirmed allowance or explicitly authorized operator cap **before** enabling the shared deployment gate;
 the shared transport deliberately fails closed without its saved budget.
 
 `measureAriveTestReadTiming` is a preactivation diagnostic for the known synthetic
@@ -288,3 +300,20 @@ No SSNs, raw provider bodies, or new outbound loan/document operations are intro
   time; this is an extrapolation from one synthetic file, not a sustained load test.
   The sample did not establish an approved request allowance, enroll real loans,
   or enable any generalized rollout controls.
+
+## Operator-authorized activation preparation — November 12, 2026
+
+The owner explicitly authorized broad activation without waiting for a provider
+quota. The new operator budget records that decision separately from provider
+confirmation. Planned live ramp: 120 requests/minute for 10 verified files, then
+300 for 50, then up to 600 for the remaining verified cohort after healthy cycles.
+Global concurrency stays at two. These are self-imposed caps, not measured Arive
+capacity; automatic throttling can reduce them.
+
+Predeployment verification: 1,524 tests passed; one live-storage test skipped because
+its credentials were absent. Type checks, focused lint, and offline schema checks
+passed. The migration preserves existing provider settings and legacy integration;
+operator fields remain unauthorized by default. Missing Arive funding history now
+retains an existing funded date and raises a review issue. Actual cohort activation
+and freshness results must be recorded after production checks, not inferred from
+these local tests.

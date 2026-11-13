@@ -10,7 +10,7 @@ export const ARIVE_ROLLOUT_CONNECTION = 'company';
 export const ARIVE_ROLLOUT_OWNER = 'GENERALIZED';
 export const ARIVE_ACTIVE_INTERVAL_MS = 60_000;
 export const ARIVE_QUIET_INTERVAL_MS = 60 * 60_000;
-const ENROLLMENT_BATCH_SIZE = 25;
+const ENROLLMENT_BATCH_SIZE = 100;
 export type AriveRolloutDeps = {
   db?: typeof prisma; session?: typeof ariveReadOnlySession; now?: () => Date;
   budgetReady?: typeof isAriveBudgetReady;
@@ -92,8 +92,14 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
     scanned++; lastScanned = row.id;
     if (row.ariveSync?.workerOwner === 'LEGACY' || row.ariveSync?.operatorPaused || !options.pipelineId && (row.ariveSync?.enrollmentStatus === 'VERIFIED' && row.ariveSync.enabled
       || row.ariveSync?.nextAttemptAt && row.ariveSync.nextAttemptAt > now)) continue;
-    if (!options.pipelineId && row.ariveSync?.enrollmentStatus === 'VERIFIED' && control.cohortLimit !== null
-      && await db.arivePipelineSync.count({ where: { workerOwner: ARIVE_ROLLOUT_OWNER, enabled: true } }) >= control.cohortLimit) continue;
+    // Leave the next candidate at the cursor while the operator reviews the
+    // current cohort. Do not consume API capacity verifying the rest of the
+    // pipeline before there is room to collect it. Explicit reviews may still
+    // verify a file, but the transaction below always enforces the live cap.
+    if (!options.pipelineId && control.cohortLimit !== null
+      && await db.arivePipelineSync.count({ where: { workerOwner: ARIVE_ROLLOUT_OWNER, enabled: true } }) >= control.cohortLimit) {
+      scanned--; lastScanned = priorScanned; break;
+    }
     let enrollmentIssue: string | null = null; let match: ReturnType<typeof verifyAriveRolloutIdentity> | null = null;
     let status = 'REVIEW';
     if (await isArivePracticeFile(db, row.loan.loanNumber)) { status = 'EXCLUDED'; enrollmentIssue = 'This file is registered for isolated practice.'; }

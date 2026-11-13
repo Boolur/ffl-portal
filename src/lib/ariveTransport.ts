@@ -6,6 +6,11 @@ export type AriveRuntime = {
   quotaConfirmedAt: Date | null; quotaKeyFingerprint: string | null; cooldownUntil: Date | null;
   encryptedAccessToken: string | null; accessTokenExpiresAt: Date | null; credentialFingerprint: string | null;
   refreshLeaseToken: string | null; refreshLeaseUntil: Date | null;
+  // Optional for snapshots created before the additive budget-mode migration.
+  allowanceSource?: string;
+  operatorRequestLimit?: number | null;
+  operatorAuthorizedAt?: Date | null;
+  operatorAuthorizedById?: string | null;
 };
 export type AriveRequestReservation = { id: string; connectionId: string; keyFingerprint: string; kind: string; startedAt: Date; leaseUntil: Date; finishedAt: Date | null; statusCode: number | null };
 export type AriveTransportTransaction = {
@@ -38,9 +43,23 @@ export function validateAriveProviderAllowance(limit: unknown, seconds: unknown)
   }
   return { limit: Number(limit), seconds: Number(seconds), allowance: Math.floor(Number(limit) * 0.8) };
 }
+export function validateAriveOperatorBudget(limit: unknown) {
+  if (!Number.isSafeInteger(limit) || Number(limit) < 10 || Number(limit) > 600) {
+    throw new AriveTransportError('INVALID_OPERATOR_BUDGET', 'Choose an operator request ceiling from 10 to 600 requests per minute.');
+  }
+  return { limit: Number(limit), seconds: 60, allowance: Number(limit) };
+}
 export function assertAriveTransportReady(runtime: AriveRuntime | null, keyFingerprint: string, now: Date) {
   if (!runtime?.enabled) throw new AriveTransportError('DISABLED', 'Shared Arive request controls are not enabled.');
-  if (!runtime.quotaConfirmedAt || runtime.quotaConfirmedAt > now || runtime.quotaKeyFingerprint !== keyFingerprint) {
+  const source = runtime.allowanceSource ?? 'PROVIDER_CONFIRMED';
+  if (source === 'OPERATOR_AUTHORIZED') {
+    if (!runtime.operatorAuthorizedAt || !Number.isFinite(runtime.operatorAuthorizedAt.getTime()) || runtime.operatorAuthorizedAt > now
+      || !runtime.operatorAuthorizedById || !/^[a-zA-Z0-9-]{1,100}$/.test(runtime.operatorAuthorizedById) || runtime.quotaKeyFingerprint !== keyFingerprint) {
+      throw new AriveTransportError('OPERATOR_BUDGET_UNAUTHORIZED', 'Authorize an operator request ceiling for the current API key before collecting pipeline data.');
+    }
+    return validateAriveOperatorBudget(runtime.operatorRequestLimit);
+  }
+  if (source !== 'PROVIDER_CONFIRMED' || !runtime.quotaConfirmedAt || !Number.isFinite(runtime.quotaConfirmedAt.getTime()) || runtime.quotaConfirmedAt > now || runtime.quotaKeyFingerprint !== keyFingerprint) {
     throw new AriveTransportError('QUOTA_UNCONFIRMED', 'Confirm the Arive request allowance for the current API key before enabling broader synchronization.');
   }
   return validateAriveProviderAllowance(runtime.providerRequestLimit, runtime.providerWindowSeconds);
@@ -85,7 +104,7 @@ export async function createAriveTransportSession(options: AriveTransportOptions
   async function request<T>(c: TransportCredentials, kind: string, run: (recordStatus: (response: Response) => Promise<void>) => Promise<T>): Promise<T> {
     const key = fingerprint(c, 'key');
     const id = randomUUID();
-    await options.store.transaction(async tx => {
+    const reserve = () => options.store.transaction(async tx => {
       const now = clock(); const runtime = await tx.runtime();
       const quota = assertAriveTransportReady(runtime, key, now);
       if (runtime!.cooldownUntil && runtime!.cooldownUntil > now) throw new AriveTransportError('COOLDOWN', 'Arive requests are paused until the provider cooldown ends.', runtime!.cooldownUntil);
@@ -93,15 +112,50 @@ export async function createAriveTransportSession(options: AriveTransportOptions
       const recent = await tx.recentRequests(key, new Date(now.getTime() - quota.seconds * 1000));
       if (recent.count >= quota.allowance) throw new AriveTransportError('BUDGET_EXHAUSTED', 'The reserved Arive request allowance has been reached. Please retry after the window resets.', new Date((recent.oldest?.getTime() ?? now.getTime()) + quota.seconds * 1000 + 1));
       await tx.createRequest({ id, connectionId: 'company', keyFingerprint: key, kind, startedAt: now, leaseUntil: new Date(now.getTime() + REQUEST_LEASE_MS), finishedAt: null, statusCode: null });
+      return { source: runtime!.allowanceSource, operatorLimit: runtime!.operatorRequestLimit, authorizedAt: runtime!.operatorAuthorizedAt?.getTime() ?? null };
     });
+    const waitStarted = clock().getTime();
+    const reserveWhenAvailable = async () => {
+      for (let attempt = 0; ; attempt++) {
+        try { return await reserve(); }
+        catch (error) {
+          // Wait only for an unreserved slot. Nothing was sent or charged, so
+          // this never retries a write or bypasses cooldown/key/budget checks.
+          const elapsed = clock().getTime() - waitStarted;
+          if (!(error instanceof AriveTransportError) || error.code !== 'BUSY' || elapsed >= 5000 || attempt >= 12) throw error;
+          await sleep(Math.min(400, Math.max(1, 5000 - elapsed)));
+        }
+      }
+    };
+    const authorization = await reserveWhenAvailable();
     let status: number | null = null;
     try {
       return await run(async response => {
         status = response.status;
-        if (response.status === 429) await options.store.transaction(async tx => {
-          const runtime = await tx.runtime(); const until = ariveResponseCooldown(response.headers, clock());
-          if (runtime && (!runtime.cooldownUntil || runtime.cooldownUntil < until)) await tx.updateRuntime({ cooldownUntil: until });
-        });
+        if (response.status === 429) {
+          const retryAt = await options.store.transaction(async tx => {
+            const runtime = await tx.runtime(); const now = clock(); const until = ariveResponseCooldown(response.headers, now);
+            // A response from an old key must not pause or reconfigure its replacement.
+            if (!runtime || runtime.quotaKeyFingerprint !== key) return until;
+            const patch: Partial<AriveRuntime> = {};
+            if (!runtime.cooldownUntil || runtime.cooldownUntil < until) patch.cooldownUntil = until;
+            // Back off once per cooldown episode, without overwriting a newer
+            // operator authorization or halving twice for concurrent 429 responses.
+            if (runtime.allowanceSource === 'OPERATOR_AUTHORIZED' && authorization.source === 'OPERATOR_AUTHORIZED'
+              && runtime.operatorAuthorizedAt?.getTime() === authorization.authorizedAt
+              && runtime.operatorRequestLimit === authorization.operatorLimit
+              && (!runtime.cooldownUntil || runtime.cooldownUntil <= now)
+              && Number.isSafeInteger(runtime.operatorRequestLimit)) {
+              patch.operatorRequestLimit = Math.max(10, Math.floor(runtime.operatorRequestLimit! / 2));
+            }
+            if (Object.keys(patch).length) await tx.updateRuntime(patch);
+            return runtime.cooldownUntil && runtime.cooldownUntil > until ? runtime.cooldownUntil : until;
+          });
+          await response.body?.cancel().catch(() => { /* The status and shared cooldown are already recorded. */ });
+          // Keep provider throttling typed before a client's generic HTTP parser
+          // can mistake it for an identity/matching failure or a failed loan read.
+          throw new AriveTransportError('COOLDOWN', 'Arive requests are paused until the provider cooldown ends.', retryAt);
+        }
       });
     } finally {
       await options.store.transaction(tx => tx.finishRequest(id, clock(), status));

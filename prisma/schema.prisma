@@ -101,6 +101,10 @@ model ArivePracticeLoan {
 model AriveConnectionRuntime {
   id String @id
   enabled Boolean @default(false)
+  allowanceSource String @default("PROVIDER_CONFIRMED")
+  operatorRequestLimit Int?
+  operatorAuthorizedAt DateTime?
+  operatorAuthorizedById String?
   providerRequestLimit Int?
   providerWindowSeconds Int?
   quotaConfirmedAt DateTime?

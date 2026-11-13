@@ -8,7 +8,7 @@ import { isAdminIII } from '@/lib/adminTiers';
 import { AriveError, ariveReadOnlySession, ariveSession } from '@/lib/ariveClient';
 import { AriveTransportError } from '@/lib/ariveTransport';
 import { jsonRecord } from '@/lib/ariveSyncState';
-import { configureAriveTransportQuota, getAriveTransportMetrics, sharedAriveTransportEnabled } from '@/lib/ariveTransportPrisma';
+import { configureAriveOperatorBudget, configureAriveTransportQuota, getAriveTransportMetrics, sharedAriveTransportEnabled } from '@/lib/ariveTransportPrisma';
 import { ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER, ariveRolloutCohortWhere, ariveRolloutEnvironmentEnabled, assertAriveRolloutReady, enrollAriveRolloutBatch, isArivePracticeFile, rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity } from '@/lib/ariveRollout';
 import { ARIVE_SYNC_PILOT } from '@/lib/ariveSyncTypes';
 import { sampleAriveTestReadTiming } from '@/lib/ariveReadTiming';
@@ -75,6 +75,16 @@ export async function configureAriveRolloutRequestAllowance(input: { providerReq
     const actor = await admin();
     const result = await configureAriveTransportQuota(input);
     await prisma.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_REQUEST_ALLOWANCE_CONFIGURED', details: JSON.stringify({ providerRequestLimit: input.providerRequestLimit, providerWindowSeconds: input.providerWindowSeconds, enabled: input.enabled }) } });
+    return { success: true as const, result };
+  } catch (error) { return failure(error); }
+}
+
+export async function configureAriveRolloutOperatorBudget(input: { requestsPerMinute: number; enabled: boolean }) {
+  try {
+    const actor = await admin();
+    if (!input || typeof input.enabled !== 'boolean' || !Number.isSafeInteger(input.requestsPerMinute) || input.requestsPerMinute < 10 || input.requestsPerMinute > 600) throw new AriveError('Choose an operator cap between 10 and 600 requests per minute.');
+    const result = await configureAriveOperatorBudget({ requestsPerMinute: input.requestsPerMinute, enabled: input.enabled, authorizedById: actor.id });
+    await prisma.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_OPERATOR_BUDGET_AUTHORIZED', details: JSON.stringify({ requestsPerMinute: input.requestsPerMinute, enabled: input.enabled, allowanceSource: 'OPERATOR_AUTHORIZED', providerConfirmed: false }) } });
     return { success: true as const, result };
   } catch (error) { return failure(error); }
 }

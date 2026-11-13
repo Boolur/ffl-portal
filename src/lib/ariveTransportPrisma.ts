@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { decryptAriveCredentials, encryptAriveCredentials } from '@/lib/ariveCrypto';
 import {
   AriveTransportError, ariveTransportFingerprint, assertAriveTransportReady, createAriveTransportSession,
-  validateAriveProviderAllowance, type AriveTransportOptions, type AriveTransportStore, type TransportCredentials,
+  validateAriveProviderAllowance, validateAriveOperatorBudget, type AriveRuntime, type AriveTransportOptions, type AriveTransportStore, type TransportCredentials,
 } from './ariveTransport';
 
 const CONNECTION = 'company';
@@ -72,15 +72,39 @@ export async function getAriveTransportMetrics(deps: { db?: Database; now?: () =
   const db = deps.db ?? prisma; const now = deps.now?.() ?? new Date();
   const empty = { checkedAt: now.toISOString(), deploymentActive: sharedAriveTransportEnabled(), enabled: false, ready: false,
     reason: null as string | null, providerRequestLimit: null as number | null, windowSeconds: null as number | null,
+    allowanceSource: null as 'PROVIDER_CONFIRMED' | 'OPERATOR_AUTHORIZED' | null, operatorRequestLimit: null as number | null,
     allowance: null as number | null, used: null as number | null, remaining: null as number | null,
     activeRequests: null as number | null, cooldownUntil: null as string | null, nextAvailableAt: null as string | null };
-  if (!empty.deploymentActive) return { ...empty, reason: 'Shared Arive request controls have not been activated for this deployment.' };
+  const savedBudget = (runtime: Pick<AriveRuntime, 'enabled' | 'allowanceSource' | 'operatorRequestLimit' | 'quotaConfirmedAt' | 'providerRequestLimit' | 'providerWindowSeconds' | 'cooldownUntil'> | null) => {
+    const allowanceSource = runtime?.allowanceSource === 'OPERATOR_AUTHORIZED' ? 'OPERATOR_AUTHORIZED' as const
+      : (!runtime?.allowanceSource || runtime.allowanceSource === 'PROVIDER_CONFIRMED') && runtime?.quotaConfirmedAt ? 'PROVIDER_CONFIRMED' as const : null;
+    let quota: ReturnType<typeof validateAriveProviderAllowance> | null = null;
+    try {
+      quota = allowanceSource === 'OPERATOR_AUTHORIZED' ? validateAriveOperatorBudget(runtime?.operatorRequestLimit)
+        : allowanceSource === 'PROVIDER_CONFIRMED' ? validateAriveProviderAllowance(runtime?.providerRequestLimit, runtime?.providerWindowSeconds) : null;
+    } catch { /* Invalid saved settings remain visible as unconfigured capacity. */ }
+    return { enabled: runtime?.enabled ?? false, allowanceSource,
+      providerRequestLimit: allowanceSource === 'PROVIDER_CONFIRMED' ? quota?.limit ?? null : null,
+      operatorRequestLimit: allowanceSource === 'OPERATOR_AUTHORIZED' ? quota?.limit ?? null : null,
+      windowSeconds: quota?.seconds ?? null, allowance: quota?.allowance ?? null, cooldownUntil: runtime?.cooldownUntil?.toISOString() ?? null };
+  };
+  if (!empty.deploymentActive) {
+    try {
+      // Allow an operator to verify saved configuration before deploying its gate.
+      // This read does not decrypt credentials, validate readiness, or send traffic.
+      const runtime = await db.ariveConnectionRuntime.findUnique({ where: { id: CONNECTION }, select: {
+        enabled: true, allowanceSource: true, operatorRequestLimit: true, quotaConfirmedAt: true,
+        providerRequestLimit: true, providerWindowSeconds: true, cooldownUntil: true,
+      } });
+      return { ...empty, ...savedBudget(runtime), reason: 'Shared Arive request controls have not been activated for this deployment.' };
+    } catch { return { ...empty, reason: 'Saved Arive request controls are unavailable.' }; }
+  }
   try {
     const secret = process.env.NEXTAUTH_SECRET ?? ''; const c = await savedCredentials(db, secret);
     const key = ariveTransportFingerprint(c, secret, 'key');
     return await createPrismaAriveTransportStore(db).transaction(async tx => {
       const runtime = await tx.runtime();
-      const base = { ...empty, enabled: runtime?.enabled ?? false, cooldownUntil: runtime?.cooldownUntil?.toISOString() ?? null };
+      const base = { ...empty, ...savedBudget(runtime) };
       let quota: ReturnType<typeof assertAriveTransportReady>;
       try { quota = assertAriveTransportReady(runtime, key, now); }
       catch (error) { return { ...base, reason: error instanceof AriveTransportError ? error.message : 'Arive request controls are unavailable.' }; }
@@ -90,7 +114,7 @@ export async function getAriveTransportMetrics(deps: { db?: Database; now?: () =
       const reset = recent.count >= quota.allowance ? (recent.oldest?.getTime() ?? now.getTime()) + quota.seconds * 1000 + 1 : 0;
       const busy = activeRequests >= 2 ? now.getTime() + 1000 : 0;
       const next = Math.max(cooldown, reset, busy);
-      return { ...base, providerRequestLimit: quota.limit, windowSeconds: quota.seconds, allowance: quota.allowance,
+      return { ...base, windowSeconds: quota.seconds, allowance: quota.allowance,
         used: recent.count, remaining: Math.max(0, quota.allowance - recent.count), activeRequests,
         ready: !next, reason: cooldown ? 'Arive requests are paused until the provider cooldown ends.' : reset ? 'The reserved Arive request allowance has been reached.' : busy ? 'Two Arive requests are already running.' : null,
         nextAvailableAt: next ? new Date(next).toISOString() : null };
@@ -108,11 +132,31 @@ export async function configureAriveTransportQuota(input: { providerRequestLimit
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-transport:${CONNECTION}`}))`;
     const prior = await tx.ariveConnectionRuntime.findUnique({ where: { id: CONNECTION } });
     const changedKey = prior?.quotaKeyFingerprint !== key;
-    const data = { enabled: input.enabled, providerRequestLimit: quota.limit, providerWindowSeconds: quota.seconds, quotaKeyFingerprint: key, quotaConfirmedAt: now,
+    const data = { enabled: input.enabled, allowanceSource: 'PROVIDER_CONFIRMED', providerRequestLimit: quota.limit, providerWindowSeconds: quota.seconds, quotaKeyFingerprint: key, quotaConfirmedAt: now,
       ...(changedKey || !input.enabled ? { encryptedAccessToken: null, accessTokenExpiresAt: null, credentialFingerprint: null, refreshLeaseToken: null, refreshLeaseUntil: null } : {}) };
     await tx.ariveConnectionRuntime.upsert({ where: { id: CONNECTION }, create: { id: CONNECTION, ...data }, update: data });
   });
   return { enabled: input.enabled, allowance: quota.allowance, windowSeconds: quota.seconds, deploymentActive: sharedAriveTransportEnabled() };
+}
+
+/** Caller must enforce Admin III and pass its freshly authorized account ID.
+ * An operator ceiling is not represented as provider confirmation. */
+export async function configureAriveOperatorBudget(input: { requestsPerMinute: number; enabled: boolean; authorizedById: string }, deps: { db?: Database; now?: () => Date } = {}) {
+  if (!input || typeof input.enabled !== 'boolean' || typeof input.authorizedById !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(input.authorizedById)) throw new AriveTransportError('INVALID_SETTINGS', 'An authorized administrator must choose the operator request ceiling.');
+  const quota = validateAriveOperatorBudget(input.requestsPerMinute);
+  const db = deps.db ?? prisma; const now = deps.now?.() ?? new Date(); const secret = process.env.NEXTAUTH_SECRET ?? '';
+  const c = await savedCredentials(db, secret); const key = ariveTransportFingerprint(c, secret, 'key');
+  await db.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-transport:${CONNECTION}`}))`;
+    const prior = await tx.ariveConnectionRuntime.findUnique({ where: { id: CONNECTION } });
+    const changedKey = prior?.quotaKeyFingerprint !== key;
+    const data = { enabled: input.enabled, allowanceSource: 'OPERATOR_AUTHORIZED', operatorRequestLimit: quota.limit,
+      operatorAuthorizedAt: now, operatorAuthorizedById: input.authorizedById, quotaKeyFingerprint: key, quotaConfirmedAt: null,
+      ...(changedKey || !input.enabled ? { encryptedAccessToken: null, accessTokenExpiresAt: null, credentialFingerprint: null, refreshLeaseToken: null, refreshLeaseUntil: null } : {}) };
+    // Keep prior requests, cooldown and historical provider numbers intact.
+    await tx.ariveConnectionRuntime.upsert({ where: { id: CONNECTION }, create: { id: CONNECTION, ...data }, update: data });
+  });
+  return { enabled: input.enabled, allowance: quota.allowance, windowSeconds: 60 as const, deploymentActive: sharedAriveTransportEnabled(), allowanceSource: 'OPERATOR_AUTHORIZED' as const };
 }
 
 /** Saved calls switch as one connection; explicit-credential tests remain uncached. */

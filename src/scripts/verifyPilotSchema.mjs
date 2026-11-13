@@ -37,8 +37,9 @@ function schemaSql(schema, filename) {
 }
 const baseline = schemaSql(run('git', ['show', `${baselineRef}:prisma/schema.prisma`], root), 'baseline.prisma');
 const expected = schemaSql(readFileSync(join(root, 'prisma/schema.prisma'), 'utf8'), 'expected.prisma');
-const migrationPath = join(root, 'prisma/migrations/20261112190000_pilot_rollout_infrastructure/migration.sql');
-const migration = readFileSync(migrationPath, 'utf8');
+const migrationNames = ['20261112190000_pilot_rollout_infrastructure', '20261113003000_arive_operator_request_budget'];
+const migrations = migrationNames.map(name => readFileSync(join(root, 'prisma/migrations', name, 'migration.sql'), 'utf8'));
+const migration = migrations.join('\n');
 assert(!/^\s*(?:DROP|TRUNCATE|DELETE|UPDATE|INSERT)\b/im.test(migration), 'Migration must remain additive.');
 assert(!/\bALTER\s+TABLE[^;]+\bDROP\b/i.test(migration), 'Migration must not drop existing columns or constraints.');
 writeFileSync(join(scratch, 'migration.sql'), migration);
@@ -73,7 +74,16 @@ try {
     INSERT INTO "ArivePipelineSync" ("id","pipelineId","enabled","enabledById","ariveLoanId","ariveGuid","snapshot","failureCount","updatedAt") VALUES ('offline-sync','offline-pipeline',true,'offline-owner','900000000001','offline-guid','{"existingSnapshot":true}',3,'2026-11-12T00:00:00Z');
   `);
   const before = Object.fromEntries(await Promise.all(canonicalTables.map(async table => [table, await snapshot(table)])));
-  await db.exec(migration);
+  await db.exec(migrations[0]);
+  await db.exec(`INSERT INTO "AriveConnectionRuntime" ("id","enabled","providerRequestLimit","providerWindowSeconds","quotaConfirmedAt","updatedAt") VALUES ('existing-provider',true,100,60,'2026-11-12T00:00:00Z',CURRENT_TIMESTAMP);`);
+  const providerBefore = await one('SELECT * FROM "AriveConnectionRuntime" WHERE "id"=$1', ['existing-provider']);
+  await db.exec(migrations[1]);
+  await check('Operator budget migration preserves provider configuration and does not authorize operator polling', async () => {
+    const after = await one('SELECT * FROM "AriveConnectionRuntime" WHERE "id"=$1', ['existing-provider']);
+    for (const key of Object.keys(providerBefore)) assert.deepEqual(after[key], providerBefore[key]);
+    assert.equal(after.allowanceSource, 'PROVIDER_CONFIRMED');
+    for (const key of ['operatorRequestLimit', 'operatorAuthorizedAt', 'operatorAuthorizedById']) assert.equal(after[key], null);
+  });
   await check('Existing business values and enabled legacy integration survive unchanged', async () => {
     for (const table of canonicalTables) {
       const after = await snapshot(table);
@@ -87,7 +97,7 @@ try {
   await check('Fresh rollout and shared transport controls default off', async () => {
     await db.exec(`INSERT INTO "AriveRolloutControl" ("updatedAt") VALUES (CURRENT_TIMESTAMP); INSERT INTO "AriveConnectionRuntime" ("id","updatedAt") VALUES ('company',CURRENT_TIMESTAMP);`);
     assert.deepEqual(await one('SELECT "collectionEnabled","applicationEnabled","enrollmentEnabled","cohortLimit","generation" FROM "AriveRolloutControl"'), { collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false, cohortLimit: 10, generation: 0 });
-    assert.deepEqual(await one('SELECT "enabled","providerRequestLimit","providerWindowSeconds","quotaConfirmedAt","encryptedAccessToken" FROM "AriveConnectionRuntime"'), { enabled: false, providerRequestLimit: null, providerWindowSeconds: null, quotaConfirmedAt: null, encryptedAccessToken: null });
+    assert.deepEqual(await one('SELECT "enabled","providerRequestLimit","providerWindowSeconds","quotaConfirmedAt","encryptedAccessToken","allowanceSource","operatorRequestLimit","operatorAuthorizedAt","operatorAuthorizedById" FROM "AriveConnectionRuntime" WHERE "id"=\'company\''), { enabled: false, providerRequestLimit: null, providerWindowSeconds: null, quotaConfirmedAt: null, encryptedAccessToken: null, allowanceSource: 'PROVIDER_CONFIRMED', operatorRequestLimit: null, operatorAuthorizedAt: null, operatorAuthorizedById: null });
   });
   await check('Migration structure exactly matches the current Prisma datamodel', async () => {
     await target.exec(expected);

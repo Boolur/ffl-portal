@@ -270,17 +270,17 @@ describe('existing-portal enrollment', () => {
     expect(h.store.control.enrollmentCursor).toBe(prior ? 'pipeline-checked' : 'pipeline-before');
     expect(h.client.arivePipelineSync.upsert).not.toHaveBeenCalled();
   });
-  it('scans twenty-five candidates and advances the cursor until the final partial batch', async () => {
+  it('scans one hundred candidates and advances the cursor until the final partial batch', async () => {
     const h = harness();
-    const candidates = Array.from({ length: 25 }, (_, index) => ({ ...clone(h.store.row), id: `pipeline-${String(index).padStart(2, '0')}`, ariveSync: clone(h.store.sync) }));
+    const candidates = Array.from({ length: 100 }, (_, index) => ({ ...clone(h.store.row), id: `pipeline-${String(index).padStart(3, '0')}`, ariveSync: clone(h.store.sync) }));
     h.client.processingPipelineLoan.findMany.mockResolvedValueOnce(candidates);
-    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 25, verified: 0 });
-    expect(h.client.processingPipelineLoan.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 25 }));
-    expect(h.store.control.enrollmentCursor).toBe('pipeline-24');
-    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce([{ ...clone(h.store.row), id: 'pipeline-25', ariveSync: clone(h.store.sync) }]);
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 100, verified: 0 });
+    expect(h.client.processingPipelineLoan.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 100 }));
+    expect(h.store.control.enrollmentCursor).toBe('pipeline-099');
+    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce([{ ...clone(h.store.row), id: 'pipeline-100', ariveSync: clone(h.store.sync) }]);
     expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 1 });
     expect(h.client.processingPipelineLoan.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: { AND: expect.arrayContaining([{ id: { gt: 'pipeline-24' } }]) }, take: 25,
+      where: { AND: expect.arrayContaining([{ id: { gt: 'pipeline-099' } }]) }, take: 100,
     }));
     expect(h.store.control.enrollmentCursor).toBeNull();
     expect(h.api).not.toHaveBeenCalled();
@@ -302,8 +302,46 @@ describe('existing-portal enrollment', () => {
   });
   it('enforces the cohort limit and never automatically reenables an operator-paused loan', async () => {
     const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false; h.enrolled(10);
-    await enrollAriveRolloutBatch(h.deps); expect(h.store.sync).toMatchObject({ enrollmentStatus: 'VERIFIED', enabled: false });
+    await enrollAriveRolloutBatch(h.deps); expect(h.store.sync).toMatchObject({ enrollmentStatus: 'PENDING', enabled: false });
+    expect(h.api).not.toHaveBeenCalled();
     h.store.sync.operatorPaused = true; h.advance(); h.enrolled(0); await enrollAriveRolloutBatch(h.deps); expect(h.store.sync.enabled).toBe(false);
+  });
+  it.each([false, true])('retains the next candidate when the cohort is full and resumes when raised (prior scanned: %s)', async prior => {
+    const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;
+    h.store.control.enrollmentCursor = 'pipeline-before'; h.enrolled(10);
+    const candidate = { ...clone(h.store.row), ariveSync: clone(h.store.sync) };
+    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce(prior
+      ? [{ ...clone(candidate), id: 'pipeline-checked', ariveSync: { ...clone(h.store.sync), enabled: true, enrollmentStatus: 'VERIFIED' } }, candidate]
+      : [candidate]);
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: prior ? 1 : 0, verified: 0 });
+    expect(h.store.control.enrollmentCursor).toBe(prior ? 'pipeline-checked' : 'pipeline-before');
+    expect(h.api).not.toHaveBeenCalled(); expect(h.client.arivePipelineSync.upsert).not.toHaveBeenCalled();
+    h.store.control.cohortLimit = 50;
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 1, verified: 1 });
+    expect(h.store.sync.enabled).toBe(true);
+  });
+  it('still verifies an explicitly reviewed candidate while the full cohort keeps it disabled', async () => {
+    const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false; h.enrolled(10);
+    expect(await enrollAriveRolloutBatch(h.deps, { pipelineId: h.store.row.id })).toMatchObject({ verified: 1 });
+    expect(h.store.sync).toMatchObject({ enrollmentStatus: 'VERIFIED', enabled: false });
+    expect(h.store.sync.manualRefreshRequestedAt).toBeNull();
+  });
+  it('stops within a batch immediately after filling the last cohort slot', async () => {
+    const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false; h.enrolled(9);
+    const candidate = { ...clone(h.store.row), ariveSync: clone(h.store.sync) };
+    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce([candidate, { ...clone(candidate), id: 'pipeline-other-2' }]);
+    const upsert = h.client.arivePipelineSync.upsert.getMockImplementation()!;
+    h.client.arivePipelineSync.upsert.mockImplementation(async args => { const result = await upsert(args); h.enrolled(10); return result; });
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 1, verified: 1 });
+    expect(h.store.control.enrollmentCursor).toBe(candidate.id);
+    expect(h.api).toHaveBeenCalledTimes(2);
+    expect(h.client.arivePipelineSync.upsert).toHaveBeenCalledTimes(1);
+  });
+  it('keeps seventy-five seconds for an in-flight candidate instead of starting reads near the deadline', async () => {
+    const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;
+    h.store.control.enrollmentCursor = 'pipeline-before';
+    expect(await enrollAriveRolloutBatch({ ...h.deps, deadlineMs: Date.now() + 74_000 })).toMatchObject({ scanned: 0, verified: 0 });
+    expect(h.store.control.enrollmentCursor).toBe('pipeline-before'); expect(h.api).not.toHaveBeenCalled();
   });
   it.each(['pause', 'archive', 'new verification'])('fences an enrollment candidate changed by %s during verification', async cause => {
     const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;

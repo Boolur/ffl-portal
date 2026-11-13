@@ -113,8 +113,9 @@ export function planArivePipelineSync(input: { details: unknown; trackers: unkno
     if (stage === 'SUSPENDED') { patch.sheet = 'RESTRUCTURE'; patch.pipelineStatus = 'SUSPENDED_RESTRUCTURE'; }
     else if (fundedStages.has(stage)) {
       patch.sheet = 'FUNDING'; patch.pipelineStatus = 'FUNDED';
-      patch.fundedAt = latestStageDate('LOAN_FUNDED');
-      if (!patch.fundedAt) issue('fundedAt', 'MISSING_DATE', 'Arive reports funding but did not supply the funded milestone date.');
+      const fundedAt = latestStageDate('LOAN_FUNDED');
+      if (fundedAt) patch.fundedAt = fundedAt;
+      else issue('fundedAt', 'MISSING_DATE', 'Arive reports funding but did not supply the funded milestone date. Any existing funded date was retained.');
     } else if (stageMapping[stage]) { patch.pipelineStatus = stageMapping[stage]; patch.sheet = 'PIPELINE'; }
     else if (input.current.sheet === 'RESTRUCTURE') issue('sheet', 'EARLY_STAGE_ROUTE_REVIEW', 'The actual Arive stage is shown; returning this restructure needs review.');
     if (patch.sheet && patch.sheet !== input.current.sheet && stageDate) patch.movedAt = stageDate;
