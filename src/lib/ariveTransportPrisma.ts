@@ -48,8 +48,9 @@ async function savedCredentials(db: Database, encryptionSecret: string): Promise
   } catch { throw new AriveTransportError('NO_CREDENTIALS', 'Arive credentials could not be decrypted. Reconnect the branch credentials.'); }
 }
 
-/** No network traffic; safe for the broad rollout gate. Never returns tokens or fingerprints. */
-export async function isAriveBudgetReady(deps: { db?: Database; now?: () => Date } = {}) {
+/** No network traffic; safe for the broad rollout gate. Never returns tokens or fingerprints.
+ * allowCooldown is only for accepting a durable queue entry, never sending a request. */
+export async function isAriveBudgetReady(deps: { db?: Database; now?: () => Date; allowCooldown?: boolean } = {}): Promise<{ ready: boolean; reason: string | null; cooldownUntil?: Date }> {
   if (!sharedAriveTransportEnabled()) return { ready: false, reason: 'Shared Arive request controls have not been activated for this deployment.' };
   const db = deps.db ?? prisma; const now = deps.now?.() ?? new Date();
   try {
@@ -57,7 +58,11 @@ export async function isAriveBudgetReady(deps: { db?: Database; now?: () => Date
     const c = await savedCredentials(db, secret);
     const runtime = await db.ariveConnectionRuntime.findUnique({ where: { id: CONNECTION } });
     assertAriveTransportReady(runtime, ariveTransportFingerprint(c, secret, 'key'), now);
-    if (runtime?.cooldownUntil && runtime.cooldownUntil > now) return { ready: false, reason: 'Arive requests are paused until the provider cooldown ends.' };
+    if (runtime?.cooldownUntil && runtime.cooldownUntil > now) return {
+      ready: deps.allowCooldown === true,
+      reason: deps.allowCooldown === true ? null : 'Arive requests are paused until the provider cooldown ends.',
+      cooldownUntil: runtime.cooldownUntil,
+    };
     return { ready: true, reason: null };
   } catch (error) { return { ready: false, reason: error instanceof AriveTransportError ? error.message : 'Arive request controls are unavailable.' }; }
 }

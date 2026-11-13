@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ session: vi.fn(), user: vi.fn(), row: vi.fn(), sync: vi.fn(), update: vi.fn(), count: vi.fn(), control: vi.fn(), controlWrite: vi.fn(), audit: vi.fn(), transaction: vi.fn(), lock: vi.fn(), api: vi.fn(), apiSession: vi.fn(), budget: vi.fn(), quota: vi.fn(), practice: vi.fn(), practiceWrite: vi.fn(), existingLoan: vi.fn(), existingLink: vi.fn(), metrics: vi.fn(), worker: vi.fn(), probe: vi.fn(), recentProbe: vi.fn(), candidates: vi.fn(), candidateCounts: vi.fn(), testLoan: vi.fn(), practiceList: vi.fn() }));
 const errors = vi.hoisted(() => ({ AriveError: class AriveError extends Error {} }));
+const timing = vi.hoisted(() => ({ sample: vi.fn(), activeCount: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next-auth', () => ({ getServerSession: m.session }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
-vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: m.user }, processingPipelineLoan: { findUnique: m.row, findMany: m.candidates, groupBy: m.candidateCounts, findFirst: m.testLoan }, arivePracticeLoan: { findMany: m.practiceList }, arivePipelineSync: { findUnique: m.sync, findFirst: m.existingLink, update: m.update, count: m.count }, auditLog: { create: m.audit }, $transaction: m.transaction } }));
+vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: m.user }, processingPipelineLoan: { findUnique: m.row, findMany: m.candidates, groupBy: m.candidateCounts, findFirst: m.testLoan, count: timing.activeCount }, arivePracticeLoan: { findMany: m.practiceList }, arivePipelineSync: { findUnique: m.sync, findFirst: m.existingLink, update: m.update, count: m.count }, auditLog: { create: m.audit }, $transaction: m.transaction } }));
 vi.mock('@/lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, ariveSession: m.probe, AriveError: errors.AriveError }));
-vi.mock('@/lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget, configureAriveTransportQuota: m.quota, getAriveTransportMetrics: m.metrics, sharedAriveTransportEnabled: () => false }));
+vi.mock('@/lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget, configureAriveTransportQuota: m.quota, getAriveTransportMetrics: m.metrics, sharedAriveTransportEnabled: () => process.env.ARIVE_SHARED_TRANSPORT_ENABLED === 'true' }));
 vi.mock('@/lib/ariveRolloutWorker', () => ({ syncAriveRolloutLoan: m.worker }));
+vi.mock('@/lib/ariveReadTiming', () => ({ sampleAriveTestReadTiming: timing.sample }));
 vi.mock('@/lib/adminTiers', async () => import('../../lib/adminTiers'));
 vi.mock('@/lib/ariveTransport', async () => import('../../lib/ariveTransport'));
 vi.mock('@/lib/ariveSyncState', async () => import('../../lib/ariveSyncState'));
@@ -16,7 +18,7 @@ vi.mock('@/lib/ariveRollout', async () => import('../../lib/ariveRollout'));
 vi.mock('../../lib/prisma', () => ({ prisma: {} }));
 vi.mock('../../lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, AriveError: errors.AriveError }));
 vi.mock('../../lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget }));
-import { acknowledgeAriveRolloutConflicts, configureAriveRollout, getAriveRolloutInventory, inspectAriveReportedAllowance, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
+import { acknowledgeAriveRolloutConflicts, configureAriveRollout, getAriveRolloutInventory, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
 
 let state: ReturnType<typeof initial>;
 function initial() {
@@ -34,6 +36,7 @@ function initial() {
 beforeEach(() => {
   vi.clearAllMocks(); state = initial();
   vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production'); vi.stubEnv('CRON_SECRET', 'synthetic-cron');
+  vi.stubEnv('ARIVE_SHARED_TRANSPORT_ENABLED', 'false');
   m.session.mockResolvedValue({ user: { id: 'admin', role: 'ADMIN_III' } }); m.user.mockResolvedValue({ id: 'admin', active: true, role: 'ADMIN_III', roles: [] });
   m.row.mockImplementation(async () => structuredClone({ ...state.row, ariveSync: state.sync })); m.sync.mockImplementation(async () => structuredClone(state.sync));
   m.control.mockImplementation(async () => structuredClone(state.control)); m.count.mockResolvedValue(0); m.budget.mockResolvedValue({ ready: true, reason: null });
@@ -41,7 +44,9 @@ beforeEach(() => {
   m.apiSession.mockResolvedValue(m.api); m.api.mockResolvedValue({ ariveLoanId: 99999123, sysGUID: 'remote-guid', loanOriginatorEmail: 'owner@example.test', loanBorrowers: [{ applicantType: 'Borrower', firstName: 'Synthetic', lastName: 'Borrower' }] });
   m.worker.mockResolvedValue({ success: true, skipped: true }); m.recentProbe.mockResolvedValue(null);
   m.candidates.mockResolvedValue([]); m.candidateCounts.mockResolvedValue([]); m.practiceList.mockResolvedValue([]); m.testLoan.mockResolvedValue(null);
-  m.probe.mockImplementation(async (_credentials, observe) => { observe(new Headers(), 'API request'); return m.api; });
+  m.probe.mockImplementation(async (_credentials, observe) => { observe?.(new Headers(), 'API request'); return m.api; });
+  timing.activeCount.mockResolvedValue(409);
+  timing.sample.mockResolvedValue({ success: true, completedRequests: 12, completedCycles: 3, meanCycleApiMs: 1200, error: null });
   m.transaction.mockImplementation(async work => work({ $executeRaw: m.lock, processingPipelineLoan: { findUnique: m.row }, arivePipelineSync: { findUnique: m.sync, update: m.update, count: m.count, findFirst: m.existingLink }, ariveRolloutControl: { findUnique: m.control, upsert: m.controlWrite }, arivePracticeLoan: { findFirst: m.practice, upsert: m.practiceWrite }, loan: { findUnique: m.existingLoan }, auditLog: { create: m.audit, findFirst: m.recentProbe } }));
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -82,6 +87,12 @@ describe('rollout control authentication and canonical isolation', () => {
     m.worker.mockResolvedValue({ success: false, error: 'Incomplete read', deferred: false });
     expect(await queueAriveRolloutRefresh({ pipelineId: 'pipeline-test' })).toMatchObject({ success: false, error: 'Incomplete read' });
   });
+  it('accepts a durable manual request during provider cooldown without starting a worker', async () => {
+    m.budget.mockResolvedValue({ ready: true, reason: null, cooldownUntil: new Date('2099-01-01') });
+    expect(await queueAriveRolloutRefresh({ pipelineId: 'pipeline-test' })).toMatchObject({ success: true, queued: true });
+    expect(m.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ manualRefreshRequestedAt: expect.any(Date) }) }));
+    expect(m.worker).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled();
+  });
   it('cannot use generalized enable/pause controls on legacy records', async () => {
     state.sync.workerOwner = 'LEGACY'; expect((await setAriveRolloutLoanEnabled({ pipelineId: 'pipeline-test', enabled: false })).success).toBe(false); expect(m.update).not.toHaveBeenCalled();
   });
@@ -121,7 +132,7 @@ describe('rollout inventory and bounded allowance diagnostics', () => {
   });
   it('does not retain authorized access after account revocation', async () => {
     m.user.mockResolvedValue({ id: 'admin', active: false, role: 'ADMIN_III', roles: [] });
-    for (const action of [() => getAriveRolloutInventory(), () => inspectAriveReportedAllowance(), () => acknowledgeAriveRolloutConflicts({ pipelineId: 'pipeline-test' })]) expect((await action()).success).toBe(false);
+    for (const action of [() => getAriveRolloutInventory(), () => inspectAriveReportedAllowance(), () => measureAriveTestReadTiming(), () => acknowledgeAriveRolloutConflicts({ pipelineId: 'pipeline-test' })]) expect((await action()).success).toBe(false);
     expect(m.candidates).not.toHaveBeenCalled(); expect(m.probe).not.toHaveBeenCalled(); expect(m.transaction).not.toHaveBeenCalled();
   });
   it.each(['600', '', '0', 'unknown', '600/60', '999999999'])('accepts only a usable documented limit header (%s)', async limit => {
@@ -141,6 +152,23 @@ describe('rollout inventory and bounded allowance diagnostics', () => {
     m.existingLink.mockResolvedValue({ ariveGuid: 'known-test-guid' }); m.recentProbe.mockResolvedValue({ id: 'recent' });
     expect(await inspectAriveReportedAllowance()).toMatchObject({ success: false, error: expect.stringContaining('one minute') });
     expect(m.probe).not.toHaveBeenCalled(); expect(m.lock).toHaveBeenCalled();
+  });
+  it('times only the known test file and makes no quota, enrollment or loan mutation', async () => {
+    m.existingLink.mockResolvedValue({ ariveGuid: 'known-test-guid' });
+    expect(await measureAriveTestReadTiming()).toMatchObject({ success: true, timing: { completedRequests: 12, activeLoans: 409, apiOnlySweepEstimateSeconds: 246 } });
+    expect(timing.sample).toHaveBeenCalledWith(m.api, 'known-test-guid');
+    expect(m.quota).not.toHaveBeenCalled(); expect(m.update).not.toHaveBeenCalled(); expect(m.controlWrite).not.toHaveBeenCalled();
+    expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'ARIVE_READ_TIMING_COMPLETED' }) }));
+  });
+  it('blocks repeated timing runs before authentication or API calls', async () => {
+    m.existingLink.mockResolvedValue({ ariveGuid: 'known-test-guid' }); m.recentProbe.mockResolvedValue({ id: 'recent' });
+    expect(await measureAriveTestReadTiming()).toMatchObject({ success: false, error: expect.stringContaining('ten minutes') });
+    expect(m.probe).not.toHaveBeenCalled(); expect(timing.sample).not.toHaveBeenCalled();
+  });
+  it('does not run the legacy bounded diagnostic after shared collection is activated', async () => {
+    vi.stubEnv('ARIVE_SHARED_TRANSPORT_ENABLED', 'true');
+    expect(await measureAriveTestReadTiming()).toMatchObject({ success: false, error: expect.stringContaining('before shared synchronization') });
+    expect(m.probe).not.toHaveBeenCalled(); expect(timing.sample).not.toHaveBeenCalled();
   });
   it('keeps acknowledged conflicts in the audit history and never changes loan values', async () => {
     expect(await acknowledgeAriveRolloutConflicts({ pipelineId: 'pipeline-test' })).toMatchObject({ success: true });

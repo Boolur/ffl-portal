@@ -11,6 +11,7 @@ import { jsonRecord } from '@/lib/ariveSyncState';
 import { configureAriveTransportQuota, getAriveTransportMetrics, sharedAriveTransportEnabled } from '@/lib/ariveTransportPrisma';
 import { ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER, ariveRolloutCohortWhere, ariveRolloutEnvironmentEnabled, assertAriveRolloutReady, enrollAriveRolloutBatch, isArivePracticeFile, rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity } from '@/lib/ariveRollout';
 import { ARIVE_SYNC_PILOT } from '@/lib/ariveSyncTypes';
+import { sampleAriveTestReadTiming } from '@/lib/ariveReadTiming';
 
 async function admin() {
   const session = await getServerSession(authOptions);
@@ -92,7 +93,7 @@ export async function verifyAndEnrollExistingAriveLoan(input: { pipelineId: stri
 export async function queueAriveRolloutRefresh(input: { pipelineId: string }) {
   try {
     const actor = await admin(); const pipelineId = id(input?.pipelineId);
-    await assertAriveRolloutReady();
+    const readiness = await assertAriveRolloutReady({}, { allowCooldown: true });
     await prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-rollout:company'))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${pipelineId}`}))`;
@@ -105,6 +106,7 @@ export async function queueAriveRolloutRefresh(input: { pipelineId: string }) {
         await tx.auditLog.create({ data: { userId: actor.id, loanId: state.pipeline.loanId, action: 'ARIVE_ROLLOUT_REFRESH_QUEUED', details: JSON.stringify({ pipelineId }) } });
       }
     });
+    if (readiness.cooldownUntil && readiness.cooldownUntil > new Date()) return { success: true as const, queued: true as const };
     // Durable queue first; attempt the same shared worker immediately. Its
     // leases, budget and repeat guard apply to button clicks and scheduled work.
     const { syncAriveRolloutLoan } = await import('@/lib/ariveRolloutWorker');
@@ -236,7 +238,10 @@ export async function inspectAriveReportedAllowance() {
     const checkedAt = new Date();
     await prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-allowance-probe'))`;
-      if (await tx.auditLog.findFirst({ where: { action: 'ARIVE_ALLOWANCE_PROBE_STARTED', createdAt: { gt: new Date(checkedAt.getTime() - 60_000) } }, select: { id: true } })) throw new AriveError('Wait one minute before checking the Arive-reported limit again.');
+      if (await tx.auditLog.findFirst({ where: { OR: [
+        { action: 'ARIVE_ALLOWANCE_PROBE_STARTED', createdAt: { gt: new Date(checkedAt.getTime() - 60_000) } },
+        { action: 'ARIVE_READ_TIMING_STARTED', createdAt: { gt: new Date(checkedAt.getTime() - 10 * 60_000) } },
+      ] }, select: { id: true } })) throw new AriveError('Wait at least one minute after a limit check, or ten minutes after a timing sample, before checking again.');
       await tx.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_ALLOWANCE_PROBE_STARTED', details: '{}' } });
     });
     const reported: { limit: number | null; remaining: number | null } = { limit: null, remaining: null };
@@ -251,6 +256,32 @@ export async function inspectAriveReportedAllowance() {
     await prisma.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_ALLOWANCE_PROBE_COMPLETED', details: JSON.stringify({ providerRequestLimit, providerWindowSeconds: 60, remaining: reported.remaining }) } });
     return { success: true as const, checkedAt: checkedAt.toISOString(), providerRequestLimit, providerWindowSeconds: 60 as const, remaining: reported.remaining,
       message: providerRequestLimit ? `Arive reports ${providerRequestLimit} requests per minute in its documented response header.` : 'Arive did not return a usable request-limit header. No allowance has been guessed or activated.' };
+  } catch (error) { return failure(error); }
+}
+
+/** Bounded diagnostic only, never an allowance confirmation or enrollment path. */
+export async function measureAriveTestReadTiming() {
+  try {
+    const actor = await admin();
+    if (sharedAriveTransportEnabled()) throw new AriveError('This bounded diagnostic is available before shared synchronization is activated. Use live collection timestamps and request metrics while it is active.');
+    const test = await prisma.arivePipelineSync.findFirst({ where: { ariveLoanId: ARIVE_SYNC_PILOT.loanNumber, pipeline: { loanId: ARIVE_SYNC_PILOT.loanId, loan: { loanOfficerId: ARIVE_SYNC_PILOT.ownerId } } }, select: { ariveGuid: true } });
+    if (!test?.ariveGuid || !/^[a-zA-Z0-9-]{1,100}$/.test(test.ariveGuid)) throw new AriveError('Link TESTING TESTER before measuring response times.');
+    const checkedAt = new Date();
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-allowance-probe'))`;
+      if (await tx.auditLog.findFirst({ where: { OR: [
+        { action: 'ARIVE_READ_TIMING_STARTED', createdAt: { gt: new Date(checkedAt.getTime() - 10 * 60_000) } },
+        { action: 'ARIVE_ALLOWANCE_PROBE_STARTED', createdAt: { gt: new Date(checkedAt.getTime() - 60_000) } },
+      ] }, select: { id: true } })) throw new AriveError('Wait ten minutes between timing samples and one minute after a limit check.');
+      await tx.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_READ_TIMING_STARTED', details: '{}' } });
+    });
+    const api = await ariveSession();
+    const sample = await sampleAriveTestReadTiming(api, test.ariveGuid);
+    const activeLoans = await prisma.processingPipelineLoan.count({ where: { archivedAt: null, sheet: { in: ['PIPELINE', 'RESTRUCTURE'] } } });
+    const apiOnlySweepEstimateSeconds = sample.meanCycleApiMs === null ? null : Math.ceil(activeLoans * sample.meanCycleApiMs / 2 / 1000);
+    const timing = { ...sample, checkedAt: checkedAt.toISOString(), activeLoans, apiOnlySweepEstimateSeconds };
+    await prisma.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_READ_TIMING_COMPLETED', details: JSON.stringify(timing) } });
+    return { success: true as const, timing };
   } catch (error) { return failure(error); }
 }
 

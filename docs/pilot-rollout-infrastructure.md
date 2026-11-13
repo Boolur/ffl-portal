@@ -242,6 +242,14 @@ or malformed limit is not confirmation and never enables collection. Run this pr
 and save the confirmed allowance **before** enabling the shared deployment gate;
 the shared transport deliberately fails closed without its saved budget.
 
+`measureAriveTestReadTiming` is a preactivation diagnostic for the known synthetic
+file: at most 12 sequential GETs, a 90-second sampling deadline, one run per ten
+minutes across operators, and no retries after an error. It is unavailable once
+shared transport is active, so its 12-request bound cannot be expanded by shared
+token-refresh retries. Timings and a two-request-concurrency sweep estimate are
+saved without response bodies. These measure latency only; they do not confirm
+quota, enable enrollment, or establish sustained capacity.
+
 The borrower workspace uses saved, authorized snapshots and loan-scoped notes for
 generalized loans. Opening tabs adds no Arive requests. Paused, previously applied
 snapshots remain visible with resume controls; pausing an individual enrollment
@@ -254,3 +262,21 @@ documented contacts/loan/property fields. Missing older snapshot fields normaliz
 to null. It is not a complete 1003 export: itemized assets/liabilities, declarations,
 opaque borrowerIncome and the separate REO endpoint are not inferred or collected.
 No SSNs, raw provider bodies, or new outbound loan/document operations are introduced.
+
+## Production verification — November 12, 2026
+
+- Release `038adeb` deployed successfully. Admin III controls loaded with collection,
+  application, shared transport and generalized rollout still off; Pilot appearance
+  remained on for the signed-in eligible account.
+- The bounded provider-limit probe authenticated and read TESTING TESTER successfully,
+  but no usable documented request-limit header was returned. No provider allowance
+  was saved or invented, and no broad polling was activated.
+- Database inventory at the check contained 308 Pipeline, 101 Restructures and 390
+  eligible-or-undated Funding records. Enrollment must still verify identities;
+  these counts are candidates, not confirmed Arive matches.
+- Known test-file registry contained TESTING TESTER, Arive loan 17881588, under the
+  legacy collector. No other registered practice files were present.
+- In its live processing workspace, Borrower Info showed Arive contacts/residence;
+  Financial Info showed housing expenses, qualification figures, financing and the
+  employer phone/classification. Its successful background sync was visible at
+  4:04:18 p.m. Pacific. This validates the existing synthetic file, not broad cohorts.

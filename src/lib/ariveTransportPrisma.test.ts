@@ -50,6 +50,24 @@ describe('shared transport deployment and quota gates', () => {
   it('reports ready without making an authentication request and returns no secret metadata', async () => {
     expect(await isAriveBudgetReady()).toEqual({ ready: true, reason: null }); expect(mock.session).not.toHaveBeenCalled();
   });
+  it('accepts queue readiness during a provider cooldown while ordinary readiness remains blocked', async () => {
+    const now = new Date('2026-11-12T19:00:30Z'); const cooldownUntil = new Date('2026-11-12T19:02:00Z');
+    const runtime = await mock.runtime(); mock.runtime.mockResolvedValue({ ...runtime, cooldownUntil });
+    expect(await isAriveBudgetReady({ now: () => now })).toEqual({ ready: false, reason: 'Arive requests are paused until the provider cooldown ends.', cooldownUntil });
+    expect(await isAriveBudgetReady({ now: () => now, allowCooldown: true })).toEqual({ ready: true, reason: null, cooldownUntil });
+    expect(mock.session).not.toHaveBeenCalled(); expect(mock.upsert).not.toHaveBeenCalled(); expect(mock.transaction).not.toHaveBeenCalled();
+  });
+  it.each(['deployment disabled', 'runtime paused', 'missing credentials', 'wrong key', 'unconfirmed quota'])('queue readiness still rejects %s', async scenario => {
+    const runtime = await mock.runtime();
+    mock.runtime.mockResolvedValue({ ...runtime, cooldownUntil: new Date('2099-01-01') });
+    if (scenario === 'deployment disabled') vi.stubEnv('ARIVE_SHARED_TRANSPORT_ENABLED', 'false');
+    if (scenario === 'runtime paused') mock.runtime.mockResolvedValue({ ...runtime, enabled: false });
+    if (scenario === 'missing credentials') mock.config.mockResolvedValue(null);
+    if (scenario === 'wrong key') mock.runtime.mockResolvedValue({ ...runtime, quotaKeyFingerprint: 'another-key' });
+    if (scenario === 'unconfirmed quota') mock.runtime.mockResolvedValue({ ...runtime, quotaConfirmedAt: null });
+    expect(await isAriveBudgetReady({ allowCooldown: true })).toMatchObject({ ready: false });
+    expect(mock.session).not.toHaveBeenCalled(); expect(mock.upsert).not.toHaveBeenCalled();
+  });
   it('returns only a generic readiness failure when persistence fails', async () => {
     mock.config.mockRejectedValueOnce(new Error('synthetic-secret or database connection detail'));
     expect(await isAriveBudgetReady()).toEqual({ ready: false, reason: 'Arive request controls are unavailable.' });

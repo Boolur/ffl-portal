@@ -10,6 +10,7 @@ import {
   getAriveRolloutReview,
   getAriveRolloutStatus,
   inspectAriveReportedAllowance,
+  measureAriveTestReadTiming,
   queueAriveRolloutRefresh,
   setAriveRolloutLoanEnabled,
   transferLegacyAriveRolloutFile,
@@ -19,6 +20,7 @@ import {
 type Status = Extract<Awaited<ReturnType<typeof getAriveRolloutStatus>>, { success: true }>;
 type Inventory = Extract<Awaited<ReturnType<typeof getAriveRolloutInventory>>, { success: true }>;
 type Review = Extract<Awaited<ReturnType<typeof getAriveRolloutReview>>, { success: true }>;
+type Timing = Extract<Awaited<ReturnType<typeof measureAriveTestReadTiming>>, { success: true }>['timing'];
 type Controls = { collectionEnabled: boolean; applicationEnabled: boolean; enrollmentEnabled: boolean; cohortLimit: 10 | 50 | null };
 type Success = { success: true; queued?: boolean; applied?: boolean; collected?: boolean; changed?: boolean };
 type Result = Success | { success: false; error: string };
@@ -49,6 +51,7 @@ export function AriveRolloutSettings() {
   const [allowRequests, setAllowRequests] = useState(false);
   const [confirmedAllowance, setConfirmedAllowance] = useState(false);
   const [review, setReview] = useState<{ loanNumber: string; value: Review } | null>(null);
+  const [timing, setTiming] = useState<Timing | null>(null);
   const [busy, setBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
@@ -68,7 +71,7 @@ export function AriveRolloutSettings() {
     if (!alive.current || version !== loadVersion.current) return;
     if (!nextStatus.success || !nextInventory.success) {
       // A revoked account/role must not leave previously authorized records visible.
-      setStatus(null); setInventory(null); setReview(null);
+      setStatus(null); setInventory(null); setReview(null); setTiming(null);
       throw new Error(!nextStatus.success ? nextStatus.error : !nextInventory.success ? nextInventory.error : 'Unable to load rollout status.');
     }
     setStatus(nextStatus);
@@ -130,6 +133,11 @@ export function AriveRolloutSettings() {
     }
     return result;
   }, 'Arive’s reported allowance filled the form. Review and save it before activating shared requests.');
+  const measureTiming = () => perform('Measuring TESTING TESTER response times', async () => {
+    const result = await measureAriveTestReadTiming();
+    if (result.success && alive.current) setTiming(result.timing);
+    return result;
+  }, 'Bounded timing sample finished. This measures response time; it does not establish an approved request allowance or activate synchronization.');
   const totals = status?.counts.reduce((sum, group) => {
     sum.enrolled += group._count._all;
     if (group.enabled) sum.enabled += group._count._all;
@@ -164,6 +172,15 @@ export function AriveRolloutSettings() {
           <summary className="cursor-pointer text-sm font-semibold">Branch API request allowance</summary>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Use the allowance confirmed by Arive for this branch API key. BISU reserves at most 80% of it, shared by authentication, loan reads, retries, and manual refreshes. There is no assumed default.</p>
           <button type="button" className={`${secondary} mt-3`} disabled={Boolean(busy)} onClick={() => void inspectAllowance()}><ShieldCheck className="h-3.5 w-3.5" />Check Arive-reported limit</button>
+          <button type="button" className={`${secondary} ml-2 mt-3`} disabled={Boolean(busy) || inventory.gates.sharedTransport} onClick={() => void measureTiming()}><Clock3 className="h-3.5 w-3.5" />Measure test-file response time</button>
+          <p className="mt-2 text-xs text-muted-foreground">The timing sample makes at most 12 sequential reads on TESTING TESTER, stops on the first error, and is limited to one run per ten minutes. It changes no loan values.</p>
+          {timing && <div role="status" className="mt-3 rounded-xl border border-border p-3 text-xs leading-relaxed">
+            <p className="font-semibold">Sample taken {when(timing.checkedAt)}</p>
+            <p>{timing.completedRequests} successful reads · {timing.completedCycles} complete cycles · median {timing.medianRequestMs ?? '—'} ms · 95th percentile {timing.p95RequestMs ?? '—'} ms</p>
+            {timing.apiOnlySweepEstimateSeconds !== null && <p>At these observed response times, {timing.activeLoans} active Pipeline and Restructures files need approximately {timing.apiOnlySweepEstimateSeconds} seconds of API time per full sweep with two concurrent requests. Authentication, database work, pagination, cron timing and quota delays add time.</p>}
+            <p>This small test measures latency, not sustained capacity or the branch’s approved limit.</p>
+            {timing.error && <p className="mt-1 text-red-700 dark:text-red-300">Sample stopped: {timing.error}</p>}
+          </div>}
           <form className="mt-4 space-y-3" onSubmit={event => {
             event.preventDefault();
             if (!confirmedAllowance) return;

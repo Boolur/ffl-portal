@@ -18,10 +18,12 @@ export type AriveRolloutDeps = {
 };
 export const ariveRolloutEnvironmentEnabled = () => process.env.ARIVE_ROLLOUT_ENABLED === 'true'
   && (!process.env.VERCEL_ENV || process.env.VERCEL_ENV === 'production');
-export async function assertAriveRolloutReady(deps: AriveRolloutDeps = {}) {
+export async function assertAriveRolloutReady(deps: AriveRolloutDeps = {}, options: { allowCooldown?: boolean } = {}) {
   if (!ariveRolloutEnvironmentEnabled()) throw new AriveError('The generalized Arive rollout is disabled in this deployment.');
-  const budget = await (deps.budgetReady || isAriveBudgetReady)();
+  const budget = await (deps.budgetReady || isAriveBudgetReady)(options.allowCooldown ? { allowCooldown: true } : undefined);
+  if (!budget.ready && budget.cooldownUntil) throw new AriveTransportError('COOLDOWN', budget.reason || 'Arive requests are paused until the provider cooldown ends.', budget.cooldownUntil);
   if (!budget.ready) throw new AriveError(budget.reason || 'Confirm the branch API request allowance before collecting pipeline data.');
+  return budget;
 }
 export function ariveRolloutCohortWhere(now: Date): Prisma.ProcessingPipelineLoanWhereInput {
   return { archivedAt: null, OR: [
