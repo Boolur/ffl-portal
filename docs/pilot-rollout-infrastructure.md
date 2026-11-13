@@ -97,6 +97,12 @@ the existing flat ZIP manifest protocol and revision/selection validation.
   the saved connection (`limit=1`, no filter), at most once per five minutes. Returns
   provider count, row count and time only; it does not log or expose the sample
   borrower's data. API visibility is distinct from portal enrollment and matching.
+- `inspectAriveLoanCoverage()`: optional visibility inspection, at most ten pages
+  of 100 records and 90 seconds with a 25-second reserve, once per five minutes.
+  Reports completion/partial reasons, originator aggregates, and numeric overlaps
+  with eligible portal loans. No provider borrower payload or GUID is returned or
+  audited. A numeric overlap never authorizes enrollment: Verify file still runs
+  the independent identity, originator, eligibility, practice and cohort checks.
 - `configureAriveRollout({collectionEnabled,applicationEnabled,enrollmentEnabled,
   cohortLimit?})`: independent controls and atomic generation fencing. Cohort
   limit is 10, 50 or null for the remainder; default 10.

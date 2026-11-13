@@ -4,10 +4,11 @@ const errors = vi.hoisted(() => ({ AriveError: class AriveError extends Error {}
 const timing = vi.hoisted(() => ({ sample: vi.fn(), activeCount: vi.fn() }));
 const operatorBudget = vi.hoisted(() => ({ configure: vi.fn() }));
 const cohort = vi.hoisted(() => ({ queue: vi.fn() }));
+const visibility = vi.hoisted(() => ({ users: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('next-auth', () => ({ getServerSession: m.session }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
-vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: m.user }, processingPipelineLoan: { findUnique: m.row, findMany: m.candidates, groupBy: m.candidateCounts, findFirst: m.testLoan, count: timing.activeCount }, arivePracticeLoan: { findMany: m.practiceList }, arivePipelineSync: { findUnique: m.sync, findFirst: m.existingLink, update: m.update, count: m.count }, auditLog: { create: m.audit }, $transaction: m.transaction } }));
+vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: m.user, findMany: visibility.users }, processingPipelineLoan: { findUnique: m.row, findMany: m.candidates, groupBy: m.candidateCounts, findFirst: m.testLoan, count: timing.activeCount }, arivePracticeLoan: { findMany: m.practiceList }, arivePipelineSync: { findUnique: m.sync, findFirst: m.existingLink, update: m.update, count: m.count }, auditLog: { create: m.audit }, $transaction: m.transaction } }));
 vi.mock('@/lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, ariveSession: m.probe, AriveError: errors.AriveError }));
 vi.mock('@/lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget, configureAriveTransportQuota: m.quota, configureAriveOperatorBudget: operatorBudget.configure, getAriveTransportMetrics: m.metrics, sharedAriveTransportEnabled: () => process.env.ARIVE_SHARED_TRANSPORT_ENABLED === 'true' }));
 vi.mock('@/lib/ariveRolloutWorker', () => ({ syncAriveRolloutLoan: m.worker }));
@@ -20,7 +21,7 @@ vi.mock('@/lib/ariveRollout', async () => import('../../lib/ariveRollout'));
 vi.mock('../../lib/prisma', () => ({ prisma: {} }));
 vi.mock('../../lib/ariveClient', () => ({ ariveReadOnlySession: m.apiSession, AriveError: errors.AriveError }));
 vi.mock('../../lib/ariveTransportPrisma', () => ({ isAriveBudgetReady: m.budget }));
-import { acknowledgeAriveRolloutConflicts, configureAriveRollout, configureAriveRolloutOperatorBudget, getAriveRolloutInventory, inspectAriveAccessibleLoanCount, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutCohortRefresh, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
+import { acknowledgeAriveRolloutConflicts, configureAriveRollout, configureAriveRolloutOperatorBudget, getAriveRolloutInventory, inspectAriveAccessibleLoanCount, inspectAriveLoanCoverage, inspectAriveReportedAllowance, measureAriveTestReadTiming, queueAriveRolloutCohortRefresh, queueAriveRolloutRefresh, registerPracticeAriveLoan, setAriveRolloutLoanEnabled, transferLegacyAriveRolloutFile } from './ariveRolloutActions';
 
 let state: ReturnType<typeof initial>;
 function initial() {
@@ -51,9 +52,10 @@ beforeEach(() => {
   timing.sample.mockResolvedValue({ success: true, completedRequests: 12, completedCycles: 3, meanCycleApiMs: 1200, error: null });
   operatorBudget.configure.mockResolvedValue({ enabled: true, allowance: 120, windowSeconds: 60, deploymentActive: false, allowanceSource: 'OPERATOR_AUTHORIZED' });
   cohort.queue.mockResolvedValue({ count: 10 });
+  visibility.users.mockResolvedValue([]);
   m.transaction.mockImplementation(async work => work({ $executeRaw: m.lock, processingPipelineLoan: { findUnique: m.row }, arivePipelineSync: { findUnique: m.sync, update: m.update, updateMany: cohort.queue, count: m.count, findFirst: m.existingLink }, ariveRolloutControl: { findUnique: m.control, upsert: m.controlWrite }, arivePracticeLoan: { findFirst: m.practice, upsert: m.practiceWrite }, loan: { findUnique: m.existingLoan }, auditLog: { create: m.audit, findFirst: m.recentProbe } }));
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 describe('rollout control authentication and canonical isolation', () => {
   it.each(['signed out', 'inactive', 'forged role', 'lower admin', 'wrong active role', 'preview'])('blocks %s before reads or mutations', async scenario => {
@@ -66,6 +68,7 @@ describe('rollout control authentication and canonical isolation', () => {
     expect((await queueAriveRolloutRefresh({ pipelineId: 'pipeline-test' })).success).toBe(false);
     expect((await queueAriveRolloutCohortRefresh()).success).toBe(false);
     expect((await inspectAriveAccessibleLoanCount()).success).toBe(false);
+    expect((await inspectAriveLoanCoverage()).success).toBe(false);
     expect((await configureAriveRolloutOperatorBudget({ requestsPerMinute: 120, enabled: true })).success).toBe(false);
     expect(m.transaction).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled(); expect(operatorBudget.configure).not.toHaveBeenCalled();
   });
@@ -239,6 +242,103 @@ describe('saved connection loan coverage diagnostics', () => {
     m.api.mockRejectedValue(new errors.AriveError('Arive denied this read.'));
     expect(await inspectAriveAccessibleLoanCount()).toEqual({ success: false, error: 'Arive denied this read.' });
     expect(m.audit).toHaveBeenCalledTimes(1); expect(m.audit.mock.calls[0][0].data.action).toBe('ARIVE_LOAN_COVERAGE_STARTED');
+  });
+});
+
+describe('bounded API loan visibility inspection', () => {
+  const rows = (start: number, count: number) => Array.from({ length: count }, (_, index) => ({ ariveLoanId: start + index, loanOriginatorEmail: ' Owner@Example.Test ', sysGUID: 'never-return-remote-guid', loanBorrowers: [{ firstName: 'Never Return Remote Borrower' }] }));
+  it('paginates in creation order and returns only aggregate originators and exact existing portal overlaps', async () => {
+    state.control.collectionEnabled = false; vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'false');
+    m.candidates.mockResolvedValue([
+      { id: 'portal-one', sheet: 'PIPELINE', loan: { loanNumber: '1', borrowerName: 'Existing Portal One' } },
+      { id: 'portal-last', sheet: 'FUNDING', loan: { loanNumber: '102', borrowerName: 'Existing Portal Last' } },
+      { id: 'portal-other', sheet: 'RESTRUCTURE', loan: { loanNumber: '500', borrowerName: 'Not Accessible Portal Borrower' } },
+    ]);
+    visibility.users.mockResolvedValue([{ name: 'Portal Originator', email: 'OWNER@EXAMPLE.TEST' }]);
+    m.api.mockResolvedValueOnce({ count: 102, rows: rows(1, 100) }).mockResolvedValueOnce({ count: 102, rows: rows(101, 2) });
+    const result = await inspectAriveLoanCoverage();
+    expect(result).toMatchObject({ success: true, complete: true, reportedCount: 102, scannedRows: 102, pagesRead: 2, partialReason: null, eligiblePortalCount: 3, portalMatchCount: 2,
+      originators: [{ name: 'Portal Originator', email: 'owner@example.test', count: 102 }],
+      matches: [{ pipelineId: 'portal-one', loanNumber: '1', borrowerName: 'Existing Portal One', sheet: 'PIPELINE' }, { pipelineId: 'portal-last', loanNumber: '102', borrowerName: 'Existing Portal Last', sheet: 'FUNDING' }],
+    });
+    expect(m.api.mock.calls).toEqual([['/loans?limit=100&offset=0&orderBy=createdAt&sort=ASC'], ['/loans?limit=100&offset=100&orderBy=createdAt&sort=ASC']]);
+    expect(visibility.users).toHaveBeenCalledWith({ where: { email: { in: ['owner@example.test'], mode: 'insensitive' } }, select: { name: true, email: true } });
+    expect(m.candidates.mock.calls[0][0]).toMatchObject({ where: { archivedAt: null }, select: { id: true, sheet: true, loan: { select: { loanNumber: true, borrowerName: true } } } });
+    expect(JSON.stringify(result)).not.toContain('never-return'); expect(JSON.stringify(result)).not.toContain('Never Return Remote Borrower'); expect(JSON.stringify(result)).not.toContain('Not Accessible Portal Borrower');
+    const audit = m.audit.mock.calls.at(-1)?.[0].data;
+    expect(audit.action).toBe('ARIVE_LOAN_VISIBILITY_COMPLETED');
+    expect(JSON.parse(audit.details)).toMatchObject({ complete: true, scannedRows: 102, portalMatchCount: 2 });
+    for (const value of ['originators', 'matches', 'owner@example.test', 'Existing Portal', 'never-return']) expect(audit.details).not.toContain(value);
+    expect(m.control).not.toHaveBeenCalled(); expect(m.controlWrite).not.toHaveBeenCalled(); expect(m.update).not.toHaveBeenCalled(); expect(cohort.queue).not.toHaveBeenCalled(); expect(m.quota).not.toHaveBeenCalled(); expect(operatorBudget.configure).not.toHaveBeenCalled(); expect(m.worker).not.toHaveBeenCalled(); expect(m.probe).not.toHaveBeenCalled();
+  });
+  it('completes an empty inventory in one page', async () => {
+    m.api.mockResolvedValue({ count: 0, rows: [] });
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ complete: true, reportedCount: 0, scannedRows: 0, pagesRead: 1, originators: [], matches: [] });
+    expect(m.api).toHaveBeenCalledTimes(1);
+  });
+  it('stops after ten pages and labels the retained 1000 rows as partial', async () => {
+    m.api.mockImplementation(async (path: string) => { const offset = Number(new URL(path, 'https://example.test').searchParams.get('offset')); return { count: 1001, rows: rows(offset + 1, 100) }; });
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ success: true, complete: false, reportedCount: 1001, scannedRows: 1000, pagesRead: 10, partialReason: expect.stringContaining('ten pages') });
+    expect(m.api).toHaveBeenCalledTimes(10);
+  });
+  it('reserves 25 seconds before starting another page and retains only completed pages', async () => {
+    let time = Date.now(); vi.spyOn(Date, 'now').mockImplementation(() => time);
+    m.api.mockImplementation(async () => { time += 65_000; return { count: 200, rows: rows(1, 100) }; });
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ complete: false, scannedRows: 100, reportedCount: 200, partialReason: expect.stringContaining('time limit') });
+    expect(m.api).toHaveBeenCalledTimes(1);
+  });
+  it('rejects count drift without combining the changed page into its aggregates', async () => {
+    m.api.mockResolvedValueOnce({ count: 200, rows: rows(1, 100) }).mockResolvedValueOnce({ count: 201, rows: rows(101, 100) });
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ complete: false, reportedCount: 200, scannedRows: 100, partialReason: expect.stringContaining('count changed'), originators: [{ count: 100 }] });
+  });
+  it('discards every row of a malformed later page before deriving portal matches or originator aggregates', async () => {
+    m.candidates.mockResolvedValue([{ id: 'portal-later', sheet: 'PIPELINE', loan: { loanNumber: '101', borrowerName: 'Must Not Appear' } }]);
+    m.api.mockResolvedValueOnce({ count: 102, rows: rows(1, 100) }).mockResolvedValueOnce({ count: 102, rows: [{ ariveLoanId: 101, loanOriginatorEmail: 'later@example.test' }, { ariveLoanId: 'invalid', loanOriginatorEmail: 'later@example.test' }] });
+    const result = await inspectAriveLoanCoverage();
+    expect(result).toMatchObject({ complete: false, scannedRows: 100, matches: [], originators: [{ email: 'owner@example.test', count: 100 }] });
+    expect(JSON.stringify(result)).not.toContain('later@example.test'); expect(JSON.stringify(result)).not.toContain('Must Not Appear');
+  });
+  it.each([
+    { count: '1', rows: [] }, { count: -1, rows: [] }, { count: 1.5, rows: [] }, { count: Number.MAX_SAFE_INTEGER + 1, rows: [] },
+    { count: 1, rows: null }, { count: 101, rows: rows(1, 101) }, null,
+  ])('does not claim completeness for an invalid page: %j', async response => {
+    m.api.mockResolvedValue(response);
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ success: true, complete: false, scannedRows: 0, partialReason: expect.stringContaining('invalid page'), matches: [], originators: [] });
+    expect(m.api).toHaveBeenCalledTimes(1);
+  });
+  it.each([{ count: 101, rows: rows(1, 20) }, { count: 0, rows: rows(1, 1) }])('rejects short or excessive pagination without accepting rows: %j', async response => {
+    m.api.mockResolvedValue(response);
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ complete: false, scannedRows: 0, partialReason: expect.stringContaining('incomplete page') });
+  });
+  it.each([null, {}, { ariveLoanId: 'invalid' }, { ariveLoanId: 1.5 }])('rejects an invalid loan identity in a page: %j', async row => {
+    m.api.mockResolvedValue({ count: 1, rows: [row] });
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ complete: false, scannedRows: 0, partialReason: expect.stringContaining('valid numeric loan number') });
+  });
+  it.each(['within page', 'across pages'])('rejects duplicate numeric loan IDs %s', async scenario => {
+    if (scenario === 'within page') m.api.mockResolvedValue({ count: 2, rows: [{ ariveLoanId: 1 }, { ariveLoanId: '1' }] });
+    else m.api.mockResolvedValueOnce({ count: 101, rows: rows(1, 100) }).mockResolvedValueOnce({ count: 101, rows: rows(1, 1) });
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ complete: false, scannedRows: scenario === 'within page' ? 0 : 100, partialReason: expect.stringContaining('repeated loan numbers') });
+  });
+  it('groups absent and invalid originator emails as unknown instead of echoing arbitrary provider values', async () => {
+    m.api.mockResolvedValue({ count: 3, rows: [{ ariveLoanId: 1 }, { ariveLoanId: 2, loanOriginatorEmail: 'never-return-unstructured-value' }, { ariveLoanId: 3, loanOriginatorEmail: ' Known@Example.Test ' }] });
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ complete: true, originators: [{ email: null, name: 'Unknown originator', count: 2 }, { email: 'known@example.test', name: 'known@example.test', count: 1 }] });
+  });
+  it('retains earlier validated pages when a provider read fails, without exposing its raw error', async () => {
+    m.api.mockResolvedValueOnce({ count: 200, rows: rows(1, 100) }).mockRejectedValueOnce(new Error('never-return-provider-secret'));
+    const result = await inspectAriveLoanCoverage();
+    expect(result).toMatchObject({ complete: false, scannedRows: 100, partialReason: expect.stringContaining('could not complete') });
+    expect(JSON.stringify(result)).not.toContain('never-return-provider-secret');
+  });
+  it('throttles repeated inspections before any session, portal inventory, or provider read', async () => {
+    m.recentProbe.mockResolvedValue({ id: 'recent' });
+    expect(await inspectAriveLoanCoverage()).toMatchObject({ success: false, error: expect.stringContaining('five minutes') });
+    expect(m.recentProbe).toHaveBeenCalledWith({ where: { action: 'ARIVE_LOAN_VISIBILITY_STARTED', createdAt: { gt: expect.any(Date) } }, select: { id: true } });
+    expect(m.candidates).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled(); expect(m.audit).not.toHaveBeenCalled();
+  });
+  it('requires the shared budget and honors cooldown without issuing a diagnostic', async () => {
+    m.budget.mockResolvedValue({ ready: false, reason: 'Provider cooldown' });
+    expect(await inspectAriveLoanCoverage()).toEqual({ success: false, error: 'Provider cooldown' });
+    expect(m.transaction).not.toHaveBeenCalled(); expect(m.apiSession).not.toHaveBeenCalled();
   });
 });
 

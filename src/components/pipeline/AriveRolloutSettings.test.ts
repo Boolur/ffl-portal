@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/app/actions/ariveRolloutActions', () => ({}));
-import { ariveAccessibleLoanCountDescription, ariveRolloutBudgetDescription, ariveRolloutCohortRefreshFeedback, ariveRolloutEnrollmentFeedback, ariveRolloutRefreshFeedback } from './AriveRolloutSettings';
+import { ariveAccessibleLoanCountDescription, ariveLoanVisibilityDescription, ariveRolloutBudgetDescription, ariveRolloutCohortRefreshFeedback, ariveRolloutEnrollmentFeedback, ariveRolloutRefreshFeedback } from './AriveRolloutSettings';
 
 describe('operator sync feedback', () => {
   it('does not present a queued refresh as applied or freshly read', () => {
@@ -53,6 +53,12 @@ describe('operator budget and enrollment feedback', () => {
     expect(ariveAccessibleLoanCountDescription(87)).toBe('87 loans accessible to the saved Arive connection. This is not a count of matched or enrolled BISU loans.');
     expect(ariveAccessibleLoanCountDescription(1)).toContain('1 loan accessible');
     expect(ariveAccessibleLoanCountDescription(0)).toContain('0 loans accessible');
+  });
+  it('distinguishes full visibility from a partial inspection and never equates numeric overlap with verified identity', () => {
+    const partial = ariveLoanVisibilityDescription({ complete: false, scannedRows: 100, reportedCount: 564, portalMatchCount: 2 });
+    expect(partial).toContain('Partial inspection: 100 of 564'); expect(partial).toContain('share a numeric loan number'); expect(partial).toContain('independent identity verification');
+    expect(ariveLoanVisibilityDescription({ complete: true, scannedRows: 564, reportedCount: 564, portalMatchCount: 27 })).toContain('Complete inspection: 564 of 564');
+    expect(ariveLoanVisibilityDescription({ complete: false, scannedRows: 0, reportedCount: null, portalMatchCount: 0 })).toContain('an unknown number');
   });
   it('labels the effective operator cap without presenting it as Arive confirmation', () => {
     const message = ariveRolloutBudgetDescription({ allowanceSource: 'OPERATOR_AUTHORIZED', operatorRequestLimit: 60, allowance: 60, providerRequestLimit: null, windowSeconds: 60 });

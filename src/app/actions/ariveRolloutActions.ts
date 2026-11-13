@@ -279,6 +279,62 @@ export async function inspectAriveAccessibleLoanCount() {
   } catch (error) { return failure(error); }
 }
 
+/** Bounded visibility scan; only originator aggregates and existing portal overlaps leave the server. */
+export async function inspectAriveLoanCoverage() {
+  try {
+    const deadline = Date.now() + 90_000;
+    const actor = await admin();
+    const budget = await isAriveBudgetReady();
+    if (!budget.ready) throw new AriveError(budget.reason || 'Shared Arive request controls must be ready before inspecting API loan visibility.');
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-loan-visibility-probe'))`;
+      if (await tx.auditLog.findFirst({ where: { action: 'ARIVE_LOAN_VISIBILITY_STARTED', createdAt: { gt: new Date(Date.now() - 5 * 60_000) } }, select: { id: true } })) throw new AriveError('Wait five minutes between API loan visibility inspections.');
+      await tx.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_LOAN_VISIBILITY_STARTED', details: '{}' } });
+    });
+    const eligible = await prisma.processingPipelineLoan.findMany({ where: ariveRolloutCohortWhere(new Date()),
+      select: { id: true, sheet: true, loan: { select: { loanNumber: true, borrowerName: true } } }, orderBy: { id: 'asc' } });
+    const api = await ariveReadOnlySession();
+    const seen = new Set<string>(); const originatorCounts = new Map<string, number>();
+    let reportedCount: number | null = null; let pagesRead = 0; let offset = 0; let complete = false;
+    let partialReason: string | null = null;
+    for (let page = 0; page < 10; page++) {
+      if (Date.now() >= deadline - 25_000) { partialReason = 'The inspection reached its time limit before the next page.'; break; }
+      let response: Record<string, unknown>;
+      try { response = jsonRecord(await api(`/loans?limit=100&offset=${offset}&orderBy=createdAt&sort=ASC`)); pagesRead++; }
+      catch { partialReason = 'An API read could not complete. The shared budget, cooldown, or provider response may have delayed it.'; break; }
+      if (typeof response.count !== 'number' || !Number.isSafeInteger(response.count) || response.count < 0 || !Array.isArray(response.rows) || response.rows.length > 100) {
+        partialReason = 'Arive returned an invalid page. Only earlier validated pages are included.'; break;
+      }
+      if (reportedCount !== null && response.count !== reportedCount) { partialReason = 'Arive’s loan count changed during the inspection. Only earlier validated pages are included.'; break; }
+      reportedCount = response.count;
+      if (offset + response.rows.length > reportedCount || offset + response.rows.length < reportedCount && response.rows.length !== 100) {
+        partialReason = 'Arive returned an incomplete page. Only earlier validated pages are included.'; break;
+      }
+      const current = response.rows.map(value => {
+        const row = jsonRecord(value); const number = (typeof row.ariveLoanId === 'number' && Number.isSafeInteger(row.ariveLoanId)) || typeof row.ariveLoanId === 'string' ? String(row.ariveLoanId) : '';
+        const rawEmail = typeof row.loanOriginatorEmail === 'string' ? row.loanOriginatorEmail.trim().toLowerCase() : '';
+        const email = rawEmail.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rawEmail) ? rawEmail : '';
+        return { number, email };
+      });
+      if (current.some(row => !/^\d{1,15}$/.test(row.number))) { partialReason = 'Arive returned a row without a valid numeric loan number. Only earlier validated pages are included.'; break; }
+      if (new Set(current.map(row => row.number)).size !== current.length || current.some(row => seen.has(row.number))) { partialReason = 'Arive repeated loan numbers during pagination. Only earlier validated pages are included.'; break; }
+      for (const row of current) { seen.add(row.number); originatorCounts.set(row.email, (originatorCounts.get(row.email) ?? 0) + 1); }
+      offset += current.length;
+      if (offset >= reportedCount) { complete = true; break; }
+    }
+    if (!complete && !partialReason) partialReason = 'The inspection reached its limit of ten pages (1,000 loans).';
+    const emails = [...originatorCounts.keys()].filter(Boolean);
+    const users = emails.length ? await prisma.user.findMany({ where: { email: { in: emails, mode: 'insensitive' } }, select: { name: true, email: true } }) : [];
+    const names = new Map<string, Set<string>>();
+    for (const user of users) { const email = user.email.trim().toLowerCase(); const values = names.get(email) ?? new Set<string>(); values.add(user.name); names.set(email, values); }
+    const originators = [...originatorCounts].map(([email, count]) => ({ email: email || null, name: email ? names.get(email)?.size === 1 ? [...names.get(email)!][0] : names.has(email) ? 'Multiple portal users' : email : 'Unknown originator', count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const matches = eligible.filter(row => /^\d{1,15}$/.test(row.loan.loanNumber) && seen.has(row.loan.loanNumber)).map(row => ({ pipelineId: row.id, loanNumber: row.loan.loanNumber, borrowerName: row.loan.borrowerName, sheet: row.sheet }));
+    const summary = { reportedCount, scannedRows: seen.size, pagesRead, complete, partialReason, eligiblePortalCount: eligible.length, portalMatchCount: matches.length, checkedAt: new Date().toISOString() };
+    await prisma.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_LOAN_VISIBILITY_COMPLETED', details: JSON.stringify(summary) } });
+    return { success: true as const, ...summary, originators, matches };
+  } catch (error) { return failure(error); }
+}
+
 /** A single known test-file GET, bounded to once per minute across operators. */
 export async function inspectAriveReportedAllowance() {
   try {

@@ -11,6 +11,7 @@ import {
   getAriveRolloutReview,
   getAriveRolloutStatus,
   inspectAriveAccessibleLoanCount,
+  inspectAriveLoanCoverage,
   inspectAriveReportedAllowance,
   measureAriveTestReadTiming,
   queueAriveRolloutCohortRefresh,
@@ -25,6 +26,7 @@ type Inventory = Extract<Awaited<ReturnType<typeof getAriveRolloutInventory>>, {
 type Review = Extract<Awaited<ReturnType<typeof getAriveRolloutReview>>, { success: true }>;
 type Timing = Extract<Awaited<ReturnType<typeof measureAriveTestReadTiming>>, { success: true }>['timing'];
 type Coverage = Extract<Awaited<ReturnType<typeof inspectAriveAccessibleLoanCount>>, { success: true }>;
+type Visibility = Extract<Awaited<ReturnType<typeof inspectAriveLoanCoverage>>, { success: true }>;
 type Controls = { collectionEnabled: boolean; applicationEnabled: boolean; enrollmentEnabled: boolean; cohortLimit: 10 | 50 | null };
 type Success = { success: true; queued?: boolean; queuedCount?: number; applied?: boolean; collected?: boolean; changed?: boolean; scanned?: number; verified?: number; review?: number };
 type Result = Success | { success: false; error: string };
@@ -67,6 +69,10 @@ export function ariveAccessibleLoanCountDescription(count: number): string {
   return `${count} ${count === 1 ? 'loan' : 'loans'} accessible to the saved Arive connection. This is not a count of matched or enrolled BISU loans.`;
 }
 
+export function ariveLoanVisibilityDescription(result: Pick<Visibility, 'complete' | 'scannedRows' | 'reportedCount' | 'portalMatchCount'>): string {
+  return `${result.complete ? 'Complete inspection' : 'Partial inspection'}: ${result.scannedRows} of ${result.reportedCount ?? 'an unknown number of'} API loans inspected; ${result.portalMatchCount} existing eligible BISU loans share a numeric loan number. Each file still requires independent identity verification.`;
+}
+
 export function AriveRolloutSettings() {
   const [status, setStatus] = useState<Status | null>(null);
   const [inventory, setInventory] = useState<Inventory | null>(null);
@@ -80,6 +86,7 @@ export function AriveRolloutSettings() {
   const [review, setReview] = useState<{ loanNumber: string; value: Review } | null>(null);
   const [timing, setTiming] = useState<Timing | null>(null);
   const [coverage, setCoverage] = useState<Coverage | null>(null);
+  const [visibility, setVisibility] = useState<Visibility | null>(null);
   const [busy, setBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
@@ -99,7 +106,7 @@ export function AriveRolloutSettings() {
     if (!alive.current || version !== loadVersion.current) return;
     if (!nextStatus.success || !nextInventory.success) {
       // A revoked account/role must not leave previously authorized records visible.
-      setStatus(null); setInventory(null); setReview(null); setTiming(null); setCoverage(null);
+      setStatus(null); setInventory(null); setReview(null); setTiming(null); setCoverage(null); setVisibility(null);
       throw new Error(!nextStatus.success ? nextStatus.error : !nextInventory.success ? nextInventory.error : 'Unable to load rollout status.');
     }
     setStatus(nextStatus);
@@ -174,6 +181,12 @@ export function AriveRolloutSettings() {
     if (result.success && alive.current) setCoverage(result);
     return result;
   }, 'API loan coverage checked using the saved connection. No matching, enrollment, or synchronization settings were changed.');
+  const inspectVisibility = () => perform('Inspecting API loan visibility', async () => {
+    setVisibility(null);
+    const result = await inspectAriveLoanCoverage();
+    if (result.success && alive.current) setVisibility(result);
+    return result;
+  }, 'API visibility inspection finished. Review its completeness and overlaps below; no loans were enabled or changed.');
   const totals = status?.counts.reduce((sum, group) => {
     sum.enrolled += group._count._all;
     if (group.enabled) sum.enabled += group._count._all;
@@ -254,8 +267,16 @@ export function AriveRolloutSettings() {
         </div>
         <div className="space-y-2 rounded-xl border border-border p-4">
           <button type="button" className={secondary} disabled={Boolean(busy) || !inventory.gates.sharedTransport || !status.transport.enabled} onClick={() => void inspectCoverage()}><ShieldCheck className="h-3.5 w-3.5" />Check API loan coverage</button>
+          <button type="button" className={`${secondary} ml-2`} disabled={Boolean(busy) || !inventory.gates.sharedTransport || !status.transport.enabled} onClick={() => void inspectVisibility()}><ShieldCheck className="h-3.5 w-3.5" />Inspect API loan visibility</button>
           <p className="text-xs leading-relaxed text-muted-foreground">Checks the loan count reported by the saved Arive connection with one limited read under the shared request budget. Available once per five minutes; collection can remain paused. No borrower details are displayed.</p>
           {coverage && <p role="status" className="text-xs leading-relaxed"><span className="font-semibold">{ariveAccessibleLoanCountDescription(coverage.count)}</span><br />Checked {when(coverage.checkedAt)} · {coverage.returnedRowCount} sample {coverage.returnedRowCount === 1 ? 'row' : 'rows'} returned; identifying details withheld.</p>}
+          <p className="text-xs leading-relaxed text-muted-foreground">The visibility inspection reads up to ten pages using the same shared budget, groups accessible loans by originator, and lists only matching loan numbers already in BISU. It is limited to one inspection per five minutes and does not enroll or enable any file.</p>
+          {visibility && <div className="space-y-3 border-t border-border pt-3">
+            <p role="status" className={`text-xs leading-relaxed ${visibility.complete ? '' : 'text-amber-700 dark:text-amber-300'}`}>{ariveLoanVisibilityDescription(visibility)}{visibility.partialReason && <> {visibility.partialReason} A partial inspection cannot establish the full API scope.</>}</p>
+            <p className="text-xs text-muted-foreground">Checked {when(visibility.checkedAt)} · {visibility.pagesRead} page responses · {visibility.eligiblePortalCount} eligible BISU loans</p>
+            <div className="flex flex-wrap gap-2">{visibility.originators.map(originator => <span key={originator.email ?? 'unknown'} className="rounded-lg border border-border px-2.5 py-1.5 text-xs"><strong>{originator.name}</strong>{originator.email && originator.name !== originator.email && <> · {originator.email}</>} · {originator.count} loans</span>)}</div>
+            <div className="max-h-80 divide-y divide-border overflow-y-auto">{visibility.matches.map(match => <article key={match.pipelineId} className="flex flex-wrap items-center justify-between gap-3 py-2"><div><h4 className="text-xs font-semibold">{match.borrowerName}</h4><p className="text-xs text-muted-foreground">Arive #{match.loanNumber} · {words(match.sheet)} · Numeric overlap; identity not verified by this inspection</p></div><button type="button" className={secondary} disabled={Boolean(busy) || !status.control.collectionEnabled} onClick={() => void perform('Verifying file identity', () => verifyAndEnrollExistingAriveLoan({ pipelineId: match.pipelineId }), ariveRolloutEnrollmentFeedback)}>Verify file</button></article>)}</div>
+          </div>}
         </div>
 
         <form className="space-y-4 rounded-xl border border-border p-4" onSubmit={event => { event.preventDefault(); void perform('Saving collection settings', () => configureAriveRollout(controls), 'Collection settings saved. In-flight reads respect the new settings.'); }}>
