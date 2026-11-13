@@ -16,7 +16,12 @@ export function isAriveManagedState(state: ArivePipelineSync | null | undefined,
 }
 
 export function isAriveVisibleForLoan(state: ArivePipelineSync | null | undefined, loan: { id: string; loanNumber: string; loanOfficerId: string }): boolean {
-  if (state?.workerOwner === 'GENERALIZED') return isAriveManagedState(state, loan.id) && state.ariveLoanId === loan.loanNumber;
+  // Pausing updates retains the last verified read-only snapshot and its controls.
+  // Edit ownership remains separately governed by isAriveManagedState.
+  if (state?.workerOwner === 'GENERALIZED') return state.enrollmentStatus === 'VERIFIED'
+    && !!state.verifiedAt && !!state.lastSuccessAt && !!state.ariveGuid
+    && state.ariveLoanId === loan.loanNumber
+    && Object.keys(jsonRecord(jsonRecord(state.snapshot).managed)).length > 0;
   return loan.id === ARIVE_SYNC_PILOT.loanId && loan.loanNumber === ARIVE_SYNC_PILOT.loanNumber && loan.loanOfficerId === ARIVE_SYNC_PILOT.ownerId;
 }
 export function ariveSyncValue(value: unknown): string | null {
@@ -70,6 +75,8 @@ export function ariveSyncView(state: ArivePipelineSync | null | undefined, eligi
   const labels: Record<string, string> = { pendingItems: 'Pending items', scheduledSigning: 'Scheduled signing', payoffExpiry: 'Payoff expiry', conditionNeeded: 'Conditions needed', hoiExpiration: 'Insurance expiration', completion1004D: '1004D', waterInspection: 'Water inspection', pestInspection: 'Pest inspection' };
   return {
     enabled: state?.enabled || false, lastSuccessAt: state?.lastSuccessAt?.toISOString() || null,
+    workerOwner: state?.workerOwner === 'GENERALIZED' ? 'GENERALIZED' : 'LEGACY',
+    manualRefreshRequestedAt: state?.manualRefreshRequestedAt?.toISOString() || null,
     lastAttemptAt: state?.lastAttemptAt?.toISOString() || null, nextAttemptAt: state?.nextAttemptAt?.toISOString() || null,
     error: state?.lastError || null, stage: typeof source.stage === 'string' ? source.stage : null,
     stageLabel: typeof source.stageLabel === 'string' ? source.stageLabel : null,
@@ -83,6 +90,17 @@ export function ariveSyncView(state: ArivePipelineSync | null | undefined, eligi
       return { key, label: labels[key] || key, value: ariveSyncValue(value), author: typeof provenance.author === 'string' ? provenance.author : 'Arive', updatedAt: typeof provenance.effectiveAt === 'string' ? provenance.effectiveAt : null };
     }),
   };
+}
+
+/** Saved allowlisted tracker rows; never performs a provider read. */
+export function savedAriveTrackers(snapshot: unknown) {
+  const rows = jsonRecord(jsonRecord(snapshot).source).trackers;
+  const safe = (value: unknown) => typeof value === 'string' && value.length <= 200 ? value : '';
+  return (Array.isArray(rows) ? rows : []).slice(0, 100).map(jsonRecord).map(row => ({
+    name: safe(row.name), label: safe(row.label) || safe(row.name), status: safe(row.status),
+    statusLabel: safe(row.statusLabel) || safe(row.status),
+    date: typeof row.date === 'string' && parseArivePipelineDate(row.date) ? row.date : null,
+  })).filter(row => row.name);
 }
 
 /** Called only after the existing action's row access/version checks. Never makes an Arive write. */

@@ -8,8 +8,9 @@ import { jsonRecord } from './ariveSyncState';
 
 export const ARIVE_ROLLOUT_CONNECTION = 'company';
 export const ARIVE_ROLLOUT_OWNER = 'GENERALIZED';
-export const ARIVE_ACTIVE_INTERVAL_MS = 5 * 60_000;
+export const ARIVE_ACTIVE_INTERVAL_MS = 60_000;
 export const ARIVE_QUIET_INTERVAL_MS = 60 * 60_000;
+const ENROLLMENT_BATCH_SIZE = 25;
 export type AriveRolloutDeps = {
   db?: typeof prisma; session?: typeof ariveReadOnlySession; now?: () => Date;
   budgetReady?: typeof isAriveBudgetReady;
@@ -80,11 +81,12 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
   await assertAriveRolloutReady(deps);
   const rows = await db.processingPipelineLoan.findMany({
     where: options.pipelineId ? { id: options.pipelineId } : { AND: [ariveRolloutCohortWhere(now), ...(control.enrollmentCursor ? [{ id: { gt: control.enrollmentCursor } }] : [])] },
-    include: { loan: { select: rolloutLoanSelect }, ariveSync: true }, orderBy: { id: 'asc' }, take: options.pipelineId ? 1 : 5,
+    include: { loan: { select: rolloutLoanSelect }, ariveSync: true }, orderBy: { id: 'asc' }, take: options.pipelineId ? 1 : ENROLLMENT_BATCH_SIZE,
   });
   let verified = 0; let review = 0; let scanned = 0; let lastScanned: string | null = null;
   for (const row of rows) {
     if (Date.now() > deadlineMs - 75_000) break;
+    const priorScanned = lastScanned;
     scanned++; lastScanned = row.id;
     if (row.ariveSync?.workerOwner === 'LEGACY' || row.ariveSync?.operatorPaused || !options.pipelineId && (row.ariveSync?.enrollmentStatus === 'VERIFIED' && row.ariveSync.enabled
       || row.ariveSync?.nextAttemptAt && row.ariveSync.nextAttemptAt > now)) continue;
@@ -108,7 +110,9 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
         if (await isArivePracticeFile(db, row.loan.loanNumber, matches[0].sysGUID)) { status = 'EXCLUDED'; enrollmentIssue = 'This file is registered for isolated practice.'; }
         else { match = verifyAriveRolloutIdentity(await api(`/loans/${encodeURIComponent(matches[0].sysGUID)}`), row.loan); status = 'VERIFIED'; }
       } catch (error) {
-        if (error instanceof AriveTransportError) break;
+        // A busy shared transport or exhausted allowance did not verify this
+        // candidate. Leave it next in line rather than skipping it until wrap.
+        if (error instanceof AriveTransportError) { scanned--; lastScanned = priorScanned; break; }
         enrollmentIssue = error instanceof AriveError ? error.message : 'The Arive link could not be verified. Existing portal values were retained.';
       }
     }
@@ -139,6 +143,6 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
     });
     if (saved) { if (match) verified++; else review++; }
   }
-  if (!options.pipelineId && (lastScanned || rows.length === 0)) await db.ariveRolloutControl.updateMany({ where: { id: ARIVE_ROLLOUT_CONNECTION, generation: control.generation, enrollmentEnabled: true }, data: { enrollmentCursor: scanned < rows.length || rows.length === 5 ? lastScanned : null } });
+  if (!options.pipelineId && (lastScanned || rows.length === 0)) await db.ariveRolloutControl.updateMany({ where: { id: ARIVE_ROLLOUT_CONNECTION, generation: control.generation, enrollmentEnabled: true }, data: { enrollmentCursor: scanned < rows.length || rows.length === ENROLLMENT_BATCH_SIZE ? lastScanned : null } });
   return { scanned, verified, review, skipped: false };
 }

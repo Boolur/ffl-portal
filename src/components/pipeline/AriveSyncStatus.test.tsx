@@ -1,12 +1,17 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AriveSyncView } from '../../lib/ariveSyncTypes';
 vi.mock('@/lib/ariveSyncPresentation', async () => import('../../lib/ariveSyncPresentation'));
 vi.mock('@/app/actions/arivePipelineSyncActions', () => ({
   setArivePipelineSyncEnabled: vi.fn(), syncArivePipelineNow: vi.fn(), acknowledgeArivePipelineConflicts: vi.fn(),
 }));
-import { AriveSyncBadge, AriveSyncStatus, ariveSyncActionFeedback } from './AriveSyncStatus';
+vi.mock('@/app/actions/ariveRolloutActions', () => ({
+  acknowledgeAriveRolloutConflicts: vi.fn(), queueAriveRolloutRefresh: vi.fn(), setAriveRolloutLoanEnabled: vi.fn(),
+}));
+import { acknowledgeArivePipelineConflicts, setArivePipelineSyncEnabled, syncArivePipelineNow } from '@/app/actions/arivePipelineSyncActions';
+import { acknowledgeAriveRolloutConflicts, queueAriveRolloutRefresh, setAriveRolloutLoanEnabled } from '@/app/actions/ariveRolloutActions';
+import { AriveSyncBadge, AriveSyncStatus, ariveSyncActionFeedback, performAriveSyncAction } from './AriveSyncStatus';
 import { ariveNoteHeaderGuide } from './AriveNoteHeaderGuide';
 import { parseAriveStructuredNotes } from '../../lib/ariveStructuredNotes';
 
@@ -40,6 +45,22 @@ describe('Arive sync visibility', () => {
     expect(html).toContain('Sync now');
     expect(html).toContain('Pause sync');
     expect(html).not.toContain('Enable test-file sync');
+  });
+  it('shows a queued refresh separately from the last complete generalized import', () => {
+    const html = render(view({ canManage: true, workerOwner: 'GENERALIZED', manualRefreshRequestedAt: '2026-11-12T18:00:00Z' }));
+    expect(html).toContain('Refresh queued');
+    expect(html).toContain('Waiting for the shared queue');
+    expect(html).toContain('Last successful sync:');
+    expect(html).toContain('disabled=""');
+    expect(html).not.toContain('Sync now');
+  });
+  it('offers generalized controls without suggesting that the file is the legacy test', () => {
+    const enabled = render(view({ workerOwner: 'GENERALIZED', canManage: true }));
+    expect(enabled).toContain('Sync from Arive');
+    expect(enabled).toContain('same loan data appears in Standard and Pilot modes');
+    const paused = render(view({ workerOwner: 'GENERALIZED', enabled: false, canManage: true }));
+    expect(paused).toContain('Resume sync');
+    expect(paused).not.toContain('test-file');
   });
   it('explains that existing data is retained after a sync error', () => {
     expect(render(view({ error: 'Arive permission denied' }))).toContain('Previously synced information is still displayed.');
@@ -146,6 +167,22 @@ describe('Arive sync visibility', () => {
 });
 
 describe('Arive sync action feedback', () => {
+  it('never reports applied values after merely queueing or enabling generalized collection', () => {
+    const queued = ariveSyncActionFeedback('sync', { success: true, queued: true }, true);
+    expect(queued.tone).toBe('pending');
+    expect(queued.message).toContain('Refresh queued.');
+    expect(queued.message).not.toContain('have been applied');
+    const enabled = ariveSyncActionFeedback('enable', { success: true }, true);
+    expect(enabled.tone).toBe('pending');
+    expect(enabled.message).toContain('no new read has completed yet');
+  });
+  it('distinguishes an immediate shared refresh from collection-only review', () => {
+    expect(ariveSyncActionFeedback('sync', { success: true, queued: false, applied: true, changed: false }, true).message).toBe('Arive checked. Pipeline values were already up to date.');
+    const collected = ariveSyncActionFeedback('sync', { success: true, queued: false, collected: true }, true);
+    expect(collected.tone).toBe('pending');
+    expect(collected.message).toContain('portal values have not changed');
+    expect(collected.message).not.toContain('have been applied');
+  });
   it.each(['sync', 'enable'] as const)('does not claim a completed refresh when %s was skipped', action => {
     const feedback = ariveSyncActionFeedback(action, { success: true, skipped: true });
     expect(feedback.tone).toBe('pending');
@@ -167,5 +204,34 @@ describe('Arive sync action feedback', () => {
   it('does not describe pausing or acknowledging differences as a data refresh', () => {
     expect(ariveSyncActionFeedback('pause', { success: true }).message).toBe('Automatic Arive updates paused.');
     expect(ariveSyncActionFeedback('acknowledge', { success: true }).message).toContain('recorded history is retained');
+  });
+});
+
+describe('Arive sync worker ownership', () => {
+  beforeEach(() => vi.clearAllMocks());
+  it('routes generalized refreshes only through the shared queue', async () => {
+    vi.mocked(queueAriveRolloutRefresh).mockResolvedValue({ success: true, queued: true });
+    expect(await performAriveSyncAction('sync', 'live-pipeline', true)).toEqual({ success: true, queued: true });
+    expect(queueAriveRolloutRefresh).toHaveBeenCalledExactlyOnceWith({ pipelineId: 'live-pipeline' });
+    expect(syncArivePipelineNow).not.toHaveBeenCalled();
+  });
+  it('keeps pause, resume and conflict acknowledgement with the generalized owner', async () => {
+    await performAriveSyncAction('pause', 'live-pipeline', true);
+    await performAriveSyncAction('enable', 'live-pipeline', true);
+    await performAriveSyncAction('acknowledge', 'live-pipeline', true);
+    expect(vi.mocked(setAriveRolloutLoanEnabled).mock.calls).toEqual([[{ pipelineId: 'live-pipeline', enabled: false }], [{ pipelineId: 'live-pipeline', enabled: true }]]);
+    expect(acknowledgeAriveRolloutConflicts).toHaveBeenCalledExactlyOnceWith({ pipelineId: 'live-pipeline' });
+    expect(setArivePipelineSyncEnabled).not.toHaveBeenCalled();
+    expect(acknowledgeArivePipelineConflicts).not.toHaveBeenCalled();
+  });
+  it('preserves direct legacy test-file controls until the worker handoff', async () => {
+    await performAriveSyncAction('sync', 'test-pipeline', false);
+    await performAriveSyncAction('pause', 'test-pipeline', false);
+    await performAriveSyncAction('acknowledge', 'test-pipeline', false);
+    expect(syncArivePipelineNow).toHaveBeenCalledExactlyOnceWith({ id: 'test-pipeline' });
+    expect(setArivePipelineSyncEnabled).toHaveBeenCalledExactlyOnceWith({ id: 'test-pipeline', enabled: false });
+    expect(acknowledgeArivePipelineConflicts).toHaveBeenCalledExactlyOnceWith({ id: 'test-pipeline' });
+    expect(queueAriveRolloutRefresh).not.toHaveBeenCalled();
+    expect(setAriveRolloutLoanEnabled).not.toHaveBeenCalled();
   });
 });

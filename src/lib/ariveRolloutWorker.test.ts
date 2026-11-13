@@ -57,7 +57,13 @@ function harness() {
       count: vi.fn(async ({ where }: { where: Data }) => 'leaseUntil' in where ? activeLeases : enrolledCount),
       findMany: vi.fn(async ({ where }: { where: { pipelineId: { notIn: string[] } } }) => where.pipelineId.notIn.includes(store.row.id) ? [] : [{ pipelineId: store.row.id }]),
       update: vi.fn(async ({ data }: { data: Data }) => { mutate(store.sync, data); return clone(store.sync); }),
-      updateMany: vi.fn(async ({ where, data }: { where: { leaseToken?: string }; data: Data }) => { if (where.leaseToken && where.leaseToken !== store.sync.leaseToken) return { count: 0 }; mutate(store.sync, data); return { count: 1 }; }),
+      updateMany: vi.fn(async ({ where, data }: { where: { leaseToken?: string; workerOwner?: string; workerGeneration?: number; manualRefreshRequestedAt?: null }; data: Data }) => {
+        if (where.leaseToken && where.leaseToken !== store.sync.leaseToken
+          || where.workerOwner && where.workerOwner !== store.sync.workerOwner
+          || where.workerGeneration !== undefined && where.workerGeneration !== store.sync.workerGeneration
+          || where.manualRefreshRequestedAt === null && store.sync.manualRefreshRequestedAt !== null) return { count: 0 };
+        mutate(store.sync, data); return { count: 1 };
+      }),
       upsert: vi.fn(async ({ update }: { update: Data }) => { mutate(store.sync, update); return clone(store.sync); }),
     },
     ariveLoanNotes: {
@@ -167,10 +173,84 @@ describe('generalized worker isolation and atomic application', () => {
     const h = harness(); h.remote.transportFailure = true; expect(await runDueAriveRolloutSyncs(h.deps)).toMatchObject({ checked: 1, failed: 1 });
     expect(h.client.arivePipelineSync.findMany).toHaveBeenCalledTimes(1); expect(h.store.sync.nextAttemptAt).toEqual(date('2026-11-12T21:00:00Z'));
   });
-  it('consumes a manual request once so a failed read obeys retry backoff', async () => {
+  it.each(['PIPELINE', 'RESTRUCTURE'])('makes a successfully read %s file due after one minute', async sheet => {
+    const h = harness(); h.store.row.sheet = sheet;
+    if (sheet === 'RESTRUCTURE') h.remote.details.currentLoanStatus.status = 'SUSPENDED';
+    expect(await h.run()).toMatchObject({ success: true, applied: true });
+    expect(h.store.sync.nextAttemptAt).toEqual(date('2026-11-12T20:01:00Z'));
+  });
+  it('keeps funded files on the hourly schedule', async () => {
+    const h = harness(); h.remote.details.currentLoanStatus.status = 'LOAN_FUNDED';
+    await h.run();
+    expect(h.store.row.sheet).toBe('FUNDING');
+    expect(h.store.sync.nextAttemptAt).toEqual(date('2026-11-12T21:00:00Z'));
+  });
+  it.each([[0, 5], [1, 10], [4, 60], [15, 60]])('preserves failure backoff for %i previous failures', async (failures, minutes) => {
+    const h = harness(); h.store.sync.failureCount = failures; h.remote.notesFailure = true;
+    expect(await h.run()).toMatchObject({ success: false });
+    expect(h.store.sync.nextAttemptAt).toEqual(new Date(date('2026-11-12T20:00:00Z').getTime() + minutes * 60_000));
+  });
+  it('prioritizes the oldest manual request, then oldest due file, within two-file waves', async () => {
+    const h = harness(); await runDueAriveRolloutSyncs(h.deps);
+    expect(h.client.arivePipelineSync.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [
+        { manualRefreshRequestedAt: { sort: 'asc', nulls: 'last' } },
+        { nextAttemptAt: { sort: 'asc', nulls: 'first' } },
+        { pipelineId: 'asc' },
+      ], take: 2,
+    }));
+  });
+  it('can process more than fifty due files but bounds one invocation at five hundred', async () => {
+    const h = harness();
+    h.client.arivePipelineSync.findMany.mockImplementation(async ({ where }) => {
+      const id = `synthetic-${where.pipelineId.notIn.length}`;
+      h.store.row.id = id; h.store.sync.pipelineId = id;
+      h.store.sync.lastAttemptAt = null; h.store.sync.nextAttemptAt = null;
+      return [{ pipelineId: id }];
+    });
+    expect(await runDueAriveRolloutSyncs(h.deps)).toEqual({ checked: 500, succeeded: 500, failed: 0 });
+    expect(h.client.arivePipelineSync.findMany).toHaveBeenCalledTimes(500);
+    expect(h.client.arivePipelineSync.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 1 }));
+  });
+  it('does not start another wave without thirty seconds left in the invocation', async () => {
+    const h = harness();
+    expect(await runDueAriveRolloutSyncs({ ...h.deps, deadlineMs: Date.now() + 29_000 })).toEqual({ checked: 0, succeeded: 0, failed: 0 });
+    expect(h.client.arivePipelineSync.findMany).not.toHaveBeenCalled();
+    expect(h.api).not.toHaveBeenCalled();
+  });
+  it('retains a failed manual request without letting it bypass retry backoff', async () => {
     const h = harness(); h.store.sync.manualRefreshRequestedAt = date('2026-11-12T19:59:00Z'); h.remote.notesFailure = true;
-    await h.run(); expect(h.store.sync.manualRefreshRequestedAt).toBeNull(); const requests = h.api.mock.calls.length;
+    await h.run(); expect(h.store.sync.manualRefreshRequestedAt).toEqual(date('2026-11-12T19:59:00Z')); const requests = h.api.mock.calls.length;
     expect(await h.run()).toMatchObject({ skipped: true }); expect(h.api).toHaveBeenCalledTimes(requests);
+  });
+  it.each(['old funding', 'manual archive'])('retries a deferred %s manual refresh after cooldown and consumes it only on success', async kind => {
+    const h = harness();
+    if (kind === 'old funding') {
+      h.store.row.sheet = 'FUNDING'; h.store.row.fundedAt = date('2026-05-10');
+      h.remote.details.currentLoanStatus = { status: 'LOAN_FUNDED', date: '2026-05-10', adverseReason: '' };
+    } else h.store.row.archivedAt = date('2026-11-10');
+    h.store.sync.manualRefreshRequestedAt = date('2026-11-12T19:59:00Z'); h.remote.transportFailure = true;
+    expect(await h.run()).toMatchObject({ success: false, deferred: true });
+    expect(h.store.sync.manualRefreshRequestedAt).toEqual(date('2026-11-12T19:59:00Z'));
+    expect(h.store.sync.nextAttemptAt).toEqual(date('2026-11-12T21:00:00Z'));
+    expect(await h.run()).toMatchObject({ skipped: true });
+    h.advance(); h.remote.transportFailure = false;
+    expect(await h.run()).toMatchObject({ success: true, applied: true });
+    expect(h.store.sync.manualRefreshRequestedAt).toBeNull();
+    h.advance(); expect(await h.run()).toMatchObject({ skipped: true });
+  });
+  it('does not overwrite a newer pending request while restoring a failed one', async () => {
+    const h = harness(); h.store.sync.manualRefreshRequestedAt = date('2026-11-12T19:59:00Z'); h.remote.notesFailure = true;
+    h.beforeApply(() => { h.store.sync.manualRefreshRequestedAt = date('2026-11-12T20:00:01Z'); });
+    expect(await h.run()).toMatchObject({ success: false });
+    expect(h.store.sync.manualRefreshRequestedAt).toEqual(date('2026-11-12T20:00:01Z'));
+  });
+  it.each(['pause', 'generation'])('does not restore a failed manual request after %s fences its lease', async change => {
+    const h = harness(); h.store.sync.manualRefreshRequestedAt = date('2026-11-12T19:59:00Z'); h.remote.notesFailure = true;
+    h.beforeApply(() => { if (change === 'pause') { h.store.sync.enabled = false; h.store.sync.leaseToken = null; } else h.store.sync.workerGeneration++; });
+    expect(await h.run()).toMatchObject({ success: false });
+    expect(h.store.sync.manualRefreshRequestedAt).toBeNull();
+    expect(h.store.sync.failureCount).toBe(0);
   });
   it('preserves a new manual refresh queued after the current read began', async () => {
     const h = harness(); h.beforeApply(() => { h.store.sync.manualRefreshRequestedAt = date('2026-11-12T20:00:01Z'); });
@@ -179,6 +259,32 @@ describe('generalized worker isolation and atomic application', () => {
 });
 
 describe('existing-portal enrollment', () => {
+  it.each([false, true])('retries the same transport-deferred enrollment candidate (prior scanned: %s)', async prior => {
+    const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;
+    h.store.control.enrollmentCursor = 'pipeline-before'; h.remote.transportFailure = true;
+    const candidate = { ...clone(h.store.row), ariveSync: clone(h.store.sync) };
+    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce(prior
+      ? [{ ...clone(candidate), id: 'pipeline-checked', ariveSync: { ...clone(h.store.sync), enabled: true, enrollmentStatus: 'VERIFIED' } }, candidate]
+      : [candidate]);
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: prior ? 1 : 0, verified: 0 });
+    expect(h.store.control.enrollmentCursor).toBe(prior ? 'pipeline-checked' : 'pipeline-before');
+    expect(h.client.arivePipelineSync.upsert).not.toHaveBeenCalled();
+  });
+  it('scans twenty-five candidates and advances the cursor until the final partial batch', async () => {
+    const h = harness();
+    const candidates = Array.from({ length: 25 }, (_, index) => ({ ...clone(h.store.row), id: `pipeline-${String(index).padStart(2, '0')}`, ariveSync: clone(h.store.sync) }));
+    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce(candidates);
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 25, verified: 0 });
+    expect(h.client.processingPipelineLoan.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 25 }));
+    expect(h.store.control.enrollmentCursor).toBe('pipeline-24');
+    h.client.processingPipelineLoan.findMany.mockResolvedValueOnce([{ ...clone(h.store.row), id: 'pipeline-25', ariveSync: clone(h.store.sync) }]);
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ scanned: 1 });
+    expect(h.client.processingPipelineLoan.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { AND: expect.arrayContaining([{ id: { gt: 'pipeline-24' } }]) }, take: 25,
+    }));
+    expect(h.store.control.enrollmentCursor).toBeNull();
+    expect(h.api).not.toHaveBeenCalled();
+  });
   it('does not take a legacy row or create any new loan/task records', async () => {
     const h = harness(); h.store.sync.workerOwner = 'LEGACY'; expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ verified: 0 });
     expect(h.api).not.toHaveBeenCalled(); expect(h.client.loan.create).not.toHaveBeenCalled(); expect(h.client.task.create).not.toHaveBeenCalled();

@@ -25,7 +25,7 @@ describe('allowlisted Arive application snapshot', () => {
     });
     expect(snapshot.applicants.map(a => [a.role, a.applicationSequence])).toEqual([['Borrower', 1], ['CoBorrower', 1], ['Borrower', 2]]);
     expect(snapshot.applicants[0]).toMatchObject({ firstTimeHomeBuyer: false, currentResidence: { street: 'Synthetic street', city: 'Synthetic city', tenure: 'Rent', residenceMonths: 24 } });
-    expect(snapshot.employment).toEqual([{ employerName: 'Synthetic employer', position: 'Analyst', monthlyIncome: 7000, startDate: '2024-02-29', endDate: null, selfEmployed: false, isPrimaryBorrower: true }]);
+    expect(snapshot.employment).toEqual([{ employerName: 'Synthetic employer', position: 'Analyst', monthlyIncome: 7000, employerPhone: null, classification: null, startDate: '2024-02-29', endDate: null, selfEmployed: false, isPrimaryBorrower: true }]);
     expect(JSON.stringify(snapshot)).not.toContain('DO_NOT_EXPOSE');
   });
   it('treats absent, malformed and unsupported values as missing rather than zero or guessed dates', () => {
@@ -44,7 +44,7 @@ describe('allowlisted Arive application snapshot', () => {
     });
     expect(snapshot.property).toEqual({ street: '123 Synthetic Lane', unit: '2', city: 'Sample', county: 'Example', state: 'CA', postalCode: '90000',
       salesContractAmount: 750000, purchasePriceOrEstimatedValue: 800000, housingType: 'SingleFamily', financedUnitCount: 1,
-      attachmentType: 'Detached', usageType: 'PrimaryResidence', addressTbd: false });
+      attachmentType: 'Detached', usageType: 'PrimaryResidence', addressTbd: false, purchaseDate: null });
     expect(JSON.stringify(snapshot)).not.toContain('DO_NOT_EXPOSE');
   });
   it('does not invent property details from lead aliases or unsupported fields and preserves older snapshot compatibility', () => {
@@ -70,5 +70,55 @@ describe('allowlisted Arive application snapshot', () => {
     expect(JSON.stringify(view)).not.toContain('DO_NOT_EXPOSE');
     expect(readAriveApplicationView({}, null)).toBeNull();
     expect(readAriveApplicationView({ application: { version: 99 } }, null)).toBeNull();
+  });
+  it('keeps documented contact fields attached to each applicant instead of borrowing contacts from another pair', () => {
+    const snapshot = projectAriveApplicationSnapshot({ loanBorrowers: [
+      { applicantType: 'Borrower', borrowerPairLoanAppSequence: 1, firstName: 'Primary', nickName: 'Preferred', emailAddressText: 'primary@example.test', mobilePhone10digit: '2025550100', homePhone: '2025550101', workPhone: '2025550102', posAppSubmissionDate: '2026-11-10T18:30:00Z', birthDate: 'DO_NOT_EXPOSE', monthOfBirth: 'DO_NOT_EXPOSE' },
+      { applicantType: 'CoBorrower', borrowerPairLoanAppSequence: 1, emailAddressText: 'secondary@example.test', mobilePhone10digit: '2025550110' },
+      { applicantType: 'Borrower', borrowerPairLoanAppSequence: 2, emailAddressText: 'pair-two@example.test' },
+    ] });
+    expect(snapshot.applicants.map(person => [person.applicationSequence, person.role, person.email, person.mobilePhone])).toEqual([
+      [1, 'Borrower', 'primary@example.test', '2025550100'], [1, 'CoBorrower', 'secondary@example.test', '2025550110'], [2, 'Borrower', 'pair-two@example.test', null],
+    ]);
+    expect(snapshot.applicants[0]).toMatchObject({ nickname: 'Preferred', homePhone: '2025550101', workPhone: '2025550102', applicationSubmittedAt: '2026-11-10T18:30:00Z' });
+    Object.assign(snapshot.applicants[0], { ssn: 'DO_NOT_EXPOSE', birthDate: 'DO_NOT_EXPOSE', borrowerIncome: { total: 'DO_NOT_EXPOSE' } });
+    expect(JSON.stringify(readAriveApplicationView({ application: snapshot }, null))).not.toContain('DO_NOT_EXPOSE');
+  });
+  it('maps documented payment terms, lender references, financing and employer information without interpreting ambiguous units', () => {
+    const snapshot = projectAriveApplicationSnapshot({ interestOnlyInd: false, interestOnlyTermMonthsCount: 0, initialFixedPeriodEffectiveMonthsCount: 60, normalRateAdjustmentPeriod: 12,
+      impoundWaiver: true, cashoutPurpose: 'DebtConsolidation', industryChannel: 'Brokered', lenderLoanIdentifier: 'SYNTHETIC-42', lenderNMLS: '12345', lenderProductCode: 'ARM-5',
+      financedFees: '1250.00', discountPoints: 0.5, purchaseDate: '2026-11-12',
+      employment: [{ employerName: 'Synthetic employer', employerPhone: '2025550199', classificationType: 'Primary', monthlyIncome: 5000 }],
+    });
+    expect(snapshot.loan).toMatchObject({ interestOnly: false, interestOnlyTermMonths: 0, initialFixedPeriodMonths: 60, rateAdjustmentPeriod: 12, impoundWaiver: true,
+      cashoutPurpose: 'DebtConsolidation', industryChannel: 'Brokered', lenderLoanIdentifier: 'SYNTHETIC-42', lenderNMLS: '12345', lenderProductCode: 'ARM-5' });
+    expect(snapshot.financial).toMatchObject({ financedFees: 1250, discountPoints: 0.5 });
+    expect(snapshot.property).toMatchObject({ purchaseDate: '2026-11-12', salesContractAmount: null });
+    expect(snapshot.employment[0]).toMatchObject({ employerPhone: '2025550199', classification: 'Primary' });
+  });
+  it('safely normalizes older v1 snapshots without the added application fields', () => {
+    const view = readAriveApplicationView({ application: { version: 1, loan: { baseLoanAmount: 250000 }, financial: { downPayment: 0 },
+      applicants: [{ role: 'Borrower', firstName: 'Original', currentResidence: { street: 'Original residence' } }],
+      employment: [{ employerName: 'Original employer', monthlyIncome: 5000 }], property: { city: 'Original city' },
+    } }, null);
+    expect(view?.loan).toMatchObject({ baseLoanAmount: 250000, interestOnly: null, interestOnlyTermMonths: null, initialFixedPeriodMonths: null, rateAdjustmentPeriod: null, impoundWaiver: null, lenderLoanIdentifier: null });
+    expect(view?.financial).toMatchObject({ downPayment: 0, financedFees: null, discountPoints: null });
+    expect(view?.applicants[0]).toMatchObject({ firstName: 'Original', nickname: null, email: null, mobilePhone: null, workPhone: null, homePhone: null, applicationSubmittedAt: null });
+    expect(view?.employment[0]).toMatchObject({ employerName: 'Original employer', monthlyIncome: 5000, employerPhone: null, classification: null });
+    expect(view?.property).toMatchObject({ city: 'Original city', purchaseDate: null });
+  });
+  it('rejects malformed extended values and never guesses lead-only aliases or unstructured income', () => {
+    const snapshot = projectAriveApplicationSnapshot({ interestOnlyInd: 'false', interestOnlyTermMonthsCount: -1, initialFixedPeriodEffectiveMonthsCount: 1.5, normalRateAdjustmentPeriod: false,
+      impoundWaiver: 'true', purchaseDate: '2026-02-30', financedFees: true, discountPoints: Infinity, assets: [{ amount: 'DO_NOT_EXPOSE' }], liabilities: [{ amount: 'DO_NOT_EXPOSE' }],
+      loanBorrowers: [{ applicantType: 'Borrower', emailAddressText: { secret: 'DO_NOT_EXPOSE' }, mobilePhone10digit: ['DO_NOT_EXPOSE'], workPhone: 'bad\ncontact', posAppSubmissionDate: 'yesterday', borrowerIncome: { total: 'DO_NOT_EXPOSE' } }],
+      employment: [{ employerName: 'Synthetic employer', employerPhone: { secret: 'DO_NOT_EXPOSE' }, classificationType: ['DO_NOT_EXPOSE'] }],
+    });
+    expect(snapshot.loan).toMatchObject({ interestOnly: null, interestOnlyTermMonths: null, initialFixedPeriodMonths: null, rateAdjustmentPeriod: null, impoundWaiver: null });
+    expect(snapshot.financial).toMatchObject({ financedFees: null, discountPoints: null });
+    expect(snapshot.applicants[0]).toMatchObject({ email: null, mobilePhone: null, workPhone: null, applicationSubmittedAt: null });
+    expect(snapshot.employment[0]).toMatchObject({ employerPhone: null, classification: null });
+    expect(snapshot.property).toBeUndefined();
+    expect(JSON.stringify(snapshot)).not.toContain('DO_NOT_EXPOSE');
+    expect(projectAriveApplicationSnapshot({ interestOnly: true, InterestOnlyTerm: 60, InitialFixedPeriodEffectiveMonthsCount: 60 }).loan).toMatchObject({ interestOnly: null, interestOnlyTermMonths: null, initialFixedPeriodMonths: null });
   });
 });

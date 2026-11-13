@@ -5,11 +5,12 @@ import { UserRole } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { isAdminIII } from '@/lib/adminTiers';
-import { AriveError, ariveReadOnlySession } from '@/lib/ariveClient';
+import { AriveError, ariveReadOnlySession, ariveSession } from '@/lib/ariveClient';
 import { AriveTransportError } from '@/lib/ariveTransport';
 import { jsonRecord } from '@/lib/ariveSyncState';
-import { configureAriveTransportQuota, getAriveTransportMetrics } from '@/lib/ariveTransportPrisma';
-import { ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER, assertAriveRolloutReady, enrollAriveRolloutBatch, isArivePracticeFile, rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity } from '@/lib/ariveRollout';
+import { configureAriveTransportQuota, getAriveTransportMetrics, sharedAriveTransportEnabled } from '@/lib/ariveTransportPrisma';
+import { ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER, ariveRolloutCohortWhere, ariveRolloutEnvironmentEnabled, assertAriveRolloutReady, enrollAriveRolloutBatch, isArivePracticeFile, rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity } from '@/lib/ariveRollout';
+import { ARIVE_SYNC_PILOT } from '@/lib/ariveSyncTypes';
 
 async function admin() {
   const session = await getServerSession(authOptions);
@@ -30,7 +31,8 @@ export async function getAriveRolloutStatus(input: { cursor?: string } = {}) {
       prisma.ariveRolloutControl.findUnique({ where: { id: ARIVE_ROLLOUT_CONNECTION } }),
       prisma.arivePipelineSync.findMany({ where: { workerOwner: ARIVE_ROLLOUT_OWNER, ...(cursor ? { pipelineId: { gt: cursor } } : {}) },
         select: { pipelineId: true, ariveLoanId: true, enabled: true, enrollmentStatus: true, enrollmentIssue: true, verifiedAt: true,
-          lastSuccessAt: true, collectedAt: true, lastAttemptAt: true, nextAttemptAt: true, lastError: true, sourceStage: true, manualRefreshRequestedAt: true },
+          lastSuccessAt: true, collectedAt: true, lastAttemptAt: true, nextAttemptAt: true, lastError: true, sourceStage: true, manualRefreshRequestedAt: true,
+          pipeline: { select: { sheet: true, loan: { select: { borrowerName: true } } } } },
         orderBy: { pipelineId: 'asc' }, take: 51 }),
       getAriveTransportMetrics(),
       prisma.arivePipelineSync.groupBy({ by: ['enrollmentStatus', 'enabled'], where: { workerOwner: ARIVE_ROLLOUT_OWNER }, _count: { _all: true } }),
@@ -38,7 +40,7 @@ export async function getAriveRolloutStatus(input: { cursor?: string } = {}) {
     ]);
     return { success: true as const, control: control ? { collectionEnabled: control.collectionEnabled, applicationEnabled: control.applicationEnabled,
       enrollmentEnabled: control.enrollmentEnabled, generation: control.generation, cohortLimit: control.cohortLimit } : { collectionEnabled: false, applicationEnabled: false, enrollmentEnabled: false, generation: 0, cohortLimit: 10 },
-      rows: rows.slice(0, 50), nextCursor: rows.length > 50 ? rows[49].pipelineId : null, transport, counts, freshness };
+      rows: rows.slice(0, 50).map(({ pipeline, ...row }) => ({ ...row, sheet: pipeline.sheet, borrowerName: pipeline.loan.borrowerName })), nextCursor: rows.length > 50 ? rows[49].pipelineId : null, transport, counts, freshness };
   } catch (error) { return failure(error); }
 }
 
@@ -103,6 +105,16 @@ export async function queueAriveRolloutRefresh(input: { pipelineId: string }) {
         await tx.auditLog.create({ data: { userId: actor.id, loanId: state.pipeline.loanId, action: 'ARIVE_ROLLOUT_REFRESH_QUEUED', details: JSON.stringify({ pipelineId }) } });
       }
     });
+    // Durable queue first; attempt the same shared worker immediately. Its
+    // leases, budget and repeat guard apply to button clicks and scheduled work.
+    const { syncAriveRolloutLoan } = await import('@/lib/ariveRolloutWorker');
+    try {
+      const result = await syncAriveRolloutLoan(pipelineId);
+      if (result.success && !result.skipped && 'applied' in result) return { success: true as const, queued: false as const, applied: result.applied, collected: !result.applied, changed: 'changed' in result ? result.changed : false };
+      if (!result.success && !result.deferred) return failure(new AriveError(result.error));
+    } catch (error) {
+      if (!(error instanceof AriveTransportError)) return failure(error);
+    }
     return { success: true as const, queued: true as const };
   } catch (error) { return failure(error); }
 }
@@ -183,5 +195,76 @@ export async function getAriveRolloutReview(input: { pipelineId: string }) {
     // Only the worker's allowlisted projection is exposed, never provider bodies,
     // credentials, tokens, raw applied-state metadata, or practice task records.
     return { success: true as const, ...state };
+  } catch (error) { return failure(error); }
+}
+
+/** Database-only inventory; does not discover or import additional Arive loans. */
+export async function getAriveRolloutInventory(input: { cursor?: string } = {}) {
+  try {
+    await admin(); const cursor = input.cursor === undefined ? null : id(input.cursor);
+    const cohort = ariveRolloutCohortWhere(new Date());
+    const [rows, counts, practice, test] = await Promise.all([
+      prisma.processingPipelineLoan.findMany({ where: { ...cohort, ...(cursor ? { id: { gt: cursor } } : {}) }, orderBy: { id: 'asc' }, take: 51,
+        select: { id: true, sheet: true, loan: { select: { loanNumber: true, borrowerName: true } }, ariveSync: { select: { enrollmentStatus: true, enrollmentIssue: true, enabled: true } } } }),
+      prisma.processingPipelineLoan.groupBy({ by: ['sheet'], where: cohort, _count: { _all: true } }),
+      prisma.arivePracticeLoan.findMany({ select: { ariveLoanId: true, label: true, ariveGuid: true, enabled: true }, orderBy: { createdAt: 'asc' }, take: 100 }),
+      prisma.processingPipelineLoan.findFirst({ where: { loanId: ARIVE_SYNC_PILOT.loanId, loan: { loanNumber: ARIVE_SYNC_PILOT.loanNumber, loanOfficerId: ARIVE_SYNC_PILOT.ownerId } },
+        select: { id: true, loan: { select: { borrowerName: true } }, ariveSync: { select: { ariveGuid: true, enabled: true, workerOwner: true } } } }),
+    ]);
+    return { success: true as const,
+      gates: { rollout: ariveRolloutEnvironmentEnabled(), sharedTransport: sharedAriveTransportEnabled() },
+      targets: { activeSeconds: ARIVE_ACTIVE_INTERVAL_MS / 1000, quietSeconds: ARIVE_QUIET_INTERVAL_MS / 1000 },
+      candidates: rows.slice(0, 50).map(row => ({ pipelineId: row.id, borrowerName: row.loan.borrowerName, loanNumber: row.loan.loanNumber, sheet: row.sheet,
+        reason: row.ariveSync?.enrollmentIssue ?? null, enrollmentStatus: row.ariveSync?.enrollmentStatus ?? null, enabled: row.ariveSync?.enabled ?? false })),
+      nextCursor: rows.length > 50 ? rows[49].id : null,
+      counts: counts.map(row => ({ sheet: row.sheet, count: row._count._all })),
+      tests: [
+        ...(test ? [{ ariveLoanId: ARIVE_SYNC_PILOT.loanNumber, label: test.loan.borrowerName, ariveGuid: test.ariveSync?.ariveGuid ?? null,
+          kind: test.ariveSync?.workerOwner === ARIVE_ROLLOUT_OWNER ? 'GENERALIZED' as const : 'LEGACY' as const, enabled: test.ariveSync?.enabled ?? false, pipelineId: test.id }] : []),
+        ...practice.map(row => ({ ...row, kind: 'PRACTICE' as const, pipelineId: null })),
+      ],
+    };
+  } catch (error) { return failure(error); }
+}
+
+/** A single known test-file GET, bounded to once per minute across operators. */
+export async function inspectAriveReportedAllowance() {
+  try {
+    const actor = await admin();
+    const test = await prisma.arivePipelineSync.findFirst({ where: { ariveLoanId: ARIVE_SYNC_PILOT.loanNumber, pipeline: { loanId: ARIVE_SYNC_PILOT.loanId, loan: { loanOfficerId: ARIVE_SYNC_PILOT.ownerId } } }, select: { ariveGuid: true } });
+    if (!test?.ariveGuid || !/^[a-zA-Z0-9-]{1,100}$/.test(test.ariveGuid)) throw new AriveError('Link TESTING TESTER before checking the provider response limit.');
+    const checkedAt = new Date();
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-allowance-probe'))`;
+      if (await tx.auditLog.findFirst({ where: { action: 'ARIVE_ALLOWANCE_PROBE_STARTED', createdAt: { gt: new Date(checkedAt.getTime() - 60_000) } }, select: { id: true } })) throw new AriveError('Wait one minute before checking the Arive-reported limit again.');
+      await tx.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_ALLOWANCE_PROBE_STARTED', details: '{}' } });
+    });
+    const reported: { limit: number | null; remaining: number | null } = { limit: null, remaining: null };
+    const integerHeader = (headers: Headers, name: string) => { const value = headers.get(name)?.trim(); return value && /^\d{1,7}$/.test(value) ? Number(value) : null; };
+    const api = await ariveSession(undefined, (headers, operation) => {
+      if (operation !== 'API request') return;
+      reported.limit = integerHeader(headers, 'x-ratelimit-limit');
+      reported.remaining = integerHeader(headers, 'x-ratelimit-remaining');
+    });
+    await api(`/loans/${encodeURIComponent(test.ariveGuid)}`);
+    const providerRequestLimit = reported.limit !== null && reported.limit >= 2 && reported.limit <= 1_000_000 ? reported.limit : null;
+    await prisma.auditLog.create({ data: { userId: actor.id, action: 'ARIVE_ALLOWANCE_PROBE_COMPLETED', details: JSON.stringify({ providerRequestLimit, providerWindowSeconds: 60, remaining: reported.remaining }) } });
+    return { success: true as const, checkedAt: checkedAt.toISOString(), providerRequestLimit, providerWindowSeconds: 60 as const, remaining: reported.remaining,
+      message: providerRequestLimit ? `Arive reports ${providerRequestLimit} requests per minute in its documented response header.` : 'Arive did not return a usable request-limit header. No allowance has been guessed or activated.' };
+  } catch (error) { return failure(error); }
+}
+
+export async function acknowledgeAriveRolloutConflicts(input: { pipelineId: string }) {
+  try {
+    const actor = await admin(); const pipelineId = id(input?.pipelineId);
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-rollout:company'))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${pipelineId}`}))`;
+      const state = await tx.arivePipelineSync.findUnique({ where: { pipelineId }, select: { workerOwner: true, conflicts: true, pipeline: { select: { loanId: true } } } });
+      if (!state || state.workerOwner !== ARIVE_ROLLOUT_OWNER) throw new AriveError('Choose a generalized Arive file to acknowledge its conflicts.');
+      await tx.auditLog.create({ data: { userId: actor.id, loanId: state.pipeline.loanId, action: 'ARIVE_ROLLOUT_CONFLICTS_ACKNOWLEDGED', details: JSON.stringify({ pipelineId, conflicts: state.conflicts }) } });
+      await tx.arivePipelineSync.update({ where: { pipelineId }, data: { conflicts: [] } });
+    });
+    return { success: true as const };
   } catch (error) { return failure(error); }
 }

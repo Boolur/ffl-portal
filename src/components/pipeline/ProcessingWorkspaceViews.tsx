@@ -1,11 +1,11 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import React, { type ReactNode } from 'react';
 import { ArrowRight, Building2, CalendarDays, CircleDollarSign, Home, Landmark, Mail, MapPin, Phone, ShieldCheck, UserRound, Users } from 'lucide-react';
 import type { getProcessingBorrowerDetails } from '@/app/actions/processingPipelineActions';
 import type { AriveSyncServiceTracker } from '@/lib/ariveSyncTypes';
 import { formatAriveCalendarDate, ariveFieldMissing } from '@/lib/ariveSyncPresentation';
-import { DetailCard, DetailField, DetailGrid } from './BorrowerWorkspaceLayout';
+import { DetailCard, DetailField, DetailGrid, DetailSection } from './BorrowerWorkspaceLayout';
 import { AriveServiceStatusCards } from './AriveServiceStatusCards';
 import { AriveLoanTermsCard } from './FinancialInfoPanel';
 
@@ -48,8 +48,10 @@ export function LoanPropertyView({ details }: { details: ProcessingWorkspaceDeta
           <DetailGrid columns={2}>
             <DetailField label="Occupancy" value={words(occupancy)} /><DetailField label="Unit / apartment" value={(property ? property.unit : details.property.unit) || '—'} />
             <DetailField label="State" value={property ? property.state : details.property.state} />
+            {property && <DetailField label="County" value={property.county} />}
             {property ? <><DetailField label="Property type" value={words(property.housingType)} /><DetailField label="Attachment type" value={words(property.attachmentType)} /><DetailField label="Units financed" value={property.financedUnitCount} /></> : <><DetailField label="Year built" value={details.property.yearBuilt} /><DetailField label="Year acquired" value={details.property.yearAcquired} /><DetailField label="Title held as" value={words(details.property.titleHeldAs)} /></>}
           </DetailGrid>
+          {property && <DetailSection title="Purchase & valuation" columns={2}><DetailField label="Sales contract amount" value={money(property.salesContractAmount)} /><DetailField label="Purchase price / estimated value" value={money(property.purchasePriceOrEstimatedValue)} /><DetailField label="Purchase date" value={property.purchaseDate ? formatAriveCalendarDate(property.purchaseDate) : null} /></DetailSection>}
         </DetailCard>
         <AriveLoanTermsCard application={application} />
         {application ? <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><summary className="cursor-pointer text-sm font-semibold text-slate-700">Portal submission details</summary><p className="my-3 text-xs text-slate-500">Original BISU figures and fields outside the current Arive application summary.</p>{portalFields}</details> : <DetailCard title="Loan structure" description="Loan and origination details recorded in BISU." icon={Landmark}>{portalFields}</DetailCard>}
@@ -69,7 +71,29 @@ function PersonCard({ label, name, phone, email, secondary = false }: { label: s
 
 export function BorrowerInfoView({ details }: { details: ProcessingWorkspaceDetails }) {
   const co = details.borrower.coBorrower;
-  return <div className="space-y-4"><p className="text-sm text-slate-500">Contact details from the portal submission. Each applicant stays separate.</p><div className="grid items-start gap-4 md:grid-cols-2"><PersonCard label="Primary borrower" name={[details.borrower.firstName, details.borrower.lastName].filter(Boolean).join(' ') || details.borrower.name} phone={details.borrower.phone} email={details.borrower.email} /><PersonCard label="Co-borrower" name={[co.firstName, co.lastName].filter(Boolean).join(' ')} phone={co.phone} email={co.email} secondary /></div>{Boolean(details.ariveApplication?.applicants.length) && <section className="space-y-3"><div><h3 className="text-base font-bold text-slate-900">Applicant details from Arive</h3><p className="mt-1 text-xs text-slate-500">Application information from the last successful sync; separate from the portal contact details above.</p></div><div className="grid items-start gap-4 md:grid-cols-2">{details.ariveApplication!.applicants.map((person, index) => <DetailCard key={`${person.applicationSequence}-${person.role}-${index}`} title={[person.firstName, person.lastName].filter(Boolean).join(' ') || (person.role === 'Borrower' ? 'Borrower' : 'Co-borrower')} description={`${person.role === 'Borrower' ? 'Borrower' : 'Co-borrower'}${person.applicationSequence !== null ? ` · Application ${person.applicationSequence}` : ''}`} icon={person.role === 'Borrower' ? UserRound : Users}><DetailGrid columns={2}><DetailField label="Marital status" value={words(person.maritalStatus)} /><DetailField label="First-time homebuyer" value={person.firstTimeHomeBuyer === null ? 'Not supplied' : person.firstTimeHomeBuyer ? 'Yes' : 'No'} /><div className="sm:col-span-2"><DetailField label="Current residence" value={[person.currentResidence.street, person.currentResidence.unit, person.currentResidence.city, person.currentResidence.state, person.currentResidence.postalCode].filter(Boolean).join(', ')} /></div><DetailField label="Residence basis" value={words(person.currentResidence.tenure)} /><DetailField label="Months at residence" value={person.currentResidence.residenceMonths} /></DetailGrid></DetailCard>)}</div></section>}</div>;
+  const applicants = details.ariveApplication?.applicants ?? [];
+  const portalContacts = <><p className="mb-3 text-sm text-slate-500">Contact details recorded in the BISU submission. Each applicant stays separate.</p><div className="grid items-start gap-4 md:grid-cols-2"><PersonCard label="Primary borrower · BISU" name={[details.borrower.firstName, details.borrower.lastName].filter(Boolean).join(' ') || details.borrower.name} phone={details.borrower.phone} email={details.borrower.email} /><PersonCard label="Co-borrower · BISU" name={[co.firstName, co.lastName].filter(Boolean).join(' ')} phone={co.phone} email={co.email} secondary /></div></>;
+  return <div className="space-y-4">
+    {applicants.length > 0 && <section className="space-y-3">
+      <div><h3 className="text-base font-bold text-slate-900">Applicant details from Arive</h3><p className="mt-1 text-xs text-slate-500">Read-only application information from the last successful sync. Contacts remain with their own applicant and application pair.</p></div>
+      <div className="grid items-start gap-4 md:grid-cols-2">{applicants.map((person, index) => <DetailCard key={`${person.applicationSequence}-${person.role}-${index}`} title={[person.firstName, person.lastName].filter(Boolean).join(' ') || (person.role === 'Borrower' ? 'Borrower' : 'Co-borrower')} description={`${person.role === 'Borrower' ? 'Borrower' : 'Co-borrower'}${person.applicationSequence !== null ? ` · Application ${person.applicationSequence}` : ''} · Arive`} icon={person.role === 'Borrower' ? UserRound : Users}>
+        <DetailSection title="Contact" columns={2}>
+          <DetailField label="Email" value={person.email} copyable /><DetailField label="Mobile phone" value={person.mobilePhone} copyable />
+          <DetailField label="Work phone" value={person.workPhone} copyable /><DetailField label="Home phone" value={person.homePhone} copyable />
+          {person.nickname && <DetailField label="Preferred name" value={person.nickname} />}
+        </DetailSection>
+        <DetailSection title="Application" columns={2}>
+          <DetailField label="Marital status" value={words(person.maritalStatus)} /><DetailField label="First-time homebuyer" value={person.firstTimeHomeBuyer === null ? 'Not provided' : person.firstTimeHomeBuyer ? 'Yes' : 'No'} />
+          <DetailField label="Application submitted" value={person.applicationSubmittedAt ? formatAriveCalendarDate(person.applicationSubmittedAt) : null} />
+        </DetailSection>
+        <DetailSection title="Current residence" columns={2}>
+          <div className="sm:col-span-2"><DetailField label="Residence address" value={[person.currentResidence.street, person.currentResidence.unit, person.currentResidence.city, person.currentResidence.state, person.currentResidence.postalCode].filter(Boolean).join(', ')} /></div>
+          <DetailField label="Residence basis" value={words(person.currentResidence.tenure)} /><DetailField label="Months at residence" value={person.currentResidence.residenceMonths} />
+        </DetailSection>
+      </DetailCard>)}</div>
+    </section>}
+    {applicants.length > 0 ? <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><summary className="cursor-pointer text-sm font-semibold text-slate-700">Original BISU submission contacts</summary><div className="mt-3">{portalContacts}</div></details> : portalContacts}
+  </div>;
 }
 
 function portalServices(details: ProcessingWorkspaceDetails): AriveSyncServiceTracker[] {

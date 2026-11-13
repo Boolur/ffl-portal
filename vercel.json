@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/internal/arive/sync/enroll",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/internal/arive/sync",

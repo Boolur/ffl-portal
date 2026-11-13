@@ -67,9 +67,14 @@ function safeSharedSession(shared: NonNullable<Awaited<ReturnType<typeof sharedA
     }
   };
 }
-export async function ariveSession(provided?: AriveCredentials) {
+export async function ariveSession(provided?: AriveCredentials, observe?: (headers: Headers, operation: string) => void) {
+  const parse = async (response: Response, operation = 'API request', validationSecrets?: readonly string[]) => {
+    // Internal diagnostics see headers only; no token/body is exposed to callers.
+    observe?.(response.headers, operation);
+    return responseJson(response, operation, validationSecrets);
+  };
   try {
-    const shared = await sharedAriveSessionIfEnabled(responseJson, { provided });
+    const shared = await sharedAriveSessionIfEnabled(parse, { provided });
     if (shared) return safeSharedSession(shared);
   } catch (error) {
     if (error instanceof AriveError || error instanceof AriveTransportError) throw error;
@@ -77,11 +82,11 @@ export async function ariveSession(provided?: AriveCredentials) {
   }
   const c = provided || await credentials();
   let auth;
-  try { auth = await responseJson(await fetch(`${BASE}/auth/access-token`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey }, body: JSON.stringify(c), cache: 'no-store', signal: AbortSignal.timeout(20000), redirect: 'error' }), 'authentication'); }
+  try { auth = await parse(await fetch(`${BASE}/auth/access-token`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey }, body: JSON.stringify(c), cache: 'no-store', signal: AbortSignal.timeout(20000), redirect: 'error' }), 'authentication'); }
   catch (e) { if (e instanceof AriveError) throw e; throw new AriveError('Unable to connect to Arive.'); }
   if (typeof auth.AccessToken !== 'string' || !auth.AccessToken) throw new AriveError('Arive did not issue an access token.');
   return async (path: string, body?: object, method?: 'PATCH') => {
-    try { return await responseJson(await fetch(`${BASE}${path}`, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey, Authorization: `Bearer ${auth.AccessToken}` }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store', signal: AbortSignal.timeout(25000), redirect: 'error' }), path === '/loans/document-classifications' ? 'document classification access check' : 'API request', method === 'PATCH' && /^\/loans\/[a-zA-Z0-9-]{1,100}(?:\?sync=true)?$/.test(path) ? [c.clientId, c.secret, c.apiKey, auth.AccessToken] : undefined); }
+    try { return await parse(await fetch(`${BASE}${path}`, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', 'X-API-KEY': c.apiKey, Authorization: `Bearer ${auth.AccessToken}` }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store', signal: AbortSignal.timeout(25000), redirect: 'error' }), path === '/loans/document-classifications' ? 'document classification access check' : 'API request', method === 'PATCH' && /^\/loans\/[a-zA-Z0-9-]{1,100}(?:\?sync=true)?$/.test(path) ? [c.clientId, c.secret, c.apiKey, auth.AccessToken] : undefined); }
     catch (e) { if (e instanceof AriveError) throw e; throw new AriveError('Arive request did not finish. Check the transfer status before retrying.'); }
   };
 }
@@ -143,12 +148,24 @@ function normalizeNote(value: unknown, depth = 0): AriveNote {
 }
 export async function readAriveNotes(id: string, session?: Awaited<ReturnType<typeof ariveSession>>) {
   const api = session || await ariveSession(); const notes: AriveNote[] = [];
+  let expectedCount: number | null = null;
+  const priorPageIds = new Set<string>();
   for (let offset = 0; offset < 5000; offset += 100) {
     const data = await api(`/loans/${encodeURIComponent(id)}/notes?limit=100&offset=${offset}`);
-    if (!Array.isArray(data.loanNotes) || !Number.isInteger(data.count) || data.count < 0) throw new AriveError('Unexpected Arive notes response.');
-    notes.push(...data.loanNotes.map((n: Record<string, unknown>) => normalizeNote(n)));
-    if (offset + data.loanNotes.length >= data.count) return [...new Map(notes.map(n => [n.id, n])).values()];
-    if (!data.loanNotes.length) throw new AriveError('Arive notes pagination was incomplete. Existing notes were retained.');
+    if (!Array.isArray(data.loanNotes) || !Number.isSafeInteger(data.count) || data.count < 0) throw new AriveError('Unexpected Arive notes response.');
+    if (expectedCount !== null && data.count !== expectedCount) throw new AriveError('Arive notes changed during pagination. Existing notes were retained.');
+    expectedCount = data.count;
+    if (data.loanNotes.length > 100 || offset + data.loanNotes.length > data.count
+      || offset + data.loanNotes.length < data.count && data.loanNotes.length !== 100) {
+      throw new AriveError('Arive notes pagination was incomplete. Existing notes were retained.');
+    }
+    const page = data.loanNotes.map((n: Record<string, unknown>) => normalizeNote(n));
+    // Repeated IDs across pages mean the offset listing moved while we read it.
+    // Keep existing numeric/string-ID normalization within one complete page.
+    if (page.some((note: AriveNote) => priorPageIds.has(note.id))) throw new AriveError('Arive notes pages overlapped. Existing notes were retained.');
+    for (const note of page) priorPageIds.add(note.id);
+    notes.push(...page);
+    if (offset + data.loanNotes.length === data.count) return [...new Map(notes.map(n => [n.id, n])).values()];
   }
   throw new AriveError('This loan exceeds the pilot note limit. Existing notes were retained.');
 }

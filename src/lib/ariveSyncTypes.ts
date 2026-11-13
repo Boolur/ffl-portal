@@ -19,6 +19,8 @@ export type AriveSyncServiceTracker = {
 };
 export type AriveSyncView = {
   enabled: boolean;
+  workerOwner?: 'LEGACY' | 'GENERALIZED';
+  manualRefreshRequestedAt?: string | null;
   lastSuccessAt: string | null;
   lastAttemptAt: string | null;
   nextAttemptAt: string | null;

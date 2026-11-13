@@ -15,7 +15,7 @@ import {
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { isAdmin, isAdminIII } from '@/lib/adminTiers';
-import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, jsonRecord, preserveAriveManagedFields } from '../../lib/ariveSyncState';
+import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, jsonRecord, preserveAriveManagedFields, savedAriveTrackers } from '../../lib/ariveSyncState';
 import { ARIVE_SYNC_PILOT } from '../../lib/ariveSyncTypes';
 import { ARIVE_LOAN_STAGE_OPTIONS, parseArivePipelineDate } from '../../lib/arivePipelineMapping';
 import { readAriveApplicationView } from '../../lib/ariveApplicationSnapshot';
@@ -2803,6 +2803,7 @@ export async function getProcessingAriveSnapshot(id: string) {
   if (!row || !isAriveVisibleForLoan(row.ariveSync, row.loan)) return { success: false as const, error: 'No applied Arive snapshot is available for this file.' };
   return { success: true as const, version: row.version, sync: ariveSyncView(row.ariveSync, true, actor.canManageArive),
     application: readAriveApplicationView(row.ariveSync?.snapshot, row.ariveSync?.lastSuccessAt),
+    trackers: savedAriveTrackers(row.ariveSync?.snapshot),
     notes: savedAriveNotes(row.notesSnapshot?.notes), notesSyncedAt: row.notesSnapshot?.syncedAt.toISOString() ?? null };
 }
 

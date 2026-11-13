@@ -17,6 +17,9 @@ import {
 
 const LEASE_MS = 4 * 60_000;
 const READ_BUDGET_MS = 150_000;
+const MAX_SCHEDULED_ATTEMPTS = 500;
+// Faster successful polling must not shorten the existing failure backoff.
+const RETRY_BASE_MS = 5 * 60_000;
 const noteTargets: Partial<Record<AriveStructuredNoteKey, keyof ProcessingPipelineLoan>> = {
   pendingItems: 'missingItemsCurrentStatus', scheduledSigning: 'estimatedSigningAt', payoffExpiry: 'payoffExpiresAt',
 };
@@ -49,7 +52,7 @@ export async function syncAriveRolloutLoan(pipelineId: string, deps: AriveRollou
     if (!row || !state?.enabled || state.workerOwner !== ARIVE_ROLLOUT_OWNER || state.enrollmentStatus !== 'VERIFIED' || state.connectionId !== ARIVE_ROLLOUT_CONNECTION) return null;
     if (state.ariveLoanId !== row.loan.loanNumber || !state.ariveGuid || !state.verifiedOriginatorEmail) throw new AriveError('The verified Arive link is incomplete. Review enrollment before syncing.');
     if (await isArivePracticeFile(tx, state.ariveLoanId, state.ariveGuid)) return null;
-    if (state.leaseUntil && state.leaseUntil > started || state.nextAttemptAt && state.nextAttemptAt > started && !state.manualRefreshRequestedAt) return null;
+    if (state.leaseUntil && state.leaseUntil > started || state.nextAttemptAt && state.nextAttemptAt > started && (!state.manualRefreshRequestedAt || state.failureCount > 0)) return null;
     if (state.lastAttemptAt && started.getTime() - state.lastAttemptAt.getTime() < 10_000) return null;
     if (await tx.arivePipelineSync.count({ where: { workerOwner: ARIVE_ROLLOUT_OWNER, leaseUntil: { gt: started }, leaseToken: { not: null } } }) >= 2) return null;
     // Manual archives never become a background reopening candidate. Older
@@ -158,10 +161,19 @@ export async function syncAriveRolloutLoan(pipelineId: string, deps: AriveRollou
   } catch (error) {
     const deferred = error instanceof AriveTransportError;
     const message = error instanceof AriveError || deferred ? error.message : 'Arive synchronization failed. The previous applied values were retained.';
-    await db.arivePipelineSync.updateMany({ where: { pipelineId, leaseToken: token, workerOwner: ARIVE_ROLLOUT_OWNER, workerGeneration: claimed.state.workerGeneration }, data: {
-      failureCount: claimed.state.failureCount + 1, lastError: message, leaseToken: null, leaseUntil: null,
-      nextAttemptAt: deferred && error.retryAt && error.retryAt > clock() ? error.retryAt : new Date(clock().getTime() + Math.min(ARIVE_QUIET_INTERVAL_MS, ARIVE_ACTIVE_INTERVAL_MS * 2 ** Math.min(claimed.state.failureCount, 4))),
-    } });
+    await db.$transaction(async tx => {
+      const owner = { pipelineId, leaseToken: token, workerOwner: ARIVE_ROLLOUT_OWNER, workerGeneration: claimed.state.workerGeneration };
+      // On-demand-only files (old fundings/manual archives) still need a queued
+      // request to remain eligible after a failed read. Keep any newer request.
+      if (claimed.state.manualRefreshRequestedAt) await tx.arivePipelineSync.updateMany({
+        where: { ...owner, manualRefreshRequestedAt: null },
+        data: { manualRefreshRequestedAt: claimed.state.manualRefreshRequestedAt },
+      });
+      await tx.arivePipelineSync.updateMany({ where: owner, data: {
+        failureCount: claimed.state.failureCount + 1, lastError: message, leaseToken: null, leaseUntil: null,
+        nextAttemptAt: deferred && error.retryAt && error.retryAt > clock() ? error.retryAt : new Date(clock().getTime() + Math.min(ARIVE_QUIET_INTERVAL_MS, RETRY_BASE_MS * 2 ** Math.min(claimed.state.failureCount, 4))),
+      } });
+    });
     return { success: false as const, error: message, deferred };
   }
 }
@@ -174,18 +186,22 @@ export async function runDueAriveRolloutSyncs(deps: AriveRolloutDeps = {}) {
   await assertAriveRolloutReady(deps);
   const deadlineMs = deps.deadlineMs ?? Date.now() + 150_000;
   const attempted: string[] = []; const results: Awaited<ReturnType<typeof syncAriveRolloutLoan>>[] = [];
-  while (attempted.length < 50 && Date.now() < deadlineMs - 30_000) {
+  while (attempted.length < MAX_SCHEDULED_ATTEMPTS && Date.now() < deadlineMs - 30_000) {
   const due = await db.arivePipelineSync.findMany({ where: {
     enabled: true, workerOwner: ARIVE_ROLLOUT_OWNER, connectionId: ARIVE_ROLLOUT_CONNECTION, enrollmentStatus: 'VERIFIED',
     pipelineId: { notIn: attempted },
     AND: [
-      { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }, { manualRefreshRequestedAt: { not: null } }] },
+      { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }, { manualRefreshRequestedAt: { not: null }, failureCount: 0 }] },
       { OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] },
       { OR: [{ manualRefreshRequestedAt: { not: null } }, { pipeline: { archivedAt: null, sheet: { in: ['PIPELINE', 'RESTRUCTURE'] } } },
         { pipeline: { archivedAt: null, sheet: 'FUNDING', fundedAt: { gte: new Date(now.getTime() - 90 * 24 * 60 * 60_000) } } },
         { routingProvenance: { path: ['kind'], equals: 'ARCHIVE' } }] },
     ],
-  }, select: { pipelineId: true }, orderBy: [{ nextAttemptAt: 'asc' }, { pipelineId: 'asc' }], take: 2 });
+  }, select: { pipelineId: true }, orderBy: [
+    { manualRefreshRequestedAt: { sort: 'asc', nulls: 'last' } },
+    { nextAttemptAt: { sort: 'asc', nulls: 'first' } },
+    { pipelineId: 'asc' },
+  ], take: Math.min(2, MAX_SCHEDULED_ATTEMPTS - attempted.length) });
   if (!due.length) break;
   attempted.push(...due.map(row => row.pipelineId));
   const wave = await Promise.all(due.map(row => syncAriveRolloutLoan(row.pipelineId, { ...deps, deadlineMs })));

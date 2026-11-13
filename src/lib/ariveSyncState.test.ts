@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ArivePipelineSync, Prisma, ProcessingPipelineLoan } from '@prisma/client';
 import { ARIVE_SYNC_PILOT } from './ariveSyncTypes';
-import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, preserveAriveManagedFields } from './ariveSyncState';
+import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedState, isAriveVisibleForLoan, preserveAriveManagedFields, savedAriveTrackers } from './ariveSyncState';
 
 function setup() {
   const current = { id: 'pilot-pipeline', loanId: ARIVE_SYNC_PILOT.loanId, archivedAt: null, titleStatus: 'RECEIVED', statusChangedAt: new Date('2026-11-05T00:00:00Z'),
@@ -144,6 +144,17 @@ describe('verified generalized field ownership', () => {
     expect(await guardArivePipelineEdit(h.client, h.current, 'admin', { titleStatus: 'ORDERED' })).toMatchObject({ ariveConflict: true });
     expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4001', loanOfficerId: 'lo' })).toBe(true);
     expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4002', loanOfficerId: 'lo' })).toBe(false);
+  });
+  it('keeps saved data and resume controls visible for a paused verified file without locking edits', () => {
+    const h = enrolled(); h.state.enabled = false;
+    expect(isAriveVisibleForLoan(h.state, { id: 'live-loan', loanNumber: '4001', loanOfficerId: 'lo' })).toBe(true);
+    expect(isAriveManagedState(h.state, h.current.loanId)).toBe(false);
+    expect(ariveSyncView(h.state, true, true)).toMatchObject({ workerOwner: 'GENERALIZED', enabled: false, canManage: true });
+  });
+  it('bounds and allowlists saved trackers without exposing provider payloads or invalid dates', () => {
+    expect(savedAriveTrackers({ source: { trackers: [{ name: 'VOE', label: 'Employment', status: 'RECEIVED', statusLabel: 'Received', date: 'invalid', raw: 'PRIVATE' }, null, { name: '', status: 'ignored' }] } })).toEqual([
+      { name: 'VOE', label: 'Employment', status: 'RECEIVED', statusLabel: 'Received', date: null },
+    ]);
   });
   it.each(['COLLECTED_ONLY', 'REVIEW', 'DISABLED', 'UNVERIFIED', 'EMPTY'])('does not take production ownership for %s', async condition => {
     const h = enrolled();

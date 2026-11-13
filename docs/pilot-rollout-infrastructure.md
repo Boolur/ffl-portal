@@ -159,15 +159,21 @@ date formats, explicit clearing, source removal and provenance behavior.
 
 ## Queue and API capacity
 
-Minute cron `/api/internal/arive/sync` runs owners separately; five-minute cron
-`/api/internal/arive/sync/enroll` handles enrollment. Both require CRON_SECRET and
+Minute cron `/api/internal/arive/sync` runs owners separately; minute cron
+`/api/internal/arive/sync/enroll` handles up to 25 enrollment candidates. Both require CRON_SECRET and
 production environment. Disabled rollout performs no new collection/enrollment.
 
 Persistent oldest-due queue, two-file waves, globally enforced request concurrency
 of two, bounded worker time, per-file leases and global generation fences protect
-overlapping workers and pauses. Five minutes active / hourly recent-funding or
+overlapping workers and pauses. One minute active / hourly recent-funding or
 sync-archived are targets, not guarantees: quota, latency, note pagination and cohort
-size govern actual freshness. Manual refreshes use the same system.
+size govern actual freshness. The minute interval is a due target, not a maximum
+end-to-end delay. Manual refreshes persist a deduplicated request and attempt the
+same shared worker immediately; busy/cooldown responses remain queued. Scheduled
+work prioritizes the oldest manual request, then never-read/oldest-due files. Failed
+reads retain a five-minute exponential base rather than adopting the faster success
+interval. Each worker remains deadline-bound with at most 500 attempts and two-file
+waves; the transport enforces global HTTP concurrency of two across all instances.
 
 Authentication, pagination, panels and retries share a rolling request budget.
 Encrypted tokens are reused with expiry margin, refresh leases and credential
@@ -224,3 +230,27 @@ quota/token behavior, throttling/partial reads, overlapping workers and pause ra
 Live design acceptance, synthetic Arive file creation, provider capacity confirmation
 and broader activation remain the next milestone. A disabled infrastructure release
 is not evidence those later live checks have passed.
+
+## Operator controls and application detail coverage
+
+Admin III → Arive Integration exposes the saved rollout status, matching inventory,
+known test-file registry, controls, and collected-difference review. These reads make
+no provider calls. `inspectAriveReportedAllowance` makes one known TESTING TESTER GET
+(plus authentication when needed), no more than once per minute across operators.
+It reads only documented `X-RateLimit-Limit`/`X-RateLimit-Remaining` headers. A missing
+or malformed limit is not confirmation and never enables collection. Run this probe
+and save the confirmed allowance **before** enabling the shared deployment gate;
+the shared transport deliberately fails closed without its saved budget.
+
+The borrower workspace uses saved, authorized snapshots and loan-scoped notes for
+generalized loans. Opening tabs adds no Arive requests. Paused, previously applied
+snapshots remain visible with resume controls; pausing an individual enrollment
+releases edit ownership without deleting its saved data.
+
+The v1 allowlist includes documented borrower contacts, residence, loan terms,
+property, employer income summaries, costs, lender/product and rate-lock details.
+It now includes employer phone/classification, interest-only/ARM terms and additional
+documented contacts/loan/property fields. Missing older snapshot fields normalize
+to null. It is not a complete 1003 export: itemized assets/liabilities, declarations,
+opaque borrowerIncome and the separate REO endpoint are not inferred or collected.
+No SSNs, raw provider bodies, or new outbound loan/document operations are introduced.

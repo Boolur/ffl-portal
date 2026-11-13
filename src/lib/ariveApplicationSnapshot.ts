@@ -1,7 +1,7 @@
 /** Read-only application fields explicitly documented by Arive's loan-details API. */
-const loanNumberFields = ['baseLoanAmount', 'totalLoanAmount', 'noteRate', 'amortizationTerm'] as const;
-const loanTextFields = ['loanTerm', 'amortizationType', 'mortgageType', 'loanPurpose', 'refinanceType', 'lienPosition', 'lenderName', 'lenderProductName', 'documentationType'] as const;
-const financialFields = ['downPayment', 'earnestMoneyDeposit', 'sellerCredit', 'estimatedCashToClose', 'ltv', 'cltv', 'hcltv', 'frontEndDti', 'backEndDti', 'fico'] as const;
+const loanNumberFields = ['baseLoanAmount', 'totalLoanAmount', 'noteRate', 'amortizationTerm', 'interestOnlyTermMonths', 'initialFixedPeriodMonths', 'rateAdjustmentPeriod'] as const;
+const loanTextFields = ['loanTerm', 'amortizationType', 'mortgageType', 'loanPurpose', 'refinanceType', 'cashoutPurpose', 'lienPosition', 'lenderName', 'lenderNMLS', 'lenderLoanIdentifier', 'lenderProductName', 'lenderProductCode', 'documentationType', 'industryChannel'] as const;
+const financialFields = ['downPayment', 'earnestMoneyDeposit', 'sellerCredit', 'estimatedCashToClose', 'financedFees', 'discountPoints', 'ltv', 'cltv', 'hcltv', 'frontEndDti', 'backEndDti', 'fico'] as const;
 const housingFields = ['principalAndInterest', 'homeownersInsurance', 'propertyTaxes', 'mortgageInsurance', 'associationDues', 'floodInsurance', 'total'] as const;
 const residenceFields = ['street', 'unit', 'city', 'state', 'postalCode', 'tenure'] as const;
 const propertyTextFields = ['street', 'unit', 'city', 'county', 'state', 'postalCode', 'housingType', 'attachmentType', 'usageType'] as const;
@@ -11,16 +11,19 @@ type Texts<K extends string> = Record<K, string | null>;
 export type AriveApplicationApplicant = {
   role: 'Borrower' | 'CoBorrower'; applicationSequence: number | null;
   firstName: string | null; lastName: string | null; maritalStatus: string | null; firstTimeHomeBuyer: boolean | null;
+  nickname: string | null; email: string | null; mobilePhone: string | null; workPhone: string | null; homePhone: string | null;
+  applicationSubmittedAt: string | null;
   currentResidence: Texts<typeof residenceFields[number]> & { residenceMonths: number | null };
 };
 export type AriveApplicationEmployment = {
   employerName: string | null; position: string | null; monthlyIncome: number | null;
+  employerPhone: string | null; classification: string | null;
   startDate: string | null; endDate: string | null; selfEmployed: boolean | null; isPrimaryBorrower: boolean | null;
 };
-export type AriveApplicationProperty = Texts<typeof propertyTextFields[number]> & Numbers<typeof propertyNumberFields[number]> & { addressTbd: boolean | null };
+export type AriveApplicationProperty = Texts<typeof propertyTextFields[number]> & Numbers<typeof propertyNumberFields[number]> & { addressTbd: boolean | null; purchaseDate: string | null };
 export type AriveApplicationSnapshot = {
   version: 1;
-  loan: Numbers<typeof loanNumberFields[number]> & Texts<typeof loanTextFields[number]>;
+  loan: Numbers<typeof loanNumberFields[number]> & Texts<typeof loanTextFields[number]> & { interestOnly: boolean | null; impoundWaiver: boolean | null };
   financial: Numbers<typeof financialFields[number]>;
   monthlyHousing: Numbers<typeof housingFields[number]>;
   applicants: AriveApplicationApplicant[];
@@ -57,7 +60,7 @@ function texts<K extends string>(source: Record<string, unknown>, keys: readonly
 
 function propertySnapshot(value: unknown): AriveApplicationProperty | undefined {
   const source = record(value);
-  const property = { ...texts(source, propertyTextFields), ...numbers(source, propertyNumberFields), addressTbd: bool(source.addressTbd) };
+  const property = { ...texts(source, propertyTextFields), ...numbers(source, propertyNumberFields), addressTbd: bool(source.addressTbd), purchaseDate: date(source.purchaseDate) };
   for (const field of propertyNumberFields) {
     if (property[field] !== null && property[field]! < 0) property[field] = null;
   }
@@ -71,9 +74,13 @@ function sanitizeSnapshot(value: unknown): AriveApplicationSnapshot | null {
   if (source.version !== 1) return null;
   const loan = record(source.loan);
   const property = propertySnapshot(source.property);
+  const loanNumbers = numbers(loan, loanNumberFields);
+  for (const key of ['interestOnlyTermMonths', 'initialFixedPeriodMonths', 'rateAdjustmentPeriod'] as const) {
+    if (loanNumbers[key] !== null && (!Number.isInteger(loanNumbers[key]) || loanNumbers[key]! < 0)) loanNumbers[key] = null;
+  }
   return {
     version: 1,
-    loan: { ...numbers(loan, loanNumberFields), ...texts(loan, loanTextFields) },
+    loan: { ...loanNumbers, ...texts(loan, loanTextFields), interestOnly: bool(loan.interestOnly), impoundWaiver: bool(loan.impoundWaiver) },
     financial: numbers(record(source.financial), financialFields),
     monthlyHousing: numbers(record(source.monthlyHousing), housingFields),
     applicants: (Array.isArray(source.applicants) ? source.applicants : []).slice(0, 20).flatMap(raw => {
@@ -83,14 +90,17 @@ function sanitizeSnapshot(value: unknown): AriveApplicationSnapshot | null {
       const months = number(residence.residenceMonths);
       return [{ role: applicant.role, applicationSequence: sequence !== null && Number.isInteger(sequence) && sequence >= 0 ? sequence : null,
         firstName: text(applicant.firstName), lastName: text(applicant.lastName), maritalStatus: text(applicant.maritalStatus), firstTimeHomeBuyer: bool(applicant.firstTimeHomeBuyer),
+        nickname: text(applicant.nickname), email: text(applicant.email), mobilePhone: text(applicant.mobilePhone), workPhone: text(applicant.workPhone), homePhone: text(applicant.homePhone),
+        applicationSubmittedAt: date(applicant.applicationSubmittedAt),
         currentResidence: { ...texts(residence, residenceFields), residenceMonths: months !== null && Number.isInteger(months) && months >= 0 ? months : null },
       }];
     }),
     employment: (Array.isArray(source.employment) ? source.employment : []).slice(0, 100).map(raw => {
       const employment = record(raw);
       return { employerName: text(employment.employerName), position: text(employment.position), monthlyIncome: number(employment.monthlyIncome),
+        employerPhone: text(employment.employerPhone), classification: text(employment.classification),
         startDate: date(employment.startDate), endDate: date(employment.endDate), selfEmployed: bool(employment.selfEmployed), isPrimaryBorrower: bool(employment.isPrimaryBorrower) };
-    }).filter(job => job.employerName !== null || job.position !== null || job.monthlyIncome !== null || job.startDate !== null || job.endDate !== null || job.selfEmployed !== null || job.isPrimaryBorrower !== null),
+    }).filter(job => Object.values(job).some(value => value !== null)),
     ...(property ? { property } : {}),
   };
 }
@@ -101,7 +111,10 @@ export function projectAriveApplicationSnapshot(value: unknown): AriveApplicatio
   const property = record(source.subjectProperty);
   return sanitizeSnapshot({
     version: 1,
-    loan: Object.fromEntries([...loanNumberFields, ...loanTextFields].map(key => [key, source[key]])),
+    loan: { ...Object.fromEntries([...loanNumberFields, ...loanTextFields].map(key => [key, source[key]])),
+      interestOnly: source.interestOnlyInd, interestOnlyTermMonths: source.interestOnlyTermMonthsCount,
+      initialFixedPeriodMonths: source.initialFixedPeriodEffectiveMonthsCount, rateAdjustmentPeriod: source.normalRateAdjustmentPeriod,
+      impoundWaiver: source.impoundWaiver },
     financial: { ...Object.fromEntries(financialFields.map(key => [key, source[key]])), estimatedCashToClose: source.estCashToClose, frontEndDti: source.frontEndDTI, backEndDti: source.backEndDTI },
     monthlyHousing: {
       principalAndInterest: source.firstMortgagePrincipalAndInterestMonthlyAmt, homeownersInsurance: source.homeownersInsuranceMonthlyAmt,
@@ -114,11 +127,14 @@ export function projectAriveApplicationSnapshot(value: unknown): AriveApplicatio
       attachmentType: property.attachmentType, usageType: property.propertyUsageType,
       salesContractAmount: property.salesContractAmt, financedUnitCount: property.financedUnitCount,
       purchasePriceOrEstimatedValue: source.purchasePriceOrEstimatedValue, addressTbd: source.subjectTBDIndicator,
+      purchaseDate: source.purchaseDate,
     },
     applicants: (Array.isArray(source.loanBorrowers) ? source.loanBorrowers : []).map(raw => {
       const borrower = record(raw); const residence = record(borrower.currentResidence);
       return { role: borrower.applicantType, applicationSequence: borrower.borrowerPairLoanAppSequence,
         firstName: borrower.firstName, lastName: borrower.lastName, maritalStatus: borrower.maritalStatusType, firstTimeHomeBuyer: borrower.firstTimeHomeBuyer,
+        nickname: borrower.nickName, email: borrower.emailAddressText, mobilePhone: borrower.mobilePhone10digit, workPhone: borrower.workPhone, homePhone: borrower.homePhone,
+        applicationSubmittedAt: borrower.posAppSubmissionDate,
         currentResidence: { street: residence.addressLineText, unit: residence.addressUnitIdentifier, city: residence.addressCity,
           state: residence.addressState, postalCode: residence.addressPostalCode, tenure: residence.residencyBasisType, residenceMonths: residence.durationTermMonths } };
     }),
@@ -126,12 +142,13 @@ export function projectAriveApplicationSnapshot(value: unknown): AriveApplicatio
     // borrowerIncome keys or fall back to deprecated borrower employments.
     employment: (Array.isArray(source.employment) ? source.employment : []).map(raw => {
       const job = record(raw); return { employerName: job.employerName, position: job.positionDesc, monthlyIncome: job.monthlyIncome,
+        employerPhone: job.employerPhone, classification: job.classificationType,
         startDate: job.startDate, endDate: job.endDate, selfEmployed: job.selfEmployedInd, isPrimaryBorrower: job.isPrimaryBorrower };
     }),
   })!;
 }
 
-/** Caller must enforce the existing loan access and exact pilot enrollment scope. */
+/** Caller must enforce existing loan access and verified integration enrollment. */
 export function readAriveApplicationView(snapshot: unknown, syncedAt: Date | null | undefined): AriveApplicationView | null {
   const application = sanitizeSnapshot(record(snapshot).application);
   return application ? { ...application, syncedAt: syncedAt && Number.isFinite(syncedAt.getTime()) ? syncedAt.toISOString() : null } : null;

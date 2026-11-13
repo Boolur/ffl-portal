@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/ariveSyncPresentation', async () => import('../../lib/ariveSyncPresentation'));
-import { projectAriveApplicationSnapshot, type AriveApplicationView } from '../../lib/ariveApplicationSnapshot';
+import { projectAriveApplicationSnapshot, readAriveApplicationView, type AriveApplicationView } from '../../lib/ariveApplicationSnapshot';
 import { AriveFinancialInfo, AriveLoanTermsCard } from './FinancialInfoPanel';
 
 describe('application financial information', () => {
@@ -24,5 +24,45 @@ describe('application financial information', () => {
     expect(html).toContain('Loan terms from Arive'); expect(html).toContain('Synthetic lender'); expect(html).toContain('6.125%');
     expect(html).toContain('360'); expect(html).not.toContain('360 months');
     expect(renderToStaticMarkup(createElement(AriveLoanTermsCard, {}))).toBe('');
+  });
+  it('shows reported payment structure and lender identifiers without guessing adjustment-period or discount-point units', () => {
+    const application: AriveApplicationView = { ...projectAriveApplicationSnapshot({ interestOnlyInd: false, interestOnlyTermMonthsCount: 0,
+      initialFixedPeriodEffectiveMonthsCount: 60, normalRateAdjustmentPeriod: 12, impoundWaiver: true, lenderLoanIdentifier: 'SYNTHETIC-42',
+      lenderProductCode: 'ARM-5', lenderNMLS: '12345', cashoutPurpose: 'DebtConsolidation', industryChannel: 'Brokered', financedFees: 1250, discountPoints: 0.75,
+    }), syncedAt: null };
+    const loan = renderToStaticMarkup(createElement(AriveLoanTermsCard, { application }));
+    for (const text of ['Read only', 'Payment structure', 'Interest-only term (months)', 'Initial fixed period (months)', 'Rate adjustment period (reported)', 'Escrow waiver', 'SYNTHETIC-42', 'ARM-5', '12345', 'Debt Consolidation', 'Brokered']) expect(loan).toContain(text);
+    expect(loan).not.toContain('12 months');
+    const financial = renderToStaticMarkup(createElement(AriveFinancialInfo, { application }));
+    expect(financial).toContain('$1,250.00'); expect(financial).toContain('Discount points (reported)'); expect(financial).toContain('>0.75<');
+    expect(financial).not.toContain('0.75%');
+  });
+  it('shows employment contacts and classification per record without inventing an applicant identity or income total', () => {
+    const application: AriveApplicationView = { ...projectAriveApplicationSnapshot({ employment: [
+      { employerName: 'Employer A', employerPhone: '2025550100', classificationType: 'Primary', monthlyIncome: 1000, isPrimaryBorrower: true },
+      { employerName: 'Employer B', employerPhone: '2025550110', classificationType: 'Secondary', monthlyIncome: 500, isPrimaryBorrower: false },
+    ] }), syncedAt: null };
+    const html = renderToStaticMarkup(createElement(AriveFinancialInfo, { application }));
+    const first = html.slice(html.indexOf('Employer A'), html.indexOf('Employer B'));
+    const second = html.slice(html.indexOf('Employer B'));
+    expect(first).toContain('2025550100'); expect(first).not.toContain('2025550110');
+    expect(second).toContain('2025550110'); expect(second).toContain('Secondary');
+    expect(html).not.toContain('$1,500.00');
+    expect(html).toContain('Itemized assets, debts, other income, and underwriting declarations are not available in this summary');
+  });
+  it('renders an older normalized snapshot with absent extended fields as unavailable rather than NaN or fabricated zero', () => {
+    const application = readAriveApplicationView({ application: { version: 1, loan: { baseLoanAmount: 100000 }, employment: [{ employerName: 'Original employer' }] } }, null);
+    const html = renderToStaticMarkup(createElement(AriveFinancialInfo, { application }));
+    expect(html).toContain('Original employer'); expect(html).toContain('Not provided');
+    expect(html).not.toContain('NaN'); expect(html).not.toContain('$0.00');
+    expect(renderToStaticMarkup(createElement(AriveLoanTermsCard, { application }))).not.toContain('Payment structure');
+  });
+  it('also tolerates a cached pre-update view before the next server refresh', () => {
+    const application: AriveApplicationView = { ...projectAriveApplicationSnapshot({ baseLoanAmount: 100000 }), syncedAt: null };
+    for (const key of ['financedFees', 'discountPoints']) Reflect.deleteProperty(application.financial, key);
+    for (const key of ['interestOnly', 'interestOnlyTermMonths', 'initialFixedPeriodMonths', 'rateAdjustmentPeriod', 'impoundWaiver']) Reflect.deleteProperty(application.loan, key);
+    const html = renderToStaticMarkup(createElement(AriveFinancialInfo, { application }));
+    expect(html).toContain('Not provided'); expect(html).not.toContain('NaN'); expect(html).not.toContain('$0.00');
+    expect(renderToStaticMarkup(createElement(AriveLoanTermsCard, { application }))).not.toContain('Payment structure');
   });
 });
