@@ -20,11 +20,11 @@ explicit cutover. Adding schema does not enroll files or call Arive. Appearance,
 practice work and canonical synchronization are three independent concerns.
 No client mode flag selects a production versus practice mutation.
 
-### Pilot button follow-up
+### Pilot button follow-up (initial switch release)
 
 The top bar now includes a Pilot on/off switch for server-authorized Admin I/II/III
-accounts and Matt. Production enables only `PILOT_VIEW_ENABLED` for this switch;
-the practice and generalized collection gates remain off. The preference persists
+accounts and Matt. The initial switch release enabled only `PILOT_VIEW_ENABLED`;
+practice and generalized collection remained off then. The preference persists
 without refreshing the page or discarding open work. The current screens still
 use live records; enabling the preference does not create practice copies or
 activate synchronization. The facelift and explicit practice/live entries follow
@@ -331,3 +331,158 @@ operator fields remain unauthorized by default. Missing Arive funding history no
 retains an existing funded date and raises a review issue. Actual cohort activation
 and freshness results must be recorded after production checks, not inferred from
 these local tests.
+
+## Production rollout observations — November 12, 2026
+
+The shared transport and generalized rollout deployment gates are now enabled:
+`ARIVE_SHARED_TRANSPORT_ENABLED=true` and `ARIVE_ROLLOUT_ENABLED=true`. The saved
+request budget is an operator-authorized cap of **120 requests per minute**, with
+global concurrency two. It is not a provider-confirmed allowance. The planned
+300/600-request ramp has not been established by these observations.
+
+Release `926c613` includes the bounded visibility inspection and the earlier cohort
+refresh, count-only coverage and enrollment-diagnostic controls. Release verification
+passed 1,585 tests with one live-storage test skipped; type checks, focused lint,
+production compilation and all six offline schema checks also passed. This verifies
+the code and migration boundaries, not full-pipeline API access or freshness.
+
+Follow-up commit `4a1f88c` was pushed to main to reduce transport lock contention:
+completing a request releases its own reservation without the global admission
+lock, and display-only metrics no longer take that lock. Request admission still
+enforces the shared budget and concurrency under the global lock. Verification
+passed **1,587 tests with one skipped**, including **151 focused tests**, plus lint,
+type checks and `npx next build`. The `npm run build` Prisma-generation step hit an
+existing Windows DLL file lock held by Node; direct production compilation passed
+using the already generated client. The schema was unchanged and no local migration
+was run for this follow-up.
+
+Release `4a1f88c` subsequently reached Ready. The larger cohort exposed a separate
+scheduling issue: a worker could begin another wave with only 30 seconds left,
+then encounter the per-request 25-second reserve and incorrectly start a five-minute
+failure backoff. Follow-up `1f7ae3c` was pushed to main and subsequently reached
+[Ready on Vercel](https://vercel.com/matt-mahjoubs-projects/ffl-portal/JCGrkPtmSaSUexKiykX4GPioYDJD).
+It requires 75 seconds of remaining time both before and after the due
+query, and treats an exhausted invocation deadline as a 60-second scheduling deferral.
+It preserves complete snapshots, queued manual requests and previous failure/error
+history, releasing only its own fenced lease. Actual API failures and the individual
+loan's 150-second read budget retain their existing backoff behavior. Verification
+passed **1,594 tests with one skipped**, including **70 worker tests**, plus lint,
+full type checks and production compilation. Production repeat-cycle acceptance
+after this deployment is recorded below.
+
+### Saved connection visibility
+
+- The complete bounded inspection read **564 of 564** API-visible loans with a
+  consistent reported count. These are all loans visible to this connection, not
+  just the active BISU pipeline or the enrolled cohort.
+- BISU contained **799 eligible candidate records**: 409 active Pipeline/Restructures
+  records and 390 recent-or-undated Funding records. Missing funding dates still
+  require review before enrollment.
+- **45 existing eligible BISU records** had numeric loan numbers in the complete
+  API listing; **754** did not appear. Numeric overlap does not establish a valid
+  identity, originator mapping, enrollment or permission to apply changes. Each
+  candidate still goes through the existing independent verification action.
+  The overlaps comprise **11 Pipeline, 16 Restructures and 18 Fundings** records,
+  including TESTING TESTER.
+- Originator aggregates were **313 loans under Matt Mahjoub, 207 under Mo Daneshfar,
+  and 44 loans under other originators**. The saved API connection is therefore not
+  limited to Matt's loans.
+- Ten initial non-Matt candidates returned no exact-search result. A separate
+  check of Jarrid, Arive loan **17981070**, also returned zero API results even
+  though the Arive UI displayed the loan under Mo Daneshfar. This establishes a
+  visibility difference between the current API connection and that UI session;
+  it does not by itself identify Arive's filtering or permission rule.
+
+The inspection did not enroll, enable or modify any loan. Originator counts are
+aggregated; borrower names in the overlap list come from existing authorized BISU
+records, not from the provider response. Audit records contain summary counts only.
+
+### Observed update timing and accepted verified cohort
+
+For the active Maritza file, successful background timestamps advanced from
+**4:46:35 p.m. to 4:48:30 p.m. to 4:50:32 p.m. Pacific**: approximately two minutes
+between observed updates, despite the 60-second due target. These measurements
+must not be presented as instant synchronization or a guaranteed one-minute delay.
+
+After opening a fresh portal page, manual Sync reported a queued request and the
+successful timestamp subsequently advanced to **4:55:30 p.m. Pacific**. Manual
+requests continue through the same leases and shared budget. Older tabs already
+open across deployment needed a fresh load to use the updated controls.
+
+The first verified cohort passed two complete application cycles. At **5:00:33 p.m.
+Pacific**, the status showed **10 of 10 applied**, with 5:00:33 as the latest
+successful update. A later check still showed **10 of 10 applied**, with the oldest
+successful update at **5:00:51** and the latest at **5:02:34**. Every cohort member's
+second successful timestamp was therefore later than the first cohort's completion
+timestamp. Unchanged successful checks count toward this evidence; change-audit
+counts alone do not establish cycle completion.
+
+After that acceptance, the cohort limit was raised to **50**, while the operator
+cap remained **120 requests per minute**. No Arive 429 had been observed at that
+point. Automatic enrollment was temporarily switched off to avoid repeatedly
+searching the 754 candidates absent from the complete API listing. The remaining
+overlaps received targeted verification with the same full identity checks and
+cohort cap. Collection/application of already verified files continues independently
+of the automatic-enrollment setting.
+
+Verification of the 45 numeric overlaps resulted in **42 verified real loans**, two
+real loans held out because their portal and Arive originators did not match, and
+the existing synthetic file. The two exceptions were **Jonathan Sims, 17375345**,
+and **Erika Anguiano, 17655400**; no originator mismatch was bypassed.
+
+At approximately **5:15:26 p.m. Pacific**, the protected handoff confirmed that
+**TESTING TESTER, 17881588**, had transferred to the shared collector, preserving
+its existing submission packages and history. That brought the enabled generalized
+cohort to **43 files: 42 real loans and one synthetic test file**. The first whole
+43-file refresh was queued at approximately **5:16 p.m.**
+
+The next status check confirmed **43 of 43 collected and applied**, with the latest
+successful update at **5:20:04 p.m. Pacific** and the oldest at **5:01:28**. Every
+enabled file had now completed at least one collection/application. Because the
+oldest timestamp predates the whole-cohort queue request, these counts alone do not
+establish that all 43 completed that requested pass or a full second pass. Repeat
+validation remained pending after the worker scheduling correction.
+
+After the scheduling fix reached Ready, another cohort refresh was queued at
+approximately **5:20:45 p.m. Pacific**. Existing queued requests retained their
+original timestamps. By a later check, the latest successful update had advanced to
+**5:24:09**, but the oldest remained **5:07:29**. The queue and five-minute backoffs
+created before the correction had not all cleared; a full second cycle was still
+not established by those timestamps.
+
+Two further production checks confirmed the shared-worker results in the normal
+portal workflow:
+
+- The main Processing search for **Mariana Lamb, 17750057**, showed **FUNDING** and
+  **Funded**, whereas the earlier complete visibility inspection placed the existing
+  portal record in **PIPELINE**. This is a visible real-loan routing result, not just
+  an administrative preview.
+- After handoff, **TESTING TESTER** showed a generalized collection at **5:20:02 p.m.**
+  followed by the same successful application timestamp, confirming a completed
+  shared-worker read/application while preserving the existing package.
+
+The final fresh status confirmed **43 of 43 collected and applied**, with the oldest
+successful update at **5:22:45 p.m. Pacific** and the latest at **5:31:30**. Every
+enabled file's successful timestamp was later than the first 43-file completion
+checkpoint of **5:20:04**. This establishes a complete repeat application across all
+43 files, including TESTING TESTER after its shared-collector handoff. The old
+scheduling-error backlog no longer prevented any member from completing another
+successful cycle. The accepted cohort is **42 real loans plus one synthetic test**;
+an actual 50-file cohort was not tested because only 43 files passed verification.
+
+At approximately **5:32 p.m. Pacific**, the controls were saved with **All eligible
+verified loans** selected and **automatic enrollment on**, while **collection and
+application remained on**. The saved operator ceiling remained **120 requests per
+minute**, not an Arive-confirmed quota. The all-cohort setting permits future
+eligible files only after they independently pass the existing verification checks;
+it does not override the **754-record API visibility gap** or the **two originator
+mismatches**.
+
+The requested 30–60-second freshness was not met in these observations. The repeat
+whole-cohort pass took approximately 11 minutes, including the queue and old retry
+backlog; this is not a steady-state throughput benchmark. Earlier active-file
+background updates were approximately two minutes apart. The deadline correction
+resolved the observed artificial failure-backoff case, but further scheduling and
+throughput tuning is needed before making a 30–60-second freshness claim. The
+operator cap was not increased to 300 or 600, and these checks do not establish
+Arive's provider allowance or the performance of all 799 candidates.
