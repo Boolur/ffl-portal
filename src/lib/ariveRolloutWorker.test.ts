@@ -571,6 +571,24 @@ describe('existing-portal enrollment', () => {
     expect(verifyAriveRolloutIdentity(h.remote.details, h.store.row.loan)).toMatchObject({ originatorEmail: 'secondary@example.test' });
     h.store.row.loan.borrowerLastName = 'Borrower Jr'; expect(() => verifyAriveRolloutIdentity(h.remote.details, h.store.row.loan)).toThrow('exactly match');
   });
+  it('enrolls and reads an exact co-borrower when the expected portal LO is an explicit nonprimary Originator', async () => {
+    const h = harness(); h.store.sync.enrollmentStatus = 'PENDING'; h.store.sync.enabled = false;
+    h.remote.details.loanOriginatorEmail = 'branch-primary@example.test';
+    h.remote.details.loanBorrowers = [{ applicantType: 'Borrower', firstName: 'Another', lastName: 'Person' }, { applicantType: 'CoBorrower', firstName: 'Synthetic', lastName: 'Borrower' }];
+    Object.assign(h.remote.details, { loanTeam: [{ loanRole: 'Originator', emailAddressText: 'other@example.test', primary: false }] });
+    expect(await enrollAriveRolloutBatch(h.deps)).toMatchObject({ verified: 1 });
+    expect(h.store.sync.verifiedOriginatorEmail).toBe('other@example.test');
+    expect(await h.run()).toMatchObject({ success: true, applied: true });
+    expect(h.store.row.loan.loanOfficer.email).toBe('other@example.test');
+    expect(h.store.row.seniorProcessorId).toBe('senior'); expect(h.store.row.juniorProcessorId).toBe('junior');
+  });
+  it('retains portal values when the previously verified Originator is now only a processor', async () => {
+    const h = harness(); const before = clone(h.store.row);
+    h.remote.details.loanOriginatorEmail = 'branch-primary@example.test';
+    Object.assign(h.remote.details, { loanTeam: [{ loanRole: 'Processor', emailAddressText: 'other@example.test', primary: true }] });
+    expect(await h.run()).toMatchObject({ success: false });
+    expect(h.store.row).toEqual(before); expect(h.client.processingPipelineLoan.updateMany).not.toHaveBeenCalled();
+  });
 });
 
 

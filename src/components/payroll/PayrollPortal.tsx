@@ -23,6 +23,7 @@ import {
 } from '@/components/admin/payroll/payrollFormat';
 import { PAYROLL_LENDER_OPTIONS } from './payrollOptions';
 import { loanOfficerFinalComp, requestLoanOfficerRevenue } from '@/lib/payrollLoanOfficerComp';
+import { selectMismoAriveLoanNumber } from '@/lib/mismoAriveLoanNumber';
 
 type Props = {
   rows: PayrollRequestRow[];
@@ -413,17 +414,6 @@ function parsePayrollMismoXml(xmlText: string, sourceFilename?: string): Payroll
     const numeric = Number(value.replace(/[$,\s]/g, ''));
     return Number.isFinite(numeric) ? numeric : null;
   };
-  const isGuidLike = (value: string) =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value.trim()
-    );
-  const extractLoanNumberFromFilename = (filename?: string) => {
-    if (!filename) return '';
-    const stem = filename.replace(/\.[^/.]+$/, '');
-    const allNumericRuns = stem.match(/\d{6,}/g);
-    if (!allNumericRuns || allNumericRuns.length === 0) return '';
-    return allNumericRuns.sort((a, b) => b.length - a.length).at(0) || '';
-  };
   const findPartiesByRole = (roleType: string) =>
     Array.from(doc.getElementsByTagNameNS('*', 'PARTY')).filter((party) =>
       Array.from(party.getElementsByTagNameNS('*', 'PartyRoleType')).some(
@@ -439,25 +429,15 @@ function parsePayrollMismoXml(xmlText: string, sourceFilename?: string): Payroll
     .filter(Boolean)
     .join(' ');
 
-  const loanIdentifiers = Array.from(doc.getElementsByTagNameNS('*', 'LOAN_IDENTIFIER'));
-  const losIdentifierCandidates: string[] = [];
-  for (const id of loanIdentifiers) {
-    const type = getTextFromElement(id, 'LoanIdentifierType');
-    const typeOtherDescription = getTextFromElement(id, 'LoanIdentifierTypeOtherDescription');
-    const identifier = getTextFromElement(id, 'LoanIdentifier');
-    if (!identifier || isGuidLike(identifier)) continue;
-    const isLosIdentifier =
-      type === 'UniversalLoan' ||
-      (type === 'Other' &&
-        /(lwloan|arrive|loan origination system|los)/i.test(typeOtherDescription || ''));
-    if (isLosIdentifier) losIdentifierCandidates.push(identifier.trim());
-  }
-
-  const fallbackLoanNumber = getFirstText(doc, ['LoanOriginationSystemLoanIdentifier']);
-  const loanNumber =
-    extractLoanNumberFromFilename(sourceFilename) ||
-    losIdentifierCandidates[0] ||
-    (!isGuidLike(fallbackLoanNumber) ? fallbackLoanNumber : '');
+  const loanNumber = selectMismoAriveLoanNumber({
+    identifiers: Array.from(doc.getElementsByTagNameNS('*', 'LOAN_IDENTIFIER')).map(id => ({
+      type: getTextFromElement(id, 'LoanIdentifierType'),
+      otherDescription: getTextFromElement(id, 'LoanIdentifierTypeOtherDescription'),
+      value: getTextFromElement(id, 'LoanIdentifier'),
+    })),
+    losIdentifiers: Array.from(doc.getElementsByTagNameNS('*', 'LoanOriginationSystemLoanIdentifier')).map(node => node.textContent || ''),
+    sourceFilename,
+  });
 
   const mortgageType = getText(doc, 'MortgageType');
   const normalizedMortgageType = mortgageType.trim().toUpperCase();
@@ -890,7 +870,7 @@ export function PayrollPortal({
       const prefill = parsePayrollMismoXml(text, file.name);
       setForm((current) => ({
         ...current,
-        loanNumber: prefill.loanNumber || current.loanNumber,
+        loanNumber: editingRequestId ? current.loanNumber : prefill.loanNumber || '',
         borrowerName: prefill.borrowerName || current.borrowerName,
         loanType: prefill.loanType || current.loanType,
         lender: prefill.lender || current.lender,

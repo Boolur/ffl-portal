@@ -9,6 +9,7 @@ import { planArivePipelineSync } from './arivePipelineMapping';
 import { parseAriveStructuredNotes, type AriveStructuredNoteKey, type AriveStructuredNoteSource } from './ariveStructuredNotes';
 import { readPilotPackage } from './submissionPilot';
 import { projectAriveApplicationSnapshot } from './ariveApplicationSnapshot';
+import { inspectAriveLoanIdentity } from './ariveIdentity';
 
 export const ARIVE_SYNC_INTERVAL_MS = 5 * 60_000;
 const LEASE_MS = 4 * 60_000;
@@ -25,12 +26,13 @@ export function assertAriveSyncPilot(loan: PilotLoan) {
   }
 }
 export function verifyAriveSyncIdentity(details: unknown, email: string, expectedGuid?: string | null): string {
-  const d = jsonRecord(details);
-  const borrowers = Array.isArray(d.loanBorrowers) ? d.loanBorrowers.map(jsonRecord).filter(b => b.applicantType === 'Borrower') : [];
-  if (String(d.ariveLoanId) !== ARIVE_SYNC_PILOT.loanNumber || typeof d.sysGUID !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(d.sysGUID) || expectedGuid && d.sysGUID !== expectedGuid || !email || normalized(d.loanOriginatorEmail) !== normalized(email) || borrowers.length !== 1 || normalized(borrowers[0].firstName) !== 'testing' || normalized(borrowers[0].lastName) !== 'tester') {
+  const match = inspectAriveLoanIdentity(details, { id: ARIVE_SYNC_PILOT.loanId, loanNumber: ARIVE_SYNC_PILOT.loanNumber,
+    borrowerName: 'TESTING TESTER', borrowerFirstName: 'TESTING', borrowerLastName: 'TESTER', loanOfficer: { email }, secondaryLoanOfficer: null },
+  { ariveGuid: expectedGuid, verifiedOriginatorEmail: email });
+  if (match.issues.length) {
     throw new AriveError('Arive did not confirm the pilot loan, borrower, and originator. Existing portal values were retained.');
   }
-  return d.sysGUID;
+  return match.guid!;
 }
 function stable(value: unknown): string {
   if (value instanceof Date) return JSON.stringify(value.toISOString());

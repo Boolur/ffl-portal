@@ -6,6 +6,7 @@ import { AriveTransportError, createAriveTransportSession, type TransportCredent
 import { verifyAriveRolloutIdentity, type AriveRolloutLoanIdentity } from './ariveRollout';
 import { jsonRecord } from './ariveSyncState';
 import type { ActiveDiagnosticEvidence, ActiveDiagnosticObservedIdentity } from './ariveActivePipelineDiagnosticTypes';
+import { inspectAriveLoanIdentity, isAriveBorrowerApplicant, withAriveDetailTeamEvidence } from './ariveIdentity';
 
 export type AriveActiveDiagnosticLoan = AriveRolloutLoanIdentity & {
   pipelineId: string; version: number; savedGuid?: string | null; savedOriginatorEmail?: string | null;
@@ -88,15 +89,10 @@ function observedIdentity(value: unknown, loan: AriveActiveDiagnosticLoan, safe:
   const data = jsonRecord(value);
   const loanNumber = safe(typeof data.ariveLoanId === 'number' ? String(data.ariveLoanId) : data.ariveLoanId);
   const permanentId = safe(data.sysGUID, 100); const email = safe(data.loanOriginatorEmail, 254);
-  const allBorrowers = (Array.isArray(data.loanBorrowers) ? data.loanBorrowers : []).map(jsonRecord).filter(row => row.applicantType === 'Borrower');
+  const allBorrowers = (Array.isArray(data.loanBorrowers) ? data.loanBorrowers : []).map(jsonRecord).filter(row => isAriveBorrowerApplicant(row.applicantType));
   const borrowers = allBorrowers.slice(0, 8)
     .map(row => safe(`${typeof row.firstName === 'string' ? row.firstName : ''} ${typeof row.lastName === 'string' ? row.lastName : ''}`)).filter((name): name is string => !!name);
-  const issues: string[] = [];
-  if (loanNumber !== loan.loanNumber) issues.push('LOAN_NUMBER');
-  if (!permanentId || !/^[a-zA-Z0-9-]{1,100}$/.test(permanentId) || (loan.savedGuid || guid) && permanentId !== (loan.savedGuid || guid)) issues.push('GUID');
-  if (!email || ![loan.loanOfficer.email, loan.secondaryLoanOfficer?.email].map(normalizeIdentity).filter(Boolean).includes(normalizeIdentity(email))) issues.push('ORIGINATOR');
-  if (loan.savedOriginatorEmail && normalizeIdentity(email) !== normalizeIdentity(loan.savedOriginatorEmail)) issues.push('SAVED_ORIGINATOR');
-  if (!allBorrowers.some(row => `${normalizeIdentity(row.firstName)} ${normalizeIdentity(row.lastName)}` === normalizeIdentity(expectedBorrower(loan)))) issues.push('BORROWER_NAME');
+  const { issues } = inspectAriveLoanIdentity(value, loan, { ariveGuid: loan.savedGuid || guid, verifiedOriginatorEmail: loan.savedOriginatorEmail });
   return { loanNumber, guid: permanentId, originatorEmail: email, borrowers, issues,
     ...(Array.isArray(data.loanBorrowers) ? { otherApplicants: data.loanBorrowers.map(jsonRecord).filter(row => row.applicantType !== 'Borrower').slice(0, 8).map(row => ({
       name: safe(`${typeof row.firstName === 'string' ? row.firstName : ''} ${typeof row.lastName === 'string' ? row.lastName : ''}`), applicantType: safe(row.applicantType, 100),
@@ -237,12 +233,21 @@ export async function runAriveActivePipelineDiagnosticChunk(input: AriveActiveDi
         const source = matches[0]; const guid = source.sysGUID;
         if (outcome.evidence) outcome.evidence.search = observedIdentity(source, loan, safe);
         if (typeof guid !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(guid)) { finish(); continue; }
-        const searchedIdentity = identityCheck(source, loan);
+        let searchedIdentity = identityCheck(source, loan);
         outcome.searchIdentity = searchedIdentity.pass;
         // Saved permanent identity is a hard boundary before following a GUID.
         if (loan.savedGuid && loan.savedGuid !== guid) { outcome.status = 'IDENTITY_MISMATCH'; outcome.identityIssue = 'LOAN_NUMBER_OR_GUID'; finish(); continue; }
         phase = 'DETAIL'; outcome.phase = phase;
         const detail = await read(`/loans/${encodeURIComponent(guid)}`); Object.assign(outcome, detail.metadata);
+        // Search summaries may omit the team. Only consistent exact-file
+        // details may fill that omission; contradictory summaries still fail.
+        const verifiedSearchSource = withAriveDetailTeamEvidence(source, detail.value);
+        searchedIdentity = identityCheck(verifiedSearchSource, loan);
+        outcome.searchIdentity = searchedIdentity.pass;
+        if (outcome.evidence?.search && verifiedSearchSource !== source) {
+          outcome.evidence.search.issues = inspectAriveLoanIdentity(verifiedSearchSource, loan, { ariveGuid: loan.savedGuid || guid, verifiedOriginatorEmail: loan.savedOriginatorEmail }).issues;
+          outcome.evidence.search.teamEvidenceSource = 'DETAIL';
+        }
         if (outcome.evidence) outcome.evidence.detail = observedIdentity(detail.value, loan, safe, guid);
         const detailIdentity = identityCheck(detail.value, loan, guid); outcome.detailIdentity = detailIdentity.pass;
         outcome.status = searchedIdentity.pass && detailIdentity.pass ? 'VERIFIED' : 'IDENTITY_MISMATCH';

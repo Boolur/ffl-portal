@@ -6,6 +6,7 @@ import { isAriveBudgetReady } from './ariveTransportPrisma';
 import { AriveTransportError } from './ariveTransport';
 import { jsonRecord } from './ariveSyncState';
 import { ariveRolloutEnvironmentEnabled } from './ariveRolloutFlags';
+import { inspectAriveLoanIdentity, type AriveLoanIdentity } from './ariveIdentity';
 export { ariveRolloutEnvironmentEnabled, ariveCanonicalWritesEnabled } from './ariveRolloutFlags';
 
 export const ARIVE_ROLLOUT_CONNECTION = 'company';
@@ -34,33 +35,22 @@ export function ariveRolloutCohortWhere(now: Date): Prisma.ProcessingPipelineLoa
     { sheet: 'FUNDING', fundedAt: null },
   ] };
 }
-export type AriveRolloutLoanIdentity = {
-  id: string; loanNumber: string; borrowerName: string; borrowerFirstName: string | null; borrowerLastName: string | null;
-  loanOfficer: { email: string }; secondaryLoanOfficer: { email: string } | null;
-};
+export type AriveRolloutLoanIdentity = AriveLoanIdentity;
 export const rolloutLoanSelect = {
   id: true, loanNumber: true, borrowerName: true, borrowerFirstName: true, borrowerLastName: true,
   loanOfficer: { select: { email: true } }, secondaryLoanOfficer: { select: { email: true } },
   payrollCompRequests: { where: { OR: [{ paidAt: { not: null } }, { status: { in: ['APPROVED', 'PAID'] } }, { fundedImportKey: { not: null } }] }, select: { id: true }, take: 1 },
 } satisfies Prisma.LoanSelect;
-const normalize = (value: unknown) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toLowerCase() : '';
 export function verifyAriveRolloutIdentity(details: unknown, loan: AriveRolloutLoanIdentity, saved?: { ariveGuid?: string | null; verifiedOriginatorEmail?: string | null }) {
-  const d = jsonRecord(details);
-  if (!/^\d{1,15}$/.test(loan.loanNumber) || String(d.ariveLoanId) !== loan.loanNumber
-    || typeof d.sysGUID !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(d.sysGUID)
-    || saved?.ariveGuid && d.sysGUID !== saved.ariveGuid) throw new AriveError('The Arive loan number or permanent identity does not match this portal file.');
-  const email = normalize(d.loanOriginatorEmail);
-  const allowed = [loan.loanOfficer.email, loan.secondaryLoanOfficer?.email].map(normalize).filter(Boolean);
-  if (!email || !allowed.includes(email) || saved?.verifiedOriginatorEmail && email !== normalize(saved.verifiedOriginatorEmail)) {
+  const match = inspectAriveLoanIdentity(details, loan, saved);
+  if (match.issues.includes('LOAN_NUMBER') || match.issues.includes('GUID')) throw new AriveError('The Arive loan number or permanent identity does not match this portal file.');
+  if (match.issues.includes('ORIGINATOR') || match.issues.includes('SAVED_ORIGINATOR')) {
     throw new AriveError('The Arive originator does not match the verified portal originator. Review this link before syncing.');
   }
-  const first = normalize(loan.borrowerFirstName); const last = normalize(loan.borrowerLastName);
-  const expected = first && last ? `${first} ${last}` : normalize(loan.borrowerName);
-  const borrowers = Array.isArray(d.loanBorrowers) ? d.loanBorrowers.map(jsonRecord).filter(b => b.applicantType === 'Borrower') : [];
-  if (!expected || !borrowers.some(b => `${normalize(b.firstName)} ${normalize(b.lastName)}` === expected)) {
+  if (match.issues.includes('BORROWER_NAME')) {
     throw new AriveError('The Arive borrower does not exactly match this existing portal loan. Review the link; no fuzzy match was applied.');
   }
-  return { guid: d.sysGUID, originatorEmail: email };
+  return { guid: match.guid!, originatorEmail: match.originatorEmail! };
 }
 export async function isArivePracticeFile(db: Pick<typeof prisma, 'arivePracticeLoan'>, number: string, guid?: string | null) {
   // A disabled practice file is still synthetic and must never enter production.

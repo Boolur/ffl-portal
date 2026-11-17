@@ -96,6 +96,25 @@ describe('active pipeline read-only diagnostic', () => {
     const h = fixture(); h.fetcher.mockImplementation(async url => Response.json(String(url).includes('?') ? { count: 1, rows: [{ ...details, loanOriginatorEmail: 'other@example.test' }] } : details));
     expect((await runAriveActivePipelineDiagnosticChunk(h.input)).results[0]).toMatchObject({ status: 'IDENTITY_MISMATCH', searchIdentity: false, detailIdentity: true, identityIssue: 'ORIGINATOR' });
   });
+  it.each([undefined, null])('verifies an explicit Originator and exact co-borrower from consistent detail when the summary team is %s', async loanTeam => {
+    const h = fixture();
+    const search = { ...details, loanOriginatorEmail: 'branch-primary@example.test', loanTeam,
+      loanBorrowers: [{ applicantType: 'Borrower', firstName: 'Another', lastName: 'Person' }, { applicantType: 'CoBorrower', firstName: 'Synthetic', lastName: 'Borrower' }] };
+    const detail = { ...search, loanTeam: [{ loanRole: 'Originator', emailAddressText: 'owner@example.test', primary: false }] };
+    h.fetcher.mockImplementation(async url => Response.json(String(url).includes('?') ? { count: 1, rows: [search] } : detail));
+    const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, investigate: true });
+    expect(result.results[0]).toMatchObject({ status: 'VERIFIED', searchIdentity: true, detailIdentity: true, identityIssue: null,
+      evidence: { search: { issues: [], teamEvidenceSource: 'DETAIL' }, detail: { issues: [], originatorEmail: 'branch-primary@example.test', borrowers: ['Another Person', 'Synthetic Borrower'] } } });
+    expect(result.results[0].evidence!.search!.team).toBeUndefined();
+    expect(h.requests).toHaveLength(2);
+  });
+  it('does not replace explicit contradictory summary team evidence with later matching details', async () => {
+    const h = fixture();
+    const search = { ...details, loanOriginatorEmail: 'branch-primary@example.test', loanTeam: [] };
+    const detail = { ...search, loanTeam: [{ loanRole: 'Originator', emailAddressText: 'owner@example.test' }] };
+    h.fetcher.mockImplementation(async url => Response.json(String(url).includes('?') ? { count: 1, rows: [search] } : detail));
+    expect((await runAriveActivePipelineDiagnosticChunk(h.input)).results[0]).toMatchObject({ status: 'IDENTITY_MISMATCH', searchIdentity: false, detailIdentity: true, identityIssue: 'ORIGINATOR' });
+  });
   it('preserves a known synthetic classification rather than treating it as a real file', async () => {
     const h = fixture(); const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, loans: [{ ...loan, synthetic: true }] });
     expect(result.results[0]).toMatchObject({ status: 'VERIFIED', synthetic: true });

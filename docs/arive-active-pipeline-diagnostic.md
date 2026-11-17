@@ -28,6 +28,16 @@ Focused tests cover authorization, stale account roles, corrupt state, fixed-coh
 
 This proves loan-search/detail visibility and identity compatibility at the recorded times. It does not activate syncing, prove outbound document permission, or guarantee that future loans will match without their own checks.
 
+## Identity and import rules
+
+The exact numeric Arive number and permanent GUID remain mandatory. An expected BISU primary or secondary loan officer may match Arive's primary originator or a member explicitly assigned the `Originator` role on that same loan. Assistant, processor, and other team roles do not qualify. A previously verified originator must remain both a current BISU loan officer and an Arive originator. These checks never reassign portal ownership.
+
+Borrower matching accepts an exact normalized first-and-last name for either `Borrower` or `CoBorrower`; it does not use partial names or fuzzy matching. Arive search summaries may omit the loan team. The diagnostic can use the full detail response's team only when number, GUID, and primary-originator identity agree; contradictory summaries still fail.
+
+MISMO import suggestions prioritize an explicitly identified Arive/LOS number over the filename. Universal and lender identifiers are not Arive identity. Conflicting or malformed explicit identities, timestamp-like identifiers, and ambiguous filenames leave the required number field empty for manual entry. This improves future import suggestions; it does not repair existing records automatically.
+
+Historical number corrections require separately verified evidence and explicit authorization. Update only the selected canonical identifier and its existing operational references, retain a before/after audit, check for duplicates and concurrent edits, and keep collection, enrollment, and application disabled. Existing financial records and historical audits must remain unchanged. Rerun the read-only diagnostic after correction; a successful diagnostic does not enroll or activate the file.
+
 ## Targeted follow-up
 
 After a completed check, **Investigate review items + new loans** starts a separate diagnostic audit. The server selects current review outcomes, source identities changed since the prior check, and newly active files. Earlier unchanged matches are retained in the prior report and do not consume new Arive requests. The caller supplies only the latest diagnostic run ID, never arbitrary loan identities. An active child run is returned on a repeated start; a stale parent is rejected.

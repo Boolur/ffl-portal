@@ -79,6 +79,10 @@ function evidenceProjection(value: unknown): ActiveDiagnosticEvidence | undefine
       if (!Array.isArray(r.otherApplicants) || r.otherApplicants.length > 8) throw new Error('Invalid evidence');
       identity.otherApplicants = r.otherApplicants.map(item => { const applicant = record(item); return { name: text(applicant.name), applicantType: text(applicant.applicantType, 100) }; });
     }
+    if (r.teamEvidenceSource !== undefined) {
+      if (r.teamEvidenceSource !== 'DETAIL') throw new Error('Invalid evidence');
+      identity.teamEvidenceSource = 'DETAIL';
+    }
     return identity;
   };
   const v = record(value); const p = record(v.portal); const loanNumber = text(p.loanNumber);

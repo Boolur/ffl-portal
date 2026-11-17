@@ -46,13 +46,14 @@ export function ActiveDiagnosticEvidenceDetails({ evidence }: { evidence: Active
   const items: Array<[string, string | null | undefined]> = [
     ['BISU loan officer', evidence.portal.primaryOriginatorEmail], ['BISU secondary officer', evidence.portal.secondaryOriginatorEmail],
     ['Previously verified originator', evidence.portal.savedOriginatorEmail], ['Arive originator', observed?.originatorEmail],
-    ['Expected borrower', evidence.portal.borrowerName], ['Arive primary borrowers', observed?.borrowers.join('; ')],
+    ['Expected borrower', evidence.portal.borrowerName], ['Arive borrowers', observed?.borrowers.join('; ')],
   ];
   return <details className="mt-2 rounded-lg border border-border bg-muted/30 p-2.5">
     <summary className="cursor-pointer font-medium">View matching details</summary>
     <dl className="mt-2 space-y-2">{items.filter(([, value]) => value).map(([label, value]) => <div key={label}><dt className="text-[10px] text-muted-foreground">{label}</dt><dd className="break-words">{value}</dd></div>)}</dl>
     {!!observed?.team?.length && <div className="mt-2"><p className="text-[10px] text-muted-foreground">Arive loan team</p>{observed.team.map((member, index) => <p key={index} className="break-words">{member.email || 'Email not provided'} · {member.role || 'Role not provided'}{member.primary === true ? ' · Primary' : ''}</p>)}</div>}
     {!!observed?.otherApplicants?.length && <div className="mt-2"><p className="text-[10px] text-muted-foreground">Other applicants in Arive</p>{observed.otherApplicants.map((applicant, index) => <p key={index} className="break-words">{applicant.name || 'Name not provided'} · {applicant.applicantType || 'Type not provided'}</p>)}</div>}
+    {evidence.search?.teamEvidenceSource === 'DETAIL' && <p className="mt-2 text-muted-foreground">The search summary omitted the loan team. Team verification came from the matching Arive file details.</p>}
     {evidence.numericProbe && <p className="mt-2">Direct loan-number check: {evidence.numericProbe.httpStatus ? `HTTP ${evidence.numericProbe.httpStatus}` : 'No response recorded'}</p>}
     {evidence.borrowerSearch && <div className="mt-2"><p>Borrower search: {evidence.borrowerSearch.count ?? 'Unknown'} result(s){evidence.borrowerSearch.httpStatus && ` · HTTP ${evidence.borrowerSearch.httpStatus}`}</p>
       {evidence.borrowerSearch.candidates.map((candidate, index) => <p key={index} className="mt-1 break-words">Arive #{candidate.loanNumber || 'Not provided'} · {candidate.borrowers.join('; ') || 'Borrower not provided'} · {candidate.originatorEmail || 'Originator not provided'}</p>)}

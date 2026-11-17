@@ -7,6 +7,7 @@ import { createPlusOneSubmission, createSubmissionTask } from '@/app/actions/tas
 import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/actions/attachmentActions';
 import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
 import { normalizeProcessingZip } from '@/lib/processingBorrowerDetails';
+import { selectMismoAriveLoanNumber } from '@/lib/mismoAriveLoanNumber';
 import {
   PROCESSING_ASSIGNMENT_THIRD_PARTY,
   PROCESSING_METHOD_IN_HOUSE,
@@ -379,19 +380,6 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     throw new Error('Invalid XML');
   }
 
-  const isGuidLike = (value: string) =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value.trim()
-    );
-  const extractLoanNumberFromFilename = (filename?: string) => {
-    if (!filename) return '';
-    const stem = filename.replace(/\.[^/.]+$/, '');
-    const allNumericRuns = stem.match(/\d{6,}/g);
-    if (!allNumericRuns || allNumericRuns.length === 0) return '';
-    // Prefer the longest numeric token; if tied, use the last occurrence.
-    return allNumericRuns.sort((a, b) => b.length - a.length).at(0) || '';
-  };
-
   const getText = (parent: Element | Document | null, localName: string) => {
     if (!parent) return '';
     const el = parent.getElementsByTagNameNS('*', localName)[0];
@@ -638,32 +626,15 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
   const loanOfficer = getTextFromElement(loanOriginatorParty, 'FullName') ||
     [getTextFromElement(loanOriginatorParty, 'FirstName'), getTextFromElement(loanOriginatorParty, 'LastName')].filter(Boolean).join(' ');
 
-  const loanIdentifiers = Array.from(doc.getElementsByTagNameNS('*', 'LOAN_IDENTIFIER'));
-  let arriveLoanNumber = '';
-  const losIdentifierCandidates: string[] = [];
-  for (const id of loanIdentifiers) {
-    const type = getTextFromElement(id, 'LoanIdentifierType');
-    const typeOtherDescription = getTextFromElement(id, 'LoanIdentifierTypeOtherDescription');
-    const identifier = getTextFromElement(id, 'LoanIdentifier');
-    if (!identifier || isGuidLike(identifier)) continue;
-    const isLosIdentifier =
-      type === 'UniversalLoan' ||
-      (type === 'Other' &&
-        /(lwloan|arrive|loan origination system|los)/i.test(typeOtherDescription || ''));
-    if (isLosIdentifier) {
-      losIdentifierCandidates.push(identifier.trim());
-    }
-  }
-
-  const filenameLoanNumber = extractLoanNumberFromFilename(sourceFilename);
-  if (filenameLoanNumber) {
-    arriveLoanNumber = filenameLoanNumber;
-  } else if (losIdentifierCandidates.length > 0) {
-    arriveLoanNumber = losIdentifierCandidates[0];
-  } else {
-    const losFallback = getFirstText(doc, ['LoanOriginationSystemLoanIdentifier']);
-    arriveLoanNumber = !isGuidLike(losFallback) ? losFallback : '';
-  }
+  const arriveLoanNumber = selectMismoAriveLoanNumber({
+    identifiers: Array.from(doc.getElementsByTagNameNS('*', 'LOAN_IDENTIFIER')).map(id => ({
+      type: getTextFromElement(id, 'LoanIdentifierType'),
+      otherDescription: getTextFromElement(id, 'LoanIdentifierTypeOtherDescription'),
+      value: getTextFromElement(id, 'LoanIdentifier'),
+    })),
+    losIdentifiers: Array.from(doc.getElementsByTagNameNS('*', 'LoanOriginationSystemLoanIdentifier')).map(node => node.textContent || ''),
+    sourceFilename,
+  });
 
   const loanOriginatorType = getText(doc, 'LoanOriginatorType');
   const channel = loanOriginatorType === 'Broker' || loanOriginatorType === 'Correspondent'
@@ -982,7 +953,7 @@ function PlusOneForm({
         borrowerLastName: prefill.borrowerLastName || prev.borrowerLastName,
         borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
         borrowerEmail: prefill.borrowerEmail || prev.borrowerEmail,
-        arriveLoanNumber: prefill.arriveLoanNumber || prev.arriveLoanNumber,
+        arriveLoanNumber: prefill.arriveLoanNumber || '',
         loanType: prefill.loanType || prev.loanType,
         loanProgram: prefill.loanProgram || prev.loanProgram,
         loanAmount: prefill.loanAmount || prev.loanAmount,
@@ -1610,7 +1581,7 @@ function DisclosuresForm({
         borrowerEmail: prefill.borrowerEmail || prev.borrowerEmail,
         coBorrowerEmail: prefill.coBorrowerEmail || prev.coBorrowerEmail,
         hasMultipleBorrowers: Boolean(prefill.hasMultipleBorrowers),
-        arriveLoanNumber: prefill.arriveLoanNumber || prev.arriveLoanNumber,
+        arriveLoanNumber: sourceLoanId ? prev.arriveLoanNumber : prefill.arriveLoanNumber || '',
         channel: prefill.channel || prev.channel,
         investor: prefill.investor || prev.investor,
         loanType: prefill.loanType || prev.loanType,
@@ -2271,7 +2242,7 @@ function QcForm({
           prefill.coBorrowerLastName || prev.coBorrowerLastName,
         coBorrowerPhone: prefill.coBorrowerPhone || prev.coBorrowerPhone,
         coBorrowerEmail: prefill.coBorrowerEmail || prev.coBorrowerEmail,
-        arriveLoanNumber: prefill.arriveLoanNumber || prev.arriveLoanNumber,
+        arriveLoanNumber: sourceLoanId ? prev.arriveLoanNumber : prefill.arriveLoanNumber || '',
         channel: prefill.channel || prev.channel,
         investor: prefill.investor || prev.investor,
         loanType: prefill.loanType || prev.loanType,

@@ -229,6 +229,14 @@ describe('inbound synchronization with real mapping, note import, and parsing', 
 });
 
 describe('atomicity, identity, and worker fencing', () => {
+  it('uses the same explicit Originator and co-borrower identity check for the fixed legacy pilot', async () => {
+    const h = harness();
+    h.remote.details.loanOriginatorEmail = 'branch-primary@example.test';
+    h.remote.details.loanBorrowers[0].applicantType = 'CoBorrower';
+    Object.assign(h.remote.details, { loanTeam: [{ loanRole: 'Originator', emailAddressText: 'matt@example.test', primary: false }] });
+    expect(await h.run()).toMatchObject({ success: true });
+    expect(h.store.row.loan.loanOfficer.email).toBe('matt@example.test');
+  });
   it('retains the pipeline when its document-package link changes while waiting for locks', async () => {
     const h = harness(); const before = clone(h.store.row);
     h.client.$executeRaw.mockImplementation(async (_sql, lockName) => {

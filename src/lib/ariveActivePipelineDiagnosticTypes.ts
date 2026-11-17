@@ -7,6 +7,7 @@ export type ActiveDiagnosticObservedIdentity = {
   issues: string[];
   team?: Array<{ email: string | null; role: string | null; primary: boolean | null }>;
   otherApplicants?: Array<{ name: string | null; applicantType: string | null }>;
+  teamEvidenceSource?: 'DETAIL';
 };
 export type ActiveDiagnosticEvidence = {
   portal: {
