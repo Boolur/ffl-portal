@@ -87,7 +87,7 @@ const centerSections: { id: CenterSection; label: string; icon: typeof Home }[] 
   { id: 'activity', label: 'Activity', icon: Activity },
 ];
 
-function formatDate(value: string | null | undefined) {
+function formatDate(value: string | null | undefined, calendarDate = false) {
   if (!value) return 'Not provided';
   const date = new Date(value);
   return Number.isNaN(date.getTime())
@@ -96,6 +96,7 @@ function formatDate(value: string | null | undefined) {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
+        timeZone: calendarDate ? 'UTC' : undefined,
       });
 }
 
@@ -480,7 +481,7 @@ export function ProcessingBorrowerWorkspace({
   const stageDisplay = details?.ariveSync?.enabled ? details.ariveSync.stageLabel || 'Stage missing in Arive' : details ? statusLabel(details.processing.pipelineStatus) : '';
   const missingAriveValue = (field: string, value: ReactNode) => ariveFieldMissing(details?.ariveSync, field)
     ? <span className="inline-flex rounded-md border border-red-300 bg-red-50 px-2 py-1 text-xs font-semibold text-red-800">Missing in Arive</span> : value;
-  const milestoneDate = (field: string, value: string | null) => missingAriveValue(field, details?.ariveSync?.enabled ? formatAriveCalendarDate(value) : formatDate(value));
+  const milestoneDate = (field: string, value: string | null) => missingAriveValue(field, details?.ariveSync?.enabled ? formatAriveCalendarDate(value) : formatDate(value, field === 'fundedAt'));
   const daysDisplay = details?.ariveSync?.enabled && !details.ariveSync.stageDate
     ? <span className="text-red-700">Stage date missing</span> : details?.processing.daysInStatus;
 
