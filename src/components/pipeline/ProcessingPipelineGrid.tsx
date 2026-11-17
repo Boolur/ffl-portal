@@ -359,7 +359,13 @@ function columnRawValue(row: ProcessingPipelineRow, id: ColumnId): string | numb
 function columnDisplayValue(row: ProcessingPipelineRow, id: ColumnId) {
   const value = columnRawValue(row, id);
   if (value === null || value === '') return 'Blank';
-  if (DATE_COLUMN_IDS.has(id)) return row.ariveSync?.enabled && id !== 'dateAssigned' ? formatAriveCalendarDate(String(value)) : formatDate(String(value));
+  if (DATE_COLUMN_IDS.has(id)) {
+    if (row.ariveSync?.enabled && id !== 'dateAssigned') return formatAriveCalendarDate(String(value));
+    if (id === 'fundedAt' || id === 'firstPaymentAt' || id === 'sixthPaymentAt') {
+      return formatDateOnly(String(value));
+    }
+    return formatDate(String(value));
+  }
   if (
     id === 'loanAmount' ||
     id === 'projectedRevenue' ||
@@ -619,14 +625,8 @@ function todayInputValue(date = new Date()) {
 }
 
 function formatDateOnly(value: string | null) {
-  if (!value) return '—';
-  const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
-  return new Intl.DateTimeFormat('en-US', {
-    month: '2-digit',
-    day: '2-digit',
-    year: '2-digit',
-    timeZone: 'UTC',
-  }).format(date);
+  const formatted = formatAriveCalendarDate(value);
+  return formatted === 'Not supplied' ? '—' : formatted;
 }
 
 function formatMoney(value: number | null) {
@@ -2739,7 +2739,7 @@ export function ProcessingPipelineGrid({
       case 'fundedAt':
         return (
           <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}>
-            {row.ariveSync?.enabled ? formatAriveCalendarDate(row.fundedAt) : formatDate(row.fundedAt)}
+            {row.ariveSync?.enabled ? formatAriveCalendarDate(row.fundedAt) : formatDateOnly(row.fundedAt)}
           </td>
         );
       case 'finalRevenue':
@@ -2813,13 +2813,13 @@ export function ProcessingPipelineGrid({
       case 'firstPaymentAt':
         return (
           <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}>
-            {row.ariveSync?.enabled ? formatAriveCalendarDate(row.firstPaymentAt) : formatDate(row.firstPaymentAt)}
+            {row.ariveSync?.enabled ? formatAriveCalendarDate(row.firstPaymentAt) : formatDateOnly(row.firstPaymentAt)}
           </td>
         );
       case 'sixthPaymentAt':
         return (
           <td key={id} className={`border-b border-r border-slate-200 ${cellPadding}`}>
-            {row.ariveSync?.enabled ? formatAriveCalendarDate(row.sixthPaymentAt) : formatDate(row.sixthPaymentAt)}
+            {row.ariveSync?.enabled ? formatAriveCalendarDate(row.sixthPaymentAt) : formatDateOnly(row.sixthPaymentAt)}
           </td>
         );
       case 'actions':
