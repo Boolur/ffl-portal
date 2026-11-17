@@ -42,7 +42,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: {
 } }));
 
 // Lifecycle and race regressions below use only synthetic loan identities.
-import { cancelActivePipelineDiagnostic, continueActivePipelineDiagnostic, getActivePipelineDiagnostic, startActivePipelineDiagnostic } from './ariveActivePipelineDiagnosticActions';
+import { cancelActivePipelineDiagnostic, continueActivePipelineDiagnostic, getActivePipelineDiagnostic, startActivePipelineDiagnostic, startActivePipelineDiagnosticFollowUp } from './ariveActivePipelineDiagnosticActions';
 import type { AriveActiveDiagnosticChunkInput, AriveActiveDiagnosticChunkResult } from '@/lib/ariveActivePipelineDiagnostic';
 
 const ACTION = 'ARIVE_ACTIVE_PIPELINE_DIAGNOSTIC';
@@ -158,6 +158,7 @@ describe('active pipeline diagnostic authorization and isolation', () => {
     if (scenario === 'wrong active role') state.session.user.activeRole = 'LOAN_OFFICER';
     if (scenario === 'preview') vi.stubEnv('VERCEL_ENV', 'preview');
     expect((await startActivePipelineDiagnostic()).success).toBe(false);
+    expect((await startActivePipelineDiagnosticFollowUp({ runId: 'run-1' })).success).toBe(false);
     expect((await getActivePipelineDiagnostic()).success).toBe(false);
     expect((await continueActivePipelineDiagnostic({ runId: 'run-1' })).success).toBe(false);
     expect((await cancelActivePipelineDiagnostic({ runId: 'run-1' })).success).toBe(false);
@@ -425,5 +426,131 @@ describe('durable state validation', () => {
     expect((await getActivePipelineDiagnostic()).success).toBe(false);
     expect((await continueActivePipelineDiagnostic({ runId: run.id })).success).toBe(false);
     expect(m.chunk).not.toHaveBeenCalled();
+  });
+});
+
+describe('targeted follow-up diagnostics', () => {
+  const advance = () => vi.setSystemTime(new Date(Date.now() + 5 * 60_000 + 1));
+  async function completeFull(indices = [1, 2, 3]) {
+    state.sources = indices.map(index => source(index));
+    const run = await start(); await continueActivePipelineDiagnostic({ runId: run.id }); return run;
+  }
+  async function followUp(runId: string) {
+    const result = await startActivePipelineDiagnosticFollowUp({ runId });
+    if (!result.success || !result.run) throw new Error(JSON.stringify(result));
+    return result.run;
+  }
+
+  it('captures only review outcomes, changed identities and new active files without editing the parent run', async () => {
+    const parent = await completeFull();
+    rewrite(value => { value.results[1].outcome = 'IDENTITY_MISMATCH'; });
+    const original = latest()!.details;
+    state.sources[2].version++; state.sources.push(source(4)); advance();
+    const run = await followUp(parent.id);
+    expect(run).toMatchObject({ scope: 'FOLLOW_UP', parentRunId: parent.id, rootRunId: parent.id, total: 3, checked: 0, baselineTotal: 4, currentActiveCount: 4, addedSinceStart: 0 });
+    expect(run.rows.map(row => row.pipelineId)).toEqual(['pipeline-2', 'pipeline-3', 'pipeline-4']);
+    expect(audits.find(row => row.id === parent.id)!.details).toBe(original);
+    expect(persisted().lineage.carriedMatchedPipelineIds).toEqual(['pipeline-1']);
+    m.chunk.mockClear();
+    await continueActivePipelineDiagnostic({ runId: run.id });
+    expect(m.chunk.mock.calls[0][0]).toMatchObject({ investigate: true });
+    expect(m.chunk.mock.calls[0][0].loans.map((row: { pipelineId: string }) => row.pipelineId)).toEqual(['pipeline-2', 'pipeline-3', 'pipeline-4']);
+  });
+
+  it('keeps lineage membership on repeated follow-ups and never counts carried matches as newly added loans', async () => {
+    const parent = await completeFull([1, 2]);
+    rewrite(value => { value.results[1].outcome = 'NO_API_MATCH'; });
+    state.sources.push(source(3)); advance();
+    const first = await followUp(parent.id); await continueActivePipelineDiagnostic({ runId: first.id });
+    state.sources[0].version++; state.sources.push(source(4)); advance();
+    const second = await followUp(first.id);
+    expect(second).toMatchObject({ rootRunId: parent.id, parentRunId: first.id, total: 2, baselineTotal: 4, addedSinceStart: 0 });
+    expect(second.rows.map(row => row.pipelineId)).toEqual(['pipeline-1', 'pipeline-4']);
+    expect(persisted().lineage.carriedMatchedPipelineIds.sort()).toEqual(['pipeline-2', 'pipeline-3']);
+    state.sources.push(source(5));
+    expect(await getActivePipelineDiagnostic()).toMatchObject({ success: true, run: { total: 2, currentActiveCount: 5, addedSinceStart: 1 } });
+  });
+
+  it('returns an already-started child when a repeated follow-up request arrives', async () => {
+    const parent = await completeFull([1]); rewrite(value => { value.results[0].outcome = 'NO_API_MATCH'; }); advance();
+    const child = await followUp(parent.id);
+    expect((await followUp(parent.id)).id).toBe(child.id);
+    expect(m.auditCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it('records prior review items that left the pipeline without making Arive requests for them', async () => {
+    const parent = await completeFull([1, 2]); rewrite(value => { value.results.forEach((row: { outcome: string }) => { row.outcome = 'NO_API_MATCH'; }); });
+    state.sources[0].sheet = 'FUNDING'; state.sources.splice(1, 1); advance();
+    const child = await followUp(parent.id);
+    expect(child).toMatchObject({ total: 2, currentActiveCount: 0, baselineTotal: 2, addedSinceStart: 0 });
+    m.chunk.mockClear();
+    const result = await continueActivePipelineDiagnostic({ runId: child.id });
+    expect(result).toMatchObject({ success: true, run: { status: 'COMPLETE', checked: 2, matched: 0 } });
+    expect(m.chunk.mock.calls[0][0].loans).toEqual([]);
+    expect(persisted().results.every((row: { outcome: string; message: string }) => row.outcome === 'SOURCE_CHANGED' && row.message.includes('no longer in the active pipeline'))).toBe(true);
+  });
+
+  it('completes an empty follow-up with no provider work and still retains the original baseline', async () => {
+    const parent = await completeFull([1, 2]); advance(); m.chunk.mockClear();
+    expect(await startActivePipelineDiagnosticFollowUp({ runId: parent.id })).toMatchObject({ success: true, run: { status: 'COMPLETE', total: 0, baselineTotal: 2, currentActiveCount: 2, addedSinceStart: 0 } });
+    expect(m.chunk).not.toHaveBeenCalled();
+  });
+
+  it('rejects a nonterminal, unknown, malformed or superseded parent', async () => {
+    const parent = await start(); advance();
+    expect((await startActivePipelineDiagnosticFollowUp({ runId: parent.id })).success).toBe(false);
+    await continueActivePipelineDiagnostic({ runId: parent.id });
+    expect((await startActivePipelineDiagnosticFollowUp({ runId: 'unknown-run' })).success).toBe(false);
+    expect((await startActivePipelineDiagnosticFollowUp({ runId: '../not-a-run' })).success).toBe(false);
+    await start(); advance();
+    expect((await startActivePipelineDiagnosticFollowUp({ runId: parent.id })).success).toBe(false);
+    expect(m.auditCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['credential timestamp', 'credential ciphertext', 'generation', 'collection', 'application', 'enrollment', 'active worker'])('does not carry matches forward after %s changes', async scenario => {
+    const parent = await completeFull([1]); advance();
+    if (scenario === 'credential timestamp') state.config.updatedAt = new Date();
+    if (scenario === 'credential ciphertext') state.config.encryptedCredentials = 'changed-secret';
+    if (scenario === 'generation') state.control.generation++;
+    if (scenario === 'collection') state.control.collectionEnabled = true;
+    if (scenario === 'application') state.control.applicationEnabled = true;
+    if (scenario === 'enrollment') state.control.enrollmentEnabled = true;
+    if (scenario === 'active worker') state.running = 1;
+    m.chunk.mockClear();
+    expect((await startActivePipelineDiagnosticFollowUp({ runId: parent.id })).success).toBe(false);
+    expect(m.auditCreate).toHaveBeenCalledOnce(); expect(m.chunk).not.toHaveBeenCalled();
+  });
+
+  it('can follow up old completed evidence while applying a fresh expiry to the new run', async () => {
+    const parent = await completeFull([1]); rewrite(value => { value.results[0].outcome = 'NO_API_MATCH'; });
+    vi.setSystemTime(new Date(Date.now() + 7 * 60 * 60_000));
+    const child = await followUp(parent.id);
+    expect(child.startedAt).toBe(new Date().toISOString()); expect(child.total).toBe(1);
+  });
+
+  it('persists only bounded identity evidence and rejects oversized evidence before saving results', async () => {
+    const parent = await completeFull([1]); rewrite(value => { value.results[0].outcome = 'IDENTITY_MISMATCH'; }); advance();
+    const child = await followUp(parent.id);
+    m.chunk.mockImplementationOnce(async (input: AriveActiveDiagnosticChunkInput) => {
+      const result = completed(input);
+      Object.assign(result.results[0], { requestId: 'safe-request-id', evidence: {
+        portal: { loanNumber: '99000001', savedGuid: 'guid-1', primaryOriginatorEmail: 'officer@example.test', secondaryOriginatorEmail: null, savedOriginatorEmail: 'officer@example.test', borrowerName: 'Synthetic Person 1', unrelated: 'secret-unrelated' },
+        detail: { loanNumber: '99000001', guid: 'guid-1', originatorEmail: 'other@example.test', borrowers: ['Synthetic Person 1'], issues: ['ORIGINATOR'], team: [{ email: 'officer@example.test', role: 'LoanOfficer', primary: false }], otherApplicants: [{ name: 'Synthetic Coapplicant', applicantType: 'CoBorrower' }], secret: 'never-persist' },
+        rawBody: 'never-persist',
+      } }); return result;
+    });
+    const response = await continueActivePipelineDiagnostic({ runId: child.id });
+    expect(response).toMatchObject({ success: true, run: { rows: [{ requestId: 'safe-request-id', evidence: { detail: { originatorEmail: 'other@example.test' } } }] } });
+    expect(latest()!.details).not.toMatch(/secret-unrelated|never-persist|rawBody/);
+    rewrite(value => { value.results[0].evidence.detail.borrowers = Array(11).fill('Borrower'); });
+    expect((await getActivePipelineDiagnostic()).success).toBe(false);
+  });
+
+  it('rejects corrupt lineage instead of turning carried rows into arbitrary matches', async () => {
+    const parent = await completeFull([1, 2]); rewrite(value => { value.results[1].outcome = 'NO_API_MATCH'; }); advance();
+    const child = await followUp(parent.id);
+    rewrite(value => { value.lineage.carriedMatchedPipelineIds.push('not-in-baseline'); });
+    expect((await getActivePipelineDiagnostic()).success).toBe(false);
+    expect((await continueActivePipelineDiagnostic({ runId: child.id })).success).toBe(false);
   });
 });

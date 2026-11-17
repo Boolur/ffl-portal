@@ -108,6 +108,74 @@ describe('active pipeline read-only diagnostic', () => {
   });
 });
 
+describe('explicit follow-up evidence', () => {
+  it('explains all identity differences without weakening the production matcher or retaining unrelated data', async () => {
+    const h = fixture(); const changed = { ...details, loanOriginatorEmail: 'primary@example.test',
+      loanBorrowers: [{ applicantType: 'Borrower', firstName: 'Other', lastName: 'Borrower', ssn: 'never-return-ssn' }],
+      loanTeam: [{ emailAddressText: loan.loanOfficer.email, loanRole: 'Loan Officer', primary: false, mobilePhone10digit: 'never-return-phone' }] };
+    h.fetcher.mockImplementation(async url => Response.json(String(url).includes('?') ? { count: 1, rows: [changed] } : changed));
+    const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, investigate: true });
+    expect(result.results[0]).toMatchObject({ status: 'IDENTITY_MISMATCH', evidence: {
+      portal: { primaryOriginatorEmail: loan.loanOfficer.email }, detail: { originatorEmail: 'primary@example.test',
+        borrowers: ['Other Borrower'], issues: ['ORIGINATOR', 'SAVED_ORIGINATOR', 'BORROWER_NAME'],
+        team: [{ email: loan.loanOfficer.email, role: 'Loan Officer', primary: false }] } } });
+    expect(JSON.stringify(result)).not.toContain('never-return');
+    expect(h.requests).toHaveLength(2);
+  });
+  it('distinguishes empty numeric search, denied numeric detail and a different borrower-name candidate', async () => {
+    const h = fixture(); h.fetcher.mockImplementation(async url => String(url).includes('DISPLAY_ID') ? Response.json({ count: 0, rows: [] })
+      : String(url).includes('BORROWER_NAME') ? Response.json({ count: 1, rows: [{ ...details, ariveLoanId: 99999456 }] })
+        : Response.json({}, { status: 403, headers: { 'x-amzn-requestid': 'request-12345678', 'x-amzn-errortype': 'ForbiddenException' } }));
+    const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, investigate: true });
+    expect(result).toMatchObject({ consumed: 1, getRequests: 3, deferred: null, results: [{ status: 'NO_API_MATCH', phase: 'SEARCH', httpStatus: 200,
+      evidence: { numericProbe: { httpStatus: 403, requestId: 'request-12345678' }, borrowerSearch: { count: 1, complete: true, candidatesTruncated: false,
+        candidates: [{ loanNumber: '99999456', issues: ['LOAN_NUMBER'] }] } } }] });
+    expect(result.results[0].evidence!.borrowerSearch!.candidates[0].loanNumber).not.toBe(loan.loanNumber);
+  });
+  it('searches a borrower for an invalid ID without sending that invalid ID to a detail endpoint', async () => {
+    const h = fixture(); const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, investigate: true, loans: [{ ...loan, loanNumber: 'TBD' }] });
+    expect(result).toMatchObject({ getRequests: 1, consumed: 1, results: [{ status: 'INVALID_LOAN_NUMBER', evidence: { borrowerSearch: { count: 1 } } }] });
+    expect(h.fetcher.mock.calls.every(([url]) => String(url).includes('BORROWER_NAME'))).toBe(true);
+  });
+  it('bounds alternate candidates and identifies an incomplete search page without following candidate GUIDs', async () => {
+    const h = fixture(); h.fetcher.mockImplementation(async () => Response.json({ count: 25, rows: Array.from({ length: 20 }, (_, index) => ({ ...details, ariveLoanId: 90000 + index })) }));
+    const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, investigate: true, loans: [{ ...loan, loanNumber: 'TBD' }] });
+    expect(result.results[0].evidence!.borrowerSearch).toMatchObject({ count: 25, complete: false, candidatesTruncated: true });
+    expect(result.results[0].evidence!.borrowerSearch!.candidates).toHaveLength(10); expect(h.fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('preserves the missing-search exception when the numeric detail is accessible', async () => {
+    const h = fixture(); h.fetcher.mockImplementation(async url => Response.json(String(url).includes('?') ? { count: 0, rows: [] } : details));
+    const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, investigate: true });
+    expect(result.results[0]).toMatchObject({ status: 'NO_API_MATCH', evidence: { numericProbe: { httpStatus: 200, identity: { issues: [] } } } });
+  });
+  it('does not retain secrets if the provider echoes them inside identity or request-ID fields', async () => {
+    const h = fixture(); const echoed = { ...details, loanOriginatorEmail: 'private-api-key', loanTeam: [{ emailAddressText: 'private-cached-token', loanRole: 'private-secret' }] };
+    h.fetcher.mockImplementation(async url => Response.json(String(url).includes('?') ? { count: 1, rows: [echoed] } : echoed,
+      { headers: { 'x-amzn-requestid': 'private-client' } }));
+    const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, investigate: true });
+    expect(result.results[0].requestId).toBeNull();
+    for (const excluded of ['private-api-key', 'private-cached-token', 'private-secret', 'private-client', 'never-return']) expect(JSON.stringify(result)).not.toContain(excluded);
+  });
+  it('honors pause races and shared throttling during alternate probes', async () => {
+    const h = fixture(); let paused = false;
+    h.guard.mockImplementation(async () => { if (paused) throw new AriveActiveDiagnosticGuardError('CONTROL_CHANGED'); });
+    h.fetcher.mockImplementation(async url => { if (!String(url).includes('?')) paused = true; return Response.json({ count: 0, rows: [] }); });
+    expect(await runAriveActivePipelineDiagnosticChunk({ ...h.input, investigate: true })).toMatchObject({ invalidated: true, results: [], getRequests: 2 });
+    expect(h.fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('keeps explanatory borrower checks consistent with normalized fallback names and all applicant rows', async () => {
+    const h = fixture(); const many = { ...details, loanBorrowers: [
+      ...Array.from({ length: 8 }, () => ({ applicantType: 'Borrower', firstName: 'Another', lastName: 'Person' })),
+      details.loanBorrowers[0], { applicantType: 'CoBorrower', firstName: 'Second', lastName: 'Applicant' },
+    ] };
+    h.fetcher.mockImplementation(async url => Response.json(String(url).includes('?') ? { count: 1, rows: [many] } : many));
+    const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, investigate: true, loans: [{ ...loan, borrowerFirstName: '  ' }] });
+    expect(result.results[0]).toMatchObject({ status: 'VERIFIED', evidence: { portal: { borrowerName: loan.borrowerName },
+      detail: { issues: [], otherApplicants: [{ name: 'Second Applicant', applicantType: 'CoBorrower' }] } } });
+    expect(result.results[0].evidence!.detail!.borrowers).toHaveLength(8);
+  });
+});
+
 describe('shared limits and fail-closed binding', () => {
   it('will not use a rotated connection revision', async () => {
     const h = fixture(); const result = await runAriveActivePipelineDiagnosticChunk({ ...h.input, credentialRevision: new Date(h.now.getTime() - 1).toISOString() });

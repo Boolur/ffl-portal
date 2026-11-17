@@ -12,7 +12,7 @@ import { isAriveBudgetReady } from '@/lib/ariveTransportPrisma';
 import { stableAriveValue } from '@/lib/ariveRollout';
 import { ARIVE_SYNC_PILOT } from '@/lib/ariveSyncTypes';
 import { runAriveActivePipelineDiagnosticChunk, type AriveActiveDiagnosticLoan, type AriveActiveDiagnosticResult } from '@/lib/ariveActivePipelineDiagnostic';
-import type { ActivePipelineDiagnosticResponse, ActivePipelineDiagnosticRun, ActivePipelineDiagnosticRow } from '@/lib/ariveActivePipelineDiagnosticTypes';
+import type { ActiveDiagnosticEvidence, ActiveDiagnosticObservedIdentity, ActivePipelineDiagnosticResponse, ActivePipelineDiagnosticRun, ActivePipelineDiagnosticRow } from '@/lib/ariveActivePipelineDiagnosticTypes';
 
 const ACTION = 'ARIVE_ACTIVE_PIPELINE_DIAGNOSTIC';
 const CONNECTION = 'company';
@@ -31,7 +31,7 @@ const select = {
   ariveSync: { select: { ariveGuid: true, verifiedOriginatorEmail: true } },
 } satisfies Prisma.ProcessingPipelineLoanSelect;
 type Source = Prisma.ProcessingPipelineLoanGetPayload<{ select: typeof select }>;
-type CohortRow = { pipelineId: string; loanId: string; loanNumber: string; version: number; sourceHash: string; duplicateNumericId: boolean; practice: boolean; synthetic: boolean };
+type CohortRow = { pipelineId: string; loanId: string; loanNumber: string; version: number; sourceHash: string; duplicateNumericId: boolean; practice: boolean; synthetic: boolean; inactive?: boolean };
 type ActiveDiagnosticResult = Omit<ActivePipelineDiagnosticRow, 'borrowerName' | 'loanOfficer' | 'synthetic'>;
 type Stored = {
   schema: 1; status: ActivePipelineDiagnosticRun['status']; startedAt: string; finishedAt: string | null;
@@ -40,6 +40,7 @@ type Stored = {
   getRequests: number; authenticationRequests: number; reservedGets: number; reservedAuth: number;
   leaseToken: string | null; leaseUntil: string | null; leaseActorId: string | null;
   retryAt: string | null; message: string | null;
+  lineage?: { parentRunId: string; rootRunId: string; baselineCohort: CohortRow[]; carriedMatchedPipelineIds: string[] };
 };
 type Db = Pick<typeof prisma, 'ariveRolloutControl' | 'ariveIntegrationConfig' | 'arivePipelineSync' | 'auditLog'>;
 const digest = (value: unknown) => createHash('sha256').update(stableAriveValue(value)).digest('hex');
@@ -49,6 +50,52 @@ const validId = (value: unknown): string => {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(value)) throw new AriveError('Choose an existing diagnostic run.');
   return value;
 };
+
+/** Keep only the small identity comparison contract, even if a caller supplies extra fields. */
+function evidenceProjection(value: unknown): ActiveDiagnosticEvidence | undefined {
+  if (value === undefined) return undefined;
+  const record = (v: unknown): Record<string, unknown> => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('Invalid evidence');
+    return v as Record<string, unknown>;
+  };
+  const text = (v: unknown, max = 300): string | null => {
+    if (v === null) return null;
+    if (typeof v !== 'string' || v.length > max || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(v)) throw new Error('Invalid evidence');
+    return v;
+  };
+  const strings = (v: unknown, maximum: number, length = 300): string[] => {
+    if (!Array.isArray(v) || v.length > maximum) throw new Error('Invalid evidence');
+    return v.map(item => { const checked = text(item, length); if (checked === null) throw new Error('Invalid evidence'); return checked; });
+  };
+  const http = (v: unknown) => { if (v !== null && (!Number.isInteger(v) || Number(v) < 100 || Number(v) > 599)) throw new Error('Invalid evidence'); return v as number | null; };
+  const observed = (v: unknown): ActiveDiagnosticObservedIdentity => {
+    const r = record(v);
+    const identity: ActiveDiagnosticObservedIdentity = { loanNumber: text(r.loanNumber), guid: text(r.guid, 100), originatorEmail: text(r.originatorEmail, 254), borrowers: strings(r.borrowers, 10), issues: strings(r.issues, 8, 80) };
+    if (r.team !== undefined) {
+      if (!Array.isArray(r.team) || r.team.length > 20) throw new Error('Invalid evidence');
+      identity.team = r.team.map(item => { const member = record(item); if (member.primary !== null && typeof member.primary !== 'boolean') throw new Error('Invalid evidence'); return { email: text(member.email, 254), role: text(member.role, 100), primary: member.primary as boolean | null }; });
+    }
+    if (r.otherApplicants !== undefined) {
+      if (!Array.isArray(r.otherApplicants) || r.otherApplicants.length > 8) throw new Error('Invalid evidence');
+      identity.otherApplicants = r.otherApplicants.map(item => { const applicant = record(item); return { name: text(applicant.name), applicantType: text(applicant.applicantType, 100) }; });
+    }
+    return identity;
+  };
+  const v = record(value); const p = record(v.portal); const loanNumber = text(p.loanNumber);
+  if (loanNumber === null) throw new Error('Invalid evidence');
+  const out: ActiveDiagnosticEvidence = { portal: { loanNumber, savedGuid: text(p.savedGuid, 100), primaryOriginatorEmail: text(p.primaryOriginatorEmail, 254), secondaryOriginatorEmail: text(p.secondaryOriginatorEmail, 254), savedOriginatorEmail: text(p.savedOriginatorEmail, 254), borrowerName: text(p.borrowerName) } };
+  if (v.search !== undefined) out.search = observed(v.search);
+  if (v.detail !== undefined) out.detail = observed(v.detail);
+  if (v.numericProbe !== undefined) {
+    const n = record(v.numericProbe); out.numericProbe = { httpStatus: http(n.httpStatus), requestId: text(n.requestId, 100), ...(n.identity === undefined ? {} : { identity: observed(n.identity) }) };
+  }
+  if (v.borrowerSearch !== undefined) {
+    const b = record(v.borrowerSearch);
+    if (b.count !== null && (!Number.isSafeInteger(b.count) || Number(b.count) < 0) || typeof b.complete !== 'boolean' || typeof b.candidatesTruncated !== 'boolean' || !Array.isArray(b.candidates) || b.candidates.length > 10) throw new Error('Invalid evidence');
+    out.borrowerSearch = { httpStatus: http(b.httpStatus), requestId: text(b.requestId, 100), count: b.count as number | null, complete: b.complete, candidatesTruncated: b.candidatesTruncated, candidates: b.candidates.map(observed) };
+  }
+  return out;
+}
 
 async function admin(expectedId?: string) {
   const session = await getServerSession(authOptions);
@@ -66,6 +113,9 @@ function decode(details: string | null): Stored {
   const date = (v: unknown) => typeof v === 'string' && Number.isFinite(Date.parse(v));
   const identifier = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9-]{1,100}$/.test(v);
   const hash = (v: unknown) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+  const cohortRow = (row: CohortRow) => !!row && identifier(row.pipelineId) && identifier(row.loanId) && integer(row.version, 2_000_000_000)
+    && hash(row.sourceHash) && typeof row.loanNumber === 'string' && row.loanNumber.length <= 300
+    && [row.duplicateNumericId, row.practice, row.synthetic].every(v => typeof v === 'boolean') && (row.inactive === undefined || typeof row.inactive === 'boolean');
   const outcomes = new Set(['MATCHED', 'INVALID_LOAN_NUMBER', 'DUPLICATE_PORTAL_NUMBER', 'PRACTICE_EXCLUDED', 'SOURCE_CHANGED', 'NO_API_MATCH', 'AMBIGUOUS_API_MATCH', 'INVALID_RESPONSE', 'IDENTITY_MISMATCH', 'HTTP_ERROR']);
   if (!value || value.schema !== 1 || !Array.isArray(value.cohort) || value.cohort.length > MAX_COHORT
     || !Array.isArray(value.results) || !integer(value.cursor, MAX_COHORT) || value.cursor !== value.results.length || value.cursor > value.cohort.length
@@ -79,11 +129,18 @@ function decode(details: string | null): Stored {
     || value.status === 'RUNNING' && (!value.leaseToken || !value.leaseUntil || !value.leaseActorId)
     || value.status === 'COMPLETE' && value.cursor !== value.cohort.length
     || new Set(value.cohort.map(row => row?.pipelineId)).size !== value.cohort.length
-    || value.cohort.some(row => !row || !identifier(row.pipelineId) || !identifier(row.loanId) || !integer(row.version, 2_000_000_000)
-      || !hash(row.sourceHash) || typeof row.loanNumber !== 'string' || row.loanNumber.length > 300
-      || [row.duplicateNumericId, row.practice, row.synthetic].some(v => typeof v !== 'boolean'))
+    || value.cohort.some(row => !cohortRow(row))
+    || value.lineage !== undefined && (!value.lineage || !identifier(value.lineage.parentRunId) || !identifier(value.lineage.rootRunId)
+      || !Array.isArray(value.lineage.baselineCohort) || value.lineage.baselineCohort.length > MAX_COHORT || value.lineage.baselineCohort.some(row => !cohortRow(row))
+      || new Set(value.lineage.baselineCohort.map(row => row.pipelineId)).size !== value.lineage.baselineCohort.length
+      || !Array.isArray(value.lineage.carriedMatchedPipelineIds) || value.lineage.carriedMatchedPipelineIds.length > MAX_COHORT
+      || new Set(value.lineage.carriedMatchedPipelineIds).size !== value.lineage.carriedMatchedPipelineIds.length
+      || value.lineage.carriedMatchedPipelineIds.some(id => !identifier(id) || value.cohort.some(row => row.pipelineId === id) || !value.lineage!.baselineCohort.some(row => row.pipelineId === id))
+      || value.cohort.some(row => !value.lineage!.baselineCohort.some(base => base.pipelineId === row.pipelineId && base.sourceHash === row.sourceHash)))
     || value.results.some((row, index) => !row || row.pipelineId !== value.cohort[index]?.pipelineId || row.loanNumber !== value.cohort[index]?.loanNumber
       || !outcomes.has(row.outcome) || !date(row.checkedAt) || typeof row.message !== 'string' || row.message.length > 1000)) throw new AriveError('The saved diagnostic is invalid.');
+  try { value.results = value.results.map(row => ({ ...row, evidence: evidenceProjection(row.evidence) })); }
+  catch { throw new AriveError('The saved diagnostic identity evidence is invalid.'); }
   return value;
 }
 async function environment(db: Db = prisma) {
@@ -116,7 +173,7 @@ async function locked<T>(work: (db: Prisma.TransactionClient) => Promise<T>) {
   }, { maxWait: 10_000, timeout: 20_000 });
 }
 function sourceChanged(row: CohortRow): ActiveDiagnosticResult {
-  return { pipelineId: row.pipelineId, loanNumber: row.loanNumber, outcome: 'SOURCE_CHANGED', message: 'The portal file changed after this run started. Check its current identity in a new run.', checkedAt: new Date().toISOString(), searchHttpStatus: null, detailHttpStatus: null, requestId: null };
+  return { pipelineId: row.pipelineId, loanNumber: row.loanNumber, outcome: 'SOURCE_CHANGED', message: row.inactive ? 'This file is no longer in the active pipeline. No Arive reads were made for it in this follow-up.' : 'The portal file changed after this run started. Check its current identity in a new run.', checkedAt: new Date().toISOString(), searchHttpStatus: null, detailHttpStatus: null, requestId: null };
 }
 function displayResult(row: AriveActiveDiagnosticResult): ActiveDiagnosticResult {
   const messages: Record<AriveActiveDiagnosticResult['status'], string> = {
@@ -136,7 +193,8 @@ function displayResult(row: AriveActiveDiagnosticResult): ActiveDiagnosticResult
   return { pipelineId: row.pipelineId, loanNumber: row.loanNumber, outcome: row.status === 'VERIFIED' ? 'MATCHED' : row.status,
     message: messages[row.status], checkedAt: row.checkedAt,
     searchHttpStatus: row.phase === 'SEARCH' ? row.httpStatus : row.phase === 'DETAIL' ? 200 : null,
-    detailHttpStatus: row.phase === 'DETAIL' ? row.httpStatus : null, requestId: null };
+    detailHttpStatus: row.phase === 'DETAIL' ? row.httpStatus : null, requestId: typeof row.requestId === 'string' && /^[a-zA-Z0-9:_-]{1,100}$/.test(row.requestId) ? row.requestId : null,
+    evidence: evidenceProjection(row.evidence) };
 }
 async function project(runId: string, state: Stored): Promise<ActivePipelineDiagnosticRun> {
   const [sources, active, env] = await Promise.all([
@@ -144,19 +202,20 @@ async function project(runId: string, state: Stored): Promise<ActivePipelineDiag
     prisma.processingPipelineLoan.findMany({ where: activeWhere, select: { id: true } }), environment(),
   ]);
   const byId = new Map(sources.map(row => [row.id, row]));
-  const membership = new Set(state.cohort.map(row => row.pipelineId));
+  const membership = new Set((state.lineage?.baselineCohort || state.cohort).map(row => row.pipelineId));
   const results = new Map(state.results.map(row => [row.pipelineId, row]));
   let changedSinceStart = 0;
   const rows = state.cohort.map(row => {
     const source = byId.get(row.pipelineId);
-    const changed = !source || hashSource(source) !== row.sourceHash;
+    const changed = row.inactive === true || !source || hashSource(source) !== row.sourceHash;
     if (changed) changedSinceStart++;
     const result = results.get(row.pipelineId);
     const displayResult = result && changed ? sourceChanged(row) : result;
     return { pipelineId: row.pipelineId, loanNumber: row.loanNumber, borrowerName: source?.loan.borrowerName || 'File no longer available',
       loanOfficer: source?.loan.loanOfficer.name || 'Not provided', synthetic: row.synthetic || row.practice,
       outcome: displayResult?.outcome || 'PENDING', message: displayResult?.message || 'Not checked yet.', checkedAt: displayResult?.checkedAt || null,
-      searchHttpStatus: displayResult?.searchHttpStatus ?? null, detailHttpStatus: displayResult?.detailHttpStatus ?? null, requestId: displayResult?.requestId ?? null };
+      searchHttpStatus: displayResult?.searchHttpStatus ?? null, detailHttpStatus: displayResult?.detailHttpStatus ?? null, requestId: displayResult?.requestId ?? null,
+      evidence: displayResult?.evidence };
   });
   const matched = rows.filter(row => row.outcome === 'MATCHED');
   const leaseExpired = state.status === 'RUNNING' && state.leaseUntil && Date.parse(state.leaseUntil) <= Date.now();
@@ -166,7 +225,9 @@ async function project(runId: string, state: Stored): Promise<ActivePipelineDiag
     realMatched: matched.filter(row => !row.synthetic).length, syntheticMatched: matched.filter(row => row.synthetic).length,
     getRequests: state.getRequests, authenticationRequests: state.authenticationRequests, retryAt: state.status === 'RUNNING' && !leaseExpired ? state.leaseUntil : state.retryAt,
     message: state.message, automaticSyncPaused: env.paused, currentActiveCount: active.length,
-    addedSinceStart: active.filter(row => !membership.has(row.id)).length, changedSinceStart, rows };
+    addedSinceStart: active.filter(row => !membership.has(row.id)).length, changedSinceStart, rows,
+    scope: state.lineage ? 'FOLLOW_UP' : 'FULL', parentRunId: state.lineage?.parentRunId, rootRunId: state.lineage?.rootRunId,
+    baselineTotal: membership.size };
 }
 
 /** Database-only: opening the screen never starts Arive reads. */
@@ -179,7 +240,7 @@ export async function getActivePipelineDiagnostic(): Promise<ActivePipelineDiagn
 }
 
 /** Snapshot identities only. Never enrolls or queues a live loan. */
-export async function startActivePipelineDiagnostic(): Promise<ActivePipelineDiagnosticResponse> {
+async function startDiagnostic(followUpRunId?: string): Promise<ActivePipelineDiagnosticResponse> {
   try {
     const actor = await admin();
     const budget = await isAriveBudgetReady({ allowCooldown: true });
@@ -187,36 +248,78 @@ export async function startActivePipelineDiagnostic(): Promise<ActivePipelineDia
     const run = await locked(async db => {
       const env = await environment(db); checkEnvironment(env);
       const prior = await db.auditLog.findFirst({ where: { action: ACTION }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true, details: true } });
+      let parent: { id: string; state: Stored } | null = null;
       if (prior) {
         const state = decode(prior.details);
+        if (followUpRunId && prior.id !== followUpRunId) {
+          if (state.lineage?.parentRunId === followUpRunId && !terminal.has(state.status)) { checkEnvironment(env, state); return { id: prior.id, state }; }
+          throw new AriveError('Refresh the latest diagnostic before starting its follow-up. The selected run has been superseded.');
+        }
+        if (followUpRunId) {
+          if (!terminal.has(state.status)) throw new AriveError('Finish or end the current diagnostic before starting its follow-up.');
+          if (env.generation !== state.generation || env.credentialRevision !== state.credentialRevision || env.credentialHash !== state.credentialHash) throw new AriveError('The connection or synchronization controls changed. Start a full diagnostic before carrying earlier matches forward.');
+          parent = { id: prior.id, state };
+        }
         if (!terminal.has(state.status) && Date.now() <= Date.parse(state.startedAt) + RUN_TTL_MS) {
           try { checkEnvironment(env, state); return { id: prior.id, state }; }
           catch { state.status = 'INVALIDATED'; state.finishedAt = new Date().toISOString(); state.leaseToken = null; state.leaseUntil = null; state.message = 'The connection or synchronization controls changed.'; await save(db, prior.id, state); }
         }
         if (Date.now() < Date.parse(state.startedAt) + 5 * 60_000) throw new AriveError('Wait five minutes between new diagnostic runs. Resume an existing run to continue its saved progress.');
       }
-      const [sources, practice] = await Promise.all([
+      if (followUpRunId && !parent) throw new AriveError('The diagnostic run was not found.');
+      const [activeSources, practice] = await Promise.all([
         db.processingPipelineLoan.findMany({ where: activeWhere, select, orderBy: { id: 'asc' }, take: MAX_COHORT + 1 }),
         db.arivePracticeLoan.findMany({ select: { ariveLoanId: true, ariveGuid: true } }),
       ]);
-      if (sources.length > MAX_COHORT) throw new AriveError('The active pipeline exceeds this diagnostic’s 1,000-file limit. No partial run was started.');
+      if (activeSources.length > MAX_COHORT) throw new AriveError('The active pipeline exceeds this diagnostic’s 1,000-file limit. No partial run was started.');
+      const baseline = parent ? parent.state.lineage?.baselineCohort || parent.state.cohort : [];
+      const baselineById = new Map(baseline.map(row => [row.pipelineId, row]));
+      const priorMatched = new Set(parent ? [...(parent.state.lineage?.carriedMatchedPipelineIds || []), ...parent.state.results.filter(row => row.outcome === 'MATCHED').map(row => row.pipelineId)] : []);
+      const priorSources = parent ? await db.processingPipelineLoan.findMany({ where: { id: { in: baseline.map(row => row.pipelineId) } }, select }) : [];
+      const currentById = new Map([...priorSources, ...activeSources].map(row => [row.id, row]));
+      const activeIds = new Set(activeSources.map(row => row.id));
+      const selectedIds = new Set(parent ? [
+        ...activeSources.filter(row => !priorMatched.has(row.id) || !baselineById.has(row.id) || hashSource(row) !== baselineById.get(row.id)!.sourceHash).map(row => row.id),
+        ...baseline.filter(row => !activeIds.has(row.pipelineId) && (!priorMatched.has(row.pipelineId) || !currentById.has(row.pipelineId) || hashSource(currentById.get(row.pipelineId)!) !== row.sourceHash)).map(row => row.pipelineId),
+      ] : activeSources.map(row => row.id));
+      const sources = [...selectedIds].map(id => currentById.get(id)).filter((row): row is Source => !!row);
       const numbers = sources.map(row => row.loan.loanNumber);
       const existing = await db.processingPipelineLoan.findMany({ where: { loan: { loanNumber: { in: numbers } } }, select: { loan: { select: { loanNumber: true } } } });
       const counts = new Map<string, number>();
       for (const row of existing) counts.set(row.loan.loanNumber, (counts.get(row.loan.loanNumber) || 0) + 1);
-      const state: Stored = { schema: 1, status: sources.length ? 'READY' : 'COMPLETE', startedAt: new Date().toISOString(), finishedAt: sources.length ? null : new Date().toISOString(),
-        generation: env.generation, credentialRevision: env.credentialRevision, credentialHash: env.credentialHash,
-        cohort: sources.map(row => ({ pipelineId: row.id, loanId: row.loanId, loanNumber: row.loan.loanNumber, version: row.version, sourceHash: hashSource(row),
+      const cohort: CohortRow[] = [...selectedIds].sort().map(id => {
+        const row = currentById.get(id);
+        if (!row) return { ...baselineById.get(id)!, inactive: true };
+        return { pipelineId: row.id, loanId: row.loanId, loanNumber: row.loan.loanNumber, version: row.version, sourceHash: hashSource(row),
           duplicateNumericId: (counts.get(row.loan.loanNumber) || 0) > 1,
           practice: practice.some(file => file.ariveLoanId === row.loan.loanNumber || file.ariveGuid && file.ariveGuid === row.ariveSync?.ariveGuid),
-          synthetic: row.loanId === ARIVE_SYNC_PILOT.loanId && row.loan.loanNumber === ARIVE_SYNC_PILOT.loanNumber })),
+          synthetic: row.loanId === ARIVE_SYNC_PILOT.loanId && row.loan.loanNumber === ARIVE_SYNC_PILOT.loanNumber,
+          ...(activeIds.has(row.id) ? {} : { inactive: true }) };
+      });
+      const combinedBaseline = new Map(baseline.map(row => [row.pipelineId, row]));
+      for (const row of cohort) combinedBaseline.set(row.pipelineId, row);
+      if (cohort.length > MAX_COHORT || combinedBaseline.size > MAX_COHORT) throw new AriveError('This diagnostic exceeds the 1,000-file limit. No partial run was started.');
+      const state: Stored = { schema: 1, status: cohort.length ? 'READY' : 'COMPLETE', startedAt: new Date().toISOString(), finishedAt: cohort.length ? null : new Date().toISOString(),
+        generation: env.generation, credentialRevision: env.credentialRevision, credentialHash: env.credentialHash,
+        cohort,
         results: [], cursor: 0, getRequests: 0, authenticationRequests: 0, reservedGets: 0, reservedAuth: 0,
-        leaseToken: null, leaseUntil: null, leaseActorId: null, retryAt: null, message: null };
+        leaseToken: null, leaseUntil: null, leaseActorId: null, retryAt: null, message: parent && !cohort.length ? 'No review items, changed identities, or new active loans need another check.' : null,
+        ...(parent ? { lineage: { parentRunId: parent.id, rootRunId: parent.state.lineage?.rootRunId || parent.id,
+          baselineCohort: [...combinedBaseline.values()], carriedMatchedPipelineIds: [...priorMatched].filter(id => !selectedIds.has(id)) } } : {}) };
       const row = await db.auditLog.create({ data: { userId: actor.id, action: ACTION, details: JSON.stringify(state) }, select: { id: true } });
       return { id: row.id, state };
     });
     return { success: true, run: await project(run.id, run.state) };
   } catch (error) { return failure(error); }
+}
+
+export async function startActivePipelineDiagnostic(): Promise<ActivePipelineDiagnosticResponse> {
+  return startDiagnostic();
+}
+
+/** Server selects review/changed/new files; a client cannot submit arbitrary loan identities. */
+export async function startActivePipelineDiagnosticFollowUp(input: { runId: string }): Promise<ActivePipelineDiagnosticResponse> {
+  try { await admin(); return await startDiagnostic(validId(input?.runId)); } catch (error) { return failure(error); }
 }
 
 /** A bounded chunk; only diagnostic progress and shared request metadata are written. */
@@ -244,7 +347,7 @@ export async function continueActivePipelineDiagnostic(input: { runId: string })
     const fixed = claim.state.cohort.slice(claim.state.cursor, claim.state.cursor + CHUNK_SIZE);
     const current = await prisma.processingPipelineLoan.findMany({ where: { id: { in: fixed.map(row => row.pipelineId) } }, select });
     const byId = new Map(current.map(row => [row.id, row]));
-    const changed = new Set(fixed.filter(row => !byId.has(row.pipelineId) || hashSource(byId.get(row.pipelineId)!) !== row.sourceHash).map(row => row.pipelineId));
+    const changed = new Set(fixed.filter(row => row.inactive || !byId.has(row.pipelineId) || hashSource(byId.get(row.pipelineId)!) !== row.sourceHash).map(row => row.pipelineId));
     // Changed records become explicit outcomes; reads use only unchanged, server-loaded identities.
     const loans: AriveActiveDiagnosticLoan[] = fixed.filter(row => !changed.has(row.pipelineId)).map(row => {
       const source = byId.get(row.pipelineId)!;
@@ -259,7 +362,7 @@ export async function continueActivePipelineDiagnostic(input: { runId: string })
       checkEnvironment(env, claim.state);
       if (run.state.status !== 'RUNNING' || run.state.leaseToken !== claim.token || !run.state.leaseUntil || Date.parse(run.state.leaseUntil) <= Date.now()) throw new AriveTransportError('DIAGNOSTIC_INVALIDATED', 'The diagnostic was stopped or its execution lease expired.');
     };
-    const result = await runAriveActivePipelineDiagnosticChunk({ loans, credentialRevision: claim.state.credentialRevision, guard, deadlineMs: Date.now() + 120_000 });
+    const result = await runAriveActivePipelineDiagnosticChunk({ loans, credentialRevision: claim.state.credentialRevision, guard, deadlineMs: Date.now() + 120_000, investigate: !!claim.state.lineage });
     await admin(actor.id);
     const saved = await locked(async db => {
       const run = await findRun(db, runId); const state = run.state;
@@ -286,7 +389,7 @@ export async function continueActivePipelineDiagnostic(input: { runId: string })
       state.leaseToken = null; state.leaseUntil = null; state.leaseActorId = null;
       state.status = invalidated ? 'INVALIDATED' : state.cursor === state.cohort.length ? 'COMPLETE' : result.deferred ? 'DEFERRED' : 'READY';
       state.retryAt = result.deferred?.retryAt ?? null;
-      state.message = invalidated ? 'The connection, account, or synchronization controls changed. Review saved results and start a new diagnostic.' : result.deferred ? `The shared request controls deferred this batch (${result.deferred.code}). Resume after the retry time.` : state.status === 'COMPLETE' ? 'Every file in the starting active pipeline has a recorded outcome. No workflow updates were applied.' : null;
+      state.message = invalidated ? 'The connection, account, or synchronization controls changed. Review saved results and start a new diagnostic.' : result.deferred ? `The shared request controls deferred this batch (${result.deferred.code}). Resume after the retry time.` : state.status === 'COMPLETE' ? state.lineage ? 'Every file selected for this follow-up has a recorded outcome. Earlier stable matches were not re-read. No workflow updates were applied.' : 'Every file in the starting active pipeline has a recorded outcome. No workflow updates were applied.' : null;
       if (terminal.has(state.status)) state.finishedAt = new Date().toISOString();
       await save(db, runId, state); return run;
     });

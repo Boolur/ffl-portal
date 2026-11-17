@@ -5,6 +5,7 @@ import { createPrismaAriveTransportStore, sharedAriveTransportEnabled } from './
 import { AriveTransportError, createAriveTransportSession, type TransportCredentials } from './ariveTransport';
 import { verifyAriveRolloutIdentity, type AriveRolloutLoanIdentity } from './ariveRollout';
 import { jsonRecord } from './ariveSyncState';
+import type { ActiveDiagnosticEvidence, ActiveDiagnosticObservedIdentity } from './ariveActivePipelineDiagnosticTypes';
 
 export type AriveActiveDiagnosticLoan = AriveRolloutLoanIdentity & {
   pipelineId: string; version: number; savedGuid?: string | null; savedOriginatorEmail?: string | null;
@@ -19,6 +20,7 @@ export type AriveActiveDiagnosticResult = {
   apiVisible: boolean | null; searchIdentity: boolean | null; detailIdentity: boolean | null;
   identityIssue: 'LOAN_NUMBER_OR_GUID' | 'ORIGINATOR' | 'BORROWER_NAME' | 'UNVERIFIED' | null;
   httpStatus: number | null; gatewayCode: string | null;
+  requestId?: string | null; evidence?: ActiveDiagnosticEvidence;
 };
 export type AriveActiveDiagnosticDeferred = {
   code: string; retryAt: string | null; phase: AriveActiveDiagnosticPhase; httpStatus: number | null; gatewayCode: string | null;
@@ -40,8 +42,10 @@ export type AriveActiveDiagnosticChunkInput = {
   deadlineMs?: number;
   /** Remaining run-wide ceilings supplied by persistence; these can only lower chunk limits. */
   maxGetRequests?: number; maxAuthenticationRequests?: number;
+  /** Explicit admin follow-up only: minimized identity evidence and bounded alternate reads. */
+  investigate?: boolean;
 };
-type Metadata = { httpStatus: number | null; gatewayCode: string | null; phase: AriveActiveDiagnosticPhase };
+type Metadata = { httpStatus: number | null; gatewayCode: string | null; phase: AriveActiveDiagnosticPhase; requestId?: string | null };
 const gatewayCodes = new Set(['ForbiddenException', 'MissingAuthenticationTokenException', 'InvalidSignatureException', 'AccessDeniedException', 'UnauthorizedException', 'NotAuthorizedException', 'WAFForbiddenException']);
 const transientCodes = new Set(['BUSY', 'BUDGET_EXHAUSTED', 'COOLDOWN', 'TOKEN_REFRESH_BUSY', 'DIAGNOSTIC_DEADLINE', 'DIAGNOSTIC_LIMIT']);
 const emptyMetadata = (phase: AriveActiveDiagnosticPhase): Metadata => ({ httpStatus: null, gatewayCode: null, phase });
@@ -76,6 +80,31 @@ function identityCheck(source: unknown, loan: AriveActiveDiagnosticLoan, guid?: 
     return { pass: false, issue } as const;
   }
 }
+const normalizeIdentity = (value: unknown) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toLowerCase() : '';
+const expectedBorrower = (loan: AriveActiveDiagnosticLoan) => normalizeIdentity(loan.borrowerFirstName) && normalizeIdentity(loan.borrowerLastName)
+  ? `${loan.borrowerFirstName!.trim()} ${loan.borrowerLastName!.trim()}` : loan.borrowerName.trim();
+/** Keep only the fields needed to explain a link. Never retain a provider body. */
+function observedIdentity(value: unknown, loan: AriveActiveDiagnosticLoan, safe: (value: unknown, max?: number) => string | null, guid?: string): ActiveDiagnosticObservedIdentity {
+  const data = jsonRecord(value);
+  const loanNumber = safe(typeof data.ariveLoanId === 'number' ? String(data.ariveLoanId) : data.ariveLoanId);
+  const permanentId = safe(data.sysGUID, 100); const email = safe(data.loanOriginatorEmail, 254);
+  const allBorrowers = (Array.isArray(data.loanBorrowers) ? data.loanBorrowers : []).map(jsonRecord).filter(row => row.applicantType === 'Borrower');
+  const borrowers = allBorrowers.slice(0, 8)
+    .map(row => safe(`${typeof row.firstName === 'string' ? row.firstName : ''} ${typeof row.lastName === 'string' ? row.lastName : ''}`)).filter((name): name is string => !!name);
+  const issues: string[] = [];
+  if (loanNumber !== loan.loanNumber) issues.push('LOAN_NUMBER');
+  if (!permanentId || !/^[a-zA-Z0-9-]{1,100}$/.test(permanentId) || (loan.savedGuid || guid) && permanentId !== (loan.savedGuid || guid)) issues.push('GUID');
+  if (!email || ![loan.loanOfficer.email, loan.secondaryLoanOfficer?.email].map(normalizeIdentity).filter(Boolean).includes(normalizeIdentity(email))) issues.push('ORIGINATOR');
+  if (loan.savedOriginatorEmail && normalizeIdentity(email) !== normalizeIdentity(loan.savedOriginatorEmail)) issues.push('SAVED_ORIGINATOR');
+  if (!allBorrowers.some(row => `${normalizeIdentity(row.firstName)} ${normalizeIdentity(row.lastName)}` === normalizeIdentity(expectedBorrower(loan)))) issues.push('BORROWER_NAME');
+  return { loanNumber, guid: permanentId, originatorEmail: email, borrowers, issues,
+    ...(Array.isArray(data.loanBorrowers) ? { otherApplicants: data.loanBorrowers.map(jsonRecord).filter(row => row.applicantType !== 'Borrower').slice(0, 8).map(row => ({
+      name: safe(`${typeof row.firstName === 'string' ? row.firstName : ''} ${typeof row.lastName === 'string' ? row.lastName : ''}`), applicantType: safe(row.applicantType, 100),
+    })) } : {}),
+    ...(Array.isArray(data.loanTeam) ? { team: data.loanTeam.slice(0, 20).map(jsonRecord).map(member => ({
+      email: safe(member.emailAddressText, 254), role: safe(member.loanRole, 100), primary: typeof member.primary === 'boolean' ? member.primary : null,
+    })) } : {}) };
+}
 
 /** A diagnostic chunk only reads the provider. Its sole database mutations are
  * the existing transport's reservations, token cache, and provider cooldown.
@@ -100,6 +129,9 @@ export async function runAriveActivePipelineDiagnosticChunk(input: AriveActiveDi
     try { credentials = JSON.parse(decryptAriveCredentials(config.encryptedCredentials, secret)); }
     catch { throw new AriveTransportError('NO_CREDENTIALS', 'Saved credentials could not be read.'); }
     if (!credentials || [credentials.clientId, credentials.secret, credentials.apiKey].some(value => typeof value !== 'string' || !value)) throw new AriveTransportError('NO_CREDENTIALS', 'Saved credentials are incomplete.');
+    const confidential = new Set([credentials.clientId, credentials.secret, credentials.apiKey]);
+    const safe = (value: unknown, max = 300) => typeof value === 'string' && value.trim() && value.length <= max
+      && !/[\u0000-\u001f\u007f]/.test(value) && ![...confidential].some(item => item && value.includes(item)) ? value.trim() : null;
     const checkConnection = async () => {
       const current = await prisma.ariveIntegrationConfig.findUnique({ where: { id: 'company' }, select: { encryptedCredentials: true, updatedAt: true } });
       if (!current || current.updatedAt.toISOString() !== input.credentialRevision || current.encryptedCredentials !== config.encryptedCredentials) throw new AriveActiveDiagnosticGuardError('CREDENTIALS_CHANGED');
@@ -121,7 +153,9 @@ export async function runAriveActivePipelineDiagnosticChunk(input: AriveActiveDi
       try { response = await fetch(request, init); }
       catch { throw new ProviderReadError('UNAVAILABLE', metadata); }
       const gateway = response.headers.get('x-amzn-errortype')?.split(':')[0];
-      metadata = { httpStatus: response.status, gatewayCode: gateway && gatewayCodes.has(gateway) ? gateway : null, phase: auth ? 'AUTH' : phase };
+      const requestId = response.headers.get('x-amzn-requestid');
+      metadata = { httpStatus: response.status, gatewayCode: gateway && gatewayCodes.has(gateway) ? gateway : null, phase: auth ? 'AUTH' : phase,
+        requestId: requestId && /^[a-zA-Z0-9-]{8,100}$/.test(requestId) ? safe(requestId) : null };
       return response;
     };
     let session: Awaited<ReturnType<typeof createAriveTransportSession>> | null = null;
@@ -131,7 +165,7 @@ export async function runAriveActivePipelineDiagnosticChunk(input: AriveActiveDi
       // checks rotation; the full account/run/control guard belongs directly
       // before each actual send and after each accepted read, including retries.
       session ??= await createAriveTransportSession({ store: createPrismaAriveTransportStore(), credentials: async () => { await checkConnection(); return { ...credentials }; },
-        encryptionSecret: secret, encrypt: token => encryptAriveCredentials(token, secret), decrypt: token => decryptAriveCredentials(token, secret),
+        encryptionSecret: secret, encrypt: token => { confidential.add(token); return encryptAriveCredentials(token, secret); }, decrypt: token => { const plain = decryptAriveCredentials(token, secret); confidential.add(plain); return plain; },
         readOnly: true, fetch: boundedFetch, parseJson: async response => {
           if (!response.ok) throw new ProviderReadError('HTTP_ERROR', metadata);
           try { return await response.json(); } catch { throw new ProviderReadError('INVALID_RESPONSE', metadata); }
@@ -147,9 +181,40 @@ export async function runAriveActivePipelineDiagnosticChunk(input: AriveActiveDi
       const outcome: AriveActiveDiagnosticResult = { pipelineId: loan.pipelineId, loanNumber: loan.loanNumber, version: loan.version, synthetic: loan.synthetic === true,
         checkedAt: new Date().toISOString(), status: 'INVALID_RESPONSE', phase, apiVisible: null, searchIdentity: null, detailIdentity: null,
         identityIssue: null, httpStatus: null, gatewayCode: null };
+      if (input.investigate) outcome.evidence = { portal: { loanNumber: safe(loan.loanNumber) ?? '', savedGuid: safe(loan.savedGuid, 100),
+        primaryOriginatorEmail: safe(loan.loanOfficer.email, 254), secondaryOriginatorEmail: safe(loan.secondaryLoanOfficer?.email, 254),
+        savedOriginatorEmail: safe(loan.savedOriginatorEmail, 254), borrowerName: safe(expectedBorrower(loan)) } };
+      const borrowerSearch = async () => {
+        const name = safe(expectedBorrower(loan));
+        if (!outcome.evidence || !name) return;
+        phase = 'SEARCH';
+        try {
+          const response = await read(`/loans?searchField=BORROWER_NAME&searchValue=${encodeURIComponent(name)}&limit=100&offset=0`);
+          const data = jsonRecord(response.value);
+          if (!Number.isSafeInteger(data.count) || Number(data.count) < 0 || !Array.isArray(data.rows) || data.rows.length > 100 || Number(data.count) < data.rows.length) throw new ProviderReadError('INVALID_RESPONSE', response.metadata);
+          outcome.evidence.borrowerSearch = { httpStatus: response.metadata.httpStatus, requestId: response.metadata.requestId ?? null,
+            count: Number(data.count), complete: data.count === data.rows.length, candidatesTruncated: data.rows.length > 10,
+            candidates: data.rows.slice(0, 10).map(row => observedIdentity(row, loan, safe)) };
+        } catch (error) {
+          if (!(error instanceof ProviderReadError) || error.metadata.phase === 'AUTH' || ![400, 403, 404, 422].includes(error.metadata.httpStatus ?? 0)) throw error;
+          outcome.evidence.borrowerSearch = { httpStatus: error.metadata.httpStatus, requestId: error.metadata.requestId ?? null, count: null, complete: false, candidatesTruncated: false, candidates: [] };
+        }
+      };
+      const numericProbe = async () => {
+        if (!outcome.evidence) return;
+        phase = 'DETAIL';
+        try {
+          const response = await read(`/loans/${encodeURIComponent(loan.loanNumber)}`);
+          outcome.evidence.numericProbe = { httpStatus: response.metadata.httpStatus, requestId: response.metadata.requestId ?? null,
+            identity: observedIdentity(response.value, loan, safe) };
+        } catch (error) {
+          if (!(error instanceof ProviderReadError) || error.metadata.phase === 'AUTH' || ![400, 403, 404, 422].includes(error.metadata.httpStatus ?? 0)) throw error;
+          outcome.evidence.numericProbe = { httpStatus: error.metadata.httpStatus, requestId: error.metadata.requestId ?? null };
+        }
+      };
       const finish = () => { outcome.checkedAt = new Date().toISOString(); result.results.push(outcome); result.consumed++; };
       if (loan.practice) { outcome.status = 'PRACTICE_EXCLUDED'; finish(); continue; }
-      if (!/^\d{1,15}$/.test(loan.loanNumber)) { outcome.status = 'INVALID_LOAN_NUMBER'; finish(); continue; }
+      if (!/^\d{1,15}$/.test(loan.loanNumber)) { outcome.status = 'INVALID_LOAN_NUMBER'; if (input.investigate) await borrowerSearch(); finish(); continue; }
       if (loan.duplicateNumericId || seenNumbers.has(loan.loanNumber) || input.loans.filter(item => item.loanNumber === loan.loanNumber).length > 1) { outcome.status = 'DUPLICATE_PORTAL_NUMBER'; finish(); continue; }
       seenNumbers.add(loan.loanNumber);
       if (Date.now() >= deadline - 60_000) throw new AriveTransportError('DIAGNOSTIC_DEADLINE', 'Not enough time remains to start another loan.');
@@ -164,10 +229,13 @@ export async function runAriveActivePipelineDiagnosticChunk(input: AriveActiveDi
           outcome.status = matches.length ? 'AMBIGUOUS_API_MATCH' : 'NO_API_MATCH';
           // This describes visibility through these credentials, not deletion or
           // absence in Arive itself. Never accept a neighboring search result.
-          outcome.apiVisible = matches.length ? true : false; finish(); continue;
+          outcome.apiVisible = matches.length ? true : false;
+          if (input.investigate && !matches.length) { await numericProbe(); await borrowerSearch(); }
+          finish(); continue;
         }
         outcome.apiVisible = true;
         const source = matches[0]; const guid = source.sysGUID;
+        if (outcome.evidence) outcome.evidence.search = observedIdentity(source, loan, safe);
         if (typeof guid !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(guid)) { finish(); continue; }
         const searchedIdentity = identityCheck(source, loan);
         outcome.searchIdentity = searchedIdentity.pass;
@@ -175,6 +243,7 @@ export async function runAriveActivePipelineDiagnosticChunk(input: AriveActiveDi
         if (loan.savedGuid && loan.savedGuid !== guid) { outcome.status = 'IDENTITY_MISMATCH'; outcome.identityIssue = 'LOAN_NUMBER_OR_GUID'; finish(); continue; }
         phase = 'DETAIL'; outcome.phase = phase;
         const detail = await read(`/loans/${encodeURIComponent(guid)}`); Object.assign(outcome, detail.metadata);
+        if (outcome.evidence) outcome.evidence.detail = observedIdentity(detail.value, loan, safe, guid);
         const detailIdentity = identityCheck(detail.value, loan, guid); outcome.detailIdentity = detailIdentity.pass;
         outcome.status = searchedIdentity.pass && detailIdentity.pass ? 'VERIFIED' : 'IDENTITY_MISMATCH';
         outcome.identityIssue = detailIdentity.issue ?? searchedIdentity.issue;

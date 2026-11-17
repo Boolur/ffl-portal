@@ -1,4 +1,29 @@
-/** Admin-only read projections. No credentials, provider bodies, or sync mutations. */
+/** Narrow, admin-only identity evidence. Never includes complete provider responses. */
+export type ActiveDiagnosticObservedIdentity = {
+  loanNumber: string | null;
+  guid: string | null;
+  originatorEmail: string | null;
+  borrowers: string[];
+  issues: string[];
+  team?: Array<{ email: string | null; role: string | null; primary: boolean | null }>;
+  otherApplicants?: Array<{ name: string | null; applicantType: string | null }>;
+};
+export type ActiveDiagnosticEvidence = {
+  portal: {
+    loanNumber: string;
+    savedGuid: string | null;
+    primaryOriginatorEmail: string | null;
+    secondaryOriginatorEmail: string | null;
+    savedOriginatorEmail: string | null;
+    borrowerName: string | null;
+  };
+  search?: ActiveDiagnosticObservedIdentity;
+  detail?: ActiveDiagnosticObservedIdentity;
+  numericProbe?: { httpStatus: number | null; requestId: string | null; identity?: ActiveDiagnosticObservedIdentity };
+  borrowerSearch?: { httpStatus: number | null; requestId: string | null; count: number | null; complete: boolean; candidatesTruncated: boolean; candidates: ActiveDiagnosticObservedIdentity[] };
+};
+
+/** Admin-only read projections. No credentials, complete provider bodies, or sync mutations. */
 export type ActivePipelineDiagnosticRow = {
   pipelineId: string;
   loanNumber: string;
@@ -11,6 +36,7 @@ export type ActivePipelineDiagnosticRow = {
   searchHttpStatus: number | null;
   detailHttpStatus: number | null;
   requestId: string | null;
+  evidence?: ActiveDiagnosticEvidence;
 };
 
 export type ActivePipelineDiagnosticRun = {
@@ -34,6 +60,10 @@ export type ActivePipelineDiagnosticRun = {
   currentActiveCount: number;
   addedSinceStart: number;
   changedSinceStart: number;
+  scope?: 'FULL' | 'FOLLOW_UP';
+  parentRunId?: string;
+  rootRunId?: string;
+  baselineTotal?: number;
   rows: ActivePipelineDiagnosticRow[];
 };
 

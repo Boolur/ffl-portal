@@ -86,4 +86,24 @@ describe('diagnostic result delivery', () => {
     expect(html).toContain('Synthetic test'); expect(html).toContain('Pending'); expect(html).toContain('Verified');
     expect(html).toContain('Search: HTTP 200'); expect(html).toContain('Details: HTTP 200'); expect(html).not.toContain('request-id');
   });
+
+  it('shows distinct portal and Arive identity evidence without presenting search candidates as accepted matches', () => {
+    const saved = run({ scope: 'FOLLOW_UP', parentRunId: 'original-run', rootRunId: 'original-run', baselineTotal: 284, rows: [{
+      pipelineId: 'review', loanNumber: '99000001', borrowerName: 'Synthetic Borrower', loanOfficer: 'Example LO', synthetic: false,
+      outcome: 'IDENTITY_MISMATCH', message: 'Review the originator mapping.', checkedAt: '2026-11-17T18:01:00Z', searchHttpStatus: 200, detailHttpStatus: 200, requestId: null,
+      evidence: {
+        portal: { loanNumber: '99000001', savedGuid: 'guid-1', primaryOriginatorEmail: 'portal@example.test', secondaryOriginatorEmail: null, savedOriginatorEmail: null, borrowerName: 'Synthetic Borrower' },
+        detail: { loanNumber: '99000001', guid: 'guid-1', originatorEmail: 'arive@example.test', borrowers: ['Synthetic Borrower'], issues: ['ORIGINATOR'], team: [{ email: 'portal@example.test', role: 'LoanOfficer', primary: false }], otherApplicants: [{ name: 'Synthetic Coapplicant', applicantType: 'CoBorrower' }] },
+        numericProbe: { httpStatus: 403, requestId: 'safe-request' },
+        borrowerSearch: { httpStatus: 200, requestId: null, count: 30, complete: false, candidatesTruncated: true, candidates: [{ loanNumber: '99000002', guid: 'guid-2', originatorEmail: 'arive@example.test', borrowers: ['Synthetic Borrower'], issues: ['LOAN_NUMBER'] }] },
+      },
+    }] });
+    const html = renderToStaticMarkup(createElement(ActivePipelineDiagnosticResults, { run: saved }));
+    expect(html).toContain('View matching details'); expect(html).toContain('BISU loan officer'); expect(html).toContain('Arive originator');
+    expect(html).toContain('Arive loan team'); expect(html).toContain('Synthetic Coapplicant'); expect(html).toContain('HTTP 403');
+    expect(html).toContain('limited set'); expect(html).toContain('have not been linked or accepted');
+    const csv = activeDiagnosticCsv(saved);
+    expect(csv).toContain('"FOLLOW_UP","original-run","portal@example.test"');
+    expect(csv).toContain('"safe-request"'); expect(csv).toContain('""loanNumber"":""99000002""');
+  });
 });
