@@ -138,6 +138,19 @@ describe('shared limits and fail-closed binding', () => {
     expect(await runAriveActivePipelineDiagnosticChunk(h.input)).toMatchObject({ consumed: 0, results: [], invalidated: true, deferred: { code: 'CONTROL_CHANGED' } });
     expect(h.fetcher).toHaveBeenCalledTimes(1);
   });
+  it.each(['guard', 'connection'] as const)('awaits both parallel checks before sending when %s is slower', async slow => {
+    const h = fixture(); let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    // Initialization performs one guard and one configuration read. Block the
+    // next combined check and prove neither branch can let a send through early.
+    if (slow === 'guard') h.guard.mockResolvedValueOnce(undefined).mockImplementationOnce(async () => pending);
+    else mocks.config.mockResolvedValueOnce(h.config).mockImplementationOnce(async () => { await pending; return h.config; });
+    const run = runAriveActivePipelineDiagnosticChunk(h.input);
+    await vi.waitFor(() => { expect(h.guard).toHaveBeenCalledTimes(2); expect(mocks.config).toHaveBeenCalledTimes(2); });
+    expect(h.fetcher).not.toHaveBeenCalled();
+    release();
+    expect(await run).toMatchObject({ consumed: 1, results: [{ status: 'VERIFIED' }] });
+  });
   it('stops an authentication-wide403 without marking the first loan inaccessible', async () => {
     const h = fixture(); h.runtime.encryptedAccessToken = null;
     h.fetcher.mockImplementation(async () => Response.json({}, { status: 403 }));

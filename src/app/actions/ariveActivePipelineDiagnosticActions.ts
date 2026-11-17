@@ -253,8 +253,9 @@ export async function continueActivePipelineDiagnostic(input: { runId: string })
         duplicateNumericId: row.duplicateNumericId, practice: row.practice, synthetic: row.synthetic };
     });
     const guard = async () => {
-      await admin(actor.id);
-      const [env, run] = await Promise.all([environment(), findRun(prisma, runId)]);
+      // These independent database checks all finish before any HTTP send.
+      // Running them together avoids adding serial round trips to every read.
+      const [, env, run] = await Promise.all([admin(actor.id), environment(), findRun(prisma, runId)]);
       checkEnvironment(env, claim.state);
       if (run.state.status !== 'RUNNING' || run.state.leaseToken !== claim.token || !run.state.leaseUntil || Date.parse(run.state.leaseUntil) <= Date.now()) throw new AriveTransportError('DIAGNOSTIC_INVALIDATED', 'The diagnostic was stopped or its execution lease expired.');
     };

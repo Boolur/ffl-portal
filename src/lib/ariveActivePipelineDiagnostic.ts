@@ -104,7 +104,7 @@ export async function runAriveActivePipelineDiagnosticChunk(input: AriveActiveDi
       const current = await prisma.ariveIntegrationConfig.findUnique({ where: { id: 'company' }, select: { encryptedCredentials: true, updatedAt: true } });
       if (!current || current.updatedAt.toISOString() !== input.credentialRevision || current.encryptedCredentials !== config.encryptedCredentials) throw new AriveActiveDiagnosticGuardError('CREDENTIALS_CHANGED');
     };
-    const check = async () => { await input.guard(); await checkConnection(); };
+    const check = async () => { await Promise.all([input.guard(), checkConnection()]); };
     finalCheck = check;
     let permittedGet: string | null = null;
     let metadata = emptyMetadata(phase);
