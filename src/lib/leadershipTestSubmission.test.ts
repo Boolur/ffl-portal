@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ actor: vi.fn(), read: vi.fn(), available: vi.fn(), verify: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('./pilotPracticeAccess', () => ({ getPilotActor: m.actor, pilotViewAvailable: m.available }));
-vi.mock('./ariveClient', () => ({ ariveReadOnlySession: async () => m.read }));
+vi.mock('./ariveClient', () => ({ ariveReadOnlySession: async () => m.read, AriveError: class extends Error {} }));
 vi.mock('./ariveRollout', () => ({ verifyAriveRolloutIdentity: m.verify }));
-import { projectSharedTestTasks, sameLeadershipTestProperty, verifyLeadershipSubmissionLoan } from './leadershipTestSubmission';
+import { projectSharedTestTasks, sameLeadershipTestProperty, submissionVerificationMessage, verifyLeadershipSubmissionLoan } from './leadershipTestSubmission';
 import { canAccessLeadershipRequest, leadershipOfficerScope, leadershipRequestScope } from './pilotLeadership';
 
 const loan = { id: 'local', loanNumber: '90001', borrowerName: 'Avery Example', borrowerFirstName: 'Avery', borrowerLastName: 'Example', loanOfficer: { email: 'officer@example.test' }, secondaryLoanOfficer: null };
@@ -27,13 +27,13 @@ describe('shared test identification and visibility', () => {
     expect(m.verify).not.toHaveBeenCalled();
     m.read.mockResolvedValueOnce(search(guid)).mockResolvedValueOnce({ ...details, sysGUID: guid });
     m.verify.mockReturnValueOnce({ guid });
-    await expect(verifyLeadershipSubmissionLoan(loan, address, guid.toUpperCase())).resolves.toEqual({ guid });
+    await expect(verifyLeadershipSubmissionLoan(loan, address, guid.toUpperCase())).resolves.toMatchObject({ guid });
     expect(m.verify).toHaveBeenCalledWith(expect.objectContaining({ sysGUID: guid }), loan, { ariveGuid: guid });
   });
   it('verifies the exact source file, primary applicant and complete property including unit', async () => {
     const search = { count: 1, rows: [{ ariveLoanId: loan.loanNumber, sysGUID: 'guid' }] };
     m.read.mockResolvedValueOnce(search).mockResolvedValueOnce(details);
-    expect(await verifyLeadershipSubmissionLoan({ ...loan, secondaryLoanOfficer: { email: 'secondary@example.test' } }, address)).toEqual({ guid: 'guid' });
+    expect(await verifyLeadershipSubmissionLoan({ ...loan, secondaryLoanOfficer: { email: 'secondary@example.test' } }, address)).toMatchObject({ guid: 'guid' });
     expect(m.verify).toHaveBeenCalledWith(details, loan, { ariveGuid: 'guid' });
     for (const mismatch of [ { ...details, loanBorrowers: [{ ...details.loanBorrowers[0], applicantType: 'CoBorrower' }] }, { ...details, subjectProperty: { ...details.subjectProperty, addressUnitIdentifier: 'Unit 43' } }, { ...details, subjectProperty: {} } ]) {
       m.read.mockResolvedValueOnce(search).mockResolvedValueOnce(mismatch);
@@ -41,6 +41,26 @@ describe('shared test identification and visibility', () => {
     }
     expect(sameLeadershipTestProperty('1 Demo Rd, Unit 42, Different City, CA 90210', address)).toBe(false);
     expect(sameLeadershipTestProperty('1 Demo Rd, Example, CA 90210', address)).toBe(false);
+  });
+  it.each([
+    [{ currentLoanStatus: { status: 'PREAPPROVED' } }, true, 'Preapproved'],
+    [{ currentLoanStatus: { status: 'UNDERWRITING_SUBMITTED' } }, true, 'Submitted to underwriting'],
+    [{ currentLoanStatus: { status: 'APPLICATION_INTAKE' }, loanStatusHistory: [{ status: 'PREAPPROVED' }] }, false, 'Application intake'],
+    [{ currentLoanStatus: { status: 'LOAN_FUNDED' } }, false, 'Funded'],
+    [{ currentLoanStatus: { status: 'SUSPENDED' } }, false, 'Suspended'],
+    [{ currentLoanStatus: { status: 'SUBBED_TO_UW' } }, false, 'Unrecognized or missing status'],
+    [{}, false, 'Unrecognized or missing status'],
+    [{ currentLoanStatus: { status: 'PREAPPROVED', adverseReason: 'APP_WITHDRAWN_BY_BORROWER' } }, false, 'Adverse action'],
+    [{ archiveIndicator: true, currentLoanStatus: { status: 'UNDERWRITING_SUBMITTED' } }, false, 'Archived'],
+    [{ archiveIndicator: 'true', currentLoanStatus: { status: 'PREAPPROVED' } }, false, 'Unknown archive status'],
+  ] as const)('uses only the verified details for stage %j', async (state, eligible, stageLabel) => {
+    m.read.mockResolvedValueOnce({ count: 1, rows: [{ ariveLoanId: loan.loanNumber, sysGUID: 'guid', currentLoanStatus: { status: 'PREAPPROVED' } }] })
+      .mockResolvedValueOnce({ ...details, ...state });
+    const result = await verifyLeadershipSubmissionLoan(loan, address);
+    expect(result.stage).toMatchObject({ eligible, stageLabel, checkedAt: expect.any(String) });
+  });
+  it('never exposes unexpected database or transport error details to the submission form', () => {
+    expect(submissionVerificationMessage(new Error('private diagnostic details'))).toBe('BISU could not verify the current Arive status. Check again before continuing.');
   });
   it('projects ordinary parent and child task data in Standard and exposes documents only for the active Pilot leadership viewer', async () => {
     const row = { submissionData: data, parentTask: { submissionData: data } };

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X, Loader2, FileText, Upload, CheckCircle, Building2, Handshake, UserCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createPlusOneSubmission, createSubmissionTask } from '@/app/actions/taskActions';
@@ -24,6 +24,7 @@ import { TaskAttachmentPurpose } from '@prisma/client';
 import { initialPilotPackage, pilotSubmissionError, type PilotPackage } from '@/lib/submissionPilot';
 import { createLeadershipTestSubmission, resolveLeadershipMismoOfficer } from '@/app/actions/taskActions';
 import { ProcessingDocumentsStep } from './ProcessingDocumentsStep';
+import { LeadershipSubmissionStage, useLeadershipSubmissionStage } from './LeadershipSubmissionStage';
 
 type NewTaskModalProps = {
   leadershipTest?: boolean;
@@ -293,7 +294,7 @@ export function NewTaskModal({
             />
           ) : (
             <QcForm
-              key={`qc-${shortcutPrefill?.loanId || 'new'}`}
+              key={`qc-${documentPilot ? 'pilot' : 'standard'}-${shortcutPrefill?.loanId || 'new'}`}
               documentPilot={documentPilot}
               onDocumentUploadBusy={setDocumentUploadBusy}
               isLoanOfficerAssistant={isLoanOfficerAssistant}
@@ -2068,6 +2069,20 @@ function QcForm({
   const [importError, setImportError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const qcStep = currentStep;
+  const submitLock = useRef(false);
+  const [advancingToDocuments, setAdvancingToDocuments] = useState(false);
+  const stagePanel = useRef<HTMLElement>(null);
+  const { loanOfficerId, arriveLoanNumber, borrowerFirstName, borrowerLastName,
+    propertyStreet, propertyUnit, propertyCity, propertyState, propertyZip } = form;
+  const stageInput = useMemo(() => {
+    if (!documentPilot || qcStep !== 3 || !loanOfficerId || !/^\d{1,15}$/.test(arriveLoanNumber.trim()) ||
+      ![borrowerFirstName, borrowerLastName, propertyStreet, propertyCity, propertyState, propertyZip].every(value => value.trim())) return null;
+    return { loanOfficerId, arriveLoanNumber, leadershipExportGuid, borrowerFirstName, borrowerLastName,
+      propertyStreet, propertyUnit, propertyCity, propertyState, propertyZip };
+  }, [documentPilot, qcStep, loanOfficerId, arriveLoanNumber, leadershipExportGuid, borrowerFirstName,
+    borrowerLastName, propertyStreet, propertyUnit, propertyCity, propertyState, propertyZip]);
+  const stage = useLeadershipSubmissionStage(stageInput);
+  const waitingForStage = documentPilot && !(stage.result?.success && stage.result.eligible);
 
   function updateDocuments(next: PilotPackage) {
     if (next.items.some(item => item.files.length > 0)) {
@@ -2089,7 +2104,7 @@ function QcForm({
   const requiredEntryFields: ReadonlyArray<{ key: keyof typeof form; label: string }> = [
     { key: 'loanOfficerId', label: 'Primary Loan Officer' },
     { key: 'secondaryLoanOfficerId', label: 'Secondary Loan Officer' },
-    { key: 'preApproved', label: 'Pre-Approved Status in Arrive' },
+    ...(!documentPilot ? [{ key: 'preApproved', label: 'Pre-Approved Status in Arrive' }] as const : []),
     { key: 'borrowerFirstName', label: 'Borrower First Name' },
     { key: 'borrowerLastName', label: 'Borrower Last Name' },
     { key: 'borrowerPhone', label: 'Borrower Phone' },
@@ -2178,7 +2193,7 @@ function QcForm({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting || uploadBusy) return;
+    if (submitLock.current || isSubmitting || uploadBusy || (documentPilot && qcStep < 3)) return;
     setSubmitError('');
     setShowValidationErrors(true);
 
@@ -2215,13 +2230,23 @@ function QcForm({
       return;
     }
     if (documentPilot && qcStep !== 4) {
-      onStepChange(4);
+      submitLock.current = true;
+      setAdvancingToDocuments(true);
+      try {
+        const latest = await stage.check();
+        if (latest?.success && latest.eligible) onStepChange(4);
+        else stagePanel.current?.focus();
+      } finally {
+        submitLock.current = false;
+        setAdvancingToDocuments(false);
+      }
       return;
     }
     if (documentPilot) {
       const documentError = pilotSubmissionError(documents);
       if (documentError) { setSubmitError(documentError); return; }
     }
+    submitLock.current = true;
     setIsSubmitting(true);
     onSubmissionOverlay('submitting');
 
@@ -2250,6 +2275,7 @@ function QcForm({
     } catch (error) {
       console.error(error);
       setSubmitError('Failed to submit Processing task.');
+      submitLock.current = false;
       setIsSubmitting(false);
       onSubmissionOverlay(null);
       return;
@@ -2257,6 +2283,11 @@ function QcForm({
 
     if (!res.success) {
       setSubmitError(res.error || 'Failed to submit Processing task.');
+      if (documentPilot && 'stageCheckFailed' in res && res.stageCheckFailed) {
+        onStepChange(3);
+        window.requestAnimationFrame(() => stagePanel.current?.focus());
+      }
+      submitLock.current = false;
       setIsSubmitting(false);
       onSubmissionOverlay(null);
       return;
@@ -2369,7 +2400,11 @@ function QcForm({
         />
       ) : (
         <>
-      <div
+      <fieldset disabled={advancingToDocuments} className="min-w-0 space-y-4">
+      {documentPilot ? (
+        <LeadershipSubmissionStage ready={!!stageInput} checking={stage.checking} result={stage.result}
+          panelRef={stagePanel} onCheck={() => { setSubmitError(''); void stage.check(); }} />
+      ) : <div
         className={`rounded-xl border p-4 ${
           form.preApproved === 'No' ||
           (showValidationErrors && highlightedMissingFields.has('preApproved'))
@@ -2388,7 +2423,7 @@ function QcForm({
         <p className="mt-1 text-xs font-medium text-slate-500">
           Required to continue.
         </p>
-      </div>
+      </div>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="md:col-span-2 border-b border-slate-200 pb-2">
           <h3 className="text-sm font-black text-slate-900">Borrower and ownership</h3>
@@ -2476,7 +2511,7 @@ function QcForm({
           <p className="text-xs font-medium text-slate-500">
             MISMO values are editable so incomplete exports can be corrected before submission.
           </p>
-          {documentPilot && leadershipExportGuid && <p className="mt-1 text-xs font-medium text-slate-600">BISU checks the exported loan number and permanent file ID with ARIVE when you submit.</p>}
+          {documentPilot && leadershipExportGuid && <p className="mt-1 text-xs font-medium text-slate-600">BISU matches the exported loan number and permanent file ID to Arive.</p>}
         </div>
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} readOnly={Boolean(sourceLoanId)} />
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={loanTypeOptions} required invalid={highlightedMissingFields.has('loanType')} />
@@ -2612,6 +2647,13 @@ function QcForm({
         </p>
       )}
 
+      {waitingForStage && !advancingToDocuments && (
+        <p className="text-sm text-slate-600">Documents are locked until the loan qualifies.{' '}
+          <button type="button" className="font-semibold text-violet-700 underline" onClick={() => stagePanel.current?.focus()}>
+            View Arive status
+          </button>
+        </p>
+      )}
       <div className="flex justify-between gap-3 pt-2">
         <button
           type="button"
@@ -2623,13 +2665,14 @@ function QcForm({
         </button>
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || waitingForStage}
           className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-          {isSubmitting ? 'Processing...' : documentPilot ? 'Continue to documents' : 'Submit for Processing'}
+          {(isSubmitting || advancingToDocuments) && <Loader2 className="w-4 h-4 animate-spin" />}
+          {advancingToDocuments ? 'Verifying Arive status…' : isSubmitting ? 'Processing...' : documentPilot ? 'Continue to documents' : 'Submit for Processing'}
         </button>
       </div>
+      </fieldset>
         </>
       )}
     </form>
