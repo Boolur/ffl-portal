@@ -18,6 +18,7 @@ export type AriveSyncServiceTracker = {
   availability: 'current' | 'missing' | 'ambiguous';
 };
 export type AriveSyncView = {
+  borrowerAttestationLoanNumber?: string;
   pilotPreview?: boolean;
   pilotRefreshHold?: 'COHORT_FULL' | 'PAUSED';
   enrollmentStatus?: string;

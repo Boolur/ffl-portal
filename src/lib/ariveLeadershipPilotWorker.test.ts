@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import type { DiagnosticSource } from './ariveDiagnosticSource';
 import { parsePilotChangeHints } from './ariveLeadershipPilotHints';
 import { newNoteEvidence } from './ariveLeadershipPilotProjection';
+import { makePilotBorrowerAttestation } from './arivePilotBorrowerMatch';
 
 // No live-work mutation methods are supplied. The worker can only update the
 // Pilot row and Pilot revision, even when a remote stage would move a loan.
@@ -244,6 +245,30 @@ describe('leadership-only collection', () => {
       succeeded: 0,
     });
     expect(h.db.pilotAriveProjection.findFirst).not.toHaveBeenCalled();
+  });
+  it('rechecks an attested missing middle name before publication and holds subsequent duplicate or conflicting upstream GUIDs', async () => {
+    const h = harness();
+    Object.assign(h.pipeline.loan, {propertyAddress:'1 Example St, Example City, CA 90000',borrowerPhone:'2025550142'});
+    Object.assign(h.details, {baseLoanAmount:150000,orgUnitDisplayName:'Test Branch',subjectProperty:{
+      addressLineText:'1 Example Street',city:'Example City',state:'CA',postalCode:'90000'}});
+    Object.assign(h.details.loanBorrowers[0], {lastName:'Sample',mobilePhone10digit:'2025550142'});
+    const record=makePilotBorrowerAttestation(h.details,h.pipeline.loan,{ariveGuid:'test-guid'},
+      {pipelineId:'file',revision:new Date('2026-04-01')},
+      {number:'801',name:'Synthetic Borrower Sample',branch:'Test Branch',officerEmail:h.pipeline.loan.loanOfficer.email},'operator',new Date());
+    expect(record).toBeTruthy();
+    h.row.borrowerAttestation=record;
+    expect(await h.run()).toMatchObject({succeeded:1});
+    expect(h.row).toMatchObject({enrollmentStatus:'VERIFIED', snapshot:{borrowerIdentityMethod:'ATTESTED_MIDDLE_NAME',
+      canonicalLoan:{borrowerName:'Synthetic Sample'}}});
+    expect(h.pipeline.loan.borrowerName).toBe('Synthetic Borrower');
+    h.advance();
+    h.db.loan.count.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    expect(await h.run()).toMatchObject({succeeded:0});
+    expect(h.row.enrollmentStatus).toBe('REVIEW');
+    h.advance();
+    h.row.ariveGuid='a-different-established-guid';
+    expect(await h.run()).toMatchObject({succeeded:0});
+    expect(h.row.enrollmentIssue).toMatch(/previously verified permanent loan ID/);
   });
   it('reserves a sweep for scheduled updates while admitting new active files ahead of recent fundings', async () => {
     const h = harness();

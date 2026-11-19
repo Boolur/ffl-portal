@@ -3,6 +3,9 @@ import type { AriveOneTimeLoan } from './ariveOneTimeReconciliation';
 import { jsonRecord } from './ariveSyncState';
 import { normalizeProcessingProperty } from './processingBorrowerDetails';
 import { projectAriveApplicationSnapshot } from './ariveApplicationSnapshot';
+import { createHash } from 'node:crypto';
+import { corroboratedPilotIdentityHash } from './ariveLeadershipPilotIdentity';
+import { missingAriveMiddleName, type PilotReportedBorrower } from './arivePilotAttestationTypes';
 
 const addressWords: Record<string, string> = { north: 'n', south: 's', east: 'e', west: 'w', street: 'st', avenue: 'ave',
   drive: 'dr', lane: 'ln', road: 'rd', boulevard: 'blvd', court: 'ct', place: 'pl', circle: 'cir', apartment: 'unit', apt: 'unit' };
@@ -31,7 +34,7 @@ function contactIssues(loan: AriveOneTimeLoan, borrower: Record<string, unknown>
 
 /** Strict exception for a BISU surname imported from ARIVE's middle-name field.
  * All corroboration is rechecked on every Pilot read. Standard matching never calls this helper. */
-export function inspectPilotBorrower(details: unknown, loan: AriveOneTimeLoan, saved: AriveSavedIdentity) {
+function inspectSource(details: unknown, loan: AriveOneTimeLoan, saved: AriveSavedIdentity) {
   const identity = inspectAriveLoanIdentity(details, loan, saved);
   const first = normalizeAriveIdentity(loan.borrowerFirstName);
   const last = normalizeAriveIdentity(loan.borrowerLastName);
@@ -51,7 +54,7 @@ export function inspectPilotBorrower(details: unknown, loan: AriveOneTimeLoan, s
   else {
     if (normalizeAriveIdentity(solelyNamed.firstName) !== first) evidenceIssues.push('primary given name differs');
     const middle = normalizeAriveIdentity(solelyNamed.middleName);
-    if (!middle) evidenceIssues.push('Arive API omitted the primary middle name');
+    if (!middle) evidenceIssues.push(missingAriveMiddleName);
     else if (middle !== last) evidenceIssues.push('Arive middle name differs from the BISU surname');
     if (!legalLast || legalLast === last) evidenceIssues.push('a distinct Arive surname is unconfirmed');
     evidenceIssues.push(...contactIssues(loan, solelyNamed));
@@ -66,4 +69,58 @@ export function inspectPilotBorrower(details: unknown, loan: AriveOneTimeLoan, s
   if (!parsed.success) evidenceIssues.push('Arive API returned an incomplete subject address');
   else if (!loan.propertyAddress || addressKey(parsed.address) !== addressKey(loan.propertyAddress)) evidenceIssues.push('full subject address differs');
   return evidenceIssues.length ? exact : { identity: { ...identity, issues: [] }, expected: first + ' ' + legalLast, middleName: true, evidenceIssues };
+}
+
+type Scope = { pipelineId: string; revision: Date };
+const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+// Bind the exact facts that established the exception. Stage, notes and ordinary
+// servicing changes intentionally do not invalidate the approval.
+function borrowerEvidence(details: unknown, loan: AriveOneTimeLoan, scope: Scope) {
+  const data = jsonRecord(details);
+  const borrower = jsonRecord(Array.isArray(data.loanBorrowers) ? data.loanBorrowers[0] : null);
+  const property = jsonRecord(data.subjectProperty);
+  const names = [borrower.firstName, loan.borrowerLastName, borrower.lastName].map(normalizeAriveIdentity);
+  const fields = [data.sysGUID, String(data.ariveLoanId), String(data.orgUnitId ?? ''), normalizeAriveIdentity(data.orgUnitDisplayName), normalizeAriveIdentity(data.loanOriginatorEmail),
+    ...names, normalizeAriveIdentity(borrower.emailAddressText),
+    ...[borrower.mobilePhone10digit, borrower.homePhone, borrower.homePhone10digit, borrower.workPhone].map(phoneNumber),
+    ...[property.addressLineText, property.addressUnitIdentifier, property.city, property.state, property.postalCode].map(normalizeAriveIdentity),
+    projectAriveApplicationSnapshot(data).loan.baseLoanAmount];
+  return { names, hash: digest(['pilot-middle-name-v1', 'company', scope.pipelineId, scope.revision.toISOString(),
+    corroboratedPilotIdentityHash(loan), ...fields]) };
+}
+
+export function makePilotBorrowerAttestation(details: unknown, loan: AriveOneTimeLoan, saved: AriveSavedIdentity,
+  scope: Scope, report: PilotReportedBorrower, operatorId: string, now: Date) {
+  const inspected = inspectSource(details, loan, saved);
+  if (inspected.identity.issues.join() !== 'BORROWER_NAME' || inspected.evidenceIssues.length !== 1 ||
+      inspected.evidenceIssues[0] !== missingAriveMiddleName || !operatorId || !saved.ariveGuid) return null;
+  const { names, hash } = borrowerEvidence(details, loan, scope);
+  const sourceBranch = normalizeAriveIdentity(jsonRecord(details).orgUnitDisplayName);
+  if (report.number !== loan.loanNumber || !sourceBranch || normalizeAriveIdentity(report.branch) !== sourceBranch || normalizeAriveIdentity(report.name) !== names.join(' ') ||
+      normalizeAriveIdentity(report.officerEmail) !== normalizeAriveIdentity(loan.loanOfficer.email)) return null;
+  return { version: 1, basis: 'ARIVE_BRANCH_REPORT_AND_BORROWER_SCREEN', boundEvidence: hash,
+    branchReportDigest: digest([report.number, ...[report.name, report.officerEmail, report.branch].map(normalizeAriveIdentity)]),
+    ariveGuid: saved.ariveGuid, operatorId, approvedAt: now.toISOString() };
+}
+
+export function inspectPilotBorrower(details: unknown, loan: AriveOneTimeLoan, saved: AriveSavedIdentity,
+  attestation?: { record: unknown; scope: Scope }) {
+  const result = inspectSource(details, loan, saved);
+  if (attestation?.record == null) return result;
+  const record = jsonRecord(attestation.record);
+  const proof = borrowerEvidence(details, loan, attestation.scope);
+  const sameEvidence = record.version === 1 && record.basis === 'ARIVE_BRANCH_REPORT_AND_BORROWER_SCREEN' &&
+    record.ariveGuid === saved.ariveGuid && record.boundEvidence === proof.hash &&
+    typeof record.operatorId === 'string' && !!record.operatorId && typeof record.approvedAt === 'string' &&
+    typeof record.branchReportDigest === 'string' && /^[a-f0-9]{64}$/.test(record.branchReportDigest);
+  if (sameEvidence && result.middleName) return result;
+  if (sameEvidence && result.identity.issues.join() === 'BORROWER_NAME' && result.evidenceIssues.length === 1 &&
+      result.evidenceIssues[0] === missingAriveMiddleName) {
+    return { ...result, identity: { ...result.identity, issues: [] }, expected: [proof.names[0], proof.names[2]].join(' '),
+      middleName: true, evidenceIssues: [] };
+  }
+  return { ...result, middleName: false, identity: { ...result.identity,
+    issues: result.identity.issues.length ? result.identity.issues : ['BORROWER_NAME' as const] },
+    evidenceIssues: [...result.evidenceIssues, 'the previously approved Pilot identity evidence changed'] };
 }

@@ -23,6 +23,7 @@ import { savedAriveNotes } from '../../lib/ariveSavedNotes';
 import { readPilotNoteEvidence, visibleSourceNoteTime, type PilotRenderEntry, type PilotRenderSurface } from '../../lib/pilotNoteRenderEvidence';
 import { effectivePilotRow, orderPilotRows, pilotIdentitySelect, pilotReadIndex, pilotSyncView, readPilotProjections, usablePilotProjection } from '../../lib/leadershipPilotReads';
 import { pilotIdentityHash } from '../../lib/ariveLeadershipPilotIdentity';
+import { pilotMiddleNameReview, type PilotReportedBorrower } from '../../lib/arivePilotAttestationTypes';
 import { standardSharedTestData } from '../../lib/pilotLeadership';
 import type { AriveSyncView } from '@/lib/ariveSyncTypes';
 import { prisma } from '@/lib/prisma';
@@ -2870,6 +2871,23 @@ export async function acknowledgePilotRender(surface: PilotRenderSurface, entrie
   return true;
 }
 
+export async function confirmPilotReportedBorrower(pipelineId: string, report: PilotReportedBorrower, checkedScreen: boolean) {
+  const actor = await getActor();
+  if (!actor?.canViewGeneralizedArive || actor.role !== UserRole.ADMIN_III) return { success: false as const };
+  try {
+    const { recordPilotBorrowerAttestation } = await import('@/lib/arivePilotAttestation');
+    const saved = await recordPilotBorrowerAttestation(actor, pipelineId, report, checkedScreen);
+    if (!saved) return { success: false as const };
+    after(async () => {
+      const { runLeadershipPilotCollection } = await import('@/lib/ariveLeadershipPilotWorker');
+      await runLeadershipPilotCollection({ pipelineId });
+    });
+    return { success: true as const };
+  } catch {
+    return { success: false as const };
+  }
+}
+
 export async function getProcessingAriveSnapshot(id: string) {
   noStore();
   const actor = await getActor();
@@ -2936,6 +2954,8 @@ export async function getProcessingBorrowerDetails(id: string) {
   const projection = actor.canViewGeneralizedArive ? (await readPilotProjections([id],true)).get(id) : undefined;
   const row = effectivePilotRow(sourceRow,projection);
   const syncView = actor.canViewGeneralizedArive ? pilotSyncView(sourceRow.loan,projection) : null;
+  if (syncView?.enrollmentStatus === 'REVIEW' && syncView.error === pilotMiddleNameReview && actor.role === UserRole.ADMIN_III)
+    syncView.borrowerAttestationLoanNumber = sourceRow.loan.loanNumber;
 
   const submission = safeSubmissionObject(actor.canViewGeneralizedArive
     ? row.sourceTask.submissionData : standardSharedTestData(row.sourceTask.submissionData));

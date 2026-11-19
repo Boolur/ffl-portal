@@ -99,6 +99,7 @@ model PilotAriveProjection {
   ariveGuid               String?
   verifiedOriginatorEmail String?
   identityHash            String?
+  borrowerAttestation     Json?
   connectionRevision      DateTime?
   enrollmentStatus        String   @default("PENDING")
   enrollmentIssue         String?

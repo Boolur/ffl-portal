@@ -441,9 +441,17 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
         ? canonicalLink
         : null;
     let guid = practice.guid ?? pinned?.ariveGuid;
+    const conflictsWithAttestation = (projection: typeof row) => {
+      const receipt = jsonRecord(projection.borrowerAttestation).ariveGuid;
+      const canonical = projection.pipeline.ariveSync;
+      return projection.borrowerAttestation != null && (
+        (projection.ariveLoanId === number && !!projection.ariveGuid && projection.ariveGuid !== receipt) ||
+        (canonical?.enrollmentStatus === 'VERIFIED' && canonical.ariveLoanId === number && !!canonical.ariveGuid && canonical.ariveGuid !== receipt));
+    };
+    if (conflictsWithAttestation(row)) throw new PilotMatchReview('A previously verified permanent loan ID differs from the Pilot approval.');
     if (practice.guid && pinned?.ariveGuid && practice.guid !== pinned.ariveGuid)
       throw new PilotMatchReview('The test package and existing verified loan reference disagree.');
-    if (!guid) {
+    if (!guid || row.borrowerAttestation != null) {
       const found = await api(
         `/loans?searchField=DISPLAY_ID&searchValue=${encodeURIComponent(number)}&limit=100&offset=0`,
       );
@@ -458,6 +466,8 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
         .filter((entry: Record<string, unknown>) => String(entry.ariveLoanId) === number);
       if (!matches.length) throw new PilotMatchReview('No exact loan number was found on the branch connection.');
       if (matches.length > 1) throw new PilotMatchReview('Arive returned multiple files with the exact loan number.');
+      if (row.borrowerAttestation != null && matches[0].sysGUID !== jsonRecord(row.borrowerAttestation).ariveGuid)
+        throw new PilotMatchReview('The approved Pilot identity has a different permanent file ID.');
       guid = matches[0].sysGUID;
     }
     if (typeof guid !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(guid))
@@ -476,7 +486,7 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
     const { identity, middleName, expected, evidenceIssues } = inspectPilotBorrower(details, loan, {
       ariveGuid: guid,
       verifiedOriginatorEmail: pinned?.verifiedOriginatorEmail,
-    });
+    }, { record: row.borrowerAttestation, scope: { pipelineId: row.pipelineId, revision: job.revision } });
     if (identity.issues.length === 1 && identity.issues[0] === 'BORROWER_NAME') {
       checkedBorrowerEvidence = true;
       const explanation = evidenceIssues.map(issue => issue[0].toUpperCase() + issue.slice(1) + '.').join(' ');
@@ -501,6 +511,9 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
         return 'held' as const;
       }
       const { current, now } = source;
+      if (conflictsWithAttestation(current) || stableAriveValue(current.borrowerAttestation) !== stableAriveValue(row.borrowerAttestation) ||
+          (current.borrowerAttestation != null && await tx.loan.count({where: { loanNumber: number }}) !== 1))
+        throw new PilotMatchReview('The approved Pilot identity or loan number uniqueness changed before publication.');
       if (middleName && corroboratedPilotIdentityHash(loan) !== corroboratedPilotIdentityHash(current.pipeline.loan)) {
         await tx.pilotAriveProjection.updateMany({ where: owner, data: { leaseUntil: null, leaseToken: null } });
         return 'held' as const;
@@ -513,6 +526,7 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
         previousVersion: current.projectionVersion,
         guid: permanentGuid,
         details,
+        attestation: { record: current.borrowerAttestation, scope: { pipelineId: row.pipelineId, revision: job.revision } },
         trackers,
         notes,
         now,

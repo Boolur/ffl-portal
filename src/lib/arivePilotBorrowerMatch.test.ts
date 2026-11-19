@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inspectPilotBorrower } from './arivePilotBorrowerMatch';
+import { inspectPilotBorrower, makePilotBorrowerAttestation } from './arivePilotBorrowerMatch';
 import { inspectAriveLoanIdentity } from './ariveIdentity';
 import { corroboratedPilotIdentityHash, pilotIdentityMatches } from './ariveLeadershipPilotIdentity';
 
@@ -14,6 +14,25 @@ const details = { ariveLoanId: 8001, sysGUID: 'test-guid', loanOriginatorEmail: 
 const saved = { ariveGuid: 'test-guid' };
 
 describe('corroborating an imported middle name exclusively in the Pilot', () => {
+  it('admits only the attested missing field and invalidates cross-file, cross-branch and stale evidence', () => {
+    const source = {...details, orgUnitDisplayName: 'Example branch', orgUnitId: 'branch-test', loanBorrowers: [{ ...borrower, middleName: undefined }]};
+    const scope = {pipelineId:'test-file', revision:new Date('2026-05-01')};
+    const report = {number:loan.loanNumber, name:'Example Stub Sample', officerEmail:loan.loanOfficer.email, branch:'Example branch'};
+    const approve = (r = report) => makePilotBorrowerAttestation(source, loan, saved, scope, r, 'admin', scope.revision);
+    const record = approve();
+    expect(record).toBeTruthy();
+    expect(JSON.stringify(record)).not.toContain('Example Stub');
+    for (const r of [{...report,number:'999'},{...report,branch:'Other'},{...report,name:'Example Random Sample'},{...report,officerEmail:'other@example.test'}])
+      expect(approve(r)).toBeNull();
+    const checked = (patch = {}, borrowerChange = {}, context = scope, base = loan) => inspectPilotBorrower(
+      {...source, loanBorrowers:[{...source.loanBorrowers[0], ...borrowerChange}], ...patch}, base, saved, {record,scope:context});
+    expect(checked().identity.issues).toEqual([]);
+    expect(checked({}, {middleName:'Stub'}).identity.issues).toEqual([]);
+    for (const result of [checked({}, {middleName:'Wrong'}),checked({}, {lastName:'Another'}),checked({}, {lastName:'Stub'}),
+      checked({}, {emailAddressText: null}),checked({orgUnitId:'new'}),checked({baseLoanAmount:1}),checked({loanBorrowers:[borrower,borrower]}),
+      checked({}, {}, {...scope,pipelineId:'other'}),checked({}, {}, {...scope,revision:new Date('2026-05-02')}),
+      checked({}, {}, scope, {...loan,borrowerName:'Other'}),checked({sysGUID:'other'})]) expect(result.identity.issues.length).toBeGreaterThan(0);
+  });
   it('requires a unique primary and matches actual contact, amount and full subject property', () => {
     expect(inspectAriveLoanIdentity(details, loan, saved).issues).toEqual(['BORROWER_NAME']);
     expect(inspectPilotBorrower(details, loan, saved)).toMatchObject({ middleName: true, expected: 'example sample', identity: { issues: [] } });

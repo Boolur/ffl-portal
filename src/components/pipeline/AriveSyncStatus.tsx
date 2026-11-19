@@ -9,6 +9,7 @@ import { acknowledgeAriveRolloutConflicts, queueAriveRolloutRefresh, setAriveRol
 import { AriveNoteHeaderGuide } from './AriveNoteHeaderGuide';
 import { AriveServiceStatusCards } from './AriveServiceStatusCards';
 import { queueLeadershipPilotRefresh } from '@/app/actions/processingPipelineActions';
+import { PilotBorrowerAttestation } from './PilotBorrowerAttestation';
 
 const tones = {
   muted: 'border-slate-200 bg-slate-50 text-slate-600',
@@ -121,6 +122,7 @@ export function AriveSyncStatus({ view, pipelineLoanId, onChanged, editing = fal
   function renderSyncDetails() {
     if (!view) return null;
     return <>
+    {view.pilotPreview && view.borrowerAttestationLoanNumber && <PilotBorrowerAttestation key={pipelineLoanId} pipelineId={pipelineLoanId} number={view.borrowerAttestationLoanNumber} onChanged={onChanged}/>}
     {compact && <p className="mt-3 text-xs leading-relaxed">{view.enabled ? 'Arive supplies this file’s stage, service progress, milestone dates, and headed processor notes. A conflicting portal entry is flagged, and the Arive value is retained.' : view.pilotPreview ? 'The Pilot displays BISU values until the first verified Arive read.' : 'Automatic updates from Arive are paused for this file.'}</p>}
     {generalized && !hold && <p className="mt-3 text-xs leading-relaxed">{view.pilotPreview ? 'This is the leadership Pilot view. Sync now requests the latest Arive information for this file.' : 'Sync from Arive requests a shared refresh.'}</p>}
     {responsibilityLabel && view.enabled && <p className="mt-3 rounded-lg bg-white/70 px-3 py-2 text-xs">Service responsibility follows the {responsibilityLabel} processing rules. The status and dates shown here reflect actual Arive progress.</p>}

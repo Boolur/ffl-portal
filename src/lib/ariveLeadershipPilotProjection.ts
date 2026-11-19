@@ -113,6 +113,7 @@ export function leadershipPilotProjection(input: {
   previousVersion: number;
   guid: string;
   details: unknown;
+  attestation?: Parameters<typeof inspectPilotBorrower>[3];
   trackers: unknown;
   notes: AriveNote[];
   now: Date;
@@ -123,7 +124,7 @@ export function leadershipPilotProjection(input: {
   const { identity, expected, middleName } = inspectPilotBorrower(details, loan, {
     ariveGuid: input.guid,
     verifiedOriginatorEmail: prior?.verifiedOriginatorEmail,
-  });
+  }, input.attestation);
   if (identity.issues.length || !identity.guid || !identity.originatorEmail)
     throw new PilotMatchReview('The exact loan, borrower or originator no longer matches. Review the Arive link.');
   const matching = projectAriveApplicationSnapshot(details).applicants.filter(
@@ -237,7 +238,7 @@ export function leadershipPilotProjection(input: {
     routingProvenance: plan.routingProvenance,
     snapshot: {
       ...plan.snapshot,
-      ...(middleName ? { borrowerIdentityMethod: 'VERIFIED_MIDDLE_NAME' } : {}),
+      ...(middleName ? { borrowerIdentityMethod: input.attestation?.record ? 'ATTESTED_MIDDLE_NAME' : 'VERIFIED_MIDDLE_NAME' } : {}),
       publishedAt: input.now.toISOString(),
       managed,
       canonicalLoan,
