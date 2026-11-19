@@ -207,6 +207,29 @@ describe('leadership-only collection', () => {
     });
     expect(h.db.pilotAriveProjection.findFirst).not.toHaveBeenCalled();
   });
+  it('reserves a sweep for scheduled updates while admitting new active files ahead of recent fundings', async () => {
+    const h = harness();
+    Object.assign(h.control, { cohortLimit: null, lastHintScanAt: new Date() });
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const db = {
+      ...h.db, processingPipelineLoan: { findMany: vi.fn().mockResolvedValue([]) },
+      pilotAriveProjection: { ...h.db.pilotAriveProjection, findFirst },
+    };
+    db.$transaction.mockImplementation(async work => work(db));
+    const session = vi.fn();
+    await runLeadershipPilotCollection({ db: db as never, session });
+    const orders = findFirst.mock.calls.map(([query]) => query.orderBy);
+    const tieBreakers = [{ pipeline: { sheet: 'asc' } }, { createdAt: 'asc' }, { pipelineId: 'asc' }];
+    const refreshOrder = [{ nextAttemptAt: { sort: 'asc', nulls: 'last' } }, ...tieBreakers];
+    expect(orders).toContainEqual(refreshOrder);
+    expect(orders).toContainEqual([{ nextAttemptAt: { sort: 'asc', nulls: 'first' } }, ...tieBreakers]);
+    expect(orders).toContainEqual([
+      { manualRefreshRequestedAt: { sort: 'asc', nulls: 'last' } },
+      { hintRequestedAt: { sort: 'asc', nulls: 'last' } },
+      ...refreshOrder,
+    ]);
+    expect(session).not.toHaveBeenCalled();
+  });
   it('shares one standby and claims the due file as soon as the previous cron releases both leases', async () => {
     const h = harness();
     const db = {

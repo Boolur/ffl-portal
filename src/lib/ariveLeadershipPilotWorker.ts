@@ -279,7 +279,13 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
       ],
     };
     const order: Prisma.PilotAriveProjectionOrderByWithRelationInput[] = [
-      { nextAttemptAt: { sort: 'asc', nulls: 'first' } },
+      // A new file has no due time until its first attempt. On a large rollout
+      // one lane admits these files while the other keeps serving due refreshes.
+      // Either lane can take the other's work when its own queue is empty.
+      { nextAttemptAt: { sort: 'asc', nulls: preferWatched ? 'last' : 'first' } },
+      // Within the initial backlog, start with the active book, then Restructures
+      // and Fundings. Dated attempts still take their ordinary due-time order.
+      { pipeline: { sheet: 'asc' } },
       { createdAt: 'asc' },
       { pipelineId: 'asc' },
     ];
@@ -294,7 +300,11 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
       preferWatched && !pipelineId
         ? await tx.pilotAriveProjection.findFirst({
             where: { AND: [eligible, priority] },
-            orderBy: order,
+            orderBy: [
+              { manualRefreshRequestedAt: { sort: 'asc', nulls: 'last' } },
+              { hintRequestedAt: { sort: 'asc', nulls: 'last' } },
+              ...order,
+            ],
             include: includeFile,
           })
         : null;
