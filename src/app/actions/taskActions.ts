@@ -3159,6 +3159,16 @@ export async function createLeadershipTestSubmission(payload: SubmissionPayload)
   return createPortalSubmission(payload, true);
 }
 
+export async function resolveLeadershipMismoOfficer(email: string): Promise<string | null> {
+  const actor = await requireLeadershipPilot();
+  if (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return null;
+  const matches = await prisma.user.findMany({
+    where: { AND: [leadershipOfficerScope(actor), { email: { equals: email.trim(), mode: 'insensitive' } }] },
+    select: { id: true }, take: 2,
+  });
+  return matches.length === 1 ? matches[0].id : null;
+}
+
 async function createPortalSubmission(payload: SubmissionPayload, leadershipTest: boolean) {
   const perfStartedAt = Date.now();
   try {

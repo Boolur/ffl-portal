@@ -10,7 +10,7 @@ const m = vi.hoisted(() => {
     task: { findFirst: vi.fn(), create: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     arivePracticeLoan: { findMany: vi.fn(), upsert: vi.fn() }, auditLog: { create: vi.fn() },
   };
-  const db = { $transaction: vi.fn(), $queryRaw: vi.fn(), user: { findUnique: vi.fn(), count: vi.fn() }, task: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, taskAttachment: { findMany: vi.fn() }, notificationOutbox: { create: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() } };
+  const db = { $transaction: vi.fn(), $queryRaw: vi.fn(), user: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() }, task: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, taskAttachment: { findMany: vi.fn() }, notificationOutbox: { create: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() } };
   return { db, tx, session: vi.fn(), requirePilot: vi.fn(), viewer: vi.fn(), docs: vi.fn(), verify: vi.fn() };
 });
 vi.mock('next-auth', () => ({ getServerSession: m.session }));
@@ -44,7 +44,7 @@ vi.mock('@/lib/leadPipelineSync', () => ({ leadStatusForTaskKind: () => null }))
 vi.mock('@/lib/pipelineSubmissionShortcuts', () => ({}));
 vi.mock('@/lib/processingManagerNotifications', () => ({}));
 
-import { createLeadershipTestSubmission, createSubmissionTask, requestInfoFromLoanOfficer, startQcRequest } from './taskActions';
+import { createLeadershipTestSubmission, createSubmissionTask, requestInfoFromLoanOfficer, resolveLeadershipMismoOfficer, startQcRequest } from './taskActions';
 
 const leader = { id: 'manager', name: 'Example Leader', role: 'MANAGER', roles: ['MANAGER'], active: true, pilotViewEnabled: true };
 const officer = { id: 'lo', name: 'Example Originator', email: 'lo@example.test', role: 'LOAN_OFFICER', roles: ['LOAN_OFFICER'] };
@@ -75,6 +75,20 @@ beforeEach(() => {
 });
 
 describe('shared leadership submission workflow', () => {
+  it('resolves exactly one active officer in the current Pilot scope and only returns their option ID', async () => {
+    m.requirePilot.mockResolvedValue({ ...leader, role: 'PROCESSING_MANAGER' });
+    m.db.user.findMany.mockResolvedValueOnce([{ id: 'choice' }]).mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }]).mockResolvedValueOnce([]);
+    expect(await resolveLeadershipMismoOfficer(' owner@example.test ')).toBe('choice');
+    expect(m.db.user.findMany).toHaveBeenCalledWith({ where: { AND: [
+      expect.objectContaining({ AND: [expect.objectContaining({ active: true }), expect.objectContaining({ OR: expect.any(Array) })] }),
+      { email: { equals: 'owner@example.test', mode: 'insensitive' } },
+    ] }, select: { id: true }, take: 2 });
+    expect(await resolveLeadershipMismoOfficer('shared@example.test')).toBeNull();
+    expect(await resolveLeadershipMismoOfficer('unknown@example.test')).toBeNull();
+    m.requirePilot.mockRejectedValueOnce(new Error('Pilot required'));
+    await expect(resolveLeadershipMismoOfficer('owner@example.test')).rejects.toThrow('Pilot required');
+    expect(m.db.user.findMany).toHaveBeenCalledTimes(3);
+  });
   it('passes the exported UUID to identity verification and stops before packaging or saving after a mismatch', async () => {
     const guid = '193f5f19-26a9-4b35-b27b-e2ee339e15d5';
     const message = 'The MISMO file ID differs from the ARIVE API file ID.';

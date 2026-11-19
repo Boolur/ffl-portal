@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readLeadershipMismoExport } from './leadershipMismoExport';
+import { leadershipApplicantContact, leadershipApplicants, leadershipDocumentIdentity, leadershipOriginatorEmail, readLeadershipMismoExport, sameLeadershipDocumentLoan } from './leadershipMismoExport';
 import { selectMismoAriveLoanNumber } from './mismoAriveLoanNumber';
 
 const guid = '5ab50988-1d8a-4861-886f-24122eb65c99';
@@ -24,6 +24,39 @@ function suggest(options: { systems?: XmlElement[]; identifiers?: XmlElement[]; 
 }
 
 describe('leadership recognition of an ARIVE MISMO export', () => {
+  it('reads personal contact details only from the chosen applicant, and resolves one unambiguous originator email', () => {
+    function party(classification: string, addresses: string[], employerEmail?: string) {
+      const email = (value: string) => tag('CONTACT_POINT', [tag('CONTACT_POINT_EMAIL', [tag('ContactPointEmailValue', value)])]);
+      return { ...tag('PARTY', [
+        tag('INDIVIDUAL', [tag('NAME', [tag('FirstName', 'Example')]), tag('CONTACT_POINTS', addresses.map(email))]),
+        ...(employerEmail ? [tag('EMPLOYER', [email(employerEmail)])] : []),
+      ]), getElementsByTagNameNS: () => classification ? [tag('BorrowerClassificationType', classification)] : [] } as unknown as Element;
+    }
+    const primary = party('Primary', [], 'employer@example.test');
+    const secondary = party('Secondary', ['other@example.test']);
+    expect(leadershipApplicants([secondary, primary])).toEqual({ primaryParty: primary, coBorrowerParty: secondary });
+    expect(leadershipApplicantContact(primary)).toEqual({ firstName: 'Example', lastName: '', phone: '', email: '' });
+    expect(leadershipApplicantContact(secondary).email).toBe('other@example.test');
+    const unclassified = party('', []);
+    expect(leadershipApplicants([unclassified, unclassified])).toEqual({ primaryParty: null, coBorrowerParty: null });
+    expect(leadershipOriginatorEmail([party('', [' A@EXAMPLE.TEST ', 'a@example.test'])])).toBe('a@example.test');
+    expect(leadershipOriginatorEmail([party('', ['a@example.test', 'b@example.test'])])).toBeUndefined();
+    expect(leadershipOriginatorEmail([primary, secondary])).toBeUndefined();
+  });
+
+  it('keeps uploaded documents bound to a loan number and permanent ID, or corroborated applicant and property', () => {
+    const fields = { arriveLoanNumber: number, leadershipExportGuid: guid, borrowerFirstName: 'Aster', borrowerLastName: 'Vale',
+      propertyStreet: '17 Fixture Way', propertyUnit: '4', propertyCity: 'Example', propertyState: 'CA', propertyZip: '90210' };
+    const bound = leadershipDocumentIdentity(fields);
+    expect(sameLeadershipDocumentLoan(bound, { ...fields, leadershipExportGuid: guid.toUpperCase() })).toBe(true);
+    for (const changes of [{ arriveLoanNumber: '90000011' }, { leadershipExportGuid: undefined },
+      { leadershipExportGuid: 'c14aba69-ad31-478e-a8a3-1d862e92327e' }])
+      expect(sameLeadershipDocumentLoan(bound, { ...fields, ...changes })).toBe(false);
+    const older = leadershipDocumentIdentity({ ...fields, leadershipExportGuid: undefined });
+    expect(sameLeadershipDocumentLoan(older, fields)).toBe(true);
+    for (const changes of [{ borrowerLastName: 'Different' }, { propertyUnit: '' }, { propertyCity: '' }, { arriveLoanNumber: '' }])
+      expect(sameLeadershipDocumentLoan(older, { ...fields, ...changes })).toBe(false);
+  });
   it('suggests the number and binds its source UUID only with all of the evidence', () => {
     expect(suggest()).toEqual({ loanNumber: number, guid });
     expect(suggest({ name: filename.toLowerCase() })).toEqual({ loanNumber: number, guid });

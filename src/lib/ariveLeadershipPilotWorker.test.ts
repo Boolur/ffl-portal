@@ -79,7 +79,7 @@ function harness() {
   }
   const pilotAriveProjection = {
     count: vi.fn(async () => 0),
-    findFirst: vi.fn(async () => structuredClone(row)),
+    findFirst: vi.fn(async (): Promise<typeof row | null> => structuredClone(row)),
     findUnique: vi.fn(async () => structuredClone(row)),
     update: vi.fn(async ({ data }) => patch(data)),
     updateMany: vi.fn(async ({ data }) => {
@@ -95,7 +95,7 @@ function harness() {
     arivePracticeLoan: { findFirst: vi.fn().mockResolvedValue(null) },
     task: { findUnique: vi.fn() },
     $executeRaw: vi.fn(),
-    $queryRaw: vi.fn(async (parts: TemplateStringsArray) => {
+    $queryRaw: vi.fn(async (parts: TemplateStringsArray): Promise<Record<string, unknown>[]> => {
       const sql = parts.join('?');
       if (sql.includes('slots.active')) return control.enabled
         ? [{ generation: control.generation, cohortLimit: control.cohortLimit, revision, active: 0, reserved: 0 }]
@@ -206,6 +206,54 @@ describe('leadership-only collection', () => {
       succeeded: 0,
     });
     expect(h.db.pilotAriveProjection.findFirst).not.toHaveBeenCalled();
+  });
+  it('shares one standby and claims the due file as soon as the previous cron releases both leases', async () => {
+    const h = harness();
+    const db = {
+      ...h.db,
+      processingPipelineLoan: { findMany: vi.fn(async () => []) },
+    };
+    Object.assign(h.control, {lastHintScanAt: new Date()});
+    let occupied = true, handedOff = false;
+    const prior = h.db.$queryRaw.getMockImplementation()!;
+    h.db.$queryRaw.mockImplementation(async parts => {
+      const sql = parts.join('?');
+      if (sql.includes('AS open')) return [{open: !occupied}];
+      if (sql.includes('slots.active') && occupied) return [{
+        generation: 1, cohortLimit: 10, revision: new Date('2026-04-01'), active: 2, reserved: 10,
+      }];
+      return prior(parts);
+    });
+    db.$transaction.mockImplementation(async work => work(db));
+    db.pilotAriveProjection.findFirst.mockImplementation(async () => {
+      if (occupied || handedOff) return null;
+      handedOff = true;
+      return structuredClone(h.row);
+    });
+    // Yield one event-loop turn so both simulated lanes encounter the two
+    // old leases before their owner exits. No real timer or network call.
+    const sleep = vi.fn(async () => {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      occupied = false;
+    });
+    const result = await runLeadershipPilotCollection({db: db as never, session: async () => h.api as never, sleep});
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledWith(6000);
+    expect(result).toMatchObject({checked: 1, succeeded: 1});
+    expect(h.row.enrollmentStatus).toBe('VERIFIED');
+  });
+  it('does not wait for occupied slots when no verified active file needs the handoff', async () => {
+    const h = harness();
+    Object.assign(h.control, { lastHintScanAt: new Date() });
+    const db = { ...h.db, processingPipelineLoan: { findMany: vi.fn(async () => []) } };
+    db.$transaction.mockImplementation(async work => work(db));
+    h.db.$queryRaw.mockImplementation(async parts => parts.join('?').includes('slots.active') ? [{
+      generation: 1, cohortLimit: 10, revision: new Date('2026-04-01'), active: 2, reserved: 10,
+    }] : []);
+    const sleep = vi.fn();
+    expect(await runLeadershipPilotCollection({db: db as never, session: async () => h.api as never, sleep})).toMatchObject({checked: 0});
+    expect(sleep).not.toHaveBeenCalled();
+    expect(h.api).not.toHaveBeenCalled();
   });
   it('records exact note creation times only for new uniquely identifiable notes and replies after baseline', () => {
     const sampledAt = new Date('2026-04-10T12:00:00Z');

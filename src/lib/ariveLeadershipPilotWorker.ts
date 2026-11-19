@@ -47,6 +47,7 @@ type Options = {
   deadlineMs?: number;
   db?: typeof prisma;
   now?: () => Date;
+  sleep?: (milliseconds: number) => Promise<void>;
   session?: typeof ariveLeadershipPilotReadSession;
 };
 type Tx = Prisma.TransactionClient;
@@ -249,7 +250,8 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
         WHERE p."enrollmentStatus"='VERIFIED' OR (p."leaseToken" IS NOT NULL AND p."leaseUntil">${now})
       ) slots
       WHERE c.id=${CONNECTION} AND c.enabled`;
-    if (!capacity || capacity.active >= 2) return null;
+    if (!capacity) return null;
+    if (capacity.active >= 2) return 'occupied' as const;
     const statuses =
       capacity.cohortLimit !== null && capacity.reserved >= capacity.cohortLimit
         ? ['VERIFIED']
@@ -314,7 +316,7 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
     return { row, revision: capacity.revision, started: now, token, generation: capacity.generation };
   }, transactionOptions);
 }
-type Claim = NonNullable<Awaited<ReturnType<typeof claim>>>;
+type Claim = Exclude<Awaited<ReturnType<typeof claim>>, null | 'occupied'>;
 
 /** Caller holds the collector lock. Both a published snapshot and new review
  * evidence must still describe the same loan, connection and unexpired lease. */
@@ -539,6 +541,9 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
     succeeded = 0,
     deferred = 0;
   const deadlineMs = options.deadlineMs ?? Date.now() + 110_000;
+  const handoffUntil = Math.min(deadlineMs - 30_000, Date.now() + 55_000);
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  let handoff: Promise<boolean> | undefined;
   if (!allowedEnvironment() || Date.now() >= deadlineMs - 30_000) return { checked, succeeded, deferred };
   if (!options.pipelineId) {
     await discover(db, now());
@@ -548,9 +553,38 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
       /* An unavailable hint feed cannot suppress the fair reconciliation sweep. */
     }
   }
+  async function waitForHandoff() {
+    // A new minute's cron can arrive while BOTH previous lanes are leased.
+    // Keep a single standby shared by this invocation's lanes until one opens.
+    // This SELECT is only a wake-up hint. Admission still takes the worker lock.
+    // An explicit bounded sample count also handles delayed or stationary clocks.
+    for (let sample = 0; sample < 10 && !deferred && Date.now() < handoffUntil; sample++) {
+      const sampledAt = now();
+      const [state] = await db.$queryRaw<Array<{ open: boolean }>>`
+        SELECT (SELECT COUNT(*) FROM "PilotAriveProjection" leased WHERE leased."leaseToken" IS NOT NULL
+                  AND leased."leaseUntil">${sampledAt})<2 AS open
+        FROM "PilotAriveControl" c WHERE c.id=${CONNECTION} AND c.enabled
+          AND EXISTS (SELECT 1 FROM "PilotAriveProjection" p WHERE p."enrollmentStatus"='VERIFIED'
+            AND ((p."archivedAt" IS NULL AND p.sheet IN ('PIPELINE','RESTRUCTURE'))
+                 OR p."watchedUntil">${sampledAt} OR p."manualRefreshRequestedAt" IS NOT NULL)
+            AND (p."nextAttemptAt"<=${new Date(+sampledAt + 30_000)} OR p."nextAttemptAt" IS NULL))`;
+      if (!state) return false;
+      if (state.open) return true;
+      const delay = Math.min(6000, handoffUntil - Date.now());
+      if (delay <= 0) break;
+      await sleep(delay);
+    }
+    return false;
+  }
   async function drain(preferWatched: boolean) {
     while (!deferred && Date.now() < deadlineMs - 30_000 && checked < 500) {
       const job = await claim(db, now(), options.pipelineId, preferWatched);
+      if (job === 'occupied') {
+        if (options.pipelineId || Date.now() >= handoffUntil) break;
+        handoff ??= waitForHandoff().finally(() => { handoff = undefined; });
+        if (!await handoff) break;
+        continue;
+      }
       if (!job) {
         if (!preferWatched || options.pipelineId) break;
         // A small cohort can finish every due job between cron ticks. Wake
@@ -569,7 +603,7 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
         if (!upcoming) break;
         const delay = Math.max(50, +upcoming.due - +now());
         if (Date.now() + delay >= deadlineMs - 30_000) break;
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        await sleep(delay);
         continue;
       }
       checked++;

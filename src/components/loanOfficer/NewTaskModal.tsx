@@ -8,7 +8,7 @@ import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/act
 import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
 import { normalizeProcessingZip } from '@/lib/processingBorrowerDetails';
 import { selectMismoAriveLoanNumber } from '@/lib/mismoAriveLoanNumber';
-import { readLeadershipMismoExport } from '@/lib/leadershipMismoExport';
+import { leadershipApplicantContact, leadershipApplicants, leadershipDocumentIdentity, leadershipOriginatorEmail, readLeadershipMismoExport, sameLeadershipDocumentLoan } from '@/lib/leadershipMismoExport';
 import {
   PROCESSING_ASSIGNMENT_THIRD_PARTY,
   PROCESSING_METHOD_IN_HOUSE,
@@ -21,8 +21,8 @@ import {
   type ProcessingMethod,
 } from '@/lib/processingRouting';
 import { TaskAttachmentPurpose } from '@prisma/client';
-import { initialPilotPackage, pilotSubmissionError } from '@/lib/submissionPilot';
-import { createLeadershipTestSubmission } from '@/app/actions/taskActions';
+import { initialPilotPackage, pilotSubmissionError, type PilotPackage } from '@/lib/submissionPilot';
+import { createLeadershipTestSubmission, resolveLeadershipMismoOfficer } from '@/app/actions/taskActions';
 import { ProcessingDocumentsStep } from './ProcessingDocumentsStep';
 
 type NewTaskModalProps = {
@@ -316,6 +316,7 @@ export function NewTaskModal({
 
 type MismoPrefill = {
   leadershipExportGuid?: string;
+  leadershipOfficerEmail?: string;
   loanOfficer?: string;
   borrowerFirstName?: string;
   borrowerLastName?: string;
@@ -358,6 +359,15 @@ type MismoIncomeProfile = {
   employmentFieldsRequired: boolean;
   isVaIrrrl: boolean;
 };
+
+const processingMismoFields = [
+  'borrowerFirstName', 'borrowerLastName', 'borrowerPhone', 'borrowerEmail',
+  'coBorrowerFirstName', 'coBorrowerLastName', 'coBorrowerPhone', 'coBorrowerEmail',
+  'channel', 'investor', 'loanType', 'loanProgram', 'loanAmount',
+  'propertyStreet', 'propertyUnit', 'propertyCity', 'propertyState', 'propertyZip', 'propertyOccupancy',
+  'homeValue', 'yearBuiltProperty', 'yearAquired', 'mannerInWhichTitleWillBeHeld',
+  'creditReportNotesExp', 'creditReportNotesEqf', 'creditReportNotesTui',
+] as const satisfies readonly (keyof MismoPrefill)[];
 
 const DEFAULT_MISMO_INCOME_PROFILE: MismoIncomeProfile = {
   hasAnyIncomeItems: false,
@@ -432,7 +442,9 @@ function parseMismoXml(xmlText: string, sourceFilename?: string, leadershipTest 
   };
 
   const borrowerParties = findPartiesByRole('Borrower');
-  const borrowerParty = borrowerParties[0] ?? null;
+  const applicants = leadershipTest ? leadershipApplicants(borrowerParties) : null;
+  const borrowerParty = applicants ? applicants.primaryParty : borrowerParties[0] ?? null;
+  const primaryContact = applicants ? leadershipApplicantContact(borrowerParty) : null;
   const loanOriginatorParty = findPartyByRole('LoanOriginator');
   const employerParty = findPartyByRole('Employer');
   const primaryEmployer =
@@ -529,8 +541,8 @@ function parseMismoXml(xmlText: string, sourceFilename?: string, leadershipTest 
     isVaIrrrl,
   };
 
-  const borrowerFirstName = getTextFromElement(borrowerParty, 'FirstName');
-  const borrowerLastName = getTextFromElement(borrowerParty, 'LastName');
+  const borrowerFirstName = primaryContact?.firstName ?? getTextFromElement(borrowerParty, 'FirstName');
+  const borrowerLastName = primaryContact?.lastName ?? getTextFromElement(borrowerParty, 'LastName');
   const getEmailFromParty = (party: Element | null) =>
     getFirstText(party, [
       'ContactPointEmailValue',
@@ -538,7 +550,7 @@ function parseMismoXml(xmlText: string, sourceFilename?: string, leadershipTest 
       'Email',
       'BorrowerEmailAddress',
     ]);
-  const borrowerPhone =
+  const borrowerPhone = primaryContact?.phone ?? (
     getFirstText(borrowerParty, [
       'ContactPointTelephoneValue',
       'TelephoneNumber',
@@ -552,27 +564,28 @@ function parseMismoXml(xmlText: string, sourceFilename?: string, leadershipTest 
       'PhoneNumber',
       'PhoneNumberValue',
       'BorrowerHomeTelephoneNumber',
-    ]);
-  const coBorrowerParty = borrowerParties.length > 1 ? borrowerParties[1] : null;
+    ]));
+  const coBorrowerParty = applicants ? applicants.coBorrowerParty : borrowerParties[1] ?? null;
+  const secondaryContact = applicants ? leadershipApplicantContact(coBorrowerParty) : null;
   const hasMultipleBorrowers = borrowerParties.length > 1;
-  const coBorrowerFirstName = getTextFromElement(coBorrowerParty, 'FirstName');
-  const coBorrowerLastName = getTextFromElement(coBorrowerParty, 'LastName');
-  const coBorrowerPhone = getFirstText(coBorrowerParty, [
+  const coBorrowerFirstName = secondaryContact?.firstName ?? getTextFromElement(coBorrowerParty, 'FirstName');
+  const coBorrowerLastName = secondaryContact?.lastName ?? getTextFromElement(coBorrowerParty, 'LastName');
+  const coBorrowerPhone = secondaryContact?.phone ?? getFirstText(coBorrowerParty, [
     'ContactPointTelephoneValue',
     'TelephoneNumber',
     'PhoneNumber',
     'PhoneNumberValue',
     'BorrowerHomeTelephoneNumber',
   ]);
-  const borrowerEmail =
+  const borrowerEmail = primaryContact?.email ?? (
     getEmailFromParty(borrowerParty) ||
     getFirstText(doc, [
       'ContactPointEmailValue',
       'EmailAddressText',
       'Email',
       'BorrowerEmailAddress',
-    ]);
-  const coBorrowerEmail = getEmailFromParty(coBorrowerParty);
+    ]));
+  const coBorrowerEmail = secondaryContact?.email ?? getEmailFromParty(coBorrowerParty);
   const normalizeRepository = (value: string) => value.trim().toUpperCase();
   const toScoreString = (value: string) => {
     const digits = value.trim().match(/\d{2,3}/)?.[0] || '';
@@ -753,6 +766,7 @@ function parseMismoXml(xmlText: string, sourceFilename?: string, leadershipTest 
 
   return {
     loanOfficer,
+    ...(leadershipTest && { leadershipOfficerEmail: leadershipOriginatorEmail(findPartiesByRole('LoanOriginator')) }),
     borrowerFirstName,
     borrowerLastName,
     borrowerPhone,
@@ -1988,6 +2002,11 @@ function QcForm({
 }) {
   const [documents, setDocuments] = useState(initialPilotPackage);
   const [leadershipExportGuid, setLeadershipExportGuid] = useState<string>();
+  const officerChosenManually = useRef(Boolean(initialPrefill?.loanOfficerId));
+  const importSequence = useRef(0);
+  const attachedLoan = useRef<ReturnType<typeof leadershipDocumentIdentity> | null>(null);
+  const [importBlockedByAttachments, setImportBlockedByAttachments] = useState(false);
+  const [importPreview, setImportPreview] = useState<Array<{ label: string; value: string }>>([]);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
@@ -2049,6 +2068,15 @@ function QcForm({
   const [importError, setImportError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const qcStep = currentStep;
+
+  function updateDocuments(next: PilotPackage) {
+    if (next.items.some(item => item.files.length > 0)) {
+      attachedLoan.current ??= leadershipDocumentIdentity({ ...form, leadershipExportGuid });
+    } else {
+      attachedLoan.current = null;
+    }
+    setDocuments(next);
+  }
 
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -2182,6 +2210,10 @@ function QcForm({
       return;
     }
 
+    if (documentPilot && attachedLoan.current && !sameLeadershipDocumentLoan(attachedLoan.current, { ...form, leadershipExportGuid })) {
+      setSubmitError('The attachments belong to the original loan. Restore its details or close this form and start a new test submission.');
+      return;
+    }
     if (documentPilot && qcStep !== 4) {
       onStepChange(4);
       return;
@@ -2235,73 +2267,89 @@ function QcForm({
 
   const handleFileUpload = async (file: File | null) => {
     if (!file) return;
+    const upload = ++importSequence.current;
     setIsParsingMismo(true);
     try {
       const text = await file.text();
+      if (upload !== importSequence.current) return;
       const prefill = parseMismoXml(text, file.name, documentPilot);
+      if (documentPilot) {
+        if (attachedLoan.current && !sameLeadershipDocumentLoan(attachedLoan.current, prefill)) {
+          setImportBlockedByAttachments(true);
+          setImportError('This export could not be matched to the loan with attached documents. Return to the original submission, or close this form and start a new test for another loan.');
+          return;
+        }
+        setImportBlockedByAttachments(false);
+        const amount = prefill.loanAmount?.trim();
+        const amountLabel = amount && Number.isFinite(Number(amount))
+          ? Number(amount).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2, minimumFractionDigits: 0 })
+          : amount;
+        const preview = [
+          { label: 'Borrower', value: [prefill.borrowerFirstName, prefill.borrowerLastName].filter(Boolean).join(' ') },
+          { label: 'Arive #', value: prefill.arriveLoanNumber || '' },
+          { label: 'Loan amount', value: amountLabel || '' },
+          { label: 'Subject property', value: [
+            [prefill.propertyStreet, prefill.propertyUnit].filter(Boolean).join(' '), prefill.propertyCity,
+            [prefill.propertyState, prefill.propertyZip].filter(Boolean).join(' '),
+          ].filter(Boolean).join(', ') },
+        ].filter(field => field.value);
+        const otherFields = Object.entries(prefill).filter(([key, value]) => key in form && typeof value === 'string' && value.trim());
+        if (!preview.length && !otherFields.length) {
+          setImportError('This XML contains no recognizable borrower, loan or property details. Choose the MISMO 3.4 loan export and try again.');
+          return;
+        }
+        setImportPreview(preview);
+      }
       setLeadershipExportGuid(prefill.leadershipExportGuid);
       setImportError('');
-      setForm((prev) => ({
-        ...prev,
-        borrowerFirstName: prefill.borrowerFirstName || prev.borrowerFirstName,
-        borrowerLastName: prefill.borrowerLastName || prev.borrowerLastName,
-        borrowerPhone: prefill.borrowerPhone || prev.borrowerPhone,
-        borrowerEmail: prefill.borrowerEmail || prev.borrowerEmail,
-        coBorrowerFirstName:
-          prefill.coBorrowerFirstName || prev.coBorrowerFirstName,
-        coBorrowerLastName:
-          prefill.coBorrowerLastName || prev.coBorrowerLastName,
-        coBorrowerPhone: prefill.coBorrowerPhone || prev.coBorrowerPhone,
-        coBorrowerEmail: prefill.coBorrowerEmail || prev.coBorrowerEmail,
-        arriveLoanNumber: sourceLoanId ? prev.arriveLoanNumber : prefill.arriveLoanNumber || '',
-        channel: prefill.channel || prev.channel,
-        investor: prefill.investor || prev.investor,
-        loanType: prefill.loanType || prev.loanType,
-        loanProgram: prefill.loanProgram || prev.loanProgram,
-        loanAmount: prefill.loanAmount || prev.loanAmount,
-        propertyStreet: prefill.propertyStreet || prev.propertyStreet,
-        propertyUnit: prefill.propertyUnit || prev.propertyUnit,
-        propertyCity: prefill.propertyCity || prev.propertyCity,
-        propertyState: prefill.propertyState || prev.propertyState,
-        propertyZip: prefill.propertyZip || prev.propertyZip,
-        propertyOccupancy:
-          prefill.propertyOccupancy || prev.propertyOccupancy,
-        homeValue: prefill.homeValue || prev.homeValue,
-        yearBuiltProperty:
-          prefill.yearBuiltProperty || prev.yearBuiltProperty,
-        yearAquired: prefill.yearAquired || prev.yearAquired,
-        mannerInWhichTitleWillBeHeld:
-          prefill.mannerInWhichTitleWillBeHeld ||
-          prev.mannerInWhichTitleWillBeHeld,
-        creditReportNotesExp:
-          prefill.creditReportNotesExp || prev.creditReportNotesExp,
-        creditReportNotesEqf:
-          prefill.creditReportNotesEqf || prev.creditReportNotesEqf,
-        creditReportNotesTui:
-          prefill.creditReportNotesTui || prev.creditReportNotesTui,
-      }));
+      setForm(prev => {
+        const next = { ...prev };
+        for (const field of processingMismoFields) next[field] = prefill[field] || (documentPilot ? '' : prev[field]);
+        if (!sourceLoanId) next.arriveLoanNumber = prefill.arriveLoanNumber || '';
+        if (documentPilot && !officerChosenManually.current) {
+          next.loanOfficerId = '';
+          next.loanOfficer = '';
+        }
+        return next;
+      });
+      if (documentPilot && prefill.leadershipOfficerEmail && !officerChosenManually.current) {
+        void resolveLeadershipMismoOfficer(prefill.leadershipOfficerEmail).then(id => {
+          const officer = id && loanOfficerOptions.find(option => option.id === id);
+          if (!officer || upload !== importSequence.current || officerChosenManually.current) return;
+          setForm(prev => ({ ...prev, loanOfficerId: officer.id, loanOfficer: officer.name }));
+        }).catch(() => { /* The authorized selector remains available for manual entry. */ });
+      }
       onStepChange(2);
     } catch {
+      if (upload !== importSequence.current) return;
       setImportError('Could not read this MISMO file. Please verify the XML export.');
       onStepChange(1);
     } finally {
-      setIsParsingMismo(false);
+      if (upload === importSequence.current) setIsParsingMismo(false);
     }
   };
 
   return (
     <form onSubmit={submit} noValidate className="space-y-4">
       {qcStep === 1 ? (
+        <>
         <DisclosureMismoStep
           onFileSelected={handleFileUpload}
           isParsing={isParsingMismo}
           importError={importError}
           tone="violet"
         />
+        {documentPilot && importBlockedByAttachments && <button type="button" className="app-btn-secondary" onClick={() => {
+          setImportBlockedByAttachments(false);
+          setImportError('');
+          onStepChange(3);
+        }}>Return to original submission</button>}
+        </>
       ) : documentPilot && qcStep === 4 ? (
-        <ProcessingDocumentsStep pkg={documents} onChange={setDocuments} busy={isSubmitting || uploadBusy} onBusyChange={value => { setUploadBusy(value); onDocumentUploadBusy(value); }} onBack={() => onStepChange(3)} error={submitError} />
+        <ProcessingDocumentsStep pkg={documents} onChange={updateDocuments} busy={isSubmitting || uploadBusy} onBusyChange={value => { setUploadBusy(value); onDocumentUploadBusy(value); }} onBack={() => onStepChange(3)} error={submitError} />
       ) : qcStep === 2 ? (
         <ProcessingMethodStep
+          importPreview={documentPilot ? importPreview : undefined}
           selectedMethod={selectedProcessingMethod}
           selectedAssignmentGroup={form.processingAssignmentGroup}
           onSelectMethod={selectProcessingMethod}
@@ -2366,6 +2414,7 @@ function QcForm({
             }`}
             value={form.loanOfficerId}
             onChange={(event) => {
+              officerChosenManually.current = true;
               const selectedId = event.target.value;
               const selectedLoanOfficer =
                 loanOfficerOptions.find((option) => option.id === selectedId) || null;
@@ -2588,6 +2637,7 @@ function QcForm({
 }
 
 function ProcessingMethodStep({
+  importPreview,
   selectedMethod,
   selectedAssignmentGroup,
   onSelectMethod,
@@ -2598,6 +2648,7 @@ function ProcessingMethodStep({
   error,
   showBack = true,
 }: {
+  importPreview?: Array<{ label: string; value: string }>;
   selectedMethod: ProcessingMethod | '';
   selectedAssignmentGroup: string;
   onSelectMethod: (method: ProcessingMethod) => void;
@@ -2617,6 +2668,15 @@ function ProcessingMethodStep({
 
   return (
     <div className="space-y-5">
+      {importPreview && (
+        <section aria-label="MISMO import summary" className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+          <p role="status" className="flex items-center gap-2 text-sm font-semibold text-emerald-900"><CheckCircle aria-hidden="true" className="h-4 w-4" />Imported from MISMO</p>
+          <dl className="mt-2 grid grid-cols-1 gap-x-5 gap-y-2 sm:grid-cols-2">
+            {importPreview.map(field => <div key={field.label} className="min-w-0"><dt className="text-xs text-slate-600">{field.label}</dt><dd className="break-words text-sm font-medium text-slate-950">{field.value}</dd></div>)}
+          </dl>
+          <p className="mt-2 text-xs text-slate-700">Choose a processing method to review the populated fields in Processing Details.</p>
+        </section>
+      )}
       <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-blue-50 p-5">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-700">
           Step 2
