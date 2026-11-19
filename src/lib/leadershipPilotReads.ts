@@ -1,7 +1,7 @@
 import { Prisma, ProcessingPipelineStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import type { AriveLoanIdentity } from './ariveIdentity';
-import { pilotIdentityHash } from './ariveLeadershipPilotIdentity';
+import { pilotIdentityMatches } from './ariveLeadershipPilotIdentity';
 import { ariveSyncView, jsonRecord } from './ariveSyncState';
 import { parseArivePipelineDate } from './arivePipelineMapping';
 import { isPilotAccessDenied, type AriveSyncView } from './ariveSyncTypes';
@@ -13,6 +13,10 @@ export const pilotIdentitySelect = {
   borrowerName: true,
   borrowerFirstName: true,
   borrowerLastName: true,
+  borrowerPhone: true,
+  borrowerEmail: true,
+  propertyAddress: true,
+  amount: true,
   loanOfficer: { select: { id: true, name: true, email: true } },
   secondaryLoanOfficer: { select: { id: true, name: true, email: true } },
 } satisfies Prisma.LoanSelect;
@@ -45,13 +49,13 @@ export function usablePilotProjection(loan: AriveLoanIdentity, projection: Proje
     !!projection.ariveGuid &&
     !!projection.collectedAt &&
     projection.ariveLoanId === loan.loanNumber &&
-    projection.identityHash === pilotIdentityHash(loan)
+    pilotIdentityMatches(loan, projection.identityHash)
   );
 }
 
 function currentReviewEvidence(loan: AriveLoanIdentity, projection: Projection) {
   return projection.reviewConnectionCurrent === true && projection.ariveLoanId === loan.loanNumber &&
-    projection.identityHash === pilotIdentityHash(loan);
+    pilotIdentityMatches(loan, projection.identityHash);
 }
 
 const managedPipelineFields = [

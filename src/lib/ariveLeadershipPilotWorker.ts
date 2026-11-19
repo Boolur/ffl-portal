@@ -7,8 +7,9 @@ import { AriveError, ariveLeadershipPilotReadSession, readAriveNotes } from './a
 import { AriveTransportError } from './ariveTransport';
 import { ariveRolloutCohortWhere, ariveRolloutJson, rolloutLoanSelect, stableAriveValue } from './ariveRollout';
 import { jsonRecord } from './ariveSyncState';
-import { pilotIdentityHash } from './ariveLeadershipPilotIdentity';
-import { inspectAriveLoanIdentity } from './ariveIdentity';
+import { corroboratedPilotIdentityHash, isMiddleNamePilotLink, pilotIdentityHash, pilotIdentityMatches } from './ariveLeadershipPilotIdentity';
+import { inspectPilotBorrower } from './arivePilotBorrowerMatch';
+import { normalizeAriveIdentity } from './ariveIdentity';
 import { leadershipPilotProjection, pilotProjectionChanged, PilotMatchReview } from './ariveLeadershipPilotProjection';
 import { collectPilotChangeHints, FULL_PILOT_HINT_INTERVAL_MS } from './ariveLeadershipPilotHints';
 import { parseArivePipelineDate } from './arivePipelineMapping';
@@ -200,9 +201,10 @@ export async function requestPilotFileRefresh(
     const row = await tx.processingPipelineLoan.findUnique({
       where: { id: pipelineId },
       select: {
-        loan: { select: { ...rolloutLoanSelect, updatedAt: true } },
+        loan: { select: { ...selectLoan, updatedAt: true } },
         pilotArive: { select: { enrollmentStatus: true, manualRefreshRequestedAt: true, leaseToken: true, leaseUntil: true,
-          ariveLoanId: true, identityHash: true, connectionRevision: true, lastAttemptAt: true, nextAttemptAt: true, failureCount: true } },
+          ariveLoanId: true, identityHash: true, connectionRevision: true, lastAttemptAt: true, nextAttemptAt: true, failureCount: true,
+          enrollmentIssue: true, lastError: true } },
       },
     });
     if (!row || (options.expectedIdentityHash && options.expectedIdentityHash !== pilotIdentityHash(row.loan)))
@@ -225,12 +227,18 @@ export async function requestPilotFileRefresh(
       // An explicit Sync can retry a correction. Ordinary retries, passive
       // watching and all provider-wide limits continue to use their normal gates.
       const identityChanged = previous.ariveLoanId !== row.loan.loanNumber ||
-        (previous.identityHash !== null && previous.identityHash !== pilotIdentityHash(row.loan));
+        (previous.identityHash !== null && !pilotIdentityMatches(row.loan, previous.identityHash));
       recheckCorrectedFile = identityChanged && (!previous.lastAttemptAt || row.loan.updatedAt > previous.lastAttemptAt);
       if (!recheckCorrectedFile) {
         const config = await tx.ariveIntegrationConfig.findUnique({ where: { id: CONNECTION }, select: { updatedAt: true } });
         const lastCheck = previous.lastAttemptAt ?? previous.connectionRevision;
         recheckCorrectedFile = !!config && !!lastCheck && config.updatedAt > lastCheck;
+        if (!recheckCorrectedFile && config && previous.enrollmentStatus === 'REVIEW' &&
+            previous.enrollmentIssue === 'Arive loan, borrower or originator did not match.' && previous.lastError === previous.enrollmentIssue) {
+          const [prior] = await priorPilotDiagnostics(tx, [pipelineId], config.updatedAt);
+          recheckCorrectedFile = prior?.borrowerOnly === true && prior.loanId === row.loan.id &&
+            prior.number === row.loan.loanNumber && prior.outcome === 'IDENTITY_MISMATCH';
+        }
       }
     }
     const data = options.watch
@@ -380,9 +388,10 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
   const validOld =
     row.collectedAt &&
     row.ariveLoanId === number &&
-    row.identityHash === matchHash &&
+    pilotIdentityMatches(loan, row.identityHash) &&
     row.connectionRevision?.getTime() === job.revision.getTime();
   let excluded = false;
+  let checkedBorrowerEvidence = false;
   try {
     const practice = await practiceEligibility(db, row.pipeline, number);
     if (!practice.allowed) {
@@ -446,11 +455,22 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
     const sourceModifiedAt = parseArivePipelineDate(jsonRecord(details).modifiedDateTime);
     if (validOld && sourceModifiedAt && row.sourceModifiedAt && sourceModifiedAt < row.sourceModifiedAt)
       throw new Error('REGRESSED');
-    const identity = inspectAriveLoanIdentity(details, loan, {
+    if (row.collectedAt && isMiddleNamePilotLink(row.identityHash) && number === row.ariveLoanId && guid !== row.ariveGuid)
+      throw new PilotMatchReview('The permanent Arive file ID for the previously corroborated loan changed.');
+    const { identity, middleName, expected } = inspectPilotBorrower(details, loan, {
       ariveGuid: guid,
       verifiedOriginatorEmail: pinned?.verifiedOriginatorEmail,
     });
-    if (identity.issues.length) throw new PilotMatchReview('Arive loan, borrower or originator did not match.');
+    if (identity.issues.length === 1 && identity.issues[0] === 'BORROWER_NAME') {
+      checkedBorrowerEvidence = true;
+      throw new PilotMatchReview('The borrower name differs. The primary borrower’s middle name, full subject property, loan amount and contact did not verify the link.');
+    }
+    if (identity.issues.length) throw new PilotMatchReview('The permanent Arive ID, loan number, or assigned originator did not verify the link.');
+    if (middleName && row.collectedAt && isMiddleNamePilotLink(row.identityHash) && row.ariveLoanId === number) {
+      const linked = jsonRecord(jsonRecord(row.snapshot).canonicalLoan);
+      if (expected !== normalizeAriveIdentity(`${linked.borrowerFirstName ?? ''} ${linked.borrowerLastName ?? ''}`))
+        throw new PilotMatchReview('The primary borrower on the previously corroborated Arive file changed.');
+    }
     const trackers = await api(`${path}/trackers`);
     const notes = await readAriveNotes(guid, api);
     if (stableAriveValue(details) !== stableAriveValue(await api(path)))
@@ -464,10 +484,15 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
         return 'held' as const;
       }
       const { current, now } = source;
+      if (middleName && corroboratedPilotIdentityHash(loan) !== corroboratedPilotIdentityHash(current.pipeline.loan)) {
+        await tx.pilotAriveProjection.updateMany({ where: owner, data: { leaseUntil: null, leaseToken: null } });
+        return 'held' as const;
+      }
       const projected = leadershipPilotProjection({
         current: current.pipeline,
         loan: current.pipeline.loan,
-        prior: validOld ? current : null,
+        prior: validOld || (middleName && current.collectedAt && isMiddleNamePilotLink(current.identityHash) && current.ariveGuid === permanentGuid &&
+          current.connectionRevision?.getTime() === job.revision.getTime()) ? current : null,
         previousVersion: current.projectionVersion,
         guid: permanentGuid,
         details,
@@ -493,7 +518,7 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
               }
             : {}),
           ariveLoanId: number,
-          identityHash: matchHash,
+          identityHash: middleName ? corroboratedPilotIdentityHash(current.pipeline.loan) : matchHash,
           connectionRevision: job.revision,
           enrollmentStatus: 'VERIFIED',
           enrollmentIssue: null,
@@ -535,7 +560,7 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
         return;
       }
       const source = review ? await currentPilotSource(tx, job, matchHash, clock) : null;
-      if (review && !source) {
+      if (review && (!source || (checkedBorrowerEvidence && corroboratedPilotIdentityHash(source.current.pipeline.loan) !== corroboratedPilotIdentityHash(loan)))) {
         await tx.pilotAriveProjection.updateMany({ where: owner, data: { leaseUntil: null, leaseToken: null } });
         return;
       }
@@ -544,7 +569,7 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
         data: {
           ...(review ? { enrollmentStatus: excluded ? 'EXCLUDED' : 'REVIEW', enrollmentIssue: message } : {}),
           ...(source && !source.current.collectedAt
-            ? { ariveLoanId: number, identityHash: matchHash, connectionRevision: job.revision } : {}),
+            ? { ariveLoanId: number, identityHash: checkedBorrowerEvidence ? corroboratedPilotIdentityHash(loan) : matchHash, connectionRevision: job.revision } : {}),
           lastError: message,
           failureCount: { increment: 1 },
           leaseUntil: null,

@@ -243,7 +243,12 @@ function serializeRow(row: {
     payrollStatus: row.loan.payrollCompRequests[0]?.status || null,
     daysInStatus: calculateDaysInStatus(row.statusChangedAt),
     loan: {
-      ...row.loan,
+      id: row.loan.id,
+      loanNumber: row.loan.loanNumber,
+      loanOfficerId: row.loan.loanOfficerId,
+      borrowerName: row.loan.borrowerName,
+      program: row.loan.program,
+      payrollCompRequests: row.loan.payrollCompRequests,
       amount: Number(row.loan.amount),
       borrowerFirstName:
         row.loan.borrowerFirstName || fallbackBorrowerName.firstName,
@@ -490,10 +495,13 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
   return clauses;
 }
 
-const processingPipelineRowInclude = {
+const processingPipelineRowInclude = (pilot: boolean) => ({
         loan: {
           select: {
             ...pilotIdentitySelect,
+            borrowerPhone: pilot,
+            borrowerEmail: pilot,
+            propertyAddress: pilot,
             id: true,
             loanNumber: true,
             loanOfficerId: true,
@@ -515,13 +523,13 @@ const processingPipelineRowInclude = {
         },
         seniorProcessor: { select: { id: true, name: true } },
         juniorProcessor: { select: { id: true, name: true } },
-      } satisfies Prisma.ProcessingPipelineLoanInclude;
+      } satisfies Prisma.ProcessingPipelineLoanInclude);
 
 async function loadProcessingRows(actor: Actor, ids: string[], viewScope?: ProcessingLayoutScope) {
   if (!ids.length) return [];
   const rows = await prisma.processingPipelineLoan.findMany({
     where: { AND: [scopeWhere(actor, viewScope), { id: { in: ids } }] },
-    include: processingPipelineRowInclude,
+    include: processingPipelineRowInclude(actor.canViewGeneralizedArive),
   });
   const projections = actor.canViewGeneralizedArive ? await readPilotProjections(rows.map(row => row.id)) : null;
   return orderPipelineRows(ids, rows).flatMap(row => {

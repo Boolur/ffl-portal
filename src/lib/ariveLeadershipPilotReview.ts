@@ -12,6 +12,7 @@ export type PriorDiagnostic = {
   searchStatus: string | null;
   detailStatus: string | null;
   probeStatus: string | null;
+  borrowerOnly?: boolean;
 };
 type SavedEnrollment = {
   ariveLoanId: string;
@@ -33,7 +34,8 @@ export async function priorPilotDiagnostics(tx: Prisma.TransactionClient, ids: s
     SELECT DISTINCT ON (r->>'pipelineId') r->>'pipelineId' AS "pipelineId", c->>'loanId' AS "loanId",
       c->>'loanNumber' AS number,c->>'sourceHash' AS "sourceHash",r->>'outcome' AS outcome,
       r->>'searchHttpStatus' AS "searchStatus",r->>'detailHttpStatus' AS "detailStatus",
-      r#>>'{evidence,numericProbe,httpStatus}' AS "probeStatus"
+      r#>>'{evidence,numericProbe,httpStatus}' AS "probeStatus",
+      (r#>'{evidence,detail,issues}' = '["BORROWER_NAME"]'::jsonb AND r#>'{evidence,search,issues}' = '["BORROWER_NAME"]'::jsonb) AS "borrowerOnly"
     FROM recent CROSS JOIN LATERAL jsonb_array_elements(run->'results') r
     JOIN LATERAL jsonb_array_elements(run->'cohort') c ON c->>'pipelineId'=r->>'pipelineId'
     WHERE run->>'status'='COMPLETE' AND run->>'credentialRevision'=${revision.toISOString()}

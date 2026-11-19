@@ -65,6 +65,18 @@ describe('bounded processing pipeline reads', () => {
     expect(JSON.stringify(query.where.AND[0])).toContain('archivedAt');
   });
 
+  it('keeps corroborating borrower contact and property out of Standard grid reads and serialized rows', async () => {
+    const record = row('fixture');
+    Object.assign(record.loan, { borrowerEmail: 'fixture@example.test', borrowerPhone: '2025550121', propertyAddress: '2 Example Street' });
+    mocks.db.processingPipelineLoan.findMany.mockResolvedValue([record]);
+    const result = await getProcessingPipelineRows({ids: [record.id]});
+    expect(mocks.db.processingPipelineLoan.findMany.mock.calls[0][0].include.loan.select)
+      .toMatchObject({ borrowerEmail: false, borrowerPhone: false, propertyAddress: false });
+    expect(result.success).toBe(true);
+    if (result.success) for (const field of ['borrowerEmail', 'borrowerPhone', 'propertyAddress'])
+      expect(result.rows[0].loan).not.toHaveProperty(field);
+  });
+
   it('rejects unauthenticated and oversized continuation requests before reading rows', async () => {
     expect(await getProcessingPipelineRows({ ids: Array.from({ length: 101 }, (_, i) => String(i)) })).toMatchObject({ success: false });
     mocks.session.mockResolvedValue(null);

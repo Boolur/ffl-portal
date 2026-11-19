@@ -1,7 +1,9 @@
 import type { PilotAriveProjection, ProcessingPipelineLoan } from '@prisma/client';
 import type { AriveNote } from './ariveClient';
 import { projectAriveApplicationSnapshot } from './ariveApplicationSnapshot';
-import { inspectAriveLoanIdentity, normalizeAriveIdentity } from './ariveIdentity';
+import { normalizeAriveIdentity } from './ariveIdentity';
+import { inspectPilotBorrower } from './arivePilotBorrowerMatch';
+import { isMiddleNamePilotLink } from './ariveLeadershipPilotIdentity';
 import { planAriveOneTimeReconciliation, type AriveOneTimeLoan } from './ariveOneTimeReconciliation';
 import { ariveSyncSameValue, jsonRecord } from './ariveSyncState';
 import { ariveSyncFieldLabel } from './ariveSyncTypes';
@@ -118,17 +120,12 @@ export function leadershipPilotProjection(input: {
   financialHistoryProtected: boolean;
 }) {
   const { current, loan, prior, details } = input;
-  const identity = inspectAriveLoanIdentity(details, loan, {
+  const { identity, expected, middleName } = inspectPilotBorrower(details, loan, {
     ariveGuid: input.guid,
     verifiedOriginatorEmail: prior?.verifiedOriginatorEmail,
   });
   if (identity.issues.length || !identity.guid || !identity.originatorEmail)
     throw new PilotMatchReview('The exact loan, borrower or originator no longer matches. Review the Arive link.');
-  const expected = normalizeAriveIdentity(
-    loan.borrowerFirstName && loan.borrowerLastName
-      ? `${loan.borrowerFirstName} ${loan.borrowerLastName}`
-      : loan.borrowerName,
-  );
   const matching = projectAriveApplicationSnapshot(details).applicants.filter(
     (person) => normalizeAriveIdentity(`${person.firstName ?? ''} ${person.lastName ?? ''}`) === expected,
   );
@@ -136,6 +133,11 @@ export function leadershipPilotProjection(input: {
     throw new PilotMatchReview('Arive did not return one matching applicant.');
   const person = matching[0];
   const old = jsonRecord(prior?.snapshot);
+  if (middleName && isMiddleNamePilotLink(prior?.identityHash)) {
+    const previouslyLinked = jsonRecord(old.canonicalLoan);
+    if (expected !== normalizeAriveIdentity(`${previouslyLinked.borrowerFirstName ?? ''} ${previouslyLinked.borrowerLastName ?? ''}`))
+      throw new PilotMatchReview('The primary borrower on the previously corroborated Arive file changed.');
+  }
   const overrides = Object.entries(jsonRecord(old.managed)).filter(([key]) => pilotFields.has(key));
   const effective = {
     ...current,
@@ -235,6 +237,7 @@ export function leadershipPilotProjection(input: {
     routingProvenance: plan.routingProvenance,
     snapshot: {
       ...plan.snapshot,
+      ...(middleName ? { borrowerIdentityMethod: 'VERIFIED_MIDDLE_NAME' } : {}),
       publishedAt: input.now.toISOString(),
       managed,
       canonicalLoan,

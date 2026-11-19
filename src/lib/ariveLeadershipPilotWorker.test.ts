@@ -217,6 +217,26 @@ describe('leadership-only collection', () => {
     expect(h.row).toMatchObject({ snapshot, projectionVersion: 2, collectedAt: new Date('2026-04-15T12:02:00Z') });
     expect(h.db.pilotAriveControl.update).toHaveBeenCalledTimes(2);
   });
+  it('retains the legal borrower only in the Pilot and rechecks original facts before publishing each read', async () => {
+    const h = harness();
+    Object.assign(h.pipeline.loan, { propertyAddress: '1 Example St, Example City, CA 90000', borrowerPhone: '2025550142' });
+    Object.assign(h.details, { baseLoanAmount: 150000, subjectProperty: {
+      addressLineText: '1 Example Street', city: 'Example City', state: 'CA', postalCode: '90000',
+    } });
+    const applicant = h.details.loanBorrowers[0];
+    Object.assign(applicant, { middleName: 'Borrower', lastName: 'Sample', mobilePhone10digit: '2025550142' });
+    expect(await h.run()).toMatchObject({ succeeded: 1 });
+    expect(h.row).toMatchObject({ identityHash: expect.stringMatching(/^middle-name:/), enrollmentStatus: 'VERIFIED',
+      snapshot: { borrowerIdentityMethod: 'VERIFIED_MIDDLE_NAME', canonicalLoan: {borrowerName: 'Synthetic Sample'} } });
+    expect(h.pipeline.loan.borrowerName).toBe('Synthetic Borrower');
+    h.advance();
+    expect(await h.run()).toMatchObject({ succeeded: 1 });
+    h.advance();
+    applicant.lastName = 'Different';
+    expect(await h.run()).toMatchObject({ succeeded: 0 });
+    expect(h.row).toMatchObject({ enrollmentStatus: 'REVIEW', snapshot: { canonicalLoan: {borrowerName:'Synthetic Sample'} } });
+    expect(h.pipeline.loan.borrowerLastName).toBe('Borrower');
+  });
   it('does not take a lease when the worker has insufficient time for a complete read', async () => {
     const h = harness();
     expect(await runLeadershipPilotCollection({ db: h.db as never, deadlineMs: Date.now() + 5_000 })).toMatchObject({

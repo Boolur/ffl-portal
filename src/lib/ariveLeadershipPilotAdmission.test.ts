@@ -4,8 +4,8 @@ vi.mock('./prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/ariveCrypto', () => ({ decryptAriveCredentials: vi.fn() }));
 import { requestPilotFileRefresh } from './ariveLeadershipPilotWorker';
-import { pilotIdentityHash } from './ariveLeadershipPilotIdentity';
-import { pilotReviewMessage, summarizePilotCoverage } from './leadershipPilotReads';
+import { corroboratedPilotIdentityHash, pilotIdentityHash } from './ariveLeadershipPilotIdentity';
+import { effectivePilotRow, matchesPilotWhere, pilotReviewMessage, pilotSyncView, summarizePilotCoverage } from './leadershipPilotReads';
 import { isPilotAccessDenied } from './ariveSyncTypes';
 
 const now = new Date();
@@ -98,5 +98,39 @@ describe('leadership file admission', () => {
       .toEqual({ eligible: 10, verified: 4, pending: 1, waiting: 1, inaccessible: 1, review: 3,
         excluded: 1, verifiedActive: 2, activeFresh: 1, verifiedQuiet: 2, quietFresh: 1, oldestDueSeconds: 10,
         sourcePipeline: { total: 9, verified: 2, pending: 2, review: 4, excluded: 1 } });
+  });
+
+  it('retries the old name-only check on explicit Sync once, never other exceptions or provider backoff', async () => {
+    const legacy = 'Arive loan, borrower or originator did not match.';
+    for (const [watch, issue, lastError, borrowerOnly, expected] of [
+      [false, legacy, legacy, true, true], [true, legacy, legacy, true, false], [false, legacy, legacy, false, false],
+      [false, legacy, 'Arive collection deferred (BUSY).', true, false], [false, 'No exact loan number was found.', legacy, true, false],
+      [false, 'The borrower name differs.', 'The borrower name differs.', true, false],
+    ] as const) {
+      const source = { ...loan, updatedAt: now };
+      const tx = { $executeRaw: vi.fn(), $queryRaw: vi.fn().mockResolvedValue([{ number: loan.loanNumber, loanId: loan.id, borrowerOnly, outcome:'IDENTITY_MISMATCH' }]),
+        ariveIntegrationConfig: { findUnique: vi.fn().mockResolvedValue({ updatedAt: now }) },
+        pilotAriveControl: { findUnique: vi.fn().mockResolvedValue({enabled: true, cohortLimit: null}) },
+        processingPipelineLoan: { findUnique: vi.fn().mockResolvedValue({ loan: source, pilotArive: {
+          ...verified, enrollmentStatus: 'REVIEW', enrollmentIssue: issue, lastError, connectionRevision: now,
+          lastAttemptAt: now, nextAttemptAt: new Date(+now + 3_600_000), failureCount: 1,
+        } }) }, pilotAriveProjection: { upsert: vi.fn() } };
+      await requestPilotFileRefresh('fixture', {watch}, { $transaction: (work: (client: typeof tx) => unknown) => work(tx) } as never);
+      expect('nextAttemptAt' in tx.pilotAriveProjection.upsert.mock.calls[0][0].update).toBe(expected);
+    }
+  });
+
+  it('agrees on the legal name for details, filtering and coverage and hides it immediately if the corroboration changes', () => {
+    const source = { ...loan, borrowerPhone: '2025550141', borrowerEmail: null, amount: 150000, propertyAddress: '2 Example St' };
+    const projection = { ...verified, identityHash: corroboratedPilotIdentityHash(source), snapshot: {
+      canonicalLoan: {borrowerName: 'Fixture Sample', borrowerLastName: 'Sample'}, managed: {} } };
+    const projections = new Map([[loan.id, projection]]);
+    for (const [record, current] of [[source, true], [{ ...source, propertyAddress: '3 Example St' }, false]] as const) {
+      const row = {id: loan.id, sheet: 'PIPELINE', loan: record, archivedAt: null};
+      expect(pilotSyncView(row.loan, projection).enrollmentStatus).toBe(current ? 'VERIFIED' : 'REVIEW');
+      expect(matchesPilotWhere(effectivePilotRow(row, projection), {loan: {borrowerName: {contains: 'Sample', mode:'insensitive'}}})).toBe(current);
+      expect(summarizePilotCoverage([row], projections, now).sourcePipeline.verified).toBe(Number(current));
+      expect(row.loan.borrowerLastName).toBe('Borrower');
+    }
   });
 });
