@@ -33,11 +33,21 @@ export function LeadershipCollectorSettings() {
   return <section className="app-surface-card space-y-3 p-5" aria-label="Leadership Pilot collection">
     <h2 className="text-lg font-semibold">Leadership Pilot collection</h2>
     {status && <>
-      <p>{status.enabled ? 'Collecting' : 'Paused'} · {status.limit === null ? 'All verified files' : 'Cohort of ' + status.limit}</p>
+      <p>{status.enabled ? 'Collecting' : 'Paused'} · {status.limit === null ? 'All eligible files · No loan cap' : 'Cohort of ' + status.limit}</p>
+      <section className="rounded-lg border border-border p-3" aria-label="Active Pipeline coverage">
+        <h3 className="font-semibold">Active Pipeline coverage</h3>
+        <p className="text-sm">
+          <strong>{status.coverage.sourcePipeline.verified} of {status.coverage.sourcePipeline.total}</strong> active loans in Standard have a verified Arive snapshot in Pilot.
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {status.coverage.sourcePipeline.pending} awaiting verification · {status.coverage.sourcePipeline.review} need review
+          {status.coverage.sourcePipeline.excluded > 0 && <> · {status.coverage.sourcePipeline.excluded} excluded practice files</>}
+        </p>
+      </section>
       <dl className="grid gap-3 text-sm sm:grid-cols-3">
         {Object.entries({ 'Files eligible for Pilot verification': status.coverage.eligible,
           'Verified files': status.coverage.verified, 'Pending verification': status.coverage.pending,
-          'Waiting for a cohort opening': status.coverage.waiting, 'Arive access denied': status.coverage.inaccessible,
+          ...(status.limit !== null && { 'Waiting for a cohort opening': status.coverage.waiting }), 'Arive access denied': status.coverage.inaccessible,
           'Other matches needing review': status.coverage.review, 'Excluded practice files': status.coverage.excluded,
           'Verified active files checked in the past minute': `${status.coverage.activeFresh} / ${status.coverage.verifiedActive}`,
           'Verified funded or archived files checked in the past hour': `${status.coverage.quietFresh} / ${status.coverage.verifiedQuiet}`,

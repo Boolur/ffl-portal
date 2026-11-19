@@ -92,9 +92,11 @@ describe('leadership file admission', () => {
       { ...verified, pipelineId: 'archived', archivedAt: now, collectedAt: new Date(+now - 61 * 60_000) },
       { ...verified, pipelineId: 'late-active', collectedAt: new Date(+now - 61_000) },
     ];
-    const files = [...all.map(file => ({ id: file.pipelineId, sheet: 'PIPELINE', loan })), { id: 'new', sheet: 'PIPELINE', loan }];
+    const files = [...all.map(file => ({ id: file.pipelineId, sheet: file.pipelineId === 'late-active' ? 'RESTRUCTURE' : 'PIPELINE',
+      archivedAt: file.pipelineId === 'archived' ? now : null, loan })), { id: 'new', sheet: 'PIPELINE', loan }];
     expect(summarizePilotCoverage(files, new Map(all.map(file => [file.pipelineId, file])), now))
       .toEqual({ eligible: 10, verified: 4, pending: 1, waiting: 1, inaccessible: 1, review: 3,
-        excluded: 1, verifiedActive: 2, activeFresh: 1, verifiedQuiet: 2, quietFresh: 1, oldestDueSeconds: 10 });
+        excluded: 1, verifiedActive: 2, activeFresh: 1, verifiedQuiet: 2, quietFresh: 1, oldestDueSeconds: 10,
+        sourcePipeline: { total: 9, verified: 2, pending: 2, review: 4, excluded: 1 } });
   });
 });

@@ -213,18 +213,25 @@ export function pilotReviewMessage(issue: string | null) {
     : issue;
 }
 
-export function summarizePilotCoverage(files: { id: string; sheet: string; loan: AriveLoanIdentity }[], projections: Map<string, Projection>, now: Date) {
+export function summarizePilotCoverage(files: { id: string; sheet: string; archivedAt?: Date | null; loan: AriveLoanIdentity }[], projections: Map<string, Projection>, now: Date) {
   const counts = { eligible: 0, verified: 0, pending: 0, waiting: 0, inaccessible: 0, review: 0, excluded: 0,
     verifiedActive: 0, activeFresh: 0, verifiedQuiet: 0, quietFresh: 0, oldestDueSeconds: 0 };
+  const sourcePipeline = { total: 0, verified: 0, pending: 0, review: 0, excluded: 0 };
   for (const file of files) {
+    // A file moved to Fundings in Pilot still belongs in the coverage denominator
+    // if staff see it in their active Pipeline.
+    const inPipeline = file.sheet === 'PIPELINE' && !file.archivedAt;
+    if (inPipeline) sourcePipeline.total++;
     const projection = projections.get(file.id);
     if (projection?.enrollmentStatus === 'EXCLUDED') {
       counts.excluded++;
+      if (inPipeline) sourcePipeline.excluded++;
       continue;
     }
     counts.eligible++;
     if (projection && usablePilotProjection(file.loan, projection)) {
       counts.verified++;
+      if (inPipeline) sourcePipeline.verified++;
       const age = +now - +projection.collectedAt!;
       if (projection.archivedAt || (projection.sheet ?? file.sheet) === 'FUNDING') {
         counts.verifiedQuiet++;
@@ -237,18 +244,22 @@ export function summarizePilotCoverage(files: { id: string; sheet: string; loan:
         counts.oldestDueSeconds = Math.max(counts.oldestDueSeconds, Math.floor((+now - +projection.nextAttemptAt) / 1000));
     }
     else if (projection?.enrollmentStatus === 'REVIEW' || projection?.enrollmentStatus === 'VERIFIED') {
+      if (inPipeline) sourcePipeline.review++;
       if (currentReviewEvidence(file.loan, projection) && isPilotAccessDenied(projection.enrollmentIssue)) counts.inaccessible++;
       else counts.review++;
-    } else if (projection?.pilotRefreshHold === 'COHORT_FULL') counts.waiting++;
-    else counts.pending++;
+    } else {
+      if (inPipeline) sourcePipeline.pending++;
+      if (projection?.pilotRefreshHold === 'COHORT_FULL') counts.waiting++;
+      else counts.pending++;
+    }
   }
-  return counts;
+  return { ...counts, sourcePipeline };
 }
 
 export async function readPilotCoverage(where: Prisma.ProcessingPipelineLoanWhereInput, now: Date) {
   const files = await prisma.processingPipelineLoan.findMany({
     where,
-    select: { id: true, sheet: true, loan: { select: pilotIdentitySelect } },
+    select: { id: true, sheet: true, archivedAt: true, loan: { select: pilotIdentitySelect } },
   });
   const projections = await readPilotProjections(files.map(file => file.id), 'coverage');
   return summarizePilotCoverage(files, projections, now);
