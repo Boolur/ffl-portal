@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
+vi.mock('node:timers/promises', async importOriginal => {
+  const timers = await importOriginal<typeof import('node:timers/promises')>();
+  return { ...timers, setTimeout: vi.fn(timers.setTimeout) };
+});
+import { setTimeout as waitForHint } from 'node:timers/promises';
 vi.mock('./prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/ariveCrypto', () => ({ decryptAriveCredentials: vi.fn() }));
@@ -243,6 +248,40 @@ describe('leadership-only collection', () => {
     ]);
     expect(session).not.toHaveBeenCalled();
   });
+  it('wakes at the database scan deadline while a full-volume file is busy and cancels its timer on completion', async () => {
+    const h = harness();
+    let now = new Date();
+    Object.assign(h.control, { cohortLimit: null, lastHintScanAt: new Date(+now - 15_000) });
+    let claimed = false;
+    const findFirst = vi.fn(async (query: { select?: { pipelineId: boolean } }) => {
+      if (query.select?.pipelineId) return { pipelineId: 'file' };
+      if (claimed) return null;
+      claimed = true;
+      return structuredClone(h.row);
+    });
+    const db = { ...h.db, processingPipelineLoan: { findMany: vi.fn(async () => []) },
+      pilotAriveProjection: { ...h.db.pilotAriveProjection, findFirst } };
+    db.$transaction.mockImplementation(async work => work(db));
+    let finishFile!: () => void, wake!: () => void;
+    const fileGate = new Promise<void>(resolve => { finishFile = resolve; });
+    const wakeGate = new Promise<void>(resolve => { wake = resolve; });
+    const sleeping = vi.mocked(waitForHint);
+    sleeping.mockClear();
+    sleeping.mockImplementationOnce(() => wakeGate);
+    const api = vi.fn(async (path: string) => {
+      if (path.includes('orderBy=updatedAt')) return { count: 0, rows: [] };
+      await fileGate;
+      return h.api(path);
+    });
+    const run = runLeadershipPilotCollection({ db: db as never, now: () => now, session: async () => api as never });
+    await vi.waitFor(() => expect(sleeping).toHaveBeenCalledWith(5_000, undefined, expect.anything()));
+    now = new Date(+now + 5_000);
+    wake();
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith('/loans?limit=100&offset=0&orderBy=updatedAt&sort=DESC'));
+    finishFile();
+    await run;
+    expect(sleeping.mock.calls[0][2]?.signal?.aborted).toBe(true);
+  });
   it.each([{ limit: 50, slots: 2 }, { limit: null, slots: 4 }])(
     'stages $slots independent file reads at cohort $limit while honoring one lease per file', async ({ limit, slots }) => {
       const h = harness();
@@ -427,7 +466,7 @@ describe('leadership-only collection', () => {
         count: 4,
         rows: [a, b, { ...a, sysGUID: 'wrong' }, { ...b, modifiedDateTime: 'invalid' }],
       }),
-    ).toEqual([{ number: '802', guid: 'guid-b', modified: new Date(b.modifiedDateTime) }]);
+    ).toEqual([{ number: '802', guid: 'guid-b', modified: new Date(b.modifiedDateTime), stage: null }]);
     expect(parsePilotChangeHints({ count: 0, rows: [a] })).toEqual([]);
     expect(parsePilotChangeHints({ count: 300, rows: [] })).toEqual([]);
   });

@@ -1,5 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as wait } from 'node:timers/promises';
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { AriveError, ariveLeadershipPilotReadSession, readAriveNotes } from './ariveClient';
@@ -9,7 +10,7 @@ import { jsonRecord } from './ariveSyncState';
 import { pilotIdentityHash } from './ariveLeadershipPilotIdentity';
 import { inspectAriveLoanIdentity } from './ariveIdentity';
 import { leadershipPilotProjection, pilotProjectionChanged, PilotMatchReview } from './ariveLeadershipPilotProjection';
-import { collectPilotChangeHints } from './ariveLeadershipPilotHints';
+import { collectPilotChangeHints, FULL_PILOT_HINT_INTERVAL_MS } from './ariveLeadershipPilotHints';
 import { parseArivePipelineDate } from './arivePipelineMapping';
 import { readPilotPackage } from './submissionPilot';
 import { diagnosticSourceSelect } from './ariveDiagnosticSource';
@@ -287,6 +288,7 @@ async function claim(db: typeof prisma, now: Date, pipelineId: string | undefine
             { nextAttemptAt: null },
             { nextAttemptAt: { lte: now } },
             { manualRefreshRequestedAt: { not: null }, failureCount: 0 },
+            { hintRequestedAt: { not: null }, failureCount: 0 },
           ],
         },
         { OR: [{ lastAttemptAt: null }, { lastAttemptAt: { lte: new Date(+now - 10_000) } }] },
@@ -574,17 +576,42 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
     deferred = 0;
   let stopAdmission = false;
   let fullPipeline = false;
+  let nextHintScanMs = 0;
   const deadlineMs = options.deadlineMs ?? Date.now() + 110_000;
   const handoffUntil = Math.min(deadlineMs - 30_000, Date.now() + 55_000);
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
   let handoff: Promise<boolean> | undefined;
   if (!allowedEnvironment() || Date.now() >= deadlineMs - 30_000) return { checked, succeeded, deferred };
-  if (!options.pipelineId) {
-    fullPipeline = (await discover(db, now())) === true;
+  async function scanRecentChanges() {
+    const sampledAt = now();
+    nextHintScanMs = +sampledAt + FULL_PILOT_HINT_INTERVAL_MS;
     try {
-      await collectPilotChangeHints(db, now(), options.session ?? ariveLeadershipPilotReadSession);
+      const due = await collectPilotChangeHints(db, sampledAt, options.session ?? ariveLeadershipPilotReadSession);
+      if (due) nextHintScanMs = +due;
     } catch {
       /* An unavailable hint feed cannot suppress the fair reconciliation sweep. */
+    }
+  }
+  if (!options.pipelineId) {
+    fullPipeline = (await discover(db, now())) === true;
+    await scanRecentChanges();
+  }
+  // Only a scheduled, full-volume worker scans between cron starts. Stop its
+  // timer immediately when the file lanes drain. Each scan still requires the
+  // shared database claim across all invocations and both transport slots.
+  const hintTimer = new AbortController();
+  async function followRecentChanges() {
+    while (fullPipeline && !stopAdmission && !hintTimer.signal.aborted) {
+      const delay = Math.max(20, nextHintScanMs - +now());
+      if (Date.now() + delay >= deadlineMs - 30_000) return;
+      try {
+        await wait(delay, undefined, { signal: hintTimer.signal });
+      } catch (error) {
+        if (hintTimer.signal.aborted) return;
+        throw error;
+      }
+      if (stopAdmission || hintTimer.signal.aborted || Date.now() >= deadlineMs - 30_000) return;
+      await scanRecentChanges();
     }
   }
   async function waitForHandoff() {
@@ -672,7 +699,9 @@ export async function runLeadershipPilotCollection(options: Options = {}) {
   const lanes = [drain(true)];
   if (!options.pipelineId) lanes.push(drain(false));
   if (fullPipeline) lanes.push(drain(true), drain(false));
-  const completed = await Promise.allSettled(lanes);
+  const hints = followRecentChanges();
+  const completed = await Promise.allSettled(lanes).finally(() => hintTimer.abort());
+  await hints;
   const failed = completed.find((lane) => lane.status === 'rejected');
   if (failed) throw failed.reason;
   return { checked, succeeded, deferred };
