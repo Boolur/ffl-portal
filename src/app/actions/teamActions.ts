@@ -3,6 +3,15 @@
 import { prisma } from '@/lib/prisma';
 import { UserRole } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { currentPortalActor } from '@/lib/currentPortalActor';
+import { canAccessTeamPage } from '@/lib/adminTiers';
+
+// Internal document packages are subordinate to the real processing request.
+const staffWorkload = { NOT: { kind: null, title: 'Processing submission pilot — documents' } };
+async function authorizedTeamPage() {
+  const actor = await currentPortalActor();
+  return Boolean(actor && canAccessTeamPage([actor.role]));
+}
 
 export type TeamMemberSummary = {
   id: string;
@@ -51,6 +60,7 @@ export type MemberDetails = {
 };
 
 export async function getTeamMembers(): Promise<TeamMemberSummary[]> {
+  if (!await authorizedTeamPage()) return [];
   const users = await prisma.user.findMany({
     orderBy: { name: 'asc' },
     select: {
@@ -62,7 +72,7 @@ export async function getTeamMembers(): Promise<TeamMemberSummary[]> {
       _count: {
         select: {
           loansAsLO: true,
-          assignedTasks: true,
+          assignedTasks: { where: staffWorkload },
         },
       },
     },
@@ -80,6 +90,7 @@ export async function getTeamMembers(): Promise<TeamMemberSummary[]> {
 }
 
 export async function getMemberDetails(userId: string): Promise<MemberDetails | null> {
+  if (!await authorizedTeamPage()) return null;
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -109,7 +120,7 @@ export async function getMemberDetails(userId: string): Promise<MemberDetails | 
   });
 
   const tasks = await prisma.task.findMany({
-    where: { assignedUserId: userId },
+    where: { assignedUserId: userId, ...staffWorkload },
     orderBy: { createdAt: 'desc' },
     select: {
       id: true,
@@ -143,6 +154,7 @@ export async function getMemberDetails(userId: string): Promise<MemberDetails | 
 }
 
 export async function reassignLoans(oldUserId: string, newUserId: string) {
+  if (!await authorizedTeamPage()) return { success: false, error: 'Not authorized.' };
   if (!oldUserId || !newUserId) {
     return { success: false, error: 'Both users are required.' };
   }

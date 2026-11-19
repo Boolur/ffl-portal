@@ -18,6 +18,9 @@ export type AriveSyncServiceTracker = {
   availability: 'current' | 'missing' | 'ambiguous';
 };
 export type AriveSyncView = {
+  pilotPreview?: boolean;
+  enrollmentStatus?: string;
+  projectionVersion?: number;
   enabled: boolean;
   workerOwner?: 'LEGACY' | 'GENERALIZED';
   manualRefreshRequestedAt?: string | null;

@@ -165,7 +165,7 @@ describe('operator-authorized capacity persistence', () => {
     expect(result).toEqual({ enabled: true, allowance: 120, windowSeconds: 60, deploymentActive: true, allowanceSource: 'OPERATOR_AUTHORIZED' });
     const update = mock.upsert.mock.calls[0][0].update;
     expect(update).toEqual({ enabled: true, allowanceSource: 'OPERATOR_AUTHORIZED', operatorRequestLimit: 120,
-      operatorAuthorizedAt: now, operatorAuthorizedById: 'admin-test', quotaKeyFingerprint: ariveTransportFingerprint(credentials, secret, 'key'), quotaConfirmedAt: null });
+      operatorAuthorizedAt: now, operatorAuthorizedById: 'admin-test', quotaKeyFingerprint: ariveTransportFingerprint(credentials, secret, 'key'), quotaConfirmedAt: new Date('2026-01-01') });
     for (const untouched of ['providerRequestLimit', 'providerWindowSeconds', 'cooldownUntil', 'encryptedAccessToken']) expect(update).not.toHaveProperty(untouched);
     expect(mock.lock.mock.calls[0][1]).toBe('arive-transport:company');
     expect(mock.remove).not.toHaveBeenCalled(); expect(mock.session).not.toHaveBeenCalled(); expect(mock.create).not.toHaveBeenCalled();

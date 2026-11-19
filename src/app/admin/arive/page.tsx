@@ -7,11 +7,14 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { AriveConnectionSettings } from '@/components/pipeline/AriveConnectionSettings';
 import { AriveRolloutSettings } from '@/components/pipeline/AriveRolloutSettings';
 import { AriveActivePipelineDiagnostic } from '@/components/pipeline/AriveActivePipelineDiagnostic';
+import { LeadershipCollectorSettings } from '@/components/pipeline/LeadershipCollectorSettings';
+import { getPilotPreferences } from '@/app/actions/pilotPreferenceActions';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
 export default async function AriveSettingsPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) redirect('/login');
   const r = await getAriveConnectionSettings();
-  return <DashboardShell user={{ name: session.user.name || 'User', role: (session.user.activeRole || session.user.role) as UserRole }}><div className="mx-auto max-w-5xl space-y-5"><div><h1 className="app-page-title">Arive integration settings</h1><p className="text-sm text-muted-foreground">Branch-scoped connection · Portal Admin III</p></div>{r.success ? <><AriveConnectionSettings initialConfigured={r.data.configured} /><AriveActivePipelineDiagnostic /><AriveRolloutSettings /></> : <p role="alert" className="app-surface-card">{r.error}</p>}</div></DashboardShell>;
+  const preference = r.success ? await getPilotPreferences() : null;
+  return <DashboardShell user={{ name: session.user.name || 'User', role: (session.user.activeRole || session.user.role) as UserRole }}><div className="mx-auto max-w-5xl space-y-5"><div><h1 className="app-page-title">Arive integration settings</h1><p className="text-sm text-muted-foreground">Branch-scoped connection · Portal Admin III</p></div>{r.success ? <><AriveConnectionSettings initialConfigured={r.data.configured} />{preference?.success && preference.data.enabled && <LeadershipCollectorSettings />}<AriveActivePipelineDiagnostic /><AriveRolloutSettings /></> : <p role="alert" className="app-surface-card">{r.error}</p>}</div></DashboardShell>;
 }

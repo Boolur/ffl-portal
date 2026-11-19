@@ -74,10 +74,12 @@ export function invalidatePipelineWorkspaceCache(scope?: string) { cache.invalid
 export function clearPipelineWorkspaceCache() { cache.clear(); }
 export function pipelineWorkspaceCacheRevision() { return cache.revision(); }
 export function pipelineWorkspaceCacheEpoch() { return cache.epoch(); }
-export function pipelineScopeMatches(scope: string, user?: { id?: string; activeRole?: string; role?: string; roles?: string[] }) {
+export function pipelineScopeMatches(scope: string, user?: { id?: string; activeRole?: string; role?: string; roles?: string[] }, pilotMode?: boolean) {
   if (!user?.id) return false;
   const role = user.activeRole || user.role;
-  return Boolean(role) && scope === JSON.stringify([user.id, role, [...(user.roles || [role!])].sort()]);
+  const key: unknown[] = [user.id, role, [...(user.roles || [role!])].sort()];
+  if (pilotMode !== undefined) key.push(pilotMode ? 'pilot':'standard');
+  return Boolean(role) && scope === JSON.stringify(key);
 }
 onPortalIdentityReset(clearPipelineWorkspaceCache);
 // Keep invalidation active after the Pipeline route unmounts as well.

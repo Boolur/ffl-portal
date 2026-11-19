@@ -2,6 +2,7 @@ import type { ArivePipelineSync, Prisma, ProcessingPipelineLoan } from '@prisma/
 import { ARIVE_SYNC_PILOT, ariveSyncFieldLabel, type AriveSyncConflict, type AriveSyncIssue, type AriveSyncServiceTracker, type AriveSyncView } from './ariveSyncTypes';
 import { parseArivePipelineDate } from './arivePipelineMapping';
 import { ariveCanonicalWritesEnabled } from './ariveRolloutFlags';
+import { isPilotLeadershipRole } from './pilotLeadership';
 
 export function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -26,19 +27,20 @@ export async function generalizedAriveApplicationActive(db: Pick<Prisma.Transact
 
 export async function isAriveManagedForEdit(db: Pick<Prisma.TransactionClient, 'ariveRolloutControl'>, state: ArivePipelineSync | null | undefined, loanId: string): Promise<boolean> {
   if (!isAriveManagedState(state, loanId)) return false;
-  return state?.workerOwner !== 'GENERALIZED' || await generalizedAriveApplicationActive(db);
+  return generalizedAriveApplicationActive(db);
 }
 
 /** Account eligibility and preference are supplied only from a fresh server read. */
-export function canViewGeneralizedArive(user: { id: string; active: boolean; role: string; roles: string[]; pilotViewEnabled?: boolean }): boolean {
+export function canViewGeneralizedArive(user: { id: string; active: boolean; role: string; roles: string[]; pilotViewEnabled?: boolean }, activeRole: string): boolean {
   return process.env.PILOT_VIEW_ENABLED === 'true' && user.active && user.pilotViewEnabled === true
-    && (user.id === ARIVE_SYNC_PILOT.ownerId || [user.role, ...user.roles].some(role => ['ADMIN_I', 'ADMIN_II', 'ADMIN_III'].includes(role)));
+    && isPilotLeadershipRole(activeRole) && (user.role === activeRole || user.roles.includes(activeRole));
 }
 
 export function isAriveVisibleForLoan(state: ArivePipelineSync | null | undefined, loan: { id: string; loanNumber: string; loanOfficerId: string }, canViewGeneralized = false): boolean {
+  if (!canViewGeneralized) return false;
   // Pilot participants retain the last verified read-only snapshot after pause.
   // Edit ownership is separately governed by the current application controls.
-  if (state?.workerOwner === 'GENERALIZED') return canViewGeneralized && state.enrollmentStatus === 'VERIFIED'
+  if (state?.workerOwner === 'GENERALIZED') return state.enrollmentStatus === 'VERIFIED'
     && !!state.verifiedAt && !!state.lastSuccessAt && !!state.ariveGuid
     && state.ariveLoanId === loan.loanNumber
     && Object.keys(jsonRecord(jsonRecord(state.snapshot).managed)).length > 0;
@@ -86,13 +88,14 @@ function serviceTrackerView(value: unknown, issues: AriveSyncIssue[]): AriveSync
     };
   });
 }
-export function ariveSyncView(state: ArivePipelineSync | null | undefined, eligible: boolean, canManage: boolean, generalizedApplicationEnabled = false): AriveSyncView | null {
+type SyncPresentation = Pick<ArivePipelineSync, 'snapshot' | 'fieldSources' | 'issues' | 'conflicts' | 'enabled' | 'workerOwner' | 'operatorPaused' | 'lastSuccessAt' | 'lastAttemptAt' | 'nextAttemptAt' | 'lastError' | 'manualRefreshRequestedAt'>;
+export function ariveSyncView(state: SyncPresentation | null | undefined, eligible: boolean, canManage: boolean, generalizedApplicationEnabled = false): AriveSyncView | null {
   if (!eligible) return null;
   const snapshot = jsonRecord(state?.snapshot); const source = jsonRecord(snapshot.source);
   const issues = syncIssues(state?.issues);
   const structured = jsonRecord(snapshot.structuredValues);
   const sources = jsonRecord(state?.fieldSources);
-  const enabled = Boolean(state?.enabled && (state.workerOwner !== 'GENERALIZED' || (!state.operatorPaused && generalizedApplicationEnabled)));
+  const enabled = Boolean(state?.enabled && !state.operatorPaused && generalizedApplicationEnabled);
   const labels: Record<string, string> = { pendingItems: 'Pending items', scheduledSigning: 'Scheduled signing', payoffExpiry: 'Payoff expiry', conditionNeeded: 'Conditions needed', hoiExpiration: 'Insurance expiration', completion1004D: '1004D', waterInspection: 'Water inspection', pestInspection: 'Pest inspection' };
   return {
     enabled, lastSuccessAt: state?.lastSuccessAt?.toISOString() || null,

@@ -5,6 +5,8 @@ import { TaskKind, TaskStatus, TaskWorkflowState, UserRole } from '@prisma/clien
 import { withPerfMetric } from '@/lib/perf';
 import { buildLoanOfficerTaskWhere } from '@/lib/loanOfficerVisibility';
 import { isAdmin } from '@/lib/adminTiers';
+import { currentPortalActor } from '@/lib/currentPortalActor';
+import { standardSharedTestData } from '@/lib/pilotLeadership';
 
 type TaskFilter = {
   role?: UserRole | null;
@@ -12,8 +14,9 @@ type TaskFilter = {
 };
 
 export async function getAllTasks(filter?: TaskFilter) {
-  const role = filter?.role ?? null;
-  const userId = filter?.userId || null;
+  const actor = await currentPortalActor();
+  if (!actor || (filter?.role && filter.role !== actor.role) || (filter?.userId && filter.userId !== actor.id)) return [];
+  const {role, id: userId} = actor;
   const isAdminOrManager =
     isAdmin(role) || role === UserRole.MANAGER || role === UserRole.LOA;
   const isGenericVa = role === UserRole.VA;
@@ -78,7 +81,7 @@ export async function getAllTasks(filter?: TaskFilter) {
           ],
         };
 
-  const tasks = needsRichTaskPayload
+  return needsRichTaskPayload
     ? await withPerfMetric(
         'query.dashboard.getAllTasks.rich',
         () =>
@@ -128,7 +131,11 @@ export async function getAllTasks(filter?: TaskFilter) {
         orderBy: {
           createdAt: 'desc',
         },
-          }),
+          }).then(tasks => tasks.map(task => ({
+            ...task,
+            submissionData: standardSharedTestData(task.submissionData),
+            parentTask: task.parentTask ? { ...task.parentTask, submissionData: standardSharedTestData(task.parentTask.submissionData) } : null,
+          }))),
         {
           role: role || 'UNKNOWN',
         }
@@ -185,5 +192,4 @@ export async function getAllTasks(filter?: TaskFilter) {
         }
       );
 
-  return tasks;
 }

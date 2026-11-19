@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialPilotPackage, SUBMISSION_PILOT_LO_ID } from '../../lib/submissionPilot';
 
 const mocks = vi.hoisted(() => {
-  const db = { ariveIntegrationConfig: { upsert: vi.fn() }, user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
+  const db = { ariveIntegrationConfig: { upsert: vi.fn() }, user: { findUnique: vi.fn(), findMany: vi.fn() }, task: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, auditLog: { create: vi.fn() }, notification: { createMany: vi.fn() }, notificationOutbox: { create: vi.fn() }, $executeRaw: vi.fn(), $transaction: vi.fn() };
   return { enabled: vi.fn(() => true), db, session: vi.fn(), download: vi.fn(), info: vi.fn(), signedUrl: vi.fn() };
 });
 vi.mock('next-auth', () => ({ getServerSession: mocks.session }));
@@ -36,6 +36,60 @@ beforeEach(() => {
   mocks.db.task.updateMany.mockResolvedValue({ count: 1 });
   mocks.db.user.findMany.mockResolvedValue([]);
 });
+describe('leadership test submissions', () => {
+  const parent = { id: 'request', loanId: 'loan', status: 'IN_PROGRESS', kind: 'SUBMIT_PROCESSING', workflowState: 'NONE', assignedUserId: 'manager', submissionData: { leadershipPilotTest: true, processingDocumentTaskId: 'task' } };
+  function setupTest(role = 'MANAGER', enabled = true) {
+    vi.stubEnv('PILOT_VIEW_ENABLED', 'true');
+    mocks.session.mockResolvedValue({ user: { id: 'manager', activeRole: role } });
+    mocks.db.user.findUnique.mockResolvedValue({ id: 'manager', name: 'Test manager', role: 'MANAGER', roles: ['MANAGER', 'PROCESSOR_JR'], active: true, pilotViewEnabled: enabled });
+    const p = packageTask(); p.leadershipTest = true; p.leadershipSubmitterId = 'test-submitter';
+    mocks.db.task.findFirst.mockResolvedValue(parent);
+    return p;
+  }
+  afterEach(() => vi.unstubAllEnvs());
+  it.each([['PROCESSOR_JR', true], ['MANAGER', false]] as const)('denies a package read and write as %s with preference %s', async (role, enabled) => {
+    const p = setupTest(role, enabled); p.items[0].files.push({ id: 'f', path: 'demo', name: 'test.pdf', size: 1, type: 'application/pdf', uploadedAt: '' });
+    expect(await downloadPilotFile('task', 'f')).toMatchObject({ success: false });
+    expect(await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REQUEST_DOCUMENT', text: 'Statement' })).toMatchObject({ success: false });
+    expect(mocks.signedUrl).not.toHaveBeenCalled(); expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+  });
+  it('requires a matching server-labeled parent and honors Start', async () => {
+    setupTest();
+    const command = { taskId: 'task', revision: 0, action: 'REQUEST_DOCUMENT' as const, text: 'Statement' };
+    for (const invalid of [null, { ...parent, loanId: 'other' }, { ...parent, submissionData: { processingDocumentTaskId: 'task' } }, { ...parent, status: 'PENDING' }]) {
+      mocks.db.task.findFirst.mockResolvedValueOnce(invalid);
+      expect(await changeSubmissionPilot(command)).toMatchObject({ success: false });
+    }
+    expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+    expect(await changeSubmissionPilot(command)).toMatchObject({ success: true });
+    expect(mocks.db.notification.createMany).not.toHaveBeenCalled(); expect(mocks.db.notificationOutbox.create).not.toHaveBeenCalled();
+    expect(mocks.db.auditLog.create).not.toHaveBeenCalled();
+  });
+  it('refuses an out-of-scope processing manager on a direct document link or decision', async () => {
+    const p = setupTest('PROCESSING_MANAGER');
+    mocks.db.user.findUnique.mockResolvedValue({ id: 'pm', name: 'Manager', role: 'PROCESSING_MANAGER', roles: [], active: true, pilotViewEnabled: true });
+    mocks.session.mockResolvedValue({ user: { id: 'pm', activeRole: 'PROCESSING_MANAGER' } });
+    p.items[0].files.push({ id: 'f', path: 'test', name: 'review.pdf', size: 5, type: 'application/pdf', uploadedAt: '' });
+    expect(await downloadPilotFile('task', 'f')).toMatchObject({ success: false });
+    expect(await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'REQUEST_DOCUMENT', text: 'Correction' })).toMatchObject({ success: false });
+    expect(mocks.signedUrl).not.toHaveBeenCalled(); expect(mocks.db.task.updateMany).not.toHaveBeenCalled();
+    mocks.db.task.findFirst.mockResolvedValue({ ...parent, assignedUserId: 'pm' });
+    mocks.signedUrl.mockResolvedValue({ data: { signedUrl: 'private-test' } });
+    expect(await downloadPilotFile('task', 'f')).toEqual({ success: true, data: 'private-test' });
+  });
+  it('allows the LO persona on a returned labeled request and enqueues one ordinary task notification', async () => {
+    const p = setupTest(); p.state = 'CHANGES';
+    p.items.forEach(item => { item.waiver = 'Not applicable'; });
+    p.items[0].files = [{ id: 'f', path: 'test', name: 'test.pdf', size: 1, type: 'application/pdf', uploadedAt: '' }];
+    const pkg = await mocks.db.task.findUnique(); const waiting = { ...parent, workflowState: 'WAITING_ON_LO', updatedAt: new Date() };
+    mocks.db.task.findUnique.mockResolvedValueOnce(pkg).mockResolvedValueOnce(waiting);
+    mocks.db.task.findFirst.mockResolvedValueOnce(waiting).mockResolvedValueOnce({ id: 'child' });
+    expect(await changeSubmissionPilot({ taskId: 'task', revision: 0, action: 'SUBMIT' })).toMatchObject({ success: true });
+    expect(mocks.db.notificationOutbox.create).toHaveBeenCalledExactlyOnceWith({ data: { eventType: 'TASK_WORKFLOW', payload: { taskId: 'request', eventLabel: 'Loan Officer Responded', changedBy: 'Test manager' }, idempotencyKey: 'task-workflow:child:lo-responded' } });
+    expect(mocks.db.notification.createMany).not.toHaveBeenCalled(); expect(p.state).toBe('REVIEW');
+  });
+});
+
 describe('pilot server authorization and concurrency', () => {
   it('authenticates test-only credentials without storing them or calling loan APIs', async () => {
     mocks.enabled.mockReturnValue(false);

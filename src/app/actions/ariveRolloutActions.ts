@@ -18,10 +18,93 @@ async function admin() {
   const session = await getServerSession(authOptions);
   const role = (session?.user?.activeRole || session?.user?.role) as UserRole | undefined;
   if (!session?.user?.id || !isAdminIII(role)) throw new AriveError('Only Admin III can manage the Arive rollout.');
-  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, active: true, role: true, roles: true } });
+  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, active: true, role: true, roles: true, pilotViewEnabled: true } });
   if (!user?.active || !role || ![user.role, ...user.roles].includes(role)) throw new AriveError('Your current account cannot manage the Arive rollout.');
   if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') throw new AriveError('Arive rollout controls are disabled on preview deployments.');
   return user;
+}
+
+export async function configureLeadershipCollector(input: { enabled: boolean; cohortLimit: number | null; firstLoanNumber?: string }) {
+  try {
+    const actor = await admin();
+    if (!actor.pilotViewEnabled || process.env.PILOT_VIEW_ENABLED !== 'true') throw new AriveError('Turn on Pilot to manage its collector.');
+    if (typeof input?.enabled !== 'boolean' || ![10, 50, null].includes(input.cohortLimit)) throw new AriveError('Choose 10, 50, or all verified files.');
+    const firstNumber = input.firstLoanNumber;
+    if (firstNumber !== undefined && (typeof firstNumber !== 'string' || !/^\d{1,15}$/.test(firstNumber))) throw new AriveError('Enter the numeric Arive loan number.');
+    if (input.enabled) {
+      if (process.env.VERCEL_ENV === 'production' && !process.env.CRON_SECRET?.trim()) throw new AriveError('Configure the scheduler secret before starting the Pilot collector.');
+      const transport = await isAriveBudgetReady({ allowCooldown: true });
+      if (!transport.ready) throw new AriveError(transport.reason || 'Connect Arive before collecting loans.');
+    }
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-rollout:company'))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-leadership-pilot'))`;
+      const old = await tx.pilotAriveControl.findUnique({ where: { id: 'company' } });
+      if (input.enabled) {
+        const shared = await tx.ariveRolloutControl.findUnique({ where: { id: 'company' } });
+        if (shared?.applicationEnabled || shared?.enrollmentEnabled || shared?.collectionEnabled ||
+            await tx.arivePipelineSync.count({ where: { enabled: true } })) throw new AriveError('Pause shared and legacy loan syncing before starting Pilot.');
+        if (!old && input.cohortLimit !== 10) throw new AriveError('Start with the ten-file cohort.');
+        if (old && !old.enabled && input.cohortLimit !== old.cohortLimit) throw new AriveError('Resume the saved cohort before changing its size.');
+        if (old?.cohortLimit === 10 && input.cohortLimit === null) throw new AriveError('Verify the 50-file cohort before collecting all files.');
+        if (input.cohortLimit !== null && await tx.pilotAriveProjection.count({ where: { OR: [{ enrollmentStatus: 'VERIFIED' }, { leaseToken: { not: null }, leaseUntil: { gt: new Date() } }] } }) > input.cohortLimit) throw new AriveError('The selected cohort is smaller than the current verified or in-flight file count.');
+      }
+      const cohortLimit = input.enabled ? input.cohortLimit : old ? old.cohortLimit : 10;
+      if (old?.enabled === input.enabled && old.cohortLimit === cohortLimit) return;
+      if (firstNumber !== undefined && (!input.enabled || old?.enabled || cohortLimit !== 10)) throw new AriveError('Choose a first file when starting the ten-file cohort.');
+      const data = { enabled: input.enabled, cohortLimit };
+      await tx.pilotAriveControl.upsert({ where: { id: 'company' }, create: { id: 'company', ...data, generation: 1 },
+        update: { ...data, generation: { increment: 1 }, revision: { increment: 1 } } });
+      await tx.pilotAriveProjection.updateMany({ where: { OR: [{ leaseToken: { not: null } }, { manualRefreshRequestedAt: { not: null } }] },
+        data: { leaseUntil: null, leaseToken: null, manualRefreshRequestedAt: null } });
+      if (firstNumber !== undefined) {
+        const files = await tx.processingPipelineLoan.findMany({
+          where: { ...ariveRolloutCohortWhere(new Date()), loan: { loanNumber: firstNumber } },
+          select: { id: true }, take: 2,
+        });
+        if (files.length !== 1) throw new AriveError('The first loan number must identify one eligible BISU file.');
+        const queued = { manualRefreshRequestedAt: new Date() };
+        await tx.pilotAriveProjection.upsert({ where: { pipelineId: files[0].id }, create: { pipelineId: files[0].id, ariveLoanId: firstNumber, ...queued }, update: queued });
+      }
+      await tx.auditLog.create({ data: { userId: actor.id, action: 'LEADERSHIP_COLLECTOR_CONFIGURED', details: JSON.stringify(data) } });
+    });
+    return { success: true as const };
+  } catch (error) { return failure(error); }
+}
+
+export async function getLeadershipCollectorStatus() {
+  try {
+    const actor = await admin();
+    if (!actor.pilotViewEnabled || process.env.PILOT_VIEW_ENABLED !== 'true') throw new AriveError('Turn on Pilot to see collection metrics.');
+    const since = new Date(Date.now() - 60_000);
+    const [control, counts, fresh, due, requests, throttled, timings, transport, [display]] = await Promise.all([
+      prisma.pilotAriveControl.findUnique({ where: { id: 'company' } }),
+      prisma.pilotAriveProjection.groupBy({ by: ['enrollmentStatus'], _count: true }),
+      prisma.pilotAriveProjection.count({ where: { enrollmentStatus: 'VERIFIED', collectedAt: { gte: since } } }),
+      prisma.pilotAriveProjection.findFirst({ where: { enrollmentStatus: 'VERIFIED', nextAttemptAt: { lt: new Date() } }, orderBy: { nextAttemptAt: 'asc' }, select: { nextAttemptAt: true } }),
+      prisma.ariveTransportRequest.count({ where: { connectionId: 'company', kind: { startsWith: 'PILOT_' }, finishedAt: { gte: since } } }),
+      prisma.ariveTransportRequest.count({ where: { connectionId: 'company', kind: { startsWith: 'PILOT_' }, statusCode: 429, finishedAt: { gte: since } } }),
+      prisma.ariveTransportRequest.findMany({ where: { connectionId: 'company', kind: { startsWith: 'PILOT_' }, finishedAt: { gte: since } }, orderBy: { finishedAt: 'desc' }, take: 100, select: { startedAt: true, finishedAt: true, responseMs: true } }),
+      prisma.ariveConnectionRuntime.findUnique({ where: { id: 'company' }, select: { cooldownUntil: true, quotaConfirmedAt: true, providerRequestLimit: true, providerWindowSeconds: true, reportedRequestsPerMinute: true } }),
+      prisma.$queryRaw<{ measured: number; unknown: number; late: number; worstSeconds: number | null; afterCollectionSeconds: number | null }[]>`
+        SELECT COUNT("sourceChangedAt")::int AS measured,
+               COUNT(*) FILTER (WHERE "sourceChangedAt" IS NULL)::int AS unknown,
+               COUNT(*) FILTER (WHERE "renderedAt" - "sourceChangedAt" > interval '60 seconds')::int AS late,
+               CEIL(MAX(EXTRACT(EPOCH FROM ("renderedAt" - "sourceChangedAt"))))::int AS "worstSeconds",
+               CEIL(MAX(EXTRACT(EPOCH FROM ("renderedAt" - "collectedAt"))))::int AS "afterCollectionSeconds"
+        FROM "PilotAriveRenderAck" WHERE "renderedAt" >= NOW() - interval '24 hours'`,
+    ]);
+    const p95 = (values: number[]) => values.length ? values.sort((a,b) => a-b)[Math.ceil(values.length * 0.95) - 1] : null;
+    const upstream = timings.flatMap(row => row.responseMs === null ? [] : [row.responseMs]);
+    return { success: true as const, enabled: control?.enabled === true, limit: control ? control.cohortLimit : 10,
+      counts: Object.fromEntries(counts.map(row => [row.enrollmentStatus, row._count])), fresh, requests, throttled, display,
+      oldestDueSeconds: due?.nextAttemptAt ? Math.max(0, Math.round((Date.now() - due.nextAttemptAt.getTime()) / 1000)) : 0,
+      p95Ms: p95(upstream), reservedP95Ms: p95(timings.map(row => row.finishedAt!.getTime() - row.startedAt.getTime())),
+      reportedPerMinute: transport?.reportedRequestsPerMinute ?? null,
+      cooldownUntil: transport?.cooldownUntil?.toISOString() || null,
+      providerLimit: transport?.quotaConfirmedAt ? transport.providerRequestLimit : null,
+      providerWindow: transport?.quotaConfirmedAt ? transport.providerWindowSeconds : null };
+  } catch (error) { return failure(error); }
 }
 const failure = (error: unknown) => ({ success: false as const, error: error instanceof AriveError || error instanceof AriveTransportError ? error.message : 'The Arive rollout operation could not be completed.' });
 function id(value: unknown): string { if (typeof value !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(value)) throw new AriveError('Choose an existing pipeline file.'); return value; }
@@ -59,6 +142,7 @@ export async function configureAriveRollout(input: { collectionEnabled: boolean;
     }
     await prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-rollout:company'))`;
+      if (input.collectionEnabled && (await tx.pilotAriveControl.findUnique({ where: { id: 'company' }, select: { enabled: true } }))?.enabled) throw new AriveError('Pause the leadership collector before activating shared synchronization.');
       if (input.cohortLimit !== undefined && input.cohortLimit !== null && await tx.arivePipelineSync.count({ where: { workerOwner: ARIVE_ROLLOUT_OWNER, enabled: true } }) > input.cohortLimit) throw new AriveError('Pause individual rollout files before lowering the cohort below its currently enabled file count.');
       const settings = { collectionEnabled: input.collectionEnabled, applicationEnabled: input.applicationEnabled, enrollmentEnabled: input.enrollmentEnabled,
         ...(input.cohortLimit !== undefined ? { cohortLimit: input.cohortLimit } : {}) };

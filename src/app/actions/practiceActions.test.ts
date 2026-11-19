@@ -39,11 +39,11 @@ import { getPilotPreferences, setPilotViewEnabled } from './pilotPreferenceActio
 import { changePracticeTask, createPracticeTask, getPracticeTask, listPracticeTasks, savePracticeSubmission } from './practiceTaskActions';
 import { finalizePracticeUpload, getPracticeFileAccess, preparePracticeDocumentDownload, preparePracticeUpload, validatePracticeDocumentDownload } from './practiceDocumentActions';
 
-function user(role: UserRole = UserRole.LOAN_OFFICER) {
-  return { id: SUBMISSION_PILOT_LO_ID, active: true, name: 'Matt', role, roles: [role], processingAssignmentGroups: [], pilotViewEnabled: false };
+function user(role: UserRole = UserRole.PROCESSING_MANAGER) {
+  return { id: SUBMISSION_PILOT_LO_ID, active: true, name: 'Test manager', role, roles: [role], processingAssignmentGroups: [], pilotViewEnabled: true };
 }
 function sourceTask() {
-  return { id: 'live-task', loanId: 'live-loan', kind: 'SUBMIT_PROCESSING', status: 'IN_PROGRESS', workflowState: 'NONE', updatedAt: new Date('2026-11-12T12:00:00Z'), title: 'Live submission', assignedUserId: null, assignedRole: 'PROCESSOR_JR', submissionData: { lender: 'Test lender', cardNumber: 'REDACT', processingDocumentTaskId: null, token: 'REDACT', files: ['secret path'] }, loan: { id: 'live-loan', borrowerName: 'Test borrower', loanNumber: '123', loanOfficerId: SUBMISSION_PILOT_LO_ID, secondaryLoanOfficerId: null, visibilitySubmitterUserId: null } };
+  return { id: 'live-task', loanId: 'live-loan', kind: 'SUBMIT_PROCESSING', status: 'IN_PROGRESS', workflowState: 'NONE', updatedAt: new Date('2026-11-12T12:00:00Z'), title: 'Live submission', assignedUserId: null, assignedRole: 'PROCESSING_MANAGER', submissionData: { lender: 'Test lender', cardNumber: 'REDACT', processingDocumentTaskId: null, token: 'REDACT', files: ['secret path'] }, loan: { id: 'live-loan', borrowerName: 'Test borrower', loanNumber: '123', loanOfficerId: SUBMISSION_PILOT_LO_ID, secondaryLoanOfficerId: null, visibilitySubmitterUserId: null } };
 }
 function practiceTask() {
   return { id: 'practice-task', ownerId: SUBMISSION_PILOT_LO_ID, sourceTaskId: 'live-task', sourceLoanId: 'live-loan', title: 'Practice', kind: 'SUBMIT_PROCESSING', state: 'DRAFT', version: 0, snapshot: {}, draft: {}, createdAt: new Date(), updatedAt: new Date(), package: { id: 'package', items: practiceInitialItems(), files: [{ id: '00000000-0000-0000-0000-000000000001', itemId: 'mortgage', name: 'Statement.pdf', size: 10, type: 'application/pdf', uploaded: true, retired: false, path: `pilot-practice/${SUBMISSION_PILOT_LO_ID}/practice-task/00000000-0000-0000-0000-000000000001.pdf`, sourceAttachmentId: null, sourceDocumentTaskId: null, sourceDocumentFileId: null }] } };
@@ -52,7 +52,7 @@ let current: ReturnType<typeof practiceTask>;
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv('PILOT_VIEW_ENABLED', 'true'); vi.stubEnv('PILOT_PRACTICE_ENABLED', 'true'); vi.stubEnv('SUPABASE_STORAGE_BUCKET_PRACTICE_ATTACHMENTS', '');
-  m.session.mockResolvedValue({ user: { id: SUBMISSION_PILOT_LO_ID, role: 'LOAN_OFFICER', activeRole: 'LOAN_OFFICER' } });
+  m.session.mockResolvedValue({ user: { id: SUBMISSION_PILOT_LO_ID, role: 'PROCESSING_MANAGER', activeRole: 'PROCESSING_MANAGER' } });
   m.user.mockResolvedValue(user()); m.task.mockResolvedValue(sourceTask());
   current = practiceTask(); m.practice.mockImplementation(async () => current);
   m.list.mockResolvedValue([current]); m.events.mockResolvedValue([]); m.notifications.mockResolvedValue([]); m.attachments.mockResolvedValue([]);
@@ -81,7 +81,7 @@ describe('pilot preference and fresh authorization', () => {
   it.each(['signed-out', 'inactive', 'other-LO', 'forged-role'] as const)('denies %s before source, practice or storage access', async kind => {
     if (kind === 'signed-out') m.session.mockResolvedValue(null);
     if (kind === 'inactive') m.user.mockResolvedValue({ ...user(), active: false });
-    if (kind === 'other-LO') m.user.mockResolvedValue({ ...user(), id: 'other' });
+    if (kind === 'other-LO') { m.session.mockResolvedValue({ user: { id: 'other', activeRole: 'LOAN_OFFICER' } }); m.user.mockResolvedValue({ ...user(UserRole.LOAN_OFFICER), id: 'other' }); }
     if (kind === 'forged-role') m.session.mockResolvedValue({ user: { id: SUBMISSION_PILOT_LO_ID, activeRole: 'ADMIN_III' } });
     expect(await getPracticeFileAccess(current.id, current.package.files[0].id)).toMatchObject({ success: false });
     expect(m.practice).not.toHaveBeenCalled(); expect(m.sign).not.toHaveBeenCalled();
@@ -97,7 +97,7 @@ describe('pilot preference and fresh authorization', () => {
     expect(await getPracticeTask(current.id)).toMatchObject({ success: false });
   });
   it('reauthorizes changed source ownership for reads, mutations and file access', async () => {
-    m.task.mockResolvedValue({ ...sourceTask(), loan: { ...sourceTask().loan, loanOfficerId: 'another-owner' } });
+    m.task.mockResolvedValue({ ...sourceTask(), assignedUserId: 'another-reviewer' });
     expect(await getPracticeTask(current.id)).toMatchObject({ success: false });
     expect(await changePracticeTask({ id: current.id, version: 0, persona: 'LO', action: 'NOTE', text: 'Test' })).toMatchObject({ success: false });
     expect(await getPracticeFileAccess(current.id, current.package.files[0].id)).toMatchObject({ success: false });
@@ -115,7 +115,7 @@ describe('pilot preference and fresh authorization', () => {
     m.task.mockResolvedValue({ ...sourceTask(), assignedUserId: SUBMISSION_PILOT_LO_ID });
     expect(await getPracticeTask(current.id)).toMatchObject({ success: false });
     m.session.mockResolvedValue({ user: { id: SUBMISSION_PILOT_LO_ID, activeRole: 'PROCESSOR_JR' } });
-    expect(await getPracticeTask(current.id)).toMatchObject({ success: true });
+    expect(await getPracticeTask(current.id)).toMatchObject({ success: false });
   });
 });
 

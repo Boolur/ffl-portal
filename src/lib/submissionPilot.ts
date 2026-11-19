@@ -1,11 +1,7 @@
 // Exact active LO account; the similarly named onboarding account is excluded.
 export const SUBMISSION_PILOT_LO_ID = '2e28c6a5-67c0-442d-94bd-59897ad8d8cd';
-// Resumed for Matt at his request on November 6, 2026; the exact account gate stays below.
-// Stored packages, links, files, and history are preserved while paused.
+// Existing packages keep their original workflow and delivery permissions.
 export function isSubmissionPilotEnabled(): boolean { return true; }
-export function isSubmissionPilotLoanOfficer(id: string | null | undefined): id is string {
-  return isSubmissionPilotEnabled() && id === SUBMISSION_PILOT_LO_ID;
-}
 export function activeProcessingDocumentTaskId(value: unknown): string | null {
   return isSubmissionPilotEnabled() ? processingDocumentTaskId(value) : null;
 }
@@ -29,6 +25,7 @@ export type PilotItem = {
   pending?: { path: string; name: string; size: number; type: string };
 };
 export type PilotPackage = {
+  leadershipTest?: true; leadershipSubmitterId?: string;
   version: 1; revision: number; state: 'DRAFT' | 'REVIEW' | 'CHANGES' | 'APPROVED';
   reviewerId: string | null; items: PilotItem[];
   retiredFiles?: PilotFile[];

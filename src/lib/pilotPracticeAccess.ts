@@ -5,7 +5,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { canLoanOfficerViewLoan } from './loanOfficerVisibility';
 import { buildProcessingPipelineScopeWhere, getProcessingPipelineAccess } from './processingPipeline';
-import { SUBMISSION_PILOT_LO_ID } from './submissionPilot';
+import { isPilotLeadershipRole } from './pilotLeadership';
 
 const adminRoles: UserRole[] = [UserRole.ADMIN_I, UserRole.ADMIN_II, UserRole.ADMIN_III];
 export const pilotViewAvailable = () => process.env.PILOT_VIEW_ENABLED === 'true';
@@ -16,9 +16,8 @@ export async function getPilotActor(requirePractice = true) {
   const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, active: true, name: true, role: true, roles: true, processingAssignmentGroups: true, pilotViewEnabled: true } });
   const role = (session.user.activeRole || session.user.role) as UserRole;
   if (!user?.active || (role !== user.role && !user.roles.includes(role))) throw new Error('Your account or selected role is unavailable.');
-  const eligible = user.id === SUBMISSION_PILOT_LO_ID || [user.role, ...user.roles].some(value => adminRoles.includes(value));
-  if (!eligible) throw new Error('Pilot view is not available for this account.');
-  if (requirePractice && !pilotPracticeAvailable()) throw new Error('Practice workspace is not enabled.');
+  if (!isPilotLeadershipRole(role)) throw new Error('Pilot view requires an active leadership role.');
+  if (requirePractice && (!pilotPracticeAvailable() || !user.pilotViewEnabled)) throw new Error('Practice workspace requires Pilot mode.');
   return { ...user, role, admin: adminRoles.includes(role) };
 }
 export type PilotPracticeActor = Awaited<ReturnType<typeof getPilotActor>>;

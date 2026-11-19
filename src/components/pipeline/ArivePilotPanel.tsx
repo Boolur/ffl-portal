@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { ariveNotePlainText } from '@/lib/ariveNoteText';
-import { checkAriveTestLoanAccess, configurePilotArive, openArivePilotLoan, refreshPilotAriveNotes, getPilotAriveClassifications, sendPilotDocumentToArive } from '@/app/actions/submissionPilotActions';
+import { checkAriveTestLoanAccess, configurePilotArive, refreshPilotAriveNotes, getPilotAriveClassifications, sendPilotDocumentToArive } from '@/app/actions/submissionPilotActions';
 import type { PilotPackage } from '@/lib/submissionPilot';
 
-export function ArivePilotConnection({ configured, canConfigure, owner, onChanged, onOpen }: { configured: boolean; canConfigure: boolean; owner: boolean; onChanged: () => Promise<void>; onOpen: (id: string) => void }) {
+export function ArivePilotConnection({ configured, canConfigure, onChanged }: { configured: boolean; canConfigure: boolean; onChanged: () => Promise<void> }) {
   const [clientId, setClientId] = useState('');
   const [secret, setSecret] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [number, setNumber] = useState('');
   const [access, setAccess] = useState<Extract<Awaited<ReturnType<typeof checkAriveTestLoanAccess>>, { success: true }>['data'] | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -34,10 +33,6 @@ export function ArivePilotConnection({ configured, canConfigure, owner, onChange
         })}>Test only — don’t save</button>
       </form>
     </details>}
-    {owner && configured && <form className="flex flex-wrap items-end gap-3" onSubmit={e => { e.preventDefault(); void perform(async () => { const r = await openArivePilotLoan(number); if (!r.success) throw new Error(r.error); onOpen(r.data); }); }}>
-      <label className="text-sm">Arive loan number<input className="app-input mt-1" inputMode="numeric" pattern="[0-9]{1,15}" required value={number} disabled={busy} onChange={e => setNumber(e.target.value.trim())} placeholder="Enter your test loan number" /></label><button type="submit" className="app-btn-primary" disabled={busy}>Open Arive loan</button>
-      <p className="w-full text-xs text-muted-foreground">The loan must list Matt’s portal email as its Loan Originator in Arive. New test loans can be opened without moving them into the processing pipeline.</p>
-    </form>}
     {configured && <div className="space-y-3 border-t border-border pt-4"><h3 className="font-semibold">TESTING TESTER · 17881588</h3><p className="text-sm text-muted-foreground">Check access to this test loan only. These checks read information; they do not change stages, upload files, create loans, or expand access. A successful read does not prove write permission.</p><button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void perform(async () => { setAccess(null); const r = await checkAriveTestLoanAccess(); if (!r.success) throw new Error(r.error); setAccess(r.data); })}>{busy ? 'Checking Arive access…' : 'Check test-loan API permissions'}</button>{access && <div className="space-y-2"><p className="text-xs text-muted-foreground">Checked {new Date(access.checkedAt).toLocaleString()}</p>{access.checks.map(check => <div key={check.name} className={`rounded-lg border p-3 text-sm ${check.ok ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}><strong>{check.name}: {check.ok ? 'Read access confirmed' : 'Not confirmed'}</strong><p className="mt-1">{check.detail}</p></div>)}</div>}</div>}
     <p role="status" className="text-sm">{message}</p>
   </section>;

@@ -46,6 +46,7 @@ function harness() {
   const apply = (target: object, values: ObjectData) => { for (const [key, value] of Object.entries(values)) (target as ObjectData)[key] = key === 'version' && value && typeof value === 'object' && 'increment' in value ? Number((target as ObjectData)[key]) + Number(value.increment) : clone(value); };
   const client = {
     $executeRaw: vi.fn().mockResolvedValue(1),
+    pilotAriveControl: { findUnique: vi.fn().mockResolvedValue(null) },
     processingPipelineLoan: {
       findUnique: vi.fn(async () => ({ ...clone(store.row), ariveSync: clone(store.sync) })),
       updateMany: vi.fn(async ({ where, data }: { where: { id: string; version: number }; data: ObjectData }) => {
@@ -229,6 +230,14 @@ describe('inbound synchronization with real mapping, note import, and parsing', 
 });
 
 describe('atomicity, identity, and worker fencing', () => {
+  it('prevents legacy writes when leadership collection starts mid-read', async () => {
+    const h = harness();
+    const before = clone(h.store.row);
+    h.client.pilotAriveControl.findUnique.mockResolvedValueOnce(null).mockResolvedValue({enabled:true});
+    expect(await h.run()).toMatchObject({success:true,skipped:true});
+    expect(h.store.row).toEqual(before);
+    expect(h.client.processingPipelineLoan.updateMany).not.toHaveBeenCalled();
+  });
   it('uses the same explicit Originator and co-borrower identity check for the fixed legacy pilot', async () => {
     const h = harness();
     h.remote.details.loanOriginatorEmail = 'branch-primary@example.test';

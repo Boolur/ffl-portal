@@ -10,6 +10,8 @@ import {
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { canViewGeneralizedArive } from '@/lib/ariveSyncState';
+import { pilotReadIndex } from '@/lib/leadershipPilotReads';
 import { splitBorrowerName } from '@/lib/processingBorrowerDetails';
 import {
   calculateDaysInStatus,
@@ -160,6 +162,7 @@ type ReportActor = {
   id: string;
   role: UserRole;
   processingAssignmentGroups: string[];
+  pilotMode: boolean;
 };
 
 async function getReportActor(): Promise<ReportActor | null> {
@@ -171,10 +174,10 @@ async function getReportActor(): Promise<ReportActor | null> {
   if (!id || !role || !canGenerateProcessingReports(role)) return null;
   const user = await prisma.user.findUnique({
     where: { id },
-    select: { active: true, processingAssignmentGroups: true },
+    select: { id:true,role:true,roles:true,pilotViewEnabled:true,active: true, processingAssignmentGroups: true },
   });
-  if (!user?.active) return null;
-  return { id, role, processingAssignmentGroups: user.processingAssignmentGroups };
+  if (!user?.active || (user.role!==role && !user.roles.includes(role))) return null;
+  return { id, role, processingAssignmentGroups: user.processingAssignmentGroups, pilotMode:canViewGeneralizedArive(user,role) };
 }
 
 function iso(value: Date | null) {
@@ -317,7 +320,9 @@ export async function getProcessingPipelineReport(input: {
           selectedStatuses,
         );
 
-  const rows = await prisma.processingPipelineLoan.findMany({
+  const rows = actor.pilotMode ? (await pilotReadIndex(actor,where)).sort((left,right)=>
+    (input.type === 'FUNDING' ? Number(right.fundedAt) - Number(left.fundedAt) : +left.dateAssigned - +right.dateAssigned)
+    || left.loan.borrowerName.localeCompare(right.loan.borrowerName)) : await prisma.processingPipelineLoan.findMany({
     where,
     select: reportRowSelect,
     orderBy:
@@ -368,6 +373,7 @@ export async function getProcessingPipelineReport(input: {
         where: {
           loanId: { in: rows.map((row) => row.loanId) },
           action: { startsWith: 'PROCESSING_' },
+          ...(!actor.pilotMode && { NOT: { action: { startsWith: 'PROCESSING_ARIVE_' } } }),
         },
         orderBy: { createdAt: 'desc' },
         select: {

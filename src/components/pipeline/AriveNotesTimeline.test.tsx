@@ -30,7 +30,7 @@ describe('complete imported Arive notes history', () => {
     ] })];
     const entries = buildAriveNotesTimeline(notes);
     expect(entries.map(entry => entry.note.id)).toEqual(['nested', 'reply', 'parent']);
-    expect(entries[0].parent).toEqual({ author: 'Junior processor', text: 'The first answer' });
+    expect(entries[0].parent).toEqual({ id: 'reply', author: 'Junior processor', text: 'The first answer' });
     const html = render(notes);
     expect(html).toContain('1 note'); expect(html).toContain('2 replies');
     expect(html).toContain('Loan officer'); expect(html).toContain('Junior processor'); expect(html).toContain('Senior processor');
@@ -42,6 +42,20 @@ describe('complete imported Arive notes history', () => {
     const notes = [note('edited', { text: 'Older edited note', createdAt: '2026-11-08T18:00:00Z', updatedAt: '2026-11-10T20:00:00Z' }), note('posted', { text: 'Newer posted note', createdAt: '2026-11-09T18:00:00Z' })];
     expect(buildAriveNotesTimeline(notes).map(entry => entry.note.id)).toEqual(['posted', 'edited']);
     expect(render(notes)).toContain('Edited Nov 10, 2026');
+  });
+
+  it('marks only entries with matching source evidence for the current Pilot file and revision', () => {
+    const notes = [note('parent', { replies: [note('reply')] }), note('unrelated')];
+    const html = renderToStaticMarkup(<AriveNotesTimeline notes={notes} renderContext={{
+      pipelineId: 'example', version: 3, evidence: [
+        { noteId: 'reply', parentNoteId: 'parent' },
+        { noteId: 'unrelated', parentNoteId: 'different-parent' },
+      ],
+    }} />);
+    expect(html.match(/data-pilot-render-id=/g)).toHaveLength(1);
+    expect(html).toContain('data-pilot-note-id="reply"');
+    expect(html).toContain('data-pilot-parent-id="parent"');
+    expect(render(notes)).not.toContain('data-pilot-');
   });
 
   it('uses a valid update date only when creation is unavailable and puts undated entries last', () => {

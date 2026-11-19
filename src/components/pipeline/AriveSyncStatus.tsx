@@ -8,6 +8,7 @@ import { acknowledgeArivePipelineConflicts, setArivePipelineSyncEnabled, syncAri
 import { acknowledgeAriveRolloutConflicts, queueAriveRolloutRefresh, setAriveRolloutLoanEnabled } from '@/app/actions/ariveRolloutActions';
 import { AriveNoteHeaderGuide } from './AriveNoteHeaderGuide';
 import { AriveServiceStatusCards } from './AriveServiceStatusCards';
+import { queueLeadershipPilotRefresh } from '@/app/actions/processingPipelineActions';
 
 const tones = {
   muted: 'border-slate-200 bg-slate-50 text-slate-600',
@@ -77,7 +78,7 @@ export function AriveSyncStatus({ view, pipelineLoanId, onChanged, editing = fal
     if (lock.current || editing) return;
     lock.current = true; setBusy(action); setError(''); setFeedback(null);
     try {
-      const result = await performAriveSyncAction(action, pipelineLoanId, generalized);
+      const result = view?.pilotPreview ? await queueLeadershipPilotRefresh({pipelineId:pipelineLoanId}) : await performAriveSyncAction(action, pipelineLoanId, generalized);
       if (!result.success) setError(result.error);
       try { await onChanged(); }
       catch {
@@ -91,11 +92,15 @@ export function AriveSyncStatus({ view, pipelineLoanId, onChanged, editing = fal
   return <section aria-label="Arive synchronization" aria-busy={Boolean(busy)} className={`mb-4 rounded-2xl border p-4 ${tones[health.tone]}`}>
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0"><h3 className="flex items-center gap-2 text-sm font-bold"><RefreshCw size={16} aria-hidden="true" />{health.label}</h3>
-        {!compact && <p className="mt-1 text-xs leading-relaxed">{view.enabled ? 'Arive supplies this file’s stage, service progress, milestone dates, and headed processor notes. A conflicting portal entry is flagged, and the Arive value is retained.' : 'Automatic updates from Arive are paused for this file.'}</p>}
+        {!compact && <p className="mt-1 text-xs leading-relaxed">{view.pilotPreview
+          ? view.enabled ? 'This Pilot file shows the latest verified Arive values. Your team continues working in the Standard pipeline.' : 'This file displays its BISU values until a verified Arive snapshot is available.'
+          : view.enabled ? 'Arive supplies this file’s stage, service progress, milestone dates, and headed processor notes. A conflicting portal entry is flagged, and the Arive value is retained.' : 'Automatic updates from Arive are paused for this file.'}</p>}
         {!compact && view.stageLabel && <p className="mt-2 text-sm font-semibold">Arive stage: {view.stageLabel} <span className="font-normal">· {formatAriveCalendarDate(view.stageDate)}</span></p>}
         <p className="mt-1 text-xs">{view.lastSuccessAt ? `Last successful sync: ${formatAriveSyncDate(view.lastSuccessAt)}` : 'No successful sync recorded.'}{view.nextAttemptAt && view.enabled ? ` · Next check: ${formatAriveSyncDate(view.nextAttemptAt)}` : ''}</p>
+        {view.pilotPreview && view.lastAttemptAt && view.lastAttemptAt !== view.lastSuccessAt && <p className="mt-1 text-xs">Last checked {formatAriveSyncDate(view.lastAttemptAt)}</p>}
         {queued && <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold"><Clock3 size={13} aria-hidden="true" />Refresh requested {formatAriveSyncDate(view.manualRefreshRequestedAt)} · Waiting for the shared queue</p>}
       </div>
+      {view.pilotPreview && view.enrollmentStatus !== 'EXCLUDED' && <button type="button" className="app-btn-secondary !h-9" disabled={Boolean(busy) || queued} onClick={()=>void perform('sync')}><RefreshCw size={14} aria-hidden="true" />{busy ? 'Requesting…' : queued ? 'Refresh queued' : 'Sync now'}</button>}
       {view.canManage && <div className="flex shrink-0 flex-wrap gap-2">
         {view.enabled && <button type="button" className="app-btn-secondary !h-9 !bg-white" disabled={Boolean(busy) || editing || queued} onClick={() => void perform('sync')}>{busy === 'sync' ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}{busy === 'sync' ? 'Syncing…' : queued ? 'Refresh queued' : generalized ? 'Sync from Arive' : 'Sync now'}</button>}
         <button type="button" className="app-btn-secondary !h-9 !bg-white" disabled={Boolean(busy) || editing} onClick={() => void perform(view.enabled ? 'pause' : 'enable')}>{busy === 'pause' || busy === 'enable' ? <Loader2 size={14} className="animate-spin" /> : view.enabled ? <Pause size={14} /> : <RefreshCw size={14} />}{busy === 'pause' ? 'Pausing…' : busy === 'enable' ? 'Enabling…' : view.enabled ? 'Pause sync' : generalized ? 'Resume sync' : 'Enable test-file sync'}</button>
@@ -111,7 +116,7 @@ export function AriveSyncStatus({ view, pipelineLoanId, onChanged, editing = fal
     if (!view) return null;
     return <>
     {compact && <p className="mt-3 text-xs leading-relaxed">{view.enabled ? 'Arive supplies this file’s stage, service progress, milestone dates, and headed processor notes. A conflicting portal entry is flagged, and the Arive value is retained.' : 'Automatic updates from Arive are paused for this file.'}</p>}
-    {generalized && <p className="mt-3 text-xs leading-relaxed">Sync from Arive requests a shared refresh. Reloading this portal view only displays the latest saved import. The same loan data appears in Standard and Pilot modes.</p>}
+    {generalized && <p className="mt-3 text-xs leading-relaxed">{view.pilotPreview ? 'This is the leadership Pilot view. Sync now requests the latest Arive information for this file.' : 'Sync from Arive requests a shared refresh.'}</p>}
     {responsibilityLabel && view.enabled && <p className="mt-3 rounded-lg bg-white/70 px-3 py-2 text-xs">Service responsibility follows the {responsibilityLabel} processing rules. The status and dates shown here reflect actual Arive progress.</p>}
     {view.enabled && view.missingFields.length > 0 && <div role="status" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-900"><p className="font-bold">Missing or invalid source information</p><ul className="mt-1 list-inside list-disc space-y-1">{view.missingFields.map(field => <li key={field}>{ariveFieldLabel(field)}</li>)}</ul></div>}
     {view.enabled && view.issues.length > 0 && <div className="mt-3 rounded-lg border border-amber-200 bg-white/80 p-3 text-xs text-amber-950"><p className="font-bold">Review these Arive details</p><ul className="mt-1 list-inside list-disc space-y-1">{view.issues.map((issue, index) => <li key={`${issue.field}-${issue.code}-${index}`}>{issue.message}</li>)}</ul></div>}

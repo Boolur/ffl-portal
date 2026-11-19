@@ -20,11 +20,12 @@ import {
   type ProcessingMethod,
 } from '@/lib/processingRouting';
 import { TaskAttachmentPurpose } from '@prisma/client';
-import { useSession } from 'next-auth/react';
-import { initialPilotPackage, pilotSubmissionError, isSubmissionPilotLoanOfficer } from '@/lib/submissionPilot';
+import { initialPilotPackage, pilotSubmissionError } from '@/lib/submissionPilot';
+import { createLeadershipTestSubmission } from '@/app/actions/taskActions';
 import { ProcessingDocumentsStep } from './ProcessingDocumentsStep';
 
 type NewTaskModalProps = {
+  leadershipTest?: boolean;
   open: boolean;
   onClose: () => void;
   isLoanOfficerAssistant?: boolean;
@@ -116,9 +117,9 @@ export function NewTaskModal({
   qcEnabled = false,
   shortcutPrefill = null,
   onSubmissionSuccess,
+  leadershipTest = false,
 }: NewTaskModalProps) {
-  const { data: session } = useSession();
-  const documentPilot = isSubmissionPilotLoanOfficer(session?.user?.id) && (session?.user?.activeRole || session?.user?.role) === 'LOAN_OFFICER';
+  const documentPilot = leadershipTest;
   const [documentUploadBusy, setDocumentUploadBusy] = useState(false);
   const resolveAvailableType = useCallback(
     (requestedType: SubmissionType): SubmissionType => {
@@ -228,7 +229,7 @@ export function NewTaskModal({
         )}
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">New Task Submission</h2>
+            <h2 className="text-xl font-bold text-slate-900">{leadershipTest ? 'Test submission to Processing' : 'New Task Submission'}</h2>
             <p className="text-sm text-slate-500 mt-1">
               Complete each step to submit your {
                 type === 'PLUS_ONE'
@@ -2186,7 +2187,7 @@ function QcForm({
 
     let res: Awaited<ReturnType<typeof createSubmissionTask>>;
     try {
-      res = await createSubmissionTask({
+      res = await (documentPilot ? createLeadershipTestSubmission : createSubmissionTask)({
         submissionType: 'QC',
         processingDocuments: documentPilot ? documents.items : undefined,
         sourceLoanId,

@@ -41,6 +41,7 @@ import {
 } from '@prisma/client';
 import {
   getProcessingPipeline,
+  getLeadershipPilotRevision,
   getProcessingPipelineRows,
   getProcessingPipelineFilterOptions,
   getProcessingPipelineHistory,
@@ -83,6 +84,8 @@ import { teamColorClasses } from '@/components/admin/leads/LeadUserTeamManager';
 import { PortalLoadingState } from '@/components/layout/PortalLoadingState';
 import { ProcessingBorrowerWorkspace } from './ProcessingBorrowerWorkspace';
 import { AriveSyncBadge } from './AriveSyncStatus';
+import { ARIVE_LOAN_STAGE_OPTIONS } from '@/lib/arivePipelineMapping';
+import {usePilotPaintReceipt} from './usePilotPaintReceipt';
 import { ariveFieldLabel, ariveFieldMissing, arivePipelineWarnings, formatAriveCalendarDate } from '@/lib/ariveSyncPresentation';
 import { ProcessingPipelineLayoutManager } from './ProcessingPipelineLayoutManager';
 import { ProcessingPipelineReportsModal } from './ProcessingPipelineReportsModal';
@@ -743,6 +746,18 @@ export function ProcessingPipelineGrid({
   const [savingRows, setSavingRows] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [ariveConflictWarning, setAriveConflictWarning] = useState('');
+  const [pilotCollectionEnabled, setPilotCollectionEnabled] = useState<boolean | null>(null);
+  const pilotStageOptions = useMemo(() => {
+    if (!initialData.pilotMode) return [];
+    const options = new Map(ARIVE_LOAN_STAGE_OPTIONS.map(option => [option.value, { ...option, count: 0 }]));
+    for (const { ariveSync } of rows) {
+      if (!ariveSync?.enabled || !ariveSync.stage) continue;
+      const stage = options.get(ariveSync.stage) || { value: ariveSync.stage, label: ariveSync.stageLabel || ariveSync.stage, count: 0 };
+      stage.count++;
+      options.set(stage.value, stage);
+    }
+    return [...options.values()];
+  }, [initialData.pilotMode, rows]);
   const [historyRow, setHistoryRow] = useState<ProcessingPipelineRow | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
@@ -835,7 +850,7 @@ export function ProcessingPipelineGrid({
     role === UserRole.MANAGER ||
     role === UserRole.PROCESSING_MANAGER ||
     isAdmin(role);
-  const canCorrectFunded = role === UserRole.PROCESSING_MANAGER;
+  const canCorrectFunded = canEdit && role === UserRole.PROCESSING_MANAGER;
   const isRateLockRequestsView = sheet === RATE_LOCK_REQUESTS_VIEW;
   const pipelineViews: Array<{ value: PipelineView; label: string }> = [
     { value: ProcessingPipelineSheet.PIPELINE, label: 'Pipeline' },
@@ -1046,13 +1061,26 @@ export function ProcessingPipelineGrid({
   }, [cacheScope, active, rows, total, layouts, initialData, sheet, search, filtersExpanded, fundingRangePreset, appliedFilters, draftFilters, selectedTeamIds, detailsExpanded, columnWidths, sortBy, sortDirection, columnSort, columnFilters, remainingCount, isPending, editorOpen, savingRows, activeLayout?.config.scope, resolvedQueryKey]);
 
   useEffect(() => {
-    if (!active || !rows.some(row => row.ariveSync?.enabled)) return;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== 'visible' || rowRefreshRef.current?.isBusy() || savingRowsRef.current.size > 0 || document.activeElement?.matches('input, textarea, select')) return;
-      refreshCurrentViewRef.current();
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, [active, rows]);
+    if (!active || !initialData.pilotMode) return;
+    let cancelled = false, checking = false, revision: string | undefined;
+    const check = async () => {
+      if (checking || document.visibilityState !== 'visible') return;
+      checking = true;
+      try {
+        const result = await getLeadershipPilotRevision();
+        if (cancelled) return;
+        if (!result.success) { window.location.reload(); return; }
+        setPilotCollectionEnabled(result.collecting);
+        if (revision !== result.revision) refreshCurrentViewRef.current();
+        revision = result.revision;
+      } catch { /* The last successful view stays visible during a connection failure. */ }
+      finally { checking = false; }
+    };
+    void check();
+    const timer = window.setInterval(check,10_000);
+    document.addEventListener('visibilitychange',check);
+    return () => { cancelled = true; window.clearInterval(timer); document.removeEventListener('visibilitychange',check); };
+  }, [active, initialData.pilotMode]);
 
   const showAriveConflict = (result: { error: string; ariveConflict?: unknown }) => {
     if (result.ariveConflict !== true) return false;
@@ -1373,6 +1401,8 @@ export function ProcessingPipelineGrid({
     useAnimationFrameWithResizeObserver: true,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
+  const paintedVersions = initialData.pilotMode ? virtualRows.map(({index})=>`${visibleRows[index]?.id}:${visibleRows[index]?.ariveSync?.projectionVersion ?? 0}`).join(',') : '';
+  usePilotPaintReceipt(scrollContainerRef,'GRID',Boolean(active && hasCurrentViewResults && initialData.pilotMode && !borrowerWorkspaceRowId),paintedVersions);
   const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
   const virtualPaddingBottom =
     virtualRows.length > 0
@@ -2392,7 +2422,7 @@ export function ProcessingPipelineGrid({
             className={`border-b border-r border-slate-200 ${cellPadding}`}
           >
             {juniorProcessorEditorRowId === row.id &&
-            isManagerOrAdmin &&
+            canEdit && isManagerOrAdmin &&
             (row.sheet !== ProcessingPipelineSheet.FUNDING ||
               canCorrectFunded) ? (
               <select
@@ -2421,7 +2451,7 @@ export function ProcessingPipelineGrid({
                 >
                   {row.juniorProcessor?.name || '—'}
                 </span>
-                {isManagerOrAdmin &&
+                {canEdit && isManagerOrAdmin &&
                   (row.sheet !== ProcessingPipelineSheet.FUNDING ||
                     canCorrectFunded) && (
                     <button
@@ -2450,7 +2480,7 @@ export function ProcessingPipelineGrid({
             className={`border-b border-r border-slate-200 font-semibold text-slate-800 ${cellPadding}`}
           >
             {seniorProcessorEditorRowId === row.id &&
-            isManagerOrAdmin &&
+            canEdit && isManagerOrAdmin &&
             (row.sheet !== ProcessingPipelineSheet.FUNDING ||
               canCorrectFunded) ? (
               <select
@@ -2479,7 +2509,7 @@ export function ProcessingPipelineGrid({
                 >
                   {processorLabel(row)}
                 </span>
-                {isManagerOrAdmin &&
+                {canEdit && isManagerOrAdmin &&
                   (row.sheet !== ProcessingPipelineSheet.FUNDING ||
                     canCorrectFunded) && (
                     <button
@@ -2856,6 +2886,10 @@ export function ProcessingPipelineGrid({
 
   return (
     <section className="space-y-5">
+      {initialData.pilotMode && pilotCollectionEnabled === false &&
+        <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Pilot collection is paused. Files show their last verified snapshot.
+        </p>}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div
@@ -3183,7 +3217,7 @@ export function ProcessingPipelineGrid({
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <MultiSelectFilter
-                      label="Pipeline Statuses"
+                      label={initialData.pilotMode ? 'BISU routing statuses' : 'Pipeline Statuses'}
                       values={draftFilters.pipelineStatuses || []}
                       options={statusOptions.map((option) => ({ value: option.value, label: option.label }))}
                       onChange={(values) => setDraftFilter('pipelineStatuses', values as ProcessingPipelineStatus[])}
@@ -3316,7 +3350,22 @@ export function ProcessingPipelineGrid({
               Resize headers or click Expand to show every available detail.
             </p>
           </div>
-          {sheet !== ProcessingPipelineSheet.FUNDING && (
+          {initialData.pilotMode && <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            Arive stage
+            <select className="app-input !w-auto" value={appliedFilters.ariveStages?.[0] || ''} onChange={event => {
+              const ariveStages = event.target.value ? [event.target.value] : undefined;
+              const filters = { ...appliedFilters, ariveStages };
+              setAppliedFilters(filters);
+              setDraftFilters(current => ({ ...current, ariveStages }));
+              loadRows(sheet, search, sortBy, sortDirection, filters);
+            }}>
+              <option value="">All stages</option>
+              {pilotStageOptions.map(stage => <option key={stage.value} value={stage.value}>
+                {stage.label}{hasCurrentViewResults && !remainingCount && stage.count ? ` (${stage.count})` : ''}
+              </option>)}
+            </select>
+          </label>}
+          {!initialData.pilotMode && sheet !== ProcessingPipelineSheet.FUNDING && (
             <div className="flex flex-wrap items-center gap-1.5 xl:justify-end" aria-label="Quick pipeline status filters">
               <button
                 type="button"
@@ -3414,6 +3463,8 @@ export function ProcessingPipelineGrid({
                 return (
                 <tr
                   key={row.id}
+                  data-pilot-render-id={row.ariveSync?.projectionVersion ? row.id : undefined}
+                  data-pilot-render-version={row.ariveSync?.projectionVersion}
                   ref={rowVirtualizer.measureElement}
                   data-index={virtualRow.index}
                   aria-rowindex={virtualRow.index + 2}
@@ -3941,7 +3992,7 @@ export function ProcessingPipelineGrid({
                 )}
 
               {isRateLockRequestsView &&
-                isManagerOrAdmin &&
+                canEdit && isManagerOrAdmin &&
                 actionsMenuRow.rateLockRequestedAt && (
                   <button
                     type="button"

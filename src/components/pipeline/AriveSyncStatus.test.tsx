@@ -1,3 +1,4 @@
+vi.mock('@/app/actions/processingPipelineActions', () => ({ queueLeadershipPilotRefresh: vi.fn() }));
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -57,7 +58,11 @@ describe('Arive sync visibility', () => {
   it('offers generalized controls without suggesting that the file is the legacy test', () => {
     const enabled = render(view({ workerOwner: 'GENERALIZED', canManage: true }));
     expect(enabled).toContain('Sync from Arive');
-    expect(enabled).toContain('same loan data appears in Standard and Pilot modes');
+    expect(enabled).toContain('requests a shared refresh');
+    const leadership = render(view({workerOwner:'GENERALIZED',pilotPreview:true,canManage:false}));
+    expect(leadership).toContain('Sync now');
+    expect(leadership).toContain('leadership Pilot view');
+    expect(leadership).not.toContain('Pause sync');
     const paused = render(view({ workerOwner: 'GENERALIZED', enabled: false, canManage: true }));
     expect(paused).toContain('Resume sync');
     expect(paused).not.toContain('test-file');

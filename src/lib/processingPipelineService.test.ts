@@ -261,7 +261,8 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
   it.each([
     { lender: 'AVEN', processingMethod: 'IN_HOUSE' },
     { lender: 'UWM', processingMethod: 'THIRD_PARTY' },
-  ])('retains imported milestones and payment dates when an enabled pilot submission is completed again ($lender)', async options => {
+  ])('retains imported milestones and payment dates when canonical application is active ($lender)', async options => {
+    vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production'); vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'true');
     const h = existingSubmission(options);
     const before = { ...h.current };
     const sourceBefore = structuredClone(h.state);
@@ -313,6 +314,7 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
   });
 
   it('preserves the sync result committed while a repeated completion was waiting for the pipeline lock', async () => {
+    vi.stubEnv('ARIVE_ROLLOUT_ENABLED', 'true'); vi.stubEnv('VERCEL_ENV', 'production'); vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'true');
     const h = existingSubmission();
     h.db.$executeRaw.mockImplementationOnce(async () => {
       h.order.push('lock');
@@ -333,8 +335,10 @@ describe('upsertProcessingPipelineForCompletedTask', () => {
 
   it.each([
     { loanId: ARIVE_SYNC_PILOT.loanId, enabled: false },
+    { loanId: ARIVE_SYNC_PILOT.loanId, enabled: true },
     { loanId: 'ordinary-loan', enabled: true },
   ])('retains the legacy completion behavior for paused or unrelated loans ($loanId, enabled $enabled)', async options => {
+    vi.stubEnv('ARIVE_CANONICAL_APPLY_ENABLED', 'false');
     const h = existingSubmission(options);
     await upsertProcessingPipelineForCompletedTask(h.tx, {
       taskId: 'resubmitted-task', actorId: 'reviewing-jr', completedAt: new Date('2026-11-06T12:00:00Z'),

@@ -560,7 +560,12 @@ describe('existing-portal enrollment', () => {
     h.store.row.sheet = 'FUNDING'; h.store.row.fundedAt = date('2026-05-10');
     h.remote.details.currentLoanStatus = { status: 'LOAN_FUNDED', date: '2026-05-10', adverseReason: '' };
     expect(await enrollAriveRolloutBatch(h.deps, { pipelineId: h.store.row.id })).toMatchObject({ verified: 1 });
-    expect(h.client.processingPipelineLoan.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: h.store.row.id }, take: 1 }));
+    expect(h.client.processingPipelineLoan.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: h.store.row.id, sourceTask: { is: { OR: [
+        { submissionData: { path: ['leadershipPilotTest'], equals: expect.anything() } },
+        { submissionData: { path: ['leadershipPilotTest'], not: true } },
+      ] } } }, take: 1,
+    }));
     expect(h.client.processingPipelineLoan.findMany).toHaveBeenCalledTimes(1); expect(h.newRows).not.toHaveBeenCalled();
     expect(h.store.sync.manualRefreshRequestedAt).toBeInstanceOf(Date); expect(await h.run()).toMatchObject({ success: true, applied: true });
     h.advance(); expect(await h.run()).toMatchObject({ skipped: true });

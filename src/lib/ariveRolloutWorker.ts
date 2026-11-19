@@ -12,7 +12,7 @@ import { projectAriveApplicationSnapshot } from './ariveApplicationSnapshot';
 import {
   ARIVE_ACTIVE_INTERVAL_MS, ARIVE_QUIET_INTERVAL_MS, ARIVE_ROLLOUT_CONNECTION, ARIVE_ROLLOUT_OWNER,
   ariveCanonicalWritesEnabled, ariveRolloutEnvironmentEnabled, ariveRolloutJson, assertAriveRolloutReady, isArivePracticeFile,
-  rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity, type AriveRolloutDeps,
+  rolloutLoanSelect, stableAriveValue, verifyAriveRolloutIdentity, canonicalAriveSource, type AriveRolloutDeps,
 } from './ariveRollout';
 
 const LEASE_MS = 4 * 60_000;
@@ -49,7 +49,7 @@ export async function syncAriveRolloutLoan(pipelineId: string, deps: AriveRollou
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${pipelineId}`}))`;
     const control = await tx.ariveRolloutControl.findUnique({ where: { id: ARIVE_ROLLOUT_CONNECTION } });
     if (!control?.collectionEnabled) return null;
-    const row = await tx.processingPipelineLoan.findUnique({ where: { id: pipelineId }, include: { ariveSync: true, loan: { select: rolloutLoanSelect } } });
+    const row = await tx.processingPipelineLoan.findUnique({ where: { id: pipelineId, ...canonicalAriveSource }, include: { ariveSync: true, loan: { select: rolloutLoanSelect } } });
     const state = row?.ariveSync;
     if (!row || !state?.enabled || state.workerOwner !== ARIVE_ROLLOUT_OWNER || state.enrollmentStatus !== 'VERIFIED' || state.connectionId !== ARIVE_ROLLOUT_CONNECTION) return null;
     if (state.ariveLoanId !== row.loan.loanNumber || !state.ariveGuid || !state.verifiedOriginatorEmail) throw new AriveError('The verified Arive link is incomplete. Review enrollment before syncing.');
@@ -91,7 +91,7 @@ export async function syncAriveRolloutLoan(pipelineId: string, deps: AriveRollou
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-rollout:company'))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${pipelineId}`}))`;
       const control = await tx.ariveRolloutControl.findUnique({ where: { id: ARIVE_ROLLOUT_CONNECTION } });
-      const current = await tx.processingPipelineLoan.findUnique({ where: { id: pipelineId }, include: { ariveSync: true, loan: { select: rolloutLoanSelect } } });
+      const current = await tx.processingPipelineLoan.findUnique({ where: { id: pipelineId, ...canonicalAriveSource }, include: { ariveSync: true, loan: { select: rolloutLoanSelect } } });
       const state = current?.ariveSync; const now = clock();
       if (!current || !state || !ariveRolloutEnvironmentEnabled() || !control?.collectionEnabled || control.generation !== claimed.control.generation
         || !state.enabled || state.workerOwner !== ARIVE_ROLLOUT_OWNER || state.workerGeneration !== claimed.state.workerGeneration
@@ -198,6 +198,7 @@ export async function runDueAriveRolloutSyncs(deps: AriveRolloutDeps = {}) {
     enabled: true, workerOwner: ARIVE_ROLLOUT_OWNER, connectionId: ARIVE_ROLLOUT_CONNECTION, enrollmentStatus: 'VERIFIED',
     pipelineId: { notIn: attempted },
     AND: [
+      { pipeline:canonicalAriveSource },
       { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }, { manualRefreshRequestedAt: { not: null }, failureCount: 0 }] },
       { OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] },
       { OR: [{ manualRefreshRequestedAt: { not: null } }, { pipeline: { archivedAt: null, sheet: { in: ['PIPELINE', 'RESTRUCTURE'] } } },

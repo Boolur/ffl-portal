@@ -54,6 +54,8 @@ export async function syncArivePipeline(pipelineId: string, options: { force?: b
   const db = deps.db || prisma; const clock = deps.now || (() => new Date());
   const started = clock(); const token = randomUUID();
   const claimed = await db.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-leadership-pilot'))`;
+    if ((await tx.pilotAriveControl.findUnique({where:{id:'company'},select:{enabled:true}}))?.enabled) return null;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${pipelineId}`}))`;
     const row = await tx.processingPipelineLoan.findUnique({ where: { id: pipelineId }, include: { ariveSync: true, loan: { include: { loanOfficer: { select: { email: true } } } } } });
     if (!row?.ariveSync?.enabled || row.ariveSync.workerOwner && row.ariveSync.workerOwner !== 'LEGACY') return null;
@@ -95,6 +97,11 @@ export async function syncArivePipeline(pipelineId: string, options: { force?: b
     if (typeof previousModified === 'string' && typeof modified === 'string' && Date.parse(modified) < Date.parse(previousModified)) throw new AriveError('Arive returned an older loan snapshot. Existing values were retained.');
 
     return await db.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-leadership-pilot'))`;
+      if ((await tx.pilotAriveControl.findUnique({where:{id:'company'},select:{enabled:true}}))?.enabled) {
+        await tx.arivePipelineSync.updateMany({where:{pipelineId,leaseToken:token},data:{leaseToken:null,leaseUntil:null}});
+        return {success:true as const, skipped:true};
+      }
       // Submission approval holds its package lock before refreshing the pipeline.
       // Use the same order here; recheck the link after acquiring both locks.
       const linkSnapshot = await tx.processingPipelineLoan.findUnique({ where: { id: pipelineId }, select: { sourceTask: { select: { submissionData: true } } } });

@@ -11,9 +11,11 @@ export type AriveRuntime = {
   operatorRequestLimit?: number | null;
   operatorAuthorizedAt?: Date | null;
   operatorAuthorizedById?: string | null;
+  reportedRequestsPerMinute?: number | null;
 };
 export type AriveRequestReservation = { id: string; connectionId: string; keyFingerprint: string; kind: string; startedAt: Date; leaseUntil: Date; finishedAt: Date | null; statusCode: number | null };
 export type AriveTransportTransaction = {
+  leadershipPilotGeneration?(): Promise<number | null>;
   runtime(): Promise<AriveRuntime | null>;
   updateRuntime(patch: Partial<AriveRuntime>): Promise<void>;
   recentRequests(key: string, since: Date): Promise<{ count: number; oldest: Date | null }>;
@@ -23,7 +25,7 @@ export type AriveTransportTransaction = {
 export type AriveTransportStore = {
   transaction<T>(work: (tx: AriveTransportTransaction) => Promise<T>): Promise<T>;
   // Completion only releases this reservation; it does not alter budget history.
-  finishRequest(id: string, finishedAt: Date, status: number | null): Promise<void>;
+  finishRequest(id: string, finishedAt: Date, status: number | null, responseMs?: number): Promise<void>;
 };
 export class AriveTransportError extends Error {
   constructor(public code: string, message: string, public retryAt: Date | null = null) { super(message); this.name = 'AriveTransportError'; }
@@ -96,9 +98,14 @@ export type AriveTransportOptions = {
   sleep?: (milliseconds: number) => Promise<void>;
   freshAuthentication?: boolean;
   readOnly?: boolean;
+  leadershipPilot?: boolean;
 };
 
 export async function createAriveTransportSession(options: AriveTransportOptions) {
+  if (options.leadershipPilot && (!options.readOnly || options.freshAuthentication)) {
+    throw new AriveTransportError('READ_ONLY', 'Pilot collection requires the saved read-only connection.');
+  }
+  let pilotGeneration: number | undefined;
   const clock = options.now ?? (() => new Date());
   const fetcher = options.fetch ?? fetch;
   const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
@@ -110,11 +117,29 @@ export async function createAriveTransportSession(options: AriveTransportOptions
     const reserve = () => options.store.transaction(async tx => {
       const now = clock(); const runtime = await tx.runtime();
       const quota = assertAriveTransportReady(runtime, key, now);
+      const quotas: (typeof quota)[] = [];
+      if (options.leadershipPilot) {
+        const generation = await tx.leadershipPilotGeneration?.();
+        if (generation == null || (pilotGeneration !== undefined && generation !== pilotGeneration)) {
+          throw new AriveTransportError('DISABLED', 'Leadership collection was paused or reconfigured.');
+        }
+        pilotGeneration = generation;
+      }
+      if (!options.leadershipPilot || runtime!.allowanceSource !== 'OPERATOR_AUTHORIZED') quotas.push(quota);
+      if (runtime!.allowanceSource === 'OPERATOR_AUTHORIZED' && runtime!.quotaConfirmedAt) {
+        quotas.push(validateAriveProviderAllowance(runtime!.providerRequestLimit, runtime!.providerWindowSeconds));
+      }
+      const reported = runtime!.reportedRequestsPerMinute;
+      if (reported && Number.isSafeInteger(reported) && reported > 0) {
+        quotas.push({ limit: reported, seconds: 60, allowance: Math.max(1, Math.floor(reported * 0.8)) });
+      }
       if (runtime!.cooldownUntil && runtime!.cooldownUntil > now) throw new AriveTransportError('COOLDOWN', 'Arive requests are paused until the provider cooldown ends.', runtime!.cooldownUntil);
       if (await tx.activeRequests(now) >= 2) throw new AriveTransportError('BUSY', 'Two Arive requests are already running. Please retry shortly.', new Date(now.getTime() + 1000));
-      const recent = await tx.recentRequests(key, new Date(now.getTime() - quota.seconds * 1000));
-      if (recent.count >= quota.allowance) throw new AriveTransportError('BUDGET_EXHAUSTED', 'The reserved Arive request allowance has been reached. Please retry after the window resets.', new Date((recent.oldest?.getTime() ?? now.getTime()) + quota.seconds * 1000 + 1));
-      await tx.createRequest({ id, connectionId: 'company', keyFingerprint: key, kind, startedAt: now, leaseUntil: new Date(now.getTime() + REQUEST_LEASE_MS), finishedAt: null, statusCode: null });
+      for (const rollingQuota of quotas) {
+        const recent = await tx.recentRequests(key, new Date(now.getTime() - rollingQuota.seconds * 1000));
+        if (recent.count >= rollingQuota.allowance) throw new AriveTransportError('BUDGET_EXHAUSTED', 'The reserved Arive request allowance has been reached. Please retry after the window resets.', new Date((recent.oldest?.getTime() ?? now.getTime()) + rollingQuota.seconds * 1000 + 1));
+      }
+      await tx.createRequest({ id, connectionId: 'company', keyFingerprint: key, kind: options.leadershipPilot ? 'PILOT_' + kind : kind, startedAt: now, leaseUntil: new Date(now.getTime() + REQUEST_LEASE_MS), finishedAt: null, statusCode: null });
       return { source: runtime!.allowanceSource, operatorLimit: runtime!.operatorRequestLimit, authorizedAt: runtime!.operatorAuthorizedAt?.getTime() ?? null };
     });
     const waitStarted = clock().getTime();
@@ -132,9 +157,30 @@ export async function createAriveTransportSession(options: AriveTransportOptions
     };
     const authorization = await reserveWhenAvailable();
     let status: number | null = null;
+    let responseMs: number | undefined;
+    const started = clock().getTime();
     try {
       return await run(async response => {
         status = response.status;
+        responseMs = Math.max(0, clock().getTime() - started);
+        {
+          const limit = response.headers.get('x-ratelimit-limit')?.trim();
+          const exhausted = response.headers.get('x-ratelimit-remaining')?.trim() === '0';
+          const announced = limit && /^\d{1,9}$/.test(limit) && Number(limit) > 0 ? Number(limit) : null;
+          const retryService = response.status === 503 && response.headers.has('retry-after');
+          if (exhausted || announced || retryService) {
+            await options.store.transaction(async tx => {
+              const runtime = await tx.runtime();
+              if (runtime?.quotaKeyFingerprint !== key) return;
+              const now = clock();
+              const until = (exhausted && response.status !== 429) || retryService ? ariveResponseCooldown(response.headers, now) : null;
+              const patch: Partial<AriveRuntime> = {};
+              if (until && (!runtime.cooldownUntil || runtime.cooldownUntil < until)) patch.cooldownUntil = until;
+              if (announced && runtime.reportedRequestsPerMinute !== announced) patch.reportedRequestsPerMinute = announced;
+              if (Object.keys(patch).length) await tx.updateRuntime(patch);
+            });
+          }
+        }
         if (response.status === 429) {
           const retryAt = await options.store.transaction(async tx => {
             const runtime = await tx.runtime(); const now = clock(); const until = ariveResponseCooldown(response.headers, now);
@@ -144,7 +190,7 @@ export async function createAriveTransportSession(options: AriveTransportOptions
             if (!runtime.cooldownUntil || runtime.cooldownUntil < until) patch.cooldownUntil = until;
             // Back off once per cooldown episode, without overwriting a newer
             // operator authorization or halving twice for concurrent 429 responses.
-            if (runtime.allowanceSource === 'OPERATOR_AUTHORIZED' && authorization.source === 'OPERATOR_AUTHORIZED'
+            if (!options.leadershipPilot && runtime.allowanceSource === 'OPERATOR_AUTHORIZED' && authorization.source === 'OPERATOR_AUTHORIZED'
               && runtime.operatorAuthorizedAt?.getTime() === authorization.authorizedAt
               && runtime.operatorRequestLimit === authorization.operatorLimit
               && (!runtime.cooldownUntil || runtime.cooldownUntil <= now)
@@ -161,7 +207,7 @@ export async function createAriveTransportSession(options: AriveTransportOptions
         }
       });
     } finally {
-      await options.store.finishRequest(id, clock(), status);
+      await options.store.finishRequest(id, clock(), status, responseMs);
     }
   }
 

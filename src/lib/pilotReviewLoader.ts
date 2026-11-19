@@ -1,7 +1,9 @@
 import { getSubmissionPilot } from '@/app/actions/submissionPilotActions';
+import { onPortalIdentityReset } from './portalLiveUpdates';
 
 type Result = Awaited<ReturnType<typeof getSubmissionPilot>>;
 const pending = new Map<string, { taskId: string; expires: number; promise: Promise<Result>; result?: Result }>();
+onPortalIdentityReset(() => pending.clear());
 
 export async function fetchPilotReview(taskId: string): Promise<Result> {
   try {

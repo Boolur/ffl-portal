@@ -1,3 +1,4 @@
+import { projectSharedTestTasks } from '@/lib/leadershipTestSubmission';
 import React from 'react';
 import Link from 'next/link';
 import { DashboardShell } from '@/components/layout/DashboardShell';
@@ -348,6 +349,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
         select: {
           kind: true,
           assignedRole: true,
+          assignedUserId: true,
           title: true,
           submissionData: true,
         },
@@ -605,7 +607,7 @@ async function getTasks(role: UserRole, userId?: string): Promise<TaskRow[]> {
   endPerf({
     taskCount: hydratedTasks.length,
   });
-  return hydratedTasks;
+  return projectSharedTestTasks(hydratedTasks, role);
 }
 
 function isDisclosureSubmissionTask(task: TaskRow) {

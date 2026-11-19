@@ -7,22 +7,20 @@ import { requestInfoFromLoanOfficer } from '@/app/actions/taskActions';
 import { fetchPilotReview, invalidatePilotReview } from '@/lib/pilotReviewLoader';
 import { pilotDecisionError } from '@/lib/pilotReviewChecklist';
 import Link from 'next/link';
-import { createSubmissionPilot, getSubmissionPilot, changeSubmissionPilot, preparePilotUpload, finishPilotUpload } from '@/app/actions/submissionPilotActions';
-import { PILOT_DOCUMENT_TYPES, validatePilotFile, pilotApprovalError, pilotSubmissionError } from '@/lib/submissionPilot';
-import { getProcessingAssignmentLabel, getProcessingMethodLabel } from '@/lib/processingRouting';
+import { getSubmissionPilot, changeSubmissionPilot, preparePilotUpload, finishPilotUpload } from '@/app/actions/submissionPilotActions';
+import { validatePilotFile, pilotApprovalError, pilotSubmissionError } from '@/lib/submissionPilot';
 import { ArivePilotConnection, ArivePackagePanel } from './ArivePilotPanel';
 import { PilotDocumentFile } from './PilotDocumentFile';
 import { DownloadAllDocuments } from './DownloadAllDocuments';
 import { SubmissionUploadDropzone } from './SubmissionUploadDropzone';
 
 type Data = Extract<Awaited<ReturnType<typeof getSubmissionPilot>>, { success: true }>['data'];
-const labels = { DRAFT: 'Draft — LO uploading', REVIEW: 'Jr review', CHANGES: 'Corrections requested', APPROVED: 'Approved — ready for Arive' };
+const labels = { DRAFT: 'Draft — LO uploading', REVIEW: 'Jr review', CHANGES: 'Corrections requested', APPROVED: 'Approved' };
 const documentIcons = { mortgage: House, insurance: ShieldCheck, income: ReceiptText, identity: IdCard, veteran: BadgeCheck, disclosures: FileSignature };
 export function SubmissionPilot({ initialData, initialTask, requestTaskId, startControl }: { initialData: Data; initialTask?: string; requestTaskId?: string; startControl?: React.ReactNode }) {
   const router = useRouter();
   const [data, setData] = useState(initialData);
   const [selected, setSelected] = useState(initialTask || initialData.packages[0]?.id || '');
-  const [loanId, setLoanId] = useState('');
   const [busy, setBusy] = useState(false);
   const uploadLock = useRef(false);
   const actionLock = useRef(false);
@@ -105,32 +103,20 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
     {!requestTaskId && <><header className="app-page-header">
       <Link href="/pipeline" className="app-btn-secondary mb-4"><ArrowLeft size={16} /> Pipeline</Link>
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div><p className="text-sm font-semibold text-primary">Matt Mahjoub · Live submission pilot</p><h1 className="app-page-title">{data.owner ? 'Submit to Processing' : 'Review processing submissions'}</h1>
+        <div><h1 className="app-page-title">Processing submissions</h1>
           <p className="app-page-subtitle">{data.owner ? 'Upload each item, send it for review, and resolve corrections in one place.' : 'Check every document and explanation. Return specific corrections or approve the package.'}</p></div>
         <button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void run(reload)}><RefreshCw size={16} /> Refresh</button>
       </div>
     </header>
-    <ol aria-label="Submission steps" className="grid gap-3 md:grid-cols-3">
-      {[
-        ['Build your package', 'Choose your loan and upload documents into each required category.'],
-        ['Jr Processor review', 'Each document is checked. Specific corrections come back here.'],
-        ['Approved for Arive', 'Approved files are ready to send to the linked Arive loan.'],
-      ].map(([title, description], index) => <li key={title} className="app-surface-card flex gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary font-bold text-primary" aria-hidden="true">{index + 1}</span><div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-sm text-muted-foreground">{description}</p></div></li>)}
-    </ol>
-    <ArivePilotConnection configured={data.ariveConfigured} canConfigure={data.canConfigureArive} owner={data.owner} onChanged={reload} onOpen={id => { setSelected(id); router.replace(`/pipeline/submission-pilot?task=${id}`); }} />
+    <ArivePilotConnection configured={data.ariveConfigured} canConfigure={data.canConfigureArive} onChanged={reload} />
     </>}
     {requestTaskId && <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="rounded-2xl bg-violet-100 p-3 text-violet-700"><FileCheck2 size={24} /></span><div><h3 className="text-lg font-bold">Document review</h3><p className="text-sm text-muted-foreground">One checklist. Every file and decision, together.</p></div></div><button type="button" className="app-btn-secondary" disabled={busy} onClick={() => void run(reload)}><RefreshCw size={14} />Refresh</button></div>}
     {startControl}
     <div role="status" aria-live="polite" className={submissionSent ? 'rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800' : message ? 'rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800' : 'text-sm text-muted-foreground'}>{message || (busy ? 'Saving…' : '')}</div>
     <div className={requestTaskId ? 'space-y-5' : 'grid items-start gap-6 lg:grid-cols-[300px_1fr]'}>
       {!requestTaskId && <aside className="app-surface-card space-y-5">
-        {data.owner && <div className="space-y-3"><label className="block text-sm font-semibold" htmlFor="pilot-loan">Existing pipeline loan</label>
-          <select id="pilot-loan" className="app-input" value={loanId} disabled={busy} onChange={e => setLoanId(e.target.value)}><option value="">Choose a loan</option>{data.loans.map(l => <option key={l.id} value={l.id}>{l.borrowerName} · {l.loanNumber}</option>)}</select>
-          {loanId && <p className="text-xs text-muted-foreground">{getProcessingMethodLabel(data.loans.find(l => l.id === loanId)?.processingPipeline?.processingMethod)} · {getProcessingAssignmentLabel(data.loans.find(l => l.id === loanId)?.processingPipeline?.assignmentGroup)}. Existing routing is retained.</p>}
-          <button type="button" className="app-btn-primary w-full" disabled={busy || !loanId} onClick={() => void run(async () => { const r = await createSubmissionPilot(loanId); if (!r.success) throw new Error(r.error); setSelected(r.data); router.replace(`/pipeline/submission-pilot?task=${r.data}`); })}>Start / open submission</button>
-        </div>}
         <h2 className="text-sm font-bold">{data.owner ? 'Your submissions' : 'Review queue'}</h2>
-        {!data.packages.length && <p className="text-sm text-muted-foreground">{data.owner ? 'Choose an existing loan to begin.' : 'No pilot submissions yet. Submitted packages will appear here.'}</p>}
+        {!data.packages.length && <p className="text-sm text-muted-foreground">{'No submissions are available.'}</p>}
         <div className="space-y-2">{data.packages.map(entry => <button type="button" key={entry.id} disabled={busy} aria-pressed={selected === entry.id} className={`w-full rounded-lg border p-3 text-left focus-visible:outline-2 focus-visible:outline-primary ${selected === entry.id ? 'border-primary bg-secondary' : 'border-border'}`} onClick={() => { setSelected(entry.id); setNotes({}); setEditingReviews([]); setMessage(''); router.replace(`/pipeline/submission-pilot?task=${entry.id}`); }}><span className="block text-sm font-semibold">{entry.borrower}</span><span className="block text-xs text-muted-foreground">{entry.loanNumber} · {labels[entry.package.state]}</span></button>)}</div>
       </aside>}
       {current && p ? <main className="space-y-4" aria-busy={busy}>
@@ -184,7 +170,7 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
               ] as const).map(([value, label, Icon, tone]) => <button key={value} type="button" aria-pressed={decision === value} onClick={() => setDecision(value)} className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-primary ${decision === value ? `${tone} ring-2 ring-primary/30` : 'border-border bg-white text-muted-foreground'}`}><Icon size={22} />{label}</button>)}</div>
               <label className="block text-sm font-semibold">{decision === 'OTHER' ? 'Reason for rejection' : 'Notes for the Loan Officer'} <span className="text-rose-600">· Required</span><textarea className="app-input mt-2 bg-white" maxLength={2000} value={decisionNotes} onChange={e => setDecisionNotes(e.target.value)} placeholder="Summarize your decision and the next steps for the LO." /></label>
               <p className="text-xs text-muted-foreground">{decision === 'OTHER' ? 'Returns this submission to the LO for revision. The loan and documents are retained.' : pilotDecisionError(p, decision) || 'All checklist items are approved. Ready to complete Processing.'}</p>
-              <button type="button" className={decision === 'OTHER' ? 'app-btn-danger' : decision === 'APPROVE_INITIAL_DISCLOSURES' ? 'app-btn-success' : 'app-btn-primary'} disabled={!decisionNotes.trim() || !!pilotDecisionError(p, decision)} onClick={() => void run(async () => { const r = await requestInfoFromLoanOfficer(requestTaskId, { reason: decision, message: decisionNotes }); if (!r.success) throw new Error(r.error); setDecisionSent(true); router.refresh(); })}><Send size={16} />{busy ? 'Saving…' : decision === 'APPROVE_INITIAL_DISCLOSURES' ? 'Approve & complete Processing' : decision === 'OTHER' ? 'Reject & return to LO' : 'Send document request to LO'}</button>
+              <button type="button" className={decision === 'OTHER' ? 'app-btn-danger' : decision === 'APPROVE_INITIAL_DISCLOSURES' ? 'app-btn-success' : 'app-btn-primary'} disabled={!decisionNotes.trim() || !!pilotDecisionError(p, decision)} onClick={() => void run(async () => { const r = await requestInfoFromLoanOfficer(requestTaskId, { reason: decision, message: decisionNotes, leadershipReview: p.leadershipTest === true }); if (!r.success) throw new Error(r.error); setDecisionSent(true); router.refresh(); })}><Send size={16} />{busy ? 'Saving…' : decision === 'APPROVE_INITIAL_DISCLOSURES' ? 'Approve & complete Processing' : decision === 'OTHER' ? 'Reject & return to LO' : 'Send document request to LO'}</button>
             </fieldset>
             {decisionSent && <p role="status" className="text-sm font-semibold text-emerald-700">Decision saved and sent to the Loan Officer.</p>}
           </div>}
@@ -192,12 +178,7 @@ export function SubmissionPilot({ initialData, initialTask, requestTaskId, start
           <details><summary className="text-sm font-semibold">Submission history ({p.history.length})</summary><ol className="mt-3 space-y-2 text-sm">{[...p.history].reverse().map((h, index) => <li key={index}><span className="font-medium">{h.actor}</span> · {h.message}<span className="block text-xs text-muted-foreground">{new Date(h.at).toLocaleString()}</span></li>)}</ol></details>
         </section>
         {!requestTaskId && <ArivePackagePanel key={current.id} taskId={current.id} pkg={p} configured={data.ariveConfigured} parentBusy={busy} onChanged={reload} />}
-      </main> : data.owner ? <section className="app-surface-card space-y-6">
-        <div><span className="app-count-badge">Your submission checklist</span><h2 className="mt-3 text-2xl font-bold">A complete file starts here</h2><p className="mt-2 text-sm text-muted-foreground">Choose an existing loan on the left, or open your Arive loan above. You can save your progress and return before submitting.</p></div>
-        <div className="grid gap-3 sm:grid-cols-2">{PILOT_DOCUMENT_TYPES.map(([id, label]) => <div key={id} className="flex items-start gap-3 rounded-xl border border-border p-4"><FileCheck2 size={20} className="shrink-0 text-primary" /><div><h3 className="text-sm font-semibold">{label}</h3><p className="mt-1 text-xs text-muted-foreground">Document or explanation required</p></div></div>)}</div>
-        <div className="rounded-xl bg-secondary p-4 text-sm"><h3 className="font-semibold">Before you can submit</h3><p className="mt-1 text-muted-foreground">Complete every required category and upload at least one document. If an item does not apply, explain why. Your Jr Processor must approve each document and explanation.</p></div>
-        <p className="text-xs text-muted-foreground">PDF, JPG, or PNG · Up to 20 MB per file · Additional documents welcome</p>
-      </section> : <div className="app-surface-card text-muted-foreground">Choose a submission to see its documents and review history.</div>}
+      </main> : <div className="app-surface-card text-muted-foreground">Open a submission to see its documents and review history.</div>}
     </div>
   </div>;
 }

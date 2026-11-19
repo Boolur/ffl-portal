@@ -1,5 +1,7 @@
 'use server';
-import { readPilotPackage, reconcileReturnedPilotReview, activeProcessingDocumentTaskId as processingDocumentTaskId, isSubmissionPilotLoanOfficer, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { readPilotPackage, reconcileReturnedPilotReview, activeProcessingDocumentTaskId as processingDocumentTaskId, SUBMISSION_PILOT_LO_ID, type PilotPackage } from '@/lib/submissionPilot';
+import { requireLeadershipPilot, leadershipTestViewer, isLeadershipTestRequest, sameLeadershipTestProperty, verifyLeadershipSubmissionLoan } from '@/lib/leadershipTestSubmission';
+import { canAccessLeadershipRequest, isPilotLeadershipRole, leadershipLoanScope, leadershipOfficerScope, leadershipRequestScope } from '@/lib/pilotLeadership';
 import { pilotReviewChecklist, pilotDecisionError } from '@/lib/pilotReviewChecklist';
 import { verifyProcessingSubmissionDocuments } from '@/lib/processingSubmissionDocuments';
 
@@ -3147,6 +3149,16 @@ const disclosureYearAquiredReadonlyField: {
 } = { key: 'yearAquired', label: 'Year Aquired' };
 
 export async function createSubmissionTask(payload: SubmissionPayload) {
+  return createPortalSubmission(payload, false);
+}
+
+export async function createLeadershipTestSubmission(payload: SubmissionPayload) {
+  if (payload.submissionType !== 'QC') return { success: false, error: 'Choose Submit to Processing for a test.' };
+  await requireLeadershipPilot();
+  return createPortalSubmission(payload, true);
+}
+
+async function createPortalSubmission(payload: SubmissionPayload, leadershipTest: boolean) {
   const perfStartedAt = Date.now();
   try {
     const {
@@ -3592,102 +3604,135 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
         : null;
 
     let documentPackage: PilotPackage | null = null;
-    if (submissionType === 'QC' && isSubmissionPilotLoanOfficer(sessionUserId) && role === UserRole.LOAN_OFFICER) {
-      if (loanOfficerUser.id !== SUBMISSION_PILOT_LO_ID) return { success: false, error: 'For this document pilot, select Matt as the Primary Loan Officer.' };
-      // Validate stored files before creating or updating a loan or queuing a request.
-      documentPackage = await verifyProcessingSubmissionDocuments(payload.processingDocuments, sessionUserId);
-      documentPackage.history.push({ at: new Date().toISOString(), actor: session?.user?.name || 'Matt Mahjoub', message: 'Submitted documents with the Processing request' });
-    }
-
-    // Find or create loan
-    let loan = await prisma.loan.findFirst({
-      where: { loanNumber: normalizedArriveLoanNumber },
-    });
-
-    if (sourceLoanId) {
-      if (
-        !canUsePipelineSubmissionShortcut(role || null) ||
-        !sessionUserId ||
-        !loan ||
-        loan.id !== sourceLoanId ||
-        (role === UserRole.LOAN_OFFICER &&
-          !canLoanOfficerViewLoan(loan, sessionUserId))
-      ) {
-        return {
-          success: false,
-          error: 'This loan is not available for a pipeline submission.',
-        };
+    if (leadershipTest) {
+      const actor = await requireLeadershipPilot();
+      if (actor.id !== sessionUserId) return { success: false, error: 'Your session changed. Open the submission again.' };
+      if (actor.role === UserRole.PROCESSING_MANAGER) {
+        const ids = [loanOfficerUser.id, ...(secondaryLoanOfficerUser ? [secondaryLoanOfficerUser.id] : [])];
+        const visible = await prisma.user.count({ where: { AND: [leadershipOfficerScope(actor), { id: { in: ids } }] } });
+        if (visible !== ids.length) return { success: false, error: 'Choose an officer from your visible loans or processing tasks.' };
       }
+      const identity = await verifyLeadershipSubmissionLoan({
+        id: sourceLoanId || '', loanNumber: normalizedArriveLoanNumber,
+        borrowerName: [borrowerFirstName, borrowerLastName].join(' ').trim(), borrowerFirstName, borrowerLastName,
+        loanOfficer: loanOfficerUser, secondaryLoanOfficer: secondaryLoanOfficerUser,
+      }, processingPropertyAddress);
+      documentPackage = await verifyProcessingSubmissionDocuments(payload.processingDocuments, actor.id);
+      documentPackage.leadershipTest = true;
+      documentPackage.leadershipSubmitterId = actor.id;
+      documentPackage.ariveLink = { id: identity.guid, loanNumber: normalizedArriveLoanNumber };
+      documentPackage.history.push({ at: new Date().toISOString(), actor: actor.name || 'Leadership', message: 'Submitted test documents for processing' });
+    } else if (payload.processingDocuments !== undefined) {
+      return { success: false, error: 'Your submission view changed. Reopen Submit to Processing.' };
     }
 
-    const targetStage =
-      submissionType === 'QC' ? 'PROCESSING' : 'DISCLOSURES_PENDING';
+    let registerPracticeFile = leadershipTest;
+    async function resolveLoan(tx: Prisma.TransactionClient) {
+      if (leadershipTest) await tx.$queryRaw`SELECT id FROM "Loan" WHERE "loanNumber" = ${normalizedArriveLoanNumber} FOR UPDATE`;
+      const loan = await tx.loan.findFirst({ where: { loanNumber: normalizedArriveLoanNumber } });
+      if (sourceLoanId) {
+        if (
+          !canUsePipelineSubmissionShortcut(role || null) ||
+          !sessionUserId ||
+          !loan ||
+          loan.id !== sourceLoanId ||
+          (role === UserRole.LOAN_OFFICER &&
+            !canLoanOfficerViewLoan(loan, sessionUserId))
+        ) {
+          throw new Error('This loan is not available for a pipeline submission.');
+        }
+      }
 
-    if (!loan) {
-      loan = await prisma.loan.create({
-        data: {
-          loanNumber: normalizedArriveLoanNumber,
-          borrowerName: `${borrowerFirstName} ${borrowerLastName}`.trim(),
-          borrowerFirstName: borrowerFirstName.trim() || null,
-          borrowerLastName: borrowerLastName.trim() || null,
-          borrowerPhone: borrowerPhone?.trim() || null,
-          borrowerEmail: borrowerEmail?.trim() || null,
-          amount: Number(loanAmount || 0),
-          program: processingLoanProgram || null,
-          propertyAddress: processingPropertyAddress || null,
-          loanOfficerId: loanOfficerUser.id,
-          secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId,
-          visibilitySubmitterUserId,
-          stage: targetStage,
-        },
-      });
-    } else {
-      // If LOA selected a Loan Officer, ensure ownership follows that selection
-      // so the chosen LO immediately sees the request in their portal.
-      const shouldReassignLoanOfficer = loan.loanOfficerId !== loanOfficerUser.id;
-      const shouldUpdateSecondaryLoanOfficer =
-        (loan.secondaryLoanOfficerId || null) !== normalizedSecondaryLoanOfficerId;
-      const shouldUpdateVisibilitySubmitter =
-        (loan.visibilitySubmitterUserId || null) !== visibilitySubmitterUserId;
-      const shouldPromoteIntakeStage = loan.stage === 'INTAKE';
-      const shouldUpdateBorrowerDetails =
-        Boolean(
-          borrowerFirstName.trim() ||
-          borrowerLastName.trim() ||
-          borrowerPhone?.trim() ||
-          borrowerEmail?.trim(),
-        ) ||
-        Boolean(processingLoanProgram || processingPropertyAddress);
-      if (
-        shouldReassignLoanOfficer ||
-        shouldPromoteIntakeStage ||
-        shouldUpdateSecondaryLoanOfficer ||
-        shouldUpdateVisibilitySubmitter ||
-        shouldUpdateBorrowerDetails
-      ) {
-        loan = await prisma.loan.update({
-          where: { id: loan.id },
+      const targetStage =
+        submissionType === 'QC' ? 'PROCESSING' : 'DISCLOSURES_PENDING';
+
+      if (leadershipTest) {
+        if (loan && role === UserRole.PROCESSING_MANAGER && !await tx.loan.count({ where: { AND: [{ id: loan.id }, leadershipLoanScope({ id: sessionUserId!, role })] } })) throw new Error('The existing loan is outside your Processing Manager workspace.');
+        const mappings = await tx.arivePracticeLoan.findMany({ where: { OR: [{ ariveLoanId: normalizedArriveLoanNumber }, { ariveGuid: documentPackage!.ariveLink!.id }] }, take: 2 });
+        const registered = mappings[0];
+        if (mappings.length > 1 || registered && (!registered.enabled || registered.ariveLoanId !== normalizedArriveLoanNumber || registered.ariveGuid && registered.ariveGuid !== documentPackage!.ariveLink!.id)) throw new Error('The test-file registration conflicts with this Arive file.');
+        if (loan) {
+          if (loan.loanOfficerId !== loanOfficerUser!.id || loan.secondaryLoanOfficerId !== normalizedSecondaryLoanOfficerId ||
+            loan.borrowerName.trim().toLowerCase() !== [borrowerFirstName, borrowerLastName].join(' ').trim().toLowerCase() || !sameLeadershipTestProperty(loan.propertyAddress, processingPropertyAddress)) throw new Error('This BISU loan has a different borrower, originator, or property.');
+          if (!registered) {
+            const [history, payroll] = await Promise.all([
+              tx.loan.findUnique({ where: { id: loan.id }, select: { processingPipeline: { select: { id: true } }, _count: { select: { tasks: true, pendingStpDispositions: true, pipelineNotes: true, leadMailboxLeads: true, supportConversations: true } } } }),
+              tx.payrollCompRequest.count({ where: { OR: [{ loanId: loan.id }, { loanNumber: normalizedArriveLoanNumber }] } }),
+            ]);
+            if (!history || loan.stage !== 'INTAKE' || loan.clientId || loan.processorId || loan.pipelineStageId || history.processingPipeline || payroll || Object.values(history._count).some(Boolean)) throw new Error('This BISU loan already has operational history. Choose a separate test file.');
+            // The test belongs to its labeled task. The pre-existing loan keeps its classification.
+            registerPracticeFile = false;
+          }
+          return loan;
+        }
+      }
+      if (!loan) {
+        return tx.loan.create({
           data: {
-            ...(shouldPromoteIntakeStage ? { stage: targetStage } : {}),
-            ...(shouldReassignLoanOfficer ? { loanOfficerId: loanOfficerUser.id } : {}),
-            ...(shouldUpdateSecondaryLoanOfficer
-              ? { secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId }
-              : {}),
-            ...(shouldUpdateVisibilitySubmitter
-              ? { visibilitySubmitterUserId }
-              : {}),
+            loanNumber: normalizedArriveLoanNumber,
             borrowerName: `${borrowerFirstName} ${borrowerLastName}`.trim(),
             borrowerFirstName: borrowerFirstName.trim() || null,
             borrowerLastName: borrowerLastName.trim() || null,
-            borrowerPhone: borrowerPhone?.trim() || loan.borrowerPhone || null,
-            borrowerEmail: borrowerEmail?.trim() || loan.borrowerEmail || null,
-            ...(processingLoanProgram ? { program: processingLoanProgram } : {}),
-            ...(processingPropertyAddress
-              ? { propertyAddress: processingPropertyAddress }
-              : {}),
+            borrowerPhone: borrowerPhone?.trim() || null,
+            borrowerEmail: borrowerEmail?.trim() || null,
+            amount: Number(loanAmount || 0),
+            program: processingLoanProgram || null,
+            propertyAddress: processingPropertyAddress || null,
+            loanOfficerId: loanOfficerUser!.id,
+            secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId,
+            visibilitySubmitterUserId,
+            stage: targetStage,
           },
         });
+      } else {
+        // If LOA selected a Loan Officer, ensure ownership follows that selection
+        // so the chosen LO immediately sees the request in their portal.
+        const shouldReassignLoanOfficer = loan.loanOfficerId !== loanOfficerUser!.id;
+        const shouldUpdateSecondaryLoanOfficer =
+          (loan.secondaryLoanOfficerId || null) !== normalizedSecondaryLoanOfficerId;
+        const shouldUpdateVisibilitySubmitter =
+          (loan.visibilitySubmitterUserId || null) !== visibilitySubmitterUserId;
+        const shouldPromoteIntakeStage = loan.stage === 'INTAKE';
+        const shouldUpdateBorrowerDetails =
+          Boolean(
+            borrowerFirstName.trim() ||
+            borrowerLastName.trim() ||
+            borrowerPhone?.trim() ||
+            borrowerEmail?.trim(),
+          ) ||
+          Boolean(processingLoanProgram || processingPropertyAddress);
+        if (
+          shouldReassignLoanOfficer ||
+          shouldPromoteIntakeStage ||
+          shouldUpdateSecondaryLoanOfficer ||
+          shouldUpdateVisibilitySubmitter ||
+          shouldUpdateBorrowerDetails
+        ) {
+          return tx.loan.update({
+            where: { id: loan.id },
+            data: {
+              ...(shouldPromoteIntakeStage ? { stage: targetStage } : {}),
+              ...(shouldReassignLoanOfficer ? { loanOfficerId: loanOfficerUser!.id } : {}),
+              ...(shouldUpdateSecondaryLoanOfficer
+                ? { secondaryLoanOfficerId: normalizedSecondaryLoanOfficerId }
+                : {}),
+              ...(shouldUpdateVisibilitySubmitter
+                ? { visibilitySubmitterUserId }
+                : {}),
+              borrowerName: `${borrowerFirstName} ${borrowerLastName}`.trim(),
+              borrowerFirstName: borrowerFirstName.trim() || null,
+              borrowerLastName: borrowerLastName.trim() || null,
+              borrowerPhone: borrowerPhone?.trim() || loan.borrowerPhone || null,
+              borrowerEmail: borrowerEmail?.trim() || loan.borrowerEmail || null,
+              ...(processingLoanProgram ? { program: processingLoanProgram } : {}),
+              ...(processingPropertyAddress
+                ? { propertyAddress: processingPropertyAddress }
+                : {}),
+            },
+          });
+        }
       }
+      return loan;
     }
 
     const taskTitle =
@@ -3761,7 +3806,13 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       finalSubmissionData = dataObj as Prisma.JsonObject;
     }
 
-    const createdTask = await prisma.$transaction(async (tx) => {
+    const { loan, createdTask } = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'submission-number:' + normalizedArriveLoanNumber}))`;
+      if (leadershipTest) {
+        const actor = await tx.user.findUnique({ where: { id: sessionUserId }, select: { active: true, role: true, roles: true, pilotViewEnabled: true } });
+        if (!actor?.active || !actor.pilotViewEnabled || !role || !isPilotLeadershipRole(role) || ![actor.role, ...actor.roles].includes(role)) throw new Error('Pilot access changed.');
+      }
+      const loan = await resolveLoan(tx);
       await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(
           hashtext(${`pipeline-submission:${loan.id}:${kind}`})
@@ -3795,11 +3846,20 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
       const safeSubmissionData: Record<string, Prisma.InputJsonValue | null> = finalSubmissionData && typeof finalSubmissionData === 'object' && !Array.isArray(finalSubmissionData) ? { ...(finalSubmissionData as Record<string, Prisma.InputJsonValue | null>) } : {};
       delete safeSubmissionData.submissionPilot;
       delete safeSubmissionData.processingDocumentTaskId;
+      delete safeSubmissionData.leadershipPilotTest;
+      delete safeSubmissionData.leadershipTestSubmitterId;
+      if (leadershipTest && documentPackage?.ariveLink) {
+        safeSubmissionData.leadershipPilotTest = true;
+        safeSubmissionData.leadershipTestSubmitterId = sessionUserId!;
+        if (registerPracticeFile) await tx.arivePracticeLoan.upsert({ where: { ariveLoanId: normalizedArriveLoanNumber },
+          create: { ariveLoanId: normalizedArriveLoanNumber, ariveGuid: documentPackage.ariveLink.id, label: 'Leadership test submission', createdById: sessionUserId! },
+          update: { ariveGuid: documentPackage.ariveLink.id } });
+      }
       if (processingDocumentTask) safeSubmissionData.processingDocumentTaskId = processingDocumentTask.id;
-      return tx.task.create({
+      const createdTask = await tx.task.create({
         data: {
           loanId: loan.id,
-          title: taskTitle,
+          title: leadershipTest ? 'Test - Submit for Processing' : taskTitle,
           kind,
           description: notes || null,
           submissionData: safeSubmissionData,
@@ -3826,6 +3886,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
               : new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       });
+      return { createdTask, loan };
     });
 
     if (
@@ -3842,7 +3903,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
     }
 
     const submittedLeadStatus = leadStatusForTaskKind(createdTask.kind);
-    if (submittedLeadStatus) {
+    if (submittedLeadStatus && !leadershipTest) {
       await prisma.$transaction((tx) =>
         syncLeadStatusForLoan(tx, {
           loanId: loan.id,
@@ -3985,6 +4046,7 @@ export async function createSubmissionTask(payload: SubmissionPayload) {
 type RequestInfoInput = {
   reason: DisclosureDecisionReason;
   message?: string;
+  leadershipReview?: boolean;
   qcChecklist?: {
     items: Array<{
       id: string;
@@ -5361,13 +5423,6 @@ export async function startQcRequest(taskId: string) {
       isAdmin(role) ||
       role === UserRole.MANAGER ||
       role === UserRole.PROCESSOR_JR;
-    if (!canStart) {
-      return {
-        success: false,
-        error: 'Only Jr Processors, Manager, or Admin can start this request.',
-      };
-    }
-
     const task = await prisma.task.findUnique({
       where: { id: taskId },
       select: {
@@ -5384,6 +5439,7 @@ export async function startQcRequest(taskId: string) {
     });
 
     if (!task) return { success: false, error: 'Task not found.' };
+    if (!canStart && (!canAccessLeadershipRequest({ id: userId, role }, task) || !await leadershipTestViewer(task.submissionData, role))) return { success: false, error: 'Not authorized to start this task.' };
     if (!isQcStyleSubmissionTask(task)) {
       return {
         success: false,
@@ -5436,6 +5492,7 @@ export async function startQcRequest(taskId: string) {
         id: taskId,
         status: { not: TaskStatus.COMPLETED },
         workflowState: TaskWorkflowState.NONE,
+        ...(!canStart ? { AND: [leadershipRequestScope({ id: userId, role })] } : {}),
         OR: [{ assignedUserId: null }, { assignedUserId: userId }],
       },
       data: {
@@ -5681,15 +5738,16 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
       role === UserRole.DISCLOSURE_SPECIALIST ||
       role === UserRole.PROCESSOR_JR;
 
-    if (!canRequest) {
-      return { success: false, error: 'Not authorized.' };
-    }
-
     const task = await prisma.task.findUnique({
       where: { id: taskId },
       include: { loan: { select: { loanOfficerId: true } } },
     });
     if (!task) return { success: false, error: 'Task not found.' };
+
+    const leadershipTest = isLeadershipTestRequest(task.submissionData);
+    const pilotView = canAccessLeadershipRequest({ id: userId, role }, task) && await leadershipTestViewer(task.submissionData, role);
+    if (!canRequest && !pilotView) return { success: false, error: 'Not authorized.' };
+    if (input.leadershipReview && !pilotView) return { success: false, error: 'Your Pilot session changed. Open the task again.' };
 
     const parentAttachments = await prisma.taskAttachment.findMany({
       where: { taskId },
@@ -5723,11 +5781,11 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     const processingSubmissionTask = isProcessingSubmissionTask(task);
     const normalizedReason = input.reason;
     const normalizedMessage = input.message?.trim() || '';
-    const pilotId = processingSubmissionTask ? processingDocumentTaskId(task.submissionData) : null;
+    const pilotId = processingSubmissionTask && (!leadershipTest || pilotView) ? processingDocumentTaskId(task.submissionData) : null;
     const pilotTask = pilotId ? await prisma.task.findUnique({ where: { id: pilotId } }) : null;
     const pilot = readPilotPackage(pilotTask?.submissionData);
     if (pilotId) {
-      if (!pilot || pilotTask?.loanId !== task.loanId || task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID) return { success: false, error: 'Submission documents unavailable.' };
+      if (!pilot || pilotTask?.loanId !== task.loanId || (leadershipTest ? !pilot.leadershipTest : task.loan.loanOfficerId !== SUBMISSION_PILOT_LO_ID)) return { success: false, error: 'Submission documents unavailable.' };
       if (!((task.status === TaskStatus.IN_PROGRESS && task.workflowState === TaskWorkflowState.NONE) || (task.status === TaskStatus.PENDING && task.workflowState === TaskWorkflowState.READY_TO_COMPLETE)) || task.assignedUserId !== userId) return { success: false, error: 'Start this request first. Only its assigned reviewer can submit a decision.' };
       reconcileReturnedPilotReview(pilot, task);
       const error = pilotDecisionError(pilot, normalizedReason);
@@ -5834,11 +5892,18 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
     const processingCompletedAt = new Date();
     await prisma.$transaction(async (tx) => {
       if (processingSubmissionTask) await lockProcessingPipelineForTask(tx, task);
-      if (pilot && pilotTask) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${pilotTask.id}`}))`;
+      // Match the lock order used by the document resubmission transaction.
+      if (pilotTask && pilot) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`submission-pilot:${pilotTask.id}`}))`;
+      if (leadershipTest || pilot) {
         await tx.$queryRaw`SELECT id FROM "Task" WHERE id = ${taskId} FOR UPDATE`;
-        const currentRequest = await tx.task.findUnique({ where: { id: taskId } });
-        if (!currentRequest || currentRequest.updatedAt.getTime() !== task.updatedAt.getTime()) throw new Error('The request changed. Refresh before submitting.');
+        const current = await tx.task.findUnique({ where: { id: taskId }, select: { updatedAt: true, status: true } });
+        if (!current || current.status === 'COMPLETED' || current.updatedAt.getTime() !== task.updatedAt.getTime()) throw new Error('The request changed. Reopen it before submitting.');
+      }
+      if (pilot && pilotTask) {
+        if (leadershipTest) {
+          const user = await tx.user.findUnique({ where: { id: userId }, select: { role: true, roles: true, active: true, pilotViewEnabled: true } });
+          if (!user?.active || !user.pilotViewEnabled || !isPilotLeadershipRole(role) || ![user.role, ...user.roles].includes(role)) throw new Error('Your Pilot session changed. Open the task again.');
+        }
         pilot.state = isQcCompleteAction ? 'APPROVED' : 'CHANGES';
         pilot.reviewerId = userId;
         pilot.revision++;
@@ -5850,7 +5915,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
           completedAt: isQcCompleteAction ? processingCompletedAt : null,
         } });
         if (saved.count !== 1) throw new Error('Document review changed. Refresh before submitting.');
-        await tx.auditLog.create({ data: { loanId: task.loanId, userId, action: 'SUBMISSION_PILOT_UPDATED', details: JSON.stringify({ taskId: pilotTask.id, requestTaskId: taskId, decision: normalizedReason, revision: pilot.revision }) } });
+        if (!leadershipTest) await tx.auditLog.create({ data: { loanId: task.loanId, userId, action: 'SUBMISSION_PILOT_UPDATED', details: JSON.stringify({ taskId: pilotTask.id, requestTaskId: taskId, decision: normalizedReason, revision: pilot.revision }) } });
       }
       const noteEntry = effectiveMessage
         ? {
@@ -5858,7 +5923,7 @@ export async function requestInfoFromLoanOfficer(taskId: string, input: RequestI
         role: role,
         message: effectiveMessage,
         date: new Date().toISOString(),
-        ...(parsedQcChecklist
+        ...(parsedQcChecklist && !leadershipTest
           ? {
               entryType: 'qcChecklist',
               checklist: parsedQcChecklist.items,

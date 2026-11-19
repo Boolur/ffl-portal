@@ -11,6 +11,8 @@ import { getPipelineReport } from '@/app/actions/pipelineReportingActions';
 import { getProcessingPipelineWorkspace } from '@/app/actions/pipelineWorkspaceActions';
 import { prisma } from '@/lib/prisma';
 import { isAdmin, isAdminIII } from '@/lib/adminTiers';
+import { isPilotLeadershipRole } from '@/lib/pilotLeadership';
+import { canViewGeneralizedArive } from '@/lib/ariveSyncState';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +25,10 @@ export default async function Pipeline() {
   if (!canAccess) redirect('/');
 
   const role = (session.user.activeRole || session.user.role) as UserRole;
+  const account = isPilotLeadershipRole(role) ? await prisma.user.findUnique({
+    where:{id:session.user.id},select:{id:true,active:true,role:true,roles:true,pilotViewEnabled:true},
+  }) : null;
+  const pilotMode = Boolean(account && canViewGeneralizedArive(account,role));
   const isProcessingRole =
     role === UserRole.PROCESSOR_JR ||
     role === UserRole.PROCESSOR_SR ||
@@ -33,9 +39,9 @@ export default async function Pipeline() {
     role === UserRole.MANAGER ||
     isAdmin(role);
   const [initialWorkspace, initialReport, submissionConfig] = await Promise.all([
-    isProcessingRole ? getProcessingPipelineWorkspace() : Promise.resolve(null),
-    isProcessingRole ? Promise.resolve(null) : getPipelineReport(),
-    canUseSubmissionShortcuts
+    isProcessingRole || pilotMode ? getProcessingPipelineWorkspace() : Promise.resolve(null),
+    isProcessingRole || pilotMode ? Promise.resolve(null) : getPipelineReport(),
+    canUseSubmissionShortcuts && !pilotMode
       ? Promise.all([
           prisma.user.findUnique({
             where: { id: session.user.id },
@@ -80,7 +86,8 @@ export default async function Pipeline() {
         <div className="mb-4"><Link className="app-btn-secondary" href="/admin/arive">Arive integration settings</Link></div>
       )}
       <PipelineWorkspace
-        cacheScope={JSON.stringify([session.user.id, role, [...(session.user.roles || [role])].sort()])}
+        cacheScope={JSON.stringify([session.user.id, role, [...(session.user.roles || [role])].sort(),pilotMode ? 'pilot':'standard'])}
+        pilotMode={pilotMode}
         role={role}
         initialReport={initialReport}
         initialWorkspace={initialWorkspace?.success ? initialWorkspace : null}

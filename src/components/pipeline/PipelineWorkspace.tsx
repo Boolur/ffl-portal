@@ -3,6 +3,7 @@
 import { Activity, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { BarChart3, CheckCircle2, Sheet } from 'lucide-react';
 import { UserRole } from '@prisma/client';
 import type { PipelineReport } from '@/app/actions/pipelineReportingActions';
@@ -20,6 +21,7 @@ const ProcessingPipelineGrid = dynamic(() => import('@/components/pipeline/Proce
 
 type Props = {
   cacheScope: string;
+  pilotMode?: boolean;
   role: UserRole;
   initialReport: PipelineReport | null;
   initialWorkspace: ProcessingPipelineWorkspaceData | null;
@@ -32,7 +34,7 @@ type Props = {
 
 export function PipelineWorkspace(props: Props) {
   const { data: session, status } = useSession();
-  if (status !== 'authenticated' || !pipelineScopeMatches(props.cacheScope, session?.user)) {
+  if (status !== 'authenticated' || !pipelineScopeMatches(props.cacheScope, session?.user, props.pilotMode)) {
     return <PortalLoadingState label="Loading your pipeline" preview="table" />;
   }
   return <PipelineWorkspaceContent key={props.cacheScope} {...props} />;
@@ -40,6 +42,7 @@ export function PipelineWorkspace(props: Props) {
 
 function PipelineWorkspaceContent({
   cacheScope,
+  pilotMode,
   role,
   initialReport,
   initialWorkspace,
@@ -159,12 +162,13 @@ function PipelineWorkspaceContent({
             </div>
             <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
               <CheckCircle2 className="h-5 w-5" />
-              {initialProcessing.canEdit
+              {pilotMode ? 'Leadership Pilot · Read only' : initialProcessing.canEdit
                 ? role === UserRole.LOAN_OFFICER
                   ? 'Audited edits on eligible loans'
                   : 'Audited autosave enabled'
                 : 'Live processing visibility'}
             </div>
+          {pilotMode && <Link className="app-btn-secondary" href="/pilot/submission">Act as Loan Officer</Link>}
           </header>
           <ProcessingPipelineGrid
             cacheScope={cacheScope}

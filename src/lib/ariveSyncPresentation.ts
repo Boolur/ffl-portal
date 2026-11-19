@@ -30,13 +30,30 @@ export function ariveFieldLabel(field: string): string {
 
 export function ariveSyncHealth(view: AriveSyncView | null | undefined, now = Date.now()) {
   if (!view) return null;
+  if (view.pilotPreview && !view.enabled) {
+    if (view.enrollmentStatus === 'EXCLUDED') return {tone:'muted',label:'Practice file excluded'} as const;
+    if (view.enrollmentStatus === 'REVIEW') {
+      if (/403|access denied|forbidden/i.test(view.error ?? '')) return {tone:'error',label:'Arive access denied'} as const;
+      if (/no exact|no accessible|no matching/i.test(view.error ?? '')) return {tone:'warning',label:'No Arive match'} as const;
+      return {tone:'warning',label:'Arive match needs review'} as const;
+    }
+    return {tone:'pending',label:'Awaiting verified Arive data'} as const;
+  }
   if (!view.enabled) return { tone: 'muted', label: 'Arive sync paused' } as const;
+  if (view.pilotPreview && view.lastSuccessAt && view.nextAttemptAt) {
+    const last = Date.parse(view.lastSuccessAt);
+    const next = Date.parse(view.nextAttemptAt);
+    const active = next - last <= 60_000;
+    if (now > (active ? last : next) + 60_000) return {tone:'warning',label:'Arive data is stale'} as const;
+  }
   if (view.error) return { tone: 'error', label: 'Arive sync needs attention' } as const;
   if (view.conflicts.length) return { tone: 'warning', label: 'Arive values retained' } as const;
   if (view.missingFields.length || view.issues.length) return { tone: 'warning', label: 'Arive details need review' } as const;
   const succeeded = view.lastSuccessAt ? Date.parse(view.lastSuccessAt) : NaN;
   if (!Number.isFinite(succeeded)) return { tone: 'pending', label: 'Awaiting first Arive sync' } as const;
-  if (now - succeeded > 15 * 60_000) return { tone: 'warning', label: 'Arive sync delayed' } as const;
+  const nextCheck = view.pilotPreview && view.nextAttemptAt ? Date.parse(view.nextAttemptAt) : NaN;
+  const delayed = Number.isFinite(nextCheck) ? now > nextCheck + 60_000 : now - succeeded > 15 * 60_000;
+  if (delayed) return { tone: 'warning', label: 'Arive sync delayed' } as const;
   return { tone: 'success', label: 'Synced with Arive' } as const;
 }
 

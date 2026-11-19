@@ -13,6 +13,16 @@ export const ARIVE_ROLLOUT_CONNECTION = 'company';
 export const ARIVE_ROLLOUT_OWNER = 'GENERALIZED';
 export const ARIVE_ACTIVE_INTERVAL_MS = 60_000;
 export const ARIVE_QUIET_INTERVAL_MS = 60 * 60_000;
+// A deliberately shared test submission can reference an existing real Arive
+// intake. Isolate the portal pipeline record without classifying that Arive
+// account/loan as synthetic or enrolling it for shared writes.
+export const canonicalAriveSource = {
+  // Be explicit about JSON path NULL. Older submissions do not have a flag.
+  sourceTask: { is: { OR: [
+    { submissionData: { path: ['leadershipPilotTest'], equals: Prisma.AnyNull } },
+    { submissionData: { path: ['leadershipPilotTest'], not: true } },
+  ] } },
+} satisfies Prisma.ProcessingPipelineLoanWhereInput;
 const ENROLLMENT_BATCH_SIZE = 100;
 const NEW_ENROLLMENT_BATCH_SIZE = 5;
 export type AriveRolloutDeps = {
@@ -75,13 +85,13 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
   // New submissions must not wait for the UUID cursor to wrap through older
   // exceptions. Keep this lane small and alternate it with the normal cursor.
   const newRows = options.pipelineId ? [] : await db.processingPipelineLoan.findMany({
-    where: { AND: [ariveRolloutCohortWhere(now), { ariveSync: { is: null } }] },
+    where: { AND: [ariveRolloutCohortWhere(now), canonicalAriveSource, { ariveSync: { is: null } }] },
     include: { loan: { select: rolloutLoanSelect }, ariveSync: true },
     orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], take: NEW_ENROLLMENT_BATCH_SIZE,
   });
   const cursorLimit = options.pipelineId ? 1 : ENROLLMENT_BATCH_SIZE - newRows.length;
   const rows = await db.processingPipelineLoan.findMany({
-    where: options.pipelineId ? { id: options.pipelineId } : { AND: [ariveRolloutCohortWhere(now), ...(control.enrollmentCursor ? [{ id: { gt: control.enrollmentCursor } }] : [])] },
+    where: options.pipelineId ? { id: options.pipelineId, ...canonicalAriveSource } : { AND: [ariveRolloutCohortWhere(now), canonicalAriveSource, ...(control.enrollmentCursor ? [{ id: { gt: control.enrollmentCursor } }] : [])] },
     include: { loan: { select: rolloutLoanSelect }, ariveSync: true }, orderBy: { id: 'asc' }, take: cursorLimit,
   });
   const candidates: { row: typeof rows[number]; fromCursor: boolean }[] = [];
@@ -148,7 +158,7 @@ export async function enrollAriveRolloutBatch(deps: AriveRolloutDeps = {}, optio
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('arive-rollout:company'))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-pipeline:${row.id}`}))`;
       const liveControl = await tx.ariveRolloutControl.findUnique({ where: { id: ARIVE_ROLLOUT_CONNECTION } });
-      const current = await tx.processingPipelineLoan.findUnique({ where: { id: row.id }, include: { loan: { select: rolloutLoanSelect }, ariveSync: true } });
+      const current = await tx.processingPipelineLoan.findUnique({ where: { id: row.id, ...canonicalAriveSource }, include: { loan: { select: rolloutLoanSelect }, ariveSync: true } });
       if (!liveControl?.collectionEnabled || !liveControl.enrollmentEnabled && !options.pipelineId || liveControl.generation !== control.generation || !current
         || current.ariveSync?.workerOwner === 'LEGACY' || current.ariveSync?.operatorPaused
         || current.version !== row.version || current.sheet !== row.sheet || stableAriveValue(current.archivedAt) !== stableAriveValue(row.archivedAt)

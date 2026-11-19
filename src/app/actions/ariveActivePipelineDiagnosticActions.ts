@@ -13,6 +13,7 @@ import { stableAriveValue } from '@/lib/ariveRollout';
 import { ARIVE_SYNC_PILOT } from '@/lib/ariveSyncTypes';
 import { runAriveActivePipelineDiagnosticChunk, type AriveActiveDiagnosticLoan, type AriveActiveDiagnosticResult } from '@/lib/ariveActivePipelineDiagnostic';
 import type { ActiveDiagnosticEvidence, ActiveDiagnosticObservedIdentity, ActivePipelineDiagnosticResponse, ActivePipelineDiagnosticRun, ActivePipelineDiagnosticRow } from '@/lib/ariveActivePipelineDiagnosticTypes';
+import {diagnosticSourceSelect as select,type DiagnosticSource as Source} from '../../lib/ariveDiagnosticSource';
 
 const ACTION = 'ARIVE_ACTIVE_PIPELINE_DIAGNOSTIC';
 const CONNECTION = 'company';
@@ -24,13 +25,6 @@ const LEASE_MS = 180_000;
 const RUN_TTL_MS = 6 * 60 * 60_000;
 const terminal = new Set(['COMPLETE', 'CANCELLED', 'INVALIDATED']);
 const activeWhere = { sheet: 'PIPELINE', archivedAt: null } as const;
-const select = {
-  id: true, loanId: true, sheet: true, archivedAt: true, version: true,
-  loan: { select: { id: true, loanNumber: true, borrowerName: true, borrowerFirstName: true, borrowerLastName: true, updatedAt: true,
-    loanOfficer: { select: { email: true, name: true } }, secondaryLoanOfficer: { select: { email: true } } } },
-  ariveSync: { select: { ariveGuid: true, verifiedOriginatorEmail: true } },
-} satisfies Prisma.ProcessingPipelineLoanSelect;
-type Source = Prisma.ProcessingPipelineLoanGetPayload<{ select: typeof select }>;
 type CohortRow = { pipelineId: string; loanId: string; loanNumber: string; version: number; sourceHash: string; duplicateNumericId: boolean; practice: boolean; synthetic: boolean; inactive?: boolean };
 type ActiveDiagnosticResult = Omit<ActivePipelineDiagnosticRow, 'borrowerName' | 'loanOfficer' | 'synthetic'>;
 type Stored = {

@@ -19,12 +19,16 @@ export function createPrismaAriveTransportStore(db: Database = prisma): AriveTra
     // Releasing one completed reservation can only reduce active concurrency.
     // Keep its budget history and first completion intact without taking the
     // global reservation/token lock while other requests are being admitted.
-    finishRequest: async (id, finishedAt, statusCode) => {
-      await db.ariveTransportRequest.updateMany({ where: { id, connectionId: CONNECTION, finishedAt: null }, data: { finishedAt, statusCode } });
+    finishRequest: async (id, finishedAt, statusCode, responseMs) => {
+      await db.ariveTransportRequest.updateMany({ where: { id, connectionId: CONNECTION, finishedAt: null }, data: { finishedAt, statusCode, ...(responseMs !== undefined && { responseMs }) } });
     },
     transaction: work => db.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`arive-transport:${CONNECTION}`}))`;
       return work({
+        leadershipPilotGeneration: async () => {
+          const row = await tx.pilotAriveControl.findUnique({ where: { id: CONNECTION }, select: { generation: true, enabled: true } });
+          return row?.enabled ? row.generation : null;
+        },
         runtime: () => tx.ariveConnectionRuntime.findUnique({ where: { id: CONNECTION } }),
         updateRuntime: async patch => { await tx.ariveConnectionRuntime.update({ where: { id: CONNECTION }, data: patch }); },
         recentRequests: async (key, since) => {
@@ -140,6 +144,7 @@ export async function configureAriveTransportQuota(input: { providerRequestLimit
     const prior = await tx.ariveConnectionRuntime.findUnique({ where: { id: CONNECTION } });
     const changedKey = prior?.quotaKeyFingerprint !== key;
     const data = { enabled: input.enabled, allowanceSource: 'PROVIDER_CONFIRMED', providerRequestLimit: quota.limit, providerWindowSeconds: quota.seconds, quotaKeyFingerprint: key, quotaConfirmedAt: now,
+      ...(changedKey && { reportedRequestsPerMinute: null }),
       ...(changedKey || !input.enabled ? { encryptedAccessToken: null, accessTokenExpiresAt: null, credentialFingerprint: null, refreshLeaseToken: null, refreshLeaseUntil: null } : {}) };
     await tx.ariveConnectionRuntime.upsert({ where: { id: CONNECTION }, create: { id: CONNECTION, ...data }, update: data });
   });
@@ -158,7 +163,8 @@ export async function configureAriveOperatorBudget(input: { requestsPerMinute: n
     const prior = await tx.ariveConnectionRuntime.findUnique({ where: { id: CONNECTION } });
     const changedKey = prior?.quotaKeyFingerprint !== key;
     const data = { enabled: input.enabled, allowanceSource: 'OPERATOR_AUTHORIZED', operatorRequestLimit: quota.limit,
-      operatorAuthorizedAt: now, operatorAuthorizedById: input.authorizedById, quotaKeyFingerprint: key, quotaConfirmedAt: null,
+      operatorAuthorizedAt: now, operatorAuthorizedById: input.authorizedById, quotaKeyFingerprint: key, quotaConfirmedAt: changedKey ? null : prior?.quotaConfirmedAt ?? null,
+      ...(changedKey && { reportedRequestsPerMinute: null }),
       ...(changedKey || !input.enabled ? { encryptedAccessToken: null, accessTokenExpiresAt: null, credentialFingerprint: null, refreshLeaseToken: null, refreshLeaseUntil: null } : {}) };
     // Keep prior requests, cooldown and historical provider numbers intact.
     await tx.ariveConnectionRuntime.upsert({ where: { id: CONNECTION }, create: { id: CONNECTION, ...data }, update: data });
@@ -167,7 +173,7 @@ export async function configureAriveOperatorBudget(input: { requestsPerMinute: n
 }
 
 /** Saved calls switch as one connection; explicit-credential tests remain uncached. */
-export async function sharedAriveSessionIfEnabled(parseJson: AriveTransportOptions['parseJson'], options: { provided?: TransportCredentials; readOnly?: boolean; required?: boolean } = {}) {
+export async function sharedAriveSessionIfEnabled(parseJson: AriveTransportOptions['parseJson'], options: { provided?: TransportCredentials; readOnly?: boolean; required?: boolean; leadershipPilot?: boolean } = {}) {
   if (!sharedAriveTransportEnabled()) {
     if (options.required) throw new AriveTransportError('DISABLED', 'Shared Arive request controls have not been activated for this deployment.');
     return null;
@@ -180,6 +186,6 @@ export async function sharedAriveSessionIfEnabled(parseJson: AriveTransportOptio
   return createAriveTransportSession({
     store: createPrismaAriveTransportStore(), credentials: options.provided ? async () => options.provided! : () => savedCredentials(prisma, secret),
     encryptionSecret: secret, encrypt: value => encryptAriveCredentials(value, secret), decrypt: value => decryptAriveCredentials(value, secret),
-    parseJson, freshAuthentication: Boolean(options.provided), readOnly: options.readOnly,
+    parseJson, freshAuthentication: Boolean(options.provided), readOnly: options.readOnly, leadershipPilot: options.leadershipPilot,
   });
 }

@@ -37,10 +37,11 @@ function schemaSql(schema, filename) {
 }
 const baseline = schemaSql(run('git', ['show', `${baselineRef}:prisma/schema.prisma`], root), 'baseline.prisma');
 const expected = schemaSql(readFileSync(join(root, 'prisma/schema.prisma'), 'utf8'), 'expected.prisma');
-const migrationNames = ['20261112190000_pilot_rollout_infrastructure', '20261113003000_arive_operator_request_budget'];
+const migrationNames = ['20261112190000_pilot_rollout_infrastructure', '20261113003000_arive_operator_request_budget', '20261119200000_isolated_leadership_arive'];
 const migrations = migrationNames.map(name => readFileSync(join(root, 'prisma/migrations', name, 'migration.sql'), 'utf8'));
 const migration = migrations.join('\n');
-assert(!/^\s*(?:DROP|TRUNCATE|DELETE|UPDATE|INSERT)\b/im.test(migration), 'Migration must remain additive.');
+const migrationOutsideTrigger = migration.replace(/AS \$revision\$[\s\S]*?\$revision\$;/g, 'AS trigger_body;');
+assert(!/^\s*(?:DROP|TRUNCATE|DELETE|UPDATE|INSERT)\b/im.test(migrationOutsideTrigger), 'Migration must remain additive.');
 assert(!/\bALTER\s+TABLE[^;]+\bDROP\b/i.test(migration), 'Migration must not drop existing columns or constraints.');
 writeFileSync(join(scratch, 'migration.sql'), migration);
 
@@ -77,7 +78,7 @@ try {
   await db.exec(migrations[0]);
   await db.exec(`INSERT INTO "AriveConnectionRuntime" ("id","enabled","providerRequestLimit","providerWindowSeconds","quotaConfirmedAt","updatedAt") VALUES ('existing-provider',true,100,60,'2026-11-12T00:00:00Z',CURRENT_TIMESTAMP);`);
   const providerBefore = await one('SELECT * FROM "AriveConnectionRuntime" WHERE "id"=$1', ['existing-provider']);
-  await db.exec(migrations[1]);
+  for (const additiveMigration of migrations.slice(1)) await db.exec(additiveMigration);
   await check('Operator budget migration preserves provider configuration and does not authorize operator polling', async () => {
     const after = await one('SELECT * FROM "AriveConnectionRuntime" WHERE "id"=$1', ['existing-provider']);
     for (const key of Object.keys(providerBefore)) assert.deepEqual(after[key], providerBefore[key]);
@@ -101,6 +102,8 @@ try {
   });
   await check('Migration structure exactly matches the current Prisma datamodel', async () => {
     await target.exec(expected);
+    // Prisma does not express PostgreSQL CHECK constraints in its datamodel.
+    await target.exec('ALTER TABLE "PilotAriveControl" ADD CHECK ("cohortLimit" IN (10,50))');
     assert.deepEqual(await structure(db), await structure(target));
   });
   await check('Practice writes and cascades cannot modify canonical tasks, loans, notifications, or audits', async () => {

@@ -128,7 +128,7 @@ describe('safe sync presentation and comparisons', () => {
     expect(ariveSyncSameValue('extraNotes', undefined, null)).toBe(true);
   });
   it('returns only display fields and provenance summaries, never raw state or source HTML', () => {
-    const h = setup(); const view = ariveSyncView(h.state, true, false);
+    const h = setup(); const view = ariveSyncView(h.state, true, false, true);
     expect(view).toMatchObject({ enabled: true, canManage: false, stage: 'UNDERWRITING_SUBMITTED', stageDate: '2026-11-05', managedFields: ['titleStatus', 'statusChangedAt'], missingFields: ['payoffExpiresAt'], structuredFields: [{ key: 'pendingItems', value: 'Paystubs', author: 'Processor', updatedAt: '2026-11-05T12:00:00Z' }] });
     expect(JSON.stringify(view)).not.toContain('DO_NOT_EXPOSE');
     expect(ariveSyncView(h.state, false, true)).toBeNull();
@@ -181,12 +181,26 @@ describe('verified generalized field ownership', () => {
   });
   it('requires an active eligible account and persisted Pilot preference, not a client mode flag', () => {
     const user = { id: 'admin', active: true, role: 'ADMIN_III', roles: [], pilotViewEnabled: true };
-    expect(canViewGeneralizedArive(user)).toBe(true);
-    expect(canViewGeneralizedArive({ ...user, pilotViewEnabled: false })).toBe(false);
-    expect(canViewGeneralizedArive({ ...user, active: false })).toBe(false);
-    expect(canViewGeneralizedArive({ ...user, role: 'PROCESSOR_JR' })).toBe(false);
-    expect(canViewGeneralizedArive({ ...user, id: ARIVE_SYNC_PILOT.ownerId, role: 'PROCESSOR_JR' })).toBe(true);
-    vi.stubEnv('PILOT_VIEW_ENABLED', 'false'); expect(canViewGeneralizedArive(user)).toBe(false);
+    expect(canViewGeneralizedArive(user, 'ADMIN_III')).toBe(true);
+    for (const role of ['ADMIN_I', 'ADMIN_II', 'MANAGER', 'PROCESSING_MANAGER']) {
+      expect(canViewGeneralizedArive({ ...user, roles: [role] }, role)).toBe(true);
+      expect(canViewGeneralizedArive(user, role)).toBe(false);
+    }
+    expect(canViewGeneralizedArive({ ...user, pilotViewEnabled: false }, 'ADMIN_III')).toBe(false);
+    expect(canViewGeneralizedArive({ ...user, active: false }, 'ADMIN_III')).toBe(false);
+    for (const role of ['PROCESSOR_JR', 'PROCESSOR_SR', 'LOAN_OFFICER', 'LOA']) {
+      expect(canViewGeneralizedArive({ ...user, id: ARIVE_SYNC_PILOT.ownerId, roles: [role] }, role)).toBe(false);
+    }
+    vi.stubEnv('PILOT_VIEW_ENABLED', 'false'); expect(canViewGeneralizedArive(user, 'ADMIN_III')).toBe(false);
+  });
+  it('hides the legacy demo snapshot in Standard and allows standard edits while canonical updates are off', async () => {
+    const h = setup();
+    h.tx.ariveRolloutControl.findUnique.mockResolvedValue({ collectionEnabled: true, applicationEnabled: false });
+    const loan = { id: ARIVE_SYNC_PILOT.loanId, loanNumber: ARIVE_SYNC_PILOT.loanNumber, loanOfficerId: ARIVE_SYNC_PILOT.ownerId };
+    expect(isAriveVisibleForLoan(h.state, loan, false)).toBe(false);
+    expect(isAriveVisibleForLoan(h.state, loan, true)).toBe(true);
+    expect(await guardArivePipelineEdit(h.client, h.current, 'standard-jr', { titleStatus: 'ORDERED' })).toBeNull();
+    expect(h.tx.auditLog.create).not.toHaveBeenCalled();
   });
   it('bounds and allowlists saved trackers without exposing provider payloads or invalid dates', () => {
     expect(savedAriveTrackers({ source: { trackers: [{ name: 'VOE', label: 'Employment', status: 'RECEIVED', statusLabel: 'Received', date: 'invalid', raw: 'PRIVATE' }, null, { name: '', status: 'ignored' }] } })).toEqual([

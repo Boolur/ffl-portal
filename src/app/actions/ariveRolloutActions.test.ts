@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { configureLeadershipCollector, getLeadershipCollectorStatus } from './ariveRolloutActions';
 const m = vi.hoisted(() => ({ session: vi.fn(), user: vi.fn(), row: vi.fn(), sync: vi.fn(), update: vi.fn(), count: vi.fn(), control: vi.fn(), controlWrite: vi.fn(), audit: vi.fn(), transaction: vi.fn(), lock: vi.fn(), api: vi.fn(), apiSession: vi.fn(), budget: vi.fn(), quota: vi.fn(), practice: vi.fn(), practiceWrite: vi.fn(), existingLoan: vi.fn(), existingLink: vi.fn(), metrics: vi.fn(), worker: vi.fn(), probe: vi.fn(), recentProbe: vi.fn(), candidates: vi.fn(), candidateCounts: vi.fn(), testLoan: vi.fn(), practiceList: vi.fn() }));
 const errors = vi.hoisted(() => ({ AriveError: class AriveError extends Error {} }));
 const timing = vi.hoisted(() => ({ sample: vi.fn(), activeCount: vi.fn() }));
@@ -59,9 +60,66 @@ beforeEach(() => {
   visibility.users.mockResolvedValue([]);
   impact.events.mockResolvedValue([]);
   access.compare.mockResolvedValue({ steps: [], partial: false, checkedAt: '2026-11-13T01:00:00Z', limitations: 'No enrollment changes.', getRequests: 6, authenticationRequests: 1 });
-  m.transaction.mockImplementation(async work => work({ $executeRaw: m.lock, processingPipelineLoan: { findUnique: m.row }, arivePipelineSync: { findUnique: m.sync, update: m.update, updateMany: cohort.queue, count: m.count, findFirst: m.existingLink }, ariveRolloutControl: { findUnique: m.control, upsert: m.controlWrite }, arivePracticeLoan: { findFirst: m.practice, upsert: m.practiceWrite }, loan: { findUnique: m.existingLoan }, auditLog: { create: m.audit, findFirst: m.recentProbe } }));
+  m.transaction.mockImplementation(async work => work({ $executeRaw: m.lock, pilotAriveControl: { findUnique: vi.fn().mockResolvedValue(null) }, processingPipelineLoan: { findUnique: m.row }, arivePipelineSync: { findUnique: m.sync, update: m.update, updateMany: cohort.queue, count: m.count, findFirst: m.existingLink }, ariveRolloutControl: { findUnique: m.control, upsert: m.controlWrite }, arivePracticeLoan: { findFirst: m.practice, upsert: m.practiceWrite }, loan: { findUnique: m.existingLoan }, auditLog: { create: m.audit, findFirst: m.recentProbe } }));
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+
+describe('leadership collector administration', () => {
+  function controls(previous: { enabled: boolean; cohortLimit: number | null } | null, occupied = 0) {
+    vi.stubEnv('PILOT_VIEW_ENABLED', 'true');
+    m.user.mockResolvedValue({ id: 'admin', active: true, role: 'ADMIN_III', roles: [], pilotViewEnabled: true });
+    const upsert = vi.fn();
+    const invalidate = vi.fn();
+    const firstFile = vi.fn().mockResolvedValue([{ id: 'first-synthetic-file' }]);
+    const queueFile = vi.fn();
+    const tx = {
+      $executeRaw: m.lock, pilotAriveControl: { findUnique: async () => previous, upsert },
+      ariveRolloutControl: { findUnique: async () => ({ collectionEnabled: false, enrollmentEnabled: false, applicationEnabled: false }) },
+      processingPipelineLoan: { findMany: firstFile }, arivePipelineSync: { count: m.count },
+      pilotAriveProjection: { count: async () => occupied, updateMany: invalidate, upsert: queueFile },
+      auditLog: { create: m.audit },
+    };
+    m.transaction.mockImplementation(async work => work(tx));
+    return { upsert, invalidate, firstFile, queueFile };
+  }
+  it('requires the active leadership preference for controls and metrics', async () => {
+    controls(null);
+    m.user.mockResolvedValue({ id: 'admin', active: true, role: 'ADMIN_III', roles: [], pilotViewEnabled: false });
+    expect((await getLeadershipCollectorStatus()).success).toBe(false);
+    expect((await configureLeadershipCollector({ enabled: true, cohortLimit: 10 })).success).toBe(false);
+    expect(m.transaction).not.toHaveBeenCalled();
+  });
+  it('begins at ten without changing staff controls and cannot skip directly to all', async () => {
+    const controlsSet = controls(null);
+    expect((await configureLeadershipCollector({ enabled: true, cohortLimit: 50 })).success).toBe(false);
+    expect((await configureLeadershipCollector({ enabled: true, cohortLimit: 10 })).success).toBe(true);
+    expect(controlsSet.upsert).toHaveBeenCalledTimes(1);
+    controls({ enabled: true, cohortLimit: 10 });
+    expect((await configureLeadershipCollector({ enabled: true, cohortLimit: null })).success).toBe(false);
+    expect(m.controlWrite).not.toHaveBeenCalled();
+  });
+  it('resumes the saved cohort and will not relabel a larger active cohort as ten', async () => {
+    const prior = controls({ enabled: true, cohortLimit: 50 }, 49);
+    expect((await configureLeadershipCollector({ enabled: false, cohortLimit: 10 })).success).toBe(true);
+    expect(prior.upsert.mock.calls[0][0].update).toMatchObject({ enabled: false, cohortLimit: 50, generation: { increment: 1 } });
+    controls({ enabled: false, cohortLimit: 50 }, 49);
+    expect((await configureLeadershipCollector({ enabled: true, cohortLimit: 10 })).success).toBe(false);
+    expect((await configureLeadershipCollector({ enabled: true, cohortLimit: 50 })).success).toBe(true);
+  });
+  it('refuses activation when even one shared file is enabled', async () => {
+    const { upsert } = controls(null);
+    m.count.mockResolvedValue(1);
+    expect((await configureLeadershipCollector({ enabled: true, cohortLimit: 10 })).success).toBe(false);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+  it('queues the specified first file without certifying the Arive identity or enabling a shared record', async () => {
+    const { queueFile, firstFile } = controls(null);
+    expect((await configureLeadershipCollector({ enabled: true, cohortLimit: 10, firstLoanNumber: '10001' })).success).toBe(true);
+    expect(firstFile).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ loan: { loanNumber: '10001' } }) }));
+    expect(queueFile.mock.calls[0][0].create).toEqual({ pipelineId: 'first-synthetic-file', ariveLoanId: '10001', manualRefreshRequestedAt: expect.any(Date) });
+    expect(m.update).not.toHaveBeenCalled();
+  });
+});
 
 describe('rollout control authentication and canonical isolation', () => {
   it.each(['signed out', 'inactive', 'forged role', 'lower admin', 'wrong active role', 'preview'])('blocks %s before reads or mutations', async scenario => {

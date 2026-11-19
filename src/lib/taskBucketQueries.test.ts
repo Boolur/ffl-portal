@@ -7,6 +7,11 @@ const db = vi.hoisted(() => ({
   $queryRaw: vi.fn(),
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: db }));
+vi.mock('server-only', () => ({}));
+vi.mock('./pilotPracticeAccess', () => ({ getPilotActor: () => Promise.resolve({ role: 'MANAGER', pilotViewEnabled: false }), pilotViewAvailable: () => true }));
+vi.mock('./ariveClient', () => ({}));
+vi.mock('./ariveRollout', () => ({}));
+vi.mock('@/lib/leadershipTestSubmission', async () => import('./leadershipTestSubmission'));
 vi.mock('@/lib/adminTiers', () => ({ isAdmin: (role: string) => role.startsWith('ADMIN') }));
 vi.mock('@/lib/loanOfficerVisibility', () => ({ buildLoanOfficerTaskWhere: (id: string) => ({ loan: { loanOfficerId: id } }) }));
 vi.mock('@/lib/processingRouting', () => ({ normalizeProcessingAssignmentGroups: (groups: string[]) => groups }));
@@ -74,6 +79,12 @@ describe('initial task queues', () => {
     await queryTaskBucketPage({ role: UserRole.MANAGER, bucketId: 'new-disclosure', cursor: { id: 'last-card' }, includeTotalCount: false });
     expect(db.task.count).not.toHaveBeenCalled();
     expect(db.task.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 7, cursor: { id: 'last-card' }, skip: 1 }));
+  });
+
+  it('serves the standard form for a labeled task on a paginated Standard read', async () => {
+    db.task.findMany.mockResolvedValueOnce([{ id: 'shared-test', title: 'Test - Submit for Processing', priority: 'NORMAL', parentTaskId: null, attachments: [], submissionData: { leadershipPilotTest: true, processingDocumentTaskId: 'private-package', notes: 'Ordinary task' } }]);
+    const result = await queryTaskBucketPage({ role: UserRole.MANAGER, bucketId: 'qc-started', includeTotalCount: false });
+    expect(result.tasks[0].submissionData).toEqual({ notes: 'Ordinary task' });
   });
 
   it('still computes the exact count on replacement/search reads', async () => {

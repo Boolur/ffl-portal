@@ -2063,6 +2063,7 @@ export type Task = {
 
 export function TaskList({
   tasks,
+  leadershipDesk = false,
   canDelete = false,
   currentRole,
   currentUserId,
@@ -2076,6 +2077,7 @@ export function TaskList({
   onInteractionStateChange,
 }: {
   tasks: Task[];
+  leadershipDesk?: boolean;
   canDelete?: boolean;
   currentRole: string;
   currentUserId?: string;
@@ -3631,7 +3633,7 @@ export function TaskList({
   const isManagerRole = currentRole === UserRole.MANAGER;
   const canManageVaDesk = !isLoanOfficerAssistantRole && (isManagerRole || isVaSubRole);
   const canManageDisclosureDesk = !isLoanOfficerAssistantRole && (isDisclosureRole || isManagerRole);
-  const canManageQcDesk = !isLoanOfficerAssistantRole && (isProcessingRole || isManagerRole);
+  const canManageQcDesk = leadershipDesk || (!isLoanOfficerAssistantRole && (isProcessingRole || isManagerRole));
   const isDisclosureSubmissionTask = (task: Task) =>
     task.kind === TaskKind.SUBMIT_DISCLOSURES;
   const isQcSubmissionTask = (task: Task) =>
@@ -4556,7 +4558,7 @@ export function TaskList({
                       )}
                     </div>
                   );
-        const submissionStartGate = (canManageQcDesk || isAdmin(currentRole as UserRole)) && task.status === 'PENDING' && task.workflowState === TaskWorkflowState.NONE ? (
+        const submissionStartGate = isQcSubmissionTask(task) && (canManageQcDesk || isAdmin(currentRole as UserRole)) && task.status === 'PENDING' && task.workflowState === TaskWorkflowState.NONE ? (
           <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-xl">
             <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-700"><FileText size={24} aria-hidden="true" /></span>
             <h3 className="text-lg font-bold text-slate-950">{hasAssignedSpecialist && !isAssignedToCurrentUser ? 'Assigned to another reviewer' : 'Ready to begin?'}</h3>

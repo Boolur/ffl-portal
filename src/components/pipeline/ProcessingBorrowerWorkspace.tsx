@@ -8,12 +8,13 @@ import {
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import { AriveWorkspacePanel } from './AriveWorkspacePanel';
+
 import { AriveSyncStatus } from './AriveSyncStatus';
+import {usePilotPaintReceipt} from './usePilotPaintReceipt';
 import { AriveNoteHeaderGuide, ariveNoteHeaderGuide } from './AriveNoteHeaderGuide';
-import { AriveNotesPanel } from './AriveNotesTimeline';
+
 import { AriveSavedLoanPanel } from './AriveSavedLoanPanel';
-import { AriveRequestTrackersPanel } from './AriveTrackerPanel';
+
 import { AriveFinancialInfo } from './FinancialInfoPanel';
 import { BorrowerInfoView, LoanCenterView, LoanPropertyView } from './ProcessingWorkspaceViews';
 import { ariveFieldLabel, ariveFieldMissing, formatAriveCalendarDate, mergeAriveConflictDraft } from '@/lib/ariveSyncPresentation';
@@ -42,6 +43,7 @@ import {
 } from 'lucide-react';
 import {
   getProcessingBorrowerDetails,
+  queueLeadershipPilotRefresh,
   updateProcessingBorrowerDetails,
   type ProcessingBorrowerDetailsInput,
 } from '@/app/actions/processingPipelineActions';
@@ -362,17 +364,27 @@ export function ProcessingBorrowerWorkspace({
   }, [pipelineLoanId, onSaved]);
 
   useEffect(() => {
-    if (!details?.ariveSync?.enabled || editing || saving) return;
+    if (!details?.ariveSync?.pilotPreview || editing || saving) return;
     let active = true;
-    const timer = window.setInterval(async () => {
-      if (document.visibilityState !== 'visible') return;
+    let reading = false, lastWatch = 0;
+    const refresh = async () => {
+      if (document.visibilityState !== 'visible' || reading) return;
+      reading = true;
       try {
+        if (Date.now() - lastWatch >= 60_000) {
+          lastWatch = Date.now();
+          await queueLeadershipPilotRefresh({pipelineId:pipelineLoanId,watch:true});
+        }
         const result = await getProcessingBorrowerDetails(pipelineLoanId);
         if (active && result.success) setDetails(result.details);
+        if (active && !result.success) { setDetails(null); setError(result.error); }
       } catch { /* Retain the last visible file until the next refresh. */ }
-    }, 60_000);
+      finally { reading = false; }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh,15_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [details?.ariveSync?.enabled, editing, saving, pipelineLoanId]);
+  }, [details?.ariveSync?.pilotPreview, editing, saving, pipelineLoanId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -931,7 +943,7 @@ export function ProcessingBorrowerWorkspace({
       <DetailCard title="Documents" description="Files attached to the original Submit to Processing task." icon={FileText}>
         <div className="space-y-2">
           {details.attachments.length === 0 ? (
-            <p className="py-8 text-center text-sm font-medium text-slate-500">{details.loan.loanNumber === '17881588' ? 'Reviewed submission documents are shown below.' : 'No documents are attached to this request.'}</p>
+            <p className="py-8 text-center text-sm font-medium text-slate-500">No documents are attached to this request.</p>
           ) : details.attachments.map((attachment) => (
             <button
               key={attachment.id}
@@ -961,26 +973,27 @@ export function ProcessingBorrowerWorkspace({
     if (!details) return null;
     if (activeTab === 'loan-property') return editing ? <div className="space-y-4">{renderSection('loan')}{renderSection('property')}</div> : <LoanPropertyView details={details} />;
     if (activeTab === 'borrower-info') return editing ? renderSection('borrower') : <BorrowerInfoView details={details} />;
-    if (activeTab === 'financial-info') return <AriveFinancialInfo application={details.ariveApplication} />;
+    if (activeTab === 'financial-info') return details.ariveSync ? <AriveFinancialInfo application={details.ariveApplication} /> : <DetailCard title="Financial information" icon={Landmark}><DetailField label="Loan amount" value={formatMoney(details.loan.amount)} /></DetailCard>;
     return <div className="space-y-4">
       <nav className="flex flex-wrap gap-1.5 border-b border-slate-200 pb-3" aria-label="Loan Center sections">{centerSections.map(section => {
         const Icon = section.icon;
         return <button type="button" key={section.id} aria-pressed={centerSection === section.id} onClick={() => openCenterSection(section.id)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${centerSection === section.id ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}><Icon size={15} aria-hidden="true" />{section.label}</button>;
       })}</nav>
       {centerSection === 'services' && (editing ? <div className="space-y-4">{renderSection('processing')}{renderSection('appraisal')}</div> : <LoanCenterView details={details} stageLabel={stageDisplay} onNotes={() => openCenterSection('notes')} appraisal={renderSection('appraisal')} />)}
-      {centerSection === 'services' && !editing && details.ariveSync && (details.ariveSync.workerOwner === 'GENERALIZED' || details.loan.loanNumber === '17881588') && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><button type="button" aria-expanded={allTrackersOpen} onClick={() => setAllTrackersOpen(value => !value)} className="flex w-full items-center justify-between text-left text-sm font-semibold text-slate-700">All Arive trackers<span className="text-xs text-blue-600">{allTrackersOpen ? 'Hide' : 'Show'}</span></button>{allTrackersOpen && <div className="mt-4">{details.ariveSync.workerOwner === 'GENERALIZED' ? <AriveSavedLoanPanel pipelineLoanId={pipelineLoanId} successfulSyncAt={details.ariveSync.lastSuccessAt} section="trackers" /> : <AriveRequestTrackersPanel requestTaskId={details.sourceTask.id} refreshSignal={details.ariveSync.lastSuccessAt} />}</div>}</section>}
+      {centerSection === 'services' && !editing && details.ariveSync && details.ariveSync.enabled && <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><button type="button" aria-expanded={allTrackersOpen} onClick={() => setAllTrackersOpen(value => !value)} className="flex w-full items-center justify-between text-left text-sm font-semibold text-slate-700">All Arive trackers<span className="text-xs text-blue-600">{allTrackersOpen ? 'Hide' : 'Show'}</span></button>{allTrackersOpen && <div className="mt-4"><AriveSavedLoanPanel pipelineLoanId={pipelineLoanId} successfulSyncAt={details.ariveSync.lastSuccessAt} section="trackers" /></div>}</section>}
       {centerSection === 'notes' && <div className="space-y-4">
         {details.ariveSync && <><AriveNoteHeaderGuide />{Boolean(details.ariveSync.structuredFields?.length) && <details className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm"><summary className="cursor-pointer text-sm font-bold text-slate-800">Current values from note headers</summary><p className="mt-2 text-xs text-slate-500">The latest value for each header. The full imported conversation is below.</p><div className="mt-3 grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">{[...details.ariveSync.structuredFields!].sort((a, b) => ariveNoteHeaderGuide.findIndex(item => item.key === a.key) - ariveNoteHeaderGuide.findIndex(item => item.key === b.key)).map(field => <DetailField key={field.key} label={field.label} value={<span className="whitespace-pre-wrap">{field.value || 'Not supplied'}</span>} />)}</div></details>}</>}
-        {details.ariveSync?.workerOwner === 'GENERALIZED' ? <AriveSavedLoanPanel pipelineLoanId={pipelineLoanId} successfulSyncAt={details.ariveSync.lastSuccessAt} section="notes" /> : details.loan.loanNumber === '17881588' && <AriveNotesPanel requestTaskId={details.sourceTask.id} successfulSyncAt={details.ariveSync?.lastSuccessAt} />}
+        {details.ariveSync?.enabled && <AriveSavedLoanPanel pipelineLoanId={pipelineLoanId} successfulSyncAt={details.ariveSync.lastSuccessAt} section="notes" />}
         <DetailCard title="Portal conversation" description="Notes recorded in the submission task, newest first." icon={MessageSquare}>
           {details.notes.length ? <div className="space-y-3">{[...details.notes].sort((left, right) => new Date(right.date || 0).getTime() - new Date(left.date || 0).getTime()).map(note => <article key={note.id} className="rounded-xl border border-slate-100 bg-slate-50/60 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-bold text-slate-800">{note.author}</h4><span className="text-xs text-slate-500">{note.date ? new Date(note.date).toLocaleString() : 'Date not supplied'}</span></div><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{note.message}</p>{note.role && <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{humanize(note.role)}</p>}</article>)}</div> : <p className="text-sm text-slate-500">No portal conversation has been recorded for this file.</p>}
         </DetailCard>
       </div>}
-      {centerSection === 'documents' && <div className="space-y-4">{(details.attachments.length > 0 || details.loan.loanNumber !== '17881588' || editing) && renderSection('documents')}{details.loan.loanNumber === '17881588' && !editing && <AriveWorkspacePanel requestTaskId={details.sourceTask.id} refreshSignal={details.ariveSync?.lastSuccessAt} />}</div>}
+      {centerSection === 'documents' && <div className="space-y-4">{renderSection('documents')}</div>}
       {centerSection === 'activity' && renderSection('activity')}
     </div>;
   };
 
+  usePilotPaintReceipt(panelRef,'DETAIL',Boolean(details?.ariveSync?.pilotPreview),String(details?.ariveSync?.projectionVersion ?? ''));
   return createPortal(
     <div
       className="fixed inset-0 z-[220] flex items-center justify-center bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4"
@@ -988,12 +1001,13 @@ export function ProcessingBorrowerWorkspace({
       aria-modal="true"
       aria-labelledby="processing-borrower-workspace-title"
       data-live-refresh-pause="true"
+      data-pilot-mode-draft={editing || saving || undefined}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) requestClose();
       }}
     >
       <WorkspacePanel ref={panelRef}>
-        <header className="relative overflow-hidden border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+        <header data-pilot-render-id={details?.ariveSync?.projectionVersion ? pipelineLoanId : undefined} data-pilot-render-version={details?.ariveSync?.projectionVersion} className="relative overflow-hidden border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.12),transparent_42%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.1),transparent_40%)]" />
           <div className="relative flex items-start gap-3 sm:items-center">
             <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-sm font-black text-white shadow-lg shadow-blue-200">

@@ -80,6 +80,70 @@ model AriveRolloutControl {
   updatedAt DateTime @updatedAt
 }
 
+// This collector can publish only to the leadership workspace. It has its own
+// queue and pause generation and does not enroll a loan for canonical writes.
+model PilotAriveControl {
+  id          String   @id @default("company")
+  enabled     Boolean  @default(false)
+  generation  Int      @default(0)
+  revision    BigInt   @default(0)
+  cohortLimit Int?     @default(10)
+  lastHintScanAt DateTime?
+  updatedAt   DateTime @updatedAt
+}
+
+model PilotAriveProjection {
+  pipelineId              String   @id
+  pipeline                ProcessingPipelineLoan @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  ariveLoanId             String
+  ariveGuid               String?
+  verifiedOriginatorEmail String?
+  identityHash            String?
+  connectionRevision      DateTime?
+  enrollmentStatus        String   @default("PENDING")
+  enrollmentIssue         String?
+  collectedAt             DateTime?
+  lastAttemptAt           DateTime?
+  nextAttemptAt           DateTime?
+  lastError               String?
+  failureCount            Int      @default(0)
+  manualRefreshRequestedAt DateTime?
+  watchedUntil            DateTime?
+  leaseUntil              DateTime?
+  leaseToken              String?
+  projectionVersion       Int      @default(0)
+  sourceStage             String?
+  sourceModifiedAt        DateTime?
+  lastHintModifiedAt      DateTime?
+  hintRequestedAt         DateTime?
+  renderAcks              PilotAriveRenderAck[]
+  sheet                   ProcessingPipelineSheet?
+  pipelineStatus          ProcessingPipelineStatus?
+  archivedAt              DateTime?
+  snapshot                Json     @default("{}")
+  notes                   Json     @default("[]")
+  routingProvenance       Json     @default("{}")
+  everFunded              Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([enrollmentStatus, nextAttemptAt])
+  @@index([sheet, archivedAt, pipelineStatus])
+  @@index([ariveLoanId])
+}
+
+model PilotAriveRenderAck {
+  pipelineId        String
+  projection        PilotAriveProjection @relation(fields: [pipelineId], references: [pipelineId], onDelete: Cascade)
+  surface           String
+  projectionVersion Int
+  collectedAt       DateTime
+  sourceChangedAt   DateTime?
+  renderedAt        DateTime @default(now())
+  @@id([pipelineId, surface, projectionVersion])
+  @@index([renderedAt])
+}
+
 model AriveLoanNotes {
   pipelineId String @id
   pipeline ProcessingPipelineLoan @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
@@ -107,6 +171,7 @@ model AriveConnectionRuntime {
   operatorAuthorizedById String?
   providerRequestLimit Int?
   providerWindowSeconds Int?
+  reportedRequestsPerMinute Int?
   quotaConfirmedAt DateTime?
   quotaKeyFingerprint String?
   cooldownUntil DateTime?
@@ -129,6 +194,7 @@ model AriveTransportRequest {
   leaseUntil DateTime
   finishedAt DateTime?
   statusCode Int?
+  responseMs Int?
   @@index([connectionId, keyFingerprint, startedAt])
   @@index([connectionId, startedAt])
   @@index([connectionId, finishedAt, leaseUntil])
@@ -768,6 +834,7 @@ model ProcessingPipelineLoan {
   createdAt                 DateTime                 @default(now())
   updatedAt                 DateTime                 @updatedAt
   ariveSync                 ArivePipelineSync?
+  pilotArive                PilotAriveProjection?
   notesSnapshot             AriveLoanNotes?
 
   @@index([sheet, statusChangedAt])

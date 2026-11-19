@@ -2,6 +2,10 @@
   "buildCommand": "npm run release:vercel",
   "crons": [
     {
+      "path": "/api/internal/arive/leadership-pilot",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/internal/arive/sync/enroll",
       "schedule": "* * * * *"
     },

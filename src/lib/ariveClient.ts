@@ -101,6 +101,12 @@ export async function ariveReadOnlySession() {
     throw new AriveError('Shared Arive request controls are unavailable. Please retry later.');
   }
 }
+export async function ariveLeadershipPilotReadSession() {
+  const session = await sharedAriveSessionIfEnabled(responseJson, { readOnly: true, required: true, leadershipPilot: true });
+  if (!session) throw new AriveTransportError('DISABLED', 'Pilot transport is unavailable.');
+  return safeSharedSession(session);
+}
+
 export async function ariveClassifications(provided?: AriveCredentials) {
   const api = await ariveSession(provided);
   const data = await api('/loans/document-classifications');

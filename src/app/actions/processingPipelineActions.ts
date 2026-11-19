@@ -1,6 +1,7 @@
 'use server';
 
 import { unstable_noStore as noStore } from 'next/cache';
+import { after } from 'next/server';
 import { getServerSession } from 'next-auth';
 import {
   LeadStatus,
@@ -14,12 +15,16 @@ import {
   type ProcessingPipelineLoan,
 } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
-import { isAdmin, isAdminIII } from '@/lib/adminTiers';
-import { ariveSyncSameValue, ariveSyncView, guardArivePipelineEdit, isAriveManagedForEdit, generalizedAriveApplicationActive, canViewGeneralizedArive, isAriveVisibleForLoan, jsonRecord, preserveAriveManagedFields, savedAriveTrackers } from '../../lib/ariveSyncState';
-import { ARIVE_SYNC_PILOT } from '../../lib/ariveSyncTypes';
-import { ARIVE_LOAN_STAGE_OPTIONS, parseArivePipelineDate } from '../../lib/arivePipelineMapping';
+import { isAdmin } from '@/lib/adminTiers';
+import { ariveSyncSameValue, guardArivePipelineEdit, isAriveManagedForEdit, canViewGeneralizedArive, jsonRecord, preserveAriveManagedFields, savedAriveTrackers } from '../../lib/ariveSyncState';
+import { ARIVE_LOAN_STAGE_OPTIONS } from '../../lib/arivePipelineMapping';
 import { readAriveApplicationView } from '../../lib/ariveApplicationSnapshot';
 import { savedAriveNotes } from '../../lib/ariveSavedNotes';
+import { readPilotNoteEvidence, visibleSourceNoteTime, type PilotRenderEntry, type PilotRenderSurface } from '../../lib/pilotNoteRenderEvidence';
+import { effectivePilotRow, orderPilotRows, pilotIdentitySelect, pilotReadIndex, pilotSyncView, readPilotProjections, usablePilotProjection } from '../../lib/leadershipPilotReads';
+import { pilotIdentityHash } from '../../lib/ariveLeadershipPilotIdentity';
+import { standardSharedTestData } from '../../lib/pilotLeadership';
+import type { AriveSyncView } from '@/lib/ariveSyncTypes';
 import { prisma } from '@/lib/prisma';
 import { PIPELINE_ROW_BATCH_SIZE, orderPipelineRows } from '../../lib/processingPipelinePagination';
 import {
@@ -60,9 +65,7 @@ type Actor = {
   role: UserRole;
   name: string;
   processingAssignmentGroups: string[];
-  canManageArive: boolean;
   canViewGeneralizedArive: boolean;
-  generalizedApplicationEnabled: boolean;
 };
 
 function isProcessingLeadership(role: UserRole) {
@@ -81,15 +84,13 @@ async function getActor(): Promise<Actor | null> {
     select: { processingAssignmentGroups: true, active: true, role: true, roles: true, pilotViewEnabled: true },
   });
   if (!user?.active || ![user.role, ...user.roles].includes(role)) return null;
-  const canViewGeneralized = canViewGeneralizedArive({ ...user, id });
+  const canViewGeneralized = canViewGeneralizedArive({ ...user, id }, role);
   return {
     id,
     role,
     canViewGeneralizedArive: canViewGeneralized,
-    generalizedApplicationEnabled: canViewGeneralized && await generalizedAriveApplicationActive(prisma),
     name: session.user.name || 'Unknown user',
     processingAssignmentGroups: user.processingAssignmentGroups,
-    canManageArive: Boolean(user.active && (role === user.role || user.roles.includes(role)) && isAdminIII(role)),
   };
 }
 
@@ -101,13 +102,6 @@ async function ariveEditContext(tx: Prisma.TransactionClient, current: Processin
 
 function ariveDateAttempt(raw: unknown, normalized: unknown) {
   return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim()) ? raw.trim() : normalized;
-}
-
-function displayedDaysInStatus(statusChangedAt: Date, state: ArivePipelineSync | null | undefined, eligible: boolean, generalizedApplicationEnabled = false) {
-  const sourceDate = state?.enabled && eligible && (state.workerOwner !== 'GENERALIZED' || generalizedApplicationEnabled)
-    ? parseArivePipelineDate(jsonRecord(jsonRecord(state.snapshot).source).stageDate)
-    : null;
-  return calculateDaysInStatus(sourceDate ?? statusChangedAt);
 }
 
 function scopeWhere(
@@ -218,12 +212,11 @@ function serializeRow(row: {
   };
   seniorProcessor: { id: string; name: string } | null;
   juniorProcessor: { id: string; name: string } | null;
-}, actor: Actor) {
+}, pilotSync?: AriveSyncView) {
   const fallbackBorrowerName = splitBorrowerName(row.loan.borrowerName);
-  const { ariveSync: syncState, ...safeRow } = row;
   return {
-    ...safeRow,
-    ariveSync: ariveSyncView(syncState, isAriveVisibleForLoan(syncState, row.loan, actor.canViewGeneralizedArive), actor.canManageArive, actor.generalizedApplicationEnabled),
+    ...row,
+    ariveSync: pilotSync ?? null,
     dateAssigned: row.dateAssigned.toISOString(),
     statusChangedAt: row.statusChangedAt.toISOString(),
     estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
@@ -248,7 +241,7 @@ function serializeRow(row: {
     finalRevenue: row.finalRevenue === null ? null : Number(row.finalRevenue),
     payrollSubmitted: row.loan.payrollCompRequests.length > 0,
     payrollStatus: row.loan.payrollCompRequests[0]?.status || null,
-    daysInStatus: displayedDaysInStatus(row.statusChangedAt, syncState, isAriveVisibleForLoan(syncState, row.loan, actor.canViewGeneralizedArive), actor.generalizedApplicationEnabled),
+    daysInStatus: calculateDaysInStatus(row.statusChangedAt),
     loan: {
       ...row.loan,
       amount: Number(row.loan.amount),
@@ -256,7 +249,8 @@ function serializeRow(row: {
         row.loan.borrowerFirstName || fallbackBorrowerName.firstName,
       borrowerLastName:
         row.loan.borrowerLastName || fallbackBorrowerName.lastName,
-      loanOfficer: row.loan.secondaryLoanOfficer || row.loan.loanOfficer,
+      loanOfficer: { id: (row.loan.secondaryLoanOfficer || row.loan.loanOfficer).id, name: (row.loan.secondaryLoanOfficer || row.loan.loanOfficer).name },
+      secondaryLoanOfficer: row.loan.secondaryLoanOfficer ? {id:row.loan.secondaryLoanOfficer.id,name:row.loan.secondaryLoanOfficer.name} : null,
     },
   };
 }
@@ -497,9 +491,9 @@ function buildFilterWhere(filters?: ProcessingPipelineFilters) {
 }
 
 const processingPipelineRowInclude = {
-        ariveSync: true,
         loan: {
           select: {
+            ...pilotIdentitySelect,
             id: true,
             loanNumber: true,
             loanOfficerId: true,
@@ -508,8 +502,6 @@ const processingPipelineRowInclude = {
             borrowerLastName: true,
             amount: true,
             program: true,
-            loanOfficer: { select: { id: true, name: true } },
-            secondaryLoanOfficer: { select: { id: true, name: true } },
             payrollCompRequests: {
               where: { status: { not: PayrollCompRequestStatus.REJECTED } },
               orderBy: { submittedAt: 'desc' },
@@ -531,7 +523,14 @@ async function loadProcessingRows(actor: Actor, ids: string[], viewScope?: Proce
     where: { AND: [scopeWhere(actor, viewScope), { id: { in: ids } }] },
     include: processingPipelineRowInclude,
   });
-  return orderPipelineRows(ids, rows);
+  const projections = actor.canViewGeneralizedArive ? await readPilotProjections(rows.map(row => row.id)) : null;
+  return orderPipelineRows(ids, rows).flatMap(row => {
+    const projection = projections?.get(row.id);
+    const effective = projections ? effectivePilotRow(row, projection) : row;
+    if (effective.archivedAt) return [];
+    return [{...serializeRow(effective, projections ? pilotSyncView(row.loan,projection) : undefined),
+      canEdit: !projections && canEditProcessingPipelineMethod(actor.role,row.processingMethod)}];
+  });
 }
 
 /** Reauthorize every continuation; client-supplied IDs never bypass visibility. */
@@ -547,10 +546,7 @@ export async function getProcessingPipelineRows(input: { ids: string[]; viewScop
   const rows = await loadProcessingRows(actor, [...new Set(input.ids)], input.viewScope);
   return {
     success: true as const,
-    rows: rows.map((row) => ({
-      ...serializeRow(row, actor),
-      canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
-    })),
+    rows,
   };
 }
 
@@ -642,7 +638,9 @@ export async function getProcessingPipeline(input?: {
 
   // Keep full-result ordering/filtering, but transfer detailed rows in bounded chunks.
   // A stable ID manifest prevents concurrent edits from shifting offset pages.
-  const orderedIds = await prisma.processingPipelineLoan.findMany({
+  const orderedIds = actor.canViewGeneralizedArive
+    ? orderPilotRows(await pilotReadIndex(actor, where), input?.sortBy, input?.sortDirection)
+    : await prisma.processingPipelineLoan.findMany({
     where,
     select: { id: true },
     orderBy: [...(Array.isArray(orderBy) ? orderBy : [orderBy]), { id: 'asc' }],
@@ -654,15 +652,13 @@ export async function getProcessingPipeline(input?: {
 
   return {
     success: true as const,
-    rows: rows.map((row) => ({
-      ...serializeRow(row, actor),
-      canEdit: canEditProcessingPipelineMethod(actor.role, row.processingMethod),
-    })),
+    rows,
     total,
     page: 1,
     pageSize: PIPELINE_ROW_BATCH_SIZE,
     remainingIds: ids.slice(PIPELINE_ROW_BATCH_SIZE),
-    canEdit: access.canEdit || actor.role === UserRole.LOAN_OFFICER,
+    canEdit: !actor.canViewGeneralizedArive && (access.canEdit || actor.role === UserRole.LOAN_OFFICER),
+    pilotMode: actor.canViewGeneralizedArive,
     role: actor.role,
   };
 }
@@ -737,6 +733,12 @@ export async function getProcessingPipelineSheetCounts() {
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canView) return { success: false as const, error: 'Not authorized.' };
 
+  if (actor.canViewGeneralizedArive) {
+    const rows = await pilotReadIndex(actor,scopeWhere(actor));
+    const counts: Partial<Record<ProcessingPipelineSheet, number>> = {};
+    for (const row of rows) counts[row.sheet] = (counts[row.sheet] ?? 0) + 1;
+    return {success:true as const, counts};
+  }
   const grouped = await prisma.processingPipelineLoan.groupBy({
     by: ['sheet'],
     where: scopeWhere(actor),
@@ -755,15 +757,11 @@ export async function getProcessingAriveStageCounts(input: { sheet: ProcessingPi
   const actor = await getActor();
   if (!actor || !getProcessingPipelineAccess(actor.role).canView) return { success: false as const, error: 'Not authorized.' };
   if (!actor.canViewGeneralizedArive) return { success: true as const, options: [], counts: [] };
-  const groups = await prisma.arivePipelineSync.groupBy({
-    by: ['sourceStage'],
-    where: { workerOwner: 'GENERALIZED', enrollmentStatus: 'VERIFIED', enabled: true, verifiedAt: { not: null }, lastSuccessAt: { not: null },
-      pipeline: { is: { AND: [scopeWhere(actor, input.viewScope), { sheet: input.sheet }, ...buildFilterWhere(input.filters)] } } },
-    _count: { _all: true },
-  });
+  const rows = await pilotReadIndex(actor,{AND:[scopeWhere(actor,input.viewScope), {sheet:input.sheet}, ...buildFilterWhere(input.filters)]});
+  const groups = new Map<string,number>();
+  for (const row of rows) if (row.ariveSync?.sourceStage) groups.set(row.ariveSync.sourceStage,(groups.get(row.ariveSync.sourceStage) ?? 0)+1);
   const known = new Map(ARIVE_LOAN_STAGE_OPTIONS.map(option => [option.value, option.label]));
-  return { success: true as const, options: ARIVE_LOAN_STAGE_OPTIONS, counts: groups.flatMap(group => group.sourceStage
-    ? [{ value: group.sourceStage, label: known.get(group.sourceStage) || group.sourceStage, count: group._count._all }] : []) };
+  return { success: true as const, options: ARIVE_LOAN_STAGE_OPTIONS, counts: [...groups].map(([value,count])=>({value,label:known.get(value) || value,count})) };
 }
 
 export async function getProcessingPipelineFilterOptions(
@@ -783,15 +781,16 @@ export async function getProcessingPipelineFilterOptions(
     return { success: false as const, error: 'Rate Lock Requests are limited to Managers and Admins.' };
   }
 
-  const rows = await prisma.processingPipelineLoan.findMany({
-    where: {
+  const optionsWhere: Prisma.ProcessingPipelineLoanWhereInput = {
       AND: [
         scopeWhere(actor, viewScope),
         rateLockRequestsOnly
           ? { rateLockRequestedAt: { not: null } }
           : { sheet },
       ],
-    },
+  };
+  const rows = actor.canViewGeneralizedArive ? await pilotReadIndex(actor,optionsWhere) : await prisma.processingPipelineLoan.findMany({
+    where: optionsWhere,
     select: {
       loanType: true,
       propertyState: true,
@@ -856,6 +855,7 @@ export async function reassignProcessingPipelineJuniorProcessor(input: {
   juniorProcessorId: string | null;
 }) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   if (!isProcessingLeadership(actor.role)) {
     return {
@@ -983,6 +983,7 @@ export async function reassignProcessingPipelineSeniorProcessor(input: {
   seniorProcessorId: string | null;
 }) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   if (!isProcessingLeadership(actor.role)) {
     return {
@@ -1194,6 +1195,7 @@ export async function updateProcessingPipelineCell(input: {
   version: number;
 }) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canEdit && actor.role !== UserRole.LOAN_OFFICER) {
@@ -1494,6 +1496,7 @@ export async function updateProcessingPipelineRateLock(input: {
   version: number;
 }) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canEdit && actor.role !== UserRole.LOAN_OFFICER) {
@@ -1670,6 +1673,7 @@ export async function requestProcessingRateLock(input: {
   version: number;
 }) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const canRequest =
     actor.role === UserRole.LOAN_OFFICER ||
@@ -1768,6 +1772,7 @@ export async function dismissProcessingRateLockRequest(input: {
   version: number;
 }) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   if (!isProcessingLeadership(actor.role)) {
     return { success: false as const, error: 'Only Managers and Admins can dismiss Rate Lock Requests.' };
@@ -1833,6 +1838,7 @@ export async function declineProcessingPipelineLoan(input: {
   version: number;
 }) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const canDecline =
     actor.role === UserRole.PROCESSOR_JR ||
@@ -1919,6 +1925,7 @@ export async function updateProcessingRestructureWorkflow(input: {
   version: number;
 }) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canEdit && actor.role !== UserRole.LOAN_OFFICER) {
@@ -2065,6 +2072,7 @@ export async function moveProcessingPipelineLoan(input: {
   version: number;
 }) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canEdit && actor.role !== UserRole.LOAN_OFFICER) {
@@ -2340,6 +2348,7 @@ export async function updateProcessingBorrowerDetails(
   input: ProcessingBorrowerDetailsInput,
 ) {
   const actor = await getActor();
+  if (actor?.canViewGeneralizedArive) return { success: false as const, error: 'Switch to Standard mode to change a live processing file.' };
   if (!actor) return { success: false as const, error: 'Not authenticated.' };
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canView || !canEditProcessingBorrowerWorkspace(actor.role)) {
@@ -2797,20 +2806,74 @@ export async function updateProcessingBorrowerDetails(
 }
 
 /** A saved read only: this interface never spends an Arive API request. */
+export async function getLeadershipPilotRevision() {
+  noStore();
+  const actor = await getActor();
+  if (!actor?.canViewGeneralizedArive) return {success:false as const};
+  const control = await prisma.pilotAriveControl.findUnique({where:{id:'company'},select:{revision:true,enabled:true}});
+  return {success:true as const, revision:String(control?.revision ?? 0), collecting:Boolean(control?.enabled)};
+}
+
+export async function queueLeadershipPilotRefresh(input: {pipelineId:string; watch?:boolean}) {
+  const actor = await getActor();
+  if (!actor?.canViewGeneralizedArive || !getProcessingPipelineAccess(actor.role).canView) return {success:false as const,error:'Open Pilot mode in a leadership role.'};
+  if (!input || typeof input.pipelineId !== 'string' || input.pipelineId.length > 100) return {success:false as const,error:'File unavailable.'};
+  const row = await prisma.processingPipelineLoan.findFirst({where:{AND:[scopeWhere(actor),{id:input.pipelineId}]},select:{loan:{select:pilotIdentitySelect}}});
+  if (!row) return {success:false as const,error:'File unavailable.'};
+  const {requestPilotFileRefresh,runLeadershipPilotCollection} = await import('@/lib/ariveLeadershipPilotWorker');
+  const queued = await requestPilotFileRefresh(input.pipelineId,{watch:input.watch === true,expectedIdentityHash:pilotIdentityHash(row.loan)});
+  if (!queued.queued) return {success:false as const,error:'Collection is paused or this file is unavailable.'};
+  if (!input.watch) after(async ()=>{await runLeadershipPilotCollection({pipelineId:input.pipelineId});});
+  return {success:true as const,queued:true as const};
+}
+
+export async function acknowledgePilotRender(surface: PilotRenderSurface, entries: PilotRenderEntry[]) {
+  const actor = await getActor();
+  if (!actor?.canViewGeneralizedArive || !getProcessingPipelineAccess(actor.role).canView) return false;
+  if (!['GRID', 'DETAIL', 'NOTES'].includes(surface) || !Array.isArray(entries) || !entries.length || entries.length > 100 ||
+    entries.some(entry => !entry || typeof entry.id !== 'string' || entry.id.length > 100 ||
+      !Number.isSafeInteger(entry.version) || entry.version <= 0 || (surface === 'NOTES' &&
+        (typeof entry.noteId !== 'string' || entry.noteId.length > 200 ||
+         (entry.parentNoteId !== null && (typeof entry.parentNoteId !== 'string' || entry.parentNoteId.length > 200)))))) return false;
+  const rows = await prisma.processingPipelineLoan.findMany({
+    where: { AND: [scopeWhere(actor), { id: { in: [...new Set(entries.map(entry => entry.id))] } }] },
+    select: { id: true, loan: { select: pilotIdentitySelect } },
+  });
+  const projections = await readPilotProjections(rows.map(row => row.id), surface === 'NOTES' ? 'noteEvidence' : false);
+  const data = rows.flatMap(row => {
+    const projection = projections.get(row.id);
+    if (!projection?.collectedAt || !usablePilotProjection(row.loan, projection)) return [];
+    const visible = entries.filter(entry => entry.id === row.id && entry.version === projection.projectionVersion);
+    if (!visible.length) return [];
+    const published = jsonRecord(projection.snapshot).publishedAt;
+    const sourceTime = typeof published === 'string' ? Date.parse(published) : NaN;
+    const publishedAt = Number.isFinite(sourceTime) && sourceTime <= projection.collectedAt.getTime() ? new Date(sourceTime) : projection.collectedAt;
+    const sourceChangedAt = surface === 'NOTES'
+      ? visibleSourceNoteTime(readPilotNoteEvidence(projection.snapshot, publishedAt), visible)
+      : null;
+    if (surface === 'NOTES' && !sourceChangedAt) return [];
+    return [{ pipelineId: row.id, surface, projectionVersion: projection.projectionVersion, collectedAt: publishedAt, sourceChangedAt }];
+  });
+  if (data.length) await prisma.pilotAriveRenderAck.createMany({ data, skipDuplicates: true });
+  return true;
+}
+
 export async function getProcessingAriveSnapshot(id: string) {
   noStore();
   const actor = await getActor();
-  if (!actor || !getProcessingPipelineAccess(actor.role).canView) return { success: false as const, error: 'Not authorized.' };
+  if (!actor?.canViewGeneralizedArive || !getProcessingPipelineAccess(actor.role).canView) return { success: false as const, error: 'Not authorized.' };
   if (typeof id !== 'string' || id.length > 100) return { success: false as const, error: 'File not found.' };
   const row = await prisma.processingPipelineLoan.findFirst({
     where: { AND: [{ id }, scopeWhere(actor)] },
-    select: { version: true, ariveSync: true, notesSnapshot: true, loan: { select: { id: true, loanNumber: true, loanOfficerId: true } } },
+    select: { version: true, loan: { select: pilotIdentitySelect } },
   });
-  if (!row || !isAriveVisibleForLoan(row.ariveSync, row.loan, actor.canViewGeneralizedArive)) return { success: false as const, error: 'No applied Arive snapshot is available for this file.' };
-  return { success: true as const, version: row.version, sync: ariveSyncView(row.ariveSync, true, actor.canManageArive, actor.generalizedApplicationEnabled),
-    application: readAriveApplicationView(row.ariveSync?.snapshot, row.ariveSync?.lastSuccessAt),
-    trackers: savedAriveTrackers(row.ariveSync?.snapshot),
-    notes: savedAriveNotes(row.notesSnapshot?.notes), notesSyncedAt: row.notesSnapshot?.syncedAt.toISOString() ?? null };
+  if (!row) return {success:false as const,error:'File unavailable.'};
+  const projection = (await readPilotProjections([id],true)).get(id);
+  if (!projection || !usablePilotProjection(row.loan,projection)) return {success:false as const,error:'No verified Pilot snapshot is available for this file.'};
+  return {success:true as const,version:row.version,sync:pilotSyncView(row.loan,projection),
+    application:readAriveApplicationView(projection.snapshot,projection.collectedAt),
+    trackers:savedAriveTrackers(projection.snapshot),notes:savedAriveNotes(projection.notes),notesSyncedAt:projection.collectedAt?.toISOString() ?? null,
+    noteEvidence:projection.collectedAt ? readPilotNoteEvidence(projection.snapshot, projection.collectedAt).map(({noteId,parentNoteId})=>({noteId,parentNoteId})) : []};
 }
 
 export async function getProcessingBorrowerDetails(id: string) {
@@ -2820,10 +2883,9 @@ export async function getProcessingBorrowerDetails(id: string) {
   const access = getProcessingPipelineAccess(actor.role);
   if (!access.canView) return { success: false as const, error: 'Not authorized.' };
 
-  const row = await prisma.processingPipelineLoan.findFirst({
+  const sourceRow = await prisma.processingPipelineLoan.findFirst({
     where: { AND: [{ id }, scopeWhere(actor)] },
     include: {
-      ariveSync: true,
       loan: {
         include: {
           loanOfficer: { select: { id: true, name: true, email: true } },
@@ -2858,9 +2920,13 @@ export async function getProcessingBorrowerDetails(id: string) {
       },
     },
   });
-  if (!row) return { success: false as const, error: 'Pipeline row not found.' };
+  if (!sourceRow) return { success: false as const, error: 'Pipeline row not found.' };
+  const projection = actor.canViewGeneralizedArive ? (await readPilotProjections([id],true)).get(id) : undefined;
+  const row = effectivePilotRow(sourceRow,projection);
+  const syncView = actor.canViewGeneralizedArive ? pilotSyncView(sourceRow.loan,projection) : null;
 
-  const submission = safeSubmissionObject(row.sourceTask.submissionData);
+  const submission = safeSubmissionObject(actor.canViewGeneralizedArive
+    ? row.sourceTask.submissionData : standardSharedTestData(row.sourceTask.submissionData));
   const effectiveLoanOfficer =
     row.loan.secondaryLoanOfficer || row.loan.loanOfficer;
   const propertyAddress =
@@ -2887,6 +2953,7 @@ export async function getProcessingBorrowerDetails(id: string) {
     where: {
       loanId: row.loanId,
       action: { startsWith: 'PROCESSING_' },
+      ...(!actor.canViewGeneralizedArive && { NOT: { action: { startsWith: 'PROCESSING_ARIVE_' } } }),
     },
     include: { user: { select: { name: true, role: true } } },
     orderBy: { createdAt: 'desc' },
@@ -2898,11 +2965,11 @@ export async function getProcessingBorrowerDetails(id: string) {
     details: {
       id: row.id,
       version: row.version,
-      ariveSync: ariveSyncView(row.ariveSync, isAriveVisibleForLoan(row.ariveSync, row.loan, actor.canViewGeneralizedArive), actor.canManageArive, actor.generalizedApplicationEnabled),
-      ...(isAriveVisibleForLoan(row.ariveSync, row.loan, actor.canViewGeneralizedArive) && row.ariveSync && (row.ariveSync.workerOwner === 'GENERALIZED' || row.loan.borrowerName.trim().replace(/\s+/g, ' ').toUpperCase() === ARIVE_SYNC_PILOT.borrowerName)
-        ? { ariveApplication: readAriveApplicationView(row.ariveSync.snapshot, row.ariveSync.lastSuccessAt) }
+      ariveSync: syncView,
+      ...(projection && usablePilotProjection(sourceRow.loan,projection)
+        ? { ariveApplication: readAriveApplicationView(projection.snapshot, projection.collectedAt) }
         : {}),
-      canEdit:
+      canEdit: !actor.canViewGeneralizedArive &&
         (
           row.sheet !== ProcessingPipelineSheet.FUNDING ||
           actor.role === UserRole.PROCESSING_MANAGER
@@ -2995,7 +3062,7 @@ export async function getProcessingBorrowerDetails(id: string) {
       processing: {
         sheet: row.sheet,
         pipelineStatus: row.pipelineStatus,
-        daysInStatus: displayedDaysInStatus(row.statusChangedAt, row.ariveSync, isAriveVisibleForLoan(row.ariveSync, row.loan, actor.canViewGeneralizedArive), actor.generalizedApplicationEnabled),
+        daysInStatus: calculateDaysInStatus(row.statusChangedAt),
         statusChangedAt: row.statusChangedAt.toISOString(),
         dateAssigned: row.dateAssigned.toISOString(),
         estimatedSigningAt: row.estimatedSigningAt?.toISOString() || null,
@@ -3035,7 +3102,6 @@ export async function getProcessingBorrowerDetails(id: string) {
       activity: audit.map((entry) => ({
         id: entry.id,
         action: entry.action,
-        details: entry.details,
         createdAt: entry.createdAt.toISOString(),
         actor: entry.user.name,
         actorRole: entry.user.role,

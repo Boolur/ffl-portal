@@ -4,6 +4,7 @@ import { AriveTransportError, ariveResponseCooldown, ariveTransportFingerprint, 
 
 const serverSecret = 'synthetic-server-encryption-secret-for-tests-only';
 function fixture(limit = 100, seconds = 60) {
+  let pilotGeneration: number | null = 1;
   let now = Date.parse('2026-11-12T20:00:00Z');
   let credentials: TransportCredentials = { clientId: 'synthetic-client', secret: 'synthetic-secret', apiKey: 'synthetic-api-key' };
   const runtime: AriveRuntime = { id: 'company', enabled: true, providerRequestLimit: limit, providerWindowSeconds: seconds,
@@ -20,7 +21,7 @@ function fixture(limit = 100, seconds = 60) {
     const prior = queue; let release!: () => void; queue = new Promise<void>(resolve => { release = resolve; });
     await prior;
     try { return await work({
-      runtime: async () => ({ ...runtime }), updateRuntime: async patch => { Object.assign(runtime, patch); },
+      runtime: async () => ({ ...runtime }), leadershipPilotGeneration: async () => pilotGeneration, updateRuntime: async patch => { Object.assign(runtime, patch); },
       recentRequests: async (key, since) => { const rows = requests.filter(row => row.keyFingerprint === key && row.startedAt > since); return { count: rows.length, oldest: rows[0]?.startedAt ?? null }; },
       activeRequests: async at => requests.filter(row => !row.finishedAt && row.leaseUntil > at).length,
       createRequest: async value => { requests.push(value); },
@@ -35,7 +36,7 @@ function fixture(limit = 100, seconds = 60) {
     encrypt: value => encryptAriveCredentials(value, serverSecret), decrypt: value => decryptAriveCredentials(value, serverSecret),
     fetch: fetcher as typeof fetch, now: () => new Date(now), sleep: async ms => { now += ms; await new Promise(resolve => setTimeout(resolve, 0)); },
     parseJson: async response => { if (!response.ok) throw new AriveTransportError('HTTP_ERROR', `Arive returned HTTP ${response.status}.`); return response.json(); } };
-  return { runtime, requests, options, fetcher, advance: (ms: number) => { now += ms; }, get now() { return now; },
+  return { runtime, requests, options, fetcher, changePilotGeneration: (value: number | null) => { pilotGeneration = value; }, advance: (ms: number) => { now += ms; }, get now() { return now; },
     rotate: (patch: Partial<TransportCredentials>) => { credentials = { ...credentials, ...patch }; } };
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; }
@@ -47,6 +48,31 @@ function operatorFixture(limit = 120) {
 }
 
 describe('shared Arive request budget', () => {
+  it('removes only the operator ceiling for leadership reads and fences a running session on pause', async () => {
+    const h = operatorFixture(10);
+    const normal = await createAriveTransportSession(h.options);
+    const pilot = await createAriveTransportSession({ ...h.options, leadershipPilot: true, readOnly: true });
+    for (let i = 0; i < 12; i++) await pilot('/loans/example');
+    await expect(normal('/loans/example')).rejects.toMatchObject({ code: 'BUDGET_EXHAUSTED' });
+    await expect(pilot('/loans/example', {})).rejects.toMatchObject({ code: 'READ_ONLY' });
+    h.changePilotGeneration(null);
+    await expect(pilot('/loans/example')).rejects.toMatchObject({ code: 'DISABLED' });
+    h.changePilotGeneration(2);
+    await expect(pilot('/loans/example')).rejects.toMatchObject({ code: 'DISABLED' });
+    expect(h.requests.filter(request => request.kind === 'PILOT_GET')).toHaveLength(12);
+  });
+  it('honors the limit and remaining count reported by Arive on a successful Pilot read', async () => {
+    const h = operatorFixture();
+    const pilot = await createAriveTransportSession({ ...h.options, leadershipPilot: true, readOnly: true });
+    h.fetcher.mockResolvedValueOnce(Response.json({}, { headers: { 'x-ratelimit-limit': '5', 'x-ratelimit-remaining': '0', 'retry-after': '30' } }));
+    await pilot('/loans/example');
+    expect(h.runtime.reportedRequestsPerMinute).toBe(5);
+    await expect(pilot('/loans/example')).rejects.toMatchObject({ code: 'COOLDOWN' });
+    h.advance(30_001);
+    await pilot('/loans/example');
+    await pilot('/loans/example');
+    await expect(pilot('/loans/example')).rejects.toMatchObject({ code: 'BUDGET_EXHAUSTED' });
+  });
   it.each(['disabled', 'unconfirmed', 'wrong key'])('does not make a request when quota is %s', async reason => {
     const h = fixture();
     if (reason === 'disabled') h.runtime.enabled = false;

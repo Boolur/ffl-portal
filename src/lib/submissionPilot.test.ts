@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSubmissionPilotEnabled, isSubmissionPilotLoanOfficer, activeProcessingDocumentTaskId, processingDocumentTaskId, SUBMISSION_PILOT_LO_ID, initialPilotPackage, pilotApprovalError, pilotSubmissionError, readPilotPackage, validatePilotFile } from './submissionPilot';
+import { isSubmissionPilotEnabled, activeProcessingDocumentTaskId, processingDocumentTaskId, initialPilotPackage, pilotApprovalError, pilotSubmissionError, readPilotPackage, validatePilotFile } from './submissionPilot';
 
 function filledPackage() {
   const p = initialPilotPackage();
@@ -9,14 +9,12 @@ function filledPackage() {
   return p;
 }
 describe('processing submission pilot gates', () => {
-  it('enables only Matt and resumes linked task routing without changing package history', () => {
+  it('preserves the original document links and history for existing tasks', () => {
     const p = initialPilotPackage();
     p.history.push({ at: '2026-10-16', actor: 'Test', message: 'Preserved' });
     const data = { processingDocumentTaskId: 'saved-documents', submissionPilot: p };
     const before = JSON.stringify(data);
     expect(isSubmissionPilotEnabled()).toBe(true);
-    expect(isSubmissionPilotLoanOfficer(SUBMISSION_PILOT_LO_ID)).toBe(true);
-    for (const other of ['another-lo', 'onboarding-matt', null, undefined]) expect(isSubmissionPilotLoanOfficer(other)).toBe(false);
     expect(activeProcessingDocumentTaskId(data)).toBe('saved-documents');
     expect(processingDocumentTaskId(data)).toBe('saved-documents');
     expect(readPilotPackage(data)).toBe(p);

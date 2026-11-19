@@ -12,7 +12,7 @@ export type AriveTimelineNote = {
 };
 type TimelineEntry = {
   key: string; note: AriveTimelineNote; text: string; postedAt: number | null;
-  parent: { author: string; text: string } | null;
+  parent: { id: string; author: string; text: string } | null;
 };
 const PAGE_SIZE = 50;
 
@@ -35,7 +35,7 @@ export function buildAriveNotesTimeline(notes: readonly AriveTimelineNote[]): Ti
   function add(note: AriveTimelineNote, parent: AriveTimelineNote | null, path: string) {
     const key = `${path}/${encodeURIComponent(note.id)}`;
     entries.push({ key, note, text: ariveNotePlainText(note.text), postedAt: timestamp(note.createdAt) ?? timestamp(note.updatedAt),
-      parent: parent ? { author: parent.author, text: ariveNotePlainText(parent.text) } : null });
+      parent: parent ? { id: parent.id, author: parent.author, text: ariveNotePlainText(parent.text) } : null });
     for (const reply of note.replies ?? []) add(reply, note, key);
   }
   for (const note of notes) add(note, null, 'note');
@@ -50,10 +50,22 @@ export function filterAriveNotesTimeline(entries: readonly TimelineEntry[], quer
   return search ? entries.filter(entry => `${entry.note.author}\n${entry.text}\n${entry.parent?.author ?? ''}\n${entry.parent?.text ?? ''}`.toLocaleLowerCase('en-US').includes(search)) : entries;
 }
 
-export function AriveNotesTimeline({ notes, syncedAt }: { notes: readonly AriveTimelineNote[]; syncedAt?: string | null }) {
+type NoteRenderContext = {
+  pipelineId: string;
+  version: number;
+  evidence: readonly { noteId: string; parentNoteId: string | null }[];
+};
+
+export function AriveNotesTimeline({ notes, syncedAt, renderContext }: {
+  notes: readonly AriveTimelineNote[];
+  syncedAt?: string | null;
+  renderContext?: NoteRenderContext;
+}) {
   const [query, setQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const entries = useMemo(() => buildAriveNotesTimeline(notes), [notes]);
+  const evidence = useMemo(() => new Set(renderContext?.evidence.map(note =>
+    JSON.stringify([note.noteId, note.parentNoteId]))), [renderContext?.evidence]);
   const filtered = useMemo(() => filterAriveNotesTimeline(entries, query), [entries, query]);
   const noteCount = entries.filter(entry => !entry.parent).length;
   const replyCount = entries.length - noteCount;
@@ -69,7 +81,13 @@ export function AriveNotesTimeline({ notes, syncedAt }: { notes: readonly AriveT
       <ol className="space-y-3" aria-label="Arive notes, newest first">{filtered.slice(0, visibleCount).map(entry => {
         const created = timestamp(entry.note.createdAt);
         const updated = timestamp(entry.note.updatedAt);
-        return <li key={entry.key}><article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        const recordPaint = renderContext && evidence.has(JSON.stringify([entry.note.id, entry.parent?.id ?? null]));
+        return <li key={entry.key}><article
+          data-pilot-render-id={recordPaint ? renderContext.pipelineId : undefined}
+          data-pilot-render-version={recordPaint ? renderContext.version : undefined}
+          data-pilot-note-id={recordPaint ? entry.note.id : undefined}
+          data-pilot-parent-id={recordPaint ? entry.parent?.id : undefined}
+          className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-2"><div className="flex min-w-0 items-center gap-2"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${entry.parent ? 'bg-slate-100 text-slate-600' : 'bg-violet-50 text-violet-600'}`}>{entry.parent ? <Reply size={16} aria-hidden="true" /> : <MessageSquareText size={16} aria-hidden="true" />}</span><div className="min-w-0"><p className="break-words text-sm font-bold text-slate-900">{entry.note.author || 'Arive user'}</p><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{entry.parent ? 'Reply' : 'Arive note'}</p></div></div><div className="text-right text-[11px] text-slate-500"><p>{displayDate(created !== null ? entry.note.createdAt : entry.note.updatedAt)}</p>{created !== null && updated !== null && updated !== created && <p className="mt-0.5">Edited {displayDate(entry.note.updatedAt)}</p>}</div></div>
           {entry.parent && <details className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"><summary className="cursor-pointer font-medium">Reply to {entry.parent.author || 'Arive user'}</summary><p className="mt-2 whitespace-pre-wrap break-words leading-relaxed">{entry.parent.text || 'No note text supplied.'}</p></details>}
           <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{entry.text || 'No note text supplied.'}</p>

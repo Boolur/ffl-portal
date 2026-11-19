@@ -1,3 +1,4 @@
+import { projectSharedTestTasks } from '@/lib/leadershipTestSubmission';
 import { prisma } from '@/lib/prisma';
 import { initialTaskBucketSort } from './taskBucketClientState';
 import { isAdmin } from '@/lib/adminTiers';
@@ -1120,6 +1121,7 @@ const TASK_BUCKET_QUERY_INCLUDE = {
     select: {
       kind: true,
       assignedRole: true,
+      assignedUserId: true,
       title: true,
       submissionData: true,
     },
@@ -1196,7 +1198,8 @@ export async function queryTaskBucketPage({
 
   const hasNextPage = rawTasks.length > safePageSize;
   const pageTasks = hasNextPage ? rawTasks.slice(0, safePageSize) : rawTasks;
-  const tasks = await hydrateTaskRows(pageTasks, role, includeTimelineAttachments);
+  const hydrated = await hydrateTaskRows(pageTasks, role, includeTimelineAttachments);
+  const tasks = await projectSharedTestTasks(hydrated, role);
   const lastTask = pageTasks[pageTasks.length - 1];
   const totalCount = exactTotalCount ?? pageTasks.length + (hasNextPage ? 1 : 0);
 
