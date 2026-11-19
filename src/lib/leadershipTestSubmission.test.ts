@@ -13,6 +13,23 @@ const details = { sysGUID: 'guid', ariveLoanId: loan.loanNumber, loanBorrowers: 
 const data = { leadershipPilotTest: true, leadershipTestSubmitterId: 'other', processingDocumentTaskId: 'private-doc-task', notes: 'ordinary conversation' };
 beforeEach(() => { vi.resetAllMocks(); m.available.mockReturnValue(true); m.verify.mockReturnValue({ guid: 'guid' }); });
 describe('shared test identification and visibility', () => {
+  it('compares the imported ARIVE UUID with the exact search result and the retrieved file', async () => {
+    const guid = '139a20ca-49d4-4af7-8ed3-c76767a1908a';
+    const anotherGuid = '631fd0ce-6599-4691-b692-15fe3809b695';
+    const search = (id: string) => ({ count: 1, rows: [{ ariveLoanId: loan.loanNumber, sysGUID: id }] });
+    await expect(verifyLeadershipSubmissionLoan(loan, address, 'invalid')).rejects.toThrow('MISMO file ID is invalid');
+    expect(m.read).not.toHaveBeenCalled();
+    m.read.mockResolvedValueOnce(search(anotherGuid));
+    await expect(verifyLeadershipSubmissionLoan(loan, address, guid)).rejects.toThrow('differs from the ARIVE API file ID');
+    expect(m.read).toHaveBeenCalledTimes(1);
+    m.read.mockResolvedValueOnce(search(guid)).mockResolvedValueOnce({ ...details, sysGUID: anotherGuid });
+    await expect(verifyLeadershipSubmissionLoan(loan, address, guid)).rejects.toThrow('differs from the ARIVE API file ID');
+    expect(m.verify).not.toHaveBeenCalled();
+    m.read.mockResolvedValueOnce(search(guid)).mockResolvedValueOnce({ ...details, sysGUID: guid });
+    m.verify.mockReturnValueOnce({ guid });
+    await expect(verifyLeadershipSubmissionLoan(loan, address, guid.toUpperCase())).resolves.toEqual({ guid });
+    expect(m.verify).toHaveBeenCalledWith(expect.objectContaining({ sysGUID: guid }), loan, { ariveGuid: guid });
+  });
   it('verifies the exact source file, primary applicant and complete property including unit', async () => {
     const search = { count: 1, rows: [{ ariveLoanId: loan.loanNumber, sysGUID: 'guid' }] };
     m.read.mockResolvedValueOnce(search).mockResolvedValueOnce(details);

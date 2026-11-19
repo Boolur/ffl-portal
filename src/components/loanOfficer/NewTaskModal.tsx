@@ -8,6 +8,7 @@ import { createTaskAttachmentUploadUrl, finalizeTaskAttachment } from '@/app/act
 import { PAYROLL_LENDER_OPTIONS } from '@/lib/payrollLenderOptions';
 import { normalizeProcessingZip } from '@/lib/processingBorrowerDetails';
 import { selectMismoAriveLoanNumber } from '@/lib/mismoAriveLoanNumber';
+import { readLeadershipMismoExport } from '@/lib/leadershipMismoExport';
 import {
   PROCESSING_ASSIGNMENT_THIRD_PARTY,
   PROCESSING_METHOD_IN_HOUSE,
@@ -314,6 +315,7 @@ export function NewTaskModal({
 }
 
 type MismoPrefill = {
+  leadershipExportGuid?: string;
   loanOfficer?: string;
   borrowerFirstName?: string;
   borrowerLastName?: string;
@@ -374,7 +376,7 @@ function isMismoValidationErrorMessage(message: string) {
   );
 }
 
-function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
+function parseMismoXml(xmlText: string, sourceFilename?: string, leadershipTest = false): MismoPrefill {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlText, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length > 0) {
@@ -637,6 +639,10 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     sourceFilename,
   });
 
+  const pilotExport = leadershipTest && !arriveLoanNumber
+    ? readLeadershipMismoExport(doc, sourceFilename ?? '', borrowerFirstName, borrowerLastName)
+    : null;
+
   const loanOriginatorType = getText(doc, 'LoanOriginatorType');
   const channel = loanOriginatorType === 'Broker' || loanOriginatorType === 'Correspondent'
     ? loanOriginatorType
@@ -756,7 +762,8 @@ function parseMismoXml(xmlText: string, sourceFilename?: string): MismoPrefill {
     coBorrowerPhone,
     coBorrowerEmail,
     hasMultipleBorrowers,
-    arriveLoanNumber,
+    arriveLoanNumber: pilotExport?.loanNumber ?? arriveLoanNumber,
+    ...(pilotExport && { leadershipExportGuid: pilotExport.guid }),
     channel,
     investor,
     loanType,
@@ -1980,6 +1987,7 @@ function QcForm({
   onSubmissionOverlay: (phase: null | 'submitting' | 'success') => void;
 }) {
   const [documents, setDocuments] = useState(initialPilotPackage);
+  const [leadershipExportGuid, setLeadershipExportGuid] = useState<string>();
   const [uploadBusy, setUploadBusy] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParsingMismo, setIsParsingMismo] = useState(false);
@@ -2190,6 +2198,7 @@ function QcForm({
       res = await (documentPilot ? createLeadershipTestSubmission : createSubmissionTask)({
         submissionType: 'QC',
         processingDocuments: documentPilot ? documents.items : undefined,
+        ...(documentPilot && leadershipExportGuid && { leadershipExportGuid }),
         sourceLoanId,
         loanOfficerName: form.loanOfficer,
         loanOfficerId: form.loanOfficerId || undefined,
@@ -2229,7 +2238,8 @@ function QcForm({
     setIsParsingMismo(true);
     try {
       const text = await file.text();
-      const prefill = parseMismoXml(text, file.name);
+      const prefill = parseMismoXml(text, file.name, documentPilot);
+      setLeadershipExportGuid(prefill.leadershipExportGuid);
       setImportError('');
       setForm((prev) => ({
         ...prev,
@@ -2417,6 +2427,7 @@ function QcForm({
           <p className="text-xs font-medium text-slate-500">
             MISMO values are editable so incomplete exports can be corrected before submission.
           </p>
+          {documentPilot && leadershipExportGuid && <p className="mt-1 text-xs font-medium text-slate-600">BISU checks the exported loan number and permanent file ID with ARIVE when you submit.</p>}
         </div>
         <Input label="Arrive Loan Number" value={form.arriveLoanNumber} onChange={(v) => update('arriveLoanNumber', v)} required invalid={highlightedMissingFields.has('arriveLoanNumber')} readOnly={Boolean(sourceLoanId)} />
         <Select label="Loan Type" value={form.loanType} onChange={(v) => update('loanType', v)} options={loanTypeOptions} required invalid={highlightedMissingFields.has('loanType')} />

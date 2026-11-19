@@ -75,6 +75,17 @@ beforeEach(() => {
 });
 
 describe('shared leadership submission workflow', () => {
+  it('passes the exported UUID to identity verification and stops before packaging or saving after a mismatch', async () => {
+    const guid = '193f5f19-26a9-4b35-b27b-e2ee339e15d5';
+    const message = 'The MISMO file ID differs from the ARIVE API file ID.';
+    m.verify.mockRejectedValueOnce(new Error(message));
+    expect(await createLeadershipTestSubmission({ ...payload, leadershipExportGuid: guid })).toMatchObject({
+      success: false, error: expect.stringContaining(message),
+    });
+    expect(m.verify).toHaveBeenCalledWith(expect.objectContaining({ loanNumber: payload.arriveLoanNumber }), expect.any(String), guid);
+    expect(m.docs).not.toHaveBeenCalled();
+    expect(m.db.$transaction).not.toHaveBeenCalled();
+  });
   it('creates the registered test, package, and standard desk request under one transaction', async () => {
     expect(await createLeadershipTestSubmission(payload)).toMatchObject({ success: true, taskId: 'request' });
     expect(m.docs).toHaveBeenCalledWith(payload.processingDocuments, leader.id);

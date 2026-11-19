@@ -7,6 +7,7 @@ import { canAccessLeadershipRequest, isPilotLeadershipRole, standardSharedTestDa
 import { normalizeAriveIdentity } from './ariveIdentity';
 import { projectAriveApplicationSnapshot } from './ariveApplicationSnapshot';
 import { normalizeProcessingProperty } from './processingBorrowerDetails';
+import { isAriveExportGuid } from './leadershipMismoExport';
 
 export async function requireLeadershipPilot() {
   const actor = await getPilotActor(false);
@@ -44,15 +45,19 @@ export function sameLeadershipTestProperty(left: string | null, right: string): 
   return Boolean(left?.trim() && right.trim() && normalize(left) === normalize(right));
 }
 
-export async function verifyLeadershipSubmissionLoan(loan: AriveRolloutLoanIdentity, expectedAddress: string) {
+export async function verifyLeadershipSubmissionLoan(loan: AriveRolloutLoanIdentity, expectedAddress: string, exportGuid?: string) {
   if (!/^\d{1,15}$/.test(loan.loanNumber)) throw new Error('Import the numeric Arive loan number from the MISMO.');
+  if (exportGuid !== undefined && !isAriveExportGuid(exportGuid)) throw new Error('The MISMO file ID is invalid. Import the original ARIVE export again.');
   const read = await ariveReadOnlySession();
   const search = await read('/loans?searchField=DISPLAY_ID&searchValue=' + encodeURIComponent(loan.loanNumber) + '&limit=100&offset=0');
   const matches = Array.isArray(search.rows) ? search.rows.filter((row: { ariveLoanId?: unknown }) => String(row?.ariveLoanId) === loan.loanNumber) : [];
   if (search.count !== search.rows?.length || matches.length !== 1 || typeof matches[0]?.sysGUID !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(matches[0].sysGUID)) {
     throw new Error('The MISMO number does not identify one accessible Arive file.');
   }
+  const exportMismatch = 'The MISMO file ID differs from the ARIVE API file ID for this loan number. Check the loan and re-export the original file before submitting.';
+  if (exportGuid && matches[0].sysGUID.toLowerCase() !== exportGuid.toLowerCase()) throw new Error(exportMismatch);
   const details = await read('/loans/' + encodeURIComponent(matches[0].sysGUID));
+  if (exportGuid && (typeof details?.sysGUID !== 'string' || details.sysGUID.toLowerCase() !== exportGuid.toLowerCase())) throw new Error(exportMismatch);
   // A secondary officer alone cannot establish the selected primary LO on a shared submission.
   const match = verifyAriveRolloutIdentity(details, { ...loan, secondaryLoanOfficer: null }, { ariveGuid: matches[0].sysGUID });
   const application = projectAriveApplicationSnapshot(details);

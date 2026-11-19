@@ -3096,6 +3096,7 @@ type SubmissionType = 'DISCLOSURES' | 'QC';
 type SubmissionPayload = {
   submissionType: SubmissionType;
   processingDocuments?: unknown;
+  leadershipExportGuid?: string;
   sourceLoanId?: string;
   loanOfficerName?: string;
   loanOfficerId?: string;
@@ -3616,7 +3617,7 @@ async function createPortalSubmission(payload: SubmissionPayload, leadershipTest
         id: sourceLoanId || '', loanNumber: normalizedArriveLoanNumber,
         borrowerName: [borrowerFirstName, borrowerLastName].join(' ').trim(), borrowerFirstName, borrowerLastName,
         loanOfficer: loanOfficerUser, secondaryLoanOfficer: secondaryLoanOfficerUser,
-      }, processingPropertyAddress);
+      }, processingPropertyAddress, payload.leadershipExportGuid);
       documentPackage = await verifyProcessingSubmissionDocuments(payload.processingDocuments, actor.id);
       documentPackage.leadershipTest = true;
       documentPackage.leadershipSubmitterId = actor.id;

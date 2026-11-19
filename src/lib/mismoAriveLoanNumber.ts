@@ -33,7 +33,7 @@ function validXmlNumber(value: string): boolean {
   return /^\d{1,15}$/.test(value) && !isTimestamp(value);
 }
 
-function validFilenameNumber(value: string): boolean {
+export function validMismoFilenameNumber(value: string): boolean {
   if (!/^\d{6,9}$/.test(value) || isTimestamp(value)) return false;
   // A plain date in a filename is not enough evidence of an Arive ID.
   const validDate = (year: number, month: number, day: number) => {
@@ -74,7 +74,7 @@ export function selectMismoAriveLoanNumber(input: MismoAriveLoanNumberInput): st
   const labeled = [...stem.matchAll(/(?:^|[^a-z0-9])(?:arive|arrive)[\s._-]*(?:loan[\s._-]*)?(?:(?:number|no|id)[\s._#:-]*)?[\s._#:-]*(\d+)(?=$|[^a-z0-9])/gi)]
     .map(match => match[1]);
   if (labeled.length) {
-    if (labeled.some(value => !validFilenameNumber(value) || blocked.has(value))) return '';
+    if (labeled.some(value => !validMismoFilenameNumber(value) || blocked.has(value))) return '';
     return new Set(labeled).size === 1 ? labeled[0] : '';
   }
 
@@ -86,5 +86,5 @@ export function selectMismoAriveLoanNumber(input: MismoAriveLoanNumberInput): st
   const value = numericRuns[0];
   const labels = stem.replace(value, '').replace(/[\s._()-]+/g, ' ').trim().split(/\s+/)
     .filter(label => !['', 'mismo', 'export', 'xml', 'loan'].includes(label.toLowerCase())).join('');
-  return !labels && validFilenameNumber(value) && !blocked.has(value) ? value : '';
+  return !labels && validMismoFilenameNumber(value) && !blocked.has(value) ? value : '';
 }
