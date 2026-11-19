@@ -425,11 +425,11 @@ async function collect(db: typeof prisma, job: Claim, options: Options) {
       const matches = found.rows
         .map(jsonRecord)
         .filter((entry: Record<string, unknown>) => String(entry.ariveLoanId) === number);
-      if (matches.length !== 1 || typeof matches[0].sysGUID !== 'string')
-        throw new PilotMatchReview('The branch connection did not return one exact loan.');
+      if (!matches.length) throw new PilotMatchReview('No exact loan number was found on the branch connection.');
+      if (matches.length > 1) throw new PilotMatchReview('Arive returned multiple files with the exact loan number.');
       guid = matches[0].sysGUID;
     }
-    if (!guid || !/^[a-zA-Z0-9-]{1,100}$/.test(guid))
+    if (typeof guid !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(guid))
       throw new PilotMatchReview('Missing a valid permanent Arive loan ID.');
     if (!(await practiceEligibility(db, row.pipeline, number, guid)).allowed) {
       excluded = true;

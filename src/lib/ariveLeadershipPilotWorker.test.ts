@@ -184,6 +184,17 @@ describe('leadership-only collection', () => {
     expect(previousPilotReview(source, canonical, undefined, revision)).toMatch(/no exact/);
     expect(previousPilotReview(source, { ...canonical, updatedAt: new Date(0) }, undefined, revision)).toBeNull();
   });
+  it.each([
+    { rows: [], category: 'No exact loan number' },
+    { rows: [{ ariveLoanId: '801', sysGUID: 'first' }, { ariveLoanId: '801', sysGUID: 'second' }], category: 'multiple files' },
+    { rows: [{ ariveLoanId: '801', sysGUID: '' }], category: 'Missing a valid permanent Arive loan ID' },
+  ])('reports the actual branch matching outcome without guessing an identity: $category', async ({ rows, category }) => {
+    const h = harness();
+    h.api.mockResolvedValueOnce({ count: rows.length, rows });
+    expect(await h.run()).toMatchObject({ succeeded: 0 });
+    expect(h.row).toMatchObject({ enrollmentStatus: 'REVIEW', enrollmentIssue: expect.stringContaining(category) });
+    expect(h.api).toHaveBeenCalledTimes(1);
+  });
   it('keeps an unchanged revision and original note evidence through later successful heartbeats', async () => {
     const h = harness();
     expect(await h.run()).toMatchObject({ succeeded: 1 });
